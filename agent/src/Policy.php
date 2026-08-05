@@ -14,16 +14,21 @@ final class Policy {
     private ?array $interpreterInstances = null;
 
     /**
-     * Interpreter registry. An interpreter is a class with
+     * Interpreter contract. An interpreter is a class with
      *   post_meta_rule(string $key, array $allMeta): ?array
      * returning a classification rule (same shape as manifest post_meta rules,
      * optionally with 'cast') or null to defer. Manifests opt in via
      * {"interpreter": "<name>"} — for schema-driven plugins (ACF) whose meta
      * semantics live in data, not in a static key list.
+     *
+     * Interpreter CODE is part of the manifest artifact, never the engine:
+     * a declared name resolves to <manifests_dir>/interpreters/<name>.php,
+     * which must define \Duo\Interpreters\<CamelCase(name)>. The engine holds
+     * only this loading contract — no plugin names, no plugin logic. Trust
+     * boundary: the manifests dir is operator-controlled and ships/mounts
+     * with the agent itself (ro in the sandbox), so loading PHP from it is
+     * the same trust decision as running the agent.
      */
-    private const INTERPRETERS = [
-        'acf' => ['\\Duo\\Interpreters\\Acf', '/Interpreters/Acf.php'],
-    ];
 
     public static function manifests_dir(): string {
         $env = getenv('DUO_MANIFESTS_DIR');
@@ -157,6 +162,38 @@ final class Policy {
         return $out;
     }
 
+    /**
+     * `taxonomies.<tax>.description_refs` (spec v0.8 / docs/frontier/
+     * polylang.md's "typed serialized-description rewriting"): declares
+     * that a taxonomy's term_taxonomy.description column holds PHP-
+     * serialized data (Polylang's post_translations/term_translations
+     * `{lang_slug: local_id}` shape, verified byte-for-byte) with ref-typed
+     * values reachable via the ordinary json_refs primitive at path "$.*"
+     * (Capture::term_description() / Apply::encode_description() own
+     * deciding how to (un)serialize; this only returns the declared rule).
+     *
+     * Manifest-only, first declaration in pin order wins — same precedence
+     * as block_attr_rules()/rebuilders()/delete_guards(): a structural fact
+     * about the taxonomy's OWN data shape (like block_attrs is a structural
+     * fact about a block type's shape), not a site-local policy choice, so
+     * — unlike options/post_meta/term_meta — there is no site.duo.json
+     * policy override. This also sidesteps a real naming collision:
+     * site.duo.json's policy.taxonomies is already the flat taxonomy-scope
+     * LIST (Policy::taxonomies() below); reusing that key for a name-keyed
+     * rule map would silently shadow it instead of erroring, since PHP's
+     * array access on a list by an unknown string key just returns null.
+     *
+     * @return ?array {"kind": "post"|"term"}
+     */
+    public function description_refs_for_taxonomy(string $tax): ?array {
+        foreach ($this->manifests as $m) {
+            if (isset($m['taxonomies'][$tax]['description_refs'])) {
+                return $m['taxonomies'][$tax]['description_refs'];
+            }
+        }
+        return null;
+    }
+
     public function post_types(): array {
         return $this->site['policy']['post_types'] ?? ['post', 'page', 'attachment'];
     }
@@ -176,14 +213,24 @@ final class Policy {
             if ($name === null || isset($this->interpreterInstances[$name])) {
                 continue;
             }
-            $spec = self::INTERPRETERS[$name]
-                ?? throw new \RuntimeException("duo: manifest '{$m['name']}' wants unknown interpreter '$name'");
-            $file = __DIR__ . $spec[1];
+            if (!preg_match('/^[a-z0-9_-]+$/', $name)) {
+                throw new \RuntimeException("duo: manifest '{$m['name']}' declares invalid interpreter name '$name'");
+            }
+            $file = self::manifests_dir() . '/interpreters/' . $name . '.php';
             if (!is_file($file)) {
-                throw new \RuntimeException("duo: interpreter '$name' not installed ($file missing)");
+                throw new \RuntimeException(
+                    "duo: manifest '{$m['name']}' wants interpreter '$name' but $file is missing — "
+                    . 'interpreter code ships with its manifest, not the engine'
+                );
             }
             require_once $file;
-            $this->interpreterInstances[$name] = new $spec[0]($this);
+            $class = '\\Duo\\Interpreters\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $name)));
+            if (!class_exists($class) || !method_exists($class, 'post_meta_rule')) {
+                throw new \RuntimeException(
+                    "duo: interpreter file $file must define $class with post_meta_rule(string, array): ?array"
+                );
+            }
+            $this->interpreterInstances[$name] = new $class($this);
         }
         return $this->interpreterInstances;
     }

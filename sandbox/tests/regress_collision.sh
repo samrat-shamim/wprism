@@ -12,16 +12,20 @@
 # "extra" during reconciliation). See docs/frontier/polylang.md's
 # "Object-id collision cross-contaminates captured POST relationships".
 #
-# Why this isn't in `make spikes`: this is an engine-invariant regression,
-# not a plugin-conformance test (Polylang ships no manifest — see the
-# frontier report's verdict — so there is nothing here to "support"). It
-# needs Polylang purely because no core taxonomy is ever term-object, so no
-# core-only fixture can force the collision into the open. It also runs on
-# its own self-booting env pair (fx, ports 8810/8811) rather than chaining
-# onto the shared a/b envs the way spike_b..spike_f do, so it doesn't fit
-# the spikes target's dependency chain. Keeping it separate keeps the
-# routine spikes/CI path free of a third-party plugin download for a check
-# that has nothing to do with Polylang support specifically.
+# Why this isn't in `make spikes`: this is primarily an engine-invariant
+# regression, not a plugin-conformance test — it needs Polylang purely
+# because no core taxonomy is ever term-object, so no core-only fixture can
+# force the collision into the open. (Task #20 later shipped manifests/
+# polylang.json, now pinned below alongside "core" so this fixture also
+# re-proves the collision fix holds with the description_refs rewrite
+# active for the same taxonomies — see acceptance (d) — but sandbox/
+# conformance/{seeds,checks}/polylang.sh is the actual plugin-conformance
+# target for that manifest, run via `conformance/run.sh polylang`.) It also
+# runs on its own self-booting env pair (fx, ports 8810/8811) rather than
+# chaining onto the shared a/b envs the way spike_b..spike_f do, so it
+# doesn't fit the spikes target's dependency chain. Keeping it separate
+# keeps the routine spikes/CI path free of a third-party plugin download
+# for a check that has nothing to do with Polylang support specifically.
 #
 # The fixture deliberately does NOT rely on WordPress's own first-post/
 # first-term coincidence (both auto-increment counters reset to 1 after
@@ -101,7 +105,7 @@ say "init the site repo — Polylang's own taxonomies deliberately in scope"
 git init --bare -b main siterepo/origin-fx.git >/dev/null
 cat > siterepo/fx1/site.duo.json <<'EOF'
 {
-  "manifests": ["core"],
+  "manifests": ["core", "polylang"],
   "policy": {
     "options": {},
     "post_meta": {},
@@ -182,6 +186,16 @@ grep -q '"language"' <<<"$POST_EN_JSON" || fail "post_en lost its legitimate lan
 grep -q '"post_translations"' <<<"$POST_EN_JSON" || fail "post_en lost its legitimate post_translations relationship"
 pass "post_en's captured relationships are exactly {category, language, post_translations} — no term-only-taxonomy fabrication"
 
+say "capture fx1 — News's OWN term file must capture ITS term_language + term_translations relationships (task #20 capability: term-object relationship capture, the actual fix for the report's 'pll_get_term_translations() returns empty' root cause)"
+NEWS_FILE=$(find siterepo/fx1/state/terms/category -name '*news*')
+[ -n "$NEWS_FILE" ] || fail "News's captured term file not found"
+NEWS_JSON=$(cat "$NEWS_FILE")
+echo "$NEWS_JSON"
+grep -q '"relationships"' <<<"$NEWS_JSON" || fail "News's term file has no relationships field at all"
+grep -q '"term_language"' <<<"$NEWS_JSON" || fail "News lost its OWN term_language relationship (should point at pll_en) — this belongs on News's OWN file, not post_en's, even though they share a numeric id"
+grep -q '"term_translations"' <<<"$NEWS_JSON" || fail "News lost its OWN term_translations relationship (should point at its group with Actualites)"
+pass "News's term file correctly captures its own term_language + term_translations relationships"
+
 say "acceptance: capture is deterministic (capture twice, zero diff)"
 wp_fx1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
 diff -r siterepo/fx1/state siterepo/fx1/.tmp-state2 || fail "capture is not deterministic"
@@ -219,6 +233,16 @@ grep -q '"term_translations"' <<<"$FX2_POST_EN_JSON" && fail "fx2's re-captured 
 pass "fx2's re-captured post_en matches fx1's — no fabricated entries introduced by apply"
 rm -rf siterepo/fx2/.tmp-fx2state
 
+say "acceptance (d): pll_get_term_translations() on fx2 returns the correct pair using fx2's OWN local ids — the report's sharpest finding (this exact call used to return an EMPTY array on the target) — proven live via Polylang's own API, not just Duo's state tree"
+NEWS_FX2=$(wp_fx2 eval "echo get_term_by('slug', 'news', 'category')->term_id;")
+ACT_FX2=$(wp_fx2 eval "echo get_term_by('slug', 'actualites', 'category')->term_id;")
+[ "$NEWS_FX2" != "$NEWS_TERM_ID" ] || echo "note: News's fx1 and fx2 local ids coincidentally match ($NEWS_FX2) — the assertion below still holds, it's just not exercising a genuine id divergence this time"
+TERM_TR_FX2=$(wp_fx2 eval "echo json_encode(pll_get_term_translations((int) $NEWS_FX2));")
+echo "fx2: news=$NEWS_FX2 actualites=$ACT_FX2 pll_get_term_translations(news)=$TERM_TR_FX2"
+echo "$TERM_TR_FX2" | jq -e --argjson en "$NEWS_FX2" --argjson fr "$ACT_FX2" '.en == $en and .fr == $fr' >/dev/null \
+  || fail "pll_get_term_translations($NEWS_FX2) on fx2 did not return {en:$NEWS_FX2, fr:$ACT_FX2} — got $TERM_TR_FX2"
+pass "pll_get_term_translations() on fx2 returns the correct pair using fx2's own local ids"
+
 say "posture check: a policy-scoped taxonomy that's NOT registered at runtime warns loudly (names the taxonomy) and skips, never aborts or silently trusts"
 wp_fx1 plugin deactivate polylang >/dev/null
 set +e
@@ -234,8 +258,13 @@ UNREG_POST_EN=$(find siterepo/fx1/.tmp-unreg-state/posts -name '*post-en*')
 UNREG_JSON=$(cat "$UNREG_POST_EN")
 grep -q '"language"' <<<"$UNREG_JSON" && fail "post_en still has 'language' relationships with the taxonomy unregistered — should have been skipped, not guessed"
 grep -q '"category"' <<<"$UNREG_JSON" || fail "post_en lost 'category' (a core taxonomy, unaffected by Polylang being inactive)"
+UNREG_NEWS_FILE=$(find siterepo/fx1/.tmp-unreg-state/terms/category -name '*news*')
+UNREG_NEWS_JSON=$(cat "$UNREG_NEWS_FILE")
+grep -q '"term_language"' <<<"$UNREG_NEWS_JSON" && fail "News's term file still has 'term_language' with the taxonomy unregistered — should have been skipped, not guessed"
+grep -q '"term_translations"' <<<"$UNREG_NEWS_JSON" && fail "News's term file still has 'term_translations' with the taxonomy unregistered — should have been skipped, not guessed"
+grep -q '"relationships"' <<<"$UNREG_NEWS_JSON" || fail "News's term file lost its 'relationships' field entirely when the taxonomy is unregistered — should degrade to an empty {}, not disappear"
 rm -rf siterepo/fx1/.tmp-unreg-state
 wp_fx1 plugin activate polylang >/dev/null
-pass "unregistered-taxonomy warning names all 4 Polylang taxonomies, capture still succeeds, and their relationships are cleanly skipped rather than guessed"
+pass "unregistered-taxonomy warning names all 4 Polylang taxonomies, capture still succeeds, and BOTH posts' and terms' relationships are cleanly skipped rather than guessed"
 
 printf '\n\033[1;32m✔ REGRESS_COLLISION PASSED\033[0m\n'

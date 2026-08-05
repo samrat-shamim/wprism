@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        manifest: [core, woocommerce, acf, yoast, fse, elementor]
+        manifest: [core, woocommerce, acf, yoast, fse, elementor, polylang]
     steps:
       - uses: actions/checkout@v4
 

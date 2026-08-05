@@ -55,6 +55,16 @@ CTA_ID=$(wp_conf1 post create --post_type=wp_block --post_title='Duo FSE CTA' --
 wp_conf1 term create wp_pattern_category "Conformance Patterns" --slug=conformance-patterns --porcelain >/dev/null
 wp_conf1 post term add "$CTA_ID" wp_pattern_category conformance-patterns --by=slug
 
+# wp_pattern_sync_status (task #31 — the report's own open gap, closed here):
+# a Site-Editor-only flag marking a saved pattern "unsynced" (the copy-once,
+# edit-independently mode; core registers it on wp_block only, no plugin —
+# see manifests/core.json's notes for the verified byte shape: a fresh
+# wp_block has ZERO postmeta rows, so "synced" is the key's ABSENCE, not a
+# value). It's a flag, not a ref — no rendering assertion is added for it;
+# the existing byte-diff/lint gate is what exercises the manifests/core.json
+# post_meta.wp_pattern_sync_status:authored declaration.
+wp_conf1 post meta update "$CTA_ID" wp_pattern_sync_status unsynced
+
 # The navigation: one link per kind_from branch (post-type/taxonomy/custom).
 NAV_CONTENT="<!-- wp:navigation-link {\"label\":\"About\",\"type\":\"page\",\"id\":$ABOUT_ID,\"url\":\"$ABOUT_URL\",\"kind\":\"post-type\"} /-->
 <!-- wp:navigation-link {\"label\":\"News\",\"type\":\"category\",\"id\":$NEWS_ID,\"url\":\"$NEWS_URL\",\"kind\":\"taxonomy\"} /-->

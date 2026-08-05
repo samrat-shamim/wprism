@@ -19,9 +19,9 @@ final class Apply {
     /** @var array<string,int> login -> user id */
     private array $userIds = [];
     private ?int $defaultAuthor = null;
-    /** @var array<string, string[]>|null post_type -> taxonomy[], memoized —
-     *  see taxes_for_post_type() */
-    private ?array $taxesForPostType = null;
+    /** @var array{by_post_type: array<string,string[]>, term_object: string[]}|null
+     *  memoized — see taxes_by_object_type() */
+    private ?array $taxesByObjectType = null;
 
     private function __construct(string $repo) {
         $this->repo = rtrim($repo, '/');
@@ -458,9 +458,84 @@ final class Apply {
         }
         $wpdb->update($wpdb->terms, ['name' => $front['name'], 'slug' => $front['slug']], ['term_id' => $termId]);
         $wpdb->update($wpdb->term_taxonomy, [
-            'description' => $this->tokens->detokenize_text((string) $front['description']),
+            'description' => $this->encode_description($front['taxonomy'], $front['description']),
             'parent' => $parentId,
         ], ['term_id' => $termId, 'taxonomy' => $front['taxonomy']]);
+        $this->reconcile_term_relationships($termId, $front['taxonomy'], (array) ($front['relationships'] ?? []));
+    }
+
+    /**
+     * Mirror of Capture::term_description(): a taxonomy declaring
+     * `taxonomies.<tax>.description_refs` gets its token-bearing map
+     * resolved back through the ledger and re-serialized with PHP's OWN
+     * serialize() — so int-typed ids come back as `i:N;`, matching
+     * Polylang's own writes byte-for-byte in TYPE, not just in decoded
+     * value (docs/frontier/polylang.md verified this column is genuinely
+     * int-typed, not the digit-string convention ACF/Yoast use elsewhere).
+     * Every other taxonomy keeps the plain detokenize_text() treatment.
+     */
+    private function encode_description(string $taxonomy, $description): string {
+        $rule = $this->policy->description_refs_for_taxonomy($taxonomy);
+        if ($rule === null) {
+            return $this->tokens->detokenize_text((string) $description);
+        }
+        $decoded = $this->tokens->struct_apply((array) $description, [['path' => '$.*', 'kind' => $rule['kind']]], null);
+        return serialize($decoded);
+    }
+
+    /**
+     * Term-object symmetry of reconcile_relationships(): a term's own
+     * membership in OTHER taxonomies as object_id (docs/frontier/
+     * polylang.md's "term-object relationship capture/apply" — Polylang's
+     * term_language/term_translations). Scoped to term_object_taxes() — the
+     * same object_type collision guard reconcile_relationships() applies
+     * for posts — so this never touches a colliding POST's own
+     * relationship rows just because the numeric id matches. Two-phase-
+     * safe for free: this only ever runs in phase 2 (finalize_term()),
+     * after phase 1 has already inserted every term row (source AND
+     * target) and its ledger entries for this whole apply run.
+     */
+    private function reconcile_term_relationships(int $termId, string $taxonomy, array $relField): void {
+        global $wpdb;
+        $taxes = $this->term_object_taxes();
+        if (!$taxes) {
+            return;
+        }
+        $desiredTt = [];
+        foreach ($relField as $tax => $uuids) {
+            if (!in_array($tax, $taxes, true)) {
+                // Not a taxonomy this environment currently owns as term-
+                // object (stale file from before this capability existed,
+                // or a hand edit) — never let it reach the ledger lookup /
+                // INSERT below, mirroring reconcile_relationships()'s
+                // identical guard on the post side.
+                continue;
+            }
+            foreach ((array) $uuids as $u) {
+                $tt = Ledger::id_for($u, Ledger::KIND_TT)
+                    ?? throw new \RuntimeException("duo: term {$termId} ($taxonomy) references unresolvable term $u ($tax)");
+                $desiredTt[$tt] = true;
+            }
+        }
+        $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
+        $current = $wpdb->get_col($wpdb->prepare(
+            "SELECT tr.term_taxonomy_id FROM {$wpdb->term_relationships} tr
+             JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+             WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
+            $termId
+        )) ?: [];
+        foreach ($current as $tt) {
+            if (!isset($desiredTt[(int) $tt])) {
+                $wpdb->delete($wpdb->term_relationships, ['object_id' => $termId, 'term_taxonomy_id' => (int) $tt]);
+            }
+        }
+        foreach (array_keys($desiredTt) as $tt) {
+            if (!in_array((string) $tt, array_map('strval', $current), true)) {
+                $wpdb->insert($wpdb->term_relationships, [
+                    'object_id' => $termId, 'term_taxonomy_id' => $tt, 'term_order' => 0,
+                ]);
+            }
+        }
     }
 
     private function finalize_post(array $front, string $body): void {
@@ -590,33 +665,53 @@ final class Apply {
     }
 
     /**
-     * Same collision guard as Capture::taxes_for_post_types(): only
+     * Same collision guard as Capture::taxes_by_object_type(): only
      * taxonomies whose registered object_type actually includes this post
      * type may own this post's relationship rows. Without it, the "current
      * relationships" SELECT above can pick up a colliding term's own
      * term-to-term rows (object_id happens to equal this post's id) and,
      * since they're never in $desiredTt, DELETE them — destroying a
      * different object's genuine data because of a numeric coincidence.
-     * Memoized per apply run; the taxonomy roster doesn't change mid-run.
+     *
+     * Computed together with term_object_taxes() below (one get_taxonomy()
+     * walk, one warning per unregistered taxonomy instead of two) and
+     * memoized per apply run; the taxonomy roster doesn't change mid-run.
+     *
+     * @return array{by_post_type: array<string,string[]>, term_object: string[]}
      */
-    private function taxes_for_post_type(string $postType): array {
-        if ($this->taxesForPostType === null) {
-            $this->taxesForPostType = [];
+    private function taxes_by_object_type(): array {
+        if ($this->taxesByObjectType === null) {
+            $byPostType = [];
+            $termObject = [];
             foreach ($this->policy->taxonomies() as $tax) {
                 $taxObj = get_taxonomy($tax);
                 if ($taxObj === false) {
                     $this->warnings[] =
                         "taxonomy '$tax' is in policy scope but not registered on this environment"
                         . " (plugin inactive?) — cannot determine which object type its relationships"
-                        . " belong to, so its relationships are skipped for every post on apply";
+                        . " belong to, so its relationships are skipped for every post and term on apply";
                     continue;
                 }
                 foreach ((array) $taxObj->object_type as $objectType) {
-                    $this->taxesForPostType[$objectType][] = $tax;
+                    if ($objectType === 'term') {
+                        $termObject[] = $tax;
+                    } else {
+                        $byPostType[$objectType][] = $tax;
+                    }
                 }
             }
+            $this->taxesByObjectType = ['by_post_type' => $byPostType, 'term_object' => $termObject];
         }
-        return $this->taxesForPostType[$postType] ?? [];
+        return $this->taxesByObjectType;
+    }
+
+    private function taxes_for_post_type(string $postType): array {
+        return $this->taxes_by_object_type()['by_post_type'][$postType] ?? [];
+    }
+
+    /** @return string[] policy-scoped taxonomies whose registered object_type includes 'term'. */
+    private function term_object_taxes(): array {
+        return $this->taxes_by_object_type()['term_object'];
     }
 
     private function place_attachment(int $id, array $front): void {
@@ -849,6 +944,17 @@ final class Apply {
         } elseif ($type === 'term' || $type === 'menu') {
             $termId = Ledger::id_for($uuid, Ledger::KIND_TERM);
             $tt = Ledger::id_for($uuid, Ledger::KIND_TT);
+            if ($termId !== null) {
+                // This term's OWN outbound relationships (term-object taxonomies
+                // where THIS term is object_id — capability symmetric to
+                // delete_post_relationships() below) must go BEFORE the target-
+                // side cleanup and the row deletes, for the same reason: an
+                // unfiltered delete keyed on the bare id risks nothing here
+                // (term_relationships has no other FK into wp_terms), but
+                // leaving these rows would orphan-reference a term_id that's
+                // about to stop existing.
+                $this->delete_term_relationships($termId);
+            }
             if ($tt !== null) {
                 $wpdb->delete($wpdb->term_relationships, ['term_taxonomy_id' => $tt]);
                 $wpdb->delete($wpdb->term_taxonomy, ['term_taxonomy_id' => $tt]);
@@ -891,6 +997,37 @@ final class Apply {
              JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
              WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
             $id
+        ));
+    }
+
+    /**
+     * Term-object symmetry of delete_post_relationships() immediately
+     * above: a deleted term's OWN relationship rows as object_id (term-
+     * object taxonomies, e.g. Polylang's term_language/term_translations),
+     * scoped to every taxonomy REGISTERED on this runtime whose object_type
+     * includes 'term' — deliberately not policy-scoped, same rationale as
+     * the post-side twin: a full term delete must clean up every taxonomy
+     * that legitimately relates to it as object_id, not just the ones Duo
+     * happens to manage. An unfiltered `DELETE ... WHERE object_id = $id`
+     * would hit every term_relationships row with that raw id regardless of
+     * taxonomy — including a POST-object taxonomy's row for a completely
+     * different POST that happens to share this term's id.
+     */
+    private function delete_term_relationships(int $termId): void {
+        global $wpdb;
+        $taxes = array_values(array_filter(get_taxonomies(), function (string $tax) {
+            $taxObj = get_taxonomy($tax);
+            return $taxObj !== false && in_array('term', (array) $taxObj->object_type, true);
+        }));
+        if (!$taxes) {
+            return;
+        }
+        $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
+        $wpdb->query($wpdb->prepare(
+            "DELETE tr FROM {$wpdb->term_relationships} tr
+             JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+             WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
+            $termId
         ));
     }
 

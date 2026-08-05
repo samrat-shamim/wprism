@@ -95,7 +95,7 @@ final class Lint {
             self::scan_post_file($stateDir, $rel, $policy, $blockRules, $home, $homeEscaped, $findings);
         }
         foreach (self::glob_rel($stateDir, 'terms/*/*.json') as $rel) {
-            self::scan_term_file($stateDir, $rel, $home, $homeEscaped, $findings);
+            self::scan_term_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
         }
         if (is_file($stateDir . '/options/core.json')) {
             self::scan_options_file($stateDir, 'options/core.json', $policy, $home, $homeEscaped, $findings);
@@ -297,9 +297,26 @@ final class Lint {
 
     // ------------------------------------------------------------ terms
 
-    private static function scan_term_file(string $stateDir, string $rel, string $home, string $homeEscaped, array &$findings): void {
+    private static function scan_term_file(string $stateDir, string $rel, Policy $policy, string $home, string $homeEscaped, array &$findings): void {
         $front = Canon::decode(Canon::read_file($stateDir . '/' . $rel));
         $desc = $front['description'] ?? '';
+        $taxonomy = (string) ($front['taxonomy'] ?? '');
+
+        // A taxonomy declaring taxonomies.<tax>.description_refs already
+        // has its description rewritten through Tokens::struct_capture()
+        // (Capture::term_description()) — the SAME "declared paths clean,
+        // undeclared paths in the same structure still flagged" contract
+        // scan_structured_bare_ids() already gives json_refs/key_refs-
+        // declared meta/option values, reused verbatim here rather than a
+        // parallel check: a resolved json_refs match is never still a raw
+        // id by this point (it's a token, or null if unmapped), so
+        // anything scan_structured_bare_ids() finds inside this structure
+        // is, by construction, a genuine gap the "$.*" path didn't cover.
+        if ($policy->description_refs_for_taxonomy($taxonomy) !== null) {
+            self::scan_structured_bare_ids($desc, $rel, 'description', $findings);
+            return;
+        }
+
         if (!is_string($desc) || $desc === '') {
             return;
         }
@@ -307,7 +324,10 @@ final class Lint {
         // (b) escaped_home
         self::flag_escaped_home($findings, $rel, 'description', $desc, $home, $homeEscaped);
 
-        // (d) serialized_desc_ids — PHP-serialized data (Polylang's post_translations/term_translations shape).
+        // (d) serialized_desc_ids — PHP-serialized data with NO declared
+        // description_refs rewrite path (Polylang's post_translations/
+        // term_translations shape, for any taxonomy nobody has declared
+        // description_refs for).
         $data = @unserialize($desc, ['allowed_classes' => false]);
         if ($data === false && $desc !== 'b:0;') {
             return; // does not parse as serialized PHP data at all
@@ -325,10 +345,11 @@ final class Lint {
             $locator = is_array($data) ? ('description[' . $k . ']') : 'description';
             $findings[] = self::finding('serialized_desc_ids', $rel, $locator, $id, $hit, sprintf(
                 "this term's description unserializes to PHP data containing an integer that matches an "
-                . "existing %s id (#%d \"%s\", %s); nothing in this engine rewrites term descriptions (Capture "
-                . "tokenize_text()'s them as opaque strings), so this id is silently environment-bound — "
-                . "Polylang's post_translations/term_translations shape.",
-                $hit['kind'], $hit['id'], $hit['title'], $hit['post_type']
+                . "existing %s id (#%d \"%s\", %s); taxonomy '%s' has no 'description_refs' declaration, so "
+                . "nothing rewrites this term's description (Capture tokenize_text()'s it as an opaque string) "
+                . "and this id is silently environment-bound — Polylang's post_translations/term_translations "
+                . "shape before a description_refs declaration covers it.",
+                $hit['kind'], $hit['id'], $hit['title'], $hit['post_type'], $taxonomy
             ));
         }
     }

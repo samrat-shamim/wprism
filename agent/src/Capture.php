@@ -18,8 +18,12 @@ final class Capture {
     /** @var array<int, string> user id -> login */
     private array $userLogins = [];
     /** @var array<string, string[]> post_type -> taxonomy[], scoped by each
-     *  taxonomy's own registered object_type — see taxes_for_post_types(). */
+     *  taxonomy's own registered object_type — see taxes_by_object_type(). */
     private array $taxesForPostType = [];
+    /** @var string[] policy-scoped taxonomies whose registered object_type
+     *  includes 'term' (Polylang's term_language/term_translations shape)
+     *  — see taxes_by_object_type(). */
+    private array $termObjectTaxes = [];
 
     private function __construct(string $repo, Policy $policy) {
         $this->repo = rtrim($repo, '/');
@@ -176,7 +180,9 @@ final class Capture {
         // ---- scope ----
         $posts = $this->scope_posts();
         $terms = $this->scope_terms();
-        $this->taxesForPostType = $this->taxes_for_post_types($this->policy->taxonomies(), $this->policy->post_types());
+        $taxesByObjectType = $this->taxes_by_object_type($this->policy->taxonomies(), $this->policy->post_types());
+        $this->taxesForPostType = $taxesByObjectType['by_post_type'];
+        $this->termObjectTaxes = $taxesByObjectType['term_object'];
 
         // ---- identity ----
         $postUuids = [];
@@ -213,8 +219,9 @@ final class Capture {
                 'taxonomy' => $t->taxonomy,
                 'name' => $t->name,
                 'slug' => $t->slug,
-                'description' => $this->tokens->tokenize_text((string) $t->description),
+                'description' => $this->term_description($t),
                 'parent' => $parentUuid,
+                'relationships' => (object) $this->term_relationships((int) $t->term_id),
             ];
             $entities[] = [
                 'uuid' => $uuid,
@@ -314,16 +321,26 @@ final class Capture {
     /**
      * Precompute, once per build, which of the policy's scoped taxonomies
      * actually apply to each in-scope post type — keyed on the taxonomy's
-     * own registered object_type, never on raw numeric object_id.
+     * own registered object_type, never on raw numeric object_id — AND,
+     * symmetrically, which scoped taxonomies are TERM-object (object_type
+     * includes the literal string 'term': Polylang's term_language/
+     * term_translations, confirmed empirically — not a post_type name, WP
+     * lets a taxonomy's object_type be any string a plugin chooses to
+     * register). Both facts come from the exact same per-taxonomy
+     * get_taxonomy() walk, so this now does in one pass what used to be
+     * (and still would need to be, done twice) doing it as two separate
+     * post-side-only and term-side-only passes.
      *
      * Posts and terms are minted from independent auto-increment counters
      * that share one numeric space: a term_relationships row with
-     * object_id = N can belong to a post OR — for a term-object taxonomy
-     * like Polylang's term_language/term_translations — to a completely
-     * different term that happens to have term_id = N. Filtering the `IN
-     * (...)` taxonomy list per post type, using WordPress's own object_type
-     * declaration, is what keeps a post's relationship query from ever
-     * matching another object's rows just because the ids coincide.
+     * object_id = N can belong to a post OR — for a term-object taxonomy —
+     * to a completely different term that happens to have term_id = N.
+     * Filtering the `IN (...)` taxonomy list per object kind, using
+     * WordPress's own object_type declaration, is what keeps a post's (or a
+     * term's) relationship query from ever matching another object's rows
+     * just because the ids coincide — see build_post()'s relationship
+     * query and term_relationships() below for the two call sites this
+     * guards.
      *
      * A scoped taxonomy that isn't registered at runtime (its plugin is
      * inactive on this environment) can't be checked at all — silently
@@ -332,26 +349,29 @@ final class Capture {
      *
      * @param string[] $taxes policy-scoped taxonomy names
      * @param string[] $postTypes policy-scoped post types
-     * @return array<string, string[]> post_type => taxonomy[]
+     * @return array{by_post_type: array<string,string[]>, term_object: string[]}
      */
-    private function taxes_for_post_types(array $taxes, array $postTypes): array {
-        $map = array_fill_keys($postTypes, []);
+    private function taxes_by_object_type(array $taxes, array $postTypes): array {
+        $byPostType = array_fill_keys($postTypes, []);
+        $termObject = [];
         foreach ($taxes as $tax) {
             $taxObj = get_taxonomy($tax);
             if ($taxObj === false) {
                 $this->tokens->warnings[] =
                     "taxonomy '$tax' is in policy scope but not registered on this environment"
                     . " (plugin inactive?) — cannot determine which object type its relationships"
-                    . " belong to, so its relationships are skipped for every post";
+                    . " belong to, so its relationships are skipped for every post and term";
                 continue;
             }
             foreach ((array) $taxObj->object_type as $objectType) {
-                if (isset($map[$objectType])) {
-                    $map[$objectType][] = $tax;
+                if ($objectType === 'term') {
+                    $termObject[] = $tax;
+                } elseif (isset($byPostType[$objectType])) {
+                    $byPostType[$objectType][] = $tax;
                 }
             }
         }
-        return $map;
+        return ['by_post_type' => $byPostType, 'term_object' => $termObject];
     }
 
     private function ensure_post_uuid(int $id, string $entityType, bool $mint): ?string {
@@ -388,6 +408,111 @@ final class Capture {
         Ledger::set($uuid, $entityType, Ledger::KIND_TERM, $termId);
         Ledger::set($uuid, $entityType, Ledger::KIND_TT, (int) $t->term_taxonomy_id);
         return $uuid;
+    }
+
+    /**
+     * A term's own membership in OTHER taxonomies, as object_id — the
+     * term-side symmetry of build_post()'s `terms` field (docs/frontier/
+     * polylang.md's "term-object relationship capture/apply": Polylang
+     * relates a TERM to its language/translation-group via an ordinary
+     * term_relationships row where the TERM ITSELF is object_id, e.g.
+     * News's term_id as object_id, term_language's pll_en term as the
+     * target — confirmed empirically, not the post that happens to share
+     * News's numeric id). Filtered to $this->termObjectTaxes — taxonomies
+     * whose registered object_type includes 'term', computed once per
+     * build() by taxes_by_object_type() — the exact same collision guard
+     * build_post() already applies for post-object taxonomies: posts and
+     * terms share one auto-increment id space, so an unfiltered `WHERE
+     * object_id = $termId` could otherwise pick up an unrelated POST's
+     * post-object relationship rows purely because the numbers coincide.
+     *
+     * @return array<string, string[]> taxonomy => sorted term uuid list
+     */
+    private function term_relationships(int $termId): array {
+        global $wpdb;
+        if (!$this->termObjectTaxes) {
+            return [];
+        }
+        $in = "'" . implode("','", array_map('esc_sql', $this->termObjectTaxes)) . "'";
+        $rels = $wpdb->get_results($wpdb->prepare(
+            "SELECT tt.taxonomy, tt.term_id FROM {$wpdb->term_relationships} tr
+             JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+             WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
+            $termId
+        )) ?: [];
+        $out = [];
+        foreach ($rels as $rel) {
+            // Silent drop mirrors build_post()'s identical $tu !== null check
+            // below: a target outside this same policy-scoped, object-type-
+            // filtered taxonomy list can't happen by construction (the query
+            // above is already restricted to those taxonomies, and every term
+            // in them was uuid'd in the identity pass above), so this is
+            // defensive, not an expected path — same posture, not a reuse.
+            $tu = Ledger::uuid_for((int) $rel->term_id, Ledger::KIND_TERM);
+            if ($tu !== null) {
+                $out[$rel->taxonomy][] = $tu;
+            }
+        }
+        foreach ($out as &$list) {
+            sort($list, SORT_STRING);
+        }
+        unset($list);
+        return $out;
+    }
+
+    /**
+     * A taxonomy declaring `taxonomies.<tax>.description_refs` (manifest-
+     * only — Policy::description_refs_for_taxonomy()) stores term_taxonomy.
+     * description as PHP-serialized `{lang_slug: local_id}` (Polylang's
+     * post_translations/term_translations shape, verified byte-for-byte:
+     * `a:2:{s:2:"en";i:1;s:2:"fr";i:2;}`). WordPress never auto-unserializes
+     * this column the way maybe_unserialize() does for postmeta/options —
+     * it's read here as a raw string and explicitly unserialized, then
+     * rewritten with the SAME json_refs primitive post_meta/option values
+     * already use (Tokens::struct_capture(), a single path "$.*" over the
+     * flat map — every top-level VALUE is a ref of the declared kind; the
+     * KEYS are language slugs, never ids, so no key_refs is declared).
+     *
+     * Every OTHER taxonomy's description keeps the original opaque-string
+     * treatment unconditionally: Capture has never unserialized term
+     * descriptions in general (the `language` taxonomy's own plugin-config
+     * blob — locale/rtl/flag_code — is exactly that shape, safe as opaque
+     * text because it holds no ids), and a manifest that doesn't declare
+     * description_refs for a taxonomy is asserting "no rewrite needed,"
+     * not "capture nothing."
+     *
+     * Throws loudly on a shape mismatch — same "assert, don't silently
+     * degrade" posture as decode_structured() below: a description_refs
+     * declaration asserts the value's shape, and silently falling back to
+     * opaque-string capture would silently reopen the exact id-leak this
+     * mechanism exists to close.
+     *
+     * @return string|object plain tokenized string (undeclared taxonomy) or
+     *   a native token-bearing map (declared taxonomy, cast to object so an
+     *   empty map still encodes as "{}" — Canon::encode() renders either
+     *   correctly; Lint::scan_term_file() dispatches on the SAME declared-
+     *   or-not rule to decide which of its two checks applies).
+     */
+    private function term_description(object $t) {
+        $rule = $this->policy->description_refs_for_taxonomy($t->taxonomy);
+        if ($rule === null) {
+            return $this->tokens->tokenize_text((string) $t->description);
+        }
+        $raw = (string) $t->description;
+        $decoded = @unserialize($raw, ['allowed_classes' => false]);
+        if ($decoded === false && $raw !== serialize(false)) {
+            throw new \RuntimeException(
+                "duo: taxonomy '{$t->taxonomy}' declares description_refs but term {$t->slug}'s description"
+                . ' does not unserialize as PHP data: ' . var_export($raw, true)
+            );
+        }
+        if (!is_array($decoded)) {
+            throw new \RuntimeException(
+                "duo: taxonomy '{$t->taxonomy}' declares description_refs but term {$t->slug}'s description"
+                . ' is not an array once unserialized'
+            );
+        }
+        return (object) $this->tokens->struct_capture($decoded, [['path' => '$.*', 'kind' => $rule['kind']]], null);
     }
 
     /** @return array{0: array, 1: string, 2: ?array{0:string,1:string}} [front, body, mediaRef] */
@@ -464,7 +589,7 @@ final class Capture {
 
         // term relationships (owned taxonomies only, filtered to taxonomies
         // whose registered object_type actually includes THIS post type —
-        // see taxes_for_post_types() for why raw object_id equality alone
+        // see taxes_by_object_type() for why raw object_id equality alone
         // is unsafe: posts and terms share one auto-increment id space)
         $taxes = $this->taxesForPostType[$p->post_type] ?? [];
         $termsField = [];
