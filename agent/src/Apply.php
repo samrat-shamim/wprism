@@ -509,7 +509,10 @@ final class Apply {
         $desired = [];
         foreach ($frontMeta as $key => $v) {
             $rule = $this->policy->meta_rule_for_post($key, $frontMeta) ?? [];
-            if (!empty($rule['ref'])) {
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+                $v = $this->encode_structured($v, $rule);
+            } elseif (!empty($rule['ref'])) {
                 $v = $this->tokens->meta_tokens_to_value($v, $rule);
             } elseif (is_string($v)) {
                 $v = $this->tokens->detokenize_text($v);
@@ -760,13 +763,46 @@ final class Apply {
     private function apply_options(array $options): void {
         foreach ($options as $name => $v) {
             $rule = $this->policy->option_rule($name) ?? [];
-            if (!empty($rule['ref'])) {
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+                $v = $this->encode_structured($v, $rule);
+            } elseif (!empty($rule['ref'])) {
                 $v = $this->tokens->tokens_to_value($v, $rule['ref']);
             } elseif (is_string($v)) {
                 $v = $this->tokens->detokenize_text($v);
             }
             $this->upsert_option($name, maybe_serialize($v));
         }
+    }
+
+    /**
+     * Mirror of Capture::decode_structured(): re-encode a json_refs/
+     * key_refs-rewritten native structure back to the shape the RAW
+     * meta/option value actually stores on the wire. `"json_encoded":
+     * true` (Elementor's _elementor_data — the plugin manually
+     * wp_json_encode()s before WordPress's own maybe_serialize()/
+     * maybe_unserialize() layer, a no-op passthrough on an already-string
+     * value, ever sees it) re-encodes to a compact JSON TEXT string —
+     * deliberately plain `json_encode($v)` with NO flags, matching
+     * Elementor's own convention byte-for-byte (escaped slashes, escaped
+     * unicode — confirmed via docs/frontier/elementor.md's xxd check),
+     * NOT Canon::encode() (which sorts keys / pretty-prints / unescapes —
+     * exactly right for the state/ tree's human-readable copy, exactly
+     * wrong for reconstructing what a plugin's own code expects to read
+     * back from postmeta). Absent the flag, the native array is returned
+     * as-is and the ordinary maybe_serialize() call at each call site
+     * PHP-serializes it — the ordinary WP option/meta convention (Yoast's
+     * wpseo_taxonomy_meta).
+     */
+    private function encode_structured($v, array $rule) {
+        if (empty($rule['json_encoded'])) {
+            return $v;
+        }
+        $encoded = json_encode($v);
+        if ($encoded === false) {
+            throw new \RuntimeException('duo: could not re-encode json_refs/key_refs structured value: ' . json_last_error_msg());
+        }
+        return $encoded;
     }
 
     private function upsert_option(string $name, string $value): void {

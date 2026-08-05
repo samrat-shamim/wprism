@@ -434,7 +434,10 @@ final class Capture {
             if (is_string($v)) {
                 $this->guard_secret('post_meta', $key, $v, $rule, " on post $id");
             }
-            if (!empty($rule['ref'])) {
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                $decoded = $this->decode_structured($v, $rule, "post $id meta $key");
+                $v = $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+            } elseif (!empty($rule['ref'])) {
                 $v = $this->tokens->meta_value_to_tokens($v, $rule);
                 if ($v === null) {
                     // dangling scalar ref: key skipped (warned inside Tokens) —
@@ -715,7 +718,10 @@ final class Capture {
             if (is_string($v)) {
                 $this->guard_secret('options', $name, $v, $rule);
             }
-            if (!empty($rule['ref'])) {
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                $decoded = $this->decode_structured($v, $rule, "option $name");
+                $v = $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+            } elseif (!empty($rule['ref'])) {
                 $v = $this->option_ref_tokens($name, $v, $rule['ref']);
                 if ($v === null) {
                     continue;
@@ -784,6 +790,44 @@ final class Capture {
             return null;
         }
         return $tok;
+    }
+
+    /**
+     * Decode a meta/option value for json_refs/key_refs rewriting (task #11
+     * wave 2): either a JSON-encoded TEXT string — rule declares
+     * `"json_encoded": true`, e.g. Elementor's `_elementor_data`, which
+     * Elementor's own code manually `wp_json_encode()`s into a postmeta
+     * TEXT column before WordPress's ordinary maybe_unserialize()/
+     * maybe_serialize() layer ever sees it (a no-op passthrough on an
+     * already-string value) — or an already-native PHP array, the ordinary
+     * case where maybe_unserialize() (already run by the caller) did all
+     * the decoding needed, e.g. Yoast's wpseo_taxonomy_meta.
+     *
+     * Throws loudly on a shape mismatch rather than silently falling back
+     * to opaque-string capture: a manifest declaring json_refs/key_refs for
+     * a key is asserting its shape, and silently degrading would silently
+     * reopen exactly the id-leak gap this mechanism exists to close —
+     * matching assert_plain()'s own "throw, never guess" posture below.
+     */
+    private function decode_structured($v, array $rule, string $ctx) {
+        if (!empty($rule['json_encoded'])) {
+            if (!is_string($v)) {
+                throw new \RuntimeException("duo: $ctx declares json_encoded but its (unserialized) value is not a string");
+            }
+            $decoded = json_decode($v, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                throw new \RuntimeException(
+                    "duo: $ctx declares json_refs/key_refs (json_encoded) but its value is not valid JSON: " . json_last_error_msg()
+                );
+            }
+            return $decoded;
+        }
+        if (!is_array($v)) {
+            throw new \RuntimeException(
+                "duo: $ctx declares json_refs/key_refs but its value is neither a JSON-encoded string (declare \"json_encoded\": true) nor an already-structured array"
+            );
+        }
+        return $v;
     }
 
     private static function assert_plain($v, string $ctx): void {

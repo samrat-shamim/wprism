@@ -11,6 +11,13 @@ namespace Duo;
 final class Tokens {
     private string $home;
     private string $uploadsUrl;
+    /** JSON-escaped forms (every "/" -> "\/") of the two URLs above — every
+     *  "/" in a wp_json_encode()'d string is escaped this way when the
+     *  JSON_UNESCAPED_SLASHES flag is absent, which is Elementor's own
+     *  convention for _elementor_data (confirmed byte-level via xxd in
+     *  docs/frontier/elementor.md) and is legal, unremarkable JSON. */
+    private string $homeEscaped;
+    private string $uploadsUrlEscaped;
     /** @var string[] capture-time warnings (unmapped ids etc.) */
     public array $warnings = [];
     /** @var array<int,string> user id -> login (capture direction) */
@@ -24,6 +31,8 @@ final class Tokens {
         $this->home = untrailingslashit((string) get_option('home'));
         $up = wp_upload_dir(null, false);
         $this->uploadsUrl = untrailingslashit((string) $up['baseurl']);
+        $this->homeEscaped = str_replace('/', '\/', $this->home);
+        $this->uploadsUrlEscaped = str_replace('/', '\/', $this->uploadsUrl);
     }
 
     public function home(): string {
@@ -32,15 +41,55 @@ final class Tokens {
 
     // ---- text (URLs) ----
 
+    /**
+     * Matches BOTH the plain form (`http://host/path`) and the JSON-escaped
+     * form (`http:\/\/host\/path`) of {{home}}/{{uploads}}, collapsing both
+     * to the SAME plain-spelled token — DESIGN.md §3.3's documented-but-
+     * unshipped claim ("the tokenizer also understands JSON-escaped URL
+     * forms"), now actually implemented. See detokenize_text() for why a
+     * single canonical (always-plain) token spelling is deliberately
+     * chosen over trying to preserve which form each occurrence originally
+     * used.
+     *
+     * Only the matched substring (the URL prefix) is touched; any residual
+     * escaped bytes immediately after it (e.g. the rest of an escaped path)
+     * are left completely alone — `{{uploads}}\/2026\/08\/x.png` is exactly
+     * what an escaped `http:\/\/host\/wp-content\/uploads\/2026\/08\/x.png`
+     * becomes, matching the shape DESIGN.md's own illustrative example uses.
+     *
+     * Uploads is matched before home in BOTH forms: the uploads URL is
+     * normally home-prefixed (`{home}/wp-content/uploads`), so replacing
+     * home first would destroy the literal substring the uploads match
+     * needs — same ordering constraint the original (plain-only) code
+     * already respected.
+     */
     public function tokenize_text(string $s): string {
         if ($s === '') {
             return $s;
         }
         $s = str_replace($this->uploadsUrl, '{{uploads}}', $s);
+        $s = str_replace($this->uploadsUrlEscaped, '{{uploads}}', $s);
         $s = str_replace($this->home, '{{home}}', $s);
+        $s = str_replace($this->homeEscaped, '{{home}}', $s);
         return $s;
     }
 
+    /**
+     * Always restores the PLAIN (unescaped) form — never the JSON-escaped
+     * one — regardless of which form the token replaced at capture. This is
+     * lossless where it matters: RFC 8259 makes escaping "/" inside a JSON
+     * string OPTIONAL (`/` and `\/` decode identically), so emitting the
+     * plain form at a position that sits inside JSON text is still valid,
+     * correctly-parseable JSON — Elementor's own json_decode() (or any
+     * conformant parser) reads it the same either way. Values that need
+     * Elementor's OWN escaped-everywhere convention on the wire get it back
+     * for free at the structural re-encode step (Tokens::struct_apply() /
+     * Capture.php's json_refs handling), which re-escapes the WHOLE
+     * reconstructed string uniformly — not by detokenize_text() trying to
+     * guess, per-occurrence, whether THIS spot was originally escaped
+     * (genuinely undecidable from the token alone, since both forms
+     * collapse to one canonical spelling above).
+     */
     public function detokenize_text(string $s): string {
         if ($s === '') {
             return $s;
@@ -195,6 +244,149 @@ final class Tokens {
         }
         $id = $toId($value);
         return $cast === 'string' ? (string) $id : $id;
+    }
+
+    // ---- structured (JSON-path) refs: json_refs + key_refs ----
+    // (task #11 wave 2 / docs/frontier/elementor.md, docs/frontier/
+    // polylang.md's `polylang` option finding, design-review-v0 finding #9)
+    //
+    // Operate on an already-DECODED native structure — Capture/Apply own
+    // deciding HOW to decode/re-encode the raw stored value (a JSON-text
+    // string, e.g. Elementor's _elementor_data, vs. an already-native PHP
+    // array from maybe_unserialize(), e.g. any ordinary WP option/meta) —
+    // this class only ever sees the resulting array/scalar, the same split
+    // of responsibility the rest of Tokens already has with Capture.
+
+    /**
+     * Capture direction: rewrite every position $jsonRefs declares (a list
+     * of {path, kind, cast?}) from a raw id to a token, rewrite the map
+     * $keyRefs declares (nullable {path?, kind}) from raw-id keys to
+     * token keys, and tokenize every remaining string leaf NOT consumed by
+     * either (catches incidental URLs the id-paths don't name — e.g.
+     * Elementor's "url" sibling of "id" — without needing them declared;
+     * see Blocks.php's block_attrs for the analogous "tokenize":"text"
+     * idea, generalized here to "every leaf, by default").
+     *
+     * Unmapped ids: json_refs nulls the scalar (task #21 semantics — a raw
+     * env-local id must never reach canonical state); key_refs drops the
+     * WHOLE entry under that key (mission wording: "unmapped keys drop-
+     * with-warning (whole entry)" — there is no safe partial value to keep
+     * once its own identity doesn't resolve). Both warn.
+     *
+     * $value=0/''/null at a json_refs path is left untouched, never warned:
+     * WordPress's/plugins' own "unset" convention for an id field (fresh
+     * installs, unconfigured optional fields like Yoast's per-term
+     * og-image) — same treatment Capture::option_ref_tokens() already
+     * gives whole-option id 0.
+     */
+    public function struct_capture($value, array $jsonRefs, ?array $keyRefs) {
+        foreach ($jsonRefs as $rule) {
+            $segments = JsonRefs::parse_path($rule['path']);
+            JsonRefs::walk($value, $segments, function (&$container, $key, string $locator) use ($rule) {
+                $v = $container[$key];
+                if (is_array($v)) {
+                    return; // path resolved to a container, not a scalar id — not a valid match
+                }
+                $n = (int) $v;
+                if ($n <= 0) {
+                    return; // unset convention: leave 0/''/absent-ish values alone
+                }
+                $tok = $this->id_to_token($n, $rule['kind']); // warns internally if unmapped
+                $container[$key] = $tok; // token string, or null (dropped) if unmapped
+            }, '');
+        }
+        if ($keyRefs !== null) {
+            $this->rewrite_keys($value, $keyRefs, true);
+        }
+        $this->tokenize_leaves($value, true);
+        return $value;
+    }
+
+    /**
+     * Apply direction mirror of struct_capture(): token -> id at each
+     * json_refs path (restoring the declared numeric/string type),
+     * token-keys -> id-keys for key_refs, detokenize every remaining
+     * string leaf. A null left by a capture-time drop stays null (there
+     * was never a valid id to restore — see struct_capture()'s docblock).
+     */
+    public function struct_apply($value, array $jsonRefs, ?array $keyRefs) {
+        $this->tokenize_leaves($value, false);
+        foreach ($jsonRefs as $rule) {
+            $segments = JsonRefs::parse_path($rule['path']);
+            JsonRefs::walk($value, $segments, function (&$container, $key) use ($rule) {
+                $v = $container[$key];
+                if ($v === null || $v === '' || is_array($v)) {
+                    return;
+                }
+                $id = (is_string($v) && str_starts_with($v, '{{')) ? $this->token_to_id($v) : (int) $v;
+                $container[$key] = (($rule['cast'] ?? null) === 'string') ? (string) $id : $id;
+            }, '');
+        }
+        if ($keyRefs !== null) {
+            $this->rewrite_keys($value, $keyRefs, false);
+        }
+        return $value;
+    }
+
+    /**
+     * Shared by struct_capture()/struct_apply(): rewrite the KEYS of the
+     * map found at $keyRefs['path'] (or, when no path is declared, of
+     * $value itself — the "top level" case the mission's grammar allows).
+     * PHP coerces any canonical-decimal-integer array key to int
+     * automatically regardless of how the array was built, so no
+     * int/string key-type bookkeeping is needed here — serialize() (on
+     * apply's way back through maybe_serialize()) emits `i:N;` for an int
+     * key the same way the original PHP-serialized option/meta value did.
+     */
+    private function rewrite_keys(&$value, array $keyRefs, bool $capture): void {
+        $kind = $keyRefs['kind'];
+        $rewrite = function (&$container, $key, string $locator) use ($kind, $capture) {
+            $map = $container[$key];
+            if (!is_array($map)) {
+                return;
+            }
+            $out = [];
+            foreach ($map as $k => $sub) {
+                if ($capture) {
+                    $tok = is_numeric($k) ? $this->id_to_token((int) $k, $kind) : null;
+                    if ($tok === null) {
+                        $this->warnings[] = "key_refs: unmapped $kind id '$k' at $locator dropped (dangling reference)";
+                        continue;
+                    }
+                    $out[$tok] = $sub;
+                } else {
+                    $id = (is_string($k) && str_starts_with($k, '{{')) ? $this->token_to_id($k) : (int) $k;
+                    $out[$id] = $sub;
+                }
+            }
+            $container[$key] = $out;
+        };
+        if (isset($keyRefs['path'])) {
+            JsonRefs::walk($value, JsonRefs::parse_path($keyRefs['path']), $rewrite, '');
+            return;
+        }
+        // No path declared: $value's OWN keys are the ids. Wrap it so the
+        // SAME closure (which expects container[$key]) applies unmodified.
+        $wrapper = ['root' => $value];
+        $rewrite($wrapper, 'root', '');
+        $value = $wrapper['root'];
+    }
+
+    /** Recursively tokenize_text()/detokenize_text() every string leaf of
+     *  an arbitrarily nested array/scalar — the whole-blob URL pass that
+     *  makes a per-path "url" declaration unnecessary (see
+     *  struct_capture()'s docblock). Never touches array KEYS. */
+    private function tokenize_leaves(&$value, bool $capture): void {
+        if (is_string($value)) {
+            $value = $capture ? $this->tokenize_text($value) : $this->detokenize_text($value);
+            return;
+        }
+        if (is_array($value)) {
+            foreach ($value as &$v) {
+                $this->tokenize_leaves($v, $capture);
+            }
+            unset($v);
+        }
     }
 
     /**

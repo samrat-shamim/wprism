@@ -113,7 +113,8 @@ final class Lint {
         $postType = (string) ($front['type'] ?? '');
         $meta = (array) ($front['meta'] ?? []);
 
-        // (a) bare_id — shallow scan of authored, no-ref-declared meta.
+        // (a) bare_id — shallow scan of authored, no-ref-declared meta;
+        // deep scan (below) for json_refs/key_refs-declared structures.
         foreach ($meta as $key => $value) {
             $rule = $policy->meta_rule_for_post((string) $key, $meta);
             if (isset($rule['ref'])) {
@@ -121,6 +122,10 @@ final class Lint {
             }
             if (!empty($rule['lint_ok'])) {
                 continue; // human-reviewed declaration: numeric but genuinely not a ref
+            }
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                self::scan_structured_bare_ids($value, $rel, 'meta.' . $key, $findings);
+                continue; // structured value: the deep scan above supersedes the shallow one below
             }
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
                 $hit = Pending::resolve_id($id);
@@ -148,6 +153,79 @@ final class Lint {
             . "(#{$hit['id']} \"{$hit['title']}\", {$hit['post_type']}) on this environment — could be a genuine "
             . "unrewritten reference, or an unrelated small number (a count, a version, an ordering index...). "
             . "Small ids coincide; this is a signal to investigate, not proof.";
+    }
+
+    /**
+     * Deep bare_id scan for a json_refs/key_refs-declared meta/option value
+     * (task #11 wave 2 — the linter half of the sub-key ref machinery: a
+     * declaration must make its OWN paths lint-clean while the linter keeps
+     * catching everything the declaration doesn't cover).
+     *
+     * Safe to recurse everywhere without separately re-deriving which exact
+     * locators a declared path covers: Tokens::struct_capture() guarantees
+     * a resolved json_refs match is a token STRING (starts "{{") and an
+     * unmapped one is null — either way, never still a raw number — by the
+     * time captured state is read. So anything found HERE that is still a
+     * bare int is, by construction, something no declared path touched.
+     *
+     * Scoped to id-shaped KEY NAMES (looks_like_id_key() below — a sibling
+     * of unregistered_block_attr's looks_like_id_attr(), NOT a reuse; see
+     * that method's docblock for why) rather than flagging every numeric
+     * leaf — a blind full recursion would flood on
+     * Elementor's own legitimate small-int settings (column widths,
+     * opacity, z-index, ...) that routinely coincide with a real entity id,
+     * defeating the point of a low-noise signal. Also flags integer ARRAY
+     * KEYS on a non-list (associative) array — the wpseo_taxonomy_meta
+     * shape: an id-keyed map surviving capture with its keys still raw
+     * ints means no key_refs declaration covers it. Gated on
+     * !array_is_list($node): an ordinary LIST's own positional indices
+     * (0, 1, 2, ...) are never a meaningful id-keyed-map signal — they're
+     * guaranteed small integers that WILL routinely coincide with a real
+     * entity id (confirmed empirically: Elementor's own `wp_gallery` array
+     * tripped this on index 1 before this guard existed) — only an
+     * associative array's integer keys (never positional when present,
+     * always semantic) are checked, the same list/map distinction
+     * JsonRefs::walk() already makes for path resolution.
+     */
+    private static function scan_structured_bare_ids($node, string $rel, string $locator, array &$findings): void {
+        if (!is_array($node)) {
+            return;
+        }
+        $isList = array_is_list($node);
+        foreach ($node as $key => $v) {
+            $childLocator = is_int($key) ? "{$locator}[{$key}]" : "{$locator}.{$key}";
+            if (is_int($key) && !$isList) {
+                $hit = Pending::resolve_id($key);
+                if ($hit !== null) {
+                    $findings[] = self::finding('bare_id', $rel, "$locator KEY $key", $key, $hit, sprintf(
+                        "this structured value has an integer ARRAY KEY that matches an existing %s id "
+                        . "(#%d \"%s\", %s), with no declared key_refs path covering it — an id-keyed map "
+                        . "surviving capture is exactly the wpseo_taxonomy_meta shape key_refs exists to "
+                        . "rewrite; a resolved key_refs match is never still a raw integer key by this point, "
+                        . "so this is a genuine gap, not a false read. Small ids coincide; this is a signal to "
+                        . "investigate, not proof.",
+                        $hit['kind'], $hit['id'], $hit['title'], $hit['post_type']
+                    ));
+                }
+            } elseif (is_string($key) && self::looks_like_id_key($key)) {
+                foreach (Pending::numeric_candidates($v) as [$id, $locSuffix]) {
+                    $hit = Pending::resolve_id($id);
+                    if ($hit === null) {
+                        continue;
+                    }
+                    $findings[] = self::finding('bare_id', $rel, $childLocator . $locSuffix, $id, $hit, sprintf(
+                        "key '%s' inside a json_refs/key_refs-declared structure looks like an id (matches the "
+                        . "id/ids/ref/*Id/*Ids naming heuristic) and its value coincides with an existing %s id "
+                        . "(#%d \"%s\", %s), but no declared json_refs path covers this exact position — a "
+                        . "resolved json_refs match is never still a raw number by this point (it becomes a "
+                        . "token, or null if unmapped), so this is a genuine manifest gap, not a false read. "
+                        . "Small ids coincide; this is a signal to investigate, not proof.",
+                        $key, $hit['kind'], $hit['id'], $hit['title'], $hit['post_type']
+                    ));
+                }
+            }
+            self::scan_structured_bare_ids($v, $rel, $childLocator, $findings);
+        }
     }
 
     // ------------------------------------------------------------ blocks
@@ -193,6 +271,28 @@ final class Lint {
     /** id / ids / ref, or camelCase-suffixed *Id / *Ids (mediaId, termIds, ...). */
     private static function looks_like_id_attr(string $key): bool {
         return $key === 'id' || $key === 'ids' || $key === 'ref' || (bool) preg_match('/(Id|Ids)$/', $key);
+    }
+
+    /**
+     * Deliberately SEPARATE from looks_like_id_attr() above, not a reuse:
+     * that one is tuned for block-attribute naming (camelCase JS/React
+     * convention — mediaId, termIds), and a first attempt at reusing it
+     * verbatim for scan_structured_bare_ids() silently missed Yoast's OWN
+     * key-naming convention — `wpseo_opengraph-image-id` ends in lowercase
+     * "-id", which `/(Id|Ids)$/` (case-sensitive) does not match — caught
+     * only by testing against the real captured wpseo_taxonomy_meta state,
+     * not by inspection. Widening the shared block-attr function instead
+     * risked an untested behavior change to the already-passing FSE
+     * conformance suite for zero benefit; a second, purpose-built
+     * heuristic for the naming conventions THESE (PHP-array / JSON-plugin)
+     * structures actually use is the safer fix. id / ids / ref (exact,
+     * matching the block-attr heuristic's own exact cases) or a `_id`/
+     * `-id`/`_ids`/`-ids`/`Id`/`Ids` suffix — covers Yoast's kebab-case,
+     * Elementor's snake_case controls, and the camelCase case too.
+     */
+    private static function looks_like_id_key(string $key): bool {
+        return $key === 'id' || $key === 'ids' || $key === 'ref'
+            || (bool) preg_match('/([-_]ids?|Ids?)$/', $key);
     }
 
     // ------------------------------------------------------------ terms
@@ -246,6 +346,10 @@ final class Lint {
             }
             if (!empty($rule['lint_ok'])) {
                 continue; // human-reviewed declaration: numeric but genuinely not a ref
+            }
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                self::scan_structured_bare_ids($value, $rel, 'options.' . $key, $findings);
+                continue; // structured value: the deep scan above supersedes the shallow one below
             }
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
                 $hit = Pending::resolve_id($id);

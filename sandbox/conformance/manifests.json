@@ -11,6 +11,12 @@
     "post_types": ["post", "page", "attachment"],
     "taxonomies": ["category", "post_tag"]
   },
+  "elementor": {
+    "pin": ["core", "elementor"],
+    "plugins": ["elementor"],
+    "post_types": ["post", "page", "attachment", "elementor_library"],
+    "taxonomies": ["category", "post_tag"]
+  },
   "fse": {
     "pin": ["core"],
     "plugins": [],

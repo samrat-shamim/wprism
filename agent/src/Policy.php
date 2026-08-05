@@ -58,6 +58,34 @@ final class Policy {
         return $p;
     }
 
+    /**
+     * Pattern-fallback manifest arrays, keyed by the section they apply to.
+     * `option_patterns` predates this map (kept as its original name for
+     * backward compat with shipped manifests, e.g. core.json's
+     * `^_transient_` rule); `meta_patterns` is new (task #11 wave 2 /
+     * docs/frontier/elementor.md's finding: "post_meta/term_meta
+     * classification has no pattern-matching escape hatch" — Elementor's
+     * `_elementor_migrations_state_<hash>` is exactly the versioned-suffix
+     * shape that needs it). Deliberately NOT post-type-scoped, unlike the
+     * report's own suggestion: exact-match post_meta/term_meta rules
+     * already aren't post-type-scoped in this engine (Policy::rule() has
+     * never taken a post type), so a pattern fallback that suddenly needed
+     * one would be a new, inconsistent axis rather than "mirroring
+     * option_patterns" — a meta key name is either safe to classify by
+     * pattern everywhere it appears, or it isn't; a plugin's own key-naming
+     * convention already makes collisions with an unrelated plugin's keys
+     * exceedingly unlikely, the same trust the exact-match case already
+     * extends. term_meta gets the same fallback for free, at zero extra
+     * cost, since it shares this one lookup path.
+     *
+     * @var array<string, string>
+     */
+    private const PATTERN_KEYS = [
+        'options' => 'option_patterns',
+        'post_meta' => 'meta_patterns',
+        'term_meta' => 'meta_patterns',
+    ];
+
     private function rule(string $section, string $name): ?array {
         $sitePolicy = $this->site['policy'][$section][$name] ?? null;
         if ($sitePolicy !== null) {
@@ -68,11 +96,12 @@ final class Policy {
                 return $m[$section][$name];
             }
         }
-        if ($section === 'options') {
+        $patternKey = self::PATTERN_KEYS[$section] ?? null;
+        if ($patternKey !== null) {
             foreach ($this->manifests as $m) {
-                foreach ($m['option_patterns'] ?? [] as $pat) {
+                foreach ($m[$patternKey] ?? [] as $pat) {
                     if (preg_match('/' . $pat['match'] . '/', $name)) {
-                        return ['class' => $pat['class']];
+                        return array_diff_key($pat, ['match' => true]);
                     }
                 }
             }

@@ -1,0 +1,38 @@
+{
+  "name": "elementor",
+  "notes": [
+    "_elementor_data is Elementor's own postmeta rendering source (verified in docs/frontier/elementor.md: post_content is a plain-HTML fallback used by feeds/search/non-JS contexts, NOT what the front-end renders) — a JSON blob wp_json_encode()'d WITHOUT JSON_UNESCAPED_SLASHES, so every '/' in it appears as '\\/'. Classified authored with json_encoded + json_refs: the raw string is JSON-decoded, declared paths rewrite ids through the ledger, every OTHER string leaf (the redundant 'url' sibling on every media control, arbitrary link/text content) is tokenize_text()'d automatically, and the whole rewritten structure is stored NATIVELY (nested, not re-stringified) in the captured state/ tree — far more readable/mergeable than one opaque minified blob, and the escaping is regenerated for free on apply's re-encode (Tokens::tokenize_text()/detokenize_text() are escaped-form-aware now; RFC 8259 makes '/' vs '\\/' interchangeable inside a JSON string, so this is lossless).",
+    "json_refs paths verified empirically (fx1/fx2 probes, task #11 wave 2, Elementor 4.2.1 via its own Document::save() pipeline — not guessed): every media-reference control observed (widget 'image', section/column 'background_image' from Group_Control_Background, gallery widget 'wp_gallery') uses the identical {\"id\":<int>,\"url\":\"<string>\"} shape, at arbitrary nesting depth under elements[].elements[]... (section -> column -> widget, widgets can themselves nest) — one \"$..<control>.id\" path per control name covers it regardless of depth; the gallery case is an ARRAY of the same shape and needs no special syntax (JsonRefs' array-transparency handles it). A plain-URL internal link (button widget's link.url, the report's other verified shape) carries NO id at all — Elementor doesn't know it's internal unless authored via 'Dynamic Tags', which this session did not exercise (empirically unverified shape, not guessed at) — so no json_refs path is declared for it; the generic string-leaf pass still tokenizes the URL itself.",
+    "The loud-gate keys, precise and reproduced independently twice (original report + this session's own fx1/fx2 probes): activation + a builder save surfaces seven keys (_elementor_data/_elementor_edit_mode/_elementor_template_type authored; _elementor_version managed; _elementor_page_assets/_elementor_global_class_usage_indexed/_elementor_global_class_usage_indexed_preview derived). A REAL front-end page visit (confirmed again this session via curl, not just wp-cli flush-css) lazily creates three MORE: _elementor_css/_elementor_element_cache derived, and a versioned _elementor_migrations_state_<hash> key handled by meta_patterns below since the hash suffix is not a stable literal (differs per Elementor release/site) — Policy::rule() previously had no post_meta/term_meta pattern-fallback at all; meta_patterns (mirroring the existing option_patterns) closes that gap. A conformance seed for this manifest MUST include a render step (front-end page visit) before its second capture or it will falsely believe the manifest is complete — the original report's own finding, reproduced.",
+    "elementor_active_kit (option, ref:post) and elementor_library (a post_types scope addition the CONSUMING site.duo.json must make — manifests cannot declare post_type/taxonomy scope, the same structural gap the FSE report found) already worked with zero new engine code the moment both were in policy: the option correctly tokenizes via the existing generic option-ref machinery, and an uncustomized kit post needs no metadata beyond what's already classified for an ordinary page (verified this session on fx1 with both in scope: zero pending unclassified state). Customized kit global colors/fonts (_elementor_page_settings or similar) remain explicitly UNVERIFIED, per the original report, and are deliberately NOT classified here — a real site with a customized kit will hit the loud gate rather than silently mis-round-trip.",
+    "Rebuilder verified against a running install (task #11 wave 2): Elementor ships `wp elementor flush-css` (module: modules/wp-cli/command.php, alias flush-css) with a --regenerate flag that clears the CSS cache and calls Plugin::$instance->files_manager->generate_css() — confirmed by reading the installed plugin's own source (not assumed from memory) and running it live (`wp elementor flush-css --regenerate` -> \"Success: Flushed the Elementor CSS Cache\"). This is what turns correctly-rewritten _elementor_data into a rendered page: Elementor's CSS (including section background-image URLs, which live in generated CSS, not in any HTML attribute) is compiled from _elementor_data at cache-generation time, so it picks up the target environment's own rewritten ids/URLs automatically — confirmed by rendering a genuinely cross-environment-applied page and finding the section background-image in the regenerated CSS file already pointing at the target's own host."
+  ],
+  "meta_patterns": [
+    {"class": "derived", "match": "^_elementor_migrations_state_"}
+  ],
+  "options": {
+    "elementor_active_kit": {"class": "authored", "ref": "post"}
+  },
+  "post_meta": {
+    "_elementor_css": {"class": "derived"},
+    "_elementor_data": {
+      "class": "authored",
+      "json_encoded": true,
+      "json_refs": [
+        {"path": "$..image.id", "kind": "post"},
+        {"path": "$..background_image.id", "kind": "post"},
+        {"path": "$..wp_gallery.id", "kind": "post"}
+      ]
+    },
+    "_elementor_edit_mode": {"class": "authored"},
+    "_elementor_element_cache": {"class": "derived"},
+    "_elementor_global_class_usage_indexed": {"class": "derived"},
+    "_elementor_global_class_usage_indexed_preview": {"class": "derived"},
+    "_elementor_page_assets": {"class": "derived"},
+    "_elementor_template_type": {"class": "authored"},
+    "_elementor_version": {"class": "managed"}
+  },
+  "rebuilders": [
+    {"command": "elementor flush-css --regenerate"}
+  ]
+}
