@@ -1,0 +1,65 @@
+{
+  "block_attrs": {
+    "core/block": [{"kind": "post", "path": "ref", "type": "int"}],
+    "core/cover": [{"kind": "post", "path": "id", "type": "int"}],
+    "core/gallery": [{"kind": "post", "path": "ids", "type": "int[]"}],
+    "core/image": [{"kind": "post", "path": "id", "type": "int"}],
+    "core/media-text": [{"kind": "post", "path": "mediaId", "type": "int"}],
+    "core/navigation": [{"kind": "post", "path": "ref", "type": "int"}]
+  },
+  "name": "core",
+  "option_patterns": [
+    {"class": "derived", "match": "^_transient_"},
+    {"class": "derived", "match": "^_site_transient_"},
+    {"class": "special_theme_mods", "match": "^theme_mods_"},
+    {"class": "runtime", "match": "^_wp_session_"}
+  ],
+  "options": {
+    "admin_email": {"class": "env"},
+    "blogdescription": {"class": "authored"},
+    "blogname": {"class": "authored"},
+    "cron": {"class": "runtime"},
+    "default_category": {"class": "authored", "ref": "term"},
+    "home": {"class": "env"},
+    "page_for_posts": {"class": "authored", "ref": "post"},
+    "page_on_front": {"class": "authored", "ref": "post"},
+    "posts_per_page": {"class": "authored"},
+    "recently_activated": {"class": "runtime"},
+    "recently_edited": {"class": "runtime"},
+    "rewrite_rules": {"class": "derived"},
+    "show_on_front": {"class": "authored"},
+    "siteurl": {"class": "env"},
+    "sticky_posts": {"class": "authored", "ref": "post[]"},
+    "wp_page_for_privacy_policy": {"class": "authored", "ref": "post"}
+  },
+  "post_meta": {
+    "_duo_uuid": {"class": "managed"},
+    "_edit_last": {"class": "runtime"},
+    "_edit_lock": {"class": "runtime"},
+    "_encloseme": {"class": "runtime"},
+    "_menu_item_classes": {"class": "managed"},
+    "_menu_item_menu_item_parent": {"class": "managed"},
+    "_menu_item_object": {"class": "managed"},
+    "_menu_item_object_id": {"class": "managed"},
+    "_menu_item_orphaned": {"class": "runtime"},
+    "_menu_item_target": {"class": "managed"},
+    "_menu_item_type": {"class": "managed"},
+    "_menu_item_url": {"class": "managed"},
+    "_menu_item_xfn": {"class": "managed"},
+    "_pingme": {"class": "runtime"},
+    "_thumbnail_id": {"class": "authored", "ref": "post"},
+    "_wp_attached_file": {"class": "managed"},
+    "_wp_attachment_backup_sizes": {"class": "derived"},
+    "_wp_attachment_image_alt": {"class": "managed"},
+    "_wp_attachment_metadata": {"class": "derived"},
+    "_wp_desired_post_slug": {"class": "runtime"},
+    "_wp_old_date": {"class": "derived"},
+    "_wp_old_slug": {"class": "derived"},
+    "_wp_page_template": {"class": "authored"},
+    "_wp_trash_meta_status": {"class": "runtime"},
+    "_wp_trash_meta_time": {"class": "runtime"}
+  },
+  "term_meta": {
+    "_duo_uuid": {"class": "managed"}
+  }
+}

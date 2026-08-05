@@ -1,0 +1,4 @@
+.DS_Store
+*.log
+sandbox/siterepo/
+sandbox/tmp/

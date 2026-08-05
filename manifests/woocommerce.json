@@ -1,0 +1,66 @@
+{
+  "name": "woocommerce",
+  "note": "Skeleton manifest: Spike C ground truth for provenance-proposal scoring. Version-range pinning and full coverage land with the plugin-manifest workstream.",
+  "option_patterns": [
+    {"class": "runtime", "match": "^woocommerce_maybe_regenerate_images"},
+    {"class": "runtime", "match": "^_wc_session_"}
+  ],
+  "options": {
+    "woocommerce_all_except_countries": {"class": "authored"},
+    "woocommerce_allowed_countries": {"class": "authored"},
+    "woocommerce_cart_page_id": {"class": "authored", "ref": "post"},
+    "woocommerce_checkout_page_id": {"class": "authored", "ref": "post"},
+    "woocommerce_currency": {"class": "authored"},
+    "woocommerce_db_version": {"class": "env"},
+    "woocommerce_default_country": {"class": "authored"},
+    "woocommerce_myaccount_page_id": {"class": "authored", "ref": "post"},
+    "woocommerce_shop_page_id": {"class": "authored", "ref": "post"},
+    "woocommerce_store_address": {"class": "authored"},
+    "woocommerce_store_address_2": {"class": "authored"},
+    "woocommerce_store_city": {"class": "authored"},
+    "woocommerce_store_postcode": {"class": "authored"},
+    "woocommerce_terms_page_id": {"class": "authored", "ref": "post"},
+    "woocommerce_version": {"class": "env"}
+  },
+  "post_meta": {
+    "_backorders": {"class": "authored"},
+    "_manage_stock": {"class": "authored"},
+    "_price": {"class": "derived"},
+    "_product_version": {"class": "env"},
+    "_regular_price": {"class": "authored"},
+    "_sale_price": {"class": "authored"},
+    "_sku": {"class": "authored"},
+    "_sold_individually": {"class": "authored"},
+    "_stock": {"class": "runtime"},
+    "_stock_status": {"class": "runtime"},
+    "_tax_class": {"class": "authored"},
+    "_tax_status": {"class": "authored"},
+    "_virtual": {"class": "authored"},
+    "_wc_average_rating": {"class": "runtime"},
+    "_wc_review_count": {"class": "runtime"},
+    "total_sales": {"class": "runtime"}
+  },
+  "post_types": {
+    "product": {"class": "authored"},
+    "shop_coupon": {"class": "authored"},
+    "shop_order": {"class": "runtime"}
+  },
+  "tables": {
+    "actionscheduler_actions": {"class": "runtime"},
+    "actionscheduler_claims": {"class": "runtime"},
+    "actionscheduler_groups": {"class": "runtime"},
+    "actionscheduler_logs": {"class": "runtime"},
+    "wc_customer_lookup": {"class": "runtime"},
+    "wc_order_addresses": {"class": "runtime"},
+    "wc_order_operational_data": {"class": "runtime"},
+    "wc_order_stats": {"class": "runtime"},
+    "wc_orders": {"class": "runtime"},
+    "wc_orders_meta": {"class": "runtime"},
+    "wc_product_meta_lookup": {"class": "derived"},
+    "wc_reserved_stock": {"class": "runtime"},
+    "woocommerce_attribute_taxonomies": {"class": "authored_typed_snapshot_post_v1"},
+    "woocommerce_order_itemmeta": {"class": "runtime"},
+    "woocommerce_order_items": {"class": "runtime"},
+    "woocommerce_sessions": {"class": "runtime"}
+  }
+}
