@@ -109,7 +109,7 @@ The repo is the declarative source of truth for the branchable partition; enviro
 
 **v0 implementation decisions** (deferred at planning, decided at scaffold):
 
-- **Engine language: PHP, packaged as a wp-cli command set inside the agent.** Running in-process with WordPress gives native `unserialize`, the official block parser (`parse_blocks`/`serialize_blocks`), and `$wpdb` — the three things the engine lives on. The *orchestrator* CLI (multi-env UX) is deferred and will likely be TypeScript; in v0 the sandbox drives per-env `wp duo …` commands over `docker compose exec`.
+- **Engine language: PHP, packaged as a wp-cli command set inside the agent.** Running in-process with WordPress gives native `unserialize`, the official block parser (`parse_blocks`/`serialize_blocks`), and `$wpdb` — the three things the engine lives on. The *orchestrator* CLI ([cli/](cli/)) is also dependency-free PHP for v0.5: WP shops always have PHP, and shipping without a composer/npm toolchain matters more for a drop-in tool than CLI-framework ergonomics (revisit if a daemon/UI emerges). It wraps per-env `wp duo …` over local/docker/ssh transports; git stays git.
 - **Canonical format: canonical JSON (sorted keys, pretty, LF) for structured entities; front-matter+raw-body for posts.** JSON keeps the drop-in mu-plugin dependency-free (no YAML parser ships with WP/PHP) and makes byte-determinism trivial; git-mergeability of post *bodies* — the part that matters — is preserved by the front-matter+raw-body format (see 3.3). YAML stays an open revisit as a mechanical `spec_version` bump. Spike A's capture-twice determinism test validates the emitter.
 
 ## 5. Non-goals

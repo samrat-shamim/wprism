@@ -74,12 +74,49 @@ final class Apply {
             }
             $plan['create'][] = $row;
         }
+        global $wpdb;
+        $guards = $this->policy->delete_guards();
         foreach ($base as $uuid => $b) {
-            if (!isset($tree[$uuid])) {
-                $plan['delete'][] = ['uuid' => $uuid, 'type' => $b['entity_type']];
+            if (isset($tree[$uuid])) {
+                continue;
             }
+            $row = ['uuid' => $uuid, 'type' => $b['entity_type']];
+            if ($b['entity_type'] === 'post' && $guards) {
+                $localId = Ledger::id_for($uuid, Ledger::KIND_POST);
+                if ($localId !== null) {
+                    $ptype = (string) $wpdb->get_var($wpdb->prepare(
+                        "SELECT post_type FROM {$wpdb->posts} WHERE ID = %d", $localId
+                    ));
+                    $row['post_type'] = $ptype;
+                    foreach ($guards["post:$ptype"] ?? [] as $g) {
+                        $refs = $this->count_guard_refs($g, $localId);
+                        if ($refs === null) {
+                            $this->warnings[] = "delete guard table '{$g['table']}' not present; guard skipped for $uuid";
+                            continue;
+                        }
+                        if ($refs > 0) {
+                            $row['blocked'] = ($g['reason'] ?? "referenced by {$g['table']}.{$g['column']}") . " — $refs row(s)";
+                            break;
+                        }
+                    }
+                }
+            }
+            $plan['delete'][] = $row;
         }
         return $plan;
+    }
+
+    /** @return ?int row count, or null when the guard table doesn't exist */
+    private function count_guard_refs(array $guard, int $localId): ?int {
+        global $wpdb;
+        $table = $wpdb->prefix . preg_replace('/[^A-Za-z0-9_]/', '', $guard['table']);
+        $column = preg_replace('/[^A-Za-z0-9_]/', '', $guard['column']);
+        if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table))) {
+            return null;
+        }
+        return (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM `$table` WHERE `$column` = %d", $localId
+        ));
     }
 
     /** Same-slug env entity: managed w/ different uuid (hard collision) or unmanaged (adoptable). */
@@ -180,7 +217,24 @@ final class Apply {
             );
         }
 
+        if (!empty($opts['with_deletes'])) {
+            $blocked = array_filter($plan['delete'], fn($r) => isset($r['blocked']));
+            if ($blocked && empty($opts['force_delete_referenced'])) {
+                $list = implode("\n  - ", array_map(
+                    fn($r) => "{$r['type']} {$r['uuid']}: {$r['blocked']}",
+                    $blocked
+                ));
+                throw new \RuntimeException(
+                    "duo: deletes blocked by referential guards (this environment's runtime data references them; --force-delete-referenced to override):\n  - $list"
+                );
+            }
+            foreach ($blocked as $r) {
+                $this->warnings[] = "FORCED delete of guarded {$r['type']} {$r['uuid']} ({$r['blocked']})";
+            }
+        }
+
         $this->defaultAuthor = $this->resolve_login($opts['default_author'] ?? '') ?? null;
+        $this->tokens->defaultUserId = $this->defaultAuthor;
 
         $work = array_merge(
             $plan['create'],
@@ -274,7 +328,7 @@ final class Apply {
         }
 
         // ---- rebuild pass (derived state; canary is off by design) ----
-        $this->rebuild($newAttachmentIds);
+        $this->rebuild($newAttachmentIds, count($work) > 0);
 
         return [
             'plan' => array_map('count', $plan),
@@ -403,11 +457,14 @@ final class Apply {
             }
         }
 
+        $content = $this->policy->body_mode($front['type']) === 'verbatim'
+            ? $body
+            : Blocks::apply_rewrite($body, $this->policy, $this->tokens);
         $wpdb->update($wpdb->posts, [
             'post_author' => $authorId,
             'post_date' => $front['date'],
             'post_date_gmt' => $front['date_gmt'],
-            'post_content' => Blocks::apply_rewrite($body, $this->policy, $this->tokens),
+            'post_content' => $content,
             'post_title' => $front['title'],
             'post_excerpt' => $this->tokens->detokenize_text((string) $front['excerpt']),
             'post_status' => $front['status'],
@@ -422,21 +479,27 @@ final class Apply {
         ], ['ID' => $id]);
 
         // authored meta reconciliation: we own exactly the authored-classified keys
+        $frontMeta = (array) ($front['meta'] ?? []);
         $desired = [];
-        foreach ((array) ($front['meta'] ?? []) as $key => $v) {
-            $rule = $this->policy->post_meta_rule($key) ?? [];
+        foreach ($frontMeta as $key => $v) {
+            $rule = $this->policy->meta_rule_for_post($key, $frontMeta) ?? [];
             if (!empty($rule['ref'])) {
-                $v = $this->tokens->tokens_to_value($v, $rule['ref']);
+                $v = $this->tokens->meta_tokens_to_value($v, $rule);
             } elseif (is_string($v)) {
                 $v = $this->tokens->detokenize_text($v);
             }
             $desired[$key] = maybe_serialize($v);
         }
         $envMeta = $wpdb->get_results($wpdb->prepare(
-            "SELECT meta_id, meta_key FROM {$wpdb->postmeta} WHERE post_id = %d", $id
+            "SELECT meta_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_id ASC",
+            $id
         ), ARRAY_A) ?: [];
+        $envFlat = [];
         foreach ($envMeta as $m) {
-            $rule = $this->policy->post_meta_rule($m['meta_key']);
+            $envFlat[$m['meta_key']] ??= $m['meta_value'];
+        }
+        foreach ($envMeta as $m) {
+            $rule = $this->policy->meta_rule_for_post($m['meta_key'], $envFlat);
             if (($rule['class'] ?? '') === 'authored' && !array_key_exists($m['meta_key'], $desired)) {
                 $wpdb->delete($wpdb->postmeta, ['meta_id' => $m['meta_id']]);
             }
@@ -710,7 +773,7 @@ final class Apply {
 
     // --------------------------------------------------------------- rebuild
 
-    private function rebuild(array $newAttachmentIds): void {
+    private function rebuild(array $newAttachmentIds, bool $didWork = true): void {
         global $wpdb;
 
         // term recounts (published posts), incl. nav_menu
@@ -741,6 +804,30 @@ final class Apply {
                 }
             } catch (\Throwable $t) {
                 $this->warnings[] = "attachment $id metadata regen failed: " . $t->getMessage();
+            }
+        }
+
+        // manifest-declared rebuilders: the hooks we deliberately skip are also
+        // what maintain plugin derived state (indexables, lookup tables) —
+        // manifests declare the regeneration command instead.
+        if ($didWork) {
+            foreach ($this->policy->rebuilders() as $r) {
+                $cmd = (string) ($r['command'] ?? '');
+                if ($cmd === '') {
+                    continue;
+                }
+                if (!class_exists('\WP_CLI')) {
+                    $this->warnings[] = "rebuilder '$cmd' skipped (not a wp-cli context)";
+                    continue;
+                }
+                try {
+                    $res = \WP_CLI::runcommand($cmd, ['launch' => true, 'return' => 'all', 'exit_error' => false]);
+                    if ((int) $res->return_code !== 0) {
+                        $this->warnings[] = "rebuilder '$cmd' exited {$res->return_code}: " . trim((string) $res->stderr);
+                    }
+                } catch (\Throwable $t) {
+                    $this->warnings[] = "rebuilder '$cmd' failed: " . $t->getMessage();
+                }
             }
         }
 

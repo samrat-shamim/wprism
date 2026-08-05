@@ -65,7 +65,11 @@ final class Cli {
         }
         foreach (['create', 'update', 'adopt', 'unchanged', 'drift', 'conflict', 'collision', 'delete'] as $kind) {
             foreach ($plan[$kind] as $r) {
-                WP_CLI::line(strtoupper(str_pad($kind, 9)) . ' ' . ($r['path'] ?? ($r['type'] . ' ' . $r['uuid'])));
+                $line = strtoupper(str_pad($kind, 9)) . ' ' . ($r['path'] ?? ($r['type'] . ' ' . $r['uuid']));
+                if (isset($r['blocked'])) {
+                    $line .= '  [BLOCKED: ' . $r['blocked'] . ']';
+                }
+                WP_CLI::line($line);
             }
         }
         $counts = implode(', ', array_map(fn($k) => count($plan[$k]) . " $k", array_keys($plan)));
@@ -82,6 +86,7 @@ final class Cli {
      * --repo=<path>
      * [--adopt-by-slug=<kinds>]
      * [--with-deletes]
+     * [--force-delete-referenced] : override referential delete guards.
      * [--force-theirs]
      * [--default-author=<login>]
      * [--revision=<rev>]
@@ -92,6 +97,7 @@ final class Cli {
             $summary = Apply::apply($assoc['repo'] ?? WP_CLI::error('--repo required'), [
                 'adopt_by_slug' => $assoc['adopt-by-slug'] ?? '',
                 'with_deletes' => isset($assoc['with-deletes']),
+                'force_delete_referenced' => isset($assoc['force-delete-referenced']),
                 'force_theirs' => isset($assoc['force-theirs']),
                 'default_author' => $assoc['default-author'] ?? '',
                 'revision' => $assoc['revision'] ?? '',

@@ -13,6 +13,12 @@ final class Tokens {
     private string $uploadsUrl;
     /** @var string[] capture-time warnings (unmapped ids etc.) */
     public array $warnings = [];
+    /** @var array<int,string> user id -> login (capture direction) */
+    private array $userLogins = [];
+    /** @var array<string,int> login -> user id (apply direction) */
+    private array $userIds = [];
+    /** Fallback for unresolvable user tokens on apply (set by Apply). */
+    public ?int $defaultUserId = null;
 
     public function __construct() {
         $this->home = untrailingslashit((string) get_option('home'));
@@ -76,6 +82,105 @@ final class Tokens {
             throw new \RuntimeException("duo: unresolvable ref $token (entity not in this environment)");
         }
         return $id;
+    }
+
+    // ---- user refs (users are env-local; tokens are logins, never ids) ----
+
+    /** id -> "user:<login>" (capture). Unresolvable users stay numeric, warned. */
+    public function user_id_to_token(int $id): ?string {
+        global $wpdb;
+        if ($id <= 0) {
+            return null;
+        }
+        if (!isset($this->userLogins[$id])) {
+            $login = $wpdb->get_var($wpdb->prepare(
+                "SELECT user_login FROM {$wpdb->users} WHERE ID = %d", $id
+            ));
+            $this->userLogins[$id] = $login ?: '';
+        }
+        if ($this->userLogins[$id] === '') {
+            $this->warnings[] = "user id $id not found; reference left numeric";
+            return null;
+        }
+        return 'user:' . $this->userLogins[$id];
+    }
+
+    /** "user:<login>" -> id (apply), falling back to the configured default. */
+    public function user_token_to_id(string $token): int {
+        $login = substr($token, 5);
+        if (!isset($this->userIds[$login])) {
+            global $wpdb;
+            $id = $wpdb->get_var($wpdb->prepare(
+                "SELECT ID FROM {$wpdb->users} WHERE user_login = %s LIMIT 1", $login
+            ));
+            $this->userIds[$login] = $id ? (int) $id : 0;
+        }
+        if ($this->userIds[$login] > 0) {
+            return $this->userIds[$login];
+        }
+        $fallback = $this->defaultUserId ?? 1;
+        $this->warnings[] = "user '$login' not in this environment; fell back to user #$fallback";
+        return $fallback;
+    }
+
+    // ---- rule-aware meta values (ref + optional cast) ----
+
+    /**
+     * Capture direction for a meta value per manifest/interpreter rule:
+     * ['ref' => 'post'|'term'|'user'|'post[]'|..., 'cast' => null|'string'|'csv'].
+     * 'string' preserves ids-as-strings inside serialized arrays byte-exactly
+     * (ACF stores them that way); 'csv' canonicalizes a "1,2,3" string into a
+     * token list re-joined on apply. Unmapped ids stay numeric (warned).
+     */
+    public function meta_value_to_tokens($value, array $rule) {
+        $ref = $rule['ref'];
+        $cast = $rule['cast'] ?? null;
+        $one = function ($v, string $kind) {
+            if ($kind === 'user') {
+                return $this->user_id_to_token((int) $v) ?? (int) $v;
+            }
+            return $this->id_to_token((int) $v, $kind) ?? (int) $v;
+        };
+        if ($cast === 'csv') {
+            $kind = rtrim($ref, '[]');
+            $parts = array_values(array_filter(
+                array_map('trim', explode(',', (string) $value)),
+                fn($s) => $s !== ''
+            ));
+            return array_map(fn($v) => $one($v, $kind), $parts);
+        }
+        if (str_ends_with($ref, '[]')) {
+            $kind = substr($ref, 0, -2);
+            $out = [];
+            foreach ((array) $value as $v) {
+                $out[] = $one($v, $kind);
+            }
+            return $out;
+        }
+        return $one($value, $ref);
+    }
+
+    /** Apply direction for meta values; restores the declared storage shape. */
+    public function meta_tokens_to_value($value, array $rule) {
+        $cast = $rule['cast'] ?? null;
+        $toId = function ($v): int {
+            if (is_string($v) && str_starts_with($v, '{{')) {
+                return $this->token_to_id($v);
+            }
+            if (is_string($v) && str_starts_with($v, 'user:')) {
+                return $this->user_token_to_id($v);
+            }
+            return (int) $v;
+        };
+        if ($cast === 'csv') {
+            return implode(',', array_map($toId, (array) $value));
+        }
+        if (str_ends_with($rule['ref'], '[]')) {
+            $ids = array_map($toId, (array) $value);
+            return $cast === 'string' ? array_map('strval', $ids) : $ids;
+        }
+        $id = $toId($value);
+        return $cast === 'string' ? (string) $id : $id;
     }
 
     /**

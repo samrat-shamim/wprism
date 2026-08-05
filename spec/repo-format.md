@@ -213,6 +213,14 @@ Flat map, only keys classified authored. v0 whitelist (the pinned 8): `blogname`
 
 Classes: `authored` (captured), `runtime` / `derived` / `env` (excluded; `derived` additionally implies "regenerate on apply" where a rebuilder exists). Anything unmatched by manifest+policy is **unclassified → loud abort**.
 
+Extended manifest capabilities (spec v0.5):
+
+- `"interpreter": "<name>"` — schema-driven classification: the named interpreter (a class shipped with the agent, e.g. `acf`) is consulted per (meta key, the entity's full meta map) *before* static rules — for plugins whose meta semantics live in data (field-group definitions), not in a static key list.
+- `"post_types": {"acf-field": {"class": "authored", "body": "verbatim"}}` — body mode `verbatim` byte-preserves `post_content` (serialized-data bodies, where URL substitution would corrupt serialized lengths). A verbatim body containing the environment's home URL warns loudly at capture: it will not re-bind.
+- Meta ref rules may declare `"cast"`: `"string"` (ids stored as strings inside serialized arrays — the ACF shape) or `"csv"` (a `"1,2,3"` id list canonicalized to a token array, re-joined on apply). Ref kind `"user"` serializes as `user:<login>` tokens — users stay env-local; apply resolves by login and falls back to the default author with a warning.
+- `"rebuilders": [{"command": "yoast index"}]` — wp-cli commands run in the rebuild pass after a non-empty apply: the hooks apply deliberately skips are also what maintain plugin derived state (indexables, lookup tables), so manifests declare the regeneration command instead.
+- `"delete_guards": {"post:product": [{"table": "wc_order_product_lookup", "column": "product_id", "reason": "orders reference this product"}]}` — plan-time referential check: matching rows mark the delete **BLOCKED**; `apply --with-deletes` refuses unless `--force-delete-referenced`.
+
 ## Ledger tables (per environment, never in the repo)
 
 | Table | Purpose |

@@ -290,6 +290,7 @@ final class Capture {
         $meta = [];
         $attachedFile = null;
         $alt = '';
+        $flatMeta = array_map(fn($vals) => $vals[0], $byKey);
         foreach ($byKey as $key => $values) {
             if ($key === '_wp_attached_file') {
                 $attachedFile = $values[0];
@@ -299,7 +300,7 @@ final class Capture {
                 $alt = (string) $values[0];
                 continue;
             }
-            $rule = $this->policy->post_meta_rule($key);
+            $rule = $this->policy->meta_rule_for_post($key, $flatMeta);
             if ($rule === null) {
                 $this->unclassified[] = "post_meta:$key";
                 continue;
@@ -313,7 +314,7 @@ final class Capture {
             $v = maybe_unserialize($values[0]);
             self::assert_plain($v, "post $id meta $key");
             if (!empty($rule['ref'])) {
-                $v = $this->tokens->value_to_tokens($v, $rule['ref']);
+                $v = $this->tokens->meta_value_to_tokens($v, $rule);
             } elseif (is_string($v)) {
                 $v = $this->tokens->tokenize_text($v);
             }
@@ -394,7 +395,17 @@ final class Capture {
             $mediaRef = [$mediaFile, $src];
         }
 
-        $body = Blocks::capture_rewrite((string) $p->post_content, $this->policy, $this->tokens);
+        if ($this->policy->body_mode($p->post_type) === 'verbatim') {
+            // Serialized-data bodies (e.g. acf-field config): byte-preserved —
+            // URL substitution would corrupt serialized string lengths.
+            $body = (string) $p->post_content;
+            if ($body !== '' && str_contains($body, $this->tokens->home())) {
+                $this->tokens->warnings[] =
+                    "verbatim body of {$p->post_type} '{$p->post_name}' contains this environment's home URL — it will NOT be re-bound on apply";
+            }
+        } else {
+            $body = Blocks::capture_rewrite((string) $p->post_content, $this->policy, $this->tokens);
+        }
         return [$front, $body, $mediaRef];
     }
 
