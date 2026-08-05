@@ -17,6 +17,9 @@ final class Capture {
     private array $unclassified = [];
     /** @var array<int, string> user id -> login */
     private array $userLogins = [];
+    /** @var array<string, string[]> post_type -> taxonomy[], scoped by each
+     *  taxonomy's own registered object_type — see taxes_for_post_types(). */
+    private array $taxesForPostType = [];
 
     private function __construct(string $repo, Policy $policy) {
         $this->repo = rtrim($repo, '/');
@@ -42,6 +45,11 @@ final class Capture {
         self::clear_state_dir($stateDir);
         foreach ($build['entities'] as $e) {
             Canon::write_file($stateDir . '/' . $e['path'], $e['content']);
+        }
+        $lint = Lint::scan_tree($stateDir, $c->policy);
+        if ($lint) {
+            $build['warnings'][] = count($lint)
+                . ' suspicious unrewritten ref(s) in captured state — run: wp duo lint --repo=' . $c->repo;
         }
         if ($intoRepo) {
             foreach ($build['media'] as $file => $src) {
@@ -168,6 +176,7 @@ final class Capture {
         // ---- scope ----
         $posts = $this->scope_posts();
         $terms = $this->scope_terms();
+        $this->taxesForPostType = $this->taxes_for_post_types($this->policy->taxonomies(), $this->policy->post_types());
 
         // ---- identity ----
         $postUuids = [];
@@ -302,6 +311,49 @@ final class Capture {
         ) ?: [];
     }
 
+    /**
+     * Precompute, once per build, which of the policy's scoped taxonomies
+     * actually apply to each in-scope post type — keyed on the taxonomy's
+     * own registered object_type, never on raw numeric object_id.
+     *
+     * Posts and terms are minted from independent auto-increment counters
+     * that share one numeric space: a term_relationships row with
+     * object_id = N can belong to a post OR — for a term-object taxonomy
+     * like Polylang's term_language/term_translations — to a completely
+     * different term that happens to have term_id = N. Filtering the `IN
+     * (...)` taxonomy list per post type, using WordPress's own object_type
+     * declaration, is what keeps a post's relationship query from ever
+     * matching another object's rows just because the ids coincide.
+     *
+     * A scoped taxonomy that isn't registered at runtime (its plugin is
+     * inactive on this environment) can't be checked at all — silently
+     * trusting it would reintroduce the same hazard, so it's excluded
+     * entirely and named in a loud warning instead.
+     *
+     * @param string[] $taxes policy-scoped taxonomy names
+     * @param string[] $postTypes policy-scoped post types
+     * @return array<string, string[]> post_type => taxonomy[]
+     */
+    private function taxes_for_post_types(array $taxes, array $postTypes): array {
+        $map = array_fill_keys($postTypes, []);
+        foreach ($taxes as $tax) {
+            $taxObj = get_taxonomy($tax);
+            if ($taxObj === false) {
+                $this->tokens->warnings[] =
+                    "taxonomy '$tax' is in policy scope but not registered on this environment"
+                    . " (plugin inactive?) — cannot determine which object type its relationships"
+                    . " belong to, so its relationships are skipped for every post";
+                continue;
+            }
+            foreach ((array) $taxObj->object_type as $objectType) {
+                if (isset($map[$objectType])) {
+                    $map[$objectType][] = $tax;
+                }
+            }
+        }
+        return $map;
+    }
+
     private function ensure_post_uuid(int $id, string $entityType, bool $mint): ?string {
         global $wpdb;
         $uuid = $wpdb->get_var($wpdb->prepare(
@@ -407,8 +459,11 @@ final class Capture {
             $parent = $tok;
         }
 
-        // term relationships (owned taxonomies only)
-        $taxes = $this->policy->taxonomies();
+        // term relationships (owned taxonomies only, filtered to taxonomies
+        // whose registered object_type actually includes THIS post type —
+        // see taxes_for_post_types() for why raw object_id equality alone
+        // is unsafe: posts and terms share one auto-increment id space)
+        $taxes = $this->taxesForPostType[$p->post_type] ?? [];
         $termsField = [];
         if ($taxes && !$isAttachment) {
             $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";

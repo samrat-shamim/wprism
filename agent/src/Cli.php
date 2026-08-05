@@ -372,6 +372,82 @@ final class Cli {
     }
 
     /**
+     * The generalized suspicious-ref linter (task #11; docs/frontier/{fse,
+     * polylang,elementor}.md): scans a CAPTURED state tree for ref-shaped
+     * values that reached canonical state WITHOUT ever passing through a
+     * declared rewrite path. This is the correctness gate byte-identical
+     * round-tripping cannot be: a value the tokenizer never looks at gets
+     * captured and re-applied as the exact same wrong bytes on every
+     * environment, so `duo capture`'s own determinism check reports
+     * "clean" on real corruption — all three frontier explorations
+     * independently hit this blind spot and lost real content to it.
+     *
+     * Four detection classes, each finding tagged accordingly:
+     *   bare_id             — a numeric post_meta/option value with no ref
+     *                         declared in its rule, where the number
+     *                         happens to match an existing post/term id on
+     *                         THIS environment (finding #9's original ask).
+     *   escaped_home        — this environment's home URL in JSON-escaped
+     *                         form (`https:\/\/…`), in a post body or any
+     *                         meta/option value — tokenize_text() only
+     *                         matches the plain, unescaped form (Elementor's
+     *                         _elementor_data shape).
+     *   unregistered_block_attr — id/ids/ref(-suffixed) block attributes
+     *                         with no block_attrs registry rule for that
+     *                         exact path (FSE's core/navigation-link shape
+     *                         before it had one), plus plain-form home URLs
+     *                         sitting in ANY string block attribute (block
+     *                         attrs are never routed through the text
+     *                         tokenizer, rule or no rule).
+     *   serialized_desc_ids — a term description that unserializes (PHP
+     *                         serialize format) to data containing an
+     *                         integer matching an existing post/term id
+     *                         (Polylang's post_translations/
+     *                         term_translations shape).
+     *
+     * Every finding is a plan-time SIGNAL, not proof of corruption: small
+     * ids legitimately coincide with unrelated authored numbers (counts,
+     * versions, ordering indexes) — that caveat travels in each finding's
+     * own "note", never left implicit. Exits 1 when findings exist (a gate
+     * only when a caller scripts it that way — see sandbox/conformance/
+     * run.sh, which currently runs this warn-only, pending main wiring it
+     * into capture as a hard gate).
+     *
+     * ## OPTIONS
+     * --repo=<path>
+     * [--json]           : JSON output (wp-cli rewrites this to --format=json).
+     * [--format=<format>] : Output format. Accepts json.
+     */
+    public function lint($args, $assoc) {
+        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
+        try {
+            $policy = Policy::load($repo);
+            $findings = Lint::scan_tree(rtrim($repo, '/') . '/state', $policy);
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($findings, JSON_UNESCAPED_SLASHES));
+        } elseif (!$findings) {
+            WP_CLI::success('no findings — captured state is clean');
+        } else {
+            foreach ($findings as $f) {
+                $val = is_scalar($f['value']) ? (string) $f['value'] : json_encode($f['value'], JSON_UNESCAPED_SLASHES);
+                $match = isset($f['matches'])
+                    ? sprintf(' matches=%s:%d "%s" (%s)', $f['matches']['kind'], $f['matches']['id'], $f['matches']['title'], $f['matches']['post_type'])
+                    : '';
+                WP_CLI::line(sprintf('%-24s %-55s %-32s value=%s%s', $f['class'], $f['path'], $f['locator'], $val, $match));
+                WP_CLI::line('    ' . $f['note']);
+            }
+            WP_CLI::line('');
+            WP_CLI::warning(count($findings) . ' finding(s) — review before trusting a byte-identical round trip');
+        }
+        if ($findings) {
+            WP_CLI::halt(1);
+        }
+    }
+
+    /**
      * Draft-manifest export: every site-policy rule (not inherited manifest
      * rules — the human is promoting decisions they made) whose key matches
      * --match, grouped into a manifest-shaped JSON document on stdout.

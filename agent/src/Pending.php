@@ -131,53 +131,94 @@ final class Pending {
      * coincide with unrelated numbers.
      */
     private static function ref_hint($value): ?array {
-        $ids = self::numeric_candidates($value);
-        if (!$ids) {
-            return null;
-        }
-        global $wpdb;
-        foreach ($ids as $id) {
+        foreach (self::numeric_candidates($value) as [$id, ]) {
             if ($id <= 0) {
                 continue;
             }
-            $post = $wpdb->get_row($wpdb->prepare(
-                "SELECT ID, post_type, post_title FROM {$wpdb->posts} WHERE ID = %d", $id
-            ), ARRAY_A);
-            if ($post) {
-                return ['kind' => 'post', 'id' => $id, 'title' => (string) $post['post_title'], 'post_type' => (string) $post['post_type']];
-            }
-            $term = $wpdb->get_row($wpdb->prepare(
-                "SELECT t.term_id, t.name, tt.taxonomy FROM {$wpdb->terms} t
-                 JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
-                 WHERE t.term_id = %d LIMIT 1",
-                $id
-            ), ARRAY_A);
-            if ($term) {
-                // Reuses the same 4-key shape as the post case ("post_type"
-                // holds the taxonomy name here) so the CLI renders both
-                // uniformly without a kind-specific branch.
-                return ['kind' => 'term', 'id' => $id, 'title' => (string) $term['name'], 'post_type' => (string) $term['taxonomy']];
+            $hit = self::resolve_id($id);
+            if ($hit !== null) {
+                return $hit;
             }
         }
         return null;
     }
 
-    /** @return int[] candidate positive-looking ids from a scalar/array/CSV value. */
-    private static function numeric_candidates($value): array {
+    /**
+     * Resolve a positive id against THIS environment's live posts, then
+     * terms — the one place that turns a bare integer into "yes, that's
+     * real, here's what" (or null). Shared by ref_hint() above and
+     * Lint::scan_tree()'s bare_id / serialized_desc_ids detectors (task
+     * #11's generalized linter) — extracted so both use one implementation
+     * rather than two copies that could drift.
+     *
+     * Excludes post_type=revision and post_status=auto-draft: every edit
+     * accumulates revision rows (WP core plumbing — never a Duo-manageable
+     * post_type, never independently addressable; "revision #10" is never
+     * a meaningful reference the way "post #10" is), and auto-draft posts
+     * are transient empty placeholders. Left unfiltered, either would match
+     * as pure id-space noise unrelated to authored content, and that noise
+     * grows with every edit a site receives. No other post_type/status is
+     * excluded — attachments (status=inherit) are legitimate targets.
+     */
+    public static function resolve_id(int $id): ?array {
+        if ($id <= 0) {
+            return null;
+        }
+        global $wpdb;
+        $post = $wpdb->get_row($wpdb->prepare(
+            "SELECT ID, post_type, post_title FROM {$wpdb->posts}
+             WHERE ID = %d AND post_type != 'revision' AND post_status != 'auto-draft'",
+            $id
+        ), ARRAY_A);
+        if ($post) {
+            return ['kind' => 'post', 'id' => $id, 'title' => (string) $post['post_title'], 'post_type' => (string) $post['post_type']];
+        }
+        $term = $wpdb->get_row($wpdb->prepare(
+            "SELECT t.term_id, t.name, tt.taxonomy FROM {$wpdb->terms} t
+             JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+             WHERE t.term_id = %d LIMIT 1",
+            $id
+        ), ARRAY_A);
+        if ($term) {
+            // Reuses the same 4-key shape as the post case ("post_type"
+            // holds the taxonomy name here) so callers render both
+            // uniformly without a kind-specific branch.
+            return ['kind' => 'term', 'id' => $id, 'title' => (string) $term['name'], 'post_type' => (string) $term['taxonomy']];
+        }
+        return null;
+    }
+
+    /**
+     * Candidate positive-looking ids from a scalar/array/CSV value, each
+     * paired with a locator suffix describing where it was found ("" for a
+     * bare scalar, "[$i]" for an array element, "[csv:$i]" for a CSV
+     * segment). Shallow only — no nested-object recursion; sub-key/
+     * id-keyed-array refs are backlog (task #11's wave 2). Shared by
+     * ref_hint() above (which only wants the ids) and Lint::scan_tree()'s
+     * bare_id detector (which wants the locators too, to point at exactly
+     * which element matched).
+     *
+     * @return array<int, array{0:int, 1:string}>
+     */
+    public static function numeric_candidates($value): array {
         if (is_int($value) || (is_string($value) && $value !== '' && is_numeric($value) && !str_contains($value, '.'))) {
-            return [(int) $value];
+            return [[(int) $value, '']];
         }
         if (is_array($value)) {
             $out = [];
-            foreach ($value as $v) {
+            foreach ($value as $i => $v) {
                 if (is_numeric($v) && !str_contains((string) $v, '.')) {
-                    $out[] = (int) $v;
+                    $out[] = [(int) $v, '[' . $i . ']'];
                 }
             }
             return $out;
         }
         if (is_string($value) && preg_match('/^\d+(,\d+)+$/', trim($value))) {
-            return array_map('intval', explode(',', trim($value)));
+            $out = [];
+            foreach (explode(',', trim($value)) as $i => $seg) {
+                $out[] = [(int) $seg, '[csv:' . $i . ']'];
+            }
+            return $out;
         }
         return [];
     }

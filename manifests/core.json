@@ -5,7 +5,24 @@
     "core/gallery": [{"kind": "post", "path": "ids", "type": "int[]"}],
     "core/image": [{"kind": "post", "path": "id", "type": "int"}],
     "core/media-text": [{"kind": "post", "path": "mediaId", "type": "int"}],
-    "core/navigation": [{"kind": "post", "path": "ref", "type": "int"}]
+    "core/navigation": [{"kind": "post", "path": "ref", "type": "int"}],
+    "core/navigation-link": [
+      {
+        "kind_from": {"attr": "kind", "default": "post", "map": {"post-type": "post", "taxonomy": "term"}},
+        "path": "id",
+        "type": "int"
+      },
+      {"path": "url", "tokenize": "text"}
+    ],
+    "core/query": [{"lint_ok": true, "path": "queryId"}],
+    "core/navigation-submenu": [
+      {
+        "kind_from": {"attr": "kind", "default": "post", "map": {"post-type": "post", "taxonomy": "term"}},
+        "path": "id",
+        "type": "int"
+      },
+      {"path": "url", "tokenize": "text"}
+    ]
   },
   "name": "core",
   "option_patterns": [
@@ -23,7 +40,7 @@
     "home": {"class": "env"},
     "page_for_posts": {"class": "authored", "ref": "post"},
     "page_on_front": {"class": "authored", "ref": "post"},
-    "posts_per_page": {"class": "authored"},
+    "posts_per_page": {"class": "authored", "lint_ok": true},
     "recently_activated": {"class": "runtime"},
     "recently_edited": {"class": "runtime"},
     "rewrite_rules": {"class": "derived"},
@@ -57,7 +74,8 @@
     "_wp_old_slug": {"class": "derived"},
     "_wp_page_template": {"class": "authored"},
     "_wp_trash_meta_status": {"class": "runtime"},
-    "_wp_trash_meta_time": {"class": "runtime"}
+    "_wp_trash_meta_time": {"class": "runtime"},
+    "origin": {"class": "authored"}
   },
   "tables": {
     "commentmeta": {"class": "runtime"},

@@ -93,6 +93,7 @@ install_env() { # install_env <conf1|conf2> <port> <title>
   case "$SETUP" in
     "") ;;
     hpos) wp_env "$env" wc hpos enable || fail "could not enable HPOS on $env" ;;
+    block-theme) wp_env "$env" theme activate twentytwentyfive || fail "could not activate twentytwentyfive on $env" ;;
     *) fail "unknown setup hook '$SETUP' for manifest '$MANIFEST'" ;;
   esac
   echo "env $env installed ($MANIFEST: ${PLUGINS[*]:-no plugins}${SETUP:+, setup=$SETUP})"
@@ -123,6 +124,23 @@ git -C siterepo/conf1 add -A
 git -C siterepo/conf1 -c user.name=duo -c user.email=duo@example.test commit -qm "capture: seeded $MANIFEST content on conf1"
 git -C siterepo/conf1 push -qu origin main
 
+# --- suspicious-ref lint gate ------------------------------------------------
+# Generalized suspicious-ref linter (agent/src/Lint.php / `wp duo lint`):
+# flags ref-shaped values that reached canonical state without a declared
+# rewrite path — exactly the blind spot the byte-diff acceptance checks
+# below cannot see (docs/frontier/{fse,polylang,elementor}.md). HARD GATE:
+# all in-tree manifests run clean against it; a finding here means either a
+# manifest gap or a genuinely dangling/unrewritten ref — both are failures.
+say "lint conf1's captured state (hard gate)"
+LINT_JSON=$(wp_conf1 duo lint --repo=/siterepo --format=json | tail -1 || true)
+LINT_N=$(echo "$LINT_JSON" | jq 'length' 2>/dev/null || echo 0)
+if [ "${LINT_N:-0}" != "0" ]; then
+  echo "$LINT_JSON" | jq . 2>/dev/null || echo "$LINT_JSON"
+  fail "wp duo lint found $LINT_N suspicious ref(s) in captured state (manifest: $MANIFEST)"
+fi
+echo "lint: clean, 0 findings"
+# --- end lint gate -----------------------------------------------------------
+
 say "acceptance: capture is deterministic (capture twice, zero diff)"
 wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
 diff -r siterepo/conf1/state siterepo/conf1/.tmp-state2 || fail "capture is not deterministic"
@@ -146,5 +164,17 @@ wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-conf2state >/dev/null
 diff -r siterepo/conf1/state siterepo/conf2/.tmp-conf2state || fail "round-trip mismatch between conf1 and conf2 for manifest '$MANIFEST'"
 rm -rf siterepo/conf2/.tmp-conf2state
 pass "canonical state identical across environments"
+
+# Manifest-specific render-level acceptance (conformance/checks/<name>.sh,
+# optional): byte-identical canonical state is necessary but not sufficient
+# once a ref-shaped value is invisible to the tokenizer — source and target
+# would then simply encode the same wrong bytes (docs/frontier/fse.md's
+# core methodological finding). Checks curl the live conf2 site and grep
+# rendered output, not state/, so they catch what a byte-diff cannot.
+CHECK="conformance/checks/$MANIFEST.sh"
+if [ -f "$CHECK" ]; then
+  say "manifest-specific render acceptance (conformance/checks/$MANIFEST.sh)"
+  bash "$CHECK"
+fi
 
 printf '\n\033[1;32m✔ CONFORMANCE PASSED (%s)\033[0m\n' "$MANIFEST"

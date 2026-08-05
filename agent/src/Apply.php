@@ -19,6 +19,9 @@ final class Apply {
     /** @var array<string,int> login -> user id */
     private array $userIds = [];
     private ?int $defaultAuthor = null;
+    /** @var array<string, string[]>|null post_type -> taxonomy[], memoized —
+     *  see taxes_for_post_type() */
+    private ?array $taxesForPostType = null;
 
     private function __construct(string $repo) {
         $this->repo = rtrim($repo, '/');
@@ -246,12 +249,18 @@ final class Apply {
         $this->defaultAuthor = $this->resolve_login($opts['default_author'] ?? '') ?? null;
         $this->tokens->defaultUserId = $this->defaultAuthor;
 
+        // Deterministic, declared ordering for BOTH phases: 'early' post types
+        // (definition CPTs) lead — phase 1 row creation was glob-alphabetical
+        // luck until the FSE frontier report flagged it (phase 2 was fixed in
+        // task #10; usort is stable on PHP 8).
         $work = array_merge(
             $plan['create'],
             $plan['adopt'],
             $plan['update'],
             array_map(fn($r) => $r, $plan['conflict']) // only reachable with force_theirs
         );
+        usort($work, fn($x, $y) =>
+            $this->phase2_rank($tree[$x['uuid']]) <=> $this->phase2_rank($tree[$y['uuid']]));
 
         Canary::arm();
         $wpdb->query('START TRANSACTION');
@@ -527,7 +536,7 @@ final class Apply {
 
         // term relationships for owned taxonomies
         if ($front['type'] !== 'attachment') {
-            $this->reconcile_relationships($id, (array) ($front['terms'] ?? []));
+            $this->reconcile_relationships($id, $front['type'], (array) ($front['terms'] ?? []));
         }
 
         // attachment binary + managed meta
@@ -536,14 +545,20 @@ final class Apply {
         }
     }
 
-    private function reconcile_relationships(int $postId, array $termsField): void {
+    private function reconcile_relationships(int $postId, string $postType, array $termsField): void {
         global $wpdb;
-        $taxes = $this->policy->taxonomies();
+        $taxes = $this->taxes_for_post_type($postType);
         if (!$taxes) {
             return;
         }
         $desiredTt = [];
         foreach ($termsField as $tax => $uuids) {
+            if (!in_array($tax, $taxes, true)) {
+                // Not a taxonomy this post type actually owns (stale file from
+                // before the object-type filter existed, or a hand edit) —
+                // never let it reach the ledger lookup / INSERT below.
+                continue;
+            }
             foreach ((array) $uuids as $u) {
                 $tt = Ledger::id_for($u, Ledger::KIND_TT)
                     ?? throw new \RuntimeException("duo: post $postId references unresolvable term $u ($tax)");
@@ -569,6 +584,36 @@ final class Apply {
                 ]);
             }
         }
+    }
+
+    /**
+     * Same collision guard as Capture::taxes_for_post_types(): only
+     * taxonomies whose registered object_type actually includes this post
+     * type may own this post's relationship rows. Without it, the "current
+     * relationships" SELECT above can pick up a colliding term's own
+     * term-to-term rows (object_id happens to equal this post's id) and,
+     * since they're never in $desiredTt, DELETE them — destroying a
+     * different object's genuine data because of a numeric coincidence.
+     * Memoized per apply run; the taxonomy roster doesn't change mid-run.
+     */
+    private function taxes_for_post_type(string $postType): array {
+        if ($this->taxesForPostType === null) {
+            $this->taxesForPostType = [];
+            foreach ($this->policy->taxonomies() as $tax) {
+                $taxObj = get_taxonomy($tax);
+                if ($taxObj === false) {
+                    $this->warnings[] =
+                        "taxonomy '$tax' is in policy scope but not registered on this environment"
+                        . " (plugin inactive?) — cannot determine which object type its relationships"
+                        . " belong to, so its relationships are skipped for every post on apply";
+                    continue;
+                }
+                foreach ((array) $taxObj->object_type as $objectType) {
+                    $this->taxesForPostType[$objectType][] = $tax;
+                }
+            }
+        }
+        return $this->taxesForPostType[$postType] ?? [];
     }
 
     private function place_attachment(int $id, array $front): void {
@@ -758,7 +803,10 @@ final class Apply {
         if ($type === 'post') {
             $id = Ledger::id_for($uuid, Ledger::KIND_POST);
             if ($id !== null) {
-                $wpdb->delete($wpdb->term_relationships, ['object_id' => $id]);
+                $postType = (string) $wpdb->get_var($wpdb->prepare(
+                    "SELECT post_type FROM {$wpdb->posts} WHERE ID = %d", $id
+                ));
+                $this->delete_post_relationships($id, $postType);
                 $wpdb->delete($wpdb->postmeta, ['post_id' => $id]);
                 $wpdb->delete($wpdb->posts, ['ID' => $id]);
             }
@@ -775,6 +823,39 @@ final class Apply {
             }
         }
         $this->warnings[] = "deleted $type $uuid";
+    }
+
+    /**
+     * Delete a post's own term_relationships rows only — scoped to every
+     * taxonomy REGISTERED on this runtime whose object_type includes this
+     * post's type (deliberately not policy-scoped: a full post delete must
+     * clean up every taxonomy that legitimately relates to it, same as
+     * wp_delete_post(), not just the ones Duo happens to manage).
+     *
+     * An unfiltered `DELETE ... WHERE object_id = $id` (the previous code)
+     * hits every term_relationships row with that raw id regardless of
+     * taxonomy — including a term-object taxonomy's rows for a completely
+     * different TERM that happens to have the same id, since posts and
+     * terms are minted from independent auto-increment counters sharing
+     * one numeric space. That would silently destroy the colliding term's
+     * genuine data as a side effect of deleting an unrelated post.
+     */
+    private function delete_post_relationships(int $id, string $postType): void {
+        global $wpdb;
+        $taxes = array_values(array_filter(get_taxonomies(), function (string $tax) use ($postType) {
+            $taxObj = get_taxonomy($tax);
+            return $taxObj !== false && in_array($postType, (array) $taxObj->object_type, true);
+        }));
+        if (!$taxes) {
+            return;
+        }
+        $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
+        $wpdb->query($wpdb->prepare(
+            "DELETE tr FROM {$wpdb->term_relationships} tr
+             JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+             WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
+            $id
+        ));
     }
 
     private function resolve_login(string $login): ?int {

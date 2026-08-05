@@ -1,4 +1,7 @@
 {
+  "block_attrs": {
+    "woocommerce/product-collection": [{"lint_ok": true, "path": "queryId"}]
+  },
   "name": "woocommerce",
   "note": "Spike C: provenance-proposal ground truth. Spike D: full product-meta coverage, _price reclassified authored, a referential delete guard on products vs. order lookup rows, and full shop_coupon classification (see notes). Version-range pinning and full coverage of orders/attributes land with the plugin-manifest workstream.",
   "notes": {

@@ -10,6 +10,21 @@ namespace Duo;
  * tokenization only. serialize_blocks() re-emission is the canonical form; it
  * is a fixed point after the first normalization, which the capture-twice
  * determinism test asserts.
+ *
+ * block_attrs rules come in three shapes, freely mixed per block name:
+ * - a static ref: {"kind": "post"|"term"|"tt", "path": ..., "type": "int"|"int[]"}
+ * - a polymorphic ref, kind dispatched from a sibling attribute:
+ *   {"kind_from": {"attr": ..., "map": {sibling-value: kind}, "default"?: kind},
+ *    "path": ..., "type": ...} — e.g. core/navigation-link's "id" is a post
+ *   or term ref depending on its own "kind" attribute ("post-type"/"taxonomy"/
+ *   "custom"/"post-type-archive"); dispatch resolving to no kind (no map hit,
+ *   no default) leaves that attribute untouched rather than guessing.
+ * - a string tokenizer: {"path": ..., "tokenize": "text"} — routes a plain
+ *   string attribute value through the same {{home}}/{{uploads}} substitution
+ *   as body text. Attribute values are otherwise invisible to the innerHTML/
+ *   innerContent pass below (self-closing blocks like core/navigation-link
+ *   carry no inner content at all), so this is the only way a URL-shaped
+ *   attribute gets rebound across environments.
  */
 final class Blocks {
     /** Blocks whose inner HTML may carry wp-image-<id> classes. */
@@ -42,9 +57,27 @@ final class Blocks {
             if (!isset($block['attrs'][$path])) {
                 continue;
             }
-            $isArray = ($rule['type'] ?? 'int') === 'int[]';
-            $kind = $rule['kind'];
             $v = $block['attrs'][$path];
+
+            if (!empty($rule['lint_ok'])) {
+                // declared non-ref attribute (e.g. queryId — a query instance
+                // index, not an entity id): exempts it from `wp duo lint`'s
+                // *Id-name heuristic, and there is nothing to rewrite here
+                continue;
+            }
+
+            if (($rule['tokenize'] ?? null) === 'text') {
+                if (is_string($v)) {
+                    $block['attrs'][$path] = $capture ? $tokens->tokenize_text($v) : $tokens->detokenize_text($v);
+                }
+                continue;
+            }
+
+            $kind = self::resolve_kind($rule, $block['attrs']);
+            if ($kind === null) {
+                continue;
+            }
+            $isArray = ($rule['type'] ?? 'int') === 'int[]';
             if ($capture) {
                 if ($isArray) {
                     $block['attrs'][$path] = array_map(
@@ -104,5 +137,24 @@ final class Blocks {
             );
         }
         return $block;
+    }
+
+    /**
+     * A rule's ref kind is either static ("kind") or dispatched from a
+     * sibling attribute's current value ("kind_from": {attr, map, default?}).
+     * Null means "no applicable kind" (e.g. a custom-kind navigation link,
+     * where the sibling value has no map entry and no default is declared) —
+     * the caller leaves that attribute untouched rather than guessing a kind.
+     */
+    private static function resolve_kind(array $rule, array $attrs): ?string {
+        if (isset($rule['kind_from'])) {
+            $kf = $rule['kind_from'];
+            $sibling = $attrs[$kf['attr']] ?? null;
+            return $kf['map'][$sibling] ?? $kf['default'] ?? null;
+        }
+        if (isset($rule['kind'])) {
+            return $rule['kind'];
+        }
+        throw new \RuntimeException("duo: block_attrs rule for path '{$rule['path']}' needs 'kind' or 'kind_from'");
     }
 }
