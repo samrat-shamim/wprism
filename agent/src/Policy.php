@@ -291,6 +291,43 @@ final class Policy {
     }
 
     /**
+     * docs/proposals/code-half.md §4.3's version_range mechanism: a manifest
+     * may declare a top-level `"plugin"` (the plugin's basename, e.g.
+     * "woocommerce/woocommerce.php" — the same string active_plugins/
+     * get_plugins() key on) alongside `"version_range": {"min","max"}`
+     * (min inclusive, max exclusive). Deliberately {min,max} + two
+     * version_compare() calls, not a semver-range constraint string: the
+     * agent is dependency-free (DESIGN.md §4 — "a drop-in agent must not
+     * vendor libraries"), and a real semver-range parser is exactly the
+     * dependency that rules out. First declaration in pin order wins per
+     * plugin — same precedence as block_attr_rules()/rebuilders().
+     *
+     * No manifest declares this yet (no shipped plugin manifest names a
+     * "plugin" key) — the mechanism is exercised by a fixture manifest in
+     * the sandbox, not by pinning a real range on a live registry version.
+     * Deploy::code_mismatch() / Apply::build_plan()'s code_mismatch bucket
+     * are this accessor's only readers.
+     *
+     * @return array<string, array{min:string, max:string, manifest:string}> keyed by plugin basename
+     */
+    public function version_ranges(): array {
+        $out = [];
+        foreach ($this->manifests as $m) {
+            $plugin = $m['plugin'] ?? null;
+            $range = $m['version_range'] ?? null;
+            if (!is_string($plugin) || $plugin === '' || !is_array($range) || isset($out[$plugin])) {
+                continue;
+            }
+            $out[$plugin] = [
+                'min' => (string) ($range['min'] ?? '0'),
+                'max' => (string) ($range['max'] ?? '999999999'),
+                'manifest' => (string) ($m['name'] ?? '?'),
+            ];
+        }
+        return $out;
+    }
+
+    /**
      * Referential delete guards, keyed "post:<post_type>" — each guard names a
      * table/column holding local ids that reference the entity; matching rows
      * block deletion at plan time.

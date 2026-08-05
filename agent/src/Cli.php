@@ -65,7 +65,8 @@ final class Cli {
             WP_CLI::line(json_encode($plan, JSON_UNESCAPED_SLASHES));
             return;
         }
-        foreach (['create', 'update', 'adopt', 'unchanged', 'drift', 'conflict', 'collision', 'delete'] as $kind) {
+        $kinds = ['create', 'update', 'adopt', 'unchanged', 'drift', 'conflict', 'collision', 'delete'];
+        foreach ($kinds as $kind) {
             foreach ($plan[$kind] as $r) {
                 $line = strtoupper(str_pad($kind, 9)) . ' ' . ($r['path'] ?? ($r['type'] . ' ' . $r['uuid']));
                 if (isset($r['blocked'])) {
@@ -74,10 +75,25 @@ final class Cli {
                 WP_CLI::line($line);
             }
         }
-        $counts = implode(', ', array_map(fn($k) => count($plan[$k]) . " $k", array_keys($plan)));
+        // code_mismatch (docs/proposals/code-half.md §3.2): a different row
+        // shape (issue/kind/plugin-or-theme/message, no uuid/path) than the
+        // $kinds loop above, so it gets its own rendering rather than being
+        // folded into that loop.
+        foreach ($plan['code_mismatch'] ?? [] as $r) {
+            WP_CLI::line('CODE_MISMATCH ' . strtoupper($r['issue']) . ' ' . ($r['plugin'] ?? $r['theme'] ?? '?'));
+            WP_CLI::line('  ' . $r['message']);
+        }
+        foreach ($plan['warnings'] ?? [] as $w) {
+            WP_CLI::warning($w);
+        }
+        $counts = implode(', ', array_map(fn($k) => count($plan[$k]) . " $k", $kinds));
+        $counts .= ', ' . count($plan['code_mismatch'] ?? []) . ' code_mismatch';
         WP_CLI::success("plan: $counts");
         if ($plan['drift']) {
             WP_CLI::warning('environment drift detected — capture-first workflow recommended');
+        }
+        if (!empty($plan['code_mismatch'])) {
+            WP_CLI::warning('code_mismatch findings — duo apply will refuse until resolved (or run with --force-code-mismatch)');
         }
     }
 
@@ -90,6 +106,7 @@ final class Cli {
      * [--with-deletes]
      * [--force-delete-referenced] : override referential delete guards.
      * [--force-theirs]
+     * [--force-code-mismatch] : override the cross-partition invariant's missing_in_code/outside_version_range block.
      * [--default-author=<login>]
      * [--revision=<rev>]
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
@@ -102,6 +119,7 @@ final class Cli {
                 'with_deletes' => isset($assoc['with-deletes']),
                 'force_delete_referenced' => isset($assoc['force-delete-referenced']),
                 'force_theirs' => isset($assoc['force-theirs']),
+                'force_code_mismatch' => isset($assoc['force-code-mismatch']),
                 'default_author' => $assoc['default-author'] ?? '',
                 'revision' => $assoc['revision'] ?? '',
             ]);
@@ -124,6 +142,59 @@ final class Cli {
             $summary['applied'],
             $summary['canary'],
             json_encode($summary['plan'])
+        ));
+    }
+
+    /**
+     * Reconcile this environment's active_plugins/template/stylesheet to
+     * what state/options/core.json declares — the ONLY place
+     * activate_plugin()/deactivate_plugins()/switch_theme() run, and
+     * deliberately OUTSIDE `wp duo apply`'s hook-free canary
+     * (docs/proposals/code-half.md §3.4): activation hooks MUST fire here
+     * (that's how plugins do one-time setup/migrations); apply's canary
+     * requires the opposite, so the two can never share a transaction.
+     * Refuses loudly, listing every finding, while any currently-desired-
+     * active plugin/theme is missing from this environment's code, or a
+     * version_range-pinned plugin is outside its declared range —
+     * --force-code-mismatch overrides (matching apply's --force-theirs/
+     * --force-delete-referenced convention). Idempotent: run again with
+     * nothing to reconcile and zero WP APIs get called.
+     *
+     * ## OPTIONS
+     * --repo=<path>
+     * [--force-code-mismatch] : proceed despite missing_in_code / outside_version_range findings.
+     * [--json]           : JSON output (wp-cli rewrites this to --format=json).
+     * [--format=<format>] : Output format. Accepts json.
+     */
+    public function deploy($args, $assoc) {
+        try {
+            $summary = Deploy::run($assoc['repo'] ?? WP_CLI::error('--repo required'), [
+                'force_code_mismatch' => isset($assoc['force-code-mismatch']),
+            ]);
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        foreach ($summary['warnings'] as $w) {
+            WP_CLI::warning($w);
+        }
+        foreach ($summary['activated'] as $p) {
+            WP_CLI::line("activated: $p");
+        }
+        foreach ($summary['deactivated'] as $p) {
+            WP_CLI::line("deactivated: $p");
+        }
+        if ($summary['theme_switched'] !== null) {
+            WP_CLI::line("theme switched: {$summary['theme_switched']}");
+        }
+        WP_CLI::success(sprintf(
+            '%d activated, %d deactivated%s',
+            count($summary['activated']),
+            count($summary['deactivated']),
+            $summary['theme_switched'] !== null ? ", theme -> {$summary['theme_switched']}" : ''
         ));
     }
 

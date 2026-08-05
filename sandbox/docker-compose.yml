@@ -390,6 +390,84 @@ services:
       WORDPRESS_DB_HOST: db-fx2
     volumes: *vol-fx2
 
+  db-g1:
+    <<: *db
+    profiles: [spikeg]
+    volumes: [dbg1:/var/lib/mysql]
+
+  wp-g1:
+    image: wordpress:php8.3-apache
+    profiles: [spikeg]
+    depends_on:
+      db-g1: {condition: service_healthy}
+    ports: ["8812:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-g1
+    volumes: &vol-g1
+      - wpg1:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/g1:/siterepo
+      # NEW, the point of this profile: this plugin directory is NOT a static
+      # sandbox fixture (contrast wp-f1/wp-f2's read-only mount of the shared
+      # ../fixtures/duo-loop-demo). It's a per-env bind of THIS environment's
+      # OWN site-repo checkout's code/ tree — g1 and g2 point at their own
+      # clones (siterepo/g1/code/... vs siterepo/g2/code/...), so the plugin
+      # bytes an environment sees are whatever that environment's own git
+      # checkout currently has on disk. A `git pull` on the host is
+      # immediately visible in the container with no docker rebuild/restart
+      # — "the site repo IS the code source" (code-half.md proposal §5.1),
+      # demonstrated at the single-directory grain instead of full-webroot
+      # composer materialization (out of this spike's scope; see report).
+      - ./siterepo/g1/code/wp-content/plugins/duo-loop-demo:/var/www/html/wp-content/plugins/duo-loop-demo:ro
+
+  cli-g1:
+    image: wordpress:cli-php8.3
+    profiles: [spikeg]
+    user: "33:33"
+    depends_on:
+      db-g1: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-g1
+    volumes: *vol-g1
+
+  db-g2:
+    <<: *db
+    profiles: [spikeg]
+    volumes: [dbg2:/var/lib/mysql]
+
+  wp-g2:
+    image: wordpress:php8.3-apache
+    profiles: [spikeg]
+    depends_on:
+      db-g2: {condition: service_healthy}
+    ports: ["8813:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-g2
+    volumes: &vol-g2
+      - wpg2:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/g2:/siterepo
+      # per-env code source — see wp-g1's comment above (g2's own checkout).
+      - ./siterepo/g2/code/wp-content/plugins/duo-loop-demo:/var/www/html/wp-content/plugins/duo-loop-demo:ro
+
+  cli-g2:
+    image: wordpress:cli-php8.3
+    profiles: [spikeg]
+    user: "33:33"
+    depends_on:
+      db-g2: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-g2
+    volumes: *vol-g2
+
 volumes:
   dba: {}
   dbb: {}
@@ -402,6 +480,8 @@ volumes:
   dbf2: {}
   dbfx1: {}
   dbfx2: {}
+  dbg1: {}
+  dbg2: {}
   wpa: {}
   wpb: {}
   wpc: {}
@@ -413,3 +493,5 @@ volumes:
   wpf2: {}
   wpfx1: {}
   wpfx2: {}
+  wpg1: {}
+  wpg2: {}

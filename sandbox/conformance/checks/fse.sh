@@ -36,3 +36,36 @@ grep -q 'href="http://localhost:8807/duo-fse-contact/"' <<<"$FRONT" \
   || fail "customized footer template-part's Contact link did not resolve to conf2's own permalink"
 
 pass "conf2 renders its own nav (post/term/custom links), reusable-block image, and footer link — none point at conf1"
+
+# --- active-theme-mismatch guard (docs/frontier/fse.md's other open gap,
+# task #32) --------------------------------------------------------------
+# Runs strictly AFTER the green render check above, and restores conf2's
+# theme before this script returns — leaves conf2 exactly as run.sh's own
+# install_env() (setup=block-theme) put it, for anything that follows.
+# No site-repo state changes here at all: the "home" wp_template and
+# "footer" wp_template_part are still tagged wp_theme=twentytwentyfive
+# from the seed; only conf2's OWN active theme option moves.
+say "guard: switch conf2 to a different bundled theme, plan must name both themes"
+wp_conf2 theme activate twentytwentyfour >/dev/null || fail "could not activate twentytwentyfour on conf2"
+
+MISMATCH_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | tail -1)
+MISMATCH_WARNINGS=$(echo "$MISMATCH_PLAN" | jq -r '.warnings[]?')
+echo "$MISMATCH_WARNINGS" | grep -q 'active-theme mismatch' \
+  || fail "plan did not warn about the active-theme mismatch after switching conf2 to twentytwentyfour"
+echo "$MISMATCH_WARNINGS" | grep -q "active theme is 'twentytwentyfour'" \
+  || fail "mismatch warning did not name conf2's own active theme (twentytwentyfour)"
+echo "$MISMATCH_WARNINGS" | grep -q "tagged for theme 'twentytwentyfive'" \
+  || fail "mismatch warning did not name the captured theme (twentytwentyfive)"
+echo "$MISMATCH_WARNINGS" | grep -q 'posts/wp_template/.*home\.md' \
+  || fail "mismatch warning did not name the affected home wp_template"
+echo "$MISMATCH_WARNINGS" | grep -q 'posts/wp_template_part/.*footer\.md' \
+  || fail "mismatch warning did not name the affected footer wp_template_part"
+pass "plan loudly warns: conf2 active theme 'twentytwentyfour' vs. captured 'twentytwentyfive', naming both templates"
+
+say "guard: restore conf2's active theme, plan must be warning-free again"
+wp_conf2 theme activate twentytwentyfive >/dev/null || fail "could not restore twentytwentyfive on conf2"
+CLEAN_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | tail -1)
+CLEAN_WARNING_COUNT=$(echo "$CLEAN_PLAN" | jq '.warnings | length')
+[ "$CLEAN_WARNING_COUNT" = "0" ] \
+  || fail "plan still warned after restoring the matching theme: $(echo "$CLEAN_PLAN" | jq -c '.warnings')"
+pass "plan is warning-free again once conf2's active theme matches the captured wp_theme term"

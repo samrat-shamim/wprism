@@ -35,11 +35,20 @@ final class Apply {
         Canary::suppress_cron_spawn();
         Ledger::ensure();
         $a = new self($repo);
-        return $a->build_plan($opts);
+        $plan = $a->build_plan($opts);
+        // Only the plan-only entry point attaches warnings to the returned
+        // array itself — run() below calls build_plan() too, but folds
+        // $this->warnings into ITS OWN summary separately (see run()'s
+        // return), so this must not become a build_plan() return-shape
+        // change or apply's 'plan' => array_map('count', $plan) count block
+        // would grow a spurious 'warnings' => N entry.
+        $plan['warnings'] = $a->warnings;
+        return $plan;
     }
 
     private function build_plan(array $opts): array {
         $tree = $this->load_tree();
+        $this->check_theme_mismatch($tree);
         $env = Capture::snapshot($this->repo);
         $base = Ledger::all_state();
         $adopt = array_fill_keys(array_filter(explode(',', $opts['adopt_by_slug'] ?? '')), true);
@@ -47,6 +56,7 @@ final class Apply {
         $plan = [
             'create' => [], 'update' => [], 'unchanged' => [], 'drift' => [],
             'conflict' => [], 'adopt' => [], 'collision' => [], 'delete' => [],
+            'code_mismatch' => [],
         ];
         foreach ($tree as $uuid => $e) {
             $fileH = $e['hash'];
@@ -106,6 +116,24 @@ final class Apply {
             }
             $plan['delete'][] = $row;
         }
+
+        // docs/proposals/code-half.md §3.2: the cross-partition invariant's
+        // plan-time checks — missing_in_code / outside_version_range — read
+        // the TARGET state's active_plugins/template/stylesheet (this
+        // tree's own options/core entity, when present) through the exact
+        // same detector `wp duo deploy` itself refuses on (Deploy.php), so
+        // ordinary `duo plan`/`duo status` and `duo deploy`/`duo apply` can
+        // never disagree about what "in code" means. Surfaced here (not
+        // only at deploy time) per §3.2: "Both checks run inside the
+        // existing Apply::build_plan() ... so they show up in ordinary
+        // 'duo plan'/'duo status', not just at deploy time." code_revision_
+        // stale (§3.2 point 3) is deliberately not implemented — phase 1
+        // has no code/ materialization step to populate either side of
+        // that comparison; see Deploy::code_mismatch()'s docblock.
+        $desired = isset($tree['options/core'])
+            ? Deploy::extract_desired(Canon::decode($tree['options/core']['content']))
+            : [];
+        $plan['code_mismatch'] = Deploy::code_mismatch($this->policy, $desired);
         return $plan;
     }
 
@@ -200,6 +228,60 @@ final class Apply {
         return $out;
     }
 
+    /**
+     * Active-theme-mismatch guard (docs/frontier/fse.md: "there is no
+     * active-theme-mismatch guard — if the target environment's active
+     * theme differs from the captured wp_theme term's slug, the applied
+     * template silently becomes inert ... with zero warning anywhere in
+     * the plan or apply output"). Verified empirically on the fse
+     * conformance fixture: wp_theme is an ordinary POST-object taxonomy
+     * (registered object_type wp_template/wp_template_part/
+     * wp_global_styles) whose term identity IS the theme's own stylesheet
+     * slug, so a captured wp_template/wp_template_part carries it in the
+     * ordinary `terms.wp_theme` field — wp_navigation/wp_block carry no
+     * wp_theme term at all (confirmed: their captured `terms` is always
+     * `{}`), so this needs no post-type allowlist; it falls out for free
+     * from whichever entities actually have a wp_theme relationship.
+     * WordPress's template resolver only ever matches a row tagged for
+     * get_option('stylesheet') — a row tagged for any OTHER theme applies
+     * (the row lands, byte-identical) but never renders. Warning, never a
+     * block: the data is correct: rendering is the only casualty.
+     */
+    private function check_theme_mismatch(array $tree): void {
+        $themeSlugByUuid = [];
+        foreach ($tree as $uuid => $e) {
+            if ($e['type'] === 'term') {
+                $front = Canon::decode($e['content']);
+                if (($front['taxonomy'] ?? '') === 'wp_theme') {
+                    $themeSlugByUuid[$uuid] = $front['slug'];
+                }
+            }
+        }
+        if (!$themeSlugByUuid) {
+            return; // no wp_theme terms anywhere in this tree — not an FSE site, nothing to check
+        }
+        $active = (string) get_option('stylesheet');
+        $affected = []; // captured theme slug => affected entity path list
+        foreach ($tree as $e) {
+            if ($e['type'] !== 'post') {
+                continue;
+            }
+            [$front] = Canon::parse_post_file($e['content']);
+            foreach ((array) ($front['terms']['wp_theme'] ?? []) as $themeUuid) {
+                $slug = $themeSlugByUuid[$themeUuid] ?? null;
+                if ($slug !== null && $slug !== $active) {
+                    $affected[$slug][] = $e['path'];
+                }
+            }
+        }
+        foreach ($affected as $capturedTheme => $paths) {
+            $verb = count($paths) === 1 ? 'is tagged for' : 'are tagged for';
+            $this->warnings[] = "active-theme mismatch: this environment's active theme is '$active' but "
+                . implode(', ', $paths) . " $verb theme '$capturedTheme'"
+                . " — will apply but will NOT render until '$capturedTheme' is active here";
+        }
+    }
+
     // ----------------------------------------------------------------- apply
 
     public static function apply(string $repo, array $opts = []): array {
@@ -227,6 +309,20 @@ final class Apply {
             $list = implode("\n  - ", array_column($plan['conflict'], 'path'));
             throw new \RuntimeException(
                 "duo: conflicts (env and repo both changed since last sync) — capture first or --force-theirs:\n  - $list"
+            );
+        }
+
+        // docs/proposals/code-half.md §3.3's blocking posture: a code_mismatch
+        // row only ever exists for an entry the TARGET state declares active
+        // (Deploy::code_mismatch() is scoped that way by construction), so
+        // every row here already qualifies — matching the two existing
+        // --force-* precedents immediately around this one.
+        if ($plan['code_mismatch'] && empty($opts['force_code_mismatch'])) {
+            $list = implode("\n\n", array_map(fn($r) => '  - ' . $r['message'], $plan['code_mismatch']));
+            throw new \RuntimeException(
+                "duo: apply refused — code_mismatch:\n\n$list\n\n"
+                . "Run 'duo deploy <env>' first if this environment simply hasn't been deployed/reconciled yet, "
+                . 'or pass --force-code-mismatch to proceed anyway.'
             );
         }
 
@@ -858,6 +954,16 @@ final class Apply {
     private function apply_options(array $options): void {
         foreach ($options as $name => $v) {
             $rule = $this->policy->option_rule($name) ?? [];
+            if (($rule['class'] ?? '') === 'managed') {
+                // active_plugins/template/stylesheet (docs/proposals/code-half.md
+                // §3.1): writing these via raw $wpdb would make WordPress believe
+                // a plugin/theme is active while skipping every activation-hook
+                // side effect that makes it actually work — activate_plugin()/
+                // switch_theme() exist for exactly that reason. Deploy::run()
+                // (`wp duo deploy`) is the ONLY place these are ever reconciled,
+                // deliberately outside this canary-armed apply.
+                continue;
+            }
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                 $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
                 $v = $this->encode_structured($v, $rule);

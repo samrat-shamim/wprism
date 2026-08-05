@@ -555,3 +555,11 @@ Ordered roughly by severity, matching DESIGN.md's own "loud, blocking, scoped gu
 - [roots/bedrock composer.json, `master` branch, GitHub](https://github.com/roots/bedrock/blob/master/composer.json)
 - [composer/installers — Packagist.org](https://packagist.org/packages/composer/installers)
 - [WPackagist.org](https://wpackagist.org/)
+
+---
+
+## Phase 1: implemented (2026-08-06)
+
+§3's invariant, `wp duo deploy`, and §4's `version_range` mechanics shipped (tasks #32/#39/#40; spec v0.9 section "Code-half facts & deploy"): managed-class capture of `active_plugins`/`template`/`stylesheet`, the plan `code_mismatch` bucket (`missing_in_code`, `outside_version_range`; `code_revision_stale` deferred with the transports), deploy's hook-firing reconciliation outside the canary, refusal semantics with `--force-code-mismatch` reporting-not-hiding. Proven end-to-end by `sandbox/tests/spike_g_code.sh`: environments bind their plugin tree from their own site-repo checkout's `code/`, activation travels through canonical state, removing code while still active refuses loudly until reconciled, and version bumps outside a pinned range surface at plan time.
+
+Two operational findings from the spike worth carrying forward: (1) docker nested bind mounts pin their source directory at container-create time (`rprivate`) — author `code/` before creating the long-lived containers, and `--force-recreate` them after any rm-and-recreate of the mount source; in-place content changes propagate live. (2) Recovering from "code removed while still active" cannot use `wp plugin deactivate`/wp-admin (both validate the plugin on disk) — reconcile via canonical from an environment that still has the code, or direct `active_plugins` option surgery as last resort.

@@ -856,6 +856,33 @@ final class Capture {
             }
             $out[$name] = $v;
         }
+
+        // docs/proposals/code-half.md §3.1: active_plugins/template/
+        // stylesheet are core-manifest options classified 'managed', not
+        // 'authored' — bespoke read here, alongside (not through) the
+        // authored_options()-driven loop above, because Apply must
+        // reconcile them via activate_plugin()/switch_theme() (Deploy.php),
+        // never the generic direct-SQL options path a raw write here would
+        // otherwise feed. Plain portable strings — no ref-tokenization (that
+        // cross-environment stability IS the invariant), no secret guard
+        // (never secrets). Unconditional, matching the existing 'managed'
+        // post_meta precedent (_menu_item_*/_wp_attached_file): bespoke
+        // capture code that runs regardless of which manifests are pinned,
+        // the same way those fields do.
+        foreach (['active_plugins', 'template', 'stylesheet'] as $managedOption) {
+            $raw = $wpdb->get_var($wpdb->prepare(
+                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                $managedOption
+            ));
+            if ($raw === null) {
+                continue;
+            }
+            $v = maybe_unserialize($raw);
+            self::assert_plain($v, "option $managedOption");
+            $out[$managedOption] = $managedOption === 'active_plugins'
+                ? array_values(array_map('strval', (array) $v))
+                : (string) $v;
+        }
         return $out;
     }
 

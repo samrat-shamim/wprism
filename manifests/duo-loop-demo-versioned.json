@@ -1,0 +1,5 @@
+{
+    "name": "duo-loop-demo-versioned",
+    "plugin": "duo-loop-demo/duo-loop-demo.php",
+    "version_range": {"min": "9.0.0", "max": "99.0.0"}
+}

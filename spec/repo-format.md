@@ -258,3 +258,10 @@ The orchestrator surfaces this loop as `duo pending <env>` and `duo classify <en
 6. Ledger + `duo_state` hashes updated; `applied_revision` set.
 
 Snapshot/rollback is the orchestrator's job in v0 (`wp db export` before apply).
+
+## Code-half facts & deploy (spec v0.9 — docs/proposals/code-half.md phase 1)
+
+- `active_plugins`, `template`, `stylesheet` are **managed-class** core-manifest options: captured bespoke into `state/options/core.json` (plain portable strings — plugin file paths and theme slugs need no tokenization; their cross-environment stability *is* the invariant), and **excluded from apply's generic direct-SQL path** — a raw options UPDATE would skip activation/switch hooks while leaving WordPress believing the code is active.
+- **`wp duo deploy --repo=<p>`** is the one sanctioned side-effect step: it reconciles activation state to canonical via real `activate_plugin()`/`switch_theme()` calls, deliberately outside the canary window, and is idempotent. Ordering: deploy code → migrations fire via activation → then `apply` state.
+- **Plan's `code_mismatch` bucket**: `missing_in_code` (canonical wants an activation whose plugin is absent from the environment's code) and `outside_version_range` (a pinned manifest declares `{"plugin": "<file>", "version_range": {"min", "max"}}` and the installed version falls outside — two `version_compare()` calls, deliberately not a semver parser). Both `deploy` and `apply` refuse while the bucket is non-empty, unless `--force-code-mismatch`, which proceeds but still reports the findings. `code_revision_stale` is phase 2 (requires a materialization transport).
+- Operational note: recovering from "code removed while still active" cannot go through `wp plugin deactivate`/wp-admin (both require the plugin to resolve on disk) — the canonical-side fix is deactivate-capture-push on an environment that still has the code, or direct `update_option('active_plugins', …)` surgery as the last resort.

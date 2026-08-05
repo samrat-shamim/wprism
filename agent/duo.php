@@ -23,6 +23,7 @@ require_once __DIR__ . '/src/Blocks.php';
 require_once __DIR__ . '/src/Canary.php';
 require_once __DIR__ . '/src/Capture.php';
 require_once __DIR__ . '/src/Apply.php';
+require_once __DIR__ . '/src/Deploy.php';
 require_once __DIR__ . '/src/Journal.php';
 require_once __DIR__ . '/src/Pending.php';
 require_once __DIR__ . '/src/Lint.php';
