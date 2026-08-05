@@ -1,0 +1,614 @@
+<?php
+namespace Duo;
+
+/**
+ * Capture: environment DB -> canonical state tree.
+ *
+ * Read-only on content except for identity minting (_duo_uuid meta + ledger
+ * rows). Unclassified meta keys on in-scope entities abort loudly — the
+ * loud-and-blocking gate. Entities without a uuid are unmanaged and invisible
+ * (snapshot mode never mints, so a fresh environment snapshots as empty).
+ */
+final class Capture {
+    private Policy $policy;
+    private Tokens $tokens;
+    private string $repo;
+    /** @var string[] */
+    private array $unclassified = [];
+    /** @var array<int, string> user id -> login */
+    private array $userLogins = [];
+
+    private function __construct(string $repo, Policy $policy) {
+        $this->repo = rtrim($repo, '/');
+        $this->policy = $policy;
+        $this->tokens = new Tokens();
+    }
+
+    /**
+     * Full capture. Writes the state tree (repo/state, or $outDir), copies
+     * media + updates the ledger only when writing into the repo itself.
+     *
+     * @return array summary
+     */
+    public static function run(string $repo, ?string $outDir = null): array {
+        Ledger::ensure();
+        $c = new self($repo, Policy::load($repo));
+        $build = $c->build(true);
+
+        $intoRepo = ($outDir === null);
+        $stateDir = $intoRepo ? $c->repo . '/state' : rtrim($outDir, '/');
+        self::clear_state_dir($stateDir);
+        foreach ($build['entities'] as $e) {
+            Canon::write_file($stateDir . '/' . $e['path'], $e['content']);
+        }
+        if ($intoRepo) {
+            foreach ($build['media'] as $file => $src) {
+                $dst = $c->repo . '/media/' . $file;
+                if (!is_file($dst)) {
+                    Canon::write_file($dst, Canon::read_file($src));
+                }
+            }
+            foreach ($build['entities'] as $e) {
+                Ledger::set_state_hash($e['uuid'], $e['type'], hash('sha256', $e['content']));
+            }
+            Ledger::prune_state(array_column($build['entities'], 'uuid'));
+        }
+
+        $counts = ['post' => 0, 'term' => 0, 'menu' => 0, 'options' => 0];
+        foreach ($build['entities'] as $e) {
+            $counts[$e['type']] = ($counts[$e['type']] ?? 0) + 1;
+        }
+        return [
+            'counts' => $counts,
+            'media' => count($build['media']),
+            'warnings' => $build['warnings'],
+            'state_dir' => $stateDir,
+        ];
+    }
+
+    /**
+     * In-memory canonical view of this environment (no minting, no writes;
+     * ledger map rows are synced from existing _duo_uuid meta — identity
+     * repair, not content mutation).
+     *
+     * @return array<string, array{type: string, hash: string, content: string, path: string}>
+     */
+    public static function snapshot(string $repo): array {
+        Ledger::ensure();
+        $c = new self($repo, Policy::load($repo));
+        $build = $c->build(false);
+        $out = [];
+        foreach ($build['entities'] as $e) {
+            $out[$e['uuid']] = [
+                'type' => $e['type'],
+                'hash' => hash('sha256', $e['content']),
+                'content' => $e['content'],
+                'path' => $e['path'],
+            ];
+        }
+        return $out;
+    }
+
+    // ------------------------------------------------------------------
+
+    /** @return array{entities: array, media: array<string,string>, warnings: string[]} */
+    private function build(bool $mint): array {
+        global $wpdb;
+        $this->unclassified = [];
+        $entities = [];
+        $media = [];
+
+        // ---- scope ----
+        $posts = $this->scope_posts();
+        $terms = $this->scope_terms();
+
+        // ---- identity ----
+        $postUuids = [];
+        foreach ($posts as $p) {
+            $uuid = $this->ensure_post_uuid((int) $p->ID, 'post', $mint);
+            if ($uuid !== null) {
+                $postUuids[(int) $p->ID] = $uuid;
+            }
+        }
+        $termUuids = [];
+        foreach ($terms as $t) {
+            $uuid = $this->ensure_term_uuid($t, 'term', $mint);
+            if ($uuid !== null) {
+                $termUuids[(int) $t->term_id] = $uuid;
+            }
+        }
+        $menus = $this->scope_menus($mint);
+
+        // ---- term files ----
+        foreach ($terms as $t) {
+            $uuid = $termUuids[(int) $t->term_id] ?? null;
+            if ($uuid === null) {
+                continue;
+            }
+            $parentUuid = null;
+            if ((int) $t->parent > 0) {
+                $parentUuid = Ledger::uuid_for((int) $t->parent, Ledger::KIND_TERM);
+                if ($parentUuid === null) {
+                    $this->tokens->warnings[] = "term {$t->slug}: unmanaged parent term {$t->parent} dropped";
+                }
+            }
+            $front = [
+                'uuid' => $uuid,
+                'taxonomy' => $t->taxonomy,
+                'name' => $t->name,
+                'slug' => $t->slug,
+                'description' => $this->tokens->tokenize_text((string) $t->description),
+                'parent' => $parentUuid,
+            ];
+            $entities[] = [
+                'uuid' => $uuid,
+                'type' => 'term',
+                'path' => "terms/{$t->taxonomy}/{$uuid}--{$t->slug}.json",
+                'content' => Canon::encode($front),
+            ];
+        }
+
+        // ---- post files ----
+        foreach ($posts as $p) {
+            $id = (int) $p->ID;
+            $uuid = $postUuids[$id] ?? null;
+            if ($uuid === null) {
+                continue;
+            }
+            [$front, $body, $mediaRef] = $this->build_post($p, $uuid);
+            if ($mediaRef !== null) {
+                $media[$mediaRef[0]] = $mediaRef[1];
+            }
+            $entities[] = [
+                'uuid' => $uuid,
+                'type' => 'post',
+                'path' => "posts/{$p->post_type}/{$uuid}--{$p->post_name}.md",
+                'content' => Canon::post_file($front, $body),
+            ];
+        }
+
+        // ---- menu files ----
+        foreach ($menus as $menu) {
+            $entities[] = [
+                'uuid' => $menu['uuid'],
+                'type' => 'menu',
+                'path' => "menus/{$menu['slug']}.json",
+                'content' => Canon::encode($menu['front']),
+            ];
+        }
+
+        // ---- options file ----
+        $options = $this->build_options();
+        $entities[] = [
+            'uuid' => 'options/core',
+            'type' => 'options',
+            'path' => 'options/core.json',
+            'content' => Canon::encode($options),
+        ];
+
+        if ($this->unclassified) {
+            $keys = array_unique($this->unclassified);
+            sort($keys);
+            throw new \RuntimeException(
+                "duo: unclassified meta keys on in-scope entities (loud-and-blocking gate):\n  - "
+                . implode("\n  - ", $keys)
+                . "\nClassify them in site.duo.json policy.post_meta / policy.term_meta or a manifest."
+            );
+        }
+
+        return ['entities' => $entities, 'media' => $media, 'warnings' => $this->tokens->warnings];
+    }
+
+    private function scope_posts(): array {
+        global $wpdb;
+        $types = $this->policy->post_types();
+        $nonAttach = array_values(array_diff($types, ['attachment']));
+        $statuses = ['publish', 'draft', 'pending', 'private', 'future'];
+        $conds = [];
+        if ($nonAttach) {
+            $conds[] = "(post_type IN ('" . implode("','", array_map('esc_sql', $nonAttach)) . "')"
+                . " AND post_status IN ('" . implode("','", $statuses) . "'))";
+        }
+        if (in_array('attachment', $types, true)) {
+            $conds[] = "(post_type = 'attachment' AND post_status = 'inherit')";
+        }
+        if (!$conds) {
+            return [];
+        }
+        return $wpdb->get_results(
+            "SELECT * FROM {$wpdb->posts} WHERE " . implode(' OR ', $conds) . " ORDER BY ID ASC"
+        ) ?: [];
+    }
+
+    private function scope_terms(): array {
+        global $wpdb;
+        $taxes = $this->policy->taxonomies();
+        if (!$taxes) {
+            return [];
+        }
+        $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
+        return $wpdb->get_results(
+            "SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, tt.taxonomy, tt.description, tt.parent
+             FROM {$wpdb->terms} t JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+             WHERE tt.taxonomy IN ($in) ORDER BY t.term_id ASC"
+        ) ?: [];
+    }
+
+    private function ensure_post_uuid(int $id, string $entityType, bool $mint): ?string {
+        global $wpdb;
+        $uuid = $wpdb->get_var($wpdb->prepare(
+            "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = '_duo_uuid' LIMIT 1",
+            $id
+        ));
+        if (!$uuid) {
+            if (!$mint) {
+                return null;
+            }
+            $uuid = Uuid::v7();
+            $wpdb->insert($wpdb->postmeta, ['post_id' => $id, 'meta_key' => '_duo_uuid', 'meta_value' => $uuid]);
+        }
+        Ledger::set($uuid, $entityType, Ledger::KIND_POST, $id);
+        return $uuid;
+    }
+
+    private function ensure_term_uuid(object $t, string $entityType, bool $mint): ?string {
+        global $wpdb;
+        $termId = (int) $t->term_id;
+        $uuid = $wpdb->get_var($wpdb->prepare(
+            "SELECT meta_value FROM {$wpdb->termmeta} WHERE term_id = %d AND meta_key = '_duo_uuid' LIMIT 1",
+            $termId
+        ));
+        if (!$uuid) {
+            if (!$mint) {
+                return null;
+            }
+            $uuid = Uuid::v7();
+            $wpdb->insert($wpdb->termmeta, ['term_id' => $termId, 'meta_key' => '_duo_uuid', 'meta_value' => $uuid]);
+        }
+        Ledger::set($uuid, $entityType, Ledger::KIND_TERM, $termId);
+        Ledger::set($uuid, $entityType, Ledger::KIND_TT, (int) $t->term_taxonomy_id);
+        return $uuid;
+    }
+
+    /** @return array{0: array, 1: string, 2: ?array{0:string,1:string}} [front, body, mediaRef] */
+    private function build_post(object $p, string $uuid): array {
+        global $wpdb;
+        $id = (int) $p->ID;
+        $isAttachment = ($p->post_type === 'attachment');
+
+        // meta, classified
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_key ASC, meta_id ASC",
+            $id
+        ), ARRAY_A) ?: [];
+        $byKey = [];
+        foreach ($rows as $r) {
+            $byKey[$r['meta_key']][] = $r['meta_value'];
+        }
+        $meta = [];
+        $attachedFile = null;
+        $alt = '';
+        foreach ($byKey as $key => $values) {
+            if ($key === '_wp_attached_file') {
+                $attachedFile = $values[0];
+                continue;
+            }
+            if ($key === '_wp_attachment_image_alt') {
+                $alt = (string) $values[0];
+                continue;
+            }
+            $rule = $this->policy->post_meta_rule($key);
+            if ($rule === null) {
+                $this->unclassified[] = "post_meta:$key";
+                continue;
+            }
+            if (($rule['class'] ?? '') !== 'authored') {
+                continue;
+            }
+            if (count($values) > 1) {
+                throw new \RuntimeException("duo: multi-value authored meta '$key' on post $id unsupported in v0");
+            }
+            $v = maybe_unserialize($values[0]);
+            self::assert_plain($v, "post $id meta $key");
+            if (!empty($rule['ref'])) {
+                $v = $this->tokens->value_to_tokens($v, $rule['ref']);
+            } elseif (is_string($v)) {
+                $v = $this->tokens->tokenize_text($v);
+            }
+            $meta[$key] = $v;
+        }
+
+        // parent
+        $parent = null;
+        if ((int) $p->post_parent > 0) {
+            $tok = $this->tokens->id_to_token((int) $p->post_parent, 'post');
+            if ($tok === null) {
+                throw new \RuntimeException(
+                    "duo: post {$p->post_name} has unmanaged parent post {$p->post_parent} — capture scope must include it"
+                );
+            }
+            $parent = $tok;
+        }
+
+        // term relationships (owned taxonomies only)
+        $taxes = $this->policy->taxonomies();
+        $termsField = [];
+        if ($taxes && !$isAttachment) {
+            $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
+            $rels = $wpdb->get_results($wpdb->prepare(
+                "SELECT tt.taxonomy, tt.term_id FROM {$wpdb->term_relationships} tr
+                 JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+                 WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
+                $id
+            )) ?: [];
+            foreach ($rels as $rel) {
+                $tu = Ledger::uuid_for((int) $rel->term_id, Ledger::KIND_TERM);
+                if ($tu !== null) {
+                    $termsField[$rel->taxonomy][] = $tu;
+                }
+            }
+            foreach ($termsField as &$list) {
+                sort($list, SORT_STRING);
+            }
+            unset($list);
+        }
+
+        $front = [
+            'uuid' => $uuid,
+            'type' => $p->post_type,
+            'slug' => $p->post_name,
+            'title' => $p->post_title,
+            'status' => $p->post_status,
+            'date' => $p->post_date,
+            'date_gmt' => $p->post_date_gmt,
+            'modified_gmt' => $p->post_modified_gmt,
+            'author' => $this->author_token((int) $p->post_author),
+            'parent' => $parent,
+            'menu_order' => (int) $p->menu_order,
+            'comment_status' => $p->comment_status,
+            'ping_status' => $p->ping_status,
+            'excerpt' => $this->tokens->tokenize_text((string) $p->post_excerpt),
+            'meta' => (object) $meta,
+            'terms' => (object) $termsField,
+        ];
+
+        $mediaRef = null;
+        if ($isAttachment) {
+            if (!$attachedFile) {
+                throw new \RuntimeException("duo: attachment $id has no _wp_attached_file");
+            }
+            $up = wp_upload_dir(null, false);
+            $src = trailingslashit($up['basedir']) . $attachedFile;
+            if (!is_file($src)) {
+                throw new \RuntimeException("duo: attachment $id file missing: $src");
+            }
+            $sha = hash_file('sha256', $src);
+            $ext = pathinfo($attachedFile, PATHINFO_EXTENSION);
+            $mediaFile = $sha . ($ext ? ".$ext" : '');
+            $front['file'] = $attachedFile;
+            $front['media'] = $mediaFile;
+            $front['mime'] = $p->post_mime_type;
+            $front['alt'] = $alt;
+            $mediaRef = [$mediaFile, $src];
+        }
+
+        $body = Blocks::capture_rewrite((string) $p->post_content, $this->policy, $this->tokens);
+        return [$front, $body, $mediaRef];
+    }
+
+    private function author_token(int $userId): ?string {
+        global $wpdb;
+        if ($userId <= 0) {
+            return null;
+        }
+        if (!isset($this->userLogins[$userId])) {
+            $login = $wpdb->get_var($wpdb->prepare(
+                "SELECT user_login FROM {$wpdb->users} WHERE ID = %d", $userId
+            ));
+            $this->userLogins[$userId] = $login ?: '';
+        }
+        $login = $this->userLogins[$userId];
+        if ($login === '') {
+            $this->tokens->warnings[] = "post author user $userId not found; author dropped";
+            return null;
+        }
+        return 'user:' . $login;
+    }
+
+    /** @return array<int, array{uuid: string, slug: string, front: array}> */
+    private function scope_menus(bool $mint): array {
+        global $wpdb;
+        $menuTerms = $wpdb->get_results(
+            "SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, tt.taxonomy, tt.description, tt.parent
+             FROM {$wpdb->terms} t JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+             WHERE tt.taxonomy = 'nav_menu' ORDER BY t.term_id ASC"
+        ) ?: [];
+        if (!$menuTerms) {
+            return [];
+        }
+
+        // menu -> locations, from the active theme's mods
+        $stylesheet = (string) get_option('stylesheet');
+        $mods = get_option('theme_mods_' . $stylesheet);
+        $locByTerm = [];
+        if (is_array($mods) && !empty($mods['nav_menu_locations'])) {
+            foreach ($mods['nav_menu_locations'] as $loc => $tid) {
+                $locByTerm[(int) $tid][] = (string) $loc;
+            }
+        }
+
+        $menus = [];
+        foreach ($menuTerms as $mt) {
+            $uuid = $this->ensure_term_uuid($mt, 'menu', $mint);
+            if ($uuid === null) {
+                continue;
+            }
+            $items = $wpdb->get_results($wpdb->prepare(
+                "SELECT p.* FROM {$wpdb->posts} p
+                 JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
+                 WHERE tr.term_taxonomy_id = %d AND p.post_type = 'nav_menu_item' AND p.post_status = 'publish'
+                 ORDER BY p.menu_order ASC, p.ID ASC",
+                (int) $mt->term_taxonomy_id
+            )) ?: [];
+
+            // first pass: identity for parent refs
+            $itemUuidById = [];
+            foreach ($items as $ip) {
+                $iu = $this->ensure_post_uuid((int) $ip->ID, 'menu_item', $mint);
+                if ($iu !== null) {
+                    $itemUuidById[(int) $ip->ID] = $iu;
+                }
+            }
+
+            $itemList = [];
+            foreach ($items as $ip) {
+                $iid = (int) $ip->ID;
+                $iu = $itemUuidById[$iid] ?? null;
+                if ($iu === null) {
+                    continue;
+                }
+                $m = $this->post_meta_map($iid);
+                $type = $m['_menu_item_type'] ?? 'custom';
+                $objectId = (int) ($m['_menu_item_object_id'] ?? 0);
+                $ref = '';
+                if ($type === 'post_type') {
+                    $ref = $this->tokens->id_to_token($objectId, 'post')
+                        ?? throw new \RuntimeException("duo: menu '{$mt->slug}' item $iid points at unmanaged post $objectId");
+                } elseif ($type === 'taxonomy') {
+                    $ref = $this->tokens->id_to_token($objectId, 'term')
+                        ?? throw new \RuntimeException("duo: menu '{$mt->slug}' item $iid points at unmanaged term $objectId");
+                } else {
+                    $ref = $this->tokens->tokenize_text((string) ($m['_menu_item_url'] ?? ''));
+                }
+                $parentItem = (int) ($m['_menu_item_menu_item_parent'] ?? 0);
+                $classes = maybe_unserialize($m['_menu_item_classes'] ?? '');
+                $classes = is_array($classes)
+                    ? array_values(array_filter(array_map('strval', $classes), fn($s) => $s !== ''))
+                    : [];
+                $itemList[] = [
+                    'uuid' => $iu,
+                    'type' => $type,
+                    'object' => (string) ($m['_menu_item_object'] ?? ''),
+                    'ref' => $ref,
+                    'parent' => $parentItem > 0 ? ($itemUuidById[$parentItem] ?? null) : null,
+                    'position' => (int) $ip->menu_order,
+                    'title' => $ip->post_title,
+                    'attr_title' => (string) $ip->post_excerpt,
+                    'target' => (string) ($m['_menu_item_target'] ?? ''),
+                    'classes' => $classes,
+                    'xfn' => (string) ($m['_menu_item_xfn'] ?? ''),
+                ];
+            }
+
+            $locations = $locByTerm[(int) $mt->term_id] ?? [];
+            sort($locations, SORT_STRING);
+            $menus[] = [
+                'uuid' => $uuid,
+                'slug' => $mt->slug,
+                'front' => [
+                    'uuid' => $uuid,
+                    'name' => $mt->name,
+                    'slug' => $mt->slug,
+                    'locations' => $locations,
+                    'items' => $itemList,
+                ],
+            ];
+        }
+        return $menus;
+    }
+
+    private function post_meta_map(int $postId): array {
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_id ASC",
+            $postId
+        ), ARRAY_A) ?: [];
+        $out = [];
+        foreach ($rows as $r) {
+            if (!isset($out[$r['meta_key']])) {
+                $out[$r['meta_key']] = $r['meta_value'];
+            }
+        }
+        return $out;
+    }
+
+    private function build_options(): array {
+        global $wpdb;
+        $out = [];
+        foreach ($this->policy->authored_options() as $name => $rule) {
+            $raw = $wpdb->get_var($wpdb->prepare(
+                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                $name
+            ));
+            if ($raw === null) {
+                continue;
+            }
+            $v = maybe_unserialize($raw);
+            self::assert_plain($v, "option $name");
+            if (!empty($rule['ref'])) {
+                $v = $this->option_ref_tokens($name, $v, $rule['ref']);
+                if ($v === null) {
+                    continue;
+                }
+            } elseif (is_string($v)) {
+                $v = $this->tokens->tokenize_text($v);
+            }
+            $out[$name] = $v;
+        }
+        return $out;
+    }
+
+    /** Options must never propagate env-local numeric ids: unmapped ref => skip key. */
+    private function option_ref_tokens(string $name, $value, string $ref) {
+        if (str_ends_with($ref, '[]')) {
+            $kind = substr($ref, 0, -2);
+            $ok = [];
+            foreach ((array) $value as $v) {
+                $tok = $this->tokens->id_to_token((int) $v, $kind);
+                if ($tok === null) {
+                    $this->tokens->warnings[] = "option $name: unmanaged $kind id $v dropped";
+                    continue;
+                }
+                $ok[] = $tok;
+            }
+            return $ok;
+        }
+        $tok = $this->tokens->id_to_token((int) $value, $ref);
+        if ($tok === null) {
+            $this->tokens->warnings[] = "option $name: unmanaged $ref id " . (int) $value . ' — key skipped';
+            return null;
+        }
+        return $tok;
+    }
+
+    private static function assert_plain($v, string $ctx): void {
+        if (is_object($v)) {
+            throw new \RuntimeException(
+                "duo: non-plain serialized data (PHP object) in $ctx — needs the verbatim-preservation path (post-v0)"
+            );
+        }
+        if (is_array($v)) {
+            foreach ($v as $x) {
+                self::assert_plain($x, $ctx);
+            }
+        }
+    }
+
+    private static function clear_state_dir(string $dir): void {
+        if (!is_dir($dir)) {
+            return;
+        }
+        $real = realpath($dir);
+        if ($real === false || !str_contains($real, 'state')) {
+            // refuse to recursively delete anything that doesn't look like a state dir
+            return;
+        }
+        $it = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($real, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($it as $f) {
+            $f->isDir() ? rmdir($f->getPathname()) : unlink($f->getPathname());
+        }
+    }
+}

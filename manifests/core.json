@@ -59,6 +59,10 @@
     "_wp_trash_meta_status": {"class": "runtime"},
     "_wp_trash_meta_time": {"class": "runtime"}
   },
+  "tables": {
+    "commentmeta": {"class": "runtime"},
+    "comments": {"class": "runtime"}
+  },
   "term_meta": {
     "_duo_uuid": {"class": "managed"}
   }

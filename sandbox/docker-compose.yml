@@ -1,0 +1,129 @@
+name: duo-sandbox
+
+x-db-env: &db-env
+  MARIADB_DATABASE: wordpress
+  MARIADB_USER: wordpress
+  MARIADB_PASSWORD: wordpress
+  MARIADB_ROOT_PASSWORD: root
+
+x-db: &db
+  image: mariadb:11
+  environment: *db-env
+  healthcheck:
+    test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+    interval: 3s
+    timeout: 3s
+    retries: 30
+
+x-wp-env: &wp-env
+  WORDPRESS_DB_USER: wordpress
+  WORDPRESS_DB_PASSWORD: wordpress
+  WORDPRESS_DB_NAME: wordpress
+  DUO_MANIFESTS_DIR: /duo-manifests
+  WORDPRESS_CONFIG_EXTRA: |
+    define('WP_ENVIRONMENT_TYPE', 'local');
+
+services:
+  db-a:
+    <<: *db
+    volumes: [dba:/var/lib/mysql]
+
+  wp-a:
+    image: wordpress:php8.3-apache
+    depends_on:
+      db-a: {condition: service_healthy}
+    ports: ["8801:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-a
+    volumes: &vol-a
+      - wpa:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/a:/siterepo
+
+  cli-a:
+    image: wordpress:cli-php8.3
+    user: "33:33"
+    depends_on:
+      db-a: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-a
+    volumes: *vol-a
+
+  db-b:
+    <<: *db
+    volumes: [dbb:/var/lib/mysql]
+
+  wp-b:
+    image: wordpress:php8.3-apache
+    depends_on:
+      db-b: {condition: service_healthy}
+    ports: ["8802:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-b
+    volumes: &vol-b
+      - wpb:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/b:/siterepo
+
+  cli-b:
+    image: wordpress:cli-php8.3
+    user: "33:33"
+    depends_on:
+      db-b: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-b
+    volumes: *vol-b
+
+  db-c:
+    <<: *db
+    profiles: [spikec]
+    volumes: [dbc:/var/lib/mysql]
+
+  wp-c:
+    image: wordpress:php8.3-apache
+    profiles: [spikec]
+    depends_on:
+      db-c: {condition: service_healthy}
+    ports: ["8803:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-c
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: &vol-c
+      - wpc:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/c:/siterepo
+
+  cli-c:
+    image: wordpress:cli-php8.3
+    profiles: [spikec]
+    user: "33:33"
+    depends_on:
+      db-c: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-c
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: *vol-c
+
+volumes:
+  dba: {}
+  dbb: {}
+  dbc: {}
+  wpa: {}
+  wpb: {}
+  wpc: {}
