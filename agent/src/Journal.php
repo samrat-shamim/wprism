@@ -237,7 +237,10 @@ final class Journal {
         return $out;
     }
 
-    private static function ground_truth(Policy $policy, string $tbl, string $item): ?string {
+    /** Public so Pending::scan() can reuse the exact same ground-truth lookup
+     *  (options/postmeta/termmeta -> manifest+policy class) instead of
+     *  re-deriving it — report()'s own behavior/output is unchanged. */
+    public static function ground_truth(Policy $policy, string $tbl, string $item): ?string {
         if ($tbl === 'options' && $item !== '') {
             return $policy->option_rule($item)['class'] ?? null;
         }

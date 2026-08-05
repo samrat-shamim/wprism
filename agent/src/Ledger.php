@@ -70,6 +70,16 @@ final class Ledger {
 
     public static function set(string $uuid, string $entityType, string $kind, int $localId): void {
         global $wpdb;
+        // Auto-increment ids get reused (site empty resets counters; deletes
+        // outside duo leave stale rows). A stale row holding this (kind,
+        // local_id) under a DIFFERENT uuid would win the kind_local unique-key
+        // conflict below and silently keep the OLD uuid mapped to the new row
+        // — the entity's own _duo_uuid meta is the identity truth, so the
+        // contradicting map row must go first.
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$wpdb->prefix}duo_map WHERE id_kind = %s AND local_id = %d AND uuid <> %s",
+            $kind, $localId, $uuid
+        ));
         $wpdb->query($wpdb->prepare(
             "INSERT INTO {$wpdb->prefix}duo_map (uuid, entity_type, id_kind, local_id)
              VALUES (%s, %s, %s, %d)
@@ -128,6 +138,32 @@ final class Ledger {
                 ));
             }
         }
+    }
+
+    /**
+     * Drop identity rows whose local row no longer exists. Deletes made
+     * outside duo (wp-admin, wp-cli) never touch the ledger, and a stale
+     * uuid↔id row makes dangling references resolve asymmetrically between
+     * environments (one captures a token, the other the raw id) and turns
+     * re-apply-after-local-delete into a silent no-op (the create path sees
+     * the dead id and skips the insert). Run wherever canonical state is
+     * built — capture and snapshot.
+     */
+    public static function prune_dead_map(): void {
+        global $wpdb;
+        $p = $wpdb->prefix;
+        $wpdb->query(
+            "DELETE m FROM {$p}duo_map m LEFT JOIN {$wpdb->posts} po ON po.ID = m.local_id
+             WHERE m.id_kind = '" . self::KIND_POST . "' AND po.ID IS NULL"
+        );
+        $wpdb->query(
+            "DELETE m FROM {$p}duo_map m LEFT JOIN {$wpdb->terms} t ON t.term_id = m.local_id
+             WHERE m.id_kind = '" . self::KIND_TERM . "' AND t.term_id IS NULL"
+        );
+        $wpdb->query(
+            "DELETE m FROM {$p}duo_map m LEFT JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = m.local_id
+             WHERE m.id_kind = '" . self::KIND_TT . "' AND tt.term_taxonomy_id IS NULL"
+        );
     }
 
     public static function kv_get(string $k): ?string {

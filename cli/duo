@@ -20,11 +20,15 @@ require __DIR__ . '/src/DockerTransport.php';
 require __DIR__ . '/src/SshTransport.php';
 require __DIR__ . '/src/Doctor.php';
 require __DIR__ . '/src/PlanSummary.php';
+require __DIR__ . '/src/Pending.php';
+require __DIR__ . '/src/Triage.php';
 
 use Duo\Orchestrator\Doctor;
+use Duo\Orchestrator\Pending;
 use Duo\Orchestrator\PlanSummary;
 use Duo\Orchestrator\Registry;
 use Duo\Orchestrator\Transport;
+use Duo\Orchestrator\Triage;
 
 function duo_usage(): string {
     return <<<TXT
@@ -40,6 +44,8 @@ Usage:
   duo capture <env> [extra wp-cli flags...]
   duo plan    <env> [extra wp-cli flags...]
   duo apply   <env> [extra wp-cli flags...]
+  duo pending <env>
+  duo classify <env> [--accept-proposals]
   duo -h | --help
 
 Verbs:
@@ -57,6 +63,35 @@ Verbs:
                           Extra flags (e.g. --adopt-by-slug=terms
                           --default-author=admin, --with-deletes) are forwarded
                           verbatim. Output streams live; exit code is the agent's.
+  pending <env>           List the review queue (`wp duo pending --format=json`)
+                          as a table: section:key, proposal, evidence, ref-hint,
+                          and a prominent SECRET flag where present. Exit 0 with
+                          "review queue is empty" when there's nothing to triage.
+  pending <env>
+    --format=json         Raw passthrough of the agent's own JSON (same
+                          precedent as `duo plan --format=json`), instead of
+                          the rendered table.
+  classify <env>          Interactive triage of the review queue, reading
+                          decisions from stdin (pipe-friendly — no /dev/tty):
+                          per item, Enter accepts its proposal (when one
+                          exists); a/r/e/d/m explicitly set
+                          authored/runtime/env/derived/managed; s skips; q
+                          quits and applies whatever was already decided. An
+                          authored decision on a secret-flagged item always
+                          requires typing "allow" first — Enter alone can
+                          never author a secret. An authored decision with a
+                          ref-hint offers a y/N prompt to attach `ref=<kind>`.
+                          All decisions batch into one `wp duo classify --set=...`
+                          call at the end; its output streams live and its
+                          exit code propagates. Prints "N classified, M
+                          skipped" as a final summary line.
+  classify <env>
+    --accept-proposals    Non-interactive: accepts every item that has a
+                          proposal, except secret-flagged items proposed
+                          "authored" (those are skipped loudly — they need a
+                          human). Exit 0 if the queue was empty or fully
+                          handled; non-zero if any secret-authored items had
+                          to be skipped.
 
 Global flags:
   --envs-file=<path>      Load the machine-local overlay registry from <path>
@@ -112,7 +147,7 @@ function main(array $argv): int {
     }
 
     $verb = array_shift($rest);
-    $verbsNeedingEnv = ['doctor', 'status', 'capture', 'plan', 'apply'];
+    $verbsNeedingEnv = ['doctor', 'status', 'capture', 'plan', 'apply', 'pending', 'classify'];
 
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
@@ -136,6 +171,8 @@ function main(array $argv): int {
         'doctor' => cmd_doctor($transport),
         'status' => cmd_status($transport),
         'capture', 'plan', 'apply' => cmd_passthrough($transport, $verb, $extra),
+        'pending' => cmd_pending($transport, $extra),
+        'classify' => cmd_classify($transport, $extra),
     };
 }
 
@@ -196,6 +233,163 @@ function cmd_status(Transport $t): int {
 function cmd_passthrough(Transport $t, string $verb, array $extra): int {
     $wpArgs = array_merge(['duo', $verb, '--repo=' . $t->repoPath()], $extra);
     return $t->streamWp($wpArgs);
+}
+
+/**
+ * Shared fetch+decode for `wp duo pending --format=json`, used by both
+ * `duo pending` and `duo classify` (which triages the same queue). Mirrors
+ * cmd_status()'s captureWp()-then-decode shape so a transport/parse failure
+ * reports the same way `duo status` does, with the agent's own exit code
+ * propagated rather than a generic 1.
+ *
+ * @return array{ok:bool, exit:int, items:list<array<string,mixed>>}
+ */
+function fetch_pending(Transport $t): array {
+    $r = $t->captureWp(['duo', 'pending', '--repo=' . $t->repoPath(), '--format=json']);
+    if ($r['exit'] !== 0) {
+        fwrite(STDERR, "duo: pending: failed to fetch the review queue for '{$t->name()}' (exit {$r['exit']})\n");
+        $msg = trim($r['stderr'] !== '' ? $r['stderr'] : $r['stdout']);
+        if ($msg !== '') {
+            fwrite(STDERR, $msg . "\n");
+        }
+        return ['ok' => false, 'exit' => $r['exit'] !== 0 ? $r['exit'] : 1, 'items' => []];
+    }
+    $items = json_decode(trim($r['stdout']), true);
+    if (!is_array($items)) {
+        fwrite(STDERR, "duo: pending: could not parse review-queue JSON for '{$t->name()}'\n");
+        fwrite(STDERR, "raw output:\n{$r['stdout']}\n");
+        return ['ok' => false, 'exit' => 1, 'items' => []];
+    }
+    return ['ok' => true, 'exit' => 0, 'items' => array_values($items)];
+}
+
+function cmd_pending(Transport $t, array $extra): int {
+    if (in_array('--format=json', $extra, true)) {
+        // Raw passthrough, same precedent as `duo status` vs. `duo plan
+        // --format=json` (see cli/README.md): `duo pending` parses and
+        // renders a table by default, but scripting/cross-checking wants
+        // the agent's own JSON verbatim.
+        return $t->streamWp(['duo', 'pending', '--repo=' . $t->repoPath(), '--format=json']);
+    }
+    if ($extra) {
+        fwrite(STDERR, 'duo: pending: unknown flag(s): ' . implode(' ', $extra) . "\n");
+        return 1;
+    }
+    $res = fetch_pending($t);
+    if (!$res['ok']) {
+        return $res['exit'];
+    }
+    if (!$res['items']) {
+        echo "review queue is empty\n";
+        return 0;
+    }
+    $summary = Pending::render($res['items']);
+    foreach ($summary['lines'] as $line) {
+        echo $line . "\n";
+    }
+    return 0;
+}
+
+/**
+ * Batches triage decisions into the `--set` args for `wp duo classify`.
+ *
+ * CONFIRMED against the landed agent/src/Cli.php::classify() docblock
+ * (task #12): wp-cli's assoc-arg parser keeps only the *last* occurrence of
+ * a repeated `--set=<spec>` flag, so every decision must travel in ONE
+ * semicolon-joined --set value — `--set 'post_meta:foo=runtime;options:bar=authored,ref=post'`
+ * is the agent's own documented example. Left as a mode switch (rather than
+ * hardcoding the join) purely so a future wp-cli/agent change is still a
+ * one-line fix here.
+ */
+const CLASSIFY_SET_MODE = 'joined';
+
+/** @param list<array{section:string,key:string,class:string,ref?:string}> $decisions */
+function build_classify_args(array $decisions, bool $needAllowSecret): array {
+    $specs = array_map(function (array $d): string {
+        $spec = "{$d['section']}:{$d['key']}={$d['class']}";
+        if (isset($d['ref'])) {
+            $spec .= ",ref={$d['ref']}";
+        }
+        return $spec;
+    }, $decisions);
+
+    $args = CLASSIFY_SET_MODE === 'joined'
+        ? ['--set=' . implode(';', $specs)]
+        : array_map(fn(string $s) => '--set=' . $s, $specs);
+
+    if ($needAllowSecret) {
+        $args[] = '--allow-secret';
+    }
+    return $args;
+}
+
+function cmd_classify(Transport $t, array $extra): int {
+    $unknown = array_values(array_diff($extra, ['--accept-proposals']));
+    if ($unknown) {
+        fwrite(STDERR, 'duo: classify: unknown flag(s): ' . implode(' ', $unknown) . "\n");
+        return 1;
+    }
+    $acceptProposals = in_array('--accept-proposals', $extra, true);
+
+    $res = fetch_pending($t);
+    if (!$res['ok']) {
+        return $res['exit'];
+    }
+    if (!$res['items']) {
+        echo "review queue is empty\n";
+        return 0;
+    }
+
+    return $acceptProposals
+        ? cmd_classify_accept_proposals($t, $res['items'])
+        : cmd_classify_interactive($t, $res['items']);
+}
+
+function cmd_classify_interactive(Transport $t, array $items): int {
+    $result = Triage::run($items, STDIN, STDOUT);
+
+    $exit = 0;
+    if ($result['decisions']) {
+        $args = build_classify_args($result['decisions'], $result['needAllowSecret']);
+        $exit = $t->streamWp(array_merge(['duo', 'classify', '--repo=' . $t->repoPath()], $args));
+    }
+    printf("\n%d classified, %d skipped.\n", $result['classified'], $result['skipped']);
+    return $exit;
+}
+
+/**
+ * Non-interactive acceptance for CI/scripting. Triage::acceptProposals()
+ * does the actual filtering (pure, unit-testable without a transport); this
+ * just batches the result into one `wp duo classify` call, streams it, and
+ * turns a non-empty secretSkipped into a non-zero exit so a CI pipeline can
+ * tell "nothing to do" apart from "a human needs to look at this."
+ */
+function cmd_classify_accept_proposals(Transport $t, array $items): int {
+    $result = Triage::acceptProposals($items);
+    $decisions = $result['decisions'];
+    $secretSkipped = $result['secretSkipped'];
+
+    $exit = 0;
+    if ($decisions) {
+        $args = build_classify_args($decisions, false);
+        $exit = $t->streamWp(array_merge(['duo', 'classify', '--repo=' . $t->repoPath()], $args));
+    } else {
+        echo "no proposals to accept\n";
+    }
+
+    if ($secretSkipped) {
+        fwrite(STDERR, 'duo: classify --accept-proposals: skipped ' . count($secretSkipped)
+            . " secret-flagged item(s) proposed authored -- these need a human (\`duo classify {$t->name()}\`):\n");
+        foreach ($secretSkipped as $s) {
+            fwrite(STDERR, "  - $s\n");
+        }
+        return $exit !== 0 ? $exit : 2;
+    }
+
+    if ($decisions) {
+        printf("%d accepted.\n", count($decisions));
+    }
+    return $exit;
 }
 
 try {

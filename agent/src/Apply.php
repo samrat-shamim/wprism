@@ -738,7 +738,10 @@ final class Apply {
         wp_cache_delete('alloptions', 'options');
     }
 
-    private function upsert_meta(string $table, string $fkCol, int $objectId, string $key, string $value): void {
+    /** $value null writes a real SQL NULL — byte-faithful to plugins that store
+     *  NULL meta_value themselves (WooCommerce's date_expires on non-expiring
+     *  coupons); never a "delete the row" semantic. */
+    private function upsert_meta(string $table, string $fkCol, int $objectId, string $key, ?string $value): void {
         global $wpdb;
         $metaId = $wpdb->get_var($wpdb->prepare(
             "SELECT meta_id FROM $table WHERE $fkCol = %d AND meta_key = %s LIMIT 1", $objectId, $key

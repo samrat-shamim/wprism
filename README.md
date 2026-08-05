@@ -10,7 +10,9 @@ Duo makes a WordPress site **branchable like code** — branch, edit, merge, pro
 - **Spike D — WooCommerce catalog**: full product-meta manifest (field-granular: `_stock` is runtime, `_regular_price` is authored), plus the referential delete guard — deleting a product that this environment's orders reference blocks at plan time.
 - **Spike E — ACF interpreter**: schema-driven classification — field-group definitions type the meta values (image/relationship ids, string-cast serialized arrays), with verbatim byte-preservation for serialized field-config bodies.
 - **Conformance harness** ([sandbox/conformance/](sandbox/conformance/)): the manifest-treadmill answer — per-manifest clean-room round-trip gates (capture-twice determinism, apply, re-capture = byte-identical), run in CI ([.github/workflows/conformance.yml](.github/workflows/conformance.yml)) for core, woocommerce, acf, yoast.
-- **`duo` CLI** ([cli/](cli/)): host-agnostic orchestration — `duo capture|plan|apply|status|doctor <env>` over local/docker/ssh transports from a committable env registry.
+- **`duo` CLI** ([cli/](cli/)): host-agnostic orchestration — `duo capture|plan|apply|status|doctor|pending|classify <env>` over local/docker/ssh transports from a committable env registry.
+- **The core loop (Spike F)**: unclassified write → loud block → `wp duo pending` (journal-evidenced proposals, ref hints, secret flags) → `duo classify` triage (interactive or `--accept-proposals`; secrets can never be authored silently) → clean capture → `policy-to-manifest` export that reproduces identical state when pinned. The secret guard aborts capture on key-pattern hits in authored values.
+- **Frontier maps** ([docs/frontier/](docs/frontier/)): empirically-grounded gap reports for FSE block themes, Polylang, and Elementor — including the engine work each needs before it's safe. **Design proposal** for the `code/` half in [docs/proposals/code-half.md](docs/proposals/code-half.md).
 
 ## Layout
 
@@ -34,8 +36,10 @@ make spike-b          # merge: divergent edits, git conflict, drift preserved, c
 make spike-c          # provenance: Woo env (:8803), admin vs anonymous writes vs manifest ground truth
 make spike-d          # WooCommerce catalog round-trip + referential delete guard (needs spike-a/b first)
 make spike-e          # ACF interpreter round-trip (own env pair :8804/:8805)
+make spike-f          # the core loop: block → pending → classify → capture → manifest export (:8808/:8809)
 make conformance-yoast  # per-manifest clean-room gate (:8806/:8807); also core/woocommerce/acf
 make cli-smoke        # duo CLI end-to-end over the docker transport
+make cli-triage-smoke # interactive duo classify triage end-to-end
 make down             # stop; `make clean` also deletes volumes
 ```
 

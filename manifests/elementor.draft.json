@@ -1,0 +1,18 @@
+{
+  "name": "elementor",
+  "options": {
+    "elementor_active_kit": {"class": "authored", "ref": "post"}
+  },
+  "post_meta": {
+    "_elementor_css": {"class": "derived"},
+    "_elementor_data": {"class": "authored"},
+    "_elementor_edit_mode": {"class": "authored"},
+    "_elementor_element_cache": {"class": "derived"},
+    "_elementor_migrations_state_d2a1": {"class": "derived"},
+    "_elementor_global_class_usage_indexed": {"class": "derived"},
+    "_elementor_global_class_usage_indexed_preview": {"class": "derived"},
+    "_elementor_page_assets": {"class": "derived"},
+    "_elementor_template_type": {"class": "authored"},
+    "_elementor_version": {"class": "managed"}
+  }
+}

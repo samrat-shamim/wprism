@@ -12,8 +12,9 @@ use Duo\Policy;
  *
  * Storage shapes below are as observed against ACF (free) 6.x via the
  * spike-e seed (sandbox/tests/spike_e_acf.sh — an image field and a
- * relationship field; see that script's seed step and this spike's final
- * report for the empirical trace):
+ * relationship field) and the acf conformance seed (sandbox/conformance/
+ * seeds/acf.sh — taxonomy checkbox/radio + user fields, task #16's
+ * end-to-end exercise; see that seed and its conformance run for the trace):
  *   - acf-field-group / acf-field posts: the field/group config (everything
  *     but the handful of properties promoted to real post columns — key,
  *     label/title, menu_order, parent) is a serialize()'d PHP array in
@@ -32,12 +33,21 @@ use Duo\Policy;
  *     exact serialized byte sequence on apply requires round-tripping the
  *     ids as strings (a:2:{i:0;s:...} not a:2:{i:0;i:...}), which is what
  *     Tokens' "cast":"string" restores.
- *   - taxonomy / user: NOT exercised by the spike-e seed (it seeds neither
- *     field type) — mapped from ACF's documented behavior: single- vs
- *     multi-value storage is itself a field setting (taxonomy's
- *     "field_type": checkbox/multi_select selects vs. radio/select; user's
- *     boolean "multiple"), so the ref kind below is picked from that setting
- *     rather than hard-coded, but this path is unverified end-to-end here.
+ *   - taxonomy: single- vs multi-value storage is itself a field setting
+ *     ("field_type": checkbox/multi_select selects vs. radio/select single),
+ *     so the ref kind is picked from that setting. Verified: multi-value is
+ *     a serialize()'d array of id INTEGERS, a:2:{i:0;i:2;i:1;i:3;} — no
+ *     strval, unlike relationship/gallery above — so no "cast" is declared;
+ *     single-value is a bare scalar (same no-op-cast case as image/file/
+ *     post_object). Getting this wrong doesn't break the byte-for-byte
+ *     canonical-JSON round trip (token ids are (int)-cast either way going
+ *     back through meta_value_to_tokens — see Tokens::meta_value_to_tokens's
+ *     $one closure) so a wrong cast here is silent until something diffs the
+ *     raw DB row or a stricter reader cares about the element type.
+ *   - user: single- vs multi-value storage is the boolean "multiple" field
+ *     setting. Verified: multi-value IS strval'd like relationship/gallery,
+ *     a:2:{i:0;s:1:"1";i:1;s:1:"2";} — "cast":"string" is correct here;
+ *     single-value is a bare scalar (no-op either way).
  */
 final class Acf {
     private const FIELD_KEY_PATTERN = '/^field_[A-Za-z0-9_]+$/';
@@ -90,11 +100,19 @@ final class Acf {
         return match ($type) {
             'image', 'file', 'post_object' => ['class' => 'authored', 'ref' => 'post', 'cast' => 'string'],
             'relationship', 'gallery' => ['class' => 'authored', 'ref' => 'post[]', 'cast' => 'string'],
+            // Empirically verified (sandbox/conformance/seeds/acf.sh, task
+            // #16): unlike relationship/gallery, ACF's taxonomy field-type
+            // update_value() does NOT strval its ids — a multi-value
+            // (checkbox/multi_select) meta_value is a:N:{i:0;i:<id>;...}
+            // (int elements), so no 'cast' here (single-value is a bare
+            // scalar either way, same no-op note as image/file/post_object).
             'taxonomy' => [
                 'class' => 'authored',
                 'ref' => in_array($def['field_type'] ?? '', ['checkbox', 'multi_select'], true) ? 'term[]' : 'term',
-                'cast' => 'string',
             ],
+            // Empirically verified: the user field-type's multi-value shape
+            // IS strval'd (a:N:{i:0;s:1:"1";...}), unlike taxonomy — so
+            // 'cast'=>'string' here is correct as originally written.
             'user' => [
                 'class' => 'authored',
                 'ref' => empty($def['multiple']) ? 'user' : 'user[]',

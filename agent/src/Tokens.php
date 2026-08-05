@@ -99,7 +99,7 @@ final class Tokens {
             $this->userLogins[$id] = $login ?: '';
         }
         if ($this->userLogins[$id] === '') {
-            $this->warnings[] = "user id $id not found; reference left numeric";
+            $this->warnings[] = "user id $id not found (env-local user gone)";
             return null;
         }
         return 'user:' . $this->userLogins[$id];
@@ -130,16 +130,27 @@ final class Tokens {
      * ['ref' => 'post'|'term'|'user'|'post[]'|..., 'cast' => null|'string'|'csv'].
      * 'string' preserves ids-as-strings inside serialized arrays byte-exactly
      * (ACF stores them that way); 'csv' canonicalizes a "1,2,3" string into a
-     * token list re-joined on apply. Unmapped ids stay numeric (warned).
+     * token list re-joined on apply.
+     *
+     * Unmapped ids are DROPPED with a warning, never kept numeric: a raw
+     * env-local id in canonical state is indistinguishable on another
+     * environment from a valid id — which may resolve to an unrelated live
+     * entity after auto-increment reuse (silently wrong, not just dangling).
+     * Dropping converges: the corrected canonical value applies everywhere.
+     * Array/csv values drop the element; a scalar ref returns null and the
+     * caller skips the key (same semantics options have always had).
      */
     public function meta_value_to_tokens($value, array $rule) {
         $ref = $rule['ref'];
         $cast = $rule['cast'] ?? null;
-        $one = function ($v, string $kind) {
-            if ($kind === 'user') {
-                return $this->user_id_to_token((int) $v) ?? (int) $v;
+        $one = function ($v, string $kind): ?string {
+            $tok = $kind === 'user'
+                ? $this->user_id_to_token((int) $v)
+                : $this->id_to_token((int) $v, $kind);
+            if ($tok === null) {
+                $this->warnings[] = "unmapped $kind id " . (int) $v . ' dropped from ref-typed meta (dangling reference)';
             }
-            return $this->id_to_token((int) $v, $kind) ?? (int) $v;
+            return $tok;
         };
         if ($cast === 'csv') {
             $kind = rtrim($ref, '[]');
@@ -147,13 +158,16 @@ final class Tokens {
                 array_map('trim', explode(',', (string) $value)),
                 fn($s) => $s !== ''
             ));
-            return array_map(fn($v) => $one($v, $kind), $parts);
+            return array_values(array_filter(array_map(fn($v) => $one($v, $kind), $parts)));
         }
         if (str_ends_with($ref, '[]')) {
             $kind = substr($ref, 0, -2);
             $out = [];
             foreach ((array) $value as $v) {
-                $out[] = $one($v, $kind);
+                $tok = $one($v, $kind);
+                if ($tok !== null) {
+                    $out[] = $tok;
+                }
             }
             return $out;
         }

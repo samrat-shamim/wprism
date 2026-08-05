@@ -189,6 +189,213 @@ final class Cli {
         $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}duo_journal");
         WP_CLI::success('journal truncated');
     }
+
+    /**
+     * The core loop's review queue (DESIGN.md 3.1.5): unclassified post_meta
+     * /term_meta on in-scope entities (the same gate `duo capture` aborts
+     * on) plus journal-observed unclassified options (options are
+     * whitelist-only at capture, so an unlisted option is only visible via
+     * the journal). Each item carries whatever evidence exists — entity
+     * counts, journal surfaces/caps/proposal, a post/term ref-hint, a
+     * secret flag — never a guessed classification.
+     *
+     * ## OPTIONS
+     * --repo=<path>
+     * [--json]           : JSON output (wp-cli rewrites this to --format=json).
+     * [--format=<format>] : Output format. Accepts json.
+     */
+    public function pending($args, $assoc) {
+        try {
+            $items = Pending::scan($assoc['repo'] ?? WP_CLI::error('--repo required'));
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($items, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        if (!$items) {
+            WP_CLI::success('no pending unclassified state');
+            return;
+        }
+        foreach ($items as $it) {
+            $ev = $it['evidence'];
+            $evParts = [];
+            if (isset($ev['entities'])) {
+                $evParts[] = "entities={$ev['entities']}";
+            }
+            if (!empty($ev['post_types'])) {
+                $evParts[] = 'types=' . implode(',', $ev['post_types']);
+            }
+            if (isset($ev['journal'])) {
+                $j = $ev['journal'];
+                $surf = implode(',', array_map(fn($k, $v) => "$k=$v", array_keys($j['surfaces']), $j['surfaces']));
+                $evParts[] = "journal.n={$j['n']}($surf)";
+            }
+            $hint = '';
+            if (isset($it['ref_hint'])) {
+                $h = $it['ref_hint'];
+                $hint = "{$h['kind']}:{$h['id']} \"{$h['title']}\" ({$h['post_type']})";
+            }
+            WP_CLI::line(sprintf(
+                '%-10s %-32s proposal=%-9s %-50s %-45s %s',
+                $it['section'], $it['key'], $it['proposal'] ?? '—',
+                implode(' ', $evParts), $hint, $it['secret'] ?? ''
+            ));
+        }
+        WP_CLI::line('');
+        WP_CLI::success(count($items) . " pending item(s) — classify with: wp duo classify --repo=<repo> --set 'section:key=class'");
+    }
+
+    /**
+     * Write policy classification rules — the `wp duo pending` -> `wp duo
+     * classify` step of the core loop. Rules land in site.duo.json's policy
+     * overrides (Policy::set_rule); this command does not itself capture.
+     *
+     * ## OPTIONS
+     * --repo=<path>
+     * --set=<spec>         : "section:key=class[,ref=post][,cast=string]"
+     *   (section is options|post_meta|term_meta; the spec is split on the
+     *   FIRST ':' and the FIRST '='). Two wp-cli parsing quirks verified
+     *   empirically against this exact command (both silently swallow the
+     *   value otherwise — instrumented with a live var_dump of $args/$assoc,
+     *   not assumed):
+     *     1. Use the `=` form (--set=foo:bar=baz). The space form
+     *        (--set foo:bar=baz) is NOT equivalent — wp-cli parses a
+     *        space-separated value as a bare boolean flag ($assoc['set']
+     *        becomes `true`) and the intended value lands in positional
+     *        $args instead, silently.
+     *     2. Repeating the flag (--set=a --set=b) does NOT accumulate: only
+     *        the LAST occurrence survives ($assoc['set'] is a plain string,
+     *        never an array, in this wp-cli version). So pass multiple
+     *        rules as ONE --set value, semicolon-separated:
+     *          --set='post_meta:foo=runtime;options:bar=authored,ref=post'
+     * [--allow-secret]     : permit class=authored when the key's current
+     *                         value hard-matches a secret pattern; sets
+     *                         allow_secret:true on the rule written (the
+     *                         same escape hatch Capture's guard honors).
+     * [--json]           : JSON output (wp-cli rewrites this to --format=json).
+     * [--format=<format>] : Output format. Accepts json.
+     */
+    public function classify($args, $assoc) {
+        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
+        $raw = $assoc['set'] ?? null;
+        if ($raw === null) {
+            WP_CLI::error('--set required, e.g. --set "post_meta:foo=runtime"');
+        }
+        $specs = [];
+        foreach ((array) $raw as $chunk) {
+            foreach (explode(';', (string) $chunk) as $one) {
+                $one = trim($one);
+                if ($one !== '') {
+                    $specs[] = $one;
+                }
+            }
+        }
+        $allowSecret = isset($assoc['allow-secret']);
+        $written = [];
+        try {
+            foreach ($specs as $spec) {
+                $written[] = self::parse_and_write_classify_spec($repo, $spec, $allowSecret);
+            }
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($written, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        foreach ($written as $w) {
+            $extra = [];
+            if (isset($w['rule']['ref'])) {
+                $extra[] = "ref={$w['rule']['ref']}";
+            }
+            if (isset($w['rule']['cast'])) {
+                $extra[] = "cast={$w['rule']['cast']}";
+            }
+            if (!empty($w['rule']['allow_secret'])) {
+                $extra[] = 'allow_secret=true';
+            }
+            WP_CLI::line("set {$w['section']}:{$w['key']} = {$w['rule']['class']}" . ($extra ? ' (' . implode(', ', $extra) . ')' : ''));
+        }
+        WP_CLI::success(count($written) . " rule(s) written to site.duo.json — run: wp duo capture --repo=$repo");
+    }
+
+    /**
+     * Parses one "section:key=class[,ref=x][,cast=y]" spec — split on the
+     * FIRST ':' and FIRST '=' — and writes it via Policy::set_rule,
+     * refusing class=authored over a hard-matched secret unless $allowSecret.
+     */
+    private static function parse_and_write_classify_spec(string $repo, string $spec, bool $allowSecret): array {
+        $colon = strpos($spec, ':');
+        $eq = strpos($spec, '=');
+        if ($colon === false || $eq === false || $eq < $colon) {
+            throw new \RuntimeException("duo: bad --set spec '$spec' (expected section:key=class[,ref=..][,cast=..])");
+        }
+        $section = substr($spec, 0, $colon);
+        $key = substr($spec, $colon + 1, $eq - $colon - 1);
+        $tail = substr($spec, $eq + 1);
+
+        $parts = explode(',', $tail);
+        $class = array_shift($parts);
+        $rule = ['class' => $class];
+        foreach ($parts as $p) {
+            $kv = explode('=', $p, 2);
+            $k = $kv[0] ?? '';
+            $v = $kv[1] ?? '';
+            if ($k === 'ref') {
+                $rule['ref'] = $v;
+            } elseif ($k === 'cast') {
+                $rule['cast'] = $v;
+            } else {
+                throw new \RuntimeException("duo: unknown option '$k' in --set spec '$spec' (expected ref=|cast=)");
+            }
+        }
+
+        if ($class === 'authored') {
+            $current = Pending::current_value($section, $key);
+            if (is_string($current)) {
+                $label = Secrets::hard_match($current);
+                if ($label !== null) {
+                    if (!$allowSecret) {
+                        throw new \RuntimeException(
+                            "duo: refusing '$spec' — current value of $section:$key looks like a $label; pass --allow-secret to override"
+                        );
+                    }
+                    $rule['allow_secret'] = true;
+                }
+            }
+        }
+
+        Policy::set_rule($repo, $section, $key, $rule);
+        return ['section' => $section, 'key' => $key, 'rule' => $rule];
+    }
+
+    /**
+     * Draft-manifest export: every site-policy rule (not inherited manifest
+     * rules — the human is promoting decisions they made) whose key matches
+     * --match, grouped into a manifest-shaped JSON document on stdout.
+     * site.duo.json is left untouched; promoting rules into a real manifest
+     * file upstream is a deliberate, separate human act.
+     *
+     * ## OPTIONS
+     * --repo=<path>
+     * --match=<regex>   : PCRE body (no delimiters), tested against each key.
+     * --name=<name>     : the exported manifest's "name" field.
+     *
+     * @subcommand policy-to-manifest
+     */
+    public function policy_to_manifest($args, $assoc) {
+        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
+        $match = $assoc['match'] ?? WP_CLI::error('--match required');
+        $name = $assoc['name'] ?? WP_CLI::error('--name required');
+        try {
+            $manifest = Policy::export_manifest($repo, $match, $name);
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        WP_CLI::line(rtrim(Canon::encode($manifest)));
+    }
 }
 
 WP_CLI::add_command('duo', Cli::class);

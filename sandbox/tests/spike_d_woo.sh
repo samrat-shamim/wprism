@@ -3,7 +3,11 @@
 #   a product catalog (meta/terms/media refs, string/csv cast variants) round-
 #   trips A -> B byte-for-byte; runtime meta (_stock) is never reconciled; a
 #   manifest delete_guard blocks removing a product an order references until
-#   explicitly forced, then applies loudly.
+#   explicitly forced, then applies loudly. Coupons section: a product+
+#   category-restricted percent coupon and an expiring free-shipping
+#   fixed_cart coupon round-trip their ref/cast fields (incl. exclude_
+#   variants) A -> B byte-for-byte; a redemption's usage_count/_used_by stay
+#   A-local runtime data and never propagate to B.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 COMPOSE="docker compose -f docker-compose.yml"
@@ -39,7 +43,7 @@ cat > siterepo/a/site.duo.json <<'EOF'
   "policy": {
     "options": {},
     "post_meta": {},
-    "post_types": ["post", "page", "attachment", "product"],
+    "post_types": ["post", "page", "attachment", "product", "shop_coupon"],
     "taxonomies": ["category", "post_tag", "product_cat", "product_tag", "product_type"]
   },
   "spec_version": 0
@@ -234,5 +238,118 @@ STILL=$(wp_b db query "SELECT COUNT(*) FROM wp_wc_order_product_lookup WHERE ord
 ORDER_STATUS=$(wp_b wc shop_order get "$ORDER_B" --field=status --user=admin)
 [ -n "$ORDER_STATUS" ] || fail "order no longer retrievable"
 pass "product removed on B; order #$ORDER_B (status=$ORDER_STATUS) is untouched"
+
+say "seed coupons on A: percent (product+category restricted, email-restricted) and fixed_cart (expiring, free shipping)"
+CLEARANCE_A=$(wp_a term create product_cat Clearance --slug=clearance --porcelain)
+EXPIRES_TS=$(wp_a eval "echo strtotime('2026-12-31 23:59:59');")
+
+CPN_IDS=$(wp_a eval "
+\$pct = new WC_Coupon();
+\$pct->set_code('duo10off');
+\$pct->set_discount_type('percent');
+\$pct->set_amount('10');
+\$pct->set_product_ids([$GADGET_A]);
+\$pct->set_product_categories([$CAT_ID]);
+\$pct->set_excluded_product_ids([$GIZMO_A]);
+\$pct->set_excluded_product_categories([$CLEARANCE_A]);
+\$pct->set_usage_limit(100);
+\$pct->set_usage_limit_per_user(1);
+\$pct->set_limit_usage_to_x_items(2);
+\$pct->set_minimum_amount('20.00');
+\$pct->set_individual_use(true);
+\$pct->set_exclude_sale_items(true);
+\$pct->set_email_restrictions(['vip@example.test', '*@wholesale.example.test']);
+\$pct->set_status('publish');
+\$pct->save();
+echo \$pct->get_id() . PHP_EOL;
+
+\$ship = new WC_Coupon();
+\$ship->set_code('duo5ship');
+\$ship->set_discount_type('fixed_cart');
+\$ship->set_amount('5');
+\$ship->set_date_expires($EXPIRES_TS);
+\$ship->set_free_shipping(true);
+\$ship->set_status('publish');
+\$ship->save();
+echo \$ship->get_id() . PHP_EOL;
+")
+CPN_PCT=$(echo "$CPN_IDS" | sed -n 1p)
+CPN_SHIP=$(echo "$CPN_IDS" | sed -n 2p)
+pass "coupons seeded (clearance=$CLEARANCE_A pct=$CPN_PCT ship=$CPN_SHIP, expires=$EXPIRES_TS)"
+
+say "redeem duo10off against an order on A (usage_count/_used_by become A-local runtime data)"
+# Applying the coupon (not just saving the order) is what actually increments
+# usage_count/_used_by -- WC_Order::apply_coupon() triggers
+# wc_update_coupon_usage_counts() synchronously for any non-cancelled/failed
+# order, no status transition required. Billing email must match the coupon's
+# email_restrictions above or WC rejects the apply with a WP_Error.
+REDEEM_OUT=$(wp_a eval "
+\$order = wc_create_order();
+\$order->set_billing_email('vip@example.test');
+\$order->add_product(wc_get_product($GADGET_A), 1);
+\$applied = \$order->apply_coupon('duo10off');
+echo is_wp_error(\$applied) ? ('FAILED:' . \$applied->get_error_message()) : 'OK';
+echo PHP_EOL;
+\$order->calculate_totals();
+\$order->set_status('processing');
+\$order->save();
+echo 'order=' . \$order->get_id() . PHP_EOL;
+")
+grep -q '^OK$' <<<"$REDEEM_OUT" || fail "coupon redemption on A did not succeed: $REDEEM_OUT"
+[ "$(wp_a eval "echo (int) get_post_meta($CPN_PCT, 'usage_count', true);")" = "1" ] || fail "coupon usage_count did not increment on A after redemption"
+pass "duo10off redeemed on A ($REDEEM_OUT)"
+
+say "capture coupons into the site repo, commit, push"
+wp_a duo capture --repo=/siterepo
+$GIT_A add -A && $GIT_A commit -qm "capture: seed WooCommerce coupons on A (percent w/ product+category restriction, fixed_cart w/ expiry+free shipping; one redemption)" && $GIT_A push -q origin main
+
+say "pull on B, apply coupons"
+$GIT_B checkout -q main && $GIT_B pull -q origin main
+REV=$(git -C siterepo/b rev-parse HEAD)
+wp_b duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV"
+
+say "acceptance: canonical(B) == canonical(A) including coupons, byte for byte"
+wp_b duo capture --repo=/siterepo --out=/siterepo/.tmp-cstate >/dev/null
+diff -r siterepo/a/state siterepo/b/.tmp-cstate || fail "coupon round-trip mismatch between A and B"
+rm -rf siterepo/b/.tmp-cstate
+pass "canonical state (incl. coupons) identical across environments"
+
+say "acceptance: coupon refs resolved to B-local ids (product_ids/product_categories + exclude_ variants)"
+CPN_PCT_B=$(wp_b post list --post_type=shop_coupon --name=duo10off --field=ID)
+CPN_SHIP_B=$(wp_b post list --post_type=shop_coupon --name=duo5ship --field=ID)
+CAT_GADGETS_B=$(wp_b term list product_cat --slug=gadgets --field=term_id)
+CLEARANCE_B=$(wp_b term list product_cat --slug=clearance --field=term_id)
+
+# product_ids/exclude_product_ids: ref post[] cast csv -- WooCommerce always
+# writes these as a comma-joined string (single id here, so just the bare id).
+[ "$(wp_b eval "echo get_post_meta($CPN_PCT_B, 'product_ids', true);")" = "$GADGET_B" ] || fail "duo10off product_ids did not resolve to gadget's B-local id"
+[ "$(wp_b eval "echo get_post_meta($CPN_PCT_B, 'exclude_product_ids', true);")" = "$GIZMO_B" ] || fail "duo10off exclude_product_ids did not resolve to gizmo's B-local id"
+# product_categories/exclude_product_categories: ref term[], no cast --
+# WooCommerce stores a real serialized int array, unlike product_ids above.
+PCATS_OK=$(wp_b eval "
+\$c = array_map('intval', (array) get_post_meta($CPN_PCT_B, 'product_categories', true));
+echo (\$c === [(int) '$CAT_GADGETS_B']) ? 'ok' : ('bad:' . implode(',', \$c));
+")
+[ "$PCATS_OK" = "ok" ] || fail "duo10off product_categories did not resolve to Gadgets' B-local term id ($PCATS_OK)"
+XCATS_OK=$(wp_b eval "
+\$c = array_map('intval', (array) get_post_meta($CPN_PCT_B, 'exclude_product_categories', true));
+echo (\$c === [(int) '$CLEARANCE_B']) ? 'ok' : ('bad:' . implode(',', \$c));
+")
+[ "$XCATS_OK" = "ok" ] || fail "duo10off exclude_product_categories did not resolve to Clearance's B-local term id ($XCATS_OK)"
+EMAILS_OK=$(wp_b eval "
+\$e = get_post_meta($CPN_PCT_B, 'customer_email', true);
+echo (is_array(\$e) && in_array('vip@example.test', \$e, true) && in_array('*@wholesale.example.test', \$e, true)) ? 'ok' : 'bad';
+")
+[ "$EMAILS_OK" = "ok" ] || fail "duo10off customer_email restriction list did not round-trip"
+[ "$(wp_b eval "echo get_post_meta($CPN_SHIP_B, 'free_shipping', true);")" = "yes" ] || fail "duo5ship free_shipping did not round-trip"
+[ "$(wp_b eval "echo (int) get_post_meta($CPN_SHIP_B, 'date_expires', true);")" = "$EXPIRES_TS" ] || fail "duo5ship date_expires did not round-trip"
+pass "product/category refs (incl. exclude_ variants), customer_email, and fixed_cart fields all resolved correctly on B"
+
+say "acceptance: coupon runtime data (usage_count, _used_by) does not propagate A's redemption to B"
+USAGE_B=$(wp_b eval "echo (int) get_post_meta($CPN_PCT_B, 'usage_count', true);")
+[ "$USAGE_B" = "0" ] || fail "duo10off usage_count leaked onto B (got $USAGE_B, expected B's local value 0)"
+USED_BY_B=$(wp_b eval "echo count(get_post_meta($CPN_PCT_B, '_used_by'));")
+[ "$USED_BY_B" = "0" ] || fail "duo10off _used_by leaked onto B ($USED_BY_B row(s), expected 0 — A's redemption must stay A-local)"
+pass "A's coupon redemption (usage_count=1, _used_by=vip@example.test) stayed A-local; B's usage_count is its own local value (0)"
 
 printf '\n\033[1;32m✔ SPIKE D PASSED\033[0m\n'

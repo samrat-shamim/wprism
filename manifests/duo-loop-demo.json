@@ -1,0 +1,20 @@
+{
+    "name": "duo-loop-demo",
+    "options": {
+        "duo_loop_api_key": {
+            "class": "env"
+        },
+        "duo_loop_color": {
+            "class": "authored"
+        },
+        "duo_loop_hits": {
+            "class": "runtime"
+        }
+    },
+    "post_meta": {
+        "_duo_loop_badge": {
+            "class": "authored"
+        }
+    },
+    "term_meta": {}
+}

@@ -184,6 +184,84 @@ services:
       WORDPRESS_DB_HOST: db-e2
     volumes: *vol-e2
 
+  db-f1:
+    <<: *db
+    profiles: [spikef]
+    volumes: [dbf1:/var/lib/mysql]
+
+  wp-f1:
+    image: wordpress:php8.3-apache
+    profiles: [spikef]
+    depends_on:
+      db-f1: {condition: service_healthy}
+    ports: ["8808:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-f1
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: &vol-f1
+      - wpf1:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/f1:/siterepo
+      - ./fixtures/duo-loop-demo:/var/www/html/wp-content/plugins/duo-loop-demo:ro
+
+  cli-f1:
+    image: wordpress:cli-php8.3
+    profiles: [spikef]
+    user: "33:33"
+    depends_on:
+      db-f1: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-f1
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: *vol-f1
+
+  db-f2:
+    <<: *db
+    profiles: [spikef]
+    volumes: [dbf2:/var/lib/mysql]
+
+  wp-f2:
+    image: wordpress:php8.3-apache
+    profiles: [spikef]
+    depends_on:
+      db-f2: {condition: service_healthy}
+    ports: ["8809:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-f2
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: &vol-f2
+      - wpf2:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/f2:/siterepo
+      - ./fixtures/duo-loop-demo:/var/www/html/wp-content/plugins/duo-loop-demo:ro
+
+  cli-f2:
+    image: wordpress:cli-php8.3
+    profiles: [spikef]
+    user: "33:33"
+    depends_on:
+      db-f2: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-f2
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: *vol-f2
+
   db-conf1:
     <<: *db
     profiles: [conf]
@@ -248,6 +326,70 @@ services:
       WORDPRESS_DB_HOST: db-conf2
     volumes: *vol-conf2
 
+  db-fx1:
+    <<: *db
+    profiles: [fx]
+    volumes: [dbfx1:/var/lib/mysql]
+
+  wp-fx1:
+    image: wordpress:php8.3-apache
+    profiles: [fx]
+    depends_on:
+      db-fx1: {condition: service_healthy}
+    ports: ["8810:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-fx1
+    volumes: &vol-fx1
+      - wpfx1:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/fx1:/siterepo
+
+  cli-fx1:
+    image: wordpress:cli-php8.3
+    profiles: [fx]
+    user: "33:33"
+    depends_on:
+      db-fx1: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-fx1
+    volumes: *vol-fx1
+
+  db-fx2:
+    <<: *db
+    profiles: [fx]
+    volumes: [dbfx2:/var/lib/mysql]
+
+  wp-fx2:
+    image: wordpress:php8.3-apache
+    profiles: [fx]
+    depends_on:
+      db-fx2: {condition: service_healthy}
+    ports: ["8811:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-fx2
+    volumes: &vol-fx2
+      - wpfx2:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/fx2:/siterepo
+
+  cli-fx2:
+    image: wordpress:cli-php8.3
+    profiles: [fx]
+    user: "33:33"
+    depends_on:
+      db-fx2: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-fx2
+    volumes: *vol-fx2
+
 volumes:
   dba: {}
   dbb: {}
@@ -256,6 +398,10 @@ volumes:
   dbconf2: {}
   dbe1: {}
   dbe2: {}
+  dbf1: {}
+  dbf2: {}
+  dbfx1: {}
+  dbfx2: {}
   wpa: {}
   wpb: {}
   wpc: {}
@@ -263,3 +409,7 @@ volumes:
   wpconf2: {}
   wpe1: {}
   wpe2: {}
+  wpf1: {}
+  wpf2: {}
+  wpfx1: {}
+  wpfx2: {}

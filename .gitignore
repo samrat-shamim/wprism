@@ -3,3 +3,4 @@
 sandbox/siterepo/
 sandbox/tmp/
 .duo-envs.json
+.claude/worktrees/

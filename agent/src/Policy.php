@@ -228,4 +228,80 @@ final class Policy {
         }
         return $out;
     }
+
+    private const SECTIONS = ['options', 'post_meta', 'term_meta'];
+    private const CLASSES = ['authored', 'runtime', 'derived', 'env', 'managed'];
+    private const CASTS = ['string', 'csv'];
+
+    /**
+     * Write one classification rule into site.duo.json's policy overrides
+     * (`wp duo classify`'s only write path — DESIGN.md 3.1.5: "accepted
+     * decisions persist to policy.yml/json"). Validates shape, then loads +
+     * rewrites the file via Canon::encode so formatting stays canonical.
+     */
+    public static function set_rule(string $repo, string $section, string $key, array $rule): void {
+        if (!in_array($section, self::SECTIONS, true)) {
+            throw new \RuntimeException(
+                'duo: unknown policy section \'' . $section . '\' (expected ' . implode('|', self::SECTIONS) . ')'
+            );
+        }
+        if ($key === '') {
+            throw new \RuntimeException('duo: policy key must not be empty');
+        }
+        $class = $rule['class'] ?? '';
+        if (!in_array($class, self::CLASSES, true)) {
+            throw new \RuntimeException(
+                "duo: unknown class '$class' (expected " . implode('|', self::CLASSES) . ')'
+            );
+        }
+        if (isset($rule['ref']) && !preg_match('/^(post|term|user)(\[\])?$/', (string) $rule['ref'])) {
+            throw new \RuntimeException(
+                "duo: invalid ref '{$rule['ref']}' (expected post|term|user, optionally suffixed with [])"
+            );
+        }
+        if (isset($rule['cast']) && !in_array($rule['cast'], self::CASTS, true)) {
+            throw new \RuntimeException("duo: invalid cast '{$rule['cast']}' (expected " . implode('|', self::CASTS) . ')');
+        }
+        if (isset($rule['allow_secret']) && !is_bool($rule['allow_secret'])) {
+            throw new \RuntimeException('duo: allow_secret must be a boolean');
+        }
+
+        $siteFile = rtrim($repo, '/') . '/site.duo.json';
+        if (!is_file($siteFile)) {
+            throw new \RuntimeException("duo: $siteFile not found (not a duo site repo?)");
+        }
+        $site = Canon::decode(Canon::read_file($siteFile));
+        $site['policy'][$section][$key] = $rule;
+        Canon::write_file($siteFile, Canon::encode($site));
+    }
+
+    /**
+     * Draft-manifest export (DESIGN.md 3.1.5: "accepted decisions ...
+     * shareable upstream as draft manifests"): every rule in THIS site's own
+     * policy overrides (not inherited manifest rules — the human is
+     * promoting decisions they made) whose key matches $matchRegex, grouped
+     * into a manifest-shaped {name, options, post_meta, term_meta}
+     * structure. Reads site.duo.json; never writes it — promotion is a
+     * deliberate, separate human act (`wp duo policy-to-manifest` only
+     * prints to stdout).
+     */
+    public static function export_manifest(string $repo, string $matchRegex, string $name): array {
+        $policy = self::load($repo);
+        $sitePolicy = $policy->site['policy'] ?? [];
+
+        $out = ['name' => $name, 'options' => [], 'post_meta' => [], 'term_meta' => []];
+        foreach (self::SECTIONS as $section) {
+            foreach ($sitePolicy[$section] ?? [] as $key => $rule) {
+                $matched = @preg_match('/' . $matchRegex . '/', $key);
+                if ($matched === false) {
+                    throw new \RuntimeException("duo: invalid --match regex '$matchRegex'");
+                }
+                if ($matched === 1) {
+                    $out[$section][$key] = $rule;
+                }
+            }
+            $out[$section] = (object) $out[$section]; // force {} not [] when empty, matching manifest style
+        }
+        return $out;
+    }
 }

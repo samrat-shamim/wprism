@@ -14,6 +14,7 @@ define('DUO_SPEC_VERSION', 0);
 
 require_once __DIR__ . '/src/Uuid.php';
 require_once __DIR__ . '/src/Canon.php';
+require_once __DIR__ . '/src/Secrets.php';
 require_once __DIR__ . '/src/Policy.php';
 require_once __DIR__ . '/src/Ledger.php';
 require_once __DIR__ . '/src/Tokens.php';
@@ -22,6 +23,7 @@ require_once __DIR__ . '/src/Canary.php';
 require_once __DIR__ . '/src/Capture.php';
 require_once __DIR__ . '/src/Apply.php';
 require_once __DIR__ . '/src/Journal.php';
+require_once __DIR__ . '/src/Pending.php';
 
 // Provenance journal is opt-in: define('DUO_JOURNAL', true) in wp-config.php
 // (or export DUO_JOURNAL=1 in the environment).

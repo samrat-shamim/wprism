@@ -25,6 +25,8 @@ duo status <env>
 duo capture <env> [extra wp-cli flags...]
 duo plan    <env> [extra wp-cli flags...]
 duo apply   <env> [extra wp-cli flags...]
+duo pending <env>
+duo classify <env> [--accept-proposals]
 duo -h | --help
 ```
 
@@ -68,6 +70,77 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
 
   stdout/stderr stream live (not buffered/reformatted) and the exit code is
   exactly the agent's exit code.
+
+- **`duo pending <env>`** — runs `wp duo pending --repo=<repo_path>
+  --format=json` (the review-queue scan: gate items from the loud-and-
+  blocking classification check, plus journal-observed unclassified writes
+  — see [DESIGN.md §3.1](../DESIGN.md#31-layered-classification-policy-vs-conflation--opacity))
+  and renders it as a table: `SECTION:KEY`, `PROPOSAL` (the journal's best
+  guess, or `-` when there isn't one — e.g. when the journal is off, or the
+  signal was too weak to propose), `EVIDENCE` (compact — `"3 posts
+  (post,page); journal n=14 rest/admin"`), and `REF-HINT` (`"-> post #12
+  'About'"` when the engine's ref-linter recognizes the value as a
+  numeric id it can point at a specific entity). A secret-flagged item gets
+  a prominent trailing `[SECRET: hard:<label>]` / `[SECRET: suspicious]`
+  marker. Exit 0 always; prints "review queue is empty" when there's
+  nothing to triage. `duo pending <env> --format=json` is a raw passthrough
+  of the agent's own JSON (same precedent as `duo status` vs. `duo plan
+  --format=json`) for scripting.
+
+- **`duo classify <env>`** — interactive triage of the review queue, one
+  item at a time, reading decisions from **stdin** (not `/dev/tty` — so
+  it's pipe-testable: `printf 'r\n' | duo classify e1` drives it exactly
+  like a keypress would). For each item it prints the same evidence/
+  proposal/ref-hint/secret block `duo pending` shows, then prompts:
+
+  | Key | Effect |
+  |---|---|
+  | Enter | accept the item's proposal (only offered when one exists) |
+  | `a` / `r` / `e` / `d` / `m` | explicitly classify `authored` / `runtime` / `env` / `derived` / `managed` |
+  | `s` | skip this item (leave it pending) |
+  | `q` | quit — stop triaging and apply whatever was already decided |
+
+  **The secret rule**: choosing (or accepting a proposal of) `authored` on
+  a secret-flagged item never goes through on Enter alone — it prints a red
+  warning and requires typing the literal word `allow` before that
+  decision is added to the batch; anything else skips the item. This is
+  deliberate and absolute: Enter-accept can never silently author a secret
+  into git, matching the project's loud-and-blocking posture on everything
+  else (§3.1.5).
+
+  **Ref attachment**: an `authored` decision on an item carrying a
+  `ref_hint` gets one more y/N prompt — "attach `ref=<kind>` to this
+  classification?" — before moving on. Declining leaves the field authored
+  but untyped.
+
+  All decisions are batched into a **single** `wp duo classify --repo=<repo_path>
+  --set=<section>:<key>=<class>[,ref=<kind>] […]` call at the end (not one
+  call per item) — its output streams live and its exit code propagates.
+  A final `N classified, M skipped.` line summarizes the session. Exit 0
+  immediately with "review queue is empty" if there was nothing to triage.
+
+- **`duo classify <env> --accept-proposals`** — non-interactive, for CI/
+  scripting: accepts every item that has a proposal, exactly as proposed,
+  in one batched call. The one exception is absolute: a secret-flagged item
+  proposed `authored` is **never** auto-accepted — it's skipped loudly (its
+  `section:key` and secret label printed to stderr) because that decision
+  needs a human. Ref-hints are never auto-attached in this mode either
+  (attaching a ref is the judgment call the interactive y/N prompt exists
+  for). Exit 0 if the queue was empty or every proposal-bearing item got
+  accepted; exit 2 if any secret-authored item had to be skipped, so a CI
+  pipeline can tell "nothing to do" apart from "a human needs to look at
+  this."
+
+  ```
+  duo classify e1 --accept-proposals
+  ```
+
+  <sub>Implementation note: all decisions travel in a single semicolon-
+  joined `--set` value (`--set 'post_meta:foo=runtime;options:bar=authored,ref=post'`),
+  never as repeated `--set=<spec>` flags — wp-cli's assoc-arg parser keeps
+  only the *last* occurrence of a repeated flag, confirmed against
+  `agent/src/Cli.php`'s `classify()` docblock. `cli/duo`'s
+  `CLASSIFY_SET_MODE` constant is the one place that decision lives.</sub>
 
 ## The environment registry
 

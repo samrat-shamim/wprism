@@ -33,6 +33,7 @@ final class Capture {
     public static function run(string $repo, ?string $outDir = null): array {
         Canary::suppress_cron_spawn();
         Ledger::ensure();
+        Ledger::prune_dead_map();
         $c = new self($repo, Policy::load($repo));
         $build = $c->build(true);
 
@@ -77,6 +78,7 @@ final class Capture {
     public static function snapshot(string $repo): array {
         Canary::suppress_cron_spawn();
         Ledger::ensure();
+        Ledger::prune_dead_map();
         $c = new self($repo, Policy::load($repo));
         $build = $c->build(false);
         $out = [];
@@ -89,6 +91,69 @@ final class Capture {
             ];
         }
         return $out;
+    }
+
+    /**
+     * Collect-only classification walk for `wp duo pending` (the review
+     * queue's gate-item source, DESIGN.md 3.1.5): the same in-scope entities
+     * and the same Policy rule lookups build() uses below — scope_posts(),
+     * scope_terms(), post_meta_map() are literally the same private methods,
+     * not reimplemented, so the two can never disagree about what "in
+     * scope" or "classified" means. Every unclassified key is recorded as
+     * evidence instead of aborting. Never mints uuids, never writes, never
+     * throws.
+     *
+     * Only post_meta feeds the actual abort gate in build() below.
+     * spec/repo-format.md's term files carry no "meta" field at all in v0 —
+     * there is no capture pipeline that would ever persist a term-meta
+     * VALUE regardless of its classification — so hard-blocking capture on
+     * an unclassified term-meta key would be blocking on something classify
+     * can't yet make capturable (and, concretely, WooCommerce's own
+     * `product_count_product_cat` term meta would trip it on any site that
+     * scopes product_cat today). It still belongs in the review queue:
+     * classifying it now is forward-compatible groundwork, and knowing
+     * *why* a key is unclassified is useful on its own.
+     *
+     * @return array{
+     *   post_meta: array<string, array{entities:int, post_types: string[]}>,
+     *   term_meta: array<string, array{entities:int}>
+     * }
+     */
+    public static function gate_scan(string $repo): array {
+        $c = new self($repo, Policy::load($repo));
+
+        $postMeta = [];
+        foreach ($c->scope_posts() as $p) {
+            $flatMeta = $c->post_meta_map((int) $p->ID);
+            foreach ($flatMeta as $key => $_) {
+                if ($key === '_wp_attached_file' || $key === '_wp_attachment_image_alt') {
+                    continue; // handled as dedicated front-matter fields, never generic meta
+                }
+                if ($c->policy->meta_rule_for_post($key, $flatMeta) !== null) {
+                    continue;
+                }
+                $postMeta[$key]['entities'] = ($postMeta[$key]['entities'] ?? 0) + 1;
+                $postMeta[$key]['post_types'][$p->post_type] = true;
+            }
+        }
+
+        $termMeta = [];
+        foreach ($c->scope_terms() as $t) {
+            foreach ($c->term_meta_map((int) $t->term_id) as $key => $_) {
+                if ($c->policy->term_meta_rule($key) !== null) {
+                    continue;
+                }
+                $termMeta[$key]['entities'] = ($termMeta[$key]['entities'] ?? 0) + 1;
+            }
+        }
+
+        return [
+            'post_meta' => array_map(
+                fn($ev) => ['entities' => $ev['entities'], 'post_types' => array_keys($ev['post_types'] ?? [])],
+                $postMeta
+            ),
+            'term_meta' => $termMeta,
+        ];
     }
 
     // ------------------------------------------------------------------
@@ -195,6 +260,7 @@ final class Capture {
                 "duo: unclassified meta keys on in-scope entities (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $keys)
                 . "\nClassify them in site.duo.json policy.post_meta / policy.term_meta or a manifest."
+                . " Run: wp duo pending --repo={$this->repo} for evidence + proposals, then wp duo classify --repo={$this->repo} --set '<section>:<key>=<class>'."
             );
         }
 
@@ -313,8 +379,16 @@ final class Capture {
             }
             $v = maybe_unserialize($values[0]);
             self::assert_plain($v, "post $id meta $key");
+            if (is_string($v)) {
+                $this->guard_secret('post_meta', $key, $v, $rule, " on post $id");
+            }
             if (!empty($rule['ref'])) {
                 $v = $this->tokens->meta_value_to_tokens($v, $rule);
+                if ($v === null) {
+                    // dangling scalar ref: key skipped (warned inside Tokens) —
+                    // a raw env-local id must never reach canonical state
+                    continue;
+                }
             } elseif (is_string($v)) {
                 $v = $this->tokens->tokenize_text($v);
             }
@@ -393,6 +467,14 @@ final class Capture {
             $front['mime'] = $p->post_mime_type;
             $front['alt'] = $alt;
             $mediaRef = [$mediaFile, $src];
+        }
+
+        // Secret guard on bodies: loud warning, never an abort — people
+        // legitimately write posts *about* tokens/keys (docs, changelogs).
+        $secretLabel = Secrets::hard_match((string) $p->post_content);
+        if ($secretLabel !== null) {
+            $this->tokens->warnings[] =
+                "{$p->post_type} '{$p->post_name}' body looks like it contains a $secretLabel — review before committing (not blocked: bodies may legitimately discuss credentials)";
         }
 
         if ($this->policy->body_mode($p->post_type) === 'verbatim') {
@@ -545,6 +627,23 @@ final class Capture {
         return $out;
     }
 
+    /** Mirrors post_meta_map() for termmeta — used by gate_scan() only in v0
+     *  (no term-meta capture pipeline exists yet; see gate_scan()'s docblock). */
+    private function term_meta_map(int $termId): array {
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT meta_key, meta_value FROM {$wpdb->termmeta} WHERE term_id = %d ORDER BY meta_id ASC",
+            $termId
+        ), ARRAY_A) ?: [];
+        $out = [];
+        foreach ($rows as $r) {
+            if (!isset($out[$r['meta_key']])) {
+                $out[$r['meta_key']] = $r['meta_value'];
+            }
+        }
+        return $out;
+    }
+
     private function build_options(): array {
         global $wpdb;
         $out = [];
@@ -558,6 +657,9 @@ final class Capture {
             }
             $v = maybe_unserialize($raw);
             self::assert_plain($v, "option $name");
+            if (is_string($v)) {
+                $this->guard_secret('options', $name, $v, $rule);
+            }
             if (!empty($rule['ref'])) {
                 $v = $this->option_ref_tokens($name, $v, $rule['ref']);
                 if ($v === null) {
@@ -569,6 +671,31 @@ final class Capture {
             $out[$name] = $v;
         }
         return $out;
+    }
+
+    /**
+     * Secret guard (DESIGN.md 3.1 "Secret guard"): a hard-pattern match on an
+     * authored value aborts capture — naming the key, the label, and the
+     * escape hatch (a rule may declare "allow_secret": true, in site policy
+     * or a manifest, for a confirmed false positive). Fails fast on the
+     * first match, like assert_plain() above — this is a hard security
+     * abort, not the batched loud-and-blocking classification gate.
+     */
+    private function guard_secret(string $section, string $key, string $v, array $rule, string $context = ''): void {
+        if (!empty($rule['allow_secret'])) {
+            return;
+        }
+        $label = Secrets::hard_match($v);
+        if ($label === null) {
+            return;
+        }
+        throw new \RuntimeException(
+            "duo: secret guard tripped — $section '$key'$context looks like a $label but is classified authored; "
+            . "refusing to capture it into state/.\n"
+            . "If this is really a secret, reclassify it env-bound or runtime instead of authored.\n"
+            . "If this is a false positive, allow it explicitly:\n"
+            . "  wp duo classify --repo={$this->repo} --set '$section:$key=authored' --allow-secret"
+        );
     }
 
     /**
