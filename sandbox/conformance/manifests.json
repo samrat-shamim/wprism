@@ -1,0 +1,27 @@
+{
+  "acf": {
+    "pin": ["core", "acf"],
+    "plugins": ["advanced-custom-fields"],
+    "post_types": ["post", "page", "attachment", "acf-field-group", "acf-field"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "core": {
+    "pin": ["core"],
+    "plugins": [],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "woocommerce": {
+    "pin": ["core", "woocommerce"],
+    "plugins": ["woocommerce"],
+    "post_types": ["post", "page", "attachment", "product"],
+    "setup": "hpos",
+    "taxonomies": ["category", "post_tag", "product_cat"]
+  },
+  "yoast": {
+    "pin": ["core", "yoast"],
+    "plugins": ["wordpress-seo"],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  }
+}

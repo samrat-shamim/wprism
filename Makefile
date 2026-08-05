@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spikes
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spikes conformance-% cli-smoke
 
 up:
 	$(COMPOSE) up -d
@@ -24,4 +24,16 @@ spike-b:
 spike-c:
 	bash sandbox/tests/spike_c_provenance.sh
 
-spikes: spike-a spike-b spike-c
+spike-d:
+	bash sandbox/tests/spike_d_woo.sh
+
+spike-e:
+	bash sandbox/tests/spike_e_acf.sh
+
+spikes: spike-a spike-b spike-c spike-d spike-e
+
+conformance-%:
+	bash sandbox/conformance/run.sh $*
+
+cli-smoke:
+	bash sandbox/tests/cli_smoke.sh

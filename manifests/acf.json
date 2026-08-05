@@ -1,0 +1,12 @@
+{
+  "interpreter": "acf",
+  "name": "acf",
+  "options": {
+    "acf_first_activated_version": {"class": "env"},
+    "acf_site_health": {"class": "runtime"}
+  },
+  "post_types": {
+    "acf-field": {"body": "verbatim", "class": "authored", "phase": "early"},
+    "acf-field-group": {"body": "verbatim", "class": "authored", "phase": "early"}
+  }
+}

@@ -106,6 +106,15 @@ final class Apply {
         return $plan;
     }
 
+    /** Phase-2 finalize order: 'early' post types first, stable otherwise. */
+    private function phase2_rank(array $entity): int {
+        if ($entity['type'] === 'post'
+            && $this->policy->post_type_phase($entity['post_type'] ?? '') === 'early') {
+            return 0;
+        }
+        return 1;
+    }
+
     /** @return ?int row count, or null when the guard table doesn't exist */
     private function count_guard_refs(array $guard, int $localId): ?int {
         global $wpdb;
@@ -156,7 +165,8 @@ final class Apply {
             $content = Canon::read_file($f);
             [$front] = Canon::parse_post_file($content);
             $out[$front['uuid']] = [
-                'type' => 'post', 'path' => substr($f, strlen($stateDir) + 1),
+                'type' => 'post', 'post_type' => $front['type'],
+                'path' => substr($f, strlen($stateDir) + 1),
                 'hash' => hash('sha256', $content), 'content' => $content,
             ];
         }
@@ -274,7 +284,14 @@ final class Apply {
             }
 
             // ---- phase 2: resolve refs, full field/meta/relationship state ----
-            foreach ($work as $r) {
+            // 'early' post types (manifest post_types {"phase": "early"}, e.g.
+            // acf-field*) finalize first: interpreters read their finalized
+            // content from the DB to type other entities' meta. Stable sort —
+            // everything else keeps tree order.
+            $phase2 = $work;
+            usort($phase2, fn($x, $y) =>
+                $this->phase2_rank($tree[$x['uuid']]) <=> $this->phase2_rank($tree[$y['uuid']]));
+            foreach ($phase2 as $r) {
                 $e = $tree[$r['uuid']];
                 if ($e['type'] === 'term') {
                     $this->finalize_term(Canon::decode($e['content']));

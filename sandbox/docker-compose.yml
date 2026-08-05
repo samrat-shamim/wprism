@@ -120,10 +120,146 @@ services:
         define('DUO_JOURNAL', true);
     volumes: *vol-c
 
+  db-e1:
+    <<: *db
+    profiles: [spikee]
+    volumes: [dbe1:/var/lib/mysql]
+
+  wp-e1:
+    image: wordpress:php8.3-apache
+    profiles: [spikee]
+    depends_on:
+      db-e1: {condition: service_healthy}
+    ports: ["8804:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-e1
+    volumes: &vol-e1
+      - wpe1:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/e1:/siterepo
+
+  cli-e1:
+    image: wordpress:cli-php8.3
+    profiles: [spikee]
+    user: "33:33"
+    depends_on:
+      db-e1: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-e1
+    volumes: *vol-e1
+
+  db-e2:
+    <<: *db
+    profiles: [spikee]
+    volumes: [dbe2:/var/lib/mysql]
+
+  wp-e2:
+    image: wordpress:php8.3-apache
+    profiles: [spikee]
+    depends_on:
+      db-e2: {condition: service_healthy}
+    ports: ["8805:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-e2
+    volumes: &vol-e2
+      - wpe2:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/e2:/siterepo
+
+  cli-e2:
+    image: wordpress:cli-php8.3
+    profiles: [spikee]
+    user: "33:33"
+    depends_on:
+      db-e2: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-e2
+    volumes: *vol-e2
+
+  db-conf1:
+    <<: *db
+    profiles: [conf]
+    volumes: [dbconf1:/var/lib/mysql]
+
+  wp-conf1:
+    image: wordpress:php8.3-apache
+    profiles: [conf]
+    depends_on:
+      db-conf1: {condition: service_healthy}
+    ports: ["8806:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-conf1
+    volumes: &vol-conf1
+      - wpconf1:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/conf1:/siterepo
+
+  cli-conf1:
+    image: wordpress:cli-php8.3
+    profiles: [conf]
+    user: "33:33"
+    depends_on:
+      db-conf1: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-conf1
+    volumes: *vol-conf1
+
+  db-conf2:
+    <<: *db
+    profiles: [conf]
+    volumes: [dbconf2:/var/lib/mysql]
+
+  wp-conf2:
+    image: wordpress:php8.3-apache
+    profiles: [conf]
+    depends_on:
+      db-conf2: {condition: service_healthy}
+    ports: ["8807:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-conf2
+    volumes: &vol-conf2
+      - wpconf2:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/conf2:/siterepo
+
+  cli-conf2:
+    image: wordpress:cli-php8.3
+    profiles: [conf]
+    user: "33:33"
+    depends_on:
+      db-conf2: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-conf2
+    volumes: *vol-conf2
+
 volumes:
   dba: {}
   dbb: {}
   dbc: {}
+  dbconf1: {}
+  dbconf2: {}
+  dbe1: {}
+  dbe2: {}
   wpa: {}
   wpb: {}
   wpc: {}
+  wpconf1: {}
+  wpconf2: {}
+  wpe1: {}
+  wpe2: {}

@@ -1,0 +1,205 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+/**
+ * duo — host-agnostic multi-environment orchestrator.
+ *
+ * Git stays git; this wraps the per-environment `wp duo capture|plan|apply`
+ * agent commands (agent/src/Cli.php) over local/docker/ssh transports, plus
+ * `envs`/`doctor`/`status` conveniences. Dependency-free PHP 8+ — no
+ * composer, no WordPress required on the machine running `duo` itself.
+ *
+ * See cli/README.md for the environment registry format.
+ */
+
+require __DIR__ . '/src/Registry.php';
+require __DIR__ . '/src/Transport.php';
+require __DIR__ . '/src/LocalTransport.php';
+require __DIR__ . '/src/DockerTransport.php';
+require __DIR__ . '/src/SshTransport.php';
+require __DIR__ . '/src/Doctor.php';
+require __DIR__ . '/src/PlanSummary.php';
+
+use Duo\Orchestrator\Doctor;
+use Duo\Orchestrator\PlanSummary;
+use Duo\Orchestrator\Registry;
+use Duo\Orchestrator\Transport;
+
+function duo_usage(): string {
+    return <<<TXT
+duo — host-agnostic orchestrator for Duo environments
+
+Git stays git: `duo` wraps the per-environment `wp duo …` agent commands
+over local/docker/ssh transports and adds cross-environment ergonomics.
+
+Usage:
+  duo envs
+  duo doctor <env>
+  duo status <env>
+  duo capture <env> [extra wp-cli flags...]
+  duo plan    <env> [extra wp-cli flags...]
+  duo apply   <env> [extra wp-cli flags...]
+  duo -h | --help
+
+Verbs:
+  envs                    List environments from site.duo.json + .duo-envs.json
+                          (overlay wins per env name), with transport summaries.
+  doctor <env>            Check transport reachability, WordPress install, the
+                          duo agent, and repo_path/site.duo.json. Non-zero exit
+                          on any failing check.
+  status <env>            Run `wp duo plan --format=json` and print counts per
+                          plan bucket, drift paths, and blocked deletes.
+                          Non-zero exit if there are conflicts or collisions.
+  capture <env> [...]     `wp duo capture --repo=<repo_path> [...]`
+  plan <env> [...]        `wp duo plan    --repo=<repo_path> [...]`
+  apply <env> [...]       `wp duo apply   --repo=<repo_path> [...]`
+                          Extra flags (e.g. --adopt-by-slug=terms
+                          --default-author=admin, --with-deletes) are forwarded
+                          verbatim. Output streams live; exit code is the agent's.
+
+Global flags:
+  --envs-file=<path>      Load the machine-local overlay registry from <path>
+                          instead of searching upward from the cwd for .duo-envs.json.
+  -h, --help              Show this help.
+
+Environment registry ('envs' key, in site.duo.json and/or .duo-envs.json):
+  {"envs": {
+    "e1":    {"transport": "docker", "compose_file": "sandbox/docker-compose.yml",
+              "profile": "spikee", "service": "cli-e1", "repo_path": "/siterepo"},
+    "stage": {"transport": "ssh", "host": "deploy@stage.example.com",
+              "wp_path": "/var/www/html", "repo_path": "/srv/site"},
+    "dev":   {"transport": "local", "wp_path": "/var/www/html",
+              "repo_path": "/home/me/site"}
+  }}
+
+Both registry files are found by walking upward from the current directory,
+git-style. The overlay (.duo-envs.json) replaces same-named entries from
+site.duo.json entirely — no per-key merge. See cli/README.md for the full
+contract, transport requirements, and the overlay convention.
+TXT;
+}
+
+/** @return never */
+function duo_fail(string $message, int $code = 1) {
+    fwrite(STDERR, "duo: $message\n");
+    exit($code);
+}
+
+function main(array $argv): int {
+    array_shift($argv); // script path
+
+    $envsFileOverride = null;
+    $showHelp = false;
+    $rest = [];
+    foreach ($argv as $a) {
+        if ($a === '-h' || $a === '--help') {
+            $showHelp = true;
+        } elseif (str_starts_with($a, '--envs-file=')) {
+            $envsFileOverride = substr($a, strlen('--envs-file='));
+        } else {
+            $rest[] = $a;
+        }
+    }
+
+    if ($showHelp) {
+        echo duo_usage() . "\n";
+        return 0;
+    }
+    if (count($rest) === 0) {
+        echo duo_usage() . "\n";
+        return 1;
+    }
+
+    $verb = array_shift($rest);
+    $verbsNeedingEnv = ['doctor', 'status', 'capture', 'plan', 'apply'];
+
+    if ($verb === 'envs') {
+        return cmd_envs($envsFileOverride);
+    }
+
+    if (!in_array($verb, $verbsNeedingEnv, true)) {
+        fwrite(STDERR, "duo: unknown verb '$verb'\n\n" . duo_usage() . "\n");
+        return 1;
+    }
+    if (count($rest) < 1) {
+        duo_fail("'$verb' requires an <env> argument");
+    }
+    $envName = array_shift($rest);
+    $extra = $rest;
+
+    $envs = Registry::load($envsFileOverride, getcwd() ?: '.');
+    $cfg = Registry::get($envs, $envName);
+    $transport = Transport::make($envName, $cfg);
+
+    return match ($verb) {
+        'doctor' => cmd_doctor($transport),
+        'status' => cmd_status($transport),
+        'capture', 'plan', 'apply' => cmd_passthrough($transport, $verb, $extra),
+    };
+}
+
+function cmd_envs(?string $envsFileOverride): int {
+    $envs = Registry::load($envsFileOverride, getcwd() ?: '.');
+    if (!$envs) {
+        fwrite(STDERR, "duo: no environments defined (looked for an 'envs' object in site.duo.json and .duo-envs.json)\n");
+        return 1;
+    }
+    $width = max(array_map('strlen', array_keys($envs)));
+    foreach ($envs as $name => $cfg) {
+        try {
+            $t = Transport::make($name, $cfg);
+            printf("%-{$width}s  %s\n", $name, $t->describe());
+        } catch (\Throwable $e) {
+            printf("%-{$width}s  ERROR: %s\n", $name, $e->getMessage());
+        }
+    }
+    return 0;
+}
+
+function cmd_doctor(Transport $t): int {
+    $result = Doctor::run($t);
+    foreach ($result['checks'] as $c) {
+        $mark = $c['ok'] ? 'PASS' : 'FAIL';
+        $line = "[$mark] {$c['label']}";
+        if (!$c['ok'] && $c['detail'] !== '') {
+            $line .= " — {$c['detail']}";
+        }
+        echo $line . "\n";
+    }
+    return $result['ok'] ? 0 : 1;
+}
+
+function cmd_status(Transport $t): int {
+    $r = $t->captureWp(['duo', 'plan', '--repo=' . $t->repoPath(), '--format=json']);
+    if ($r['exit'] !== 0) {
+        fwrite(STDERR, "duo: status: failed to fetch plan for '{$t->name()}' (exit {$r['exit']})\n");
+        $msg = trim($r['stderr'] !== '' ? $r['stderr'] : $r['stdout']);
+        if ($msg !== '') {
+            fwrite(STDERR, $msg . "\n");
+        }
+        return $r['exit'] !== 0 ? $r['exit'] : 1;
+    }
+    $plan = json_decode(trim($r['stdout']), true);
+    if (!is_array($plan)) {
+        fwrite(STDERR, "duo: status: could not parse plan JSON for '{$t->name()}'\n");
+        fwrite(STDERR, "raw output:\n{$r['stdout']}\n");
+        return 1;
+    }
+    $summary = PlanSummary::render($plan);
+    foreach ($summary['lines'] as $line) {
+        echo $line . "\n";
+    }
+    return $summary['ok'] ? 0 : 1;
+}
+
+function cmd_passthrough(Transport $t, string $verb, array $extra): int {
+    $wpArgs = array_merge(['duo', $verb, '--repo=' . $t->repoPath()], $extra);
+    return $t->streamWp($wpArgs);
+}
+
+try {
+    exit(main($argv));
+} catch (\Throwable $e) {
+    duo_fail($e->getMessage());
+}

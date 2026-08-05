@@ -12,6 +12,15 @@ namespace Duo;
  */
 final class Canon {
     public static function normalize($v) {
+        if (is_object($v)) {
+            $arr = (array) $v;
+            ksort($arr, SORT_STRING);
+            $out = new \stdClass();
+            foreach ($arr as $k => $x) {
+                $out->$k = self::normalize($x);
+            }
+            return $out;
+        }
         if (is_array($v)) {
             $isList = array_is_list($v);
             $out = [];

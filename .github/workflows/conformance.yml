@@ -1,0 +1,31 @@
+name: conformance
+
+# The manifest-treadmill answer (DESIGN.md §6 / adversarial-review finding
+# #20): a capture -> apply -> re-capture round-trip gate run per manifest,
+# so drift between a manifest's classification rules and the plugin's real
+# behavior fails CI instead of surfacing as silent corruption later.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        manifest: [core, woocommerce, acf, yoast]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: docker/compose versions
+        run: |
+          docker --version
+          docker compose version
+
+      - name: conformance gate (${{ matrix.manifest }})
+        run: bash sandbox/conformance/run.sh ${{ matrix.manifest }}

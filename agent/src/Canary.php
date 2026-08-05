@@ -59,16 +59,15 @@ final class Canary {
      * Every WordPress bootstrap — wp-cli's included — fires 'init', where core
      * decides whether scheduled cron events are due (wp-includes/cron.php
      * wp_cron()); if so it defers to 'shutdown' and dispatches a non-blocking
-     * HTTP POST to this site's own wp-cron.php (spawn_cron()). On a
-     * freshly-applied environment that request lands on the same small
-     * web-server worker pool as the very next real page render — a race of
-     * WordPress's own making, observed empirically as a transient, self-
-     * healing wrong render immediately after apply (never a data problem;
-     * re-reading the DB or re-rendering a moment later is always correct).
-     * None of duo's own commands (capture/plan/apply) should be the trigger
-     * for that background request, so it's suppressed for the life of this
-     * process only — unlike arm()/disarm(), there is nothing to lift, since a
-     * later real visitor request spawns cron normally.
+     * HTTP POST to this site's own wp-cron.php (spawn_cron()). None of duo's
+     * own commands (capture/plan/apply) should be the trigger for that
+     * background side-effect request — the same posture as the apply canary,
+     * extended to the command's own bootstrap. Suppressed for the life of
+     * this process only; a later real visitor request spawns cron normally.
+     * (History: this was once suspected of causing a transient wrong render
+     * after apply; that symptom was later root-caused to a test-harness
+     * `curl | grep -q` EPIPE-under-pipefail bug, not to cron or any engine
+     * write. The suppression stays on its own merits.)
      */
     public static function suppress_cron_spawn(): void {
         if (self::$cronSuppressed) {

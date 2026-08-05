@@ -1,6 +1,11 @@
 {
   "name": "woocommerce",
-  "note": "Skeleton manifest: Spike C ground truth for provenance-proposal scoring. Version-range pinning and full coverage land with the plugin-manifest workstream.",
+  "note": "Spike C: provenance-proposal ground truth. Spike D: full product-meta coverage, _price reclassified authored, and a referential delete guard on products vs. order lookup rows. Version-range pinning and full coverage of coupons/orders/attributes land with the plugin-manifest workstream.",
+  "notes": {
+    "_low_stock_amount": "Per-product low-stock threshold override reads like a runtime signal (it's stock-adjacent) but it's a merchant-set policy value, not something WooCommerce derives or recomputes — classified authored deliberately rather than lumped in with _stock/_stock_status.",
+    "_price": "Classified authored even though it is fully computable from _regular_price/_sale_price/_sale_price_dates_* (WooCommerce keeps it in sync via WC_Product::set_price() whenever any of those change). Capturing it directly avoids a rebuilder that would have to fire that hook path post-apply just to keep _price from going stale; the tradeoff is a redundant-but-harmless authored field instead of an apply-time side effect.",
+    "product_visibility": "Deliberately NOT added to owned taxonomies (see site.duo.json). Its terms (outofstock, featured, rated-1..5, exclude-from-catalog, exclude-from-search) are partly stock/rating-derived: WooCommerce assigns and removes them itself via its own hooks (e.g. on stock status change) independent of duo, and every environment's WooCommerce activation already creates the full term set. Treating them as owned would fight WooCommerce's own term management for no benefit — products still render and query correctly on a target environment without duo ever touching this taxonomy."
+  },
   "option_patterns": [
     {"class": "runtime", "match": "^woocommerce_maybe_regenerate_images"},
     {"class": "runtime", "match": "^_wc_session_"}
@@ -24,26 +29,48 @@
   },
   "post_meta": {
     "_backorders": {"class": "authored"},
+    "_crosssell_ids": {"class": "authored", "ref": "post[]", "cast": "string"},
+    "_download_expiry": {"class": "authored"},
+    "_download_limit": {"class": "authored"},
+    "_downloadable": {"class": "authored"},
+    "_downloadable_files": {"class": "authored"},
+    "_global_unique_id": {"class": "authored"},
+    "_height": {"class": "authored"},
+    "_length": {"class": "authored"},
+    "_low_stock_amount": {"class": "authored"},
     "_manage_stock": {"class": "authored"},
-    "_price": {"class": "derived"},
+    "_price": {"class": "authored"},
+    "_product_image_gallery": {"class": "authored", "ref": "post[]", "cast": "csv"},
     "_product_version": {"class": "env"},
+    "_purchase_note": {"class": "authored"},
     "_regular_price": {"class": "authored"},
     "_sale_price": {"class": "authored"},
+    "_sale_price_dates_from": {"class": "authored"},
+    "_sale_price_dates_to": {"class": "authored"},
     "_sku": {"class": "authored"},
     "_sold_individually": {"class": "authored"},
     "_stock": {"class": "runtime"},
     "_stock_status": {"class": "runtime"},
     "_tax_class": {"class": "authored"},
     "_tax_status": {"class": "authored"},
+    "_upsell_ids": {"class": "authored", "ref": "post[]", "cast": "string"},
     "_virtual": {"class": "authored"},
     "_wc_average_rating": {"class": "runtime"},
+    "_wc_rating_count": {"class": "runtime"},
     "_wc_review_count": {"class": "runtime"},
+    "_weight": {"class": "authored"},
+    "_width": {"class": "authored"},
     "total_sales": {"class": "runtime"}
   },
   "post_types": {
     "product": {"class": "authored"},
     "shop_coupon": {"class": "authored"},
     "shop_order": {"class": "runtime"}
+  },
+  "delete_guards": {
+    "post:product": [
+      {"table": "wc_order_product_lookup", "column": "product_id", "reason": "orders reference this product"}
+    ]
   },
   "tables": {
     "actionscheduler_actions": {"class": "runtime"},
@@ -53,6 +80,7 @@
     "wc_customer_lookup": {"class": "runtime"},
     "wc_order_addresses": {"class": "runtime"},
     "wc_order_operational_data": {"class": "runtime"},
+    "wc_order_product_lookup": {"class": "runtime"},
     "wc_order_stats": {"class": "runtime"},
     "wc_orders": {"class": "runtime"},
     "wc_orders_meta": {"class": "runtime"},

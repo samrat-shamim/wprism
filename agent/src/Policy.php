@@ -188,6 +188,21 @@ final class Policy {
         return 'blocks';
     }
 
+    /**
+     * 'early' post types finalize before everything else in apply phase 2:
+     * definition CPTs (acf-field*) whose content interpreters read to type
+     * OTHER entities' meta — declared ordering, never glob-alphabetical luck.
+     */
+    public function post_type_phase(string $postType): string {
+        foreach ($this->manifests as $m) {
+            $phase = $m['post_types'][$postType]['phase'] ?? null;
+            if ($phase !== null) {
+                return $phase;
+            }
+        }
+        return 'normal';
+    }
+
     /** Manifest-declared rebuilders (wp-cli commands run in the rebuild pass). */
     public function rebuilders(): array {
         $out = [];

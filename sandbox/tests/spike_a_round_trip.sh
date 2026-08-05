@@ -110,12 +110,19 @@ USERS_POST=$(wp_b db query "SELECT MD5(GROUP_CONCAT(ID,':',user_login ORDER BY I
 pass "users, transient, unmanaged option all untouched"
 
 say "acceptance: rendered pages on B"
-curl -fs http://localhost:8802/ | grep -q 'Welcome to the Duo demo' || fail "front page does not render Home content"
-curl -fs http://localhost:8802/ | grep -q 'Contact' || fail "menu (Contact item) not rendered"
-curl -fs http://localhost:8802/category/news/ | grep -q 'Hello Duo' || fail "category archive missing applied post (derived counts not rebuilt?)"
+# Always buffer the body before grepping: `curl | grep -q` under pipefail dies
+# with curl EPIPE (rc 23) whenever grep matches before curl finishes writing —
+# a load-dependent false failure (the match SUCCEEDED), root-caused after it
+# burned two debugging sessions masquerading as a render race.
+FRONT=$(curl -fs http://localhost:8802/) || fail "front page did not return 200"
+grep -q 'Welcome to the Duo demo' <<<"$FRONT" || fail "front page does not render Home content"
+grep -q 'Contact' <<<"$FRONT" || fail "menu (Contact item) not rendered"
+ARCHIVE=$(curl -fs http://localhost:8802/category/news/) || fail "category archive did not return 200"
+grep -q 'Hello Duo' <<<"$ARCHIVE" || fail "category archive missing applied post (derived counts not rebuilt?)"
 IMG_REL=$(grep -h '"file"' siterepo/a/state/posts/attachment/*.md | sed 's/.*"file": "\([^"]*\)".*/\1/')
 curl -fso /dev/null "http://localhost:8802/wp-content/uploads/$IMG_REL" || fail "media binary not materialized on B"
-curl -fs http://localhost:8802/hello-duo/ | grep -q 'localhost:8802/about' || fail "internal link not re-bound to B's home URL"
+HELLO=$(curl -fs http://localhost:8802/hello-duo/) || fail "hello-duo permalink did not return 200"
+grep -q 'localhost:8802/about' <<<"$HELLO" || fail "internal link not re-bound to B's home URL"
 pass "front page, menu, category archive, media, re-bound links all render"
 
 say "acceptance: term counts rebuilt"

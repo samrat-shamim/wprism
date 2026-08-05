@@ -1,0 +1,49 @@
+{
+  "name": "yoast",
+  "notes": [
+    "wpseo_titles/wpseo_social captured authored: real site-admin config (title/meta-description templates, social defaults, breadcrumb/company settings). KNOWN GAP: both blobs can embed an attachment id for a logo/default-social-image sub-key (e.g. company_logo_id/person_logo_id/og_default_image_id); Duo's option model only ref-rewrites a whole option's value, never a sub-key inside a larger config blob, so if such an id is ever set it will silently carry this environment's numeric id onto another one. Matches adversarial-review finding #9's proposed capture-time linter (flag option values equal to an existing post/term id), which doesn't exist yet. Not exercised by this manifest's conformance seed (no logo/social image configured there).",
+    "wpseo (the main options blob) deliberately NOT captured: mixes genuine feature toggles with env-local bookkeeping (first_activated_on timestamp, dismissed-notice UI state, and the version key Yoast uses to gate its own upgrade routines). Capturing it wholesale would let a stale captured version silently roll back another environment's upgrade-routine gate. v0's options model has no sub-key split to capture only the safe half.",
+    "wpseo_taxonomy_meta deliberately NOT captured: per-term SEO overrides keyed by raw term_id in the array KEYS, not just the values, and Duo only ref-rewrites option VALUES. Capturing it would embed this environment's numeric term ids as literal object keys — meaningless, or worse silently wrong, on another environment. Needs key-aware rewriting to fix properly, the same class of gap theme_mods_ nav_menu_locations already had to solve in the core manifest.",
+    "wpseo_rss/wpseo_internallinks/wpseo_xml look like safe, config-heavy candidates for a future pass; left undeclared (uncaptured, never blocking) here rather than classified from memory without empirical verification against a running install.",
+    "rebuilder verified against a running install: 'wp yoast index' takes its OWN --skip-confirmation flag for non-interactive use, not the generic wp-cli --yes (confirmed empirically — --yes is rejected as an unknown parameter). Separately, and unrelated to that flag: since Yoast SEO 15.1, indexable creation is production-only by design (gated on wp_get_environment_type() === 'production', bypassable only via the Yoast\\WP\\SEO\\should_index_indexables filter) — every sandbox/CI env here runs WP_ENVIRONMENT_TYPE=local, so this rebuilder is expected to warn-not-fail (Apply's rebuild pass treats rebuilder exit != 0 as a warning) in every environment this repo's tests ever run against, and will only actually index on a real production site. Not a bug; do not silence the warning by defining the override filter in the agent — that would change Yoast's own behavior underneath every site, production included, which is Yoast's call to make per-site, not Duo's to make globally."
+  ],
+  "options": {
+    "wpseo": {"class": "env"},
+    "wpseo_social": {"class": "authored"},
+    "wpseo_taxonomy_meta": {"class": "env"},
+    "wpseo_titles": {"class": "authored"}
+  },
+  "post_meta": {
+    "_yoast_wpseo_bctitle": {"class": "authored"},
+    "_yoast_wpseo_canonical": {"class": "authored"},
+    "_yoast_wpseo_content_score": {"class": "derived"},
+    "_yoast_wpseo_estimated-reading-time-minutes": {"class": "derived"},
+    "_yoast_wpseo_focuskw": {"class": "authored"},
+    "_yoast_wpseo_is_cornerstone": {"class": "authored"},
+    "_yoast_wpseo_linkdex": {"class": "derived"},
+    "_yoast_wpseo_meta-robots-adv": {"class": "authored"},
+    "_yoast_wpseo_meta-robots-nofollow": {"class": "authored"},
+    "_yoast_wpseo_meta-robots-noindex": {"class": "authored"},
+    "_yoast_wpseo_metadesc": {"class": "authored"},
+    "_yoast_wpseo_opengraph-description": {"class": "authored"},
+    "_yoast_wpseo_opengraph-image": {"class": "authored"},
+    "_yoast_wpseo_opengraph-image-id": {"class": "authored", "ref": "post"},
+    "_yoast_wpseo_opengraph-title": {"class": "authored"},
+    "_yoast_wpseo_primary_category": {"cast": "string", "class": "authored", "ref": "term"},
+    "_yoast_wpseo_redirect": {"class": "authored"},
+    "_yoast_wpseo_title": {"class": "authored"},
+    "_yoast_wpseo_twitter-description": {"class": "authored"},
+    "_yoast_wpseo_twitter-image": {"class": "authored"},
+    "_yoast_wpseo_twitter-title": {"class": "authored"}
+  },
+  "rebuilders": [
+    {"command": "yoast index --reindex --skip-confirmation"}
+  ],
+  "tables": {
+    "yoast_indexable": {"class": "derived"},
+    "yoast_indexable_hierarchy": {"class": "derived"},
+    "yoast_migrations": {"class": "env"},
+    "yoast_primary_term": {"class": "derived"},
+    "yoast_seo_links": {"class": "derived"}
+  }
+}
