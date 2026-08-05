@@ -31,6 +31,7 @@ final class Capture {
      * @return array summary
      */
     public static function run(string $repo, ?string $outDir = null): array {
+        Canary::suppress_cron_spawn();
         Ledger::ensure();
         $c = new self($repo, Policy::load($repo));
         $build = $c->build(true);
@@ -74,6 +75,7 @@ final class Capture {
      * @return array<string, array{type: string, hash: string, content: string, path: string}>
      */
     public static function snapshot(string $repo): array {
+        Canary::suppress_cron_spawn();
         Ledger::ensure();
         $c = new self($repo, Policy::load($repo));
         $build = $c->build(false);

@@ -10,6 +10,7 @@ namespace Duo;
 final class Canary {
     private static bool $armed = false;
     private static bool $registered = false;
+    private static bool $cronSuppressed = false;
     /** @var string[] */
     private static array $violations = [];
 
@@ -52,5 +53,32 @@ final class Canary {
     /** @return string[] */
     public static function violations(): array {
         return self::$violations;
+    }
+
+    /**
+     * Every WordPress bootstrap — wp-cli's included — fires 'init', where core
+     * decides whether scheduled cron events are due (wp-includes/cron.php
+     * wp_cron()); if so it defers to 'shutdown' and dispatches a non-blocking
+     * HTTP POST to this site's own wp-cron.php (spawn_cron()). On a
+     * freshly-applied environment that request lands on the same small
+     * web-server worker pool as the very next real page render — a race of
+     * WordPress's own making, observed empirically as a transient, self-
+     * healing wrong render immediately after apply (never a data problem;
+     * re-reading the DB or re-rendering a moment later is always correct).
+     * None of duo's own commands (capture/plan/apply) should be the trigger
+     * for that background request, so it's suppressed for the life of this
+     * process only — unlike arm()/disarm(), there is nothing to lift, since a
+     * later real visitor request spawns cron normally.
+     */
+    public static function suppress_cron_spawn(): void {
+        if (self::$cronSuppressed) {
+            return;
+        }
+        self::$cronSuppressed = true;
+        add_filter('pre_http_request', function ($preempt, $parsed_args, $url) {
+            return str_contains($url, '/wp-cron.php')
+                ? new \WP_Error('duo_cron_suppressed', 'duo: suppressed a wp-cron spawn triggered by a duo command')
+                : $preempt;
+        }, 10, 3);
     }
 }

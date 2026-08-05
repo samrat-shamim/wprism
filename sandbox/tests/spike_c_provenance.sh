@@ -26,9 +26,42 @@ if ! wp_c core is-installed >/dev/null 2>&1; then
     --admin_email=admin@example.test --skip-email
 fi
 
+say "configure env C for REST (pretty permalinks + Basic Auth passthrough)"
+# Fresh installs default to Plain permalinks, under which /wp-json/... doesn't
+# route to the REST API at all (WordPress falls back to index.php?rest_route=
+# — it 200s with the homepage instead of dispatching, which is what broke
+# scenario 1/2 below). wp-cli can't write .htaccess without extra config, and
+# apache needs the HTTP_AUTHORIZATION line for Basic Auth (application
+# passwords) to reach PHP at all — same two steps sandbox/setup.sh performs
+# for envs A/B on this identical docker image.
+wp_c option update permalink_structure '/%postname%/' >/dev/null
+wp_c rewrite flush --hard >/dev/null
+$COMPOSE exec -T -u www-data wp-c tee /var/www/html/.htaccess >/dev/null <<'EOF'
+# BEGIN WordPress
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+RewriteBase /
+RewriteRule ^index\.php$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /index.php [L]
+</IfModule>
+# END WordPress
+EOF
+
 say "install WooCommerce (the stress test)"
 wp_c plugin is-installed woocommerce >/dev/null 2>&1 || wp_c plugin install woocommerce
 wp_c plugin activate woocommerce >/dev/null 2>&1 || true
+
+say "enable HPOS (wc_orders custom table) — must run before any order exists"
+# WooCommerce still defaults new installs to legacy post-based order storage
+# unless HPOS is explicitly turned on. `wc hpos enable`'s auto-create-tables
+# path only fires for a genuinely new shop (zero existing orders) — this is
+# the modern custom-table architecture DESIGN.md calls out as the point of
+# using WooCommerce as the stress test, so it needs to be live before
+# scenario 2 places an order, not patched in after.
+wp_c wc hpos enable || fail "could not enable HPOS (custom order tables)"
 
 say "store setup (baseline writes; journaled as cli => review)"
 wp_c option update woocommerce_store_address '1 Duo Way' >/dev/null
@@ -58,7 +91,7 @@ NAME=$(curl -fsu "admin:$APP_PASS" -X PUT "$C/wp-json/wc/v3/products/$PID" \
 pass "admin REST writes done (store city, product rename)"
 
 say "scenario 2: ANONYMOUS Store API checkout (runtime writes)"
-CART_TOKEN=$(curl -si "$C/wp-json/wc/store/v1/cart" | awk 'BEGIN{IGNORECASE=1} /^cart-token:/{print $2}' | tr -d '\r')
+CART_TOKEN=$(curl -si "$C/wp-json/wc/store/v1/cart" | grep -i '^cart-token:' | awk '{print $2}' | tr -d '\r')
 [ -n "$CART_TOKEN" ] || fail "no Cart-Token from Store API"
 curl -fs -X POST "$C/wp-json/wc/store/v1/cart/add-item" \
   -H "Cart-Token: $CART_TOKEN" -H 'Content-Type: application/json' \
@@ -91,10 +124,17 @@ DISAGREE_ROWS=$(echo "$REPORT" | jq -r '[.rows[] | select(.verdict=="disagree")]
 pass "key rows agree; agreement on manifest-classified writes: ${AGREE}% (disagreeing row groups: $DISAGREE_ROWS — mixed-class requests, e.g. transients written during admin REST, exactly design finding #2)"
 
 say "journal overhead (30 anonymous front-page requests, on vs off)"
+# DUO_JOURNAL (wp-config.php) is sourced from WORDPRESS_CONFIG_EXTRA and
+# eval()'d fresh every request straight from the container's environment —
+# neither `wp config set` nor editing the file can override it without
+# recreating the container (verified: PHP's define() keeps the first value
+# and just warns on the second; the file has no literal DUO_JOURNAL line to
+# edit in the first place). Journal::boot() checks this option as a live
+# kill switch for exactly this measurement instead.
 t_on=$(for _ in $(seq 1 30); do curl -so /dev/null -w '%{time_total}\n' "$C/"; done | awk '{s+=$1} END {printf "%.1f", s/NR*1000}')
-wp_c config set DUO_JOURNAL false --raw --type=constant >/dev/null
+wp_c option update duo_journal_disabled 1 >/dev/null
 t_off=$(for _ in $(seq 1 30); do curl -so /dev/null -w '%{time_total}\n' "$C/"; done | awk '{s+=$1} END {printf "%.1f", s/NR*1000}')
-wp_c config set DUO_JOURNAL true --raw --type=constant >/dev/null
+wp_c option delete duo_journal_disabled >/dev/null
 echo "avg request: journal ON ${t_on}ms vs OFF ${t_off}ms"
 
 printf '\n\033[1;32m✔ SPIKE C PASSED\033[0m\n'

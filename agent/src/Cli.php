@@ -21,7 +21,10 @@ final class Cli {
         } catch (\Throwable $t) {
             WP_CLI::error($t->getMessage());
         }
-        if (isset($assoc['json'])) {
+        // WP-CLI's dispatcher rewrites a bare --json into format=json and unsets
+        // 'json' before the command runs (Runner::run_command()) — there is never
+        // an $assoc['json'] key to isset() against.
+        if (($assoc['format'] ?? '') === 'json') {
             WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
             return;
         }
@@ -55,7 +58,8 @@ final class Cli {
         } catch (\Throwable $t) {
             WP_CLI::error($t->getMessage());
         }
-        if (isset($assoc['json'])) {
+        // See capture(): --json arrives here as $assoc['format'] === 'json', never $assoc['json'].
+        if (($assoc['format'] ?? '') === 'json') {
             WP_CLI::line(json_encode($plan, JSON_UNESCAPED_SLASHES));
             return;
         }
@@ -95,7 +99,8 @@ final class Cli {
         } catch (\Throwable $t) {
             WP_CLI::error($t->getMessage());
         }
-        if (isset($assoc['json'])) {
+        // See capture(): --json arrives here as $assoc['format'] === 'json', never $assoc['json'].
+        if (($assoc['format'] ?? '') === 'json') {
             WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
             return;
         }
@@ -129,7 +134,11 @@ final class Cli {
         } catch (\Throwable $t) {
             WP_CLI::error($t->getMessage());
         }
-        if (isset($assoc['json'])) {
+        // wp-cli rewrites a bare --json into $assoc['format']='json' before
+        // this method ever sees it (verified empirically: no 'json' key is
+        // ever present) — check both so it's correct regardless of wp-cli
+        // version/convention.
+        if (isset($assoc['json']) || ($assoc['format'] ?? '') === 'json') {
             WP_CLI::line(json_encode($report, JSON_UNESCAPED_SLASHES));
             return;
         }

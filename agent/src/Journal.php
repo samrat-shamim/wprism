@@ -22,6 +22,16 @@ final class Journal {
             return;
         }
         self::$booted = true;
+        // DUO_JOURNAL (wp-config.php) is the deployment-time switch, but it's
+        // sourced from WORDPRESS_CONFIG_EXTRA and eval()'d fresh every
+        // request straight from the container's environment — nothing
+        // reachable at runtime (file edits, wp-cli, opcache invalidation)
+        // can override it without recreating the container. This option is
+        // a live kill switch for the same effect (e.g. overhead A/B
+        // measurement) without needing that.
+        if (get_option('duo_journal_disabled')) {
+            return;
+        }
         add_filter('query', [self::class, 'observe'], -2147483646);
         add_action('shutdown', [self::class, 'flush'], PHP_INT_MAX);
     }
@@ -134,16 +144,24 @@ final class Journal {
         } elseif (isset($_SERVER['REQUEST_URI']) && str_contains((string) $_SERVER['REQUEST_URI'], '/wp-json/')) {
             $surface = 'rest';
         }
+        // Read the already-resolved user straight from the global; never via
+        // wp_get_current_user()/current_user_can(). Those trigger
+        // determine_current_user resolution on first call, and application
+        // password auth (wp_authenticate_application_password) writes
+        // last_used/last_ip usermeta *during* that very resolution, before
+        // $current_user is set. Calling back into resolution from here — a
+        // query observer — re-enters determine_current_user mid-flight,
+        // which re-authenticates and re-writes, observed again: unbounded
+        // recursion (confirmed: OOM, one stack frame per retry).
         $actor = 0;
         $caps = '';
-        if (function_exists('did_action') && did_action('init') && function_exists('wp_get_current_user')) {
-            $actor = (int) get_current_user_id();
-            if ($actor > 0 && function_exists('current_user_can')) {
-                if (current_user_can('manage_options')) {
-                    $caps = 'manage_options';
-                } elseif (current_user_can('edit_posts')) {
-                    $caps = 'edit_posts';
-                }
+        global $current_user;
+        if ($current_user instanceof \WP_User && $current_user->ID > 0) {
+            $actor = (int) $current_user->ID;
+            if ($current_user->has_cap('manage_options')) {
+                $caps = 'manage_options';
+            } elseif ($current_user->has_cap('edit_posts')) {
+                $caps = 'edit_posts';
             }
         }
         return ['surface' => $surface, 'actor' => $actor, 'caps' => $caps];

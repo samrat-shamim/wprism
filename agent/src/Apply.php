@@ -29,6 +29,7 @@ final class Apply {
     // ------------------------------------------------------------------ plan
 
     public static function plan(string $repo, array $opts = []): array {
+        Canary::suppress_cron_spawn();
         Ledger::ensure();
         $a = new self($repo);
         return $a->build_plan($opts);
@@ -152,6 +153,7 @@ final class Apply {
     // ----------------------------------------------------------------- apply
 
     public static function apply(string $repo, array $opts = []): array {
+        Canary::suppress_cron_spawn();
         Ledger::ensure();
         $a = new self($repo);
         return $a->run($opts);

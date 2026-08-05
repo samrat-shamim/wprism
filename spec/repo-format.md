@@ -93,7 +93,7 @@ Front matter (canonical JSON between `---` fences) + raw body:
 - `meta` contains only keys classified **authored** by manifests/policy. Derived/runtime keys (`_edit_lock`, `_wp_attachment_metadata`, …) are excluded per the core manifest. **Unclassified keys abort capture loudly** (the loud-and-blocking gate); the error names the key and the policy file to amend.
 - `terms` maps taxonomy → ordered list of term uuids.
 - Excluded fields: `guid` (env-derived), `comment_count`/`post_password`-empty-noise (derived/default), revisions and auto-drafts (never captured).
-- **Attachments** add: `"file": "<Y/M/name.ext>"` (upload-relative path), `"media": "<sha256>.<ext>"` (binary in `media/`), `"mime": "image/jpeg"`, `"alt": "…"` (from `_wp_attachment_image_alt`). Body = attachment description; `caption` field = `post_excerpt`. `_wp_attachment_metadata` is derived: regenerated on apply.
+- **Attachments** add: `"file": "<Y/M/name.ext>"` (upload-relative path), `"media": "<sha256>.<ext>"` (binary in `media/`), `"mime": "image/jpeg"`, `"alt": "…"` (from `_wp_attachment_image_alt`). Body = attachment description; the uniform `excerpt` field carries the caption. `_wp_attachment_metadata` is derived: regenerated on apply.
 
 ### Terms — `state/terms/<taxonomy>/<uuid>--<slug>.json`
 
