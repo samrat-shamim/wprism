@@ -13,7 +13,8 @@ final class Cli {
      * ## OPTIONS
      * --repo=<path>    : Site repo root (contains site.duo.json).
      * [--out=<path>]   : Write the state tree elsewhere (determinism checks); skips ledger/media updates.
-     * [--json]         : JSON summary.
+     * [--json]           : JSON summary (wp-cli rewrites this to --format=json).
+     * [--format=<format>] : Output format. Accepts json.
      */
     public function capture($args, $assoc) {
         try {
@@ -48,7 +49,8 @@ final class Cli {
      * ## OPTIONS
      * --repo=<path>
      * [--adopt-by-slug=<kinds>] : e.g. terms,posts,menus
-     * [--json]
+     * [--json]           : JSON output (wp-cli rewrites this to --format=json).
+     * [--format=<format>] : Output format. Accepts json.
      */
     public function plan($args, $assoc) {
         try {
@@ -90,7 +92,8 @@ final class Cli {
      * [--force-theirs]
      * [--default-author=<login>]
      * [--revision=<rev>]
-     * [--json]
+     * [--json]           : JSON output (wp-cli rewrites this to --format=json).
+     * [--format=<format>] : Output format. Accepts json.
      */
     public function apply($args, $assoc) {
         try {
@@ -129,7 +132,8 @@ final class Cli {
      *
      * ## OPTIONS
      * [--manifests=<names>] : comma-separated, default "core".
-     * [--json]
+     * [--json]           : JSON output (wp-cli rewrites this to --format=json).
+     * [--format=<format>] : Output format. Accepts json.
      *
      * @subcommand journal-report
      */
@@ -161,6 +165,17 @@ final class Cli {
             $report['agreement_pct'] ?? 'n/a',
             $report['agree'], $report['disagree'], $report['abstain'], $report['unclassified']
         ));
+    }
+
+    /**
+     * Agent + spec version — the stable probe for external tooling
+     * (orchestrators check this instead of internal class names).
+     */
+    public function version($args, $assoc) {
+        WP_CLI::line(json_encode([
+            'agent' => DUO_AGENT_VERSION,
+            'spec_version' => DUO_SPEC_VERSION,
+        ], JSON_UNESCAPED_SLASHES));
     }
 
     /**

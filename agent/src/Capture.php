@@ -571,12 +571,19 @@ final class Capture {
         return $out;
     }
 
-    /** Options must never propagate env-local numeric ids: unmapped ref => skip key. */
+    /**
+     * Options must never propagate env-local numeric ids: unmapped ref => skip
+     * key. Id 0 is WordPress's ordinary "unset" for these options (fresh sites
+     * have page_on_front=0 etc.) — skipped silently, not warned as dangling.
+     */
     private function option_ref_tokens(string $name, $value, string $ref) {
         if (str_ends_with($ref, '[]')) {
             $kind = substr($ref, 0, -2);
             $ok = [];
             foreach ((array) $value as $v) {
+                if ((int) $v === 0) {
+                    continue;
+                }
                 $tok = $this->tokens->id_to_token((int) $v, $kind);
                 if ($tok === null) {
                     $this->tokens->warnings[] = "option $name: unmanaged $kind id $v dropped";
@@ -585,6 +592,9 @@ final class Capture {
                 $ok[] = $tok;
             }
             return $ok;
+        }
+        if ((int) $value === 0) {
+            return null;
         }
         $tok = $this->tokens->id_to_token((int) $value, $ref);
         if ($tok === null) {

@@ -9,6 +9,9 @@ if (!defined('ABSPATH') && !(defined('WP_CLI') && WP_CLI)) {
     return;
 }
 
+define('DUO_AGENT_VERSION', '0.5.0');
+define('DUO_SPEC_VERSION', 0);
+
 require_once __DIR__ . '/src/Uuid.php';
 require_once __DIR__ . '/src/Canon.php';
 require_once __DIR__ . '/src/Policy.php';
