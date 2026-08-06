@@ -190,12 +190,16 @@ final class Cli {
             WP_CLI::line('CODE_DRIFT ' . strtoupper($r['kind']) . ' ' . ($r['plugin'] ?? $r['theme'] ?? '?'));
             WP_CLI::line('  ' . $r['message']);
         }
+        foreach ($plan['incomplete_apply'] ?? [] as $r) {
+            WP_CLI::line('INCOMPLETE_APPLY ' . $r['reason']);
+        }
         foreach ($plan['warnings'] ?? [] as $w) {
             WP_CLI::warning($w);
         }
         $counts = implode(', ', array_map(fn($k) => count($plan[$k]) . " $k", $kinds));
         $counts .= ', ' . count($plan['code_mismatch'] ?? []) . ' code_mismatch';
         $counts .= ', ' . count($plan['code_drift'] ?? []) . ' code_drift';
+        $counts .= ', ' . count($plan['incomplete_apply'] ?? []) . ' incomplete_apply';
         WP_CLI::success("plan: $counts");
         if ($plan['drift']) {
             WP_CLI::warning('environment drift detected — capture-first workflow recommended');
@@ -383,7 +387,7 @@ final class Cli {
     public function journal_reset($args, $assoc) {
         global $wpdb;
         Ledger::ensure();
-        $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}duo_journal");
+        Db::query("TRUNCATE TABLE {$wpdb->prefix}duo_journal", 'journal truncate');
         WP_CLI::success('journal truncated');
     }
 

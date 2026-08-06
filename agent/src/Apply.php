@@ -63,6 +63,9 @@ final class Apply {
         $a = new self($repo, $policy, $compiled);
         Ledger::ensure();
         $plan = $a->build_plan($opts, $compiled);
+        if (Ledger::kv_get('apply_in_progress') !== null) {
+            $a->warnings[] = 'previous apply did not complete required rebuilds; canonical entities require retry';
+        }
         // Only the plan-only entry point attaches warnings to the returned
         // array itself — run() below calls build_plan() too, but folds
         // $this->warnings into ITS OWN summary separately (see run()'s
@@ -89,7 +92,7 @@ final class Apply {
         $plan = [
             'create' => [], 'update' => [], 'unchanged' => [], 'drift' => [],
             'conflict' => [], 'adopt' => [], 'collision' => [], 'delete' => [],
-            'code_mismatch' => [], 'code_drift' => [],
+            'code_mismatch' => [], 'code_drift' => [], 'incomplete_apply' => [],
         ];
         $collisionCache = [];
         foreach ($tree as $uuid => $e) {
@@ -181,6 +184,27 @@ final class Apply {
         // see Deploy::code_drift()'s own docblock for why it's a distinct
         // question (out-of-band version change vs. compatibility range).
         $plan['code_drift'] = Deploy::code_drift($this->policy, $desired);
+
+        // A prior apply that committed authored rows but failed a required
+        // rebuild deliberately left this marker. The live canonical hash can
+        // now be unchanged, drift, or conflict: rebuilders may normalize the
+        // just-written row after COMMIT, while duo_state intentionally still
+        // names the pre-apply base. In every case the interrupted promotion's
+        // repository tree remains the recovery target. Re-run every mapped
+        // canonical entity through phase 2/rebuild until the marker clears;
+        // otherwise the ordinary three-way gate can make a truthful failure
+        // impossible to retry without an unrelated --force-theirs override.
+        if (Ledger::kv_get('apply_in_progress') !== null) {
+            $plan['incomplete_apply'][] = [
+                'reason' => 'previous apply did not complete required rebuilds or convergence metadata',
+            ];
+            foreach (['unchanged', 'drift', 'conflict'] as $retryKind) {
+                foreach ($plan[$retryKind] as $row) {
+                    $plan['update'][] = $row + ['retry' => true];
+                }
+                $plan[$retryKind] = [];
+            }
+        }
         return $plan;
     }
 
@@ -460,10 +484,18 @@ final class Apply {
         usort($work, fn($x, $y) =>
             $this->phase2_rank($tree[$x['uuid']]) <=> $this->phase2_rank($tree[$y['uuid']]));
 
+        $retryingIncompleteApply = Ledger::kv_get('apply_in_progress') !== null;
+
+        // Written before the first target mutation and cleared only after
+        // required rebuilds succeed. It is failure state, never convergence
+        // state: applied_revision and base hashes still advance afterward.
+        Ledger::kv_set('apply_in_progress', '1');
         Canary::arm();
-        $wpdb->query('START TRANSACTION');
         $newAttachmentIds = [];
+        $transactionStarted = false;
         try {
+            Db::start('apply transaction start');
+            $transactionStarted = true;
             // ---- adopt: claim unmanaged env rows by writing identity ----
             foreach ($plan['adopt'] as $r) {
                 $this->adopt($r, $tree[$r['uuid']]);
@@ -486,7 +518,7 @@ final class Apply {
                 } elseif ($e['type'] === 'post') {
                     $front = $e['data'];
                     $isNew = $this->ensure_post_row($front);
-                    if ($isNew && $front['type'] === 'attachment') {
+                    if (($isNew || $retryingIncompleteApply) && $front['type'] === 'attachment') {
                         $newAttachmentIds[] = Ledger::id_for($front['uuid'], Ledger::KIND_POST);
                     }
                 }
@@ -526,41 +558,72 @@ final class Apply {
 
             $violations = Canary::violations();
             if ($violations) {
-                $wpdb->query('ROLLBACK');
-                Canary::disarm();
                 throw new \RuntimeException(
-                    "duo: side-effect canary tripped, transaction rolled back:\n  - " . implode("\n  - ", $violations)
+                    "duo: side-effect canary tripped:\n  - " . implode("\n  - ", $violations)
                 );
             }
-            $wpdb->query('COMMIT');
+            Db::commit('apply transaction commit');
+            $transactionStarted = false;
         } catch (\Throwable $t) {
-            $wpdb->query('ROLLBACK');
+            if ($transactionStarted) {
+                try {
+                    Db::rollback('apply transaction rollback');
+                } catch (DatabaseMutationException $rollback) {
+                    Canary::disarm();
+                    throw new DatabaseMutationException($rollback->mutationContext, $t);
+                }
+            }
             Canary::disarm();
             throw $t;
         }
         Canary::disarm();
 
-        // ---- ledger bookkeeping ----
-        foreach (array_merge($plan['unchanged'], $work) as $r) {
-            $e = $tree[$r['uuid']];
-            Ledger::set_state_hash($r['uuid'], $e['type'], $e['hash']);
-        }
-        if (!empty($opts['with_deletes'])) {
-            foreach ($plan['delete'] as $r) {
-                Ledger::forget($r['uuid']);
-            }
-        }
-        // The compiler revision is the truthful default receipt. An
-        // orchestrator may still supply a git commit/ref for operator-facing
-        // provenance, but a direct CLI apply no longer advances state with
-        // an empty/ambiguous revision marker.
-        Ledger::kv_set(
-            'applied_revision',
-            !empty($opts['revision']) ? (string) $opts['revision'] : $compiled->revision_hash()
-        );
-
-        // ---- rebuild pass (derived state; canary is off by design) ----
+        // Required derived-state rebuilds happen after authored mutations
+        // commit (their WP-CLI subprocesses need to observe those writes) but
+        // before ANY convergence metadata advances. A failure therefore
+        // leaves the target truthfully unapplied and retryable instead of
+        // recording a false-green revision.
         $this->rebuild($newAttachmentIds, count($work) > 0);
+
+        // ---- ledger bookkeeping (one atomic convergence boundary) ----
+        // The retry marker, every base hash, deletes, and applied revision
+        // move together. A failure at any one statement or at COMMIT rolls
+        // the whole metadata transition back, retaining apply_in_progress so
+        // the next run replays required finalization/rebuild work.
+        $ledgerTransactionStarted = false;
+        try {
+            Db::start('ledger transaction start');
+            $ledgerTransactionStarted = true;
+            Ledger::kv_delete('apply_in_progress');
+            foreach (array_merge($plan['unchanged'], $work) as $r) {
+                $e = $tree[$r['uuid']];
+                Ledger::set_state_hash($r['uuid'], $e['type'], $e['hash']);
+            }
+            if (!empty($opts['with_deletes'])) {
+                foreach ($plan['delete'] as $r) {
+                    Ledger::forget($r['uuid']);
+                }
+            }
+            // The compiler revision is the truthful default receipt. An
+            // orchestrator may still supply a git commit/ref for operator-
+            // facing provenance, but the receipt moves atomically with every
+            // state hash only after required rebuilds have succeeded.
+            Ledger::kv_set(
+                'applied_revision',
+                !empty($opts['revision']) ? (string) $opts['revision'] : $compiled->revision_hash()
+            );
+            Db::commit('ledger transaction commit');
+            $ledgerTransactionStarted = false;
+        } catch (\Throwable $t) {
+            if ($ledgerTransactionStarted) {
+                try {
+                    Db::rollback('ledger transaction rollback');
+                } catch (DatabaseMutationException $rollback) {
+                    throw new DatabaseMutationException($rollback->mutationContext, $t);
+                }
+            }
+            throw $t;
+        }
 
         return [
             'artifact' => [
@@ -591,7 +654,7 @@ final class Apply {
                 "SELECT meta_id FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = '_duo_uuid' LIMIT 1", $envId
             ));
             if (!$existing) {
-                $wpdb->insert($wpdb->postmeta, ['post_id' => $envId, 'meta_key' => '_duo_uuid', 'meta_value' => $row['uuid']]);
+                Db::insert($wpdb->postmeta, ['post_id' => $envId, 'meta_key' => '_duo_uuid', 'meta_value' => $row['uuid']], null, 'adopt post identity');
             }
             Ledger::set($row['uuid'], 'post', Ledger::KIND_POST, $envId);
             $this->warnings[] = "adopted env post $envId as {$row['uuid']} ({$row['path']})";
@@ -603,7 +666,7 @@ final class Apply {
                 "SELECT meta_id FROM {$wpdb->termmeta} WHERE term_id = %d AND meta_key = '_duo_uuid' LIMIT 1", $envId
             ));
             if (!$existing) {
-                $wpdb->insert($wpdb->termmeta, ['term_id' => $envId, 'meta_key' => '_duo_uuid', 'meta_value' => $row['uuid']]);
+                Db::insert($wpdb->termmeta, ['term_id' => $envId, 'meta_key' => '_duo_uuid', 'meta_value' => $row['uuid']], null, 'adopt term identity');
             }
             Ledger::set($row['uuid'], $e['type'], Ledger::KIND_TERM, $envId);
             Ledger::set($row['uuid'], $e['type'], Ledger::KIND_TT, $tt);
@@ -616,14 +679,14 @@ final class Apply {
         if (Ledger::id_for($front['uuid'], Ledger::KIND_TERM) !== null) {
             return;
         }
-        $wpdb->insert($wpdb->terms, ['name' => $front['name'], 'slug' => $front['slug'], 'term_group' => 0]);
-        $termId = (int) $wpdb->insert_id;
-        $wpdb->insert($wpdb->term_taxonomy, [
+        Db::insert($wpdb->terms, ['name' => $front['name'], 'slug' => $front['slug'], 'term_group' => 0], null, 'apply insert term');
+        $termId = Db::insert_id('apply insert term');
+        Db::insert($wpdb->term_taxonomy, [
             'term_id' => $termId, 'taxonomy' => $front['taxonomy'],
             'description' => '', 'parent' => 0, 'count' => 0,
-        ]);
-        $tt = (int) $wpdb->insert_id;
-        $wpdb->insert($wpdb->termmeta, ['term_id' => $termId, 'meta_key' => '_duo_uuid', 'meta_value' => $front['uuid']]);
+        ], null, 'apply insert term taxonomy');
+        $tt = Db::insert_id('apply insert term taxonomy');
+        Db::insert($wpdb->termmeta, ['term_id' => $termId, 'meta_key' => '_duo_uuid', 'meta_value' => $front['uuid']], null, 'apply insert term identity');
         Ledger::set($front['uuid'], $entityType, Ledger::KIND_TERM, $termId);
         Ledger::set($front['uuid'], $entityType, Ledger::KIND_TT, $tt);
     }
@@ -634,7 +697,7 @@ final class Apply {
         if (Ledger::id_for($front['uuid'], Ledger::KIND_POST) !== null) {
             return false;
         }
-        $wpdb->insert($wpdb->posts, [
+        Db::insert($wpdb->posts, [
             'post_author' => 0,
             'post_date' => $front['date'],
             'post_date_gmt' => $front['date_gmt'],
@@ -662,9 +725,9 @@ final class Apply {
             'post_type' => $front['type'],
             'post_mime_type' => $front['mime'] ?? '',
             'comment_count' => 0,
-        ]);
-        $id = (int) $wpdb->insert_id;
-        $wpdb->insert($wpdb->postmeta, ['post_id' => $id, 'meta_key' => '_duo_uuid', 'meta_value' => $front['uuid']]);
+        ], null, 'apply insert post');
+        $id = Db::insert_id('apply insert post');
+        Db::insert($wpdb->postmeta, ['post_id' => $id, 'meta_key' => '_duo_uuid', 'meta_value' => $front['uuid']], null, 'apply insert post identity');
         Ledger::set($front['uuid'], 'post', Ledger::KIND_POST, $id);
         return true;
     }
@@ -677,11 +740,11 @@ final class Apply {
             $parentId = Ledger::id_for($front['parent'], Ledger::KIND_TERM)
                 ?? throw new \RuntimeException("duo: term {$front['slug']}: parent {$front['parent']} not resolvable");
         }
-        $wpdb->update($wpdb->terms, ['name' => $front['name'], 'slug' => $front['slug']], ['term_id' => $termId]);
-        $wpdb->update($wpdb->term_taxonomy, [
+        Db::update($wpdb->terms, ['name' => $front['name'], 'slug' => $front['slug']], ['term_id' => $termId], null, null, 'apply update term');
+        Db::update($wpdb->term_taxonomy, [
             'description' => $this->encode_description($front['taxonomy'], $front['description']),
             'parent' => $parentId,
-        ], ['term_id' => $termId, 'taxonomy' => $front['taxonomy']]);
+        ], ['term_id' => $termId, 'taxonomy' => $front['taxonomy']], null, null, 'apply update term taxonomy');
         $this->reconcile_term_relationships($termId, $front['taxonomy'], (array) ($front['relationships'] ?? []));
     }
 
@@ -747,14 +810,14 @@ final class Apply {
         )) ?: [];
         foreach ($current as $tt) {
             if (!isset($desiredTt[(int) $tt])) {
-                $wpdb->delete($wpdb->term_relationships, ['object_id' => $termId, 'term_taxonomy_id' => (int) $tt]);
+                Db::delete($wpdb->term_relationships, ['object_id' => $termId, 'term_taxonomy_id' => (int) $tt], null, 'apply delete term-object relationship');
             }
         }
         foreach (array_keys($desiredTt) as $tt) {
             if (!in_array((string) $tt, array_map('strval', $current), true)) {
-                $wpdb->insert($wpdb->term_relationships, [
+                Db::insert($wpdb->term_relationships, [
                     'object_id' => $termId, 'term_taxonomy_id' => $tt, 'term_order' => 0,
-                ]);
+                ], null, 'apply insert term-object relationship');
             }
         }
     }
@@ -827,7 +890,7 @@ final class Apply {
         if ($this->policy->field_class($front['type'], 'title') === 'derived') {
             unset($fields['post_title']);
         }
-        $wpdb->update($wpdb->posts, $fields, ['ID' => $id]);
+        Db::update($wpdb->posts, $fields, ['ID' => $id], null, null, 'apply update post');
 
         // authored meta reconciliation: we own exactly the authored-classified keys
         $frontMeta = (array) ($front['meta'] ?? []);
@@ -855,7 +918,7 @@ final class Apply {
         foreach ($envMeta as $m) {
             $rule = $this->policy->meta_rule_for_post($m['meta_key'], $envFlat);
             if (($rule['class'] ?? '') === 'authored' && !array_key_exists($m['meta_key'], $desired)) {
-                $wpdb->delete($wpdb->postmeta, ['meta_id' => $m['meta_id']]);
+                Db::delete($wpdb->postmeta, ['meta_id' => $m['meta_id']], null, 'apply delete authored post meta');
             }
         }
         foreach ($desired as $key => $val) {
@@ -902,14 +965,14 @@ final class Apply {
         )) ?: [];
         foreach ($current as $tt) {
             if (!isset($desiredTt[(int) $tt])) {
-                $wpdb->delete($wpdb->term_relationships, ['object_id' => $postId, 'term_taxonomy_id' => (int) $tt]);
+                Db::delete($wpdb->term_relationships, ['object_id' => $postId, 'term_taxonomy_id' => (int) $tt], null, 'apply delete post relationship');
             }
         }
         foreach (array_keys($desiredTt) as $tt) {
             if (!in_array((string) $tt, array_map('strval', $current), true)) {
-                $wpdb->insert($wpdb->term_relationships, [
+                Db::insert($wpdb->term_relationships, [
                     'object_id' => $postId, 'term_taxonomy_id' => $tt, 'term_order' => 0,
-                ]);
+                ], null, 'apply insert post relationship');
             }
         }
     }
@@ -986,7 +1049,7 @@ final class Apply {
         global $wpdb;
         $menuTermId = Ledger::id_for($front['uuid'], Ledger::KIND_TERM);
         $menuTt = Ledger::id_for($front['uuid'], Ledger::KIND_TT);
-        $wpdb->update($wpdb->terms, ['name' => $front['name'], 'slug' => $front['slug']], ['term_id' => $menuTermId]);
+        Db::update($wpdb->terms, ['name' => $front['name'], 'slug' => $front['slug']], ['term_id' => $menuTermId], null, null, 'apply update menu term');
 
         // existing env items by uuid
         $envItems = $wpdb->get_results($wpdb->prepare(
@@ -1009,7 +1072,7 @@ final class Apply {
             $iu = $item['uuid'];
             $id = $envByUuid[$iu] ?? Ledger::id_for($iu, Ledger::KIND_POST);
             if ($id === null) {
-                $wpdb->insert($wpdb->posts, [
+                Db::insert($wpdb->posts, [
                     'post_author' => 0, 'post_date' => '1970-01-01 00:00:00', 'post_date_gmt' => '1970-01-01 00:00:00',
                     'post_content' => '', 'post_title' => $item['title'], 'post_excerpt' => $item['attr_title'] ?? '',
                     'post_status' => 'publish', 'comment_status' => 'closed', 'ping_status' => 'closed',
@@ -1019,12 +1082,12 @@ final class Apply {
                     'guid' => $this->tokens->home() . '/?duo=' . $iu,
                     'menu_order' => (int) $item['position'], 'post_type' => 'nav_menu_item',
                     'post_mime_type' => '', 'comment_count' => 0,
-                ]);
-                $id = (int) $wpdb->insert_id;
-                $wpdb->insert($wpdb->postmeta, ['post_id' => $id, 'meta_key' => '_duo_uuid', 'meta_value' => $iu]);
-                $wpdb->insert($wpdb->term_relationships, [
+                ], null, 'apply insert menu item');
+                $id = Db::insert_id('apply insert menu item');
+                Db::insert($wpdb->postmeta, ['post_id' => $id, 'meta_key' => '_duo_uuid', 'meta_value' => $iu], null, 'apply insert menu-item identity');
+                Db::insert($wpdb->term_relationships, [
                     'object_id' => $id, 'term_taxonomy_id' => $menuTt, 'term_order' => 0,
-                ]);
+                ], null, 'apply attach menu item');
             }
             Ledger::set($iu, 'menu_item', Ledger::KIND_POST, $id);
             $idByUuid[$iu] = $id;
@@ -1033,12 +1096,12 @@ final class Apply {
         // pass 2: fields + metas (parents resolvable now)
         foreach ($front['items'] as $item) {
             $id = $idByUuid[$item['uuid']];
-            $wpdb->update($wpdb->posts, [
+            Db::update($wpdb->posts, [
                 'post_title' => $item['title'],
                 'post_excerpt' => (string) ($item['attr_title'] ?? ''),
                 'menu_order' => (int) $item['position'],
                 'post_status' => 'publish',
-            ], ['ID' => $id]);
+            ], ['ID' => $id], null, null, 'apply update menu item');
 
             $objectId = 0;
             $url = '';
@@ -1074,9 +1137,9 @@ final class Apply {
         $keep = array_fill_keys(array_keys($idByUuid), true);
         foreach ($envByUuid as $uuid => $id) {
             if (!isset($keep[$uuid])) {
-                $wpdb->delete($wpdb->term_relationships, ['object_id' => $id, 'term_taxonomy_id' => $menuTt]);
-                $wpdb->delete($wpdb->postmeta, ['post_id' => $id]);
-                $wpdb->delete($wpdb->posts, ['ID' => $id]);
+                Db::delete($wpdb->term_relationships, ['object_id' => $id, 'term_taxonomy_id' => $menuTt], null, 'apply detach removed menu item');
+                Db::delete($wpdb->postmeta, ['post_id' => $id], null, 'apply delete removed menu-item meta');
+                Db::delete($wpdb->posts, ['ID' => $id], null, 'apply delete removed menu item');
                 Ledger::forget($uuid);
             }
         }
@@ -1298,9 +1361,9 @@ final class Apply {
             "SELECT option_id FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
         ));
         if ($exists) {
-            $wpdb->update($wpdb->options, ['option_value' => $value], ['option_name' => $name]);
+            Db::update($wpdb->options, ['option_value' => $value], ['option_name' => $name], null, null, 'apply update authored option');
         } else {
-            $wpdb->insert($wpdb->options, ['option_name' => $name, 'option_value' => $value, 'autoload' => 'yes']);
+            Db::insert($wpdb->options, ['option_name' => $name, 'option_value' => $value, 'autoload' => 'yes'], null, 'apply insert authored option');
         }
         wp_cache_delete($name, 'options');
         wp_cache_delete('alloptions', 'options');
@@ -1309,15 +1372,34 @@ final class Apply {
     /** $value null writes a real SQL NULL — byte-faithful to plugins that store
      *  NULL meta_value themselves (WooCommerce's date_expires on non-expiring
      *  coupons); never a "delete the row" semantic. */
-    private function upsert_meta(string $table, string $fkCol, int $objectId, string $key, ?string $value): void {
+    private function upsert_meta(
+        string $table,
+        string $fkCol,
+        int $objectId,
+        string $key,
+        ?string $value,
+        ?string $context = null
+    ): void {
         global $wpdb;
         $metaId = $wpdb->get_var($wpdb->prepare(
             "SELECT meta_id FROM $table WHERE $fkCol = %d AND meta_key = %s LIMIT 1", $objectId, $key
         ));
         if ($metaId) {
-            $wpdb->update($table, ['meta_value' => $value], ['meta_id' => $metaId]);
+            Db::update(
+                $table,
+                ['meta_value' => $value],
+                ['meta_id' => $metaId],
+                null,
+                null,
+                $context ?? 'apply update authored meta'
+            );
         } else {
-            $wpdb->insert($table, [$fkCol => $objectId, 'meta_key' => $key, 'meta_value' => $value]);
+            Db::insert(
+                $table,
+                [$fkCol => $objectId, 'meta_key' => $key, 'meta_value' => $value],
+                null,
+                $context ?? 'apply insert authored meta'
+            );
         }
     }
 
@@ -1335,8 +1417,8 @@ final class Apply {
                     "SELECT post_type FROM {$wpdb->posts} WHERE ID = %d", $id
                 ));
                 $this->delete_post_relationships($id, $postType);
-                $wpdb->delete($wpdb->postmeta, ['post_id' => $id]);
-                $wpdb->delete($wpdb->posts, ['ID' => $id]);
+                Db::delete($wpdb->postmeta, ['post_id' => $id], null, 'apply delete post meta');
+                Db::delete($wpdb->posts, ['ID' => $id], null, 'apply delete post');
             }
         } elseif ($type === 'term' || $type === 'menu') {
             $termId = Ledger::id_for($uuid, Ledger::KIND_TERM);
@@ -1353,12 +1435,12 @@ final class Apply {
                 $this->delete_term_relationships($termId);
             }
             if ($tt !== null) {
-                $wpdb->delete($wpdb->term_relationships, ['term_taxonomy_id' => $tt]);
-                $wpdb->delete($wpdb->term_taxonomy, ['term_taxonomy_id' => $tt]);
+                Db::delete($wpdb->term_relationships, ['term_taxonomy_id' => $tt], null, 'apply delete taxonomy relationships');
+                Db::delete($wpdb->term_taxonomy, ['term_taxonomy_id' => $tt], null, 'apply delete term taxonomy');
             }
             if ($termId !== null) {
-                $wpdb->delete($wpdb->termmeta, ['term_id' => $termId]);
-                $wpdb->delete($wpdb->terms, ['term_id' => $termId]);
+                Db::delete($wpdb->termmeta, ['term_id' => $termId], null, 'apply delete term meta');
+                Db::delete($wpdb->terms, ['term_id' => $termId], null, 'apply delete term');
             }
         }
         $this->warnings[] = "deleted $type $uuid";
@@ -1389,12 +1471,12 @@ final class Apply {
             return;
         }
         $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
-        $wpdb->query($wpdb->prepare(
+        Db::query($wpdb->prepare(
             "DELETE tr FROM {$wpdb->term_relationships} tr
              JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
              WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
             $id
-        ));
+        ), 'apply delete post relationships');
     }
 
     /**
@@ -1420,12 +1502,12 @@ final class Apply {
             return;
         }
         $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
-        $wpdb->query($wpdb->prepare(
+        Db::query($wpdb->prepare(
             "DELETE tr FROM {$wpdb->term_relationships} tr
              JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
              WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
             $termId
-        ));
+        ), 'apply delete term-object relationships');
     }
 
     private function resolve_login(string $login): ?int {
@@ -1450,16 +1532,18 @@ final class Apply {
         // term recounts (published posts), incl. nav_menu
         $taxes = array_merge($this->policy->taxonomies(), ['nav_menu']);
         $in = "'" . implode("','", array_map('esc_sql', array_unique($taxes))) . "'";
-        $wpdb->query(
+        Db::query(
             "UPDATE {$wpdb->term_taxonomy} tt SET count = (
                 SELECT COUNT(*) FROM {$wpdb->term_relationships} tr
                 JOIN {$wpdb->posts} p ON p.ID = tr.object_id
                 WHERE tr.term_taxonomy_id = tt.term_taxonomy_id AND p.post_status = 'publish'
-             ) WHERE tt.taxonomy IN ($in)"
+             ) WHERE tt.taxonomy IN ($in)",
+            'rebuild term counts'
         );
 
         // attachment metadata (thumbnails etc.) — derived, regenerated
         foreach (array_filter($newAttachmentIds) as $id) {
+            Db::checkpoint('rebuild attachment metadata');
             try {
                 if (!function_exists('wp_generate_attachment_metadata')) {
                     require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -1467,14 +1551,29 @@ final class Apply {
                     require_once ABSPATH . 'wp-admin/includes/media.php';
                 }
                 $file = get_attached_file($id);
-                if ($file && is_file($file)) {
-                    $meta = wp_generate_attachment_metadata($id, $file);
-                    if ($meta) {
-                        $this->upsert_meta($wpdb->postmeta, 'post_id', (int) $id, '_wp_attachment_metadata', maybe_serialize($meta));
-                    }
+                if (!$file || !is_file($file)) {
+                    throw new \RuntimeException('attached file is missing');
+                }
+                $meta = wp_generate_attachment_metadata($id, $file);
+                if ($meta === false || is_wp_error($meta)) {
+                    throw new \RuntimeException('metadata generator reported failure');
+                }
+                // An empty array is valid for attachment types that have no
+                // generated metadata. False/WP_Error above is the failure
+                // signal; a non-empty result must persist through the same
+                // checked mutation boundary as every authored write.
+                if ($meta !== []) {
+                    $this->upsert_meta(
+                        $wpdb->postmeta,
+                        'post_id',
+                        (int) $id,
+                        '_wp_attachment_metadata',
+                        maybe_serialize($meta),
+                        'rebuild attachment metadata'
+                    );
                 }
             } catch (\Throwable $t) {
-                $this->warnings[] = "attachment $id metadata regen failed: " . $t->getMessage();
+                throw new \RuntimeException("duo: required attachment metadata rebuild failed for attachment $id", 0, $t);
             }
         }
 
@@ -1488,20 +1587,25 @@ final class Apply {
                     continue;
                 }
                 if (!class_exists('\WP_CLI')) {
-                    $this->warnings[] = "rebuilder '$cmd' skipped (not a wp-cli context)";
-                    continue;
+                    throw new \RuntimeException("duo: required manifest rebuilder unavailable outside wp-cli: '$cmd'");
                 }
                 try {
                     $res = \WP_CLI::runcommand($cmd, ['launch' => true, 'return' => 'all', 'exit_error' => false]);
                     if ((int) $res->return_code !== 0) {
-                        $this->warnings[] = "rebuilder '$cmd' exited {$res->return_code}: " . trim((string) $res->stderr);
+                        throw new \RuntimeException("duo: required manifest rebuilder '$cmd' exited {$res->return_code}");
                     }
                 } catch (\Throwable $t) {
-                    $this->warnings[] = "rebuilder '$cmd' failed: " . $t->getMessage();
+                    if (str_starts_with($t->getMessage(), 'duo: required manifest rebuilder')) {
+                        throw $t;
+                    }
+                    throw new \RuntimeException("duo: required manifest rebuilder '$cmd' failed", 0, $t);
                 }
             }
         }
 
-        wp_cache_flush();
+        Db::checkpoint('rebuild object cache');
+        if (wp_cache_flush() === false) {
+            throw new \RuntimeException('duo: required object-cache flush failed');
+        }
     }
 }
