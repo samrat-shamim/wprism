@@ -7,7 +7,7 @@ namespace Duo\Orchestrator;
  * collision/delete, each a list of {uuid,type,path?,blocked?,env_id?}) into
  * `duo status`'s human summary.
  *
- * Two more top-level keys live outside BUCKETS and get their own handling
+ * More top-level keys live outside BUCKETS and get their own handling
  * below, mirroring agent/src/Cli.php's plan() rendering deliberately (a
  * human reading `duo status` and one reading `wp duo plan` directly must
  * never see different advice for the same plan):
@@ -19,6 +19,13 @@ namespace Duo\Orchestrator;
  *     attaches this to the returned array — see its own comment).
  *   - incomplete_apply: a retained apply marker means authored writes may
  *     have committed but required rebuild/convergence work did not.
+ *   - regen_pending (DUO-3234's Apply::build_plan(), design review addition
+ *     1): a derived table with a hard per-entity availability dependency
+ *     (e.g. TEC's tec_occurrences) whose verification failed on a PRIOR
+ *     apply and has not yet been resolved by a later one. Row shape
+ *     {uuid,type,post_type} — label() applies (uuid/type present), but the
+ *     rendering below adds post_type since a plain uuid/type pair alone
+ *     doesn't say what's actually pending.
  */
 final class PlanSummary {
     private const BUCKETS = ['create', 'update', 'adopt', 'unchanged', 'drift', 'conflict', 'collision', 'delete'];
@@ -32,9 +39,11 @@ final class PlanSummary {
         }
         $codeMismatch = $plan['code_mismatch'] ?? [];
         $incompleteApply = $plan['incomplete_apply'] ?? [];
+        $regenPending = $plan['regen_pending'] ?? [];
         $summary = 'plan: ' . implode(', ', array_map(fn($k) => "{$counts[$k]} $k", self::BUCKETS));
         $summary .= ', ' . count($codeMismatch) . ' code_mismatch';
         $summary .= ', ' . count($incompleteApply) . ' incomplete_apply';
+        $summary .= ', ' . count($regenPending) . ' regen_pending';
         $lines[] = $summary;
 
         if (!empty($plan['drift'])) {
@@ -90,6 +99,14 @@ final class PlanSummary {
             }
         }
 
+        if ($regenPending) {
+            $lines[] = 'REGEN_PENDING (a derived-table verification failed on a prior apply and has not yet resolved):';
+            foreach ($regenPending as $r) {
+                $lines[] = '  - ' . self::label($r) . " (post type '" . ($r['post_type'] ?? '?') . "')";
+            }
+            $lines[] = 'regeneration retry pending — the next duo apply will retry it automatically';
+        }
+
         // --- fail-closed exit semantics (DUO-3221) ---
         //
         // `duo status` answers "safe to promote?" for this environment, so
@@ -105,6 +122,19 @@ final class PlanSummary {
         //   - incomplete_apply: a previous apply already failed after or
         //                     during mutation/rebuild; status must remain
         //                     non-zero until the retry clears its marker.
+        //   - regen_pending : a derived table with a hard per-entity
+        //                     availability dependency (DUO-3234, e.g. TEC's
+        //                     tec_occurrences) failed its post-apply
+        //                     verification and has not yet resolved. `duo
+        //                     apply` does NOT refuse on this alone (the
+        //                     originating apply already completed — the
+        //                     NEXT apply is what retries and either clears
+        //                     it or hard-fails again), so this is the same
+        //                     shape of decision as drift: not an
+        //                     apply-will-refuse case, but a known
+        //                     correctness gap in this environment's derived
+        //                     state all the same, and "safe to promote?"
+        //                     must say no while it stands.
         //   - blocked delete: `apply --with-deletes` refuses this row
         //                     without --force-delete-referenced. A status
         //                     reader can't know in advance whether the next
@@ -133,6 +163,7 @@ final class PlanSummary {
             && $counts['collision'] === 0
             && count($codeMismatch) === 0
             && !$incompleteApply
+            && !$regenPending
             && !$blocked
             && $counts['drift'] === 0;
 

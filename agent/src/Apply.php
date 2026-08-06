@@ -205,6 +205,31 @@ final class Apply {
                 $plan[$retryKind] = [];
             }
         }
+
+        // DUO-3234 design review, addition 1: surface any still-outstanding
+        // regen_pending:<uuid> marker so a plain `duo plan` — run between a
+        // failed apply and its retry, with zero pending content changes —
+        // does not silently say "nothing to do" while a regeneration retry
+        // is armed underneath it. Read-only, like the rest of build_plan():
+        // no kv mutation here. A marker whose post type is no longer
+        // declared or whose uuid no longer resolves is deliberately NOT
+        // surfaced — that is harmless orphaned bookkeeping the next apply's
+        // regen_dependencies() sweeps on its own (with its own loud
+        // warning, at the point it actually mutates), not something a
+        // plan reader needs to act on.
+        $plan['regen_pending'] = [];
+        foreach (Ledger::kv_prefix(self::REGEN_PENDING_PREFIX) as $k => $postType) {
+            $uuid = substr($k, strlen(self::REGEN_PENDING_PREFIX));
+            if ($this->policy->regen_dependency($postType) === null) {
+                continue; // orphaned — apply's own sweep handles this, not plan
+            }
+            if (Ledger::id_for($uuid, Ledger::KIND_POST) === null) {
+                continue; // orphaned — apply's own sweep handles this, not plan
+            }
+            $plan['regen_pending'][] = ['uuid' => $uuid, 'type' => 'post', 'post_type' => $postType];
+            $this->warnings[] = "regen_pending: post $uuid (type '$postType') has a regeneration "
+                . 'retry pending from a prior failed verify';
+        }
         return $plan;
     }
 
@@ -1699,6 +1724,25 @@ final class Apply {
      * apply_in_progress's own semantics change later. Worth reconsidering
      * together if DUO-3206's mechanism is ever revisited, not a reason to
      * hold this issue on it.
+     *
+     * Two properties a marker mechanism invisible outside this method would
+     * be missing, both required by design review before this shipped:
+     *   - PLAN VISIBILITY: build_plan() (read-only, above this method in the
+     *     file) surfaces every live regen_pending marker into
+     *     plan['regen_pending'] and $this->warnings — an operator running
+     *     `duo plan` between a failed apply and its retry must not see
+     *     "nothing to do" while a regen retry is silently armed. `duo
+     *     status` (cli/src/PlanSummary.php) treats a non-empty
+     *     regen_pending as ok=false, on the same "safe to promote?" footing
+     *     as drift/conflict/collision/code_mismatch/blocked-delete: a known
+     *     regen gap is not a promotable state, even though (like drift, and
+     *     unlike conflict/collision) `duo apply` itself doesn't refuse on
+     *     it outright.
+     *   - ORPHAN SWEEP: the two `continue`-past-an-orphan branches in this
+     *     method (manifest no longer declares the post type; uuid no
+     *     longer resolves) actively `Ledger::kv_delete()` the marker and
+     *     warn loudly, rather than leaving it to sit in duo_kv forever with
+     *     nothing left to ever consult it again.
      */
     private const REGEN_PENDING_PREFIX = 'regen_pending:';
 
@@ -1723,11 +1767,19 @@ final class Apply {
             }
             if ($this->policy->regen_dependency($postType) !== null) {
                 $candidates[$uuid] = $postType;
+                continue;
             }
-            // else: manifest no longer declares this post type's dependency
+            // Manifest no longer declares this post type's dependency
             // (unpinned, or the declaration was removed) — nothing safe to
-            // verify or regenerate against; the marker is simply orphaned
-            // and harmless (never consulted for anything but this lookup).
+            // verify or regenerate against. DUO-3234 design review,
+            // addition 2: a marker like this would otherwise sit in duo_kv
+            // forever with nothing ever consulting it again — sweep it
+            // here, in the same pass that would otherwise have processed
+            // it, and say so loudly (an operator auditing duo_kv later has
+            // no other way to learn a marker silently vanished, or why).
+            Ledger::kv_delete($k);
+            $this->warnings[] = "regen_pending marker for post $uuid (type '$postType') dropped: "
+                . "manifest no longer declares a regen_dependency for post type '$postType'";
         }
         if (!$candidates) {
             return;
@@ -1737,7 +1789,24 @@ final class Apply {
         foreach ($candidates as $uuid => $postType) {
             $localId = Ledger::id_for($uuid, Ledger::KIND_POST);
             if ($localId === null) {
-                continue; // deleted, or never actually applied — nothing live to verify
+                // A $work-sourced candidate was just applied and always
+                // resolves; one sourced ONLY from a regen_pending marker
+                // (the common retry case this mechanism exists for) may
+                // not — the post was deleted since the marker was set, or
+                // the marker outlived an apply that never actually created
+                // it. Either way nothing is live to verify against, and
+                // (DUO-3234 design review, addition 2) a marker for a uuid
+                // that will never resolve again must not sit forever —
+                // sweep it, loudly, but only if a marker for it actually
+                // exists (a $work-sourced candidate with no local id would
+                // be a different, more serious bug, not an orphan marker).
+                $markerKey = self::REGEN_PENDING_PREFIX . $uuid;
+                if (Ledger::kv_get($markerKey) !== null) {
+                    Ledger::kv_delete($markerKey);
+                    $this->warnings[] = "regen_pending marker for post $uuid (type '$postType') dropped: "
+                        . 'uuid no longer resolves to a local post id';
+                }
+                continue;
             }
             $decl = $this->policy->regen_dependency($postType);
             $verify = $decl['verify'];

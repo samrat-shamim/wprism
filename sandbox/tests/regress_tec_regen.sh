@@ -33,6 +33,25 @@
 #      hand-planted regen_pending:<uuid> marker and NO apply_in_progress at
 #      all, proving regen_dependencies() still finds and resolves it purely
 #      off this file's own kv_prefix() scan.
+#   4. Design review's two REQUIRED follow-on conditions (both missed on
+#      the first merge — see the issue's own comment history):
+#        (a) PLAN VISIBILITY — `duo plan` (read-only) surfaces a live
+#            regen_pending marker into plan.regen_pending and
+#            plan.warnings (step 6e, and again in step 7's isolated
+#            scenario where DUO-3206's own incomplete_apply signal is
+#            deliberately absent — proving this file's own field, not
+#            DUO-3206's, is what's doing the surfacing there).
+#        (b) STATUS FAIL-CLOSED — `cli/duo status <env>` (cli/src/
+#            PlanSummary.php, DUO-3221's decision-matrix) exits non-zero
+#            while a regen_pending marker is outstanding and clean (exit
+#            0) once it resolves — step (7c-status)/(7d-status), isolated
+#            from every other ok=false condition so the proof is
+#            unambiguous about which signal is doing the work.
+#   5. ORPHAN SWEEP (design review's second, minor addition): a
+#      regen_pending marker whose post type is no longer declared, or
+#      whose uuid no longer resolves to a local post, gets actively
+#      swept (Ledger::kv_delete()) with a loud warning naming what was
+#      dropped and why — step (8), both shapes, live.
 #
 # Self-contained: own scratch pair (created and destroyed by this script).
 # Temporarily edits the SHIPPED manifests/the-events-calendar.json's
@@ -61,9 +80,19 @@ MANIFEST="../manifests/the-events-calendar.json"
 MANIFEST_BACKUP=$(mktemp)
 cp "$MANIFEST" "$MANIFEST_BACKUP"
 
+# cli/duo status <env> needs a repo-root .duo-envs.json naming this pair's
+# side-2 (cli2) docker service — same pattern cli_status_truth.sh (DUO-3221)
+# already established. Written once, used by step (7)'s isolated
+# regen_pending-alone status proof below. Gitignored (.gitignore:5), and
+# this script's own worktree is never shared with another agent's, so
+# there's no cross-session collision risk in writing it at repo root.
+DUO_CLI="$(pwd)/../cli/duo"
+ENVS_FILE="$(pwd)/../.duo-envs.json"
+ENV_NAME="${PAIR}2"
+
 cleanup() {
   cp "$MANIFEST_BACKUP" "$MANIFEST"
-  rm -f "$MANIFEST_BACKUP"
+  rm -f "$MANIFEST_BACKUP" "$ENVS_FILE"
   bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -71,6 +100,15 @@ trap cleanup EXIT
 say "bring up scratch pair '$PAIR' ($PORT1/$PORT2)"
 bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2"
 pass "pair '$PAIR' ready"
+
+cat > "$ENVS_FILE" <<EOF
+{
+  "envs": {
+    "${ENV_NAME}": {"transport": "docker", "compose_file": "sandbox/pair.yml", "service": "cli2", "repo_path": "/siterepo"}
+  }
+}
+EOF
+pass ".duo-envs.json written for cli/duo status <$ENV_NAME>"
 
 say "install + activate The Events Calendar 6.17.2 on both sides"
 wp1 plugin install the-events-calendar --version=6.17.2 --activate >/dev/null
@@ -235,6 +273,19 @@ echo "$PLAN3" | jq -e '.incomplete_apply | length > 0' >/dev/null \
   || fail "expected plan.incomplete_apply to be non-empty (apply_in_progress marker still set from the failed run) — plan: $PLAN3"
 pass "confirmed: plan shows the retry-forcing state (incomplete_apply + retry:true), driven by DUO-3206's apply_in_progress marker set by the same regen failure"
 
+# DUO-3234 design review, addition 1: plan must ALSO surface the
+# regen_pending marker itself here, in the natural "between a failed
+# apply and its retry" moment — not just DUO-3206's coarser
+# incomplete_apply signal. Step (7) below is the cleaner, isolated proof
+# that regen_pending alone (no incomplete_apply at all) still surfaces and
+# still flips `duo status`; this assertion instead proves both signals
+# genuinely coexist at the point they'd actually occur together.
+echo "$PLAN3" | jq -e --arg u "$CAPTURED_UUID" '.regen_pending | any(.uuid == $u and .post_type == "tribe_events")' >/dev/null \
+  || fail "expected plan.regen_pending to name the event (uuid + post_type) here — plan: $PLAN3"
+echo "$PLAN3" | jq -e --arg u "$CAPTURED_UUID" '.warnings | any(test($u) and test("regeneration"))' >/dev/null \
+  || fail "expected plan.warnings to contain a regeneration-pending message naming the uuid — plan: $PLAN3"
+pass "confirmed: plan.regen_pending and plan.warnings both name the event — an operator running plain 'duo plan' here sees the truth, not 'nothing to do'"
+
 APPLY3=$(wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
 echo "$APPLY3"
 echo "$APPLY3" | jq -e '.canary == "clean"' >/dev/null || fail "expected the retry apply to succeed cleanly (output: $APPLY3)"
@@ -268,7 +319,7 @@ MARKER_PLANTED=$(wp2 db query "SELECT v FROM wp_duo_kv WHERE k = 'regen_pending:
 [ "$MARKER_PLANTED" = "tribe_events" ] || fail "expected the manually-planted marker to read back, got '$MARKER_PLANTED'"
 pass "tec_occurrences row deleted; regen_pending:<uuid> marker planted by hand; apply_in_progress deliberately left untouched (still absent)"
 
-say "(7c) plan still shows plain 'unchanged' — the marker is invisible to plan's own bucketing, exactly as regen_dependencies()'s docblock describes"
+say "(7c) plan still shows plain BUCKET 'unchanged' (DUO-3206's apply_in_progress plays no role here) — but, per design review addition 1, plan.regen_pending must still name the marker explicitly"
 ISO_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
 echo "$ISO_PLAN"
 echo "$ISO_PLAN" | jq -e --arg u "$CAPTURED_UUID" '.unchanged | any(.uuid == $u)' >/dev/null \
@@ -276,6 +327,21 @@ echo "$ISO_PLAN" | jq -e --arg u "$CAPTURED_UUID" '.unchanged | any(.uuid == $u)
 echo "$ISO_PLAN" | jq -e '.incomplete_apply | length == 0' >/dev/null \
   || fail "expected plan.incomplete_apply to be EMPTY this time (no apply_in_progress marker exists) — plan: $ISO_PLAN"
 pass "confirmed: plan shows plain 'unchanged', zero incomplete_apply — DUO-3206's mechanism plays no role in this scenario"
+
+echo "$ISO_PLAN" | jq -e --arg u "$CAPTURED_UUID" '.regen_pending | any(.uuid == $u and .post_type == "tribe_events")' >/dev/null \
+  || fail "expected plan.regen_pending to name the hand-planted marker even with incomplete_apply empty — plan: $ISO_PLAN"
+pass "confirmed: plan.regen_pending surfaces the marker on its own, with zero DUO-3206 involvement (incomplete_apply is empty, regen_pending is not)"
+
+say "(7c-status) THE ISOLATED duo-status PROOF: regen_pending alone — no conflict, no collision, no code_mismatch, no incomplete_apply — must still flip 'duo status' to not-safe-to-promote"
+set +e
+STATUS_OUT=$("$DUO_CLI" status "$ENV_NAME" 2>&1)
+STATUS_RC=$?
+set -e
+echo "$STATUS_OUT"
+[ "$STATUS_RC" -ne 0 ] || fail "expected 'duo status $ENV_NAME' to exit non-zero while a regen_pending marker is outstanding — it exited 0"
+echo "$STATUS_OUT" | grep -qi "regen_pending\|REGEN_PENDING" \
+  || fail "duo status output doesn't mention regen_pending (output: $STATUS_OUT)"
+pass "duo status correctly reports not-safe-to-promote (exit $STATUS_RC), naming regen_pending — isolated from every other ok=false condition"
 
 say "(7d) apply anyway (no content changed, nothing forces a normal retry) — regen_pending:<uuid> alone must still trigger regen_dependencies() and repair the row"
 ISO_APPLY=$(wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
@@ -289,5 +355,52 @@ ISO_MARKER_AFTER=$(wp2 db query "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'regen
 [ "$ISO_MARKER_AFTER" = "0" ] || fail "expected the manually-planted marker to be cleared after the isolated repair (still present)"
 pass "ISOLATION PROOF confirmed: tec_occurrences row regenerated and marker cleared with NO apply_in_progress involvement whatsoever — regen_pending:<uuid> is independently load-bearing, not merely redundant with DUO-3206"
 
+say "(7d-status) duo status returns to clean now that the marker resolved"
+STATUS_CLEAN_RC=0
+STATUS_CLEAN_OUT=$("$DUO_CLI" status "$ENV_NAME" 2>&1) || STATUS_CLEAN_RC=$?
+echo "$STATUS_CLEAN_OUT"
+[ "$STATUS_CLEAN_RC" -eq 0 ] || fail "expected 'duo status $ENV_NAME' to exit 0 now that regen_pending has cleared (exit $STATUS_CLEAN_RC)"
+pass "duo status confirms clean (exit 0) — the before/after status proof is complete"
+
+say "(8) ORPHAN-SWEEP PROOF (design review addition 2): a regen_pending marker that can never resolve again must not sit in duo_kv forever — both orphan shapes get swept, loudly, in the same pass that would have processed them"
+
+say "(8a) orphan shape 1: manifest no longer declares a regen_dependency for the post type"
+jq 'del(.post_types.tribe_events.regen_dependency)' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
+jq -e '.post_types.tribe_events.regen_dependency == null' "$MANIFEST" >/dev/null || fail "failed to strip regen_dependency from the manifest for the orphan-sweep test"
+wp2 db query "INSERT INTO wp_duo_kv (k, v) VALUES ('regen_pending:$CAPTURED_UUID', 'tribe_events') ON DUPLICATE KEY UPDATE v = VALUES(v)" >/dev/null
+ORPHAN1_PLANTED=$(wp2 db query "SELECT v FROM wp_duo_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+[ "$ORPHAN1_PLANTED" = "tribe_events" ] || fail "expected the orphan-1 marker to be planted, got '$ORPHAN1_PLANTED'"
+pass "regen_dependency declaration removed from the manifest; regen_pending:<uuid> marker (re-)planted by hand"
+
+ORPHAN1_APPLY=$(wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
+echo "$ORPHAN1_APPLY"
+echo "$ORPHAN1_APPLY" | jq -e '.canary == "clean"' >/dev/null || fail "expected apply to succeed cleanly while sweeping an orphaned marker (output: $ORPHAN1_APPLY)"
+echo "$ORPHAN1_APPLY" | jq -e --arg u "$CAPTURED_UUID" '.warnings | any(test($u) and test("dropped") and test("no longer declares"))' >/dev/null \
+  || fail "expected apply's warnings to name the dropped marker and the 'no longer declares' reason — output: $ORPHAN1_APPLY"
+ORPHAN1_AFTER=$(wp2 db query "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+[ "$ORPHAN1_AFTER" = "0" ] || fail "expected the orphaned marker to be swept (deleted) — still present"
+pass "orphan shape 1 swept: apply succeeded, warned by name naming why, marker gone from duo_kv"
+
+say "(8a-restore) restore the manifest's regen_dependency declaration"
+cp "$MANIFEST_BACKUP" "$MANIFEST"
+jq -e '.post_types.tribe_events.regen_dependency.verify.column == "post_id"' "$MANIFEST" >/dev/null || fail "manifest restoration after orphan-1 test did not produce the expected shape"
+pass "manifest restored"
+
+say "(8b) orphan shape 2: the marker's uuid no longer resolves to a local post id (a made-up uuid, never applied)"
+FAKE_UUID="00000000-0000-7000-8000-000000000000"
+wp2 db query "INSERT INTO wp_duo_kv (k, v) VALUES ('regen_pending:$FAKE_UUID', 'tribe_events') ON DUPLICATE KEY UPDATE v = VALUES(v)" >/dev/null
+ORPHAN2_PLANTED=$(wp2 db query "SELECT v FROM wp_duo_kv WHERE k = 'regen_pending:$FAKE_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+[ "$ORPHAN2_PLANTED" = "tribe_events" ] || fail "expected the orphan-2 marker to be planted, got '$ORPHAN2_PLANTED'"
+pass "regen_pending marker planted for a uuid that was never applied ($FAKE_UUID)"
+
+ORPHAN2_APPLY=$(wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
+echo "$ORPHAN2_APPLY"
+echo "$ORPHAN2_APPLY" | jq -e '.canary == "clean"' >/dev/null || fail "expected apply to succeed cleanly while sweeping the second orphaned marker (output: $ORPHAN2_APPLY)"
+echo "$ORPHAN2_APPLY" | jq -e --arg u "$FAKE_UUID" '.warnings | any(test($u) and test("dropped") and test("no longer resolves"))' >/dev/null \
+  || fail "expected apply's warnings to name the dropped marker and the 'no longer resolves' reason — output: $ORPHAN2_APPLY"
+ORPHAN2_AFTER=$(wp2 db query "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'regen_pending:$FAKE_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+[ "$ORPHAN2_AFTER" = "0" ] || fail "expected the second orphaned marker to be swept (deleted) — still present"
+pass "orphan shape 2 swept: apply succeeded, warned by name naming why, marker gone from duo_kv"
+
 say "all proofs green"
-pass "DUO-3234 fully verified live: the original R3-B break is fixed automatically, and the design-review-required hard-fail + marker-retry mechanics both proven under a genuine verification failure, not just a no-op"
+pass "DUO-3234 fully verified live: the original R3-B break is fixed automatically, the design-review-required hard-fail + marker-retry mechanics are proven under a genuine verification failure, plan/status surface a pending marker truthfully, and both orphan-marker shapes get swept loudly rather than lingering forever"
