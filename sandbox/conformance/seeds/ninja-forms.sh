@@ -62,11 +62,11 @@ if ($id) {
     echo "removed this environment's own activation-created 'Contact Me' form (id=$id)\n";
 }
 PHPEOF
-printf '%s' "$REMOVE_CONTACT_ME_PHP" > siterepo/conf1/.tmp-nf-remove-contact-me.php
+printf '%s' "$REMOVE_CONTACT_ME_PHP" > "${CONF_REPO1:-siterepo/conf1}"/.tmp-nf-remove-contact-me.php
 wp_conf1 eval-file /siterepo/.tmp-nf-remove-contact-me.php
-rm -f siterepo/conf1/.tmp-nf-remove-contact-me.php
+rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-nf-remove-contact-me.php
 
-cat > siterepo/conf1/.tmp-nf-import-step.php <<'PHPEOF'
+cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-nf-import-step.php <<'PHPEOF'
 <?php
 if ( ! defined( 'WP_ADMIN' ) ) {
 	define( 'WP_ADMIN', true );
@@ -95,7 +95,7 @@ for step in 1 2 3 4 5 6; do
         break
     fi
 done
-rm -f siterepo/conf1/.tmp-nf-import-step.php
+rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-nf-import-step.php
 [ -n "$NF_FORM_ID" ] || fail "ninja-forms conformance seed: Job Application import did not complete after 6 steps"
 
 PAGE_ID=$(wp_conf1 post create --post_type=page --post_title='Conformance Careers' --post_name=conformance-careers \

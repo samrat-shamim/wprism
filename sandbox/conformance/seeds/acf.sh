@@ -20,7 +20,7 @@
 # exercising that fallback path at all.
 set -euo pipefail
 
-cat > siterepo/conf1/.tmp-seed-acf.php <<'PHPEOF'
+cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-seed-acf.php <<'PHPEOF'
 <?php
 if (!function_exists('acf_update_field_group')) {
     fwrite(STDERR, "ACF functions not available\n");
@@ -164,5 +164,5 @@ echo json_encode([
 ]) . "\n";
 PHPEOF
 SEED_JSON=$(wp_conf1 eval-file /siterepo/.tmp-seed-acf.php)
-rm -f siterepo/conf1/.tmp-seed-acf.php
+rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-seed-acf.php
 echo "acf seed: $SEED_JSON"

@@ -7,7 +7,7 @@
 # with wp_conf1/wp_conf2/$COMPOSE already exported.
 set -euo pipefail
 
-cat > siterepo/conf1/.tmp-cf7-seed.php <<'PHPEOF'
+cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-cf7-seed.php <<'PHPEOF'
 <?php
 if ( ! class_exists( 'WPCF7_ContactForm' ) ) { fwrite( STDERR, "WPCF7_ContactForm not loaded\n" ); exit( 1 ); }
 wp_set_current_user( get_user_by( 'login', 'admin' )->ID );
@@ -22,7 +22,7 @@ $cf = WPCF7_ContactForm::get_instance( $id );
 echo "cf7_shortcode=" . $cf->shortcode() . "\n";
 PHPEOF
 CF7_OUT=$($COMPOSE run --rm -T cli1 wp eval-file /siterepo/.tmp-cf7-seed.php)
-rm -f siterepo/conf1/.tmp-cf7-seed.php
+rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-cf7-seed.php
 CF7_SHORTCODE=$(echo "$CF7_OUT" | sed -n 's/^cf7_shortcode=//p')
 [ -n "$CF7_SHORTCODE" ] || fail "contact-form-7 conformance seed did not produce a shortcode"
 

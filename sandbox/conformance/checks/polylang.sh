@@ -81,8 +81,8 @@ echo "ok: term_language relationships (capability 1) correct in both directions"
 # the assertion sandbox/tests/regress_collision.sh uses for its (engineered)
 # collision, applied here to this fixture's (organic) one.
 wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-fabcheck >/dev/null
-POST_EN_FILE=$(find siterepo/conf2/.tmp-fabcheck/posts -name '*conformance-polylang-post-en*')
-POST_FR_FILE=$(find siterepo/conf2/.tmp-fabcheck/posts -name '*conformance-polylang-post-fr*')
+POST_EN_FILE=$(find "${CONF_REPO2:-siterepo/conf2}"/.tmp-fabcheck/posts -name '*conformance-polylang-post-en*')
+POST_FR_FILE=$(find "${CONF_REPO2:-siterepo/conf2}"/.tmp-fabcheck/posts -name '*conformance-polylang-post-fr*')
 for f in "$POST_EN_FILE" "$POST_FR_FILE"; do
   JSON=$(cat "$f")
   echo "$JSON" | grep -q '"term_language"' \
@@ -90,7 +90,7 @@ for f in "$POST_EN_FILE" "$POST_FR_FILE"; do
   echo "$JSON" | grep -q '"term_translations"' \
     && { echo "FAIL: $f has a fabricated term_translations relationship" >&2; exit 1; }
 done
-rm -rf siterepo/conf2/.tmp-fabcheck
+rm -rf "${CONF_REPO2:-siterepo/conf2}"/.tmp-fabcheck
 echo "ok: post_en/post_fr's captured relationships never include a term-object taxonomy (no fabrication, despite Uncategorized/Uncategorized-fr coincidentally sharing their numeric ids)"
 
 # --- byte-level type fidelity: the re-serialized description must carry ---

@@ -83,10 +83,19 @@ Sandbox discipline (see `docs/sandbox.md`):
   never collide. **Destroy your pairs when done.** Heed the >2-live-pairs
   warning; check `pair.sh list` before adding load.
 - Never run `docker compose down`/`make clean` against stacks you did not
-  create; never touch another agent's pair. The conformance `conf` pair
-  belongs to whoever is running a sweep on this host — check
-  `pgrep -f "conformance/run.sh"` before starting one, and wait rather than
-  interleave (two writers on one pair produce false failures).
+  create; never touch another agent's pair.
+- **Conformance sweeps run on your own pair** — never queue behind the
+  shared `conf` instance: `CONF_PAIR=<AGENT_NAME>cf CONF1_PORT=<port>
+  CONF2_PORT=<port> bash sandbox/conformance/run.sh <manifest>` (custom
+  pair names require explicit ports; allocate from your `PORT_BASE`). The
+  sweep pair counts against the host pair budget like any other — and it
+  is a SECOND pair while your issue pair exists, so stop the issue pair
+  during a sweep if the budget is tight, and destroy the sweep pair when
+  the sweep ends. Only if you deliberately share the literal `conf` pair
+  does the old single-writer rule apply: check
+  `pgrep -f "conformance/run.sh"` and wait rather than interleave (two
+  writers on one pair produce false failures — reset's DROP/CREATE lands
+  under the other run's feet).
 
 **Resource lifecycle (mandatory):**
 

@@ -29,7 +29,7 @@ TARGET_ID=$(wp_conf1 post create --post_type=page --post_title='Duo Elementor Ta
   --post_status=publish --post_content='<!-- wp:paragraph --><p>The link target.</p><!-- /wp:paragraph -->' --porcelain)
 TARGET_URL=$(wp_conf1 post get "$TARGET_ID" --field=url)
 
-cat > siterepo/conf1/.tmp-elementor-seed.php <<PHP
+cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-elementor-seed.php <<PHP
 <?php
 error_reporting(E_ALL & ~E_DEPRECATED);
 
@@ -155,7 +155,7 @@ if (\$result === false) {
 echo "elementor seed: target=$TARGET_ID page=\$page_id hero=\$hero galA=\$galA galB=\$galB bg=\$bg\n";
 PHP
 $COMPOSE run --rm -T cli1 wp eval-file /siterepo/.tmp-elementor-seed.php
-rm -f siterepo/conf1/.tmp-elementor-seed.php
+rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-elementor-seed.php
 
 # docs/frontier/elementor.md's own finding, reproduced independently this
 # session on fx1/fx2: _elementor_css / _elementor_element_cache / a

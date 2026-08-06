@@ -21,7 +21,7 @@ for side in conf1 conf2; do
   wp_env "$side" eval 'foreach (glob(wp_upload_dir()["basedir"] . "/*/*/conf-core-logo*.png") as $f) { unlink($f); }' >/dev/null
 done
 
-cat > siterepo/conf1/.tmp-makeimg.php <<'EOF'
+cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-makeimg.php <<'EOF'
 <?php
 $im = imagecreatetruecolor(64, 48);
 imagefilledrectangle($im, 0, 0, 63, 47, imagecolorallocate($im, 60, 140, 60));
@@ -30,7 +30,7 @@ echo "made\n";
 EOF
 ATT_ID=$($COMPOSE run --rm -T cli1 bash -c \
   "wp eval-file /siterepo/.tmp-makeimg.php >/dev/null && wp media import /tmp/conf-core-logo.png --title='Conformance Logo' --alt='Conformance logo' --porcelain")
-rm -f siterepo/conf1/.tmp-makeimg.php
+rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-makeimg.php
 UP_URL=$(wp_conf1 eval "echo wp_get_attachment_url($ATT_ID);")
 
 HELLO_CONTENT="<!-- wp:image {\"id\":$ATT_ID,\"sizeSlug\":\"full\",\"linkDestination\":\"none\"} -->

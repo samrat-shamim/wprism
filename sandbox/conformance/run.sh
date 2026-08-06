@@ -41,11 +41,38 @@
 # provisioning (this file's first ~60 lines) moved.
 #
 # Usage: bash sandbox/conformance/run.sh <manifest-name>
+#
+# Concurrency: the pair NAME is parameterized so sweeps no longer serialize
+# behind one host-wide 'conf' instance (a fleet-scale bottleneck — and two
+# writers on one pair produce FALSE failures: reset's DROP/CREATE lands
+# under the other run's feet, proven live during wave 1's yoast leg).
+# Default CONF_PAIR=conf keeps single-user behavior byte-identical; an
+# agent runs its own sweep with e.g.
+#   CONF_PAIR=codexmaccf CONF1_PORT=8890 CONF2_PORT=8891 bash run.sh core
+# A custom pair REQUIRES explicit ports (two sweeps on the default ports
+# would collide at bind time, loudly but confusingly late). pair.sh's
+# dynamic host budget applies to sweep pairs like any other.
 set -euo pipefail
 cd "$(dirname "$0")/.."   # -> sandbox/
 MANIFEST="${1:-}"
 REG=conformance/manifests.json
 [ -n "$MANIFEST" ] || { echo "usage: run.sh <manifest-name> (see $REG for known names)" >&2; exit 1; }
+
+CONF_PAIR="${CONF_PAIR:-conf}"
+[[ "$CONF_PAIR" =~ ^[a-z][a-z0-9]*$ ]] \
+  || { echo "FAIL: CONF_PAIR '$CONF_PAIR' invalid (pair.sh naming: lowercase letters/digits, letter first)" >&2; exit 1; }
+if [ "$CONF_PAIR" != "conf" ] && { [ -z "${CONF1_PORT:-}" ] || [ -z "${CONF2_PORT:-}" ]; }; then
+  echo "FAIL: custom CONF_PAIR '$CONF_PAIR' requires explicit CONF1_PORT and CONF2_PORT (the 8806/8807 defaults belong to the shared 'conf' instance)" >&2
+  exit 1
+fi
+# Seed scripts write .tmp-* helper files into the side-1 site repo (it is
+# bind-mounted to /siterepo inside the containers, so wp eval-file can read
+# them) — they take the directory from the exported CONF_REPO1, defaulting
+# to the classic siterepo/conf1 when invoked standalone.
+R1="siterepo/${CONF_PAIR}1"
+R2="siterepo/${CONF_PAIR}2"
+ORIGIN="siterepo/origin-${CONF_PAIR}.git"
+export CONF_PAIR CONF_REPO1="$R1" CONF_REPO2="$R2"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -66,15 +93,17 @@ SETUP=$(echo "$ENTRY" | jq -r '.setup // ""')
 # note that "leave it running" was the old norm this whole redesign
 # responds to): a real port collision there would otherwise surface as an
 # opaque `docker compose up` failure instead of this explicit, named cause.
-if docker ps --format '{{.Names}}' | grep -qE 'duo-sandbox-wp-conf[12]-1'; then
-  CONF1_PORT=8840
-  CONF2_PORT=8841
-  echo "note: legacy conf1/conf2 containers are still running — using fallback ports $CONF1_PORT/$CONF2_PORT instead of 8806/8807" >&2
-else
-  CONF1_PORT=8806
-  CONF2_PORT=8807
+if [ "$CONF_PAIR" = "conf" ]; then
+  if docker ps --format '{{.Names}}' | grep -qE 'duo-sandbox-wp-conf[12]-1'; then
+    CONF1_PORT=8840
+    CONF2_PORT=8841
+    echo "note: legacy conf1/conf2 containers are still running — using fallback ports $CONF1_PORT/$CONF2_PORT instead of 8806/8807" >&2
+  else
+    CONF1_PORT="${CONF1_PORT:-8806}"
+    CONF2_PORT="${CONF2_PORT:-8807}"
+  fi
 fi
-COMPOSE="docker compose -p duo-conf -f pair.yml -f pair.http.yml"
+COMPOSE="docker compose -p duo-${CONF_PAIR} -f pair.yml -f pair.http.yml"
 wp_env() { # wp_env <conf1|conf2> <wp args...>
   local env="$1"; shift
   local side="${env#conf}"   # conf1 -> 1, conf2 -> 2 (pair.sh's generic side numbering)
@@ -92,15 +121,15 @@ wp_conf2() { wp_env conf2 "$@"; }
 # empty string) instead of "wp_conf1", surfacing only as a generic "Error
 # establishing a database connection" from wp-cli, not a missing-variable
 # warning that would have pointed straight at the cause.
-export DUO_PAIR=conf DUO_PORT1="$CONF1_PORT" DUO_PORT2="$CONF2_PORT"
+export DUO_PAIR="$CONF_PAIR" DUO_PORT1="$CONF1_PORT" DUO_PORT2="$CONF2_PORT"
 export COMPOSE CONF1_PORT CONF2_PORT
 export -f wp_env wp_conf1 wp_conf2 say pass fail
 
 say "clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run)"
-bash bin/pair.sh reset conf
+bash bin/pair.sh reset "$CONF_PAIR"
 
 say "pair.sh up: boot conf1 (:$CONF1_PORT) / conf2 (:$CONF2_PORT), DB-level readiness, generic WordPress bootstrap"
-bash bin/pair.sh up conf "$CONF1_PORT" "$CONF2_PORT" --http
+bash bin/pair.sh up "$CONF_PAIR" "$CONF1_PORT" "$CONF2_PORT" --http
 
 install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
   # already fully installed WordPress (core install, theme, permalinks,
@@ -164,15 +193,15 @@ install_env conf2 target
 pass "conf1 fully authored (activated + setup); conf2 has plugin files only — deploy (below) reconciles the rest"
 
 say "init the site repo (own origin, own clones — pins: $(echo "$ENTRY" | jq -c '.pin'))"
-git init --bare -b main siterepo/origin-conf.git >/dev/null
+git init --bare -b main "$ORIGIN" >/dev/null
 echo "$ENTRY" | jq '{
   manifests: .pin,
   policy: {options: {}, post_meta: {}, post_types: .post_types, taxonomies: .taxonomies},
   spec_version: 0
-}' > siterepo/conf1/site.duo.json
-printf '.tmp*\n' > siterepo/conf1/.gitignore
-git -C siterepo/conf1 init -q -b main
-git -C siterepo/conf1 remote add origin ../origin-conf.git
+}' > "$R1"/site.duo.json
+printf '.tmp*\n' > "$R1"/.gitignore
+git -C "$R1" init -q -b main
+git -C "$R1" remote add origin "../origin-${CONF_PAIR}.git"
 
 say "seed representative authored content on conf1 (conformance/seeds/$MANIFEST.sh)"
 SEED="conformance/seeds/$MANIFEST.sh"
@@ -181,9 +210,9 @@ bash "$SEED"
 
 say "capture conf1 into the site repo"
 wp_conf1 duo capture --repo=/siterepo
-git -C siterepo/conf1 add -A
-git -C siterepo/conf1 -c user.name=duo -c user.email=duo@example.test commit -qm "capture: seeded $MANIFEST content on conf1"
-git -C siterepo/conf1 push -qu origin main
+git -C "$R1" add -A
+git -C "$R1" -c user.name=duo -c user.email=duo@example.test commit -qm "capture: seeded $MANIFEST content on conf1"
+git -C "$R1" push -qu origin main
 
 # --- suspicious-ref lint gate ------------------------------------------------
 # Generalized suspicious-ref linter (agent/src/Lint.php / `wp duo lint`):
@@ -227,13 +256,13 @@ echo "lint: clean, 0 findings"
 
 say "acceptance: capture is deterministic (capture twice, zero diff)"
 wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
-diff -r siterepo/conf1/state siterepo/conf1/.tmp-state2 || fail "capture is not deterministic"
-rm -rf siterepo/conf1/.tmp-state2
+diff -r "$R1"/state "$R1"/.tmp-state2 || fail "capture is not deterministic"
+rm -rf "$R1"/.tmp-state2
 pass "capture-twice diff is empty"
 
 say "clone the repo for conf2"
-git clone -q siterepo/origin-conf.git siterepo/conf2
-REV=$(git -C siterepo/conf2 rev-parse HEAD)
+git clone -q "$ORIGIN" "$R2"
+REV=$(git -C "$R2" rev-parse HEAD)
 
 # --- deploy conf2 from canonical --------------------------------------------
 # The real promotion path this harness used to skip entirely (spec/
@@ -243,7 +272,7 @@ REV=$(git -C siterepo/conf2 rev-parse HEAD)
 # theme state from canonical, via real activate_plugin()/switch_theme()
 # calls (Deploy.php), deliberately outside `duo apply`'s hook-free canary.
 # Must run after conf2's clone (it reads canonical from THIS environment's
-# /siterepo, pair.yml mounts siterepo/conf2 there — not conf1's) and
+# /siterepo, pair.yml mounts "$R2" there — not conf1's) and
 # before `duo apply` (spec ordering: deploy code -> reconcile activation ->
 # migrations fire as an activation side effect -> THEN apply state).
 say "deploy conf2 from canonical (wp duo deploy) — the real promotion path"
@@ -257,15 +286,15 @@ echo "$DEPLOY_OUT" | jq .
 pass "deploy succeeded on conf2"
 
 say "acceptance: conf2's activation/theme state matches canonical, from deploy alone"
-CANON_ACTIVE=$(jq -r '.active_plugins[]? | split("/")[0]' siterepo/conf1/state/options/core.json | sort -u)
+CANON_ACTIVE=$(jq -r '.active_plugins[]? | split("/")[0]' "$R1"/state/options/core.json | sort -u)
 CONF2_ACTIVE=$(wp_conf2 plugin list --status=active --field=name | sort -u)
 if [ "$CANON_ACTIVE" != "$CONF2_ACTIVE" ]; then
   echo "canonical active plugins (from conf1's capture): $CANON_ACTIVE"
   echo "conf2 active plugins (post-deploy):               $CONF2_ACTIVE"
   fail "conf2's active-plugin set does not match canonical after deploy (manifest: $MANIFEST)"
 fi
-CANON_TEMPLATE=$(jq -r '.template // empty' siterepo/conf1/state/options/core.json)
-CANON_STYLESHEET=$(jq -r '.stylesheet // empty' siterepo/conf1/state/options/core.json)
+CANON_TEMPLATE=$(jq -r '.template // empty' "$R1"/state/options/core.json)
+CANON_STYLESHEET=$(jq -r '.stylesheet // empty' "$R1"/state/options/core.json)
 CONF2_TEMPLATE=$(wp_conf2 option get template)
 CONF2_STYLESHEET=$(wp_conf2 option get stylesheet)
 [ "$CANON_TEMPLATE" = "$CONF2_TEMPLATE" ] \
@@ -324,8 +353,8 @@ pass "apply succeeded, side-effect canary clean"
 
 say "acceptance: canonical(conf2) == canonical(conf1), byte for byte"
 wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-conf2state >/dev/null
-diff -r siterepo/conf1/state siterepo/conf2/.tmp-conf2state || fail "round-trip mismatch between conf1 and conf2 for manifest '$MANIFEST'"
-rm -rf siterepo/conf2/.tmp-conf2state
+diff -r "$R1"/state "$R2"/.tmp-conf2state || fail "round-trip mismatch between conf1 and conf2 for manifest '$MANIFEST'"
+rm -rf "$R2"/.tmp-conf2state
 pass "canonical state identical across environments"
 
 # Manifest-specific render-level acceptance (conformance/checks/<name>.sh,

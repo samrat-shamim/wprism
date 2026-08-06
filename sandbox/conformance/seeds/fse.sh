@@ -45,7 +45,7 @@ for side in conf1 conf2; do
   wp_env "$side" eval 'foreach (glob(wp_upload_dir()["basedir"] . "/*/*/conf-fse-cta*.png") as $f) { unlink($f); }' >/dev/null
 done
 
-cat > siterepo/conf1/.tmp-makeimg-fse.php <<'EOF'
+cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-makeimg-fse.php <<'EOF'
 <?php
 $im = imagecreatetruecolor(64, 48);
 imagefilledrectangle($im, 0, 0, 63, 47, imagecolorallocate($im, 140, 60, 160));
@@ -54,7 +54,7 @@ echo "made\n";
 EOF
 ATT_ID=$($COMPOSE run --rm -T cli1 bash -c \
   "wp eval-file /siterepo/.tmp-makeimg-fse.php >/dev/null && wp media import /tmp/conf-fse-cta.png --title='Conformance FSE CTA Image' --alt='Conformance FSE CTA image' --porcelain")
-rm -f siterepo/conf1/.tmp-makeimg-fse.php
+rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-makeimg-fse.php
 ATT_URL=$(wp_conf1 eval "echo wp_get_attachment_url((int) $ATT_ID);")
 
 # A reusable block (wp_block / pattern) containing an image — already-working

@@ -40,7 +40,7 @@ wp_conf1 post meta update "$POST_ID" _yoast_wpseo_meta-robots-noindex 0
 # logo, and a site-wide OG default image — distinct ids so a cross-wired
 # json_refs path (e.g. company_logo_id accidentally rewriting person_logo_id)
 # would be caught by the round-trip diff rather than coincidentally matching.
-cat > siterepo/conf1/.tmp-makeimg-yoast.php <<'EOF'
+cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-makeimg-yoast.php <<'EOF'
 <?php
 function duo_conf_yoast_png($path, $r, $g, $b) {
     $im = imagecreatetruecolor(48, 32);
@@ -71,9 +71,9 @@ OG_ID=$(echo "$IMG_IDS" | grep -oE 'OG_ID=[0-9]+' | cut -d= -f2)
 COMPANY_LOGO_ID=$(echo "$IMG_IDS" | grep -oE 'COMPANY_LOGO_ID=[0-9]+' | cut -d= -f2)
 PERSON_LOGO_ID=$(echo "$IMG_IDS" | grep -oE 'PERSON_LOGO_ID=[0-9]+' | cut -d= -f2)
 OG_DEFAULT_ID=$(echo "$IMG_IDS" | grep -oE 'OG_DEFAULT_ID=[0-9]+' | cut -d= -f2)
-rm -f siterepo/conf1/.tmp-makeimg-yoast.php
+rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-makeimg-yoast.php
 
-cat > siterepo/conf1/.tmp-yoast-taxmeta-seed.php <<PHP
+cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-yoast-taxmeta-seed.php <<PHP
 <?php
 WPSEO_Taxonomy_Meta::set_values((int) $CAT_A, 'category', [
     'wpseo_desc' => 'Conformance per-term SEO description.',
@@ -84,7 +84,7 @@ WPSEO_Taxonomy_Meta::set_values((int) $CAT_A, 'category', [
 echo "taxonomy meta set for term $CAT_A\n";
 PHP
 $COMPOSE run --rm -T cli1 wp eval-file /siterepo/.tmp-yoast-taxmeta-seed.php
-rm -f siterepo/conf1/.tmp-yoast-taxmeta-seed.php
+rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-yoast-taxmeta-seed.php
 
 # wpseo_titles (company/person logo) + wpseo_social (site-wide OG default
 # image) sub-keys (task #31): seeded via WPSEO_Options::set(), Yoast's own
@@ -98,7 +98,7 @@ rm -f siterepo/conf1/.tmp-yoast-taxmeta-seed.php
 # level detail). The plain-URL siblings (company_logo/person_logo/
 # og_default_image) are set alongside each id, exactly as the real Site
 # Representation media picker submits both fields together.
-cat > siterepo/conf1/.tmp-yoast-options-seed.php <<PHP
+cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-yoast-options-seed.php <<PHP
 <?php
 WPSEO_Options::set('company_logo_id', (int) $COMPANY_LOGO_ID);
 WPSEO_Options::set('company_logo', wp_get_attachment_url((int) $COMPANY_LOGO_ID));
@@ -109,6 +109,6 @@ WPSEO_Options::set('og_default_image', wp_get_attachment_url((int) $OG_DEFAULT_I
 echo "wpseo_titles/wpseo_social logo+image sub-keys set\n";
 PHP
 $COMPOSE run --rm -T cli1 wp eval-file /siterepo/.tmp-yoast-options-seed.php
-rm -f siterepo/conf1/.tmp-yoast-options-seed.php
+rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-yoast-options-seed.php
 
 echo "yoast seed: cat_a=$CAT_A cat_b=$CAT_B post=$POST_ID og_image=$OG_ID company_logo=$COMPANY_LOGO_ID person_logo=$PERSON_LOGO_ID og_default=$OG_DEFAULT_ID"

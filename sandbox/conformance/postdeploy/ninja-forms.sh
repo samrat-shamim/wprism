@@ -60,6 +60,6 @@ if ($id) {
     echo "removed this environment's own activation-created 'Contact Me' form (id=$id)\n";
 }
 PHPEOF
-printf '%s' "$REMOVE_CONTACT_ME_PHP" > siterepo/conf2/.tmp-nf-remove-contact-me.php
+printf '%s' "$REMOVE_CONTACT_ME_PHP" > "${CONF_REPO2:-siterepo/conf2}"/.tmp-nf-remove-contact-me.php
 wp_conf2 eval-file /siterepo/.tmp-nf-remove-contact-me.php
-rm -f siterepo/conf2/.tmp-nf-remove-contact-me.php
+rm -f "${CONF_REPO2:-siterepo/conf2}"/.tmp-nf-remove-contact-me.php
