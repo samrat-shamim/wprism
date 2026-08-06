@@ -28,6 +28,9 @@ namespace Duo;
  * docblock for the same point applied to that check specifically).
  */
 final class Deploy {
+    /** duo_kv key for code_drift()'s baseline — see record_code_versions(). */
+    private const CODE_VERSIONS_KEY = 'code_versions';
+
     /**
      * §3.2's plan-time checks, pure detection (no writes, no hook fires):
      * for every plugin the target state declares active, confirm it exists
@@ -138,6 +141,146 @@ final class Deploy {
     }
 
     /**
+     * DUO-3231 (docs/proposals/code-half.md's risk register #1, "wp-admin/
+     * filesystem-initiated updates are silent code drift, and detection
+     * alone is not a fix"): a SEPARATE question from code_mismatch() above.
+     * code_mismatch asks "is what's installed compatible with what the
+     * manifests/repo say is acceptable" (missing entirely, or outside a
+     * pinned version_range — a wide band). code_drift asks "did this
+     * specific plugin/theme's version change since the last time Duo
+     * itself reconciled or observed this environment" — a narrower,
+     * provenance question a version_range can't answer: a wp-admin
+     * one-click update from 7.2.0 to 7.5.0 can land comfortably inside an
+     * ">=7.0 <9.0" range and stay invisible to code_mismatch entirely,
+     * while still being exactly the out-of-band mutation risk #1 names.
+     * The baseline this compares against is written by
+     * record_code_versions() below, called at the end of a successful
+     * `duo deploy` AND `duo capture` (Capture::run()) — either is a moment
+     * Duo legitimately observed the environment's code, so either is a
+     * valid "last known good" checkpoint. No baseline yet for a given
+     * plugin (never deployed/captured since this mechanism shipped, or
+     * newly activated this run) means nothing to compare against — silent,
+     * not a false positive, mirroring task #73's own minted-vs-unminted
+     * distinction for state entities.
+     *
+     * Scoped to exactly the entities $desired already names (the same
+     * active_plugins/template/stylesheet the target state declares,
+     * identical scope to code_mismatch() above) — Duo has no opinion on
+     * drift for a plugin it was never told to manage.
+     *
+     * @return list<array{issue:string, kind:string, plugin?:string, theme?:string, message:string, installed_version:string, recorded_version:string}>
+     */
+    public static function code_drift(Policy $policy, array $desired): array {
+        $rows = [];
+        $recordedRaw = Ledger::kv_get(self::CODE_VERSIONS_KEY);
+        if ($recordedRaw === null) {
+            return $rows; // no baseline recorded yet anywhere — nothing to compare
+        }
+        $recorded = json_decode($recordedRaw, true);
+        $recorded = is_array($recorded) ? $recorded : [];
+
+        $desiredActive = $desired['active_plugins'] ?? null;
+        if ($desiredActive !== null) {
+            self::require_plugin_admin_functions();
+            $allPlugins = get_plugins();
+            $recordedPlugins = (array) ($recorded['plugins'] ?? []);
+            foreach ($desiredActive as $plugin) {
+                $plugin = (string) $plugin;
+                if (!array_key_exists($plugin, $recordedPlugins)) {
+                    continue; // never had a baseline for this specific plugin — not drift, just unminted
+                }
+                $installed = (string) ($allPlugins[$plugin]['Version'] ?? '');
+                $baseline = (string) $recordedPlugins[$plugin];
+                if ($installed === '' || $installed === $baseline) {
+                    continue;
+                }
+                $rows[] = [
+                    'issue' => 'code_drift',
+                    'kind' => 'plugin',
+                    'plugin' => $plugin,
+                    'installed_version' => $installed,
+                    'recorded_version' => $baseline,
+                    'message' => "$plugin is $installed on this environment, but the last successful 'duo deploy' "
+                        . "or 'duo capture' recorded $baseline — its code changed here outside Duo's own "
+                        . "reconciliation (a wp-admin/host auto-update is the common cause; see DISALLOW_FILE_MODS "
+                        . "in 'wp duo doctor'). Re-run 'duo deploy' to accept $installed as the new baseline, "
+                        . "restore $baseline, or pass --force-code-drift to proceed at your own risk.",
+                ];
+            }
+        }
+
+        foreach (['template', 'stylesheet'] as $slot) {
+            $desiredSlug = $desired[$slot] ?? null;
+            $baselineSlug = $recorded[$slot] ?? null;
+            $baselineVersion = $recorded["{$slot}_version"] ?? null;
+            if ($desiredSlug === null || $baselineSlug === null || $baselineVersion === null) {
+                continue; // no baseline, or nothing declared this run
+            }
+            if ($desiredSlug !== $baselineSlug) {
+                continue; // the theme ITSELF changed — code_mismatch's/plan's territory, not a version drift on one theme
+            }
+            $installed = (string) wp_get_theme($desiredSlug)->get('Version');
+            $baseline = (string) $baselineVersion;
+            if ($installed === '' || $installed === $baseline) {
+                continue;
+            }
+            $rows[] = [
+                'issue' => 'code_drift',
+                'kind' => 'theme',
+                'theme' => $desiredSlug,
+                'installed_version' => $installed,
+                'recorded_version' => $baseline,
+                'message' => "$desiredSlug theme is $installed on this environment, but the last successful "
+                    . "'duo deploy' or 'duo capture' recorded $baseline — its code changed here outside Duo's own "
+                    . "reconciliation. Re-run 'duo deploy' to accept $installed as the new baseline, restore "
+                    . "$baseline, or pass --force-code-drift to proceed at your own risk.",
+            ];
+        }
+        return $rows;
+    }
+
+    /**
+     * Writes the "last known good" code-version baseline code_drift() above
+     * compares against. Reads the environment's OWN CURRENT live state
+     * directly (get_plugins()/get_option()), not the just-captured/just-
+     * deployed canonical tree — the two are expected to agree at the
+     * instant this runs (deploy just reconciled activation; capture just
+     * read live state), and reading live state directly means this
+     * function needs nothing passed in beyond $policy, keeping both call
+     * sites (Deploy::run() and Capture::run()) to one line each.
+     *
+     * Records EVERY currently-active plugin's version, not just ones a
+     * $desired list happens to name — code_drift() only ever CONSULTS the
+     * subset $desired scopes it to, so recording a wider baseline here is
+     * simply harmless, forward-compatible data (a plugin activated later
+     * already has a baseline the moment it's captured/deployed again,
+     * rather than needing a special first-run carve-out). Overwrites
+     * (never merges stale entries forward) — the goal is "what's true as
+     * of right now," not an append-only history.
+     */
+    public static function record_code_versions(Policy $policy): void {
+        self::require_plugin_admin_functions();
+        $versions = ['plugins' => []];
+        foreach (self::current_active_plugins() as $plugin) {
+            $info = get_plugins()[$plugin] ?? null;
+            if ($info !== null) {
+                $versions['plugins'][$plugin] = (string) $info['Version'];
+            }
+        }
+        $stylesheet = (string) get_option('stylesheet');
+        $template = (string) get_option('template');
+        if ($stylesheet !== '') {
+            $versions['stylesheet'] = $stylesheet;
+            $versions['stylesheet_version'] = (string) wp_get_theme($stylesheet)->get('Version');
+        }
+        if ($template !== '') {
+            $versions['template'] = $template;
+            $versions['template_version'] = (string) wp_get_theme($template)->get('Version');
+        }
+        Ledger::kv_set(self::CODE_VERSIONS_KEY, wp_json_encode($versions));
+    }
+
+    /**
      * `wp duo deploy` — the agent-side half of the proposal's `duo deploy`
      * step (§3.4's ordering: materialize code [cli/'s orchestrator, not
      * this] -> reconcile activation [here] -> plugin/theme migrations run
@@ -181,8 +324,34 @@ final class Deploy {
             );
         }
 
+        // DUO-3231: checked here too, not just at apply time — a deploy on
+        // top of already-drifted code would reconcile activation against a
+        // plugin version nobody vouched for, compounding rather than
+        // catching the risk. Checked BEFORE this run's own reconciliation
+        // touches anything, same ordering rule code_mismatch above follows.
+        $drift = self::code_drift($policy, $desired);
+        if ($drift && empty($opts['force_code_drift'])) {
+            $list = implode("\n\n", array_map(fn($r) => '  - ' . $r['message'], $drift));
+            throw new \RuntimeException(
+                "duo: deploy refused — code_drift:\n\n$list\n\n"
+                . 'Reconcile the environment to a known version first, or pass --force-code-drift to proceed anyway.'
+            );
+        }
+
         self::require_plugin_admin_functions();
-        $warnings = [];
+        // Architecture Rulings §1 (report-not-hide): reaching this line with
+        // $drift non-empty is only possible via --force-code-drift (the
+        // gate above already threw otherwise) — the overridden findings
+        // still need to surface in BOTH human and machine output, not just
+        // the machine-readable 'code_drift' key of the final return (which
+        // human-mode `wp duo deploy` never separately renders — see
+        // Cli::deploy()). Seeding $warnings here, unconditionally for every
+        // forced-through finding, is what makes them show up as WP_CLI::
+        // warning() lines in ordinary (non --format=json) deploy output.
+        $warnings = array_map(
+            fn($r) => 'FORCED past code_drift: ' . $r['message'],
+            $drift
+        );
         $activated = [];
         $deactivated = [];
         $themeSwitched = null;
@@ -246,6 +415,15 @@ final class Deploy {
             }
         }
 
+        // Re-baseline unconditionally: whatever's active NOW (post-
+        // reconciliation, whether clean or forced-through) becomes the new
+        // "last known good" — the same versions a --force-code-drift run
+        // just accepted are exactly what should stop being flagged on the
+        // NEXT run. Runs regardless of whether $drift/$mismatch fired, same
+        // as code_mismatch's own findings don't gate whether reconciliation
+        // proceeds once past the refuse-gate above.
+        self::record_code_versions($policy);
+
         return [
             'artifact' => [
                 'hash' => $compiled->artifact_hash(),
@@ -256,6 +434,7 @@ final class Deploy {
             'deactivated' => $deactivated,
             'theme_switched' => $themeSwitched,
             'code_mismatch' => $mismatch,
+            'code_drift' => $drift,
             'warnings' => $warnings,
         ];
     }

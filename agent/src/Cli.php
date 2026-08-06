@@ -133,9 +133,14 @@ final class Cli {
         // code_mismatch (docs/proposals/code-half.md §3.2): a different row
         // shape (issue/kind/plugin-or-theme/message, no uuid/path) than the
         // $kinds loop above, so it gets its own rendering rather than being
-        // folded into that loop.
+        // folded into that loop. code_drift (DUO-3231) is the same shape,
+        // same reason.
         foreach ($plan['code_mismatch'] ?? [] as $r) {
             WP_CLI::line('CODE_MISMATCH ' . strtoupper($r['issue']) . ' ' . ($r['plugin'] ?? $r['theme'] ?? '?'));
+            WP_CLI::line('  ' . $r['message']);
+        }
+        foreach ($plan['code_drift'] ?? [] as $r) {
+            WP_CLI::line('CODE_DRIFT ' . strtoupper($r['kind']) . ' ' . ($r['plugin'] ?? $r['theme'] ?? '?'));
             WP_CLI::line('  ' . $r['message']);
         }
         foreach ($plan['warnings'] ?? [] as $w) {
@@ -143,12 +148,16 @@ final class Cli {
         }
         $counts = implode(', ', array_map(fn($k) => count($plan[$k]) . " $k", $kinds));
         $counts .= ', ' . count($plan['code_mismatch'] ?? []) . ' code_mismatch';
+        $counts .= ', ' . count($plan['code_drift'] ?? []) . ' code_drift';
         WP_CLI::success("plan: $counts");
         if ($plan['drift']) {
             WP_CLI::warning('environment drift detected — capture-first workflow recommended');
         }
         if (!empty($plan['code_mismatch'])) {
             WP_CLI::warning('code_mismatch findings — duo apply will refuse until resolved (or run with --force-code-mismatch)');
+        }
+        if (!empty($plan['code_drift'])) {
+            WP_CLI::warning('code_drift findings — duo apply will refuse until resolved (or run with --force-code-drift)');
         }
     }
 
@@ -162,6 +171,8 @@ final class Cli {
      * [--force-delete-referenced] : override referential delete guards.
      * [--force-theirs]
      * [--force-code-mismatch] : override the cross-partition invariant's missing_in_code/outside_version_range block.
+     * [--force-code-drift] : override the code_drift block (DUO-3231) — installed plugin/theme versions changed
+     *   outside 'duo deploy'/'duo capture' since the last recorded baseline.
      * [--force-unresolved-refs] : see `duo capture`'s option of the same name — apply's own drift
      *   detection captures the live environment too, so it hits the identical gate.
      * [--default-author=<login>]
@@ -178,6 +189,7 @@ final class Cli {
                 'force_delete_referenced' => isset($assoc['force-delete-referenced']),
                 'force_theirs' => isset($assoc['force-theirs']),
                 'force_code_mismatch' => isset($assoc['force-code-mismatch']),
+                'force_code_drift' => isset($assoc['force-code-drift']),
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
                 'default_author' => $assoc['default-author'] ?? '',
                 'revision' => $assoc['revision'] ?? '',
@@ -224,6 +236,8 @@ final class Cli {
      * ## OPTIONS
      * --repo=<path>
      * [--force-code-mismatch] : proceed despite missing_in_code / outside_version_range findings.
+     * [--force-code-drift] : proceed despite code_drift findings (DUO-3231) — installed plugin/theme versions
+     *   changed outside 'duo deploy'/'duo capture' since the last recorded baseline.
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
@@ -232,6 +246,7 @@ final class Cli {
         try {
             $summary = Deploy::run($assoc['repo'] ?? WP_CLI::error('--repo required'), [
                 'force_code_mismatch' => isset($assoc['force-code-mismatch']),
+                'force_code_drift' => isset($assoc['force-code-drift']),
                 'compiled' => $assoc['compiled'] ?? '',
             ]);
         } catch (\Throwable $t) {

@@ -159,6 +159,20 @@ final class Capture {
                     Ledger::set_state_hash($e['uuid'], $e['type'], hash('sha256', $e['hash_basis'] ?? $e['content']));
                 }
                 Ledger::prune_state(array_column($build['entities'], 'uuid'));
+                // DUO-3231: a real (into-repo) capture is, same as a
+                // successful `duo deploy`, a moment Duo legitimately
+                // observed this environment's code — record it as a
+                // code_drift() baseline too, not just deploy. Skipped for
+                // --out= (determinism-check) captures for the same reason
+                // the ledger writes above are already gated on $intoRepo:
+                // that mode is explicitly non-authoritative. Independent of
+                // the publish lock/staging mechanism above (duo_kv is a
+                // separate piece of state from state/), so its exact
+                // position relative to unlock() below is not
+                // safety-critical — kept inside the same block as the other
+                // "capture legitimately completed" bookkeeping for
+                // readability.
+                Deploy::record_code_versions($c->policy);
             }
         } finally {
             Publish::unlock($lock);

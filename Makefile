@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge regress-capture-publish
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge regress-capture-publish regress-code-drift
 
 up:
 	$(COMPOSE) up -d
@@ -145,3 +145,13 @@ certify-merge:
 # retry need a live MySQL and aren't repeated in this offline target).
 regress-capture-publish:
 	bash sandbox/tests/regress_capture_publish.sh
+
+# DUO-3231: code_drift detection (Deploy::code_drift(), a narrower question
+# than code_mismatch — did an installed plugin/theme version change since
+# the last successful 'duo deploy'/'duo capture', regardless of whether the
+# new version is still within a pinned version_range) + the advisory
+# DISALLOW_FILE_MODS `duo doctor` check. Own pair.sh pair ("codedrift"
+# 8862/8863, headless). Uses WordPress core's own bundled Hello Dolly
+# plugin — zero network installs.
+regress-code-drift:
+	bash sandbox/tests/regress_code_drift.sh
