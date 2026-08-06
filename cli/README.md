@@ -53,18 +53,25 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   rewrites a bare `--json` into `--format=json` before the command ever sees
   `$assoc['json']`; see the comments in `agent/src/Cli.php`) and renders a
   human summary: counts per plan bucket (create/update/adopt/unchanged/
-  drift/conflict/collision/delete/code_mismatch/incomplete_apply), drift paths, blocked-
-  delete reasons, code_mismatch findings (agent/src/Deploy.php's
-  missing_in_code/outside_version_range checks — docs/proposals/
-  code-half.md §3.2), and any plan-level warnings.
+  drift/conflict/collision/delete/code_mismatch/incomplete_apply/
+  regen_pending), drift paths, blocked-delete reasons, code_mismatch
+  findings (agent/src/Deploy.php's missing_in_code/outside_version_range
+  checks — docs/proposals/code-half.md §3.2), regen_pending entries (a
+  derived table with a hard per-entity availability dependency — DUO-3234,
+  e.g. TEC's tec_occurrences — whose post-apply verification failed and
+  hasn't yet resolved), and any plan-level warnings.
 
   Exit non-zero ("not safe to promote") if the plan contains any
-  `conflict`, `collision`, or `code_mismatch` entry, any blocked delete, or
-  any drift, or a retained `incomplete_apply` marker — drift is the one case `duo apply` itself does *not* refuse
-  on (a drifted entity just folds into `update` once the repo side changes
-  too, or stays `drift` otherwise), but `duo status` still reports it as
-  not clean, since status answers "safe to promote?", not just "will apply
-  refuse?" — capture first. Also non-zero if the underlying `wp duo plan`
+  `conflict`, `collision`, or `code_mismatch` entry, any blocked delete,
+  any drift, a retained `incomplete_apply` marker, or a `regen_pending`
+  entry — drift and regen_pending are the two cases `duo apply` itself
+  does *not* refuse on (a drifted entity just folds into `update` once the
+  repo side changes too, or stays `drift` otherwise; a regen_pending
+  marker is what makes the *next* apply retry, not something the apply
+  that set it refuses on), but `duo status` still reports both as not
+  clean, since status answers "safe to promote?", not just "will apply
+  refuse?" — capture first for drift, retry for regen_pending (automatic
+  on the next `duo apply`). Also non-zero if the underlying `wp duo plan`
   call itself failed or returned unparseable JSON. Plain warnings are
   rendered but never flip this by themselves — see the decision-matrix
   comment in `cli/src/PlanSummary.php::render()`.

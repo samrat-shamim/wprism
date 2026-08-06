@@ -193,6 +193,16 @@ final class Cli {
         foreach ($plan['incomplete_apply'] ?? [] as $r) {
             WP_CLI::line('INCOMPLETE_APPLY ' . $r['reason']);
         }
+        // regen_pending (DUO-3234, design review addition 1): a derived
+        // table with a hard per-entity availability dependency whose
+        // post-apply verification failed and hasn't resolved yet — see
+        // Apply::regen_dependencies()'s own docblock. Same shape/reasoning
+        // as incomplete_apply immediately above; mirrored in
+        // cli/src/PlanSummary.php's render() so `duo status` and a plain
+        // `wp duo plan` never give an operator different advice.
+        foreach ($plan['regen_pending'] ?? [] as $r) {
+            WP_CLI::line('REGEN_PENDING ' . ($r['path'] ?? ($r['type'] . ' ' . $r['uuid'])) . " (post type '{$r['post_type']}')");
+        }
         foreach ($plan['warnings'] ?? [] as $w) {
             WP_CLI::warning($w);
         }
@@ -200,6 +210,7 @@ final class Cli {
         $counts .= ', ' . count($plan['code_mismatch'] ?? []) . ' code_mismatch';
         $counts .= ', ' . count($plan['code_drift'] ?? []) . ' code_drift';
         $counts .= ', ' . count($plan['incomplete_apply'] ?? []) . ' incomplete_apply';
+        $counts .= ', ' . count($plan['regen_pending'] ?? []) . ' regen_pending';
         WP_CLI::success("plan: $counts");
         if ($plan['drift']) {
             WP_CLI::warning('environment drift detected — capture-first workflow recommended');
@@ -209,6 +220,9 @@ final class Cli {
         }
         if (!empty($plan['code_drift'])) {
             WP_CLI::warning('code_drift findings — duo apply will refuse until resolved (or run with --force-code-drift)');
+        }
+        if (!empty($plan['regen_pending'])) {
+            WP_CLI::warning('regen_pending markers outstanding — the next duo apply will retry them automatically');
         }
     }
 
