@@ -3,6 +3,7 @@
 sandbox/siterepo/
 sandbox/tmp/
 .duo-envs.json
+.duo/
 .claude/worktrees/
 
 # DUO-3213: capture's staging/backup/lock artifacts (agent/src/Publish.php)
