@@ -1089,16 +1089,117 @@ final class Apply {
                 // deliberately outside this canary-armed apply.
                 continue;
             }
-            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-                $v = $this->encode_structured($v, $rule);
-            } elseif (!empty($rule['ref'])) {
-                $v = $this->tokens->tokens_to_value($v, $rule['ref']);
-            } elseif (is_string($v)) {
-                $v = $this->tokens->detokenize_text($v);
+            if (!empty($rule['sub_keys'])) {
+                // DUO-3233: SUB-KEY-LEVEL merge into the live blob, never a
+                // whole-value replace — see apply_option_sub_keys()'s own
+                // docblock for the full rationale.
+                $this->apply_option_sub_keys($name, $v, $rule['sub_keys']);
+                continue;
             }
-            $this->upsert_option($name, maybe_serialize($v));
+            $this->upsert_option($name, maybe_serialize($this->apply_value($name, $v, $rule)));
         }
+    }
+
+    /**
+     * Shared apply-direction dispatch, the mirror of Capture::capture_value()
+     * — factored out for the identical reason: a sub_keys (DUO-3233) NAMED
+     * sub-key's rule is a whole option rule at one nesting level down, so it
+     * gets json_refs/key_refs/ref/plain-string detokenization for free, with
+     * zero new dispatch logic to keep in sync with the ordinary per-option
+     * path.
+     */
+    private function apply_value(string $ctx, $v, array $rule) {
+        if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+            $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+            return $this->encode_structured($v, $rule);
+        }
+        if (!empty($rule['ref'])) {
+            return $this->tokens->tokens_to_value($v, $rule['ref']);
+        }
+        if (is_string($v)) {
+            return $this->tokens->detokenize_text($v);
+        }
+        return $v;
+    }
+
+    /**
+     * sub_keys apply (DUO-3233): SUB-KEY-LEVEL merge into the LIVE blob —
+     * never a whole-value replace. Reads the target's own CURRENT value
+     * (carrying every key this manifest did NOT carve out — Polylang's own
+     * force_lang/rewrite/first_activation/version, populated by the
+     * plugin's own activation-time add_option()/admin saves), overlays only
+     * the captured, declared-authored sub-keys on top, and writes the
+     * merged result back. The excluded remainder survives apply completely
+     * untouched, on every environment, every run — this is the mechanism
+     * manifests/polylang.json's own notes long documented as missing: "v0's
+     * options model classifies a whole option name at once ... there is no
+     * way to keep force_lang/default_lang/etc authored while excluding
+     * first_activation/version without capturing them too."
+     *
+     * Absent-live-option case: starts the merge from an empty array
+     * (warned) rather than refusing outright. The ordinary case where this
+     * would matter — Polylang/Yoast not yet activated on this target — is
+     * caught upstream of this code path: spec/repo-format.md's code-half
+     * ordering runs `wp duo deploy` (real activate_plugin() calls) before
+     * `wp duo apply`, so the owning plugin's own activation-time
+     * add_option() has normally already populated this option by the time
+     * apply reaches here. A bare `apply` run in isolation (e.g. a test)
+     * against a plugin that was never activated is a real, if unusual,
+     * situation this still handles honestly rather than refusing: the
+     * merged option ends up containing ONLY the declared sub-keys, which is
+     * observable (warned) rather than silently incomplete.
+     *
+     * Deletion: matches ordinary whole-option apply's existing, DOCUMENTED
+     * limitation (DUO-3211, open at the time of writing — its own review
+     * comment is what asked for sub_keys to compose with its eventual
+     * tombstone/deletion semantics "without another format change"): a
+     * captured sub-key is upserted; a sub-key that disappears from the repo
+     * is never removed from the live blob by this path. Not a regression —
+     * whole-option apply has never had delete semantics either — and not
+     * attempted here, deliberately, so as not to invent option-deletion
+     * semantics ahead of DUO-3211's own design work.
+     */
+    private function apply_option_sub_keys(string $name, $captured, array $subKeys): void {
+        global $wpdb;
+        if (!is_array($captured)) {
+            throw new \RuntimeException(
+                "duo: captured option '$name' declares sub_keys but its repository value is not an object"
+            );
+        }
+        $raw = $wpdb->get_var($wpdb->prepare(
+            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
+        ));
+        if ($raw === null) {
+            $this->warnings[] = "option $name: no live value to sub-key-merge into — creating it containing ONLY "
+                . 'the declared sub-keys (its owning plugin\'s own defaults are absent; expected if that plugin '
+                . 'has not been deployed/activated on this target yet)';
+            $live = [];
+        } else {
+            $live = maybe_unserialize($raw);
+            if (!is_array($live)) {
+                throw new \RuntimeException(
+                    "duo: live option '$name' is not array-shaped — cannot sub-key-merge into it (got "
+                    . get_debug_type($live) . ')'
+                );
+            }
+        }
+        foreach ($captured as $subKey => $subVal) {
+            $subRule = $subKeys[$subKey] ?? null;
+            if (($subRule['class'] ?? '') !== 'authored') {
+                // RepositoryAuthorization::authorize_option_sub_keys() already
+                // refuses an undeclared/non-authored captured sub-key before
+                // apply ever starts mutating anything — this is a defensive
+                // invariant guard against that gate ever being bypassed
+                // (e.g. a future internal caller of apply_options() that
+                // skips the preflight), not a routinely-reachable branch.
+                throw new \RuntimeException(
+                    "duo: captured option '$name.$subKey' has no authored sub_keys rule — repository "
+                    . 'authorization should have refused this before apply'
+                );
+            }
+            $live[(string) $subKey] = $this->apply_value("$name.$subKey", $subVal, $subRule);
+        }
+        $this->upsert_option($name, maybe_serialize($live));
     }
 
     /**

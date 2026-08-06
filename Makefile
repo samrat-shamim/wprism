@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge regress-capture-publish regress-code-drift
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge regress-capture-publish regress-code-drift regress-option-subkeys
 
 up:
 	$(COMPOSE) up -d
@@ -155,3 +155,13 @@ regress-capture-publish:
 # plugin — zero network installs.
 regress-code-drift:
 	bash sandbox/tests/regress_code_drift.sh
+
+# DUO-3233 (sub-key option classification): a fresh, from-scratch pair
+# (sandbox/bin/pair.sh, asub3233 8910/8911) — Polylang's `post_types`/
+# `taxonomies`/`nav_menus` and Yoast's `disableadvanced_meta` sub-keys of
+# their respective env-classified option blobs now capture/apply
+# independently, merging into the live blob without clobbering excluded
+# sibling keys. See manifests/polylang.json's and manifests/yoast.json's
+# own notes for the full empirical trail.
+regress-option-subkeys:
+	bash sandbox/tests/regress_option_subkeys.sh

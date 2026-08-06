@@ -62,6 +62,7 @@ final class Policy {
             $manifest = Canon::decode(Canon::read_file($file));
             self::validate_field_classes($manifest);
             self::validate_scope_classes($manifest, "manifest '$name'", false);
+            self::validate_sub_keys($manifest);
             $p->manifests[] = $manifest;
         }
         return $p;
@@ -199,6 +200,55 @@ final class Policy {
         }
         foreach ($this->site['policy']['options'] ?? [] as $name => $r) {
             if (($r['class'] ?? '') === 'authored') {
+                $out[$name] = $r;
+            } else {
+                unset($out[$name]);
+            }
+        }
+        ksort($out, SORT_STRING);
+        return $out;
+    }
+
+    /**
+     * Options declaring `sub_keys` (DUO-3233): name => full rule (including
+     * the `sub_keys` map). Sibling enumeration to authored_options() above,
+     * same merge precedence (site policy replaces a manifest's whole rule
+     * wholesale, never a deep merge — a site overriding options.<name> is
+     * expected to repeat sub_keys if it still wants any of it, exactly like
+     * it already must repeat 'class' today) — but keyed on "declares
+     * sub_keys" instead of "class === authored", because a sub_keys option's
+     * OWN top-level class is legitimately something else (Polylang's
+     * `polylang`/Yoast's `wpseo` are both 'env': excluded whole, except the
+     * named sub-keys carved out below them).
+     *
+     * This is the engine capability manifests/polylang.json's own notes
+     * long flagged as missing: "v0's options model classifies a whole
+     * option name at once ... there is no way to keep force_lang/
+     * default_lang/etc authored while excluding first_activation/version
+     * without capturing them too. Building that sub-key classification
+     * split is a genuinely separate, unscoped engine capability." This is
+     * that capability — a NAMED sub-key of one option blob captured/
+     * excluded independently, with apply-side merge into the live blob
+     * (Apply::apply_option_sub_keys()) so the undeclared remainder is never
+     * clobbered. DUO-3211's review comment asked for exactly this: "'exact'
+     * [option] reconciliation should be written so per-key ownership can
+     * later narrow to sub-key ownership without another format change" —
+     * `sub_keys` on an ordinary options.<name> rule IS that narrowing, not
+     * a parallel format.
+     *
+     * @return array<string, array{class:string, sub_keys:array<string,array>}>
+     */
+    public function sub_keyed_options(): array {
+        $out = [];
+        foreach ($this->manifests as $m) {
+            foreach ($m['options'] ?? [] as $name => $r) {
+                if (!empty($r['sub_keys'])) {
+                    $out[$name] = $r;
+                }
+            }
+        }
+        foreach ($this->site['policy']['options'] ?? [] as $name => $r) {
+            if (!empty($r['sub_keys'])) {
                 $out[$name] = $r;
             } else {
                 unset($out[$name]);
@@ -841,6 +891,52 @@ final class Policy {
                     throw new \RuntimeException(
                         "duo: $label scope.$kind.$name.class=" . var_export($class, true)
                         . ' (expected ' . implode('|', self::SCOPE_CLASSES) . ')'
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * Loud, load-time guard for sub_keyed_options()'s manifest input (same
+     * "throw immediately, never degrade silently" posture as
+     * validate_field_classes() above — a bad sub_keys declaration must fail
+     * every command that loads this manifest, not surface as a confusing
+     * runtime shape error deep inside Capture/Apply). Two invariants:
+     *   - sub_keys, when present, is a non-empty object of NAME => rule,
+     *     and every named rule declares a recognized class;
+     *   - class=authored and sub_keys are mutually exclusive on the SAME
+     *     option rule: class=authored already captures the WHOLE value
+     *     (authored_options()), so a manifest declaring both is stating two
+     *     contradictory capture strategies for the same option name — the
+     *     kind of ambiguous manifest state this project's posture (DESIGN.md
+     *     3.1.5, "loud-and-blocking default") requires rejecting outright
+     *     rather than silently picking one.
+     */
+    private static function validate_sub_keys(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        foreach ($manifest['options'] ?? [] as $optName => $rule) {
+            $subKeys = $rule['sub_keys'] ?? null;
+            if ($subKeys === null) {
+                continue;
+            }
+            if (!is_array($subKeys) || !$subKeys) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares options.$optName.sub_keys but it is not a non-empty object"
+                );
+            }
+            if (($rule['class'] ?? '') === 'authored') {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares options.$optName with BOTH class=authored and sub_keys — "
+                    . 'these are mutually exclusive (class=authored already captures the WHOLE value; sub_keys '
+                    . 'narrows independent capture to named keys of an otherwise-excluded blob). Pick one.'
+                );
+            }
+            foreach ($subKeys as $subKey => $subRule) {
+                if (!is_array($subRule) || !in_array($subRule['class'] ?? null, self::CLASSES, true)) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' declares options.$optName.sub_keys.$subKey with an invalid or "
+                        . 'missing class (expected one of ' . implode('|', self::CLASSES) . ')'
                     );
                 }
             }

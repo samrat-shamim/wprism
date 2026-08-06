@@ -1314,6 +1314,44 @@ final class Capture {
         return $out;
     }
 
+    /**
+     * Shared scalar/structured capture dispatch for one option-shaped VALUE
+     * given its RULE (class/ref/json_refs/key_refs) — the same four-way
+     * branch build_options()' ordinary per-option loop always used, factored
+     * out so a sub_keys (DUO-3233) NAMED sub-key gets it too: a sub-key's
+     * rule is a whole option rule at one nesting level down (the same
+     * json_refs/key_refs/ref/plain-string vocabulary, nothing new), so this
+     * is a correctness statement as much as a de-duplication — a sub-key
+     * MUST behave exactly like an option, or "narrowing option ownership to
+     * sub-key ownership" (DUO-3211's review comment) would be a different,
+     * weaker mechanism wearing the same manifest vocabulary.
+     *
+     * $ctx is a human label for warnings only (e.g. "polylang.nav_menus"),
+     * never parsed back — option_ref_tokens()'s own $name param is reused
+     * unchanged for this, so its existing dangling/unscoped messages read
+     * naturally for a sub-key too ("option polylang.nav_menus: ...").
+     *
+     * Returns null exactly when the ORIGINAL per-option loop would have
+     * `continue`d past this key entirely (a scalar ref that resolved to
+     * nothing — id 0, or dropped): the json_refs/key_refs and plain-string
+     * branches never produce a top-level null (struct_capture() always
+     * returns the same container shape it was given; tokenize_text() never
+     * nulls a string), so this signal is unambiguous to every caller.
+     */
+    private function capture_value(string $ctx, $v, array $rule, bool $forceUnresolvedRefs) {
+        if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+            $decoded = $this->decode_structured($v, $rule, "option $ctx");
+            return $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+        }
+        if (!empty($rule['ref'])) {
+            return $this->option_ref_tokens($ctx, $v, $rule['ref'], $forceUnresolvedRefs);
+        }
+        if (is_string($v)) {
+            return $this->tokens->tokenize_text($v);
+        }
+        return $v;
+    }
+
     private function build_options(bool $mint, bool $forceUnresolvedRefs = false): array {
         global $wpdb;
         $out = [];
@@ -1330,18 +1368,82 @@ final class Capture {
             if (is_string($v)) {
                 $this->guard_secret('options', $name, $v, $rule);
             }
-            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                $decoded = $this->decode_structured($v, $rule, "option $name");
-                $v = $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-            } elseif (!empty($rule['ref'])) {
-                $v = $this->option_ref_tokens($name, $v, $rule['ref'], $forceUnresolvedRefs);
-                if ($v === null) {
-                    continue;
-                }
-            } elseif (is_string($v)) {
-                $v = $this->tokens->tokenize_text($v);
+            $v = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
+            if ($v === null) {
+                continue;
             }
             $out[$name] = $v;
+        }
+
+        // sub_keys (DUO-3233): NAMED sub-keys of one option blob classified
+        // independently — capture SOME keys of a blob, exclude the rest.
+        // Distinct from authored_options() above (a WHOLE option's class)
+        // and from option_name_refs below (options discovered by NAME
+        // pattern): a sub_keys option is discovered by its own EXACT name
+        // (Policy::sub_keyed_options(), same enumeration shape as
+        // authored_options()), but only the DECLARED subset of the live
+        // value's own top-level keys is ever read into canonical state —
+        // the undeclared remainder (Polylang's force_lang/rewrite/
+        // first_activation/version, Yoast's first_activated_on/version, …)
+        // never enters state/ and is never touched at apply (see
+        // Apply::apply_option_sub_keys()'s merge-into-live-blob path). This
+        // is the capability manifests/polylang.json's own notes long
+        // documented as missing — see Policy::sub_keyed_options()'s
+        // docblock for the full history.
+        foreach ($this->policy->sub_keyed_options() as $name => $rule) {
+            $subKeys = $rule['sub_keys'] ?? [];
+            $raw = $wpdb->get_var($wpdb->prepare(
+                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                $name
+            ));
+            if ($raw === null) {
+                continue; // option doesn't exist live at all -- nothing to carve a sub-key out of
+            }
+            $live = maybe_unserialize($raw);
+            self::assert_plain($live, "option $name");
+            if (!is_array($live)) {
+                throw new \RuntimeException(
+                    "duo: option '$name' declares sub_keys but its live value is not array-shaped (got "
+                    . get_debug_type($live) . ') — sub_keys assumes a plain PHP-serialized map, matching every '
+                    . 'verified case so far (Polylang\'s polylang option, Yoast\'s wpseo option)'
+                );
+            }
+            $captured = [];
+            foreach ($subKeys as $subKey => $subRule) {
+                if (($subRule['class'] ?? '') !== 'authored') {
+                    continue; // declared (documents intent) but not authored -- never captured, mirrors option_name_refs' own precedent
+                }
+                if (!array_key_exists($subKey, $live)) {
+                    continue; // this environment's live blob simply doesn't have this sub-key populated yet -- nothing to capture
+                }
+                $subVal = $live[$subKey];
+                $ctx = "$name.$subKey";
+                if (is_string($subVal)) {
+                    $this->guard_secret('options', $ctx, $subVal, $subRule);
+                } elseif (empty($subRule['allow_secret'])) {
+                    // Array-shaped sub-key value: deep scan, deliberately
+                    // NOT the is_string()-gated shallow guard_secret() call
+                    // above -- the same reasoning option_name_refs' own
+                    // Secrets::hard_match_deep() call already documents
+                    // (Capture.php's other is_string()-gated call sites are
+                    // a KNOWN, separately-filed gap — task #127/DUO-3214
+                    // remainder (a) — this is a NEW call site built with the
+                    // right tool from day one, not a repeat of that gap).
+                    $secretLabel = Secrets::hard_match_deep($subVal);
+                    if ($secretLabel !== null) {
+                        throw new \RuntimeException(
+                            "duo: secret guard tripped — option '$ctx' looks like a $secretLabel but is classified "
+                            . "authored (sub_keys); refusing to capture it into state/.\n"
+                            . "If this is really a secret, reclassify it runtime/derived/env instead of authored.\n"
+                            . 'If this is a false positive, declare "allow_secret": true on its sub_keys rule.'
+                        );
+                    }
+                }
+                $captured[$subKey] = $this->capture_value($ctx, $subVal, $subRule, $forceUnresolvedRefs);
+            }
+            if ($captured) {
+                $out[$name] = $captured;
+            }
         }
 
         // option_name_refs (task #93): options discovered by NAME PATTERN

@@ -430,7 +430,18 @@ final class Lint {
 
         // (a) bare_id
         foreach ($options as $key => $value) {
-            $rule = $policy->option_rule((string) $key);
+            $rule = $policy->option_rule((string) $key) ?? [];
+            if (!empty($rule['sub_keys'])) {
+                // DUO-3233: the SAME "declared paths clean, undeclared
+                // positions in the same structure still flagged" contract,
+                // nested one level — each NAMED sub-key carries its own
+                // rule (json_refs/key_refs/ref/lint_ok), exactly like a
+                // whole option would, so this recurses the identical checks
+                // scan_options_file() already runs, once per declared
+                // sub-key, instead of the single flat check below.
+                self::scan_option_sub_keys($value, (array) $rule['sub_keys'], $rel, (string) $key, $findings);
+                continue;
+            }
             if (isset($rule['ref'])) {
                 continue;
             }
@@ -454,6 +465,31 @@ final class Lint {
         self::walk_strings($options, 'options', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
         });
+    }
+
+    /** @see scan_options_file()'s sub_keys branch */
+    private static function scan_option_sub_keys($value, array $subKeys, string $rel, string $optionName, array &$findings): void {
+        if (!is_array($value)) {
+            return; // malformed shape -- RepositoryAuthorization's own gate is the authoritative check for this
+        }
+        foreach ($value as $subKey => $subVal) {
+            $subRule = $subKeys[$subKey] ?? [];
+            $locator = 'options.' . $optionName . '.' . $subKey;
+            if (isset($subRule['ref']) || !empty($subRule['lint_ok'])) {
+                continue;
+            }
+            if (!empty($subRule['json_refs']) || !empty($subRule['key_refs'])) {
+                self::scan_structured_bare_ids($subVal, $rel, $locator, $findings);
+                continue;
+            }
+            foreach (Pending::numeric_candidates($subVal) as [$id, $locSuffix]) {
+                $hit = Pending::resolve_id($id);
+                if ($hit === null) {
+                    continue;
+                }
+                $findings[] = self::finding('bare_id', $rel, $locator . $locSuffix, $id, $hit, self::bare_id_note($hit));
+            }
+        }
     }
 
     // ------------------------------------------------------------ tables
