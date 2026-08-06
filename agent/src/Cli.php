@@ -327,8 +327,9 @@ final class Cli {
 
     /**
      * The core loop's review queue (DESIGN.md 3.1.5): unclassified post_meta
-     * /term_meta on in-scope entities (the same gate `duo capture` aborts
-     * on) plus journal-observed unclassified options (options are
+     * /term_meta on in-scope entities plus registered/adapter-declared
+     * entity types with live rows but no scope disposition (the same gates
+     * `duo capture` aborts on), plus journal-observed unclassified options (options are
      * whitelist-only at capture, so an unlisted option is only visible via
      * the journal). Each item carries whatever evidence exists — entity
      * counts, journal surfaces/caps/proposal, a post/term ref-hint, a
@@ -390,7 +391,9 @@ final class Cli {
      * ## OPTIONS
      * --repo=<path>
      * --set=<spec>         : "section:key=class[,ref=post][,cast=string]"
-     *   (section is options|post_meta|term_meta; the spec is split on the
+     *   (section is options|post_meta|term_meta|scope; scope keys are
+     *   post_type:<name> or taxonomy:<name>, and accept only
+     *   authored|runtime|derived|env. The spec is split on the
      *   FIRST ':' and the FIRST '='). Two wp-cli parsing quirks verified
      *   empirically against this exact command (both silently swallow the
      *   value otherwise — instrumented with a live var_dump of $args/$assoc,

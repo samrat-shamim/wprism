@@ -8,10 +8,10 @@ namespace Duo;
  * whatever evidence exists to help a human decide.
  *
  * Two disjoint sources, per finding #5/#9:
- *   - Gate items (post_meta, term_meta): Capture::gate_scan()'s in-scope
- *     walk — the SAME walk Capture's abort gate runs, just collecting
- *     instead of aborting. Journal evidence, when the same key was also
- *     observed there, is joined on.
+ *   - Gate items (scope, post_meta, term_meta): Capture::gate_scan()'s
+ *     exact scope/classification walk — the SAME walk Capture's abort gates
+ *     run, collecting instead of aborting. Journal evidence, when the same
+ *     meta key was also observed there, is joined on.
  *   - Options: options are whitelist-only at capture (an unlisted option is
  *     invisible — exactly finding #5's silent-loss shape), so they can ONLY
  *     be surfaced by the provenance journal ever having seen a write to
@@ -43,6 +43,9 @@ final class Pending {
         $journalTermMeta = self::journal_unclassified($policy, 'termmeta');
 
         $items = [];
+        foreach ($gate['scope'] as $key => $ev) {
+            $items[] = self::make_item('scope', $key, $ev, null);
+        }
         foreach ($gate['post_meta'] as $key => $ev) {
             $items[] = self::make_item('post_meta', $key, $ev, $journalPostMeta[$key] ?? null);
         }

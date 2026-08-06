@@ -50,6 +50,7 @@ final class Policy {
                 throw new \RuntimeException("duo: $siteFile not found (not a duo site repo?)");
             }
             $p->site = Canon::decode(Canon::read_file($siteFile));
+            self::validate_scope_classes($p->site, 'site.duo.json', true);
         }
         $names = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
         $dir = self::manifests_dir();
@@ -60,6 +61,7 @@ final class Policy {
             }
             $manifest = Canon::decode(Canon::read_file($file));
             self::validate_field_classes($manifest);
+            self::validate_scope_classes($manifest, "manifest '$name'", false);
             $p->manifests[] = $manifest;
         }
         return $p;
@@ -277,7 +279,31 @@ final class Policy {
     }
 
     public function post_types(): array {
-        return $this->site['policy']['post_types'] ?? ['post', 'page', 'attachment'];
+        $exact = $this->site['policy']['post_types'] ?? ['post', 'page', 'attachment'];
+        foreach ($this->site['policy']['scope']['post_type'] ?? [] as $name => $rule) {
+            if (($rule['class'] ?? null) === 'authored') {
+                $exact[] = (string) $name;
+            }
+        }
+        return array_values(array_unique($exact));
+    }
+
+    /** @return string[] post types for which a pinned manifest declares a whole-type contract. */
+    public function declared_post_types(): array {
+        $out = [];
+        foreach ($this->manifests as $m) {
+            $out = array_merge($out, array_keys($m['post_types'] ?? []));
+        }
+        return array_values(array_unique($out));
+    }
+
+    /** @return string[] taxonomies for which a pinned manifest declares a structural contract. */
+    public function declared_taxonomies(): array {
+        $out = [];
+        foreach ($this->manifests as $m) {
+            $out = array_merge($out, array_keys($m['taxonomies'] ?? []));
+        }
+        return array_values(array_unique($out));
     }
 
     /**
@@ -374,6 +400,12 @@ final class Policy {
      */
     public function taxonomies(): array {
         $exact = $this->site['policy']['taxonomies'] ?? ['category', 'post_tag'];
+        foreach ($this->site['policy']['scope']['taxonomy'] ?? [] as $name => $rule) {
+            if (($rule['class'] ?? null) === 'authored') {
+                $exact[] = (string) $name;
+            }
+        }
+        $exact = array_values(array_unique($exact));
         $patterns = $this->taxonomy_pattern_rules();
         if (!$patterns) {
             return $exact;
@@ -588,10 +620,34 @@ final class Policy {
 
     /** @return array{rule:?array, source:?string} */
     public function post_type_rule_details(string $postType): array {
+        $site = $this->site['policy']['scope']['post_type'][$postType] ?? null;
+        if (is_array($site)) {
+            return ['rule' => $site, 'source' => 'site.duo.json'];
+        }
         foreach ($this->manifests as $m) {
             if (isset($m['post_types'][$postType]['class'])) {
                 return [
                     'rule' => ['class' => $m['post_types'][$postType]['class']],
+                    'source' => (string) ($m['name'] ?? '?'),
+                ];
+            }
+        }
+        return ['rule' => null, 'source' => null];
+    }
+
+    /** Whole-taxonomy disposition, parallel to post_type_rule_details().
+     * A structural manifest declaration without an explicit class defaults
+     * to authored: it names portable data the adapter understands, but the
+     * site must still opt that taxonomy into its authored scope. */
+    public function taxonomy_rule_details(string $taxonomy): array {
+        $site = $this->site['policy']['scope']['taxonomy'][$taxonomy] ?? null;
+        if (is_array($site)) {
+            return ['rule' => $site, 'source' => 'site.duo.json'];
+        }
+        foreach ($this->manifests as $m) {
+            if (isset($m['taxonomies'][$taxonomy])) {
+                return [
+                    'rule' => ['class' => (string) ($m['taxonomies'][$taxonomy]['class'] ?? 'authored')],
                     'source' => (string) ($m['name'] ?? '?'),
                 ];
             }
@@ -608,7 +664,8 @@ final class Policy {
      * @return array{authorized:bool, source:?string}
      */
     public function taxonomy_scope_details(string $taxonomy): array {
-        if (in_array($taxonomy, $this->site['policy']['taxonomies'] ?? ['category', 'post_tag'], true)) {
+        if (in_array($taxonomy, $this->site['policy']['taxonomies'] ?? ['category', 'post_tag'], true)
+            || (($this->site['policy']['scope']['taxonomy'][$taxonomy]['class'] ?? null) === 'authored')) {
             return ['authorized' => true, 'source' => 'site.duo.json'];
         }
         foreach ($this->manifests as $m) {
@@ -765,6 +822,31 @@ final class Policy {
         }
     }
 
+    /** Validate whole-entity scope dispositions at policy load time. Site
+     * rules live under policy.scope.{post_type,taxonomy}; manifests reuse
+     * their existing post_types/taxonomies declarations. Invalid scope
+     * input must fail every consumer, never turn into an implicit include
+     * or exclusion. */
+    private static function validate_scope_classes(array $source, string $label, bool $site): void {
+        $groups = $site
+            ? ($source['policy']['scope'] ?? [])
+            : ['post_type' => $source['post_types'] ?? [], 'taxonomy' => $source['taxonomies'] ?? []];
+        foreach (['post_type', 'taxonomy'] as $kind) {
+            foreach ($groups[$kind] ?? [] as $name => $rule) {
+                if (!is_string($name) || $name === '' || !is_array($rule)) {
+                    throw new \RuntimeException("duo: $label has an invalid scope.$kind declaration");
+                }
+                $class = $rule['class'] ?? ($site ? null : 'authored');
+                if (!in_array($class, self::SCOPE_CLASSES, true)) {
+                    throw new \RuntimeException(
+                        "duo: $label scope.$kind.$name.class=" . var_export($class, true)
+                        . ' (expected ' . implode('|', self::SCOPE_CLASSES) . ')'
+                    );
+                }
+            }
+        }
+    }
+
     /** Manifest-declared rebuilders (wp-cli commands run in the rebuild pass). */
     public function rebuilders(): array {
         $out = [];
@@ -830,6 +912,7 @@ final class Policy {
 
     private const SECTIONS = ['options', 'post_meta', 'term_meta'];
     private const CLASSES = ['authored', 'runtime', 'derived', 'env', 'managed'];
+    private const SCOPE_CLASSES = ['authored', 'runtime', 'derived', 'env'];
     private const CASTS = ['string', 'csv'];
 
     /**
@@ -839,9 +922,34 @@ final class Policy {
      * rewrites the file via Canon::encode so formatting stays canonical.
      */
     public static function set_rule(string $repo, string $section, string $key, array $rule): void {
+        if ($section === 'scope') {
+            if (!preg_match('/^(post_type|taxonomy):(.+)$/', $key, $m)) {
+                throw new \RuntimeException(
+                    "duo: scope key '$key' must be post_type:<name> or taxonomy:<name>"
+                );
+            }
+            $class = $rule['class'] ?? '';
+            if (!in_array($class, self::SCOPE_CLASSES, true)) {
+                throw new \RuntimeException(
+                    "duo: unknown scope class '$class' (expected " . implode('|', self::SCOPE_CLASSES) . ')'
+                );
+            }
+            if (array_diff_key($rule, ['class' => true])) {
+                throw new \RuntimeException('duo: scope rules accept class only (no ref, cast, or secret override)');
+            }
+            $siteFile = rtrim($repo, '/') . '/site.duo.json';
+            if (!is_file($siteFile)) {
+                throw new \RuntimeException("duo: $siteFile not found (not a duo site repo?)");
+            }
+            $site = Canon::decode(Canon::read_file($siteFile));
+            $site['policy']['scope'][$m[1]][$m[2]] = $rule;
+            Canon::write_file($siteFile, Canon::encode($site));
+            return;
+        }
         if (!in_array($section, self::SECTIONS, true)) {
             throw new \RuntimeException(
-                'duo: unknown policy section \'' . $section . '\' (expected ' . implode('|', self::SECTIONS) . ')'
+                'duo: unknown policy section \'' . $section . '\' (expected '
+                . implode('|', array_merge(self::SECTIONS, ['scope'])) . ')'
             );
         }
         if ($key === '') {
