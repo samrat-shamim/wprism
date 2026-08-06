@@ -326,6 +326,38 @@ cmd_reset() {
   echo "  install_env) before using it again."
 }
 
+cmd_stop() {
+  # Release-without-destroy: a stopped pair frees ALL of its RAM and CPU
+  # (idle Apache+MariaDB churn is real — measured ~10-15MiB + fractional
+  # CPU per container even at rest) while keeping containers, webroot
+  # volumes, and this pair's databases exactly as they are. This is the
+  # verb the LINEAR-LOOP resource-lifecycle rule wants while an agent is
+  # polling/waiting/blocked rather than actively executing against the
+  # pair (docs/agents/linear-loop.md).
+  local name="${1:?usage: pair.sh stop <name>}"
+  validate_name "$name"
+  say "pair '$name': stop (free RAM/CPU; containers, volumes, databases all kept)"
+  pair_compose "$name"
+  export DUO_PAIR="$name"
+  "${PAIR_COMPOSE[@]}" stop
+  pass "stopped — resume with: pair.sh start $name"
+}
+
+cmd_start() {
+  # Resume a stopped pair. compose start reuses the EXISTING containers
+  # (same ports, same overlay config they were created with), so none of
+  # up's flags or port args are needed — and none can be changed here; a
+  # config change means destroy + up.
+  local name="${1:?usage: pair.sh start <name>}"
+  validate_name "$name"
+  ensure_db_up
+  say "pair '$name': start (state exactly as it was at stop)"
+  pair_compose "$name"
+  export DUO_PAIR="$name"
+  "${PAIR_COMPOSE[@]}" start
+  pass "running again — same ports/config as before the stop"
+}
+
 cmd_destroy() {
   local name="${1:?usage: pair.sh destroy <name>}"
   validate_name "$name"
@@ -351,6 +383,17 @@ cmd_list() {
   fi
   warn_if_crowded ""
 
+  say "stopped pairs (kept, zero footprint — resume with: pair.sh start <name>)"
+  local stopped
+  stopped=$(docker compose ls -a --format json 2>/dev/null \
+    | jq -r '.[] | select((.ConfigFiles | contains("pair.yml")) and ((.Status | startswith("running")) | not)) | .Name' \
+    | sed 's/^duo-//' || true)
+  if [ -z "$stopped" ]; then
+    echo "  (none)"
+  else
+    printf '%s\n' "$stopped" | sed 's/^/  - /'
+  fi
+
   say "shared db"
   if docker inspect "$DB_CONTAINER" >/dev/null 2>&1; then
     echo "  ${DB_CONTAINER}: $(docker inspect -f '{{.State.Status}} ({{.State.Health.Status}})' "$DB_CONTAINER")"
@@ -364,6 +407,8 @@ usage() {
 usage:
   pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--http|--headless]
   pair.sh reset <name>
+  pair.sh stop <name>
+  pair.sh start <name>
   pair.sh destroy <name>
   pair.sh list
 
@@ -384,10 +429,18 @@ usage:
            site-repo directories. Does NOT touch the webroot volumes,
            restart containers, or reinstall WordPress.
 
+  stop     Free the pair's RAM/CPU without losing anything: containers
+           stopped, webroot volumes and databases untouched. Use while
+           polling/waiting/blocked instead of leaving the pair hot.
+
+  start    Resume a stopped pair exactly as it was (same ports/config —
+           compose start reuses the existing containers).
+
   destroy  compose -p down -v (containers + webroot volumes) + drop this
            pair's two databases. Site-repo directories are left on disk.
 
-  list     Show live pairs and the shared db's status; warns if crowded.
+  list     Show live pairs, stopped pairs, and the shared db's status;
+           warns if crowded.
 
 Names: lowercase letters/digits only, starting with a letter (no
 hyphens/underscores) — used bare as both a MySQL database-name fragment
@@ -398,6 +451,8 @@ USAGE
 case "${1:-}" in
   up)      shift; cmd_up "$@" ;;
   reset)   shift; cmd_reset "$@" ;;
+  stop)    shift; cmd_stop "$@" ;;
+  start)   shift; cmd_start "$@" ;;
   destroy) shift; cmd_destroy "$@" ;;
   list)    shift; cmd_list "$@" ;;
   -h|--help|"") usage ;;

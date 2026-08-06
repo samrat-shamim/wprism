@@ -88,6 +88,24 @@ Sandbox discipline (see `docs/sandbox.md`):
   `pgrep -f "conformance/run.sh"` before starting one, and wait rather than
   interleave (two writers on one pair produce false failures).
 
+**Resource lifecycle (mandatory):**
+
+- **Budget:** at most **one running pair per agent** at a time, and respect
+  the host budget the dispatch prompt gives you (default assumption: ≤2
+  running pairs host-wide — check `pair.sh list` before every `up`). Need a
+  second env? Stop or destroy your first.
+- **Release when idle:** whenever you are not actively executing against
+  your pair — polling Linear, waiting on a human/review, blocked, writing
+  code or docs for more than ~15 minutes — `pair.sh stop <name>` (frees all
+  its RAM/CPU; containers, volumes, and databases are kept) and
+  `pair.sh start <name>` on resume. An idle-but-running pair is a leak.
+- **Clean up when done:** `pair.sh destroy <name>` the moment an issue's
+  verification is finished (before the PR wait, not after — re-verification
+  after review feedback recreates it in minutes with `up`).
+- **End-of-run sweep:** before your final report or exit, `pair.sh list`
+  must show none of your pairs running (destroyed for closed issues,
+  stopped for an issue you're returning to). Say so in the report.
+
 ## Candidate selection
 
 1. List the project's Backlog issues; sort by priority, then unblock impact,
@@ -185,8 +203,9 @@ branch or edit files before this passes.
    the SHA) and where every remaining criterion was re-homed, then strip your
    `[AGENT_NAME] ` prefix and return the issue to Backlog. A Done issue must
    never hide unchecked boxes.
-7. Re-read the issue and confirm the markers. Clean up the issue's footprint:
-   `git worktree remove ../duo-wp-wt-DUO-XXXX` and `git branch -D {branch}`
+7. Re-read the issue and confirm the markers. Clean up the issue's whole
+   footprint: `pair.sh destroy` any pair(s) you created for it,
+   `git worktree remove ../duo-wp-wt-DUO-XXXX`, and `git branch -D {branch}`
    (the remote branch auto-deletes on merge). Then re-read this file before
    selecting the next issue.
 
