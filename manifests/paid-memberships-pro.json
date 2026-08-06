@@ -12,7 +12,8 @@
     "options: this version's PMPro introduced NO post_meta keys anywhere in this round's scenario (membership levels are table rows, not post meta; restriction is the join table above; system pages are ordinary WP pages with nothing PMPro-specific attached) — this manifest's post_meta section is deliberately empty, not an oversight.",
     "pmpro_restricted_files_random_string: classified env on SEMANTIC grounds (its own option name states its purpose: a per-install random string for obfuscating protected-file download URLs — DESIGN.md's own 'salts are the canonical env-bound case' applies regardless of whether the automated secret-heuristic's entropy threshold happens to fire on this specific 10-character value) — a deliberate human override of what the heuristic tier alone might miss, the same 'proposal is advisory, never authority' posture docs/grind/r1a-forms.md's own `secret_key` finding already established.",
     "pmpro_gateway_environment / pmpro_last_known_url: env — the former is literally PMPro's own sandbox-vs-live payment gateway toggle (an environment distinction by definition); the latter tracks THIS install's own detected URL, env-bound like siteurl.",
-    "The nine pmpro_*_page_id options + pmpro_tospage (a legacy, currently-unused Terms-of-Service page reference predating some of the newer page-ref options, confirmed empty on this fixture) are all `ref: post` — the option_ref_tokens null-safe path (already proven on `wp_page_for_privacy_policy` in Spike A) handles pmpro_tospage's empty/unset value the same way."
+    "The nine pmpro_*_page_id options + pmpro_tospage (a legacy, currently-unused Terms-of-Service page reference predating some of the newer page-ref options, confirmed empty on this fixture) are all `ref: post` — the option_ref_tokens null-safe path (already proven on `wp_page_for_privacy_policy` in Spike A) handles pmpro_tospage's empty/unset value the same way.",
+    "DUO-3235 (both engine gaps from this round now closed): pmpro_membership_levelmeta and pmpro_memberships_pages are real declarations below, no longer honest-intent markers. Re-DESCRIBE'd live against the SAME 3.8.3 tag on a fresh sandbox pair before writing these (empirics before classification, not trusting the earlier notes' memory): pmpro_membership_levelmeta is meta_id(PK,auto_increment)/pmpro_membership_level_id/meta_key/meta_value — exactly as this file's own earlier note recorded, now declared with the new `id_column` field (agent/src/Snapshot.php's assert_meta_schema()/capture_meta_rows()/reconcile_meta() previously hardcoded the literal string 'id' at THREE call sites, not just the one that happened to throw first — see Snapshot.php's own docblock). pmpro_memberships_pages carries a THIRD live column beyond the composite PK that this file's earlier note never mentioned: `modified TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()` — an auto-maintained MySQL column, never authored, classified runtime below (accounted for via an ordinary `columns{}` entry — the new identity.mode=composite_ref schema assertion still enforces 'every live column classified,' same as every other row table). `pmpro_memberships_categories` shares the identical 3-column shape (membership_id/category_id/modified, DESCRIBE'd live) and is now structurally capturable via the same composite_ref grammar in principle — left as the honest-intent marker anyway, matching this file's own `pmpro_discount_codes`/`pmpro_groups` precedent just above: not attempted with real content this round (no category-restriction fact was seeded), so not claimed. `pmpro_discount_codes_levels` is a DIFFERENT, harder case even now: composite `(code_id, level_id)` PK PLUS nine real pricing-override columns (initial_payment/billing_amount/cycle_number/cycle_period/billing_limit/trial_amount/trial_limit/expiration_number/expiration_period, DESCRIBE'd live) — composite_ref's grammar has a place for genuine extra authored columns on a composite-identity table (finalize_composite_row() upserts them), but again unexercised with real content this round, so it stays a marker too."
   ],
   "options": {
     "pmpro_accepted_credit_cards": {"class": "authored"},
@@ -56,7 +57,14 @@
     "pmpro_discount_codes_uses": {"class": "runtime"},
     "pmpro_email_log": {"class": "runtime"},
     "pmpro_groups": {"class": "authored_typed_snapshot_post_v1"},
-    "pmpro_membership_levelmeta": {"class": "authored_typed_snapshot_post_v1"},
+    "pmpro_membership_levelmeta": {
+      "attached_to": {"column": "pmpro_membership_level_id", "table": "pmpro_membership_levels"},
+      "class": "authored_snapshot_meta",
+      "default_class": "authored",
+      "id_column": "meta_id",
+      "key_column": "meta_key",
+      "value_column": "meta_value"
+    },
     "pmpro_membership_levels": {
       "class": "authored_snapshot",
       "columns": {
@@ -83,7 +91,18 @@
     "pmpro_membership_ordermeta": {"class": "runtime"},
     "pmpro_membership_orders": {"class": "runtime"},
     "pmpro_memberships_categories": {"class": "authored_typed_snapshot_post_v1"},
-    "pmpro_memberships_pages": {"class": "authored_typed_snapshot_post_v1"},
+    "pmpro_memberships_pages": {
+      "class": "authored_snapshot",
+      "columns": {
+        "modified": {"class": "runtime"}
+      },
+      "id_kind": "pmpro_restrict",
+      "identity": {"columns": ["membership_id", "page_id"], "mode": "composite_ref"},
+      "refs": [
+        {"column": "membership_id", "kind": "pmpro_level"},
+        {"column": "page_id", "kind": "post"}
+      ]
+    },
     "pmpro_memberships_users": {"class": "runtime"},
     "pmpro_subscriptionmeta": {"class": "runtime"},
     "pmpro_subscriptions": {"class": "runtime"}

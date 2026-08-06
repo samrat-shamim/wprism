@@ -85,7 +85,7 @@ namespace Duo;
  * postmeta (Apply::finalize_post()'s existing pattern), which is also why
  * they need no entry in duo_map at all.
  *
- * ---- Identity: two modes, one honest trade-off ----
+ * ---- Identity: three modes, one honest trade-off ----
  *
  * Posts/terms mint a uuid and store it BACK onto the row itself (_duo_uuid
  * via postmeta/termmeta) — durable even if the duo_map ledger is ever lost,
@@ -93,7 +93,7 @@ namespace Duo;
  * space of its own and MUST NOT get one added to the plugin's own schema
  * (DESIGN.md's non-negotiable "plugins work completely unmodified"), so
  * identity for a declared table's rows lives ONLY in duo_map, keyed by
- * (id_kind, local_id) -> uuid. Two identity modes, declared per table:
+ * (id_kind, local_id) -> uuid. Three identity modes, declared per table:
  *
  * - `"identity": {"mode": "mapped"}` (the default when `identity` is
  *   omitted) — a fresh row gets a random Uuid::v7(), same as posts/terms.
@@ -124,6 +124,99 @@ namespace Duo;
  *   code: v5's determinism plus Ledger::set()'s pre-existing "a stale
  *   (id_kind, local_id) row under a different uuid loses" rule are
  *   individually simple and correctly compose into full recovery.
+ * - `"identity": {"mode": "composite_ref", "columns": ["<col1>", "<col2>"]}`
+ *   (DUO-3235, task #125) — for a PURE JOIN table: no surrogate `pk` column
+ *   exists at all, and its real, live composite PRIMARY KEY is exactly the
+ *   two FK columns already declared in `refs[]` (checked as an exact set
+ *   equality in assert_composite_row_schema() — `identity.columns` must be
+ *   precisely the table's `refs[]` columns, neither more nor fewer: this
+ *   mode is for tables where the identity IS the pair of things referenced,
+ *   nothing else). Proving fixture: PMPro's `pmpro_memberships_pages`
+ *   (`membership_id` -> a declared `pmpro_level` row, `page_id` -> a post) —
+ *   DESCRIBE'd live: `PRIMARY KEY (page_id, membership_id)`, no `id` column
+ *   at all — PMPro's real "Require Membership" content-restriction fact.
+ *
+ *   The uuid is derived, like natural_key mode, but from a DIFFERENT input:
+ *   `Uuid::v5(NAMESPACE_DUO, "<table>:<col1>=<ref1-uuid>:<col2>=<ref2-uuid>")`
+ *   — the tuple of the REFERENCED ROWS' OWN uuids, never the raw local ids
+ *   the live join row currently holds. This is load-bearing, not a stylistic
+ *   choice: unlike `attribute_name` (a human-authored STRING, stable and
+ *   portable across every environment by construction), `membership_id`/
+ *   `page_id` are environment-local auto-increment integers — the exact
+ *   category this whole engine's token grammar exists to make non-portable.
+ *   Deriving from raw ids would mint a DIFFERENT uuid for "the same fact" on
+ *   every environment (source captures level-2/page-14 as one uuid; a fresh
+ *   target's own local ids for the identical two entities are unrelated
+ *   numbers, so recapturing there would derive a second, different uuid for
+ *   what is semantically one authored fact) — silently breaking this
+ *   project's entire "one immutable revision, one meaning" identity model
+ *   for this table class alone. Deriving from the referenced uuids instead
+ *   is exactly "natural key over the tuple," just one level of indirection
+ *   from a raw column value: the natural key of a join row, in a system
+ *   whose whole point is that portable identity is the uuid, not the local
+ *   id, is unavoidably the pair of uuids it joins.
+ *
+ *   Consequence, stated as designed rather than discovered as a limitation:
+ *   a composite_ref row's identity is a PURE FUNCTION of its two resolved
+ *   refs, recomputed fresh on every capture — never looked up, nothing to
+ *   "mint." So unlike mapped mode, there is no un-minted state to gate
+ *   behind `$mint`, and unlike EITHER other mode, duo_map's role shrinks to
+ *   pure bookkeeping for delete_row() (see pack_composite_id()'s docblock),
+ *   never consulted to establish identity itself — the strongest of the
+ *   three modes' self-healing properties, precisely because there was never
+ *   a scalar local_id to lose in the first place. A ref that fails to
+ *   resolve throws unconditionally (identify_composite_row(), same
+ *   structural posture as an ordinary row's refs[] — see "Refs: required
+ *   vs optional" below — deliberately NOT softened for a merely-snapshot
+ *   call: Capture::snapshot() already throws identically for an ordinary
+ *   already-mapped row's broken structural ref, so composite_ref does not
+ *   invent a new asymmetry here, it just extends the existing one).
+ *
+ *   "Reconciliation is exists/absent, no update bucket" (the framing this
+ *   mode was commissioned under) is true of the IDENTITY itself — changing
+ *   either resolved ref changes the uuid, i.e. is a different fact, not an
+ *   edited one — but this mode still allows an ordinary `columns{}` map for
+ *   any OTHER live column (PMPro's own `modified` — an auto `ON UPDATE
+ *   CURRENT_TIMESTAMP()` column, confirmed live, classified `runtime` in
+ *   the shipped manifest) or even genuine extra AUTHORED data columns (a
+ *   real, DESCRIBE'd but NOT this round's fixture: `pmpro_discount_codes_
+ *   levels` has a composite `(code_id, level_id)` PK plus nine real pricing-
+ *   override columns) — finalize_composite_row() upserts those normally.
+ *   "No update bucket" describes the two-column pure-join proving fixture's
+ *   OWN observed behavior (plan can never place it in `update`, because
+ *   there is no content that can change independent of identity — verified
+ *   live, not merely asserted, by sandbox/tests/regress_pmpro_composite_ref.sh's
+ *   own `.plan.update == 0` assertion across two full round-trips; Apply::
+ *   build_plan() is out of reach of this file's OWN offline harness,
+ *   regress_composite_ref.php, by design — see this file's docblock,
+ *   "Engine boundary"), not a hard restriction the grammar itself imposes
+ *   on every future composite_ref table.
+ *
+ *   Mutation continuity (cross-ref DUO-3237, a natural_key rename hazard: a
+ *   plain `name`-column edit on a WooCommerce attribute silently re-derives
+ *   its uuid, since that mode's identity IS the label): composite_ref's two
+ *   columns are ALWAYS refs, so their stability is entirely INHERITED from
+ *   whatever identity mode the referenced table already uses, never re-
+ *   derived from a label of composite_ref's own. This fixture's two ref
+ *   targets — `pmpro_level` (mapped identity: a random v7, stored in
+ *   duo_map, untouched by editing `name`) and `post` (the built-in
+ *   `_duo_uuid` postmeta, untouched by editing title/slug) — are both
+ *   immune to DUO-3237's specific hazard class; had a ref target instead
+ *   used `natural_key` identity, a rename there would ripple transitively
+ *   into this row's own derived uuid, exactly as it would for ANY other
+ *   entity referencing that same natural_key row — composite_ref adds no
+ *   NEW mutation surface, it only inherits what its ref targets already
+ *   have. The DIFFERENT, ORDINARY-OPERATION question — an admin re-points a
+ *   restriction from one page to another — is empirically answered (not
+ *   merely argued) by regress_pmpro_composite_ref.sh's step 8: delete-old-
+ *   uuid + create-new-uuid + zero updates, live. This is the correct
+ *   outcome, not DUO-3237's failure mode wearing a different hat: unlike
+ *   `attribute_name` (a human-facing LABEL incidental to an attribute's
+ *   "true" identity — renaming it is conceptually an edit), a join row's
+ *   tuple IS its entire meaning — "level 2 restricts page 14" and "level 2
+ *   restricts page 20" are two DIFFERENT facts, not one fact relabeled, so
+ *   delete+create is the semantically correct shape, matching what hand-
+ *   edited canonical JSON files would show too (one deleted, one created).
  *
  * `id_kind` values share duo_map.id_kind's column budget with post/term/
  * term_taxonomy (VARCHAR(16), no enum constraint — confirmed by reading
@@ -212,6 +305,16 @@ final class Snapshot {
     /** duo_map.id_kind is VARCHAR(16) — see this file's docblock. */
     private const MAX_ID_KIND_LEN = 16;
 
+    /** Single source of truth for "is this authored_snapshot declaration a
+     *  composite_ref (pure join table) identity" — every dispatch site below
+     *  (schema assertion, capture, ensure/finalize, delete, ledger hygiene)
+     *  branches on this SAME check, so the mode can never register as
+     *  composite_ref in one place and fall through to mapped/natural_key
+     *  logic in another. See this file's docblock, "Identity: three modes." */
+    private static function is_composite_ref(array $decl): bool {
+        return ($decl['identity']['mode'] ?? 'mapped') === 'composite_ref';
+    }
+
     // ------------------------------------------------------------- manifest
 
     /** Entity 'type' values already spoken for by posts/terms/menus/options
@@ -278,6 +381,18 @@ final class Snapshot {
                 throw new \RuntimeException(
                     "duo: table '$metaName' declares class " . self::CLASS_META . ' with attached_to.table='
                     . var_export($owner, true) . ', which is not itself a declared ' . self::CLASS_ROW . ' table'
+                );
+            }
+            if (self::is_composite_ref($rowTables[$owner])) {
+                // A composite_ref row has no scalar local identity of its own
+                // (see this file's docblock) for a sidecar's attached_to.column
+                // to key on — nothing PMPro's own composite-PK tables need
+                // (neither pmpro_memberships_pages nor pmpro_memberships_
+                // categories has an attached-meta table), so this stays an
+                // explicit refusal rather than a half-built mechanism.
+                throw new \RuntimeException(
+                    "duo: table '$metaName' declares attached_to.table='$owner', which is identity.mode=composite_ref — "
+                    . 'a pure join table has no scalar row identity for an attached-meta sidecar to key on'
                 );
             }
             $out[$owner][$metaName] = $metaDecl;
@@ -449,6 +564,10 @@ final class Snapshot {
      * data-dependent), so it's cheap to always run.
      */
     public static function assert_row_schema(string $table, array $decl): void {
+        if (self::is_composite_ref($decl)) {
+            self::assert_composite_row_schema($table, $decl);
+            return;
+        }
         $pk = (string) ($decl['pk'] ?? '');
         if ($pk === '') {
             throw new \RuntimeException("duo: table '$table' declares " . self::CLASS_ROW . " with no 'pk'");
@@ -505,23 +624,131 @@ final class Snapshot {
     }
 
     /**
+     * Schema assertion for identity.mode=composite_ref (DUO-3235, task #125)
+     * — the "pure join table" shape (see this file's docblock, "Identity:
+     * three modes"). Deliberately a SEPARATE method from assert_row_schema()
+     * rather than more branches threaded through it: the invariants differ
+     * enough (no pk; identity.columns must equal refs[] columns EXACTLY)
+     * that interleaving would obscure both, the same call made for
+     * assert_meta_schema() living apart from assert_row_schema() already.
+     *
+     * `identity.columns` is asserted to be exactly 2 entries: this round's
+     * ONLY proven fixture (PMPro's pmpro_memberships_pages/_categories) is
+     * 2-column; N>2 is a straightforward mechanical extension (see
+     * pack_composite_id()'s docblock for the bit-budget arithmetic it would
+     * need) but unexercised, so refused rather than half-supported.
+     */
+    public static function assert_composite_row_schema(string $table, array $decl): void {
+        if (isset($decl['pk'])) {
+            throw new \RuntimeException(
+                "duo: table '$table' declares identity.mode=composite_ref AND a 'pk' — "
+                . "composite_ref tables have no scalar primary key; remove 'pk'"
+            );
+        }
+        $idKind = (string) ($decl['id_kind'] ?? '');
+        if ($idKind === '' || strlen($idKind) > self::MAX_ID_KIND_LEN) {
+            throw new \RuntimeException(
+                "duo: table '$table' declares id_kind '$idKind' — must be 1-" . self::MAX_ID_KIND_LEN
+                . ' chars (duo_map.id_kind is VARCHAR(' . self::MAX_ID_KIND_LEN . '))'
+            );
+        }
+        if (!empty($decl['invalidate'])) {
+            throw new \RuntimeException(
+                "duo: table '$table' declares identity.mode=composite_ref with 'invalidate' — "
+                . "run_invalidate()'s {id} substitution assumes a single scalar local id, which this mode has no "
+                . 'equivalent of; unsupported, not silently ignored (no composite_ref fixture has needed it — see docblock)'
+            );
+        }
+        $idCols = $decl['identity']['columns'] ?? null;
+        if (!is_array($idCols) || count($idCols) !== 2) {
+            throw new \RuntimeException(
+                "duo: table '$table' declares identity.mode=composite_ref with identity.columns != exactly 2 entries "
+                . '— this is the only shape this engine has proven (see assert_composite_row_schema()\'s docblock)'
+            );
+        }
+        $refCols = array_column($decl['refs'] ?? [], 'column');
+        $sortedIdCols = $idCols;
+        sort($sortedIdCols);
+        $sortedRefCols = $refCols;
+        sort($sortedRefCols);
+        if ($sortedIdCols !== $sortedRefCols) {
+            throw new \RuntimeException(
+                "duo: table '$table' identity.columns [" . implode(', ', $idCols)
+                . "] must be EXACTLY its refs[] columns [" . implode(', ', $refCols)
+                . '] — composite_ref is only for pure join tables: every identity column is a ref, every ref is an identity column'
+            );
+        }
+
+        $colKeys = array_keys($decl['columns'] ?? []);
+        $overlap = array_intersect($colKeys, $refCols);
+        if ($overlap) {
+            throw new \RuntimeException(
+                "duo: table '$table' declares column(s) in BOTH columns and refs: " . implode(', ', $overlap)
+            );
+        }
+
+        $live = self::live_columns($table);
+        if ($live === null) {
+            throw new \RuntimeException(
+                "duo: declared table '$table' does not exist on this environment (plugin inactive, or manifest stale?)"
+            );
+        }
+        $accounted = array_merge($refCols, $colKeys);
+        $undeclared = array_diff($live, $accounted);
+        if ($undeclared) {
+            sort($undeclared);
+            throw new \RuntimeException(
+                "duo: table '$table' has undeclared column(s): " . implode(', ', $undeclared)
+                . ' — every real column must be classified (as a composite_ref identity/ref column, or a columns'
+                . ' entry with class authored/runtime/derived/env) before this table can be captured'
+            );
+        }
+        $missing = array_diff($accounted, $live);
+        if ($missing) {
+            sort($missing);
+            throw new \RuntimeException(
+                "duo: table '$table' declares column(s) absent from this environment: " . implode(', ', $missing)
+                . ' (plugin schema changed? manifest may be pinned to the wrong version range)'
+            );
+        }
+    }
+
+    /**
      * An attached-meta table's live schema is the fixed EAV shape itself
-     * (id + the owner-linking column + the key/value column pair + any
-     * declared legacy mirror pair) — asserted exactly, not just "at least
-     * these columns," so a plugin schema change is caught the same way
-     * assert_row_schema() catches one, even though there is no per-KEY
+     * (id_column + the owner-linking column + the key/value column pair +
+     * any declared legacy mirror pair) — asserted exactly, not just "at
+     * least these columns," so a plugin schema change is caught the same
+     * way assert_row_schema() catches one, even though there is no per-KEY
      * enumeration to check (see this file's docblock for why that's a
      * deliberately different completeness problem for an EAV sidecar).
+     *
+     * `id_column` (DUO-3235, task #126) — the sidecar's own PK column NAME,
+     * defaulting to `'id'` for exact backward compatibility with every
+     * fixture that shipped before this field existed (nf3_*_meta,
+     * woocommerce_attribute_taxonomies have no attached-meta table at all,
+     * so only nf3_*_meta is a real precedent, and its PK genuinely IS
+     * named 'id' — confirmed by reading manifests/ninja-forms.json's own
+     * declarations, which never needed an override). Found hardcoded
+     * (literal `'id'`) at THREE call sites, not just this one — capturing
+     * or applying a table declaring an override would have hit the other
+     * two even after this method alone stopped throwing (the identical
+     * two-bugs-hiding-each-other trap DUO-3212's Blocks.php/Lint.php pair
+     * hit): capture_meta_rows()'s `ORDER BY id` and reconcile_meta()'s
+     * `SELECT id, ...` + its UPDATE `WHERE id = ...`. All three now read
+     * this same declared/defaulted column name. Proving fixture:
+     * pmpro_membership_levelmeta, whose real PK column is `meta_id` (DESCRIBE'd
+     * live on this round's own sandbox pair — see manifests/paid-memberships-pro.json).
      */
     public static function assert_meta_schema(string $table, array $decl): void {
         $attachCol = (string) ($decl['attached_to']['column'] ?? '');
         if (($decl['attached_to']['table'] ?? '') === '' || $attachCol === '') {
             throw new \RuntimeException("duo: table '$table' declares " . self::CLASS_META . " with no attached_to.{table,column}");
         }
+        $idCol = (string) ($decl['id_column'] ?? 'id');
         $keyCol = (string) ($decl['key_column'] ?? 'meta_key');
         $valCol = (string) ($decl['value_column'] ?? 'meta_value');
         $expected = array_unique(array_filter([
-            'id', $attachCol, $keyCol, $valCol,
+            $idCol, $attachCol, $keyCol, $valCol,
             $decl['legacy_key_column'] ?? null, $decl['legacy_value_column'] ?? null,
         ]));
         sort($expected);
@@ -583,6 +810,14 @@ final class Snapshot {
     }
 
     private static function capture_table(string $table, array $decl, array $metaDecls, Tokens $tokens, bool $mint): array {
+        if (self::is_composite_ref($decl)) {
+            // $mint/$metaDecls are unused here on purpose: composite_ref rows
+            // are never "minted" (see identify_composite_row()'s docblock)
+            // and can never own an attached-meta sidecar (meta_tables_by_
+            // owner() already refuses that combination before capture()
+            // ever reaches this call).
+            return self::capture_composite_table($table, $decl, $tokens);
+        }
         global $wpdb;
         $pk = $decl['pk'];
         $prefixed = $wpdb->prefix . $table;
@@ -637,6 +872,57 @@ final class Snapshot {
                 'uuid' => $uuid,
             ];
             $slug = self::slug_for($decl, $row, $localId);
+            $entities[] = [
+                'uuid' => $uuid,
+                'type' => $table,
+                'path' => "tables/$table/$uuid--$slug.json",
+                'content' => Canon::encode($front),
+            ];
+        }
+        return $entities;
+    }
+
+    /**
+     * Capture for identity.mode=composite_ref tables (DUO-3235, task #125).
+     * No $mint parameter (unlike capture_table()): a composite_ref row's
+     * uuid is a pure function of its two resolved refs, recomputed fresh
+     * every call — there is no un-minted state to gate visibility behind
+     * (see this file's docblock, "Identity: three modes"). Every row whose
+     * refs currently resolve is captured, on BOTH Capture::run() and
+     * Capture::snapshot() alike.
+     */
+    private static function capture_composite_table(string $table, array $decl, Tokens $tokens): array {
+        global $wpdb;
+        $idKind = $decl['id_kind'];
+        $cols = $decl['identity']['columns'];
+        $prefixed = $wpdb->prefix . $table;
+        $orderBy = implode(', ', array_map(fn($c) => "`$c`", $cols));
+        $rows = $wpdb->get_results("SELECT * FROM `$prefixed` ORDER BY $orderBy ASC", ARRAY_A) ?: [];
+
+        $entities = [];
+        foreach ($rows as $row) {
+            [$uuid, $tokensByCol, $localByCol] = self::identify_composite_row($table, $decl, $row, $tokens);
+
+            $columns = $tokensByCol; // identity/ref columns, tokenized — same flat "columns" shape regular rows use
+            foreach ($decl['columns'] ?? [] as $col => $rule) {
+                if (($rule['class'] ?? '') !== 'authored') {
+                    continue; // runtime/derived/env: excluded — e.g. PMPro's own `modified` auto-timestamp column
+                }
+                $v = $row[$col] ?? null;
+                self::guard_secret($v, !empty($rule['allow_secret']), "table '$table' column '$col' (composite row $uuid)");
+                $columns[$col] = is_string($v) ? $tokens->tokenize_text($v) : $v;
+            }
+
+            $packed = self::pack_composite_id($table, $localByCol);
+            Ledger::set($uuid, $table, $idKind, $packed);
+
+            $front = [
+                'columns' => (object) $columns,
+                'meta' => (object) [], // composite_ref tables can never own an attached-meta sidecar — see meta_tables_by_owner()
+                'table' => $table,
+                'uuid' => $uuid,
+            ];
+            $slug = self::slug_for_composite($localByCol, $cols);
             $entities[] = [
                 'uuid' => $uuid,
                 'type' => $table,
@@ -733,6 +1019,144 @@ final class Snapshot {
     }
 
     /**
+     * Identity for one composite_ref row: NEVER a ledger lookup (contrast
+     * identify_row() above, which tries Ledger::uuid_for() first) — always
+     * recomputed from the row's two CURRENTLY-resolved refs, because that is
+     * the whole point of this mode (see this file's docblock). Throws
+     * (structural-ref posture, unconditionally — same as an ordinary row's
+     * refs[] loop in capture_table(), not softened for a mere Capture::
+     * snapshot() call) when either component is zero/empty or fails to
+     * resolve: a composite_ref row's TWO identity columns are never optional
+     * (that's the entire content of a pure join row — nothing to have a
+     * "half-formed" version of).
+     *
+     * @param string[] $tokensByCol out: identity column => token string, in
+     *   the SAME shape regular refs[] columns already produce for a file's
+     *   flat `columns` map
+     * @param int[] $localByCol out: identity column => this environment's
+     *   OWN current local id for that column (capture direction only —
+     *   finalize_composite_row() resolves the apply direction separately)
+     * @return array{0:string, 1:array<string,string>, 2:array<string,int>}
+     */
+    private static function identify_composite_row(string $table, array $decl, array $row, Tokens $tokens): array {
+        $cols = $decl['identity']['columns'];
+        $kindByCol = [];
+        foreach ($decl['refs'] as $ref) {
+            $kindByCol[$ref['column']] = $ref['kind'];
+        }
+
+        $uuidParts = [$table];
+        $tokensByCol = [];
+        $localByCol = [];
+        foreach ($cols as $col) {
+            $raw = (int) ($row[$col] ?? 0);
+            if ($raw <= 0) {
+                throw new \RuntimeException(
+                    "duo: $table row has empty identity column '$col' — every composite_ref identity "
+                    . 'column is structural, never optional (there is no partial version of a join fact)'
+                );
+            }
+            $tok = $tokens->id_to_token($raw, $kindByCol[$col]);
+            if ($tok === null) {
+                // STRUCTURAL ref, same posture as capture_table()'s own
+                // refs[] loop — see this file's docblock, "Refs: required
+                // vs optional".
+                throw new \RuntimeException(
+                    "duo: $table row has unmanaged {$kindByCol[$col]} ref $raw in identity column '$col' — "
+                    . 'capture scope must include the referenced row'
+                );
+            }
+            $uuidParts[] = "$col=" . self::uuid_from_token($tok);
+            $tokensByCol[$col] = $tok;
+            $localByCol[$col] = $raw;
+        }
+
+        $uuid = Uuid::v5(Uuid::NAMESPACE_DUO, implode(':', $uuidParts));
+        return [$uuid, $tokensByCol, $localByCol];
+    }
+
+    /** Extracts the bare uuid out of a "{{kind:uuid}}" token — the SAME
+     *  shape Tokens::id_to_token() always produces, matched with the exact
+     *  uuid pattern Tokens::token_to_id() itself validates against, so this
+     *  never silently disagrees with what the rest of the engine considers
+     *  a well-formed token. Used only to build composite_ref's uuid-
+     *  derivation input (identify_composite_row()) from a token this file
+     *  already resolved via Tokens — never a second, independent lookup. */
+    private static function uuid_from_token(string $token): string {
+        if (!preg_match('/^\{\{[a-z][a-z0-9_]*:([0-9a-f-]{36})\}\}$/', $token, $m)) {
+            throw new \RuntimeException("duo: malformed ref token '$token' (composite_ref identity derivation)");
+        }
+        return $m[1];
+    }
+
+    /**
+     * Packs a composite_ref row's two CURRENT local ids into duo_map's
+     * existing, unchanged `local_id BIGINT UNSIGNED` column — deliberately
+     * NOT a schema migration (see this file's docblock): (id_kind, local_id)
+     * stays the SAME lookup shape delete_row() and every other ledger
+     * consumer already use, just carrying a packed value instead of a bare
+     * scalar for this one identity mode. Each component is budgeted to 31
+     * bits (0..2^31-1, ~2.1 billion — no real WordPress row count will ever
+     * approach this) rather than the naively-tempting 32: at 32 bits, a
+     * component with its own top bit set would push the packed value's bit
+     * 63 high, which PHP represents as a NEGATIVE 64-bit signed int (PHP has
+     * no native unsigned integer type) even though MySQL's BIGINT UNSIGNED
+     * column has no trouble with the same bit pattern — a representation
+     * mismatch, not a real capacity concern at any plausible scale. 31 bits
+     * per component keeps the packed value's magnitude strictly under 2^62,
+     * safely inside PHP's positive signed range with zero ambiguity, at the
+     * cost of a budget so generous the difference from 32 is unobservable
+     * in practice. Components exceeding the budget throw rather than
+     * silently truncate or wrap.
+     */
+    private const COMPOSITE_COMPONENT_BITS = 31;
+    private const COMPOSITE_COMPONENT_MAX = (1 << self::COMPOSITE_COMPONENT_BITS) - 1;
+
+    /**
+     * @param array<string,int> $colVals identity column name => this
+     *   environment's current local id, in identity.columns order (exactly
+     *   what identify_composite_row()/finalize_composite_row() already build
+     *   as $localByCol — passed straight through, not reassembled). Naming
+     *   the table AND both column=value pairs in the failure message (not
+     *   just the single offending scalar) is deliberate: an operator hitting
+     *   this on a real site needs to see the WHOLE tuple to know which row
+     *   is unrepresentable and why, not decode a bare number.
+     */
+    private static function pack_composite_id(string $table, array $colVals): int {
+        $pairs = [];
+        $overflow = [];
+        foreach ($colVals as $col => $v) {
+            $pairs[] = "$col=$v";
+            if ($v < 0 || $v > self::COMPOSITE_COMPONENT_MAX) {
+                $overflow[] = "$col=$v";
+            }
+        }
+        if ($overflow) {
+            throw new \RuntimeException(
+                "duo: table '$table' composite identity (" . implode(', ', $pairs) . ') has out-of-budget component(s) ('
+                . implode(', ', $overflow) . ') — each component must be 0..' . self::COMPOSITE_COMPONENT_MAX
+                . " for this engine's packed local_id (see pack_composite_id()'s docblock)"
+            );
+        }
+        $vals = array_values($colVals);
+        return ($vals[0] << self::COMPOSITE_COMPONENT_BITS) | $vals[1];
+    }
+
+    /** @return array{0:int, 1:int} */
+    private static function unpack_composite_id(int $packed): array {
+        return [$packed >> self::COMPOSITE_COMPONENT_BITS, $packed & self::COMPOSITE_COMPONENT_MAX];
+    }
+
+    /** Cosmetic only (slug is a human affordance, uuid is identity — spec/
+     *  repo-format.md's Identity section): "<local-id-1>-<local-id-2>" using
+     *  THIS environment's own current local ids at capture time, the same
+     *  as every other slug's "renames change the filename's slug half"
+     *  convention already tolerates looking different across environments. */
+    private static function slug_for_composite(array $localByCol, array $cols): string {
+        return implode('-', array_map(fn($c) => (string) $localByCol[$c], $cols));
+    }
+
+    /**
      * An attached-meta key's classification RULE: the `keys{}`-declared
      * entry, or a synthetic {"class": default_class} when the key is
      * undeclared — the exact two-step lookup (declared entry, else the
@@ -770,10 +1194,11 @@ final class Snapshot {
         global $wpdb;
         $prefixed = $wpdb->prefix . $metaTable;
         $attachCol = $decl['attached_to']['column'];
+        $idCol = $decl['id_column'] ?? 'id';
         $keyCol = $decl['key_column'] ?? 'meta_key';
         $valCol = $decl['value_column'] ?? 'meta_value';
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT `$keyCol` AS k, `$valCol` AS v FROM `$prefixed` WHERE `$attachCol` = %d ORDER BY id ASC",
+            "SELECT `$keyCol` AS k, `$valCol` AS v FROM `$prefixed` WHERE `$attachCol` = %d ORDER BY `$idCol` ASC",
             $ownerLocalId
         ), ARRAY_A) ?: [];
 
@@ -900,6 +1325,14 @@ final class Snapshot {
     public static function ensure_row(Policy $policy, array $entity): bool {
         global $wpdb;
         $decl = self::row_tables($policy)[$entity['type']];
+        if (self::is_composite_ref($decl)) {
+            // No phase-1 placeholder for this mode: a composite_ref row has
+            // no identity of its own for anything ELSE to reference early
+            // (it's a leaf — "a row IS the fact," see this file's docblock),
+            // so the entire create-or-confirm operation happens once, in
+            // finalize_composite_row() below, during phase 2.
+            return false;
+        }
         $idKind = $decl['id_kind'];
         $front = $entity['data'] ?? Canon::decode($entity['content']);
         $uuid = $front['uuid'];
@@ -934,6 +1367,10 @@ final class Snapshot {
     public static function finalize_row(Policy $policy, Tokens $tokens, array $entity): void {
         global $wpdb;
         $decl = self::row_tables($policy)[$entity['type']];
+        if (self::is_composite_ref($decl)) {
+            self::finalize_composite_row($tokens, $entity, $decl);
+            return;
+        }
         $idKind = $decl['id_kind'];
         $front = $entity['data'] ?? Canon::decode($entity['content']);
         $uuid = $front['uuid'];
@@ -969,6 +1406,74 @@ final class Snapshot {
         foreach ($decl['invalidate'] ?? [] as $inv) {
             self::run_invalidate($inv, $localId);
         }
+    }
+
+    /**
+     * The ONLY phase for a composite_ref row (see ensure_row()'s no-op
+     * branch above): resolve both identity/ref columns through THIS
+     * environment's own ledger to ITS current local ids, then ensure the
+     * exact-tuple row exists with its authored columns (if any — PMPro's own
+     * two proven fixtures declare none beyond the identity tuple itself)
+     * current. Deliberately an "exists ? update-authored-columns :
+     * insert-full-row" shape, not a blind INSERT — see this file's docblock:
+     * the row's IDENTITY can never appear in plan's `update` bucket (any
+     * change to either ref changes the uuid), but a manifest declaring
+     * genuine EXTRA authored columns beyond the tuple (unexercised this
+     * round, but structurally supported — see assert_composite_row_schema())
+     * would need exactly this upsert shape to converge correctly on re-apply.
+     *
+     * Idempotent by construction: re-applying an already-converged tuple
+     * re-resolves the SAME local ids, the exists-check finds the SAME row,
+     * and (with no authored columns to write) the update branch is a no-op —
+     * matching plan's own "this uuid can only ever be create or unchanged,
+     * never update" analysis for the pure-join proving fixture.
+     */
+    private static function finalize_composite_row(Tokens $tokens, array $entity, array $decl): void {
+        global $wpdb;
+        $idKind = $decl['id_kind'];
+        $front = Canon::decode($entity['content']);
+        $uuid = $front['uuid'];
+        $cols = $decl['identity']['columns'];
+        $prefixed = $wpdb->prefix . $entity['type'];
+        $colTypes = self::live_column_types($entity['type']) ?? [];
+
+        $localByCol = [];
+        foreach ($cols as $col) {
+            $tok = (string) ($front['columns'][$col] ?? '');
+            // Structural, same as capture's own throw — token_to_id() itself
+            // throws when this environment cannot resolve it.
+            $localByCol[$col] = $tokens->token_to_id($tok);
+        }
+
+        $authored = [];
+        foreach ($decl['columns'] ?? [] as $col => $rule) {
+            if (($rule['class'] ?? '') !== 'authored') {
+                continue;
+            }
+            $v = $front['columns'][$col] ?? null;
+            $authored[$col] = is_string($v) ? $tokens->detokenize_text($v) : $v;
+        }
+
+        $where = [$cols[0] => $localByCol[$cols[0]], $cols[1] => $localByCol[$cols[1]]];
+        $exists = (bool) $wpdb->get_var($wpdb->prepare(
+            "SELECT 1 FROM `$prefixed` WHERE `{$cols[0]}` = %d AND `{$cols[1]}` = %d LIMIT 1",
+            $localByCol[$cols[0]], $localByCol[$cols[1]]
+        ));
+        if ($exists) {
+            if ($authored) {
+                [$data, $format] = self::write_format($authored, $colTypes);
+                $wpdb->update($prefixed, $data, $where, $format);
+            }
+        } else {
+            [$data, $format] = self::write_format($where + $authored, $colTypes);
+            $wpdb->insert($prefixed, $data, $format);
+        }
+
+        // Bookkeeping ONLY — never consulted to establish identity (see this
+        // file's docblock) — so delete_row() can later resolve this uuid
+        // back to a tuple to delete on THIS environment.
+        $packed = self::pack_composite_id($entity['type'], $localByCol);
+        Ledger::set($uuid, $entity['type'], $idKind, $packed);
     }
 
     /**
@@ -1008,13 +1513,14 @@ final class Snapshot {
         global $wpdb;
         $prefixed = $wpdb->prefix . $metaTable;
         $attachCol = $decl['attached_to']['column'];
+        $idCol = $decl['id_column'] ?? 'id';
         $keyCol = $decl['key_column'] ?? 'meta_key';
         $valCol = $decl['value_column'] ?? 'meta_value';
         $keyRules = $decl['keys'] ?? [];
         $default = $decl['default_class'] ?? 'authored';
 
         $existing = $wpdb->get_results($wpdb->prepare(
-            "SELECT id, `$keyCol` AS k FROM `$prefixed` WHERE `$attachCol` = %d", $ownerLocalId
+            "SELECT `$idCol` AS id, `$keyCol` AS k FROM `$prefixed` WHERE `$attachCol` = %d", $ownerLocalId
         ), ARRAY_A) ?: [];
         $existingByKey = [];
         foreach ($existing as $r) {
@@ -1041,7 +1547,7 @@ final class Snapshot {
             if (($rule['class'] ?? $default) !== 'authored') {
                 continue; // runtime/derived/env key — never owned by this mechanism, never deleted
             }
-            $wpdb->delete($prefixed, ['id' => $rowId]);
+            $wpdb->delete($prefixed, [$idCol => $rowId]);
         }
         foreach ($desiredRaw as $key => $val) {
             $data = [$attachCol => $ownerLocalId, $keyCol => $key, $valCol => $val];
@@ -1052,7 +1558,7 @@ final class Snapshot {
                 $data[$decl['legacy_value_column']] = $val;
             }
             if (isset($existingByKey[$key])) {
-                $wpdb->update($prefixed, $data, ['id' => $existingByKey[$key]]);
+                $wpdb->update($prefixed, $data, [$idCol => $existingByKey[$key]]);
             } else {
                 $wpdb->insert($prefixed, $data);
             }
@@ -1100,6 +1606,19 @@ final class Snapshot {
         if ($localId === null) {
             return;
         }
+        if (self::is_composite_ref($decl)) {
+            // No attached-meta, no invalidate (both refused at schema-assert
+            // time for this mode — see assert_composite_row_schema()): the
+            // packed local_id IS the bookkeeping delete_row() exists to
+            // read, unpacked back into the tuple to delete on THIS
+            // environment (never the tuple captured on some OTHER
+            // environment — see finalize_composite_row()'s docblock).
+            $cols = $decl['identity']['columns'];
+            [$a, $b] = self::unpack_composite_id($localId);
+            $wpdb->delete($wpdb->prefix . $table, [$cols[0] => $a, $cols[1] => $b]);
+            Ledger::forget($uuid);
+            return;
+        }
         foreach (self::meta_tables($policy) as $metaName => $metaDecl) {
             if (($metaDecl['attached_to']['table'] ?? null) !== $table) {
                 continue;
@@ -1123,10 +1642,30 @@ final class Snapshot {
      * built from whichever manifests are CURRENTLY pinned (an unpinned
      * table's id_kind is simply not checked — its rows, if any duo_map
      * entries remain, are inert until/unless the manifest is pinned again).
+     *
+     * composite_ref tables are deliberately EXCLUDED from this loop — not a
+     * silent gap: Ledger::prune_dead_table_map() joins duo_map.local_id
+     * against a single live PK column (`src.\`$pk\` = m.local_id`), which
+     * has no meaning for a packed composite value (see pack_composite_id()'s
+     * docblock). This is a real, argued honest limitation, not an oversight:
+     * a composite_ref row's uuid is NEVER looked up by its packed local_id
+     * (identify_composite_row() always recomputes fresh — see this file's
+     * docblock), only ever stored FOR delete_row()'s benefit, so a stale
+     * entry left behind by a row deleted outside duo (e.g. an admin
+     * unchecking "Require Membership") is INERT — it cannot cause a wrong
+     * uuid-to-row association the way a stale mapped/natural_key entry
+     * could — merely a duo_map row that lingers until the SAME uuid is ever
+     * asked about again (vanishingly unlikely given uuidv5's distribution).
+     * A real single-column-join-based pruner for packed composite values is
+     * a straightforward future addition if this hygiene gap ever proves to
+     * matter in practice; not built speculatively here.
      */
     public static function prune_dead_map(Policy $policy): void {
         $tables = [];
         foreach (self::row_tables($policy) as $name => $decl) {
+            if (self::is_composite_ref($decl)) {
+                continue;
+            }
             $tables[$decl['id_kind']] = ['table' => $name, 'pk' => $decl['pk']];
         }
         if ($tables) {
@@ -1153,6 +1692,15 @@ final class Snapshot {
         foreach (self::row_tables($policy) as $table => $decl) {
             if (($decl['id_kind'] ?? '') !== $idKind) {
                 continue;
+            }
+            if (self::is_composite_ref($decl)) {
+                // No single scalar local_id for a composite_ref table to
+                // test against this single-id existence check (see
+                // pack_composite_id()'s docblock) — no current caller
+                // reaches this (nothing embeds a composite_ref id_kind in
+                // an option NAME), but this stays a defined, argued "no"
+                // rather than an undefined-index crash if one ever does.
+                return false;
             }
             $prefixed = $wpdb->prefix . $table;
             $pk = $decl['pk'];
