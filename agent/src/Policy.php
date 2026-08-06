@@ -66,8 +66,10 @@ final class Policy {
             self::validate_regen_dependencies($manifest);
             self::validate_scope_classes($manifest, "manifest '$name'", false);
             self::validate_sub_keys($manifest);
+            self::validate_adapter_contract($manifest);
             $p->manifests[] = $manifest;
         }
+        self::validate_no_conflicting_adapter_claims($p->manifests);
         return $p;
     }
 
@@ -1071,6 +1073,140 @@ final class Policy {
         }
     }
 
+    /**
+     * DUO-3222: loud, load-time guard for the adapter compatibility
+     * contract — same "throw immediately" posture as every validator
+     * above. A manifest that names a plugin/theme without an exact,
+     * well-formed version range is exactly the "unbounded support" this
+     * issue's own non-negotiable constraint forbids ("No latest, wildcard,
+     * or unbounded version support may be certified") —
+     * Policy::version_ranges()'s own pre-existing behavior of silently
+     * SKIPPING a plugin with no/malformed version_range (rather than
+     * rejecting) is the failure mode DUO-3222 was filed to close, so this
+     * validator now makes that combination a hard load-time error instead
+     * of a silent no-op that would otherwise surface (if at all) only much
+     * later, at deploy time.
+     *
+     * spec_version has ONE asymmetric rule, not simple presence/absence:
+     * ABSENT is lenient (no shipped manifest declares it yet, and
+     * DUO_SPEC_VERSION has had exactly one value in this project's history
+     * — an absence can't be "wrong" when there is nothing else it could
+     * have meant). DECLARED-AND-WRONG is never lenient — a manifest that
+     * names a spec_version this engine doesn't recognize is making an
+     * active, checkable claim, and silently accepting it would be exactly
+     * the "unsupported behavior hidden behind a broad compatibility claim"
+     * DESIGN.md's vision invariant forbids. This asymmetry is deliberate,
+     * not a placeholder: it stays true even after DUO_SPEC_VERSION's first
+     * real bump, and BECOMES MANDATORY (see the TODO below) the moment a
+     * second historical value exists to be silently wrong about — a
+     * decision pre-committed at DUO-3222's own design review, not left for
+     * that bump to re-litigate.
+     *
+     * TODO(spec_version-mandatory): the commit that changes
+     * DUO_SPEC_VERSION's value must also flip spec_version from optional
+     * to required in this validator — that bump's own checklist item, not
+     * a future debate. See spec/repo-format.md's adapter-contract section
+     * (once ratified) for the matching prose commitment.
+     */
+    private static function validate_adapter_contract(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        $spec = $manifest['spec_version'] ?? null;
+        if ($spec !== null) {
+            $supported = defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 0;
+            if (!is_int($spec) || $spec !== $supported) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares spec_version " . var_export($spec, true)
+                    . " but this engine supports spec_version $supported — pin a compatible manifest or update it"
+                );
+            }
+        }
+        foreach ([['plugin', 'version_range'], ['theme', 'theme_version_range']] as [$idKey, $rangeKey]) {
+            $id = $manifest[$idKey] ?? null;
+            if ($id === null) {
+                continue;
+            }
+            if (!is_string($id) || $id === '') {
+                throw new \RuntimeException("duo: manifest '$name' declares a non-string or empty '$idKey'");
+            }
+            $range = $manifest[$rangeKey] ?? null;
+            if (!is_array($range)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares '$idKey' ('$id') but no '$rangeKey' — an adapter naming a "
+                    . "$idKey with no exact version range is unbounded support, which this project's contract "
+                    . 'forbids (DUO-3222). Declare {"min":..,"max":..} or drop the ' . "$idKey claim."
+                );
+            }
+            $min = $range['min'] ?? null;
+            $max = $range['max'] ?? null;
+            if (!is_string($min) || $min === '' || !is_string($max) || $max === ''
+                || version_compare($min, $max, '>=')
+            ) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares '$rangeKey' with a malformed range (min="
+                    . var_export($min, true) . ', max=' . var_export($max, true) . ') — both must be non-empty '
+                    . 'version strings with min strictly less than max; wildcards/empty/unbounded are not '
+                    . 'certifiable'
+                );
+            }
+        }
+    }
+
+    /**
+     * DUO-3222: cross-manifest guard, run once after every pinned manifest
+     * has loaded (not per-manifest, unlike every validator above — this is
+     * inherently a comparison BETWEEN manifests, so no single manifest's
+     * own validator could ever catch it). Two PINNED manifests naming the
+     * SAME plugin or theme with DIFFERENT version_range/theme_version_range
+     * is "conflicting ownership" / "overlapping rules without explicit
+     * composition" (DUO-3222's own acceptance criteria) — today's
+     * version_ranges()/theme_ranges() silently let the first-in-pin-order
+     * declaration win, which is exactly the load-order-dependent
+     * precedence this issue's own non-negotiable constraint forbids
+     * ("Manifest precedence cannot depend on load order").
+     *
+     * v1 has NO composition/override escape hatch (no "supersedes" field
+     * or similar): every manifest pinned by every real site in this
+     * project models a DISTINCT plugin or theme today, so there is no
+     * genuine case requiring two manifests to legitimately co-declare the
+     * same one — adding override grammar for a need nobody has yet is
+     * exactly the untested-guess discipline this project avoids elsewhere
+     * (manifests/yoast.json's own notes make the identical call
+     * repeatedly, e.g. declining to guess wpseo_rss's shape). A real case,
+     * if one ever appears, is a fast-follow with its own evidence, not a
+     * default baked in speculatively here.
+     *
+     * Two manifests declaring the IDENTICAL range for the same plugin/
+     * theme are deliberately allowed through (redundant, not ambiguous —
+     * they produce the same answer regardless of load order, which is the
+     * only thing this guard actually protects against).
+     */
+    private static function validate_no_conflicting_adapter_claims(array $manifests): void {
+        foreach ([['plugin', 'version_range'], ['theme', 'theme_version_range']] as [$idKey, $rangeKey]) {
+            $seen = [];
+            foreach ($manifests as $m) {
+                $id = $m[$idKey] ?? null;
+                if (!is_string($id) || $id === '') {
+                    continue;
+                }
+                $range = $m[$rangeKey] ?? [];
+                $name = (string) ($m['name'] ?? '?');
+                if (isset($seen[$id])) {
+                    $prev = $seen[$id];
+                    if ($prev['range'] != $range) {
+                        throw new \RuntimeException(
+                            "duo: manifests '{$prev['name']}' and '$name' both declare $idKey '$id' with "
+                            . "different $rangeKey values (" . json_encode($prev['range']) . ' vs '
+                            . json_encode($range) . ') — conflicting ownership with no v1 composition rule; '
+                            . 'pin only one, or narrow one range to a disjoint window'
+                        );
+                    }
+                    continue; // identical range declared twice — redundant, not conflicting; allow
+                }
+                $seen[$id] = ['name' => $name, 'range' => $range];
+            }
+        }
+    }
+
     /** Manifest-declared rebuilders (wp-cli commands run in the rebuild pass). */
     public function rebuilders(): array {
         $out = [];
@@ -1111,6 +1247,40 @@ final class Policy {
                 continue;
             }
             $out[$plugin] = [
+                'min' => (string) ($range['min'] ?? '0'),
+                'max' => (string) ($range['max'] ?? '999999999'),
+                'manifest' => (string) ($m['name'] ?? '?'),
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * DUO-3222: theme twin of version_ranges() above — same {min,max} +
+     * version_compare() shape, same first-pin-order-wins internal fallback
+     * (never actually exercised in practice: validate_no_conflicting_
+     * adapter_claims() at load time already refuses two pinned manifests
+     * naming the same theme with different ranges, so this accessor's only
+     * reader — Deploy::code_mismatch() — always sees a pre-validated,
+     * unambiguous answer by the time it asks). Deliberately theme-
+     * directory-keyed (not template/stylesheet-slot-keyed), for the same
+     * reason version_ranges() is plugin-basename-keyed rather than
+     * active_plugins-index-keyed — the CONTRACT is about an installed
+     * artifact's identity, not which options field happens to name it on a
+     * given environment; a manifest pinning a parent theme applies equally
+     * whether that theme is loaded via `template` or `stylesheet`.
+     *
+     * @return array<string, array{min:string, max:string, manifest:string}> keyed by theme directory name
+     */
+    public function theme_ranges(): array {
+        $out = [];
+        foreach ($this->manifests as $m) {
+            $theme = $m['theme'] ?? null;
+            $range = $m['theme_version_range'] ?? null;
+            if (!is_string($theme) || $theme === '' || !is_array($range) || isset($out[$theme])) {
+                continue;
+            }
+            $out[$theme] = [
                 'min' => (string) ($range['min'] ?? '0'),
                 'max' => (string) ($range['max'] ?? '999999999'),
                 'manifest' => (string) ($m['name'] ?? '?'),

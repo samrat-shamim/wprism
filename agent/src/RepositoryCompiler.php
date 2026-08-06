@@ -64,6 +64,28 @@ final class CompiledRepository {
         return $this->artifact['manifest_hash'];
     }
 
+    /**
+     * DUO-3222: the resolved adapter compatibility contract this artifact
+     * was compiled against — one row per pinned manifest (name, per-
+     * manifest digest, spec_version if declared, plugin/version_range or
+     * theme/theme_version_range if declared). This is compilation staying
+     * honest about what it validated: proof of DECLARATION validity and
+     * non-ambiguity (every range well-formed, no conflicting ownership —
+     * Policy::load()'s own validators already refused the artifact from
+     * ever existing otherwise), not a live-environment match — compilation
+     * is deliberately target-DB-free (no $wpdb, no get_plugins()/
+     * wp_get_theme() calls anywhere in this compiler), so it cannot also
+     * prove what's actually INSTALLED matches. That second proof is
+     * Deploy::code_mismatch()'s job, unchanged by this artifact's own
+     * offline-ness. DUO-3227's capability registry is expected to generate
+     * from exactly this shape (one machine-readable row per adapter).
+     *
+     * @return list<array{name:string, digest:string, spec_version:?int, plugin:?string, version_range:?array, theme:?string, theme_version_range:?array}>
+     */
+    public function resolved_adapters(): array {
+        return $this->artifact['resolved_adapters'] ?? [];
+    }
+
     public function site_hash(): string {
         return $this->artifact['site_hash'];
     }
@@ -190,8 +212,17 @@ final class RepositoryCompiler {
         return hash('sha256', Canon::encode($policy->site));
     }
 
-    public static function manifest_hash(Policy $policy): string {
-        $inputs = [];
+    /**
+     * DUO-3222: the per-manifest content row manifest_hash()/resolved_
+     * adapters() both hash — factored out so a per-manifest digest
+     * (resolved_adapters() below) and the pre-existing combined hash
+     * (manifest_hash()) are provably the SAME content, never two
+     * independently-maintained notions of "what identifies this manifest."
+     *
+     * @return list<array{name:string, manifest:array, interpreter?:array{name:string,sha256:?string}}>
+     */
+    private static function manifest_rows(Policy $policy): array {
+        $rows = [];
         foreach ($policy->manifests as $manifest) {
             $row = ['name' => (string) ($manifest['name'] ?? ''), 'manifest' => $manifest];
             $interpreter = $manifest['interpreter'] ?? null;
@@ -202,9 +233,44 @@ final class RepositoryCompiler {
                     'sha256' => is_file($file) ? hash_file('sha256', $file) : null,
                 ];
             }
-            $inputs[] = $row;
+            $rows[] = $row;
         }
-        return hash('sha256', Canon::encode($inputs));
+        return $rows;
+    }
+
+    public static function manifest_hash(Policy $policy): string {
+        return hash('sha256', Canon::encode(self::manifest_rows($policy)));
+    }
+
+    /**
+     * DUO-3222: the resolved adapter compatibility contract — see
+     * CompiledRepository::resolved_adapters()'s docblock for what this
+     * proves and what it deliberately does not (declaration validity, not
+     * a live-environment match). `digest` is `manifest_rows()`'s own
+     * per-manifest row hashed alone — the exact same bytes manifest_hash()
+     * folds into its one combined hash above, just exposed per-adapter
+     * instead of only combined, so a single manifest's identity is
+     * independently checkable without needing every OTHER pinned
+     * manifest's bytes too.
+     *
+     * @return list<array{name:string, digest:string, spec_version:?int, plugin:?string, version_range:?array, theme:?string, theme_version_range:?array}>
+     */
+    public static function resolved_adapters(Policy $policy): array {
+        $out = [];
+        foreach (self::manifest_rows($policy) as $row) {
+            $manifest = $row['manifest'];
+            $out[] = [
+                'name' => $row['name'],
+                'digest' => hash('sha256', Canon::encode($row)),
+                'spec_version' => isset($manifest['spec_version']) ? (int) $manifest['spec_version'] : null,
+                'plugin' => isset($manifest['plugin']) ? (string) $manifest['plugin'] : null,
+                'version_range' => is_array($manifest['version_range'] ?? null) ? $manifest['version_range'] : null,
+                'theme' => isset($manifest['theme']) ? (string) $manifest['theme'] : null,
+                'theme_version_range' => is_array($manifest['theme_version_range'] ?? null)
+                    ? $manifest['theme_version_range'] : null,
+            ];
+        }
+        return $out;
     }
 
     private function run(): CompiledRepository {
@@ -318,6 +384,14 @@ final class RepositoryCompiler {
             'spec_version' => $supported,
             'site_hash' => $siteHash,
             'manifest_hash' => $manifestHash,
+            // DUO-3222: derived entirely from bytes manifest_hash() already
+            // folds in above (manifest_rows() -> the full $manifest array
+            // per entry) — reshaped for per-adapter consumption, not new
+            // input, so it deliberately does NOT also feed revision_hash's
+            // computation; the whole artifact (this field included) is
+            // still tamper-evident via CompiledRepository::create()'s own
+            // artifact_hash over the complete payload.
+            'resolved_adapters' => self::resolved_adapters($this->policy),
             'revision_hash' => $revision,
             'media_catalog' => $this->mediaCatalog,
             'media' => $this->media,

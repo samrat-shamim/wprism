@@ -63,7 +63,7 @@ final class Deploy {
      *   template?: string parent/standalone theme directory (null = not declared, skip theme checks),
      *   stylesheet?: string active theme directory (null = not declared, skip theme checks),
      * }
-     * @return list<array{issue:string, kind:string, plugin?:string, theme?:string, message:string, installed_version?:string, version_range?:array, manifest?:string}>
+     * @return list<array{issue:string, kind:string, plugin?:string, theme?:string, message:string, installed_version?:string, version_range?:array, manifest?:string}> `version_range` carries a plugin's `version_range` or (DUO-3222) a theme's `theme_version_range` uniformly — one shared key regardless of `kind`, matching how both are consumed identically by Apply::build_plan()'s code_mismatch bucket
      */
     public static function code_mismatch(Policy $policy, array $desired): array {
         $rows = [];
@@ -112,30 +112,46 @@ final class Deploy {
             }
         }
 
+        // DUO-3222: themes now get the SAME version-range treatment plugins
+        // already had above — existence-only was the exact gap the issue's
+        // own review confirmed live ("themes get existence-checked only...
+        // no version treatment"). Read theme_ranges() once, check it after
+        // each slot's existing existence check passes (mirrors the plugin
+        // loop's own missing_in_code -> continue -> range-check order: a
+        // theme that doesn't exist has no version to read).
+        $themeRanges = $policy->theme_ranges();
         $desiredStylesheet = $desired['stylesheet'] ?? null;
         $desiredTemplate = $desired['template'] ?? null;
-        if ($desiredStylesheet !== null && !wp_get_theme($desiredStylesheet)->exists()) {
-            $rows[] = [
-                'issue' => 'missing_in_code',
-                'kind' => 'theme',
-                'theme' => $desiredStylesheet,
-                'message' => "stylesheet in state/options/core.json declares '$desiredStylesheet' but "
-                    . "$desiredStylesheet does not exist in this environment (checked against this environment's "
-                    . "wp-content/themes/). Install/vendor the theme here, or this branch's code/ changes "
-                    . "haven't reached this environment yet.",
-            ];
+        if ($desiredStylesheet !== null) {
+            if (!wp_get_theme($desiredStylesheet)->exists()) {
+                $rows[] = [
+                    'issue' => 'missing_in_code',
+                    'kind' => 'theme',
+                    'theme' => $desiredStylesheet,
+                    'message' => "stylesheet in state/options/core.json declares '$desiredStylesheet' but "
+                        . "$desiredStylesheet does not exist in this environment (checked against this "
+                        . "environment's wp-content/themes/). Install/vendor the theme here, or this branch's "
+                        . "code/ changes haven't reached this environment yet.",
+                ];
+            } else {
+                self::check_theme_range($desiredStylesheet, $themeRanges, $rows);
+            }
         }
-        if ($desiredTemplate !== null && $desiredTemplate !== $desiredStylesheet && !wp_get_theme($desiredTemplate)->exists()) {
-            $rows[] = [
-                'issue' => 'missing_in_code',
-                'kind' => 'theme',
-                'theme' => $desiredTemplate,
-                'message' => "template in state/options/core.json declares '$desiredTemplate' (this "
-                    . "environment's child theme's parent) but $desiredTemplate does not exist in this "
-                    . "environment (checked against this environment's wp-content/themes/). A child theme's "
-                    . "switch_theme() needs its parent present too. Install/vendor the parent theme here, or "
-                    . "this branch's code/ changes haven't reached this environment yet.",
-            ];
+        if ($desiredTemplate !== null && $desiredTemplate !== $desiredStylesheet) {
+            if (!wp_get_theme($desiredTemplate)->exists()) {
+                $rows[] = [
+                    'issue' => 'missing_in_code',
+                    'kind' => 'theme',
+                    'theme' => $desiredTemplate,
+                    'message' => "template in state/options/core.json declares '$desiredTemplate' (this "
+                        . "environment's child theme's parent) but $desiredTemplate does not exist in this "
+                        . "environment (checked against this environment's wp-content/themes/). A child theme's "
+                        . "switch_theme() needs its parent present too. Install/vendor the parent theme here, or "
+                        . "this branch's code/ changes haven't reached this environment yet.",
+                ];
+            } else {
+                self::check_theme_range($desiredTemplate, $themeRanges, $rows);
+            }
         }
         return $rows;
     }
@@ -378,7 +394,22 @@ final class Deploy {
             array_filter($mismatch, fn($r) => $r['kind'] === 'plugin' && $r['issue'] === 'missing_in_code'),
             'plugin'
         );
-        $themeMissing = (bool) array_filter($mismatch, fn($r) => $r['kind'] === 'theme');
+        // DUO-3222: issue-scoped, mirroring $missingPlugins immediately above
+        // — before this issue, EVERY theme-kind finding WAS missing_in_code
+        // (theme version_range didn't exist yet), so the original blanket
+        // "any theme finding at all" check was exactly right at the time.
+        // Now that outside_version_range exists for themes too, that same
+        // blanket check would also skip switch_theme() for a theme that
+        // genuinely EXISTS on disk (wp_get_theme()->exists() already passed
+        // to produce that finding at all) — switch_theme() would work fine,
+        // and the plugin side's own reasoning two lines below already
+        // establishes the precedent: "outside_version_range ... means
+        // present but a version this manifest doesn't vouch for, never
+        // absent, so [the action] still makes sense." Scoping to
+        // missing_in_code keeps themes on that identical footing.
+        $themeMissing = (bool) array_filter(
+            $mismatch, fn($r) => $r['kind'] === 'theme' && $r['issue'] === 'missing_in_code'
+        );
 
         $desiredActive = $desired['active_plugins'] ?? null;
         if ($desiredActive !== null) {
@@ -497,6 +528,47 @@ final class Deploy {
 
     private static function in_range(string $installed, string $min, string $max): bool {
         return version_compare($installed, $min, '>=') && version_compare($installed, $max, '<');
+    }
+
+    /**
+     * DUO-3222: theme twin of the plugin version_range check in
+     * code_mismatch()'s loop above — same shape (in_range() against a
+     * Policy::theme_ranges() row, same outside_version_range row), called
+     * for each theme slot (stylesheet, and template when it differs) once
+     * that slot's existence is already confirmed by the caller — mirrors
+     * the plugin loop's own missing_in_code -> continue -> range-check
+     * order: a theme that doesn't exist has no version to read.
+     * wp_get_theme($slug)->get('Version') is an already-proven read path:
+     * code_drift() below uses the identical call to track theme version
+     * drift, just against a different baseline (last-observed vs. this
+     * method's declared-range).
+     *
+     * @param array<string, array{min:string,max:string,manifest:string}> $ranges Policy::theme_ranges()
+     * @param list<array{issue:string, kind:string, plugin?:string, theme?:string, message:string, installed_version?:string, version_range?:array, manifest?:string}> &$rows appended to in place
+     */
+    private static function check_theme_range(string $slug, array $ranges, array &$rows): void {
+        if (!isset($ranges[$slug])) {
+            return;
+        }
+        $r = $ranges[$slug];
+        $installed = (string) wp_get_theme($slug)->get('Version');
+        if ($installed !== '' && self::in_range($installed, $r['min'], $r['max'])) {
+            return;
+        }
+        $rows[] = [
+            'issue' => 'outside_version_range',
+            'kind' => 'theme',
+            'theme' => $slug,
+            'installed_version' => $installed,
+            'version_range' => ['min' => $r['min'], 'max' => $r['max']],
+            'manifest' => $r['manifest'],
+            'message' => "$slug " . ($installed !== '' ? $installed : '(unknown version)')
+                . " is active in this environment, outside the '{$r['manifest']}' manifest's declared "
+                . "theme_version_range (>={$r['min']} <{$r['max']}, pinned by site.duo.json). Classification "
+                . 'guarantees for this theme are NOT validated against this version — apply may silently '
+                . 'misclassify fields. Update the theme, pin an older manifest, or pass --force-code-mismatch '
+                . 'to proceed at your own risk.',
+        ];
     }
 
     /**

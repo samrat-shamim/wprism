@@ -1,0 +1,18 @@
+{
+  "_comment": "DUO-3222: the ONE project-level WP/PHP/database compatibility statement, per the adversarial review's reshape ruling on this issue -- deliberately NOT a per-adapter field (combinatorial cost, no matching risk; the manifest-treadmill risk DESIGN.md names is plugin-version drift specifically, not core/runtime drift). Consumed by cli/src/Doctor.php's 'compatibility baseline' check (php + database are enforced ranges; wordpress is informational only, see its own note below) so this file is the single source of truth for both the human-readable claim and the machine check -- never two independently-maintained numbers. Ranges are {min inclusive, max exclusive}, matching Policy::version_ranges()'s own convention exactly.",
+  "php": {
+    "min": "8.3.0",
+    "max": "8.4.0",
+    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+  },
+  "database": {
+    "engine": "MariaDB",
+    "min": "11.0.0",
+    "max": "12.0.0",
+    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+  },
+  "wordpress": {
+    "last_verified": "7.0.2",
+    "note": "NOT an enforced range -- the sandbox harness's own wordpress:php8.3-apache image bakes in whatever WordPress core version was current at image-build time; no explicit WP-core version pin exists anywhere in this project's Docker tags. This field records what conformance was last actually run against, for honesty, not a claimed compatibility floor/ceiling. A real WP-core version range is a future decision (DUO-3224/3225's territory, once per-version compatibility evidence exists), not invented here without evidence."
+  }
+}
