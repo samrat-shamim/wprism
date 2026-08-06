@@ -25,6 +25,14 @@
 #      LATER apply with no further content changes still retries and
 #      resolves it, rather than silently reporting all-clear (the
 #      false-green retry the design review specifically flagged).
+#   3. regen_pending:<uuid> (this file's own marker) is independently
+#      load-bearing, not merely redundant with DUO-3206's unrelated
+#      apply_in_progress marker (landed later, picked up via a rebase onto
+#      main after this script was first written — see step (6e)'s comment
+#      for the full interaction). Step (7) manufactures a scenario with a
+#      hand-planted regen_pending:<uuid> marker and NO apply_in_progress at
+#      all, proving regen_dependencies() still finds and resolves it purely
+#      off this file's own kv_prefix() scan.
 #
 # Self-contained: own scratch pair (created and destroyed by this script).
 # Temporarily edits the SHIPPED manifests/the-events-calendar.json's
@@ -203,12 +211,29 @@ cp "$MANIFEST_BACKUP" "$MANIFEST"
 jq -e '.post_types.tribe_events.regen_dependency.verify.column == "post_id"' "$MANIFEST" >/dev/null || fail "manifest restoration did not produce the expected verify.column"
 pass "manifest restored"
 
-say "(6e) THE LOAD-BEARING PROOF: re-run apply with ZERO further content changes — this event is 'unchanged' by plan's own content-hash bucketing, and would be silently skipped without the marker mechanism (the exact false-green retry the design review flagged)"
+say "(6e) THE LOAD-BEARING PROOF: re-run apply with ZERO further content changes — the regen failure still gets retried and resolved automatically, not silently skipped (the exact false-green retry the design review flagged)"
 PLAN3=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
 echo "$PLAN3"
-echo "$PLAN3" | jq -e --arg u "$CAPTURED_UUID" '.unchanged | any(.uuid == $u)' >/dev/null \
-  || fail "expected the event to show as 'unchanged' in plan (proving the marker, not plan bucketing, is what triggers the retry) — plan: $PLAN3"
-pass "confirmed: plan itself shows this entity as unchanged (exactly why the marker mechanism is necessary, not merely convenient)"
+# NOTE on this assertion's history: this used to check the event shows as
+# 'unchanged' in plan, to prove regen_pending:<uuid> alone (not plan's
+# content-hash bucketing) is what forces the retry. DUO-3206 (landed after
+# this test was first written, merged in via rebase) added its OWN
+# whole-apply apply_in_progress marker — set before every apply's main
+# transaction, cleared only after rebuild() AND a following ledger
+# transaction both succeed. Since regen_dependencies() throwing prevents
+# that ledger transaction from ever running, apply_in_progress now ALSO
+# stays set on exactly this failure, and forces EVERY entity (not just
+# this one) into the 'update' bucket with retry:true on the next plan —
+# see Apply::build_plan()'s own incomplete_apply handling. Both markers
+# are real and both get set by this failure; DUO-3206's coarser mechanism
+# is simply what's now visible in plan's bucketing. Step (7) below proves
+# regen_pending:<uuid> still does independent, load-bearing work with
+# apply_in_progress absent entirely.
+echo "$PLAN3" | jq -e --arg u "$CAPTURED_UUID" '.update | any(.uuid == $u and .retry == true)' >/dev/null \
+  || fail "expected the event in plan's update bucket with retry:true (DUO-3206's apply_in_progress forcing a full retry after the regen failure) — plan: $PLAN3"
+echo "$PLAN3" | jq -e '.incomplete_apply | length > 0' >/dev/null \
+  || fail "expected plan.incomplete_apply to be non-empty (apply_in_progress marker still set from the failed run) — plan: $PLAN3"
+pass "confirmed: plan shows the retry-forcing state (incomplete_apply + retry:true), driven by DUO-3206's apply_in_progress marker set by the same regen failure"
 
 APPLY3=$(wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
 echo "$APPLY3"
@@ -224,6 +249,45 @@ FINAL_OCC=$(wp2 db query "SELECT COUNT(*) FROM wp_tec_occurrences WHERE post_id=
 FINAL_VISIBLE=$(wp2 post list --post_type=tribe_events --format=ids)
 [ -n "$FINAL_VISIBLE" ] || fail "event should still be visible to wp post list after the whole failure/retry sequence"
 pass "final state confirmed correct: tec_occurrences present, event visible to WP_Query"
+
+say "(7) ISOLATION PROOF: regen_pending:<uuid> resolves independently of DUO-3206's apply_in_progress — no failed apply, no forced full-tree retry, just this repo's own marker-consulting logic"
+say "(7a) sanity: confirm this environment is fully clean before manufacturing the isolated scenario"
+CLEAN_INCOMPLETE=$(wp2 db query "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'apply_in_progress'" --skip-column-names 2>/dev/null | tr -d '\r')
+[ "$CLEAN_INCOMPLETE" = "0" ] || fail "expected apply_in_progress to be absent after (6e)'s successful retry (got count=$CLEAN_INCOMPLETE) — cannot isolate the marker's own behavior otherwise"
+CLEAN_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
+echo "$CLEAN_PLAN" | jq -e --arg u "$CAPTURED_UUID" '.unchanged | any(.uuid == $u)' >/dev/null \
+  || fail "expected the event back to plain 'unchanged' bucketing now that both markers are clear — plan: $CLEAN_PLAN"
+pass "environment confirmed clean: no apply_in_progress, event is plain 'unchanged' — a true baseline for the isolation proof"
+
+say "(7b) manufacture drift by hand: delete the live tec_occurrences row, then manually plant ONLY a regen_pending:<uuid> marker (no failed apply, no apply_in_progress)"
+wp2 db query "DELETE FROM wp_tec_occurrences WHERE post_id=$EVENT_ID_2" >/dev/null
+ORPHAN_OCC=$(wp2 db query "SELECT COUNT(*) FROM wp_tec_occurrences WHERE post_id=$EVENT_ID_2" --skip-column-names 2>/dev/null | tr -d '\r')
+[ "$ORPHAN_OCC" = "0" ] || fail "expected the manual tec_occurrences delete to have taken effect (got count=$ORPHAN_OCC)"
+wp2 db query "INSERT INTO wp_duo_kv (k, v) VALUES ('regen_pending:$CAPTURED_UUID', 'tribe_events') ON DUPLICATE KEY UPDATE v = VALUES(v)" >/dev/null
+MARKER_PLANTED=$(wp2 db query "SELECT v FROM wp_duo_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+[ "$MARKER_PLANTED" = "tribe_events" ] || fail "expected the manually-planted marker to read back, got '$MARKER_PLANTED'"
+pass "tec_occurrences row deleted; regen_pending:<uuid> marker planted by hand; apply_in_progress deliberately left untouched (still absent)"
+
+say "(7c) plan still shows plain 'unchanged' — the marker is invisible to plan's own bucketing, exactly as regen_dependencies()'s docblock describes"
+ISO_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
+echo "$ISO_PLAN"
+echo "$ISO_PLAN" | jq -e --arg u "$CAPTURED_UUID" '.unchanged | any(.uuid == $u)' >/dev/null \
+  || fail "expected the event to still show as plain 'unchanged' (no incomplete_apply, no retry:true — apply_in_progress was never set this time) — plan: $ISO_PLAN"
+echo "$ISO_PLAN" | jq -e '.incomplete_apply | length == 0' >/dev/null \
+  || fail "expected plan.incomplete_apply to be EMPTY this time (no apply_in_progress marker exists) — plan: $ISO_PLAN"
+pass "confirmed: plan shows plain 'unchanged', zero incomplete_apply — DUO-3206's mechanism plays no role in this scenario"
+
+say "(7d) apply anyway (no content changed, nothing forces a normal retry) — regen_pending:<uuid> alone must still trigger regen_dependencies() and repair the row"
+ISO_APPLY=$(wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
+echo "$ISO_APPLY"
+echo "$ISO_APPLY" | jq -e '.canary == "clean"' >/dev/null || fail "expected the isolated marker-driven apply to succeed cleanly (output: $ISO_APPLY)"
+pass "apply succeeded with zero plan-visible work, purely on the strength of the planted regen_pending:<uuid> marker"
+
+ISO_OCC=$(wp2 db query "SELECT COUNT(*) FROM wp_tec_occurrences WHERE post_id=$EVENT_ID_2" --skip-column-names 2>/dev/null | tr -d '\r')
+[ "$ISO_OCC" = "1" ] || fail "expected the manually-deleted tec_occurrences row to be regenerated (got count=$ISO_OCC)"
+ISO_MARKER_AFTER=$(wp2 db query "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+[ "$ISO_MARKER_AFTER" = "0" ] || fail "expected the manually-planted marker to be cleared after the isolated repair (still present)"
+pass "ISOLATION PROOF confirmed: tec_occurrences row regenerated and marker cleared with NO apply_in_progress involvement whatsoever — regen_pending:<uuid> is independently load-bearing, not merely redundant with DUO-3206"
 
 say "all proofs green"
 pass "DUO-3234 fully verified live: the original R3-B break is fixed automatically, and the design-review-required hard-fail + marker-retry mechanics both proven under a genuine verification failure, not just a no-op"
