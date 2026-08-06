@@ -144,15 +144,52 @@ live_pairs() { # live_pairs — one live pair name per line
     | sed 's/^duo-//' || true
 }
 
+pair_budget() {
+  # Dynamic host budget instead of a hardcoded pair count: **1 docker core
+  # per RUNNING pair**, computed from what the docker VM actually has right
+  # now — a fixed number calibrated to one machine's load (the old "2",
+  # set while an unrelated kind cluster ate half this host) goes stale the
+  # moment the machine changes. Two reserves come off the top before the
+  # 1-core-per-pair rule applies:
+  #   - CPU: 2 cores for the shared MariaDB (its own cpus cap is 2.0) plus
+  #     daemon/system churn.
+  #   - RAM guard: on most machines memory binds before cores — an ACTIVELY
+  #     verifying pair peaks around 2GiB (wp1+wp2 at their 1GiB caps), so
+  #     also cap at (docker mem - 3GiB reserve for the db's 2GiB cap +
+  #     overhead) / 2GiB per pair, and take the smaller of the two budgets.
+  # Floor of 1: a tiny VM still gets one pair (nothing works otherwise).
+  local cores mem_gib cpu_budget ram_budget budget
+  cores=$(docker info -f '{{.NCPU}}' 2>/dev/null || echo 4)
+  mem_gib=$(( $(docker info -f '{{.MemTotal}}' 2>/dev/null || echo 8589934592) / 1073741824 ))
+  cpu_budget=$(( cores - 2 ))
+  ram_budget=$(( (mem_gib - 3) / 2 ))
+  budget=$(( cpu_budget < ram_budget ? cpu_budget : ram_budget ))
+  [ "$budget" -lt 1 ] && budget=1
+  echo "$budget"
+}
+
 warn_if_crowded() { # warn_if_crowded [name-not-yet-counted-in-live_pairs]
-  local names total
-  names=$(printf '%s\n%s\n' "$(live_pairs)" "${1:-}" | grep -v '^$' | sort -u || true)
+  # Loud-and-blocking, with the project's standard named escape hatch: at
+  # or over budget, `up` for a NEW pair refuses (an already-live pair may
+  # always re-up/converge — refusing that would break every re-entrant
+  # script). DUO_PAIR_BUDGET_OVERRIDE=1 proceeds while still reporting
+  # exactly what it overrode — report-not-hide, never silent.
+  local candidate="${1:-}" names total budget
+  names=$(printf '%s\n%s\n' "$(live_pairs)" "$candidate" | grep -v '^$' | sort -u || true)
   total=$(printf '%s\n' "$names" | grep -c . || true)
-  if [ "$total" -gt 2 ]; then
+  budget=$(pair_budget)
+  if [ "$total" -gt "$budget" ]; then
     warn ""
-    warn "!! ${total} sandbox pairs up at once: $(printf '%s' "$names" | tr '\n' ' ')"
-    warn "!! this is the concurrency level that wedged the OrbStack daemon this session (task #74)."
-    warn "!! destroy pairs you're done with: bash sandbox/bin/pair.sh destroy <name>"
+    warn "!! ${total} running pairs (budget for this host: ${budget} — 1 docker core per pair, RAM-guarded; see pair_budget())"
+    warn "!! pairs: $(printf '%s' "$names" | tr '\n' ' ')"
+    warn "!! stop pairs you're not actively using (pair.sh stop <name>) or destroy finished ones"
+    if [ -n "$candidate" ] && ! live_pairs | grep -qx "$candidate"; then
+      if [ "${DUO_PAIR_BUDGET_OVERRIDE:-0}" = "1" ]; then
+        warn "!! DUO_PAIR_BUDGET_OVERRIDE=1 set — bringing up '$candidate' ANYWAY, ${total}/${budget} over budget"
+      else
+        fail "refusing to bring up new pair '$candidate' over budget (${total} > ${budget}); stop/destroy another pair first, or set DUO_PAIR_BUDGET_OVERRIDE=1 to proceed anyway"
+      fi
+    fi
   fi
 }
 
@@ -386,7 +423,7 @@ cmd_list() {
   say "stopped pairs (kept, zero footprint — resume with: pair.sh start <name>)"
   local stopped
   stopped=$(docker compose ls -a --format json 2>/dev/null \
-    | jq -r '.[] | select((.ConfigFiles | contains("pair.yml")) and ((.Status | startswith("running")) | not)) | .Name' \
+    | jq -r '.[] | select((.ConfigFiles | contains("pair.yml")) and ((.Status | contains("running")) | not)) | .Name' \
     | sed 's/^duo-//' || true)
   if [ -z "$stopped" ]; then
     echo "  (none)"

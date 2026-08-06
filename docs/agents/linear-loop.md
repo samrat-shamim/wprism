@@ -90,10 +90,15 @@ Sandbox discipline (see `docs/sandbox.md`):
 
 **Resource lifecycle (mandatory):**
 
-- **Budget:** at most **one running pair per agent** at a time, and respect
-  the host budget the dispatch prompt gives you (default assumption: ≤2
-  running pairs host-wide — check `pair.sh list` before every `up`). Need a
-  second env? Stop or destroy your first.
+- **Budget:** at most **one running pair per agent** at a time. The
+  host-wide budget is dynamic — **1 docker core per running pair**,
+  RAM-guarded (~2 GiB per actively-verifying pair), computed from the
+  machine's actual resources by `pair_budget()` in `sandbox/bin/pair.sh`
+  and **enforced by `pair.sh up`**: a new pair over budget refuses, with
+  `DUO_PAIR_BUDGET_OVERRIDE=1` as the named report-not-hide escape hatch —
+  never set it unless the dispatch prompt explicitly says so. Check
+  `pair.sh list` before every `up`; need a second env? Stop or destroy
+  your first.
 - **Release when idle:** whenever you are not actively executing against
   your pair — polling Linear, waiting on a human/review, blocked, writing
   code or docs for more than ~15 minutes — `pair.sh stop <name>` (frees all
