@@ -7,6 +7,47 @@ use WP_CLI;
  * wp duo <capture|plan|apply|journal-report|journal-reset>
  */
 final class Cli {
+    private static function halt_json_failure(\Throwable $t, array $assoc): void {
+        if (($assoc['format'] ?? '') !== 'json'
+            || !($t instanceof RepositoryCompilationException || $t instanceof RepositoryAuthorizationException)) {
+            return;
+        }
+        WP_CLI::line(json_encode($t->payload(), JSON_UNESCAPED_SLASHES));
+        WP_CLI::halt(1);
+    }
+
+    /**
+     * Compile a canonical revision into Duo's immutable, content-addressed
+     * apply artifact without reading or mutating the target environment.
+     *
+     * ## OPTIONS
+     * --repo=<path>
+     * [--out=<path>] : Write the complete artifact as canonical JSON.
+     * [--json]           : Emit the complete artifact as JSON.
+     * [--format=<format>] : Output format. Accepts json.
+     */
+    public function compile($args, $assoc) {
+        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
+        try {
+            $artifact = RepositoryCompiler::compile($repo, Policy::load($repo));
+            if (!empty($assoc['out'])) {
+                $artifact->write((string) $assoc['out']);
+            }
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc);
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($artifact->export(), JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        WP_CLI::success(sprintf(
+            'compiled artifact %s (revision %s, manifests %s)%s',
+            $artifact->artifact_hash(), $artifact->revision_hash(), $artifact->manifest_hash(),
+            !empty($assoc['out']) ? ' -> ' . $assoc['out'] : ''
+        ));
+    }
+
     /**
      * Capture this environment's authored state into the site repo.
      *
@@ -59,6 +100,7 @@ final class Cli {
      * [--adopt-by-slug=<kinds>] : e.g. terms,posts,menus
      * [--force-unresolved-refs] : see `duo capture`'s option of the same name — plan's own drift
      *   detection captures the live environment too, so it hits the identical gate.
+     * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -67,12 +109,10 @@ final class Cli {
             $plan = Apply::plan($assoc['repo'] ?? WP_CLI::error('--repo required'), [
                 'adopt_by_slug' => $assoc['adopt-by-slug'] ?? '',
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
+                'compiled' => $assoc['compiled'] ?? '',
             ]);
         } catch (\Throwable $t) {
-            if ($t instanceof RepositoryAuthorizationException && ($assoc['format'] ?? '') === 'json') {
-                WP_CLI::line(json_encode($t->payload(), JSON_UNESCAPED_SLASHES));
-                WP_CLI::halt(1);
-            }
+            self::halt_json_failure($t, $assoc);
             WP_CLI::error($t->getMessage());
         }
         // See capture(): --json arrives here as $assoc['format'] === 'json', never $assoc['json'].
@@ -126,6 +166,7 @@ final class Cli {
      *   detection captures the live environment too, so it hits the identical gate.
      * [--default-author=<login>]
      * [--revision=<rev>]
+     * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -140,12 +181,10 @@ final class Cli {
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
                 'default_author' => $assoc['default-author'] ?? '',
                 'revision' => $assoc['revision'] ?? '',
+                'compiled' => $assoc['compiled'] ?? '',
             ]);
         } catch (\Throwable $t) {
-            if ($t instanceof RepositoryAuthorizationException && ($assoc['format'] ?? '') === 'json') {
-                WP_CLI::line(json_encode($t->payload(), JSON_UNESCAPED_SLASHES));
-                WP_CLI::halt(1);
-            }
+            self::halt_json_failure($t, $assoc);
             WP_CLI::error($t->getMessage());
         }
         // See capture(): --json arrives here as $assoc['format'] === 'json', never $assoc['json'].
@@ -185,6 +224,7 @@ final class Cli {
      * ## OPTIONS
      * --repo=<path>
      * [--force-code-mismatch] : proceed despite missing_in_code / outside_version_range findings.
+     * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -192,12 +232,10 @@ final class Cli {
         try {
             $summary = Deploy::run($assoc['repo'] ?? WP_CLI::error('--repo required'), [
                 'force_code_mismatch' => isset($assoc['force-code-mismatch']),
+                'compiled' => $assoc['compiled'] ?? '',
             ]);
         } catch (\Throwable $t) {
-            if ($t instanceof RepositoryAuthorizationException && ($assoc['format'] ?? '') === 'json') {
-                WP_CLI::line(json_encode($t->payload(), JSON_UNESCAPED_SLASHES));
-                WP_CLI::halt(1);
-            }
+            self::halt_json_failure($t, $assoc);
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {

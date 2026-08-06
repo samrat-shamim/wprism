@@ -13,6 +13,7 @@ namespace Duo;
 final class Apply {
     private Policy $policy;
     private Tokens $tokens;
+    private CompiledRepository $compiled;
     private string $repo;
     /** @var string[] */
     private array $warnings = [];
@@ -28,10 +29,18 @@ final class Apply {
      *  same rationale as taxesByObjectType's own memoization. */
     private ?array $snapshotRowTablesCache = null;
 
-    private function __construct(string $repo) {
+    private function __construct(string $repo, Policy $policy, CompiledRepository $compiled) {
         $this->repo = rtrim($repo, '/');
-        $this->policy = Policy::load($repo);
+        $this->policy = $policy;
+        $this->compiled = $compiled;
         $this->tokens = new Tokens();
+    }
+
+    private static function compiled(string $repo, Policy $policy, array $opts): CompiledRepository {
+        $path = (string) ($opts['compiled'] ?? '');
+        return $path !== ''
+            ? RepositoryCompiler::read_artifact($path, $policy)
+            : RepositoryCompiler::compile($repo, $policy);
     }
 
     /** @return array<string, array> declared authored_snapshot tables, keyed by table name (== entity type). */
@@ -45,14 +54,15 @@ final class Apply {
     // ------------------------------------------------------------------ plan
 
     public static function plan(string $repo, array $opts = []): array {
+        $policy = Policy::load($repo);
+        // Compile before constructing Tokens (which reads target options),
+        // suppressing cron, or ensuring a ledger. A bad revision is a pure
+        // offline result and is identical for fresh and mapped targets.
+        $compiled = self::compiled($repo, $policy, $opts);
         Canary::suppress_cron_spawn();
-        $a = new self($repo);
-        // Authorization is deliberately before Ledger::ensure(): even a
-        // plan must not create ledger tables for a repository revision that
-        // current policy refuses, and apply/deploy share this exact gate.
-        $tree = $a->load_tree();
+        $a = new self($repo, $policy, $compiled);
         Ledger::ensure();
-        $plan = $a->build_plan($opts, $tree);
+        $plan = $a->build_plan($opts, $compiled);
         // Only the plan-only entry point attaches warnings to the returned
         // array itself — run() below calls build_plan() too, but folds
         // $this->warnings into ITS OWN summary separately (see run()'s
@@ -63,7 +73,8 @@ final class Apply {
         return $plan;
     }
 
-    private function build_plan(array $opts, array $tree): array {
+    private function build_plan(array $opts, CompiledRepository $compiled): array {
+        $tree = $compiled->tree();
         $this->check_theme_mismatch($tree);
         // Capture::snapshot() runs the SAME build() capture.php's own `duo
         // capture` does (drift detection needs the live environment's
@@ -162,7 +173,7 @@ final class Apply {
         // has no code/ materialization step to populate either side of
         // that comparison; see Deploy::code_mismatch()'s docblock.
         $desired = isset($tree['options/core'])
-            ? Deploy::extract_desired(Canon::decode($tree['options/core']['content']))
+            ? Deploy::extract_desired($tree['options/core']['data'])
             : [];
         $plan['code_mismatch'] = Deploy::code_mismatch($this->policy, $desired);
         return $plan;
@@ -212,7 +223,7 @@ final class Apply {
             return Snapshot::find_collision($this->policy, $e);
         }
         if ($e['type'] === 'post') {
-            [$front] = Canon::parse_post_file($e['content']);
+            $front = $e['data'];
             $id = $wpdb->get_var($wpdb->prepare(
                 "SELECT p.ID FROM {$wpdb->posts} p WHERE p.post_name = %s AND p.post_type = %s LIMIT 1",
                 $front['slug'], $front['type']
@@ -220,7 +231,7 @@ final class Apply {
             return $id ? (int) $id : null;
         }
         if ($e['type'] === 'term' || $e['type'] === 'menu') {
-            $front = Canon::decode($e['content']);
+            $front = $e['data'];
             $tax = $e['type'] === 'menu' ? 'nav_menu' : $front['taxonomy'];
             $slug = $front['slug'];
             $id = $wpdb->get_var($wpdb->prepare(
@@ -232,11 +243,6 @@ final class Apply {
             return $id ? (int) $id : null;
         }
         return null;
-    }
-
-    /** @return array<string, array{type:string, path:string, hash:string, content:string}> */
-    private function load_tree(): array {
-        return RepositoryAuthorization::load_authorized_tree($this->repo, $this->policy);
     }
 
     /**
@@ -262,7 +268,7 @@ final class Apply {
         $themeSlugByUuid = [];
         foreach ($tree as $uuid => $e) {
             if ($e['type'] === 'term') {
-                $front = Canon::decode($e['content']);
+                $front = $e['data'];
                 if (($front['taxonomy'] ?? '') === 'wp_theme') {
                     $themeSlugByUuid[$uuid] = $front['slug'];
                 }
@@ -277,7 +283,7 @@ final class Apply {
             if ($e['type'] !== 'post') {
                 continue;
             }
-            [$front] = Canon::parse_post_file($e['content']);
+            $front = $e['data'];
             foreach ((array) ($front['terms']['wp_theme'] ?? []) as $themeUuid) {
                 $slug = $themeSlugByUuid[$themeUuid] ?? null;
                 if ($slug !== null && $slug !== $active) {
@@ -296,16 +302,18 @@ final class Apply {
     // ----------------------------------------------------------------- apply
 
     public static function apply(string $repo, array $opts = []): array {
+        $policy = Policy::load($repo);
+        $compiled = self::compiled($repo, $policy, $opts);
         Canary::suppress_cron_spawn();
-        $a = new self($repo);
-        $tree = $a->load_tree();
+        $a = new self($repo, $policy, $compiled);
         Ledger::ensure();
-        return $a->run($opts, $tree);
+        return $a->run($opts, $compiled);
     }
 
-    private function run(array $opts, array $tree): array {
+    private function run(array $opts, CompiledRepository $compiled): array {
         global $wpdb;
-        $plan = $this->build_plan($opts, $tree);
+        $tree = $compiled->tree();
+        $plan = $this->build_plan($opts, $compiled);
 
         if ($plan['collision']) {
             $list = implode("\n  - ", array_map(
@@ -384,16 +392,16 @@ final class Apply {
                 if (isset($this->snapshotRowTables()[$e['type']])) {
                     Snapshot::ensure_row($this->policy, $e);
                 } elseif ($e['type'] === 'term') {
-                    $this->ensure_term_row(Canon::decode($e['content']), 'term');
+                    $this->ensure_term_row($e['data'], 'term');
                 } elseif ($e['type'] === 'menu') {
-                    $front = Canon::decode($e['content']);
+                    $front = $e['data'];
                     $this->ensure_term_row([
                         'uuid' => $front['uuid'], 'taxonomy' => 'nav_menu',
                         'name' => $front['name'], 'slug' => $front['slug'],
                         'description' => '', 'parent' => null,
                     ], 'menu');
                 } elseif ($e['type'] === 'post') {
-                    [$front] = Canon::parse_post_file($e['content']);
+                    $front = $e['data'];
                     $isNew = $this->ensure_post_row($front);
                     if ($isNew && $front['type'] === 'attachment') {
                         $newAttachmentIds[] = Ledger::id_for($front['uuid'], Ledger::KIND_POST);
@@ -414,14 +422,13 @@ final class Apply {
                 if (isset($this->snapshotRowTables()[$e['type']])) {
                     Snapshot::finalize_row($this->policy, $this->tokens, $e);
                 } elseif ($e['type'] === 'term') {
-                    $this->finalize_term(Canon::decode($e['content']));
+                    $this->finalize_term($e['data']);
                 } elseif ($e['type'] === 'post') {
-                    [$front, $body] = Canon::parse_post_file($e['content']);
-                    $this->finalize_post($front, $body);
+                    $this->finalize_post($e['data'], $e['body']);
                 } elseif ($e['type'] === 'menu') {
-                    $this->finalize_menu(Canon::decode($e['content']));
+                    $this->finalize_menu($e['data']);
                 } elseif ($e['type'] === 'options') {
-                    $this->apply_options(Canon::decode($e['content']));
+                    $this->apply_options($e['data']);
                 }
             }
 
@@ -460,14 +467,24 @@ final class Apply {
                 Ledger::forget($r['uuid']);
             }
         }
-        if (!empty($opts['revision'])) {
-            Ledger::kv_set('applied_revision', (string) $opts['revision']);
-        }
+        // The compiler revision is the truthful default receipt. An
+        // orchestrator may still supply a git commit/ref for operator-facing
+        // provenance, but a direct CLI apply no longer advances state with
+        // an empty/ambiguous revision marker.
+        Ledger::kv_set(
+            'applied_revision',
+            !empty($opts['revision']) ? (string) $opts['revision'] : $compiled->revision_hash()
+        );
 
         // ---- rebuild pass (derived state; canary is off by design) ----
         $this->rebuild($newAttachmentIds, count($work) > 0);
 
         return [
+            'artifact' => [
+                'hash' => $compiled->artifact_hash(),
+                'revision' => $compiled->revision_hash(),
+                'manifests' => $compiled->manifest_hash(),
+            ],
             'plan' => array_map('count', $plan),
             'applied' => count($work),
             'drift' => array_column($plan['drift'], 'path'),
@@ -872,14 +889,11 @@ final class Apply {
 
     private function place_attachment(int $id, array $front): void {
         global $wpdb;
-        $src = $this->repo . '/media/' . $front['media'];
-        if (!is_file($src)) {
-            throw new \RuntimeException("duo: media blob {$front['media']} missing from repo");
-        }
+        $bytes = $this->compiled->media_content((string) $front['media']);
         $up = wp_upload_dir(null, false);
         $dst = trailingslashit($up['basedir']) . $front['file'];
-        if (!is_file($dst) || hash_file('sha256', $dst) !== hash_file('sha256', $src)) {
-            Canon::write_file($dst, Canon::read_file($src));
+        if (!is_file($dst) || hash_file('sha256', $dst) !== hash('sha256', $bytes)) {
+            Canon::write_file($dst, $bytes);
         }
         $this->upsert_meta($wpdb->postmeta, 'post_id', $id, '_wp_attached_file', $front['file']);
         $this->upsert_meta($wpdb->postmeta, 'post_id', $id, '_wp_attachment_image_alt', (string) ($front['alt'] ?? ''));

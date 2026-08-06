@@ -155,17 +155,20 @@ final class Deploy {
      * @return array{activated:string[], deactivated:string[], theme_switched:?string, code_mismatch:array, warnings:string[]}
      */
     public static function run(string $repo, array $opts = []): array {
-        Canary::suppress_cron_spawn();
         $repo = rtrim($repo, '/');
         $policy = Policy::load($repo);
-        // Deploy fires lifecycle hooks deliberately, so it must share apply's
-        // complete immutable-repository authorization gate. Otherwise an
-        // unauthorized siteurl/_stock/etc. could be discovered only after
-        // plugin activation or a theme switch had already escaped.
-        $tree = RepositoryAuthorization::load_authorized_tree($repo, $policy);
+        $compiledPath = (string) ($opts['compiled'] ?? '');
+        $compiled = $compiledPath !== ''
+            ? RepositoryCompiler::read_artifact($compiledPath, $policy)
+            : RepositoryCompiler::compile($repo, $policy);
+        // Compile before cron suppression, target reads, ledger creation, or
+        // lifecycle hooks. Deploy then consumes only the immutable artifact
+        // which plan/apply use; it never reopens state/options/core.json.
+        $tree = $compiled->tree();
+        Canary::suppress_cron_spawn();
         Ledger::ensure();
         $desired = isset($tree['options/core'])
-            ? self::extract_desired(Canon::decode($tree['options/core']['content']))
+            ? self::extract_desired($tree['options/core']['data'])
             : [];
 
         $mismatch = self::code_mismatch($policy, $desired);
@@ -244,6 +247,11 @@ final class Deploy {
         }
 
         return [
+            'artifact' => [
+                'hash' => $compiled->artifact_hash(),
+                'revision' => $compiled->revision_hash(),
+                'manifests' => $compiled->manifest_hash(),
+            ],
             'activated' => $activated,
             'deactivated' => $deactivated,
             'theme_switched' => $themeSwitched,

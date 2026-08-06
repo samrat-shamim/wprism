@@ -79,6 +79,8 @@ final class RepositoryAuthorization {
                 'path' => substr($f, strlen($stateDir) + 1),
                 'hash' => hash('sha256', Canon::post_hash_basis($front, $body, $policy)),
                 'content' => $content,
+                'data' => $front,
+                'body' => $body,
             ];
         }
         foreach (glob($stateDir . '/terms/*/*.json') ?: [] as $f) {
@@ -89,6 +91,7 @@ final class RepositoryAuthorization {
                 'path' => substr($f, strlen($stateDir) + 1),
                 'hash' => hash('sha256', $content),
                 'content' => $content,
+                'data' => $front,
             ];
         }
         foreach (glob($stateDir . '/menus/*.json') ?: [] as $f) {
@@ -99,6 +102,7 @@ final class RepositoryAuthorization {
                 'path' => substr($f, strlen($stateDir) + 1),
                 'hash' => hash('sha256', $content),
                 'content' => $content,
+                'data' => $front,
             ];
         }
         $optFile = $stateDir . '/options/core.json';
@@ -109,6 +113,7 @@ final class RepositoryAuthorization {
                 'path' => 'options/core.json',
                 'hash' => hash('sha256', $content),
                 'content' => $content,
+                'data' => Canon::decode($content),
             ];
         }
         return array_merge($out, Snapshot::load_tree_entries($stateDir));
@@ -116,9 +121,9 @@ final class RepositoryAuthorization {
 
     /** @return array<string,array> authorized tree */
     public static function load_authorized_tree(string $repo, Policy $policy): array {
-        $tree = self::load_tree($repo, $policy);
-        self::assert_tree($policy, $tree);
-        return $tree;
+        // Compatibility facade for older callers: there is no longer an
+        // authorization-only route around semantic compilation.
+        return RepositoryCompiler::compile($repo, $policy)->tree();
     }
 
     public static function assert_tree(Policy $policy, array $tree): void {
@@ -154,7 +159,7 @@ final class RepositoryAuthorization {
     }
 
     private static function authorize_post(Policy $policy, string $uuid, array $entity, array &$out): void {
-        [$front] = Canon::parse_post_file($entity['content']);
+        $front = $entity['data'] ?? Canon::parse_post_file($entity['content'])[0];
         $path = $entity['path'];
         $postType = (string) ($front['type'] ?? '');
         self::unexpected_fields($front, array_merge(
@@ -202,7 +207,7 @@ final class RepositoryAuthorization {
     }
 
     private static function authorize_term(Policy $policy, string $uuid, array $entity, array &$out): void {
-        $front = Canon::decode($entity['content']);
+        $front = $entity['data'] ?? Canon::decode($entity['content']);
         $path = $entity['path'];
         self::unexpected_fields($front, self::TERM_FIELDS, $path, $uuid, 'term_field', $out);
         self::authorize_taxonomy($policy, (string) ($front['taxonomy'] ?? ''), $path, $uuid, 'taxonomy', $out);
@@ -212,7 +217,7 @@ final class RepositoryAuthorization {
     }
 
     private static function authorize_menu(Policy $policy, string $uuid, array $entity, array &$out): void {
-        $front = Canon::decode($entity['content']);
+        $front = $entity['data'] ?? Canon::decode($entity['content']);
         $path = $entity['path'];
         self::unexpected_fields($front, self::MENU_FIELDS, $path, $uuid, 'menu_field', $out);
         $managed = [
@@ -235,7 +240,7 @@ final class RepositoryAuthorization {
     }
 
     private static function authorize_options(Policy $policy, string $uuid, array $entity, array &$out): void {
-        $options = Canon::decode($entity['content']);
+        $options = $entity['data'] ?? Canon::decode($entity['content']);
         foreach ($options as $name => $_) {
             $details = str_contains((string) $name, '{{')
                 ? $policy->canonical_option_name_ref_details((string) $name)
@@ -259,7 +264,7 @@ final class RepositoryAuthorization {
             return;
         }
         $decl = $rows[$table];
-        $front = Canon::decode($entity['content']);
+        $front = $entity['data'] ?? Canon::decode($entity['content']);
         self::unexpected_fields($front, self::TABLE_FIELDS, $path, $uuid, 'table_field', $out);
         if (($front['table'] ?? null) !== $table) {
             self::finding($out, 'repository_field_not_authored', $path, $uuid, 'table_field', 'table', 'mismatched', $tableDetails['source']);
