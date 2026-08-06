@@ -125,10 +125,16 @@ final class Publish {
      *
      *  - A leftover STAGING dir is always DISCARDED, unconditionally. It
      *    was never promoted (recover() runs before this run builds its own
-     *    staging dir, so anything found here predates us), and there is no
-     *    way to prove it's complete or still reflects a reasonable point in
-     *    time — rebuilding fresh is cheap and certain, adopting a stale
-     *    candidate is not.
+     *    staging dir, so anything found here predates us). Two sub-cases
+     *    collapse to the same answer for different reasons: a crash DURING
+     *    write_entities() leaves a genuinely incomplete tree, no way to
+     *    prove otherwise; a crash BETWEEN swap()'s two renames leaves a
+     *    staging tree that is actually complete by construction
+     *    (write_entities() already returned before swap() was ever called)
+     *    — but it is still discarded, because this run did not build or
+     *    validate it itself, and promoting a candidate on that basis alone
+     *    is the riskier semantic regardless of how complete it looks.
+     *    Rebuilding fresh is cheap and certain either way.
      *  - A leftover BACKUP dir + $stateDir MISSING means the previous run
      *    died between swap()'s two renames: $stateDir was already moved
      *    aside and the new tree never arrived. The backup IS the last
