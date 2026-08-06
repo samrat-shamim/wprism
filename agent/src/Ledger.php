@@ -269,4 +269,28 @@ final class Ledger {
             $k
         ), 'ledger delete key/value');
     }
+
+    /**
+     * All duo_kv rows whose key starts with $prefix (DUO-3234's
+     * regen_pending: markers — see Apply::regen_dependencies()). A plain
+     * SELECT + PHP-side str_starts_with(), not a SQL LIKE, deliberately:
+     * duo_kv is tiny (applied_revision plus however many regen_pending:
+     * rows are currently outstanding — never a real "many rows" table), so
+     * there is no performance case for a LIKE query, and this sidesteps
+     * needing $wpdb->esc_like() correctness at every call site for what is,
+     * today, exactly one caller.
+     *
+     * @return array<string,string> k => v, for matching keys only
+     */
+    public static function kv_prefix(string $prefix): array {
+        global $wpdb;
+        $rows = $wpdb->get_results("SELECT k, v FROM {$wpdb->prefix}duo_kv", ARRAY_A) ?: [];
+        $out = [];
+        foreach ($rows as $r) {
+            if (str_starts_with((string) $r['k'], $prefix)) {
+                $out[$r['k']] = (string) $r['v'];
+            }
+        }
+        return $out;
+    }
 }
