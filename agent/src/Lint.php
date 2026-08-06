@@ -25,7 +25,7 @@ namespace Duo;
  * versions, ordering indexes). Every finding says so in its own "note" —
  * the caveat travels with the finding, never left implicit.
  *
- * Four detection classes (wave 1 — sub-key option refs and id-keyed arrays
+ * Five detection classes (wave 1 — sub-key option refs and id-keyed arrays
  * are task #11's wave 2, deliberately not attempted here):
  *
  *   bare_id — a numeric scalar / array element / CSV segment inside an
@@ -56,6 +56,26 @@ namespace Duo;
  *     routed through tokenize_text()/detokenize_text() today (only
  *     innerHTML/innerContent are), so nothing declared for a path changes
  *     that.
+ *
+ *   unrewritten_registered_ref — the mirror image of unregistered_block_attr
+ *     above: a block attribute path IS declared in the block_attrs registry
+ *     (a ref rule — "kind" or "kind_from", never a "lint_ok" declaration,
+ *     never a "tokenize":"text" string rule) but its captured value is
+ *     still numeric (scalar, or an array element) instead of a "{{...}}"
+ *     token. unregistered_block_attr fires when NO rule exists for a path;
+ *     this fires when a rule DOES exist and the rewrite it promises still
+ *     visibly didn't happen — Blocks::walk()'s id_to_token() came back
+ *     unmapped/dangling, or (for a "kind_from"-dispatched rule) the sibling
+ *     attribute resolved to no kind and Blocks.php deliberately left the
+ *     value untouched (see its resolve_kind() docblock) — fires regardless
+ *     of whether the number currently resolves to a live entity, same as
+ *     unregistered_block_attr: the danger is the declared rewrite not
+ *     having run, not today's coincidence. Before this class existed,
+ *     scan_blocks() exempted every registered path unconditionally, so a
+ *     declared ref whose rewrite silently failed was invisible to lint —
+ *     exactly the "declared ref, failed rewrite" gap this file's own
+ *     opening paragraph describes byte-identical round-tripping as unable
+ *     to catch.
  *
  *   serialized_desc_ids — a term's `description` that unserializes (PHP
  *     serialize format) to data containing an integer matching an existing
@@ -237,19 +257,54 @@ final class Lint {
         foreach ($blocks as $block) {
             $name = $block['blockName'] ?? null;
             if ($name !== null) {
-                $rulePaths = array_column($blockRules[$name] ?? [], 'path');
+                $rulesByPath = [];
+                foreach ($blockRules[$name] ?? [] as $r) {
+                    $rulesByPath[$r['path']] = $r;
+                }
                 foreach ((array) ($block['attrs'] ?? []) as $attrKey => $attrVal) {
                     $attrKey = (string) $attrKey;
-                    if (!in_array($attrKey, $rulePaths, true) && self::looks_like_id_attr($attrKey)) {
+                    $rule = $rulesByPath[$attrKey] ?? null;
+                    if ($rule === null) {
+                        if (self::looks_like_id_attr($attrKey)) {
+                            foreach (Pending::numeric_candidates($attrVal) as [$id, $locSuffix]) {
+                                $hit = Pending::resolve_id($id);
+                                $findings[] = self::finding(
+                                    'unregistered_block_attr', $rel,
+                                    'blocks.' . $name . '.attrs.' . $attrKey . $locSuffix, $id, $hit,
+                                    "block '$name' has no block_attrs registry rule for attribute '$attrKey'; this "
+                                    . "numeric value passes through capture/apply untouched and will point at the "
+                                    . "wrong entity (or nothing) once ids diverge on another environment — the same "
+                                    . "shape as core/navigation-link's id/kind pair before it had a registry rule."
+                                );
+                            }
+                        }
+                    } elseif (empty($rule['lint_ok']) && ($rule['tokenize'] ?? null) !== 'text') {
+                        // DUO-3212: a registered path is a REF rule by
+                        // Blocks::resolve_kind()'s own contract (it throws
+                        // unless a rule declares 'kind' or 'kind_from' once
+                        // lint_ok/tokenize have been ruled out) — so a value
+                        // still numeric here means the declared rewrite to a
+                        // "{{...}}" token never ran (unmapped/dangling id, or
+                        // a kind_from dispatch that resolved to no kind and
+                        // was deliberately left untouched). The OLD guard
+                        // below (`!in_array($attrKey, $rulePaths, true)`)
+                        // exempted every registered path unconditionally,
+                        // regardless of whether its value actually got
+                        // rewritten — invisible exactly where this linter is
+                        // supposed to look. Fires regardless of whether the
+                        // number resolves to a live entity (matches?
+                        // optional), same posture as unregistered_block_attr.
                         foreach (Pending::numeric_candidates($attrVal) as [$id, $locSuffix]) {
                             $hit = Pending::resolve_id($id);
                             $findings[] = self::finding(
-                                'unregistered_block_attr', $rel,
+                                'unrewritten_registered_ref', $rel,
                                 'blocks.' . $name . '.attrs.' . $attrKey . $locSuffix, $id, $hit,
-                                "block '$name' has no block_attrs registry rule for attribute '$attrKey'; this "
-                                . "numeric value passes through capture/apply untouched and will point at the "
-                                . "wrong entity (or nothing) once ids diverge on another environment — the same "
-                                . "shape as core/navigation-link's id/kind pair before it had a registry rule."
+                                "block '$name' attribute '$attrKey' has a block_attrs registry rule declaring it a "
+                                . "reference, but this value is still numeric in captured state — the declared "
+                                . "rewrite to a {{...}} token never ran (an unmapped/dangling id, or — for a "
+                                . "kind_from-dispatched rule — a sibling value that resolved to no kind). This id "
+                                . "is silently environment-bound and will point at the wrong entity (or nothing) "
+                                . "once ids diverge on another environment."
                             );
                         }
                     }

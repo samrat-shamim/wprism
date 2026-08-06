@@ -25,6 +25,17 @@ namespace Duo;
  *   innerContent pass below (self-closing blocks like core/navigation-link
  *   carry no inner content at all), so this is the only way a URL-shaped
  *   attribute gets rebound across environments.
+ *
+ * A "kind"/"kind_from" ref's id_to_token() failing (unmapped or dangling —
+ * no ledger row for that id) drops the value, matching options'/meta's
+ * dangling-reference semantics (spec/repo-format.md): a scalar ref drops
+ * the whole attribute key, an int[] ref drops just that element, both with
+ * a warning naming the block/attribute/id. A raw env-local id must never
+ * survive into canonical state — Lint::scan_blocks()'s unrewritten_
+ * registered_ref finding is what catches it if it ever does. This is the
+ * uniform dangling-style treatment only; block refs don't yet get the
+ * unscoped-vs-dangling loud-abort triage Capture.php gives options/post_meta
+ * (task #73) — that upgrade is wave-2 Capture.php work.
  */
 final class Blocks {
     /** Blocks whose inner HTML may carry wp-image-<id> classes. */
@@ -79,13 +90,40 @@ final class Blocks {
             }
             $isArray = ($rule['type'] ?? 'int') === 'int[]';
             if ($capture) {
+                // Dangling-reference semantics matching options/meta refs
+                // (spec/repo-format.md "Dangling references"): an unmapped
+                // id must never reach canonical state as a raw env-local
+                // int — on another environment it may silently resolve to
+                // an unrelated live row after auto-increment reuse. The
+                // previous `?? (int) $id` here kept the raw id instead of
+                // dropping it — the exact gap Lint::scan_blocks()'s new
+                // unrewritten_registered_ref finding now catches when it
+                // already happened. This does NOT attempt the unscoped-vs-
+                // dangling loud-abort triage Capture.php does for options/
+                // post_meta (task #73) — every unmapped block ref gets the
+                // uniform dangling-style drop; giving block refs the same
+                // unscoped upgrade is wave-2 Capture.php work.
                 if ($isArray) {
-                    $block['attrs'][$path] = array_map(
-                        fn($id) => $tokens->id_to_token((int) $id, $kind) ?? (int) $id,
-                        (array) $v
-                    );
+                    $kept = [];
+                    foreach ((array) $v as $i => $id) {
+                        $tok = $tokens->id_to_token((int) $id, $kind);
+                        if ($tok === null) {
+                            $tokens->warnings[] = "block '$name' attribute '$path" . "[$i]': unmapped $kind id "
+                                . (int) $id . ' dropped (dangling reference)';
+                            continue;
+                        }
+                        $kept[] = $tok;
+                    }
+                    $block['attrs'][$path] = $kept;
                 } else {
-                    $block['attrs'][$path] = $tokens->id_to_token((int) $v, $kind) ?? (int) $v;
+                    $tok = $tokens->id_to_token((int) $v, $kind);
+                    if ($tok === null) {
+                        $tokens->warnings[] = "block '$name' attribute '$path': unmapped $kind id " . (int) $v
+                            . ' dropped (dangling reference)';
+                        unset($block['attrs'][$path]);
+                    } else {
+                        $block['attrs'][$path] = $tok;
+                    }
                 }
             } else {
                 if ($isArray) {
