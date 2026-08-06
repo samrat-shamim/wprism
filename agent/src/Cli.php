@@ -4,7 +4,7 @@ namespace Duo;
 use WP_CLI;
 
 /**
- * wp duo <capture|plan|apply|journal-report|journal-reset>
+ * wp duo <capture|plan|apply|identity-export|identity-import|journal-report|journal-reset>
  */
 final class Cli {
     private static function halt_json_failure(\Throwable $t, array $assoc): void {
@@ -89,6 +89,53 @@ final class Cli {
             $summary['counts']['options'] ?? 0,
             $summary['media'],
             $summary['state_dir']
+        ));
+    }
+
+    /**
+     * Export the database-bound identity ledger beside a database backup.
+     *
+     * ## OPTIONS
+     * --repo=<path>
+     * --out=<path>
+     *
+     * @subcommand identity-export
+     */
+    public function identity_export($args, $assoc) {
+        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
+        $out = $assoc['out'] ?? WP_CLI::error('--out required');
+        try {
+            $artifact = IdentityBackup::create($repo);
+            Canon::write_file($out, Canon::encode($artifact));
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        WP_CLI::success(sprintf(
+            'exported %d identity mappings and %d sync states -> %s',
+            count($artifact['maps']), count($artifact['states']), $out
+        ));
+    }
+
+    /**
+     * Restore a verified identity sidecar into its matching database backup.
+     *
+     * ## OPTIONS
+     * --repo=<path>
+     * --in=<path>
+     *
+     * @subcommand identity-import
+     */
+    public function identity_import($args, $assoc) {
+        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
+        $in = $assoc['in'] ?? WP_CLI::error('--in required');
+        try {
+            $summary = IdentityBackup::restore($repo, $in);
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        WP_CLI::success(sprintf(
+            'restored %d identity mappings and %d sync states (applied revision %s)',
+            $summary['maps'], $summary['states'], $summary['applied_revision'] ?: 'none'
         ));
     }
 

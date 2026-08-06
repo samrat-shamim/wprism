@@ -87,9 +87,12 @@ if (!function_exists('sanitize_title')) {
 final class FakeWpdb {
     public $prefix = 'wp_';
     public $insert_id = 0;
+    public $last_error = '';
 
     /** @var array<string, array<int, string>> id_kind => [local_id => uuid] (duo_map) */
     public $identity = [];
+    /** @var array<string, array<int, string>> id_kind => [local_id => entity_type] (duo_map) */
+    public $identityType = [];
     /** @var array<string, array{columns: array<string,string>, rows: array<int, array<string,mixed>>}> unprefixed table => shape */
     public $tables = [];
 
@@ -134,6 +137,34 @@ final class FakeWpdb {
         throw new \RuntimeException("FakeWpdb::get_var: unrecognized query shape: $sql");
     }
 
+    public function get_row($prepared, $output = ARRAY_A) {
+        [$sql, $args] = $this->unwrap($prepared);
+        if (str_contains($sql, 'SELECT entity_type, local_id FROM') && str_contains($sql, 'duo_map')) {
+            [$uuid, $kind] = $args;
+            foreach ($this->identity[$kind] ?? [] as $localId => $candidate) {
+                if ($candidate === $uuid) {
+                    return [
+                        'entity_type' => $this->identityType[$kind][$localId] ?? '',
+                        'local_id' => $localId,
+                    ];
+                }
+            }
+            return null;
+        }
+        if (str_contains($sql, 'SELECT uuid, entity_type FROM') && str_contains($sql, 'duo_map')) {
+            [$kind, $localId] = $args;
+            $localId = (int) $localId;
+            if (!isset($this->identity[$kind][$localId])) {
+                return null;
+            }
+            return [
+                'uuid' => $this->identity[$kind][$localId],
+                'entity_type' => $this->identityType[$kind][$localId] ?? '',
+            ];
+        }
+        throw new \RuntimeException("FakeWpdb::get_row: unrecognized query shape: $sql");
+    }
+
     public function get_results($prepared, $output = ARRAY_A) {
         [$sql, ] = $this->unwrap($prepared);
         $sql = trim($sql);
@@ -160,13 +191,15 @@ final class FakeWpdb {
             foreach ($this->identity[$kind] ?? [] as $lid => $u) {
                 if ($lid === (int) $localId && $u !== $uuid) {
                     unset($this->identity[$kind][$lid]);
+                    unset($this->identityType[$kind][$lid]);
                 }
             }
             return 1;
         }
         if (str_starts_with($sql, 'INSERT INTO') && str_contains($sql, 'duo_map')) {
-            [$uuid, , $kind, $localId] = $args; // (uuid, entity_type, id_kind, local_id)
+            [$uuid, $entityType, $kind, $localId] = $args; // (uuid, entity_type, id_kind, local_id)
             $this->identity[$kind][(int) $localId] = $uuid;
+            $this->identityType[$kind][(int) $localId] = $entityType;
             return 1;
         }
         if (str_starts_with($sql, 'DELETE FROM') && str_contains($sql, 'duo_map')) {
@@ -176,6 +209,7 @@ final class FakeWpdb {
                 foreach ($byId as $lid => $u) {
                     if ($u === $uuid) {
                         unset($this->identity[$kind][$lid]);
+                        unset($this->identityType[$kind][$lid]);
                     }
                 }
             }

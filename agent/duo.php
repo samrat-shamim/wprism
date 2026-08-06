@@ -17,6 +17,8 @@ require_once __DIR__ . '/src/Canon.php';
 require_once __DIR__ . '/src/Secrets.php';
 require_once __DIR__ . '/src/Policy.php';
 require_once __DIR__ . '/src/Ledger.php';
+require_once __DIR__ . '/src/Identity.php';
+require_once __DIR__ . '/src/IdentityBackup.php';
 require_once __DIR__ . '/src/JsonRefs.php';
 require_once __DIR__ . '/src/Tokens.php';
 require_once __DIR__ . '/src/Blocks.php';

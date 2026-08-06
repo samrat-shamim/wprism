@@ -91,6 +91,7 @@ final class Apply {
             'conflict' => [], 'adopt' => [], 'collision' => [], 'delete' => [],
             'code_mismatch' => [], 'code_drift' => [],
         ];
+        $collisionCache = [];
         foreach ($tree as $uuid => $e) {
             $fileH = $e['hash'];
             $envE = $env[$uuid] ?? null;
@@ -108,7 +109,7 @@ final class Apply {
                 }
                 continue;
             }
-            $coll = $this->find_collision($e);
+            $coll = $this->find_collision($e, $tree, $collisionCache);
             if ($coll !== null) {
                 // Table entities' own 'type' IS the specific table name (see
                 // Snapshot.php's row_tables() docblock) — pluralizing it
@@ -217,36 +218,95 @@ final class Apply {
     }
 
     /** Same-slug env entity: managed w/ different uuid (hard collision) or unmanaged (adoptable). */
-    private function find_collision(array $e): ?int {
+    private function find_collision(array $e, array $tree, array &$cache): ?int {
         global $wpdb;
+        $uuid = (string) ($e['data']['uuid'] ?? '');
+        if ($uuid !== '' && array_key_exists($uuid, $cache)) {
+            return $cache[$uuid];
+        }
         if (isset($this->snapshotRowTables()[$e['type']])) {
             // natural_key-identity tables only (e.g. woocommerce_attribute_
             // taxonomies pre-provisioned by hand on the target) — see
             // Snapshot::find_collision()'s own docblock; mapped-identity
             // tables have no collision concept and return null here.
-            return Snapshot::find_collision($this->policy, $e);
+            $id = Snapshot::find_collision($this->policy, $e);
+            if ($uuid !== '') {
+                $cache[$uuid] = $id;
+            }
+            return $id;
         }
         if ($e['type'] === 'post') {
             $front = $e['data'];
-            $id = $wpdb->get_var($wpdb->prepare(
-                "SELECT p.ID FROM {$wpdb->posts} p WHERE p.post_name = %s AND p.post_type = %s LIMIT 1",
-                $front['slug'], $front['type']
-            ));
-            return $id ? (int) $id : null;
+            $parentId = $this->collision_parent_id($front['parent'] ?? null, 'post', $tree, $cache);
+            if (!empty($front['parent']) && $parentId === null) {
+                return $cache[$uuid] = null;
+            }
+            $ids = $wpdb->get_col($wpdb->prepare(
+                "SELECT p.ID FROM {$wpdb->posts} p WHERE p.post_name = %s AND p.post_type = %s "
+                . 'AND p.post_parent = %d ORDER BY p.ID ASC',
+                $front['slug'], $front['type'], $parentId ?? 0
+            )) ?: [];
+            return $cache[$uuid] = $this->one_collision(
+                $ids,
+                "post {$front['type']}/{$front['slug']} under parent " . ($parentId ?? 0)
+            );
         }
         if ($e['type'] === 'term' || $e['type'] === 'menu') {
             $front = $e['data'];
             $tax = $e['type'] === 'menu' ? 'nav_menu' : $front['taxonomy'];
             $slug = $front['slug'];
-            $id = $wpdb->get_var($wpdb->prepare(
+            $parentId = $e['type'] === 'menu'
+                ? 0
+                : $this->collision_parent_id($front['parent'] ?? null, 'term', $tree, $cache);
+            if ($e['type'] !== 'menu' && !empty($front['parent']) && $parentId === null) {
+                return $cache[$uuid] = null;
+            }
+            $ids = $wpdb->get_col($wpdb->prepare(
                 "SELECT t.term_id FROM {$wpdb->terms} t
                  JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
-                 WHERE t.slug = %s AND tt.taxonomy = %s LIMIT 1",
-                $slug, $tax
-            ));
-            return $id ? (int) $id : null;
+                 WHERE t.slug = %s AND tt.taxonomy = %s AND tt.parent = %d ORDER BY t.term_id ASC",
+                $slug, $tax, $parentId ?? 0
+            )) ?: [];
+            return $cache[$uuid] = $this->one_collision(
+                $ids,
+                "term $tax/$slug under parent " . ($parentId ?? 0)
+            );
         }
         return null;
+    }
+
+    private function collision_parent_id($parentUuid, string $kind, array $tree, array &$cache): ?int {
+        if ($parentUuid === null || $parentUuid === '') {
+            return 0;
+        }
+        // Post parents are serialized through the ordinary typed-token
+        // grammar; term parents are bare UUID fields. Normalize both to the
+        // canonical parent UUID before consulting either ledger or tree.
+        if (is_string($parentUuid)
+            && preg_match('/^\{\{' . preg_quote($kind, '/') . ':([^}]+)\}\}$/', $parentUuid, $m)) {
+            $parentUuid = $m[1];
+        }
+        $idKind = $kind === 'post' ? Ledger::KIND_POST : Ledger::KIND_TERM;
+        $mapped = Ledger::id_for((string) $parentUuid, $idKind);
+        if ($mapped !== null) {
+            return $mapped;
+        }
+        $parent = $tree[(string) $parentUuid] ?? null;
+        if ($parent === null || $parent['type'] !== $kind) {
+            return null;
+        }
+        return $this->find_collision($parent, $tree, $cache);
+    }
+
+    private function one_collision(array $ids, string $identity): ?int {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if (count($ids) > 1) {
+            throw new \RuntimeException(
+                "duo: conflicting adoption key for $identity matches local ids " . implode(', ', $ids)
+                . '; full natural identity must be unique before adoption'
+            );
+        }
+        return $ids ? $ids[0] : null;
     }
 
     /**
