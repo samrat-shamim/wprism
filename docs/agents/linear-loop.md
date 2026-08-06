@@ -22,9 +22,9 @@ legitimate in this project only with an owner scope note (Close Gate step 6).
 
 ## Required parameters
 
-- `AGENT_NAME` — claim prefix for comments/branches (and titles when the
-  prompt says multiple agents share the pool). Keep it short and alphanumeric
-  (it also namespaces sandbox pairs).
+- `AGENT_NAME` — title/comment prefix, e.g. `[codexmac] Original title`.
+  Keep it short and alphanumeric (it also namespaces branches and sandbox
+  pairs).
 - `PROJECT_URL(s)` — default when omitted: the "Duo WP Branchability —
   Correctness Closure" project.
 - Poll cadence and limit. Default: every 10 minutes, up to 60 minutes.
@@ -95,12 +95,12 @@ A claim is complete only when Linear readback proves it. Do not create a
 branch or edit files before this passes.
 
 1. Set state In Progress; assign yourself if the account allows.
-2. Comment: `Claimed by AGENT_NAME. Branch: {branch}. Original title:
-   {title}.` Prefix the title `[AGENT_NAME] ` only when the prompt says
-   multiple agents share the pool.
-3. Re-read with relations and confirm: state, claim comment, no new blocker.
-   Missing marker → fix and re-read, or release. Never work an unclaimed or
-   blocked issue.
+2. Prefix the title exactly: `[AGENT_NAME] {original title}`.
+3. Comment: `Claimed by AGENT_NAME. Branch: {branch}. Original title:
+   {title}.`
+4. Re-read with relations and confirm: state, title prefix, claim comment,
+   no new blocker. Missing marker → fix and re-read, or release. Never work
+   an issue with a missing prefix, missing claim comment, or open blocker.
 
 ## Work and verify
 
@@ -150,12 +150,12 @@ branch or edit files before this passes.
    A Done issue whose commit is not on `main` is the phantom-Done class.
 5. Only after the helper passes: comment on the issue with the PR link, the
    squash SHA, the literal line `merge-base --is-ancestor: ok`, and the test
-   evidence; remove any title prefix; mark Done.
+   evidence; remove your `[AGENT_NAME] ` title prefix; mark Done.
 6. **Slice case:** if deliberately partial, do not mark Done — append a
    `## Scope note` to the issue description stating what was delivered (with
-   the SHA) and where every remaining criterion was re-homed, then return the
-   issue to Backlog with your claim removed. A Done issue must never hide
-   unchecked boxes.
+   the SHA) and where every remaining criterion was re-homed, then strip your
+   `[AGENT_NAME] ` prefix and return the issue to Backlog. A Done issue must
+   never hide unchecked boxes.
 7. Re-read the issue and confirm the markers. Then re-read this file before
    selecting the next issue.
 
