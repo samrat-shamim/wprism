@@ -22,6 +22,8 @@ require_once __DIR__ . '/src/Tokens.php';
 require_once __DIR__ . '/src/Blocks.php';
 require_once __DIR__ . '/src/Canary.php';
 require_once __DIR__ . '/src/Snapshot.php';
+require_once __DIR__ . '/src/TransientDbException.php';
+require_once __DIR__ . '/src/Publish.php';
 require_once __DIR__ . '/src/Capture.php';
 require_once __DIR__ . '/src/RepositoryAuthorization.php';
 require_once __DIR__ . '/src/RepositoryCompiler.php';

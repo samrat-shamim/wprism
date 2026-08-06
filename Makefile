@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge regress-capture-publish
 
 up:
 	$(COMPOSE) up -d
@@ -136,3 +136,12 @@ regress-shipping-zones:
 # separate scenario, not attempted here).
 certify-merge:
 	bash sandbox/tests/certify_merge.sh
+
+# DUO-3213 (atomic capture publication): offline, no docker -- exercises
+# agent/src/Publish.php's capture lock, staging dir, atomic swap, and crash
+# recovery directly, including a real SIGKILL of a child process mid-
+# publish. See the script's own header for what is/isn't covered here vs.
+# by live sandbox evidence (the InnoDB engine check + real transaction
+# retry need a live MySQL and aren't repeated in this offline target).
+regress-capture-publish:
+	bash sandbox/tests/regress_capture_publish.sh

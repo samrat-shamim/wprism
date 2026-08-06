@@ -4,3 +4,11 @@ sandbox/siterepo/
 sandbox/tmp/
 .duo-envs.json
 .claude/worktrees/
+
+# DUO-3213: capture's staging/backup/lock artifacts (agent/src/Publish.php)
+# — siblings of any published state dir (state.capture-staging, state.
+# capture-backup, state.capture.lock); git must never see one, even
+# transiently mid-capture.
+state.capture-staging/
+state.capture-backup/
+state.capture.lock
