@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge
 
 up:
 	$(COMPOSE) up -d
@@ -120,3 +120,19 @@ regress-pa-attributes:
 
 regress-shipping-zones:
 	bash sandbox/tests/regress_shipping_zones.sh
+
+# Certify merge (DUO-3228): permanentizes spike_b_merge.sh's divergent-edit
+# + conflict + resolve + converge flow as a re-runnable LOCAL regression
+# fixture (own sandbox/bin/pair.sh pair, "mergecert" 8860/8861, headless) —
+# extended with a typed-snapshot table-entity conflict
+# (woocommerce_attribute_taxonomies) and a negative test against the real
+# repository semantic compiler's conflict_marker diagnostic (DUO-3208).
+# Gate is local evidence, not CI, per commit 1efb6df (the conformance CI
+# workflow is disabled by owner decision). See sandbox/tests/
+# certify_merge.sh's header for full scope: what's proven here vs.
+# explicitly deferred (add/add same-slug rejection is unblocked now that
+# DUO-3208 landed, but stays out of this fixture per the issue's own
+# routing to DUO-3223's matrix; the plugin-version-skew workflow is a
+# separate scenario, not attempted here).
+certify-merge:
+	bash sandbox/tests/certify_merge.sh
