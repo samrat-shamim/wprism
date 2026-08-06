@@ -317,23 +317,36 @@ pass "COD payment gateway available"
 # the same way task #73's own posture upgrade is re-enacted in
 # grind_r1c_agency.sh's step (1): assert the loud abort by name, then
 # proceed to the fix this script already performs.
-say "capture with product_variation/pa_* deliberately OUT of the site's OWN scope lists — this round's OWN original finding was silent exclusion (no gate, no warning); DUO-3229's whole-entity scope gate (merged after this grind was first written) now aborts loudly instead, the same posture upgrade task #73 got for unscoped refs"
+#
+# pa_size/pa_color do NOT join product_variation in the abort, and this is
+# itself worth proving, not just working around: Policy::taxonomies() (the
+# "already scoped" set scope_gaps() checks candidates against) expands
+# task #92's taxonomy_patterns against the LIVE database before the gate
+# ever runs — manifests/woocommerce.json's `^pa_` pattern matches both, so
+# they're already in scope BY DECLARATION even though this site's own
+# site.duo.json never lists them by name. product_variation has no such
+# pattern (post types aren't pattern-scoped, only taxonomies are), so it's
+# the only real gap. The positive assertion below (pa_size/pa_color absent
+# from the abort) is what proves #92's pattern mechanism and #3229's gate
+# compose correctly, rather than merely asserting around it.
+say "capture with product_variation deliberately OUT of the site's OWN scope lists (pa_size/pa_color are already in scope via manifests/woocommerce.json's taxonomy_patterns, unaffected by this) — this round's OWN original finding was silent exclusion (no gate, no warning); DUO-3229's whole-entity scope gate (merged after this grind was first written) now aborts loudly instead, the same posture upgrade task #73 got for unscoped refs"
 if OUT_SCOPE=$(wp_r1b1 duo capture --repo=/siterepo 2>&1); then
   echo "$OUT_SCOPE"
-  fail "capture succeeded despite product_variation/pa_size/pa_color being absent from policy scope (expected DUO-3229's loud-and-blocking gate)"
+  fail "capture succeeded despite product_variation being absent from policy scope (expected DUO-3229's loud-and-blocking gate)"
 fi
 echo "$OUT_SCOPE"
 grep -q "post_type 'product_variation' has 4 capturable entities but is absent from policy.post_types" <<<"$OUT_SCOPE" \
   || fail "abort message does not name product_variation and its entity count (got: $OUT_SCOPE)"
-grep -q "taxonomy 'pa_size' has 3 capturable entities but is absent from policy.taxonomies" <<<"$OUT_SCOPE" \
-  || fail "abort message does not name pa_size and its entity count (got: $OUT_SCOPE)"
-grep -q "taxonomy 'pa_color' has 3 capturable entities but is absent from policy.taxonomies" <<<"$OUT_SCOPE" \
-  || fail "abort message does not name pa_color and its entity count (got: $OUT_SCOPE)"
 grep -q "wp duo classify --repo=/siterepo --set='scope:<kind>:<name>=<class>'" <<<"$OUT_SCOPE" \
   || fail "abort message does not name the scope-classify remedy (got: $OUT_SCOPE)"
+if grep -q "taxonomy 'pa_size'" <<<"$OUT_SCOPE"; then
+  fail "pa_size unexpectedly appears in the scope-gap abort -- it should already be in scope via manifests/woocommerce.json's taxonomy_patterns (^pa_), independent of site.duo.json's own taxonomies list (got: $OUT_SCOPE)"
+fi
+if grep -q "taxonomy 'pa_color'" <<<"$OUT_SCOPE"; then
+  fail "pa_color unexpectedly appears in the scope-gap abort -- it should already be in scope via manifests/woocommerce.json's taxonomy_patterns (^pa_), independent of site.duo.json's own taxonomies list (got: $OUT_SCOPE)"
+fi
 [ ! -d siterepo/r1b1/state/posts/product_variation ] || fail "aborted capture must not have written any product_variation state"
-[ ! -d siterepo/r1b1/state/terms/pa_size ] || fail "aborted capture must not have written any pa_size state"
-pass "confirmed: capture now ABORTS loudly, naming product_variation/pa_size/pa_color, their exact entity counts, and the scope-classify remedy, and writes nothing — this grind's own original silent-exclusion finding (no gate, no warning) is DUO-3229's loud-and-blocking gate now, closing the asymmetry with post_meta/options"
+pass "confirmed: capture ABORTS loudly, naming ONLY product_variation (its exact entity count and the scope-classify remedy) and writing nothing -- pa_size/pa_color are conspicuously ABSENT from the same abort, proving task #92's taxonomy_patterns already satisfies DUO-3229's gate for them without any site.duo.json entry; this grind's own original silent-exclusion finding (no gate, no warning) is DUO-3229's loud-and-blocking gate now, closing the asymmetry with post_meta/options"
 
 say "add product_variation + pa_color/pa_size to this site's OWN scope lists; recapture"
 jq '.policy.post_types += ["product_variation"] | .policy.taxonomies += ["pa_color", "pa_size"]' siterepo/r1b1/site.duo.json > siterepo/r1b1/.tmp-site.json && mv siterepo/r1b1/.tmp-site.json siterepo/r1b1/site.duo.json
