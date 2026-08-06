@@ -602,6 +602,7 @@ final class Snapshot {
                     continue; // runtime/derived/env: excluded from canonical state entirely
                 }
                 $v = $row[$col] ?? null;
+                self::guard_secret($v, !empty($rule['allow_secret']), "table '$table' column '$col' (row $localId)");
                 $columns[$col] = is_string($v) ? $tokens->tokenize_text($v) : $v;
             }
             foreach ($decl['refs'] ?? [] as $ref) {
@@ -647,6 +648,49 @@ final class Snapshot {
     }
 
     /**
+     * Secret guard for typed-snapshot capture (DUO-3214 — this mechanism
+     * had NONE before this: Capture.php's guard_secret() has gated
+     * authored options/post_meta since the beginning, but never ran here,
+     * even though a table column or attached-meta value is exactly as
+     * capable of holding a stray API key as a post_meta value is). Same
+     * posture as Capture's guard, mirrored rather than shared (Capture.php
+     * is a held file, and its guard_secret() is an instance method bound to
+     * an option/post_meta $section/$key shape that doesn't fit a table's
+     * column/key naming anyway): a hard-pattern match on an AUTHORED
+     * value aborts capture loudly, naming exactly where it was found. A
+     * column or attached-meta `keys{}` entry may declare `"allow_secret":
+     * true` — the SAME escape hatch option/post_meta rules already use,
+     * settable in a manifest or (since Policy::declared_tables() merges
+     * site.duo.json's policy.tables last) a site policy override — for a
+     * confirmed false positive.
+     *
+     * hard_match_deep(), not hard_match(): every value this file captures
+     * today is a flat string (a raw column read, or an attached-meta value
+     * this file deliberately never unserializes — see capture_meta_rows()'s
+     * docblock), so a plain hard_match() would suffice for the CURRENT
+     * fixtures, but this mechanism makes no promise that stays true for a
+     * table declared later, and the deep scan costs nothing extra on a
+     * value that is already flat (hard_match_deep() on a string is exactly
+     * one hard_match() call, no recursion entered).
+     */
+    private static function guard_secret($v, bool $allowSecret, string $where): void {
+        if ($allowSecret) {
+            return;
+        }
+        $label = Secrets::hard_match_deep($v);
+        if ($label === null) {
+            return;
+        }
+        throw new \RuntimeException(
+            "duo: secret guard tripped — $where looks like a $label but is classified authored; "
+            . "refusing to capture it into state/.\n"
+            . "If this is really a secret, reclassify it runtime/derived/env instead of authored.\n"
+            . 'If this is a false positive, declare "allow_secret": true on its rule '
+            . '(the manifest, or a site.duo.json policy.tables override).'
+        );
+    }
+
+    /**
      * Identity for one row: reuse the existing duo_map entry if one exists
      * (and re-affirm it via Ledger::set(), which self-heals a reused-
      * local_id collision — the SAME hygiene posts/terms already get on
@@ -686,6 +730,24 @@ final class Snapshot {
         $raw = $col !== null ? (string) ($row[$col] ?? '') : '';
         $slug = $raw !== '' ? sanitize_title($raw) : '';
         return $slug !== '' ? $slug : (string) $localId;
+    }
+
+    /**
+     * An attached-meta key's classification RULE: the `keys{}`-declared
+     * entry, or a synthetic {"class": default_class} when the key is
+     * undeclared — the exact two-step lookup (declared entry, else the
+     * table's own default_class) both capture and apply must agree on.
+     * Extracted as the SINGLE source of truth for capture_meta_rows() below
+     * (which key is excluded from canonical state entirely) and
+     * reconcile_meta()'s delete loop (which live key an apply may remove),
+     * specifically so the two can never independently drift on which keys
+     * are owned (DUO-3204 — see reconcile_meta()'s docblock: before this
+     * existed, its delete loop had no classification check at all).
+     *
+     * @param array<string,array> $keyRules decl['keys'] ?? []
+     */
+    private static function meta_key_rule(array $keyRules, string $default, string $key): array {
+        return $keyRules[$key] ?? ['class' => $default];
     }
 
     /**
@@ -730,12 +792,13 @@ final class Snapshot {
                     . '(found ' . count($values) . ' rows) — unsupported'
                 );
             }
-            $rule = $keyRules[$key] ?? ['class' => $default];
+            $rule = self::meta_key_rule($keyRules, $default, $key);
             $class = $rule['class'] ?? $default;
             if ($class !== 'authored') {
                 continue; // runtime/derived/env sidecar key — excluded, mirrors post_meta
             }
             $v = $values[0];
+            self::guard_secret($v, !empty($rule['allow_secret']), "table '$metaTable' key '$key' (parent $ownerLocalId)");
             if (!empty($rule['ref'])) {
                 $n = (int) $v;
                 if ($n <= 0) {
@@ -910,10 +973,35 @@ final class Snapshot {
     /**
      * Reconcile an attached-meta table's rows for one owner to exactly the
      * desired key set — same "delete what's no longer wanted, upsert the
-     * rest" shape as Apply::finalize_post()'s postmeta reconciliation.
-     * Writes BOTH column pairs when a legacy pair is declared (matching
-     * what Ninja Forms' own code does — confirmed empirically identical on
-     * both pairs, every row, in docs/grind/r1a-forms.md's evidence).
+     * rest" shape as Apply::finalize_post()'s postmeta reconciliation
+     * (Apply.php:806-811), and, since DUO-3204, the SAME ownership gate:
+     * finalize_post() only deletes a live meta_id whose rule class ===
+     * 'authored'; the delete loop below now does the exact same check,
+     * via meta_key_rule() — the identical lookup capture_meta_rows() uses,
+     * so the two paths can never independently disagree about which keys
+     * this mechanism owns.
+     *
+     * Before this check existed, the delete loop ran unconditionally on
+     * every live key simply absent from $desiredRaw — with no classification
+     * check at all. That silently deleted manifest-declared RUNTIME keys on
+     * every apply: editActive/drawerDisabled/_seq_num (manifests/
+     * ninja-forms.json's nf3_*_meta declarations — the admin JS builder's
+     * own ui-state scratch flags, confirmed by reading Ninja Forms' source)
+     * can never appear in $desiredMeta (capture_meta_rows() already excludes
+     * non-authored keys from canonical state), so their live absence from
+     * $desiredRaw is expected and permanent, not "no longer wanted" — a raw
+     * $wpdb->delete() fires no WordPress hooks, so this was silent and
+     * invisible to the canary.
+     *
+     * default_class still governs an UNDECLARED key exactly as it does at
+     * capture, and this is deliberate, not an oversight: every shipped
+     * nf3_*_meta table declares default_class:"authored", so a live key
+     * with no keys{} entry IS authored-classified — deleting it when absent
+     * from canonical is correct ownership (an EAV sidecar's "capture
+     * everything not explicitly excepted" discipline — see this file's
+     * docblock, "The two table shapes"). Only the keys{} map's explicit
+     * non-authored entries (or a hypothetical non-authored default_class)
+     * are what must survive this loop.
      */
     private static function reconcile_meta(string $metaTable, array $decl, int $ownerLocalId, array $desiredMeta, Tokens $tokens): void {
         global $wpdb;
@@ -934,7 +1022,7 @@ final class Snapshot {
 
         $desiredRaw = [];
         foreach ($desiredMeta as $key => $v) {
-            $rule = $keyRules[$key] ?? ['class' => $default];
+            $rule = self::meta_key_rule($keyRules, $default, $key);
             if (!empty($rule['ref'])) {
                 $desiredRaw[$key] = $v === null ? '0' : (string) $tokens->token_to_id((string) $v);
             } elseif (is_string($v)) {
@@ -945,9 +1033,14 @@ final class Snapshot {
         }
 
         foreach ($existingByKey as $key => $rowId) {
-            if (!array_key_exists($key, $desiredRaw)) {
-                $wpdb->delete($prefixed, ['id' => $rowId]);
+            if (array_key_exists($key, $desiredRaw)) {
+                continue;
             }
+            $rule = self::meta_key_rule($keyRules, $default, $key);
+            if (($rule['class'] ?? $default) !== 'authored') {
+                continue; // runtime/derived/env key — never owned by this mechanism, never deleted
+            }
+            $wpdb->delete($prefixed, ['id' => $rowId]);
         }
         foreach ($desiredRaw as $key => $val) {
             $data = [$attachCol => $ownerLocalId, $keyCol => $key, $valCol => $val];
@@ -1038,5 +1131,32 @@ final class Snapshot {
         if ($tables) {
             Ledger::prune_dead_table_map($tables);
         }
+    }
+
+    /**
+     * Does a live row exist for (id_kind, local_id), independent of whether
+     * it has been minted a uuid yet? Task #93's option_name_refs discovery
+     * (Capture::build_options()) needs this to distinguish DANGLING (no
+     * such row exists anywhere — the #73 dangling class, warn+drop) from
+     * UNSCOPED (the row genuinely exists in its declared table but was
+     * never minted — e.g. the owning table isn't itself pinned as
+     * authored_snapshot in currently-loaded manifests — the #73 unscoped
+     * class, mirrored onto table id_kinds: loud, blocking, a policy gap a
+     * human can fix, never silent data loss). Returns false, never throws,
+     * when $idKind names no currently-declared table at all — from the
+     * caller's point of view that's indistinguishable from dangling
+     * (nothing to check against), not a distinct third state.
+     */
+    public static function row_exists_for_kind(Policy $policy, string $idKind, int $localId): bool {
+        global $wpdb;
+        foreach (self::row_tables($policy) as $table => $decl) {
+            if (($decl['id_kind'] ?? '') !== $idKind) {
+                continue;
+            }
+            $prefixed = $wpdb->prefix . $table;
+            $pk = $decl['pk'];
+            return (bool) $wpdb->get_var($wpdb->prepare("SELECT 1 FROM `$prefixed` WHERE `$pk` = %d", $localId));
+        }
+        return false;
     }
 }

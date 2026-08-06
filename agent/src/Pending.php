@@ -74,7 +74,28 @@ final class Pending {
             )),
             default => null,
         };
-        return $raw === null ? null : maybe_unserialize($raw);
+        return $raw === null ? null : self::safe_maybe_unserialize($raw);
+    }
+
+    /**
+     * DUO-3214: current_value() reads a raw, untrusted DB value — ANY
+     * option/post_meta/term_meta row in this installation (this is the
+     * pending-review surface; the key may not even be classified yet), not
+     * just a duo-authored one. Plain maybe_unserialize() (WordPress core:
+     * `is_serialized($data) ? @unserialize(trim($data)) : $data`) calls
+     * unserialize() with no 'allowed_classes' restriction — a PHP-serialized
+     * OBJECT instantiates (running its __wakeup(), and later __destruct())
+     * before this function, or its caller, ever inspects the result. This
+     * mirrors core's own contract exactly (same is_serialized() gate, same
+     * trim() before unserialize, same passthrough for a non-serialized
+     * string) with the one change that matters: 'allowed_classes' => false,
+     * the identical safe pattern Capture::term_description() already uses
+     * (Capture.php:583) — a serialized OBJECT decodes to false (PHP's
+     * documented behavior for a disallowed class) instead of ever
+     * instantiating.
+     */
+    private static function safe_maybe_unserialize(string $raw) {
+        return is_serialized($raw) ? @unserialize(trim($raw), ['allowed_classes' => false]) : $raw;
     }
 
     // ------------------------------------------------------------ assembly
