@@ -70,22 +70,50 @@ final class Ledger {
 
     public static function set(string $uuid, string $entityType, string $kind, int $localId): void {
         global $wpdb;
-        // Auto-increment ids get reused (site empty resets counters; deletes
-        // outside duo leave stale rows). A stale row holding this (kind,
-        // local_id) under a DIFFERENT uuid would win the kind_local unique-key
-        // conflict below and silently keep the OLD uuid mapped to the new row
-        // — the entity's own _duo_uuid meta is the identity truth, so the
-        // contradicting map row must go first.
-        $wpdb->query($wpdb->prepare(
-            "DELETE FROM {$wpdb->prefix}duo_map WHERE id_kind = %s AND local_id = %d AND uuid <> %s",
-            $kind, $localId, $uuid
-        ));
+        if (!Uuid::is($uuid) || $localId <= 0) {
+            throw new \RuntimeException("duo: invalid ledger identity '$uuid' ($kind:$localId)");
+        }
+        $byUuid = $wpdb->get_row($wpdb->prepare(
+            "SELECT entity_type, local_id FROM {$wpdb->prefix}duo_map WHERE uuid = %s AND id_kind = %s",
+            $uuid, $kind
+        ), ARRAY_A);
+        if ($byUuid !== null && (int) $byUuid['local_id'] !== $localId) {
+            throw new \RuntimeException(
+                "duo: identity contradiction: $uuid ($kind) is already bound to local id {$byUuid['local_id']}; "
+                . "refusing to rebind it to $localId"
+            );
+        }
+        if ($byUuid !== null && (string) $byUuid['entity_type'] !== $entityType) {
+            throw new \RuntimeException(
+                "duo: identity contradiction: $uuid ($kind:$localId) is already typed {$byUuid['entity_type']}; "
+                . "refusing to retype it as $entityType"
+            );
+        }
+        $byLocal = $wpdb->get_row($wpdb->prepare(
+            "SELECT uuid, entity_type FROM {$wpdb->prefix}duo_map WHERE id_kind = %s AND local_id = %d",
+            $kind, $localId
+        ), ARRAY_A);
+        if ($byLocal !== null && $byLocal['uuid'] !== $uuid) {
+            throw new \RuntimeException(
+                "duo: identity contradiction: local $kind id $localId is already bound to {$byLocal['uuid']}; "
+                . "refusing to replace it with $uuid"
+            );
+        }
+        if ($byLocal !== null && (string) $byLocal['entity_type'] !== $entityType) {
+            throw new \RuntimeException(
+                "duo: identity contradiction: local $kind id $localId is already typed {$byLocal['entity_type']}; "
+                . "refusing to retype it as $entityType"
+            );
+        }
         $wpdb->query($wpdb->prepare(
             "INSERT INTO {$wpdb->prefix}duo_map (uuid, entity_type, id_kind, local_id)
              VALUES (%s, %s, %s, %d)
-             ON DUPLICATE KEY UPDATE entity_type = VALUES(entity_type), local_id = VALUES(local_id)",
+             ON DUPLICATE KEY UPDATE entity_type = VALUES(entity_type)",
             $uuid, $entityType, $kind, $localId
         ));
+        if ($wpdb->last_error) {
+            throw new \RuntimeException("duo: failed to persist identity $uuid ($kind:$localId): {$wpdb->last_error}");
+        }
     }
 
     public static function forget(string $uuid): void {
@@ -126,6 +154,21 @@ final class Ledger {
             $out[$r['uuid']] = ['entity_type' => $r['entity_type'], 'content_hash' => $r['content_hash']];
         }
         return $out;
+    }
+
+    /** @return array<int,array{uuid:string,entity_type:string,id_kind:string,local_id:int}> */
+    public static function all_map(): array {
+        global $wpdb;
+        $rows = $wpdb->get_results(
+            "SELECT uuid, entity_type, id_kind, local_id FROM {$wpdb->prefix}duo_map "
+            . 'ORDER BY id_kind ASC, local_id ASC, uuid ASC', ARRAY_A
+        ) ?: [];
+        return array_map(static fn(array $r): array => [
+            'uuid' => (string) $r['uuid'],
+            'entity_type' => (string) $r['entity_type'],
+            'id_kind' => (string) $r['id_kind'],
+            'local_id' => (int) $r['local_id'],
+        ], $rows);
     }
 
     public static function prune_state(array $keepUuids): void {

@@ -74,6 +74,7 @@ final class Capture {
     public static function run(string $repo, ?string $outDir = null, bool $forceUnresolvedRefs = false): array {
         Canary::suppress_cron_spawn();
         Ledger::ensure();
+        Identity::assert_embedded_unique();
         Ledger::prune_dead_map();
         $policy = Policy::load($repo);
         Snapshot::prune_dead_map($policy); // declared-table id_kinds get the same dead-map hygiene as post/term/tt
@@ -104,7 +105,13 @@ final class Capture {
             // alongside them, see one coherent point-in-time view. Retries
             // on its own (see run_in_consistent_snapshot()) if a concurrent
             // WordPress write collides with one of THIS build's own writes.
-            $build = self::run_in_consistent_snapshot(fn() => $c->build(true, $forceUnresolvedRefs));
+            $build = self::run_in_consistent_snapshot(function () use ($c, $policy, $repo, $forceUnresolvedRefs): array {
+                Identity::assert_embedded_unique();
+                Snapshot::assert_mapped_history_present($policy, $repo);
+                $candidate = $c->build(true, $forceUnresolvedRefs);
+                Identity::assert_entities_unique($candidate['entities']);
+                return $candidate;
+            });
 
             // Build + validate the COMPLETE candidate in an isolated
             // staging location — 'state/' itself is never touched until
@@ -200,11 +207,11 @@ final class Capture {
     public static function snapshot(string $repo, bool $forceUnresolvedRefs = false): array {
         Canary::suppress_cron_spawn();
         Ledger::ensure();
+        Identity::assert_embedded_unique();
         Ledger::prune_dead_map();
         $policy = Policy::load($repo);
         Snapshot::prune_dead_map($policy);
         $c = new self($repo, $policy);
-
         self::verify_engine_support($policy);
 
         // DUO-3213: read-only (mint=false — build() never writes in this
@@ -219,7 +226,12 @@ final class Capture {
         // publisher's filesystem operations, and MVCC gives it a coherent
         // view regardless of what a concurrent capture() is doing on the
         // DB side.
-        $build = self::run_in_consistent_snapshot(fn() => $c->build(false, $forceUnresolvedRefs));
+        $build = self::run_in_consistent_snapshot(function () use ($c, $forceUnresolvedRefs): array {
+            Identity::assert_embedded_unique();
+            $candidate = $c->build(false, $forceUnresolvedRefs);
+            Identity::assert_entities_unique($candidate['entities']);
+            return $candidate;
+        });
         $out = [];
         foreach ($build['entities'] as $e) {
             // task #88: same derived-aware basis as run() above — this is

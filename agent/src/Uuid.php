@@ -37,9 +37,9 @@ final class Uuid {
      * durable `_duo_uuid`-equivalent (posts/terms get that via postmeta/
      * termmeta), so identity for a declared table's rows lives ONLY in the
      * duo_map ledger, keyed by (id_kind, local_id). For most such tables
-     * (nf3_forms, nf3_fields, ...) that's the best available and the ledger
-     * IS the durable store — losing it loses identity, an accepted, honestly
-     * documented limitation (see Snapshot.php). But a table with a genuinely
+     * (nf3_forms, nf3_fields, ...) the ledger plus its versioned recovery
+     * sidecar is the durable store; a populated restore without that metadata
+     * fails closed. But a table with a genuinely
      * stable, human-chosen, unique natural key (e.g.
      * woocommerce_attribute_taxonomies.attribute_name) can do better: minting
      * the uuid as v5(NAMESPACE_DUO, "<table>:<natural key value>") instead of
@@ -47,7 +47,7 @@ final class Uuid {
      * if duo_map is ever lost — recapture reconciles with the existing
      * canonical file instead of minting a phantom duplicate. Callers must
      * still record the result in duo_map via Ledger::set() for normal-path
-     * bidirectional lookups; determinism is purely a MINTING-time property.
+     * bidirectional lookups; determinism is the verified recovery key.
      */
     public static function v5(string $namespace, string $name): string {
         $ns = str_replace('-', '', $namespace);
@@ -67,7 +67,7 @@ final class Uuid {
 
     public static function is(string $s): bool {
         return (bool) preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/',
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
             $s
         );
     }

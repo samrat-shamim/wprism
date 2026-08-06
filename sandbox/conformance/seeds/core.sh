@@ -11,6 +11,14 @@ NEWS_ID=$(wp_conf1 term create category News --slug=news --description="Conforma
 HOME_ID=$(wp_conf1 post create --post_type=page --post_title=Home --post_name=home --post_status=publish \
   --post_content='<!-- wp:paragraph --><p>Welcome to the conformance home page.</p><!-- /wp:paragraph -->' --porcelain)
 
+# DUO-3209: the portable adoption key for hierarchical posts is
+# (post_type, slug, parent identity), never slug alone. Two siblings in
+# different branches deliberately share the same slug.
+BRANCH_A=$(wp_conf1 post create --post_type=page --post_title='Branch A' --post_name=branch-a --post_status=publish --porcelain)
+BRANCH_B=$(wp_conf1 post create --post_type=page --post_title='Branch B' --post_name=branch-b --post_status=publish --porcelain)
+CHILD_A=$(wp_conf1 post create --post_type=page --post_title='Child A' --post_name=shared-child --post_parent="$BRANCH_A" --post_status=publish --porcelain)
+CHILD_B=$(wp_conf1 post create --post_type=page --post_title='Child B' --post_name=shared-child --post_parent="$BRANCH_B" --post_status=publish --porcelain)
+
 # Same-filename re-import across pair.sh resets gets WordPress's collision
 # suffix (uploads persist in the webroot volume; the reset only drops the
 # DB) — nondeterministic canonical filenames across runs. Fresh DB = the
@@ -46,4 +54,4 @@ wp_conf1 option update page_on_front "$HOME_ID" >/dev/null
 wp_conf1 option update default_category "$NEWS_ID" >/dev/null
 wp_conf1 option update sticky_posts "[$HELLO_ID]" --format=json >/dev/null
 
-echo "core seed: news=$NEWS_ID home=$HOME_ID att=$ATT_ID hello=$HELLO_ID"
+echo "core seed: news=$NEWS_ID home=$HOME_ID att=$ATT_ID hello=$HELLO_ID hierarchy=$BRANCH_A/$CHILD_A,$BRANCH_B/$CHILD_B"

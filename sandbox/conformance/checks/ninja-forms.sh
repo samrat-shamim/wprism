@@ -42,3 +42,76 @@ echo \$form->get_setting('title') . \"|\" . count(Ninja_Forms()->form($CONF2_FOR
 [ "$API_OUT" = "Job Application|23|3" ] \
   || fail "Ninja_Forms()->form($CONF2_FORM_ID) on conf2 did not resolve correctly (got: $API_OUT, expected: Job Application|23|3)"
 pass "conf2 renders its own 'Job Application' form (id=$CONF2_FORM_ID) with correct content, and Ninja Forms' own model API resolves it server-side (23 fields, 3 actions)"
+
+# DUO-3209: mapped custom-table identity is environment-bound promotion
+# metadata. Prove a database restore without it blocks before duplication,
+# then prove the exact, hash-verified sidecar restores mappings, 3-way state,
+# and applied-revision association. The row witness also has to reject a
+# stale backup and an already-conflicting ledger without partial writes.
+SIDE=/siterepo/.tmp-identity-ledger.json
+wp_conf2 duo identity-export --repo=/siterepo --out="$SIDE" >/dev/null
+EXPECTED_MAPS=$(jq '.maps | length' "$CONF_REPO2/.tmp-identity-ledger.json")
+EXPECTED_STATES=$(jq '.states | length' "$CONF_REPO2/.tmp-identity-ledger.json")
+EXPECTED_REV=$(jq -r '.applied_revision' "$CONF_REPO2/.tmp-identity-ledger.json")
+[ "$EXPECTED_MAPS" -gt 0 ] && [ "$EXPECTED_STATES" -gt 0 ] \
+  || fail "identity sidecar omitted mappings or sync state"
+
+wp_conf2 db query 'TRUNCATE TABLE wp_duo_map; TRUNCATE TABLE wp_duo_state; DELETE FROM wp_duo_kv;' >/dev/null
+PLAN_RC=0
+PLAN_OUT=$(wp_conf2 duo plan --repo=/siterepo 2>&1) || PLAN_RC=$?
+[ "$PLAN_RC" -ne 0 ] || fail "restored populated Ninja Forms DB planned successfully without identity metadata"
+grep -q "mapped identity missing.*nf3_forms" <<<"$PLAN_OUT" \
+  || fail "missing mapped identity failed for the wrong reason: $PLAN_OUT"
+
+# plan repaired the post/term subset from embedded metadata before reaching
+# nf3_forms; import must accept that verified subset, while still rejecting
+# any row that disagrees with the sidecar.
+wp_conf2 duo identity-import --repo=/siterepo --in="$SIDE" >/dev/null
+MAPS_NOW=$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_duo_map' --skip-column-names | tr -d '[:space:]')
+STATES_NOW=$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_duo_state' --skip-column-names | tr -d '[:space:]')
+REV_NOW=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
+[ "$MAPS_NOW" = "$EXPECTED_MAPS" ] || fail "identity import restored $MAPS_NOW/$EXPECTED_MAPS mappings"
+[ "$STATES_NOW" = "$EXPECTED_STATES" ] || fail "identity import restored $STATES_NOW/$EXPECTED_STATES sync states"
+[ "$REV_NOW" = "$EXPECTED_REV" ] || fail "identity import lost applied revision ($REV_NOW != $EXPECTED_REV)"
+RESTORED_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+[ "$(jq '[.create,.update,.drift,.conflict,.collision] | map(length) | add' <<<"$RESTORED_PLAN")" = 0 ] \
+  || fail "verified identity restore did not return target to a clean plan: $RESTORED_PLAN"
+
+wp_conf2 db query "UPDATE wp_nf3_forms SET title='Stale Restore' WHERE id=$CONF2_FORM_ID; TRUNCATE TABLE wp_duo_map; TRUNCATE TABLE wp_duo_state; DELETE FROM wp_duo_kv;" >/dev/null
+STALE_RC=0
+STALE_OUT=$(wp_conf2 duo identity-import --repo=/siterepo --in="$SIDE" 2>&1) || STALE_RC=$?
+[ "$STALE_RC" -ne 0 ] && grep -q 'witness mismatch' <<<"$STALE_OUT" \
+  || fail "stale database/sidecar pairing was not rejected: $STALE_OUT"
+[ "$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_duo_map' --skip-column-names | tr -d '[:space:]')" = 0 ] \
+  || fail "stale sidecar import partially mutated duo_map"
+wp_conf2 db query "UPDATE wp_nf3_forms SET title='Job Application' WHERE id=$CONF2_FORM_ID" >/dev/null
+wp_conf2 duo identity-import --repo=/siterepo --in="$SIDE" >/dev/null
+
+wp_conf2 db query "UPDATE wp_duo_map SET uuid='00000000-0000-4000-8000-000000000999' WHERE id_kind='nf3_form' AND local_id=$CONF2_FORM_ID" >/dev/null
+CONFLICT_RC=0
+CONFLICT_OUT=$(wp_conf2 duo identity-import --repo=/siterepo --in="$SIDE" 2>&1) || CONFLICT_RC=$?
+[ "$CONFLICT_RC" -ne 0 ] && grep -q 'current identity ledger conflicts' <<<"$CONFLICT_OUT" \
+  || fail "conflicting live ledger was not rejected: $CONFLICT_OUT"
+[ "$(wp_conf2 db query "SELECT uuid FROM wp_duo_map WHERE id_kind='nf3_form' AND local_id=$CONF2_FORM_ID" --skip-column-names | tr -d '[:space:]')" = '00000000-0000-4000-8000-000000000999' ] \
+  || fail "conflicting sidecar import partially rebound the live mapping"
+wp_conf2 db query 'TRUNCATE TABLE wp_duo_map; TRUNCATE TABLE wp_duo_state; DELETE FROM wp_duo_kv;' >/dev/null
+wp_conf2 duo identity-import --repo=/siterepo --in="$SIDE" >/dev/null
+
+jq '.applied_revision = "tampered"' "$CONF_REPO2/.tmp-identity-ledger.json" > "$CONF_REPO2/.tmp-identity-tampered.json"
+TAMPER_RC=0
+TAMPER_OUT=$(wp_conf2 duo identity-import --repo=/siterepo --in=/siterepo/.tmp-identity-tampered.json 2>&1) || TAMPER_RC=$?
+[ "$TAMPER_RC" -ne 0 ] && grep -q 'integrity hash does not verify' <<<"$TAMPER_OUT" \
+  || fail "tampered identity sidecar was not rejected: $TAMPER_OUT"
+
+# Source-side ledger loss is equally dangerous once canonical mapped UUIDs
+# exist: capture must not mint replacements for them.
+wp_conf1 duo identity-export --repo=/siterepo --out="$SIDE" >/dev/null
+wp_conf1 db query "DELETE FROM wp_duo_map WHERE id_kind IN ('nf3_form','nf3_field','nf3_action')" >/dev/null
+CAPTURE_RC=0
+CAPTURE_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-lost-ledger-state 2>&1) || CAPTURE_RC=$?
+[ "$CAPTURE_RC" -ne 0 ] && grep -q 'mapped identity history is missing' <<<"$CAPTURE_OUT" \
+  || fail "source capture minted replacements after mapped identity loss: $CAPTURE_OUT"
+wp_conf1 duo identity-import --repo=/siterepo --in="$SIDE" >/dev/null
+wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-restored-state >/dev/null
+
+pass "mapped identity loss blocks; verified sidecar restores map/state/revision; stale, conflicting, and tampered restores fail atomically"

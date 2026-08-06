@@ -85,7 +85,7 @@ namespace Duo;
  * postmeta (Apply::finalize_post()'s existing pattern), which is also why
  * they need no entry in duo_map at all.
  *
- * ---- Identity: three modes, one honest trade-off ----
+ * ---- Identity: three modes, one recovery contract ----
  *
  * Posts/terms mint a uuid and store it BACK onto the row itself (_duo_uuid
  * via postmeta/termmeta) — durable even if the duo_map ledger is ever lost,
@@ -97,17 +97,13 @@ namespace Duo;
  *
  * - `"identity": {"mode": "mapped"}` (the default when `identity` is
  *   omitted) — a fresh row gets a random Uuid::v7(), same as posts/terms.
- *   Honest limitation, stated plainly rather than glossed over: if duo_map
- *   is ever lost for a mapped-identity table (an operator TRUNCATE, never
- *   anything this engine itself does), identity for its rows is genuinely,
- *   irrecoverably gone — recapture mints NEW random uuids for the same
- *   physical rows. This is not a gap unique to typed snapshot: an ordinary
- *   post that somehow lost its _duo_uuid postmeta row would hit the exact
- *   same fate. It is simply less disguised here, because table rows have no
- *   redundant recovery path AT ALL, whereas a post's is merely also-fragile
- *   rather than doubly-redundant. nf3_forms/nf3_fields/nf3_actions use this
- *   mode (no natural key exists — nf3_forms.key was empirically NULL on the
- *   live fixture, contradicting the one-line speculation in task #75's own
+ *   Because the plugin row cannot carry the UUID, `duo_map` plus the
+ *   `duo-identity-ledger/v1` disaster-recovery sidecar is the durable store.
+ *   A populated non-minting target with a missing mapping blocks; a source
+ *   whose canonical mapped UUIDs lost their mappings also blocks instead of
+ *   minting replacements. nf3_forms/nf3_fields/nf3_actions use this mode (no
+ *   natural key exists — nf3_forms.key was empirically NULL on the live
+ *   fixture, contradicting the one-line speculation in task #75's own
  *   description that it might serve).
  * - `"identity": {"mode": "natural_key", "column": "<col>"}` — for a table
  *   with a confirmed-stable, human-chosen, unique column (WooCommerce's
@@ -115,15 +111,9 @@ namespace Duo;
  *   uuid is DERIVED, not minted: `Uuid::v5(Uuid::NAMESPACE_DUO,
  *   "<table>:<natural key value>")` — the SAME (table, value) always
  *   produces the SAME uuid. This is deliberately stronger than mapped mode:
- *   even a fully lost duo_map self-heals on next capture, because the uuid
- *   is re-derived from the live row rather than looked up, and
- *   Ledger::set()'s own existing (uuid,id_kind) upsert semantics then
- *   correctly REBIND that recovered uuid to whatever local_id the row
- *   currently has (even a different one than before) — verified by
- *   composing the two mechanisms on paper, not by adding new special-case
- *   code: v5's determinism plus Ledger::set()'s pre-existing "a stale
- *   (id_kind, local_id) row under a different uuid loses" rule are
- *   individually simple and correctly compose into full recovery.
+ *   a missing mapping can be deterministically reconstructed from the live
+ *   natural key. Contradictory live mappings still block; ordinary
+ *   Ledger::set() never deletes or rebinds identity implicitly.
  * - `"identity": {"mode": "composite_ref", "columns": ["<col1>", "<col2>"]}`
  *   (DUO-3235, task #125) — for a PURE JOIN table: no surrogate `pk` column
  *   exists at all, and its real, live composite PRIMARY KEY is exactly the
@@ -370,6 +360,58 @@ final class Snapshot {
             }
         }
         return $out;
+    }
+
+    /**
+     * A mapped table may mint genuinely new live rows, but it may not mint
+     * replacements for canonical identities whose ledger rows disappeared.
+     * That shape is indistinguishable from a database restore without its
+     * identity sidecar, so capture fails closed and asks for recovery.
+     */
+    public static function assert_mapped_history_present(Policy $policy, string $repo): void {
+        foreach (self::row_tables($policy) as $table => $decl) {
+            if (($decl['identity']['mode'] ?? 'mapped') !== 'mapped') {
+                continue;
+            }
+            foreach (glob(rtrim($repo, '/') . "/state/tables/$table/*.json") ?: [] as $file) {
+                $front = Canon::decode(Canon::read_file($file));
+                $uuid = (string) ($front['uuid'] ?? '');
+                if (!Uuid::is($uuid) || Ledger::id_for($uuid, $decl['id_kind']) === null) {
+                    throw new \RuntimeException(
+                        "duo: mapped identity history is missing for canonical $table entity $uuid; "
+                        . 'refusing to mint a replacement. Restore the database-matched identity sidecar with '
+                        . '`wp duo identity-import --repo=<repo> --in=<file>` before capture'
+                    );
+                }
+            }
+        }
+    }
+
+    /** A DR export must cover every live mapped row, not just known ones. */
+    public static function assert_all_mapped_rows_managed(Policy $policy): void {
+        global $wpdb;
+        foreach (self::row_tables($policy) as $table => $decl) {
+            if (($decl['identity']['mode'] ?? 'mapped') !== 'mapped') {
+                continue;
+            }
+            $prefixed = $wpdb->prefix . preg_replace('/[^A-Za-z0-9_]/', '', $table);
+            $pk = preg_replace('/[^A-Za-z0-9_]/', '', $decl['pk']);
+            if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
+                continue;
+            }
+            $missing = $wpdb->get_var($wpdb->prepare(
+                "SELECT src.`$pk` FROM `$prefixed` src "
+                . "LEFT JOIN {$wpdb->prefix}duo_map m ON m.id_kind = %s AND m.local_id = src.`$pk` "
+                . "WHERE m.uuid IS NULL ORDER BY src.`$pk` ASC LIMIT 1",
+                $decl['id_kind']
+            ));
+            if ($missing !== null) {
+                throw new \RuntimeException(
+                    "duo: cannot export identity sidecar: mapped table '$table' row $missing has no ledger identity; "
+                    . 'capture it first or recover the missing sidecar'
+                );
+            }
+        }
     }
 
     /** meta table name => decl, grouped by owning row table name. */
@@ -778,10 +820,10 @@ final class Snapshot {
      * $entities array with zero adaptation.
      *
      * $mint follows Capture::run() (true) vs Capture::snapshot() (false):
-     * a non-minting pass never creates new identity for a previously-
-     * unmanaged row (it becomes invisible, same as an un-uuid'd post is
-     * invisible to a non-minting snapshot) but still re-affirms identity
-     * for rows already in duo_map — see identify_row().
+     * a non-minting pass derives a declared natural-key identity, but a
+     * populated mapped row without ledger metadata blocks instead of
+     * becoming invisible. Minting capture may create identity only for a
+     * genuinely new mapped row after canonical history has been checked.
      *
      * @return array<int, array{uuid:string, type:string, path:string, content:string}>
      */
@@ -827,9 +869,6 @@ final class Snapshot {
         foreach ($rows as $row) {
             $localId = (int) $row[$pk];
             $uuid = self::identify_row($table, $decl, $row, $localId, $mint);
-            if ($uuid === null) {
-                continue; // snapshot-only view, never captured before — invisible, matching posts/terms
-            }
 
             $columns = [];
             foreach ($decl['columns'] ?? [] as $col => $rule) {
@@ -978,20 +1017,15 @@ final class Snapshot {
 
     /**
      * Identity for one row: reuse the existing duo_map entry if one exists
-     * (and re-affirm it via Ledger::set(), which self-heals a reused-
-     * local_id collision — the SAME hygiene posts/terms already get on
-     * every capture, now extended to table rows that have no meta-column
-     * fallback of their own to fall back on). A never-seen row only gets
-     * NEW identity when $mint is true; see this file's docblock for the
-     * mapped-vs-natural_key mode split.
+     * and re-affirm it via contradiction-intolerant Ledger::set(). A
+     * never-seen mapped row gets NEW identity only when $mint is true;
+     * natural-key rows derive identity in either mode. See this file's
+     * docblock for the mapped-vs-natural_key recovery split.
      */
-    private static function identify_row(string $table, array $decl, array $row, int $localId, bool $mint): ?string {
+    private static function identify_row(string $table, array $decl, array $row, int $localId, bool $mint): string {
         $idKind = $decl['id_kind'];
         $uuid = Ledger::uuid_for($localId, $idKind);
         if ($uuid === null) {
-            if (!$mint) {
-                return null;
-            }
             $mode = $decl['identity']['mode'] ?? 'mapped';
             if ($mode === 'natural_key') {
                 $col = $decl['identity']['column'];
@@ -1004,6 +1038,13 @@ final class Snapshot {
                 }
                 $uuid = Uuid::v5(Uuid::NAMESPACE_DUO, "$table:$key");
             } else {
+                if (!$mint) {
+                    throw new \RuntimeException(
+                        "duo: mapped identity missing for populated table '$table' row $localId ($idKind); "
+                        . 'refusing to create or rebind it. Restore a verified identity sidecar with '
+                        . '`wp duo identity-import --repo=<repo> --in=<file>` before plan/apply'
+                    );
+                }
                 $uuid = Uuid::v7();
             }
         }
