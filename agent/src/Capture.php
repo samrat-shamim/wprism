@@ -1127,9 +1127,11 @@ final class Capture {
             }
             $v = maybe_unserialize($values[0]);
             self::assert_plain($v, "post $id meta $key");
-            if (is_string($v)) {
-                $this->guard_secret('post_meta', $key, $v, $rule, " on post $id");
-            }
+            // DUO-3214: unconditional, not gated on is_string($v) — an
+            // authored value that decoded to an array (a serialized
+            // settings blob) must be scanned too; guard_secret() deep-scans
+            // internally now (see its own docblock).
+            $this->guard_secret('post_meta', $key, $v, $rule, " on post $id");
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                 $decoded = $this->decode_structured($v, $rule, "post $id meta $key");
                 $v = $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
@@ -1142,6 +1144,14 @@ final class Capture {
                 }
             } elseif (is_string($v)) {
                 $v = $this->tokens->tokenize_text($v);
+            }
+            // DUO-3214(b) / task #123: applied LAST, to the fully-processed
+            // value, so it composes correctly with ref/json_refs rewriting
+            // above rather than racing it — order preservation is about
+            // how Canon serializes the FINAL value, not an input-shape
+            // concern. See Canon::normalize()'s docblock for the mechanism.
+            if (!empty($rule['order_preserving'])) {
+                $v = new OrderPreserved($v);
             }
             $meta[$key] = $v;
         }
@@ -1461,9 +1471,9 @@ final class Capture {
             $liveCanonicalNames[$name] = true;
             $v = maybe_unserialize($row['option_value']);
             self::assert_plain($v, "option $name");
-            if (is_string($v)) {
-                $this->guard_secret('options', $name, $v, $rule);
-            }
+            // DUO-3214: unconditional — see the identical comment in
+            // build_post()'s post_meta loop above.
+            $this->guard_secret('options', $name, $v, $rule);
             $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
             if (!$captured['included']) {
                 continue;
@@ -1504,9 +1514,15 @@ final class Capture {
             $liveCanonicalNames[$name] = true;
             $v = maybe_unserialize($row['option_value']);
             self::assert_plain($v, "option $name");
-            if (is_string($v)) {
-                $this->guard_secret('options', $name, $v, $rule);
-            }
+            // DUO-3214: unconditional — see the identical comment in
+            // build_post()'s post_meta loop above. This call site auto-
+            // merged past the DUO-3211 rebase's own conflict marker without
+            // being flagged (the surrounding lines changed enough on both
+            // sides that git's 3-way merge considered this one already
+            // resolved) — caught by re-auditing every guard_secret() call
+            // site after the rebase rather than trusting the single
+            // flagged conflict, not by a failing test.
+            $this->guard_secret('options', $name, $v, $rule);
             $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
             if ($captured['included']) {
                 OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
@@ -1561,11 +1577,13 @@ final class Capture {
                     // Array-shaped sub-key value: deep scan, deliberately
                     // NOT the is_string()-gated shallow guard_secret() call
                     // above -- the same reasoning option_name_refs' own
-                    // Secrets::hard_match_deep() call already documents
-                    // (Capture.php's other is_string()-gated call sites are
-                    // a KNOWN, separately-filed gap — task #127/DUO-3214
-                    // remainder (a) — this is a NEW call site built with the
-                    // right tool from day one, not a repeat of that gap).
+                    // Secrets::hard_match_deep() call already documents.
+                    // (DUO-3214 has since widened guard_secret() itself to
+                    // deep-scan unconditionally, closing task #127 -- this
+                    // call site predates that fix and is left as its own
+                    // implementation rather than folded into guard_secret()
+                    // as part of that unrelated rebase, to avoid changing
+                    // this rule's tested error message as a side effect.)
                     $secretLabel = Secrets::hard_match_deep($subVal);
                     if ($secretLabel !== null) {
                         throw new \RuntimeException(
@@ -1787,12 +1805,45 @@ final class Capture {
      * or a manifest, for a confirmed false positive). Fails fast on the
      * first match, like assert_plain() above — this is a hard security
      * abort, not the batched loud-and-blocking classification gate.
+     *
+     * DUO-3214: $v is untyped (was `string $v`) and this now calls
+     * Secrets::hard_match_deep(), not hard_match() — both call sites used to
+     * gate their call behind `is_string($v)`, so an authored post_meta/
+     * option value that decoded to an ARRAY (a plugin's serialized settings
+     * blob) got ZERO secret scanning in any branch downstream, unlike
+     * Snapshot::guard_secret() (typed-snapshot columns/attached-meta) and
+     * the option_name_refs inline scan (both already deep-scanning since
+     * the wave-1 security subset — see their own docblocks for the
+     * identical reasoning). Widening the method and dropping the gate at
+     * both call sites reuses that same proven mechanism instead of a third
+     * reimplementation. assert_plain() already ran on $v before every call
+     * site reaches this (it throws on any PHP object anywhere in the
+     * structure), so hard_match_deep()'s array/string/other-scalar walk
+     * covers every shape $v can actually have here.
+     *
+     * 64KB-skip semantics (DUO-3214 wave-2 decision, stated explicitly
+     * since it wasn't obvious which reading was intended): PER-LEAF, not
+     * whole-value. Secrets::MAX_LEN gates each individual string hard_match()
+     * runs against, and hard_match_deep() calls hard_match() once per string
+     * LEAF of the structure — so a large array whose individual string
+     * values are all under 64KB is still fully scanned leaf-by-leaf, even
+     * if the array's total serialized size is not; only a single leaf
+     * itself over 64KB skips (matching the pre-existing scalar behavior
+     * exactly, just applied at the leaf granularity an array introduces).
+     * This keeps the "cheap-scan requirement" Secrets.php's own docblock
+     * states — no single regex ever runs against more than MAX_LEN bytes —
+     * without needing a separate whole-structure size check.
+     *
+     * allow_secret already covers array values with no further change: the
+     * rule-level escape hatch below is checked before any type-specific
+     * scanning logic runs, so it short-circuits identically regardless of
+     * whether $v is a scalar or an array.
      */
-    private function guard_secret(string $section, string $key, string $v, array $rule, string $context = ''): void {
+    private function guard_secret(string $section, string $key, $v, array $rule, string $context = ''): void {
         if (!empty($rule['allow_secret'])) {
             return;
         }
-        $label = Secrets::hard_match($v);
+        $label = Secrets::hard_match_deep($v);
         if ($label === null) {
             return;
         }

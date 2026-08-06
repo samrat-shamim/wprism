@@ -450,58 +450,26 @@ wp_2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final >/dev/null
 DIFF_OUT=$(diff -rq siterepo/r3a1/state siterepo/r3a2/.tmp-final || true)
 echo "$DIFF_OUT"
 
-# Everything OUTSIDE product_variation must be true byte-identity, zero
-# exceptions -- task #88 makes no claim beyond post_title.
-NON_VARIATION_DIFFS=$(echo "$DIFF_OUT" | grep -v 'product_variation.*duo-tee-' | grep -c 'differ' || true)
-[ "$NON_VARIATION_DIFFS" = "0" ] || fail "unexpected byte differences outside product_variation (see diff output above)"
-
-# product_variation files: assert every remaining diff is isolated to
-# EXACTLY the title field, and that the two title strings are anagrams of
-# each other (same words, reordered -- task #123's signature, not #72's
-# timing issue, which criterion 3 above already proved plan is blind to).
-# DIRECTION: this per-field carve-out is scoped to #123 and should collapse
-# back to a plain zero-exclusion byte-diff the moment #123 lands.
-ANY_VARIATION_FILES=0
-for f in siterepo/r3a1/state/posts/product_variation/*duo-tee-*.md; do
-  [ -e "$f" ] || continue
-  ANY_VARIATION_FILES=1
-  base=$(basename "$f")
-  f2="siterepo/r3a2/.tmp-final/posts/product_variation/$base"
-  python3 - "$f" "$f2" <<'PYEOF' || fail "a product_variation file differs in more than just a title reordering (task #123) -- see output above"
-import sys, json
-
-def parse(path):
-    text = open(path).read()
-    assert text.startswith('---\n'), f"{path}: missing front-matter fence"
-    end = text.index('\n---\n', 4)
-    return json.loads(text[4:end]), text[end + 5:]
-
-front1, body1 = parse(sys.argv[1])
-front2, body2 = parse(sys.argv[2])
-if body1 != body2:
-    print(f"body differs for {sys.argv[1]}")
-    sys.exit(1)
-title1, title2 = front1.pop('title'), front2.pop('title')
-if front1 != front2:
-    keys = sorted(set(front1) | set(front2))
-    diffs = [k for k in keys if front1.get(k) != front2.get(k)]
-    print(f"non-title field(s) differ for {sys.argv[1]}: {diffs}")
-    sys.exit(1)
-if title1 == title2:
-    print(f"ok: {sys.argv[1]} -- byte-identical title too (task #123 residual NOT observed this run)")
-elif sorted(title1) == sorted(title2):
-    print(f"ok: {sys.argv[1]} -- only title differs, as a content-preserving reordering (task #123): {title1!r} vs {title2!r}")
-else:
-    print(f"title difference is NOT a same-content reordering for {sys.argv[1]}: {title1!r} vs {title2!r}")
-    sys.exit(1)
-PYEOF
-done
+# TRUE zero-exclusion byte identity -- no exceptions anywhere, including
+# product_variation.title. Task #88 (Policy::field_class()/Canon::
+# post_hash_basis()) closed #72's TIMING-based divergence, proven above
+# (criterion 3: plan stays silent) and again here by construction (both
+# sides had an identical forced self-heal before this diff). Task #123
+# (Canon.php's OrderPreserved mechanism, manifests/woocommerce.json's
+# `_product_attributes` "order_preserving": true) closed the SEPARATE,
+# PERMANENT divergence this section used to carve out with an anagram
+# check: the parent's _product_attributes array order -- which
+# WooCommerce's variation-title generator reads directly -- now survives
+# capture/apply byte-for-byte, so the generated title converges byte-
+# identically too. With both root causes closed, no carve-out is needed;
+# this round's fixture (pa_size x pa_color, an independent attribute
+# ordering from grind_r1b_shop.sh's own fixture) is exactly the second,
+# different-ordering confirmation #123's own acceptance criteria called for.
+[ -z "$DIFF_OUT" ] || fail "unexpected byte differences after an identical forced self-heal on both sides (see diff output above) -- with #88 and #123 both closed, the entire tree, including product_variation.title, must be byte-identical with zero exceptions"
+[ -e "siterepo/r3a1/state/posts/product_variation" ] && ls siterepo/r3a1/state/posts/product_variation/*duo-tee-*.md >/dev/null 2>&1 \
+  || fail "expected product_variation files under siterepo/r3a1/state/posts/product_variation/*duo-tee-*.md, found none -- this assertion proves nothing about #123 if the fixture it depends on is missing"
 rm -rf siterepo/r3a2/.tmp-final
-if [ "$ANY_VARIATION_FILES" = "1" ]; then
-  pass "task #88 verified on an independent fixture: every entity byte-identical except possibly product_variation.title, and any such residual is exactly #123's same-words reordering (or absent entirely) -- never an unexplained difference"
-else
-  fail "expected product_variation files under siterepo/r3a1/state/posts/product_variation/*duo-tee-*.md, found none"
-fi
+pass "task #88 AND task #123 both CLOSED for real, confirmed on a SECOND independent attribute ordering (pa_size x pa_color): the entire tree is byte-identical with ZERO exceptions, product_variation.title included -- not merely a same-words reordering."
 
 # Commit r3a1's post-self-heal capture NOW, on main, before the divergent-
 # merge section below branches off it -- otherwise the self-healed (possibly

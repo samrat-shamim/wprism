@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-promotion-unit regress-promotion
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-promotion-unit regress-promotion regress-capture-secret-scan regress-order-preserving
 
 up:
 	$(COMPOSE) up -d
@@ -237,3 +237,24 @@ regress-promotion-unit:
 # observations, and the composed host promote path with a retained DB dump.
 regress-promotion:
 	bash sandbox/tests/regress_promotion.sh
+
+# DUO-3214(a): offline, no docker -- Capture::guard_secret()'s two
+# is_string()-gated call sites (post_meta, options) now deep-scan via
+# Secrets::hard_match_deep() unconditionally, so an authored value that
+# decodes to an array (a serialized settings blob) can no longer skip
+# secret scanning entirely. See the script's own header for what's proven
+# here (the widened method, via Reflection) vs. by live sandbox evidence
+# (the real call-site wiring through Capture::build()).
+regress-capture-secret-scan:
+	bash sandbox/tests/regress_capture_secret_scan.sh
+
+# DUO-3214(b) / task #123: offline, no docker -- Canon::normalize()'s new
+# OrderPreserved-aware branch, which stops alphabetically resorting a meta
+# value a manifest rule declares "order_preserving": true (manifests/
+# woocommerce.json's `_product_attributes` closes the causation-proven
+# WooCommerce variation-title word-reordering bug). See the script's own
+# header for what's proven here (the Canon.php mechanism) vs. by live
+# sandbox evidence (the real WooCommerce variation title converging
+# byte-for-byte, not just as a same-words anagram).
+regress-order-preserving:
+	bash sandbox/tests/regress_order_preserving.sh

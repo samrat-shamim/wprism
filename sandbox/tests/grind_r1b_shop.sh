@@ -514,71 +514,26 @@ wp_r1b2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final >/dev/null
 DIFF_OUT=$(diff -rq siterepo/r1b1/state siterepo/r1b2/.tmp-final || true)
 echo "$DIFF_OUT"
 
-# Everything OUTSIDE product_variation must be true byte-identity, zero
-# exceptions — task #88 makes no claim beyond post_title, so nothing else
-# gets an exclusion here (same rigor the old assertion had, before this
-# section's rewrite).
-NON_VARIATION_DIFFS=$(echo "$DIFF_OUT" | grep -v 'product_variation.*duo-tee-' | grep -c 'differ' || true)
-[ "$NON_VARIATION_DIFFS" = "0" ] || fail "unexpected byte differences outside product_variation (see diff output above) — task #88's fix should leave everything else byte-identical"
-
-# product_variation files: task #88 (this task) fully closes #72's TIMING-
-# based divergence — proven structurally above (criterion 3: plan never
-# sees it) and now proven by construction here too, since both sides just
-# had an identical forced self-heal. What it does NOT close, and was never
-# scoped to close, is task #123 (filed during this validation, separate
-# root cause): Canon::normalize()'s alphabetical key-sorting of the
-# PARENT's _product_attributes (a plain authored meta value with no
-# order-preservation declared) silently changes WooCommerce's own title-
-# generation word order once that value round-trips through capture/apply
-# — a PERMANENT divergence (confirmed live: a real wc_get_product()->save()
-# on the untouched source does NOT reorder it, so there is no natural-
-# WooCommerce-mechanism way for the two sides to converge on their own).
-# So: assert every remaining product_variation diff is isolated to EXACTLY
-# the title field (every other front-matter field byte-identical) and that
-# the two title strings are anagrams of each other (same words, reordered
-# — proving it's #123's reordering, not an unexplained or unrelated
-# difference). This is strictly MORE rigorous than the old blanket
-# `grep -v` exclusion this section used to have, which accepted ANY
-# difference on a variation file with zero further scrutiny.
-#
-# DIRECTION, not a permanent exception: this per-field title carve-out is
-# scoped to #123 specifically and should be REMOVED the moment #123 lands
-# (its own acceptance criteria include this removal) — at that point the
-# loop below should collapse back to a plain, zero-exclusion byte-diff
-# assertion on the whole product_variation directory, same as every other
-# post type already gets above. If this loop is still here with #123
-# marked done, that's a regression to catch, not the steady state.
-for f in siterepo/r1b1/state/posts/product_variation/*duo-tee-*.md; do
-  base=$(basename "$f")
-  f2="siterepo/r1b2/.tmp-final/posts/product_variation/$base"
-  python3 - "$f" "$f2" <<'PYEOF' || fail "a product_variation file differs in more than just a title reordering (task #123) — see output above"
-import sys, json
-
-def parse(path):
-    text = open(path).read()
-    assert text.startswith('---\n'), f"{path}: missing front-matter fence"
-    end = text.index('\n---\n', 4)
-    return json.loads(text[4:end]), text[end + 5:]
-
-front1, body1 = parse(sys.argv[1])
-front2, body2 = parse(sys.argv[2])
-if body1 != body2:
-    print(f"body differs for {sys.argv[1]}")
-    sys.exit(1)
-title1, title2 = front1.pop('title'), front2.pop('title')
-if front1 != front2:
-    keys = sorted(set(front1) | set(front2))
-    diffs = [k for k in keys if front1.get(k) != front2.get(k)]
-    print(f"non-title field(s) differ for {sys.argv[1]}: {diffs}")
-    sys.exit(1)
-if sorted(title1) != sorted(title2):
-    print(f"title difference is NOT a same-content reordering for {sys.argv[1]}: {title1!r} vs {title2!r}")
-    sys.exit(1)
-print(f"ok: {sys.argv[1]} — only title differs, as a content-preserving reordering (task #123): {title1!r} vs {title2!r}")
-PYEOF
-done
+# TRUE zero-exclusion byte identity — no exceptions anywhere, including
+# product_variation.title. Two fixes compose to make this possible:
+# task #88 (Policy::field_class()/Canon::post_hash_basis()) closes #72's
+# TIMING-based divergence — proven structurally above (criterion 3: a
+# title-only self-heal never appears in plan's drift/update/conflict) and
+# now proven by construction here too, since both sides just had an
+# identical forced self-heal before this diff. Task #123 (Canon.php's
+# OrderPreserved mechanism, manifests/woocommerce.json's
+# `_product_attributes` "order_preserving": true declaration) closes the
+# SEPARATE, PERMANENT divergence this section used to carve out with an
+# anagram check: the parent's _product_attributes array order — which
+# WooCommerce's variation-title generator reads directly — now survives
+# capture/apply byte-for-byte instead of being alphabetically resorted, so
+# the generated title itself converges byte-identically, not just as a
+# same-words reordering. With both root causes closed, the whole tree
+# (product_variation included) needs no carve-out at all — same rigor
+# every other post type already gets, restored in full.
+[ -z "$DIFF_OUT" ] || fail "unexpected byte differences after an identical forced self-heal on both sides (see diff output above) — with #88 and #123 both closed, the entire tree, including product_variation.title, must be byte-identical with zero exceptions"
 rm -rf siterepo/r1b2/.tmp-final
-pass "task #88 CLOSED for real: every entity in the tree is byte-identical except product_variation.title, and that residual is isolated + proven to be exactly task #123's attribute-order reordering (same words, same data, different order) — not #72's timing-based self-heal, which criterion 3 above already proved is fully invisible to plan/drift. Root cause of #72 was WC_Product_Variation_Data_Store_CPT::read() silently self-healing title via raw \$wpdb, hook-free, no post_modified bump; #88's Policy::field_class()/Canon::post_hash_basis() close that gap completely. #123 is a separate, newly-characterized bug in how Canon serializes order-sensitive meta values, tracked independently."
+pass "task #88 AND task #123 both CLOSED for real: the entire tree is byte-identical with ZERO exceptions, product_variation.title included. #72's timing-based self-heal was proven invisible to plan/drift (criterion 3); #123's permanent _product_attributes reordering (WC_Product_Variation_Data_Store_CPT::read() reads the parent's raw array order to generate the title) no longer occurs because Canon::normalize() no longer resorts a meta value declared order_preserving — confirmed here by construction (identical bytes, not merely an anagram) rather than by a scoped exclusion."
 
 say "lint (final, hard gate)"
 LINT_FINAL=$(wp_r1b1 duo lint --repo=/siterepo --format=json | tail -1)

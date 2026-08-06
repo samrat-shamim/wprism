@@ -11,7 +11,33 @@ namespace Duo;
  * strips exactly one, so the round trip is byte-exact in both directions.
  */
 final class Canon {
+    /**
+     * DUO-3214(b) / task #123: alphabetical key-sorting is only safe when no
+     * consumer reads a value's raw PHP array iteration order — WooCommerce's
+     * variation-title generator reads the parent's `_product_attributes`
+     * array order directly, so this sort permanently reordered it on every
+     * applied target (a real, non-timing divergence — see manifests/
+     * woocommerce.json's own note and docs/grind/r3-round.md). An
+     * OrderPreserved-wrapped value skips ksort() recursively at every
+     * nesting level inside it, while everything else in the SAME document
+     * still gets the ordinary alphabetical treatment — the wrapper is a
+     * scoped opt-in, not a global behavior change. Capture::build_post()'s
+     * post_meta loop is the only place that constructs one, gated on a
+     * meta rule declaring "order_preserving": true (spec v0.14, sibling to
+     * json_refs/cast). Unwrapped here, immediately, on first encounter —
+     * nothing past this function (the JSON on disk, Apply's json_decode())
+     * ever needs to know this type exists: json_encode()/json_decode()
+     * neither one reorders array keys on their own, so PHP's own insertion
+     * order, once left alone by ksort(), survives the whole round trip for
+     * free (confirmed by reading Apply.php's finalize_post() call graph —
+     * zero sort calls between json_decode() and maybe_serialize(), which
+     * itself is PHP's native serialize(), also order-preserving by
+     * construction — so this file is the ONLY place order was ever lost).
+     */
     public static function normalize($v) {
+        if ($v instanceof OrderPreserved) {
+            return self::normalize_preserving_order($v->value);
+        }
         if (is_object($v)) {
             $arr = (array) $v;
             ksort($arr, SORT_STRING);
@@ -29,6 +55,35 @@ final class Canon {
             }
             if (!$isList) {
                 ksort($out, SORT_STRING);
+            }
+            return $out;
+        }
+        return $v;
+    }
+
+    /**
+     * normalize()'s twin with the ksort() calls removed — recurses to keep
+     * every nested level's own shape/type consistent (objects re-encode as
+     * `{}`, an empty PHP array still re-encodes as `[]` per json_encode's
+     * own rule, matching normalize()'s existing behavior exactly) without
+     * ever touching key order at any depth. A value only reaches here via
+     * an OrderPreserved wrapper (or as that wrapped value's own descendant,
+     * recursively) — order preservation applies to the WHOLE subtree once
+     * declared, not just its top level, so a nested order-sensitive map
+     * inside an order-preserving value is never silently re-sorted either.
+     */
+    private static function normalize_preserving_order($v) {
+        if (is_object($v)) {
+            $out = new \stdClass();
+            foreach ((array) $v as $k => $x) {
+                $out->$k = self::normalize_preserving_order($x);
+            }
+            return $out;
+        }
+        if (is_array($v)) {
+            $out = [];
+            foreach ($v as $k => $x) {
+                $out[$k] = self::normalize_preserving_order($x);
             }
             return $out;
         }
