@@ -129,9 +129,12 @@ branch or edit files before this passes.
    the evidence: what changed (file:line), test tails (paste, don't
    paraphrase), conformance evidence for affected manifests, and anything
    re-homed or discovered.
-2. Wait for PR CI (the conformance matrix) to be green. A red leg is yours to
-   root-cause: distinguish your change / a latent real finding (valuable —
-   report it) / infrastructure, before any re-run.
+2. The merge gate is your **local conformance evidence** from Work and Verify
+   step 4, quoted in the PR body — the repo's CI workflow is currently
+   disabled by owner decision. (If/when it is re-enabled, PR CI green becomes
+   an additional required gate; a red leg is then yours to root-cause —
+   your change / a latent real finding (valuable — report it) /
+   infrastructure — before any re-run.)
 3. `gh pr merge --squash` only when the PR fully satisfies the claimed issue
    against current `origin/main`. Then **prove the merge**:
 
