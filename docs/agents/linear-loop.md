@@ -63,8 +63,12 @@ bash scripts/agent-bootstrap.sh
 
 The clone directory is yours alone (one checkout per actor, above). If the
 host already has a clone that other sessions use, do NOT work in it — make
-your own clone, or `git worktree add ../duo-wp-<AGENT_NAME> origin/main`
-from it.
+your own clone.
+
+Your clone's default checkout stays on `main` and is never edited directly:
+**every issue is worked in its own worktree created from `origin/main`**
+(Work and Verify step 1). Worktrees live beside the clone as
+`../duo-wp-wt-<issue>` and are removed after the issue closes.
 
 The script fail-loud-verifies host prerequisites (git, jq, php, curl, docker +
 compose v2; `gh` authenticated for the close gate), pre-pulls the sandbox
@@ -108,17 +112,30 @@ branch or edit files before this passes.
 
 1. Set state In Progress; assign yourself if the account allows.
 2. Prefix the title exactly: `[AGENT_NAME] {original title}`.
-3. Comment: `Claimed by AGENT_NAME. Branch: {branch}. Original title:
-   {title}.`
+3. Comment: `Claimed by AGENT_NAME. Worktree: {path}. Branch: {branch}.
+   Original title: {title}.`
 4. Re-read with relations and confirm: state, title prefix, claim comment,
    no new blocker. Missing marker → fix and re-read, or release. Never work
    an issue with a missing prefix, missing claim comment, or open blocker.
 
 ## Work and verify
 
-1. **Branch (distributed mode):** `git fetch origin && git switch -c
-   {branch} origin/main` — use the issue's own `gitBranchName` from Linear as
-   `{branch}`. Never branch from a stale local `main`.
+1. **Per-issue worktree (always):**
+
+   ```
+   git fetch origin
+   git worktree add ../duo-wp-wt-DUO-XXXX origin/main -b {branch}
+   cd ../duo-wp-wt-DUO-XXXX
+   ```
+
+   `{branch}` is the issue's own `gitBranchName` from Linear. Always from
+   freshly-fetched `origin/main`, never a stale local `main`; never work in
+   the clone's own checkout. Re-entering an interrupted issue whose worktree
+   or branch already exists: reuse the existing branch's worktree
+   (`git worktree add <path> <branch>` if only the branch survives) and
+   rebase it onto `origin/main` — never reset it to `origin/main`, which
+   would discard the earlier work; after a rebase, pushes need
+   `--force-with-lease`.
 2. Fix the **root cause** within the pinned architecture — no quick fixes,
    silent fallbacks, or compat shims. Match the codebase's comment style
    (rationale-dense docblocks stating constraints and evidence).
@@ -168,7 +185,9 @@ branch or edit files before this passes.
    the SHA) and where every remaining criterion was re-homed, then strip your
    `[AGENT_NAME] ` prefix and return the issue to Backlog. A Done issue must
    never hide unchecked boxes.
-7. Re-read the issue and confirm the markers. Then re-read this file before
+7. Re-read the issue and confirm the markers. Clean up the issue's footprint:
+   `git worktree remove ../duo-wp-wt-DUO-XXXX` and `git branch -D {branch}`
+   (the remote branch auto-deletes on merge). Then re-read this file before
    selecting the next issue.
 
 (Owner-session mode replaces steps 1–3 with a direct commit to `main`
