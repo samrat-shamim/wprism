@@ -30,14 +30,14 @@
 # forever would silently convert a genuine regression into "still warming
 # up," exactly the "green with warnings" posture DESIGN.md rejects.
 #
-# NOT wired into any existing checks/*.sh by this change — offered as
-# shared infra per team-lead's request; wiring it into conformance/
-# checks/fse.sh's specific assertions (the file that actually flaked) is
-# proposed as a small follow-up, not bundled into DUO-3228, since
-# validating that change means re-touching the conf pair, which is out of
-# this fixture's own footprint. sandbox/tests/certify_merge.sh itself has
-# no HTTP/render checks to apply this to (headless by design, a data-layer
-# certification like spike_b_merge.sh) — see that file's header.
+# NOT wired into any checks/*.sh by DUO-3228, which added this file as
+# shared infra per team-lead's request, since validating that change meant
+# re-touching the conf pair — out of this fixture's own footprint. DUO-3238
+# wired it into conformance/checks/fse.sh's front-page assertions (the file
+# that actually flaked) — see that file for the first real usage.
+# sandbox/tests/certify_merge.sh still has no HTTP/render checks to apply
+# this to (headless by design, a data-layer certification like
+# spike_b_merge.sh) — see that file's header.
 retry_render_check() { # retry_render_check <url> <check_fn> [attempts=2] [delay_seconds=5]
   local url="$1" check_fn="$2" attempts="${3:-2}" delay="${4:-5}"
   local n=1 body

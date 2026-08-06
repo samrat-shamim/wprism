@@ -20,24 +20,54 @@ set -euo pipefail
 CONF1_PORT="${CONF1_PORT:-8806}"
 CONF2_PORT="${CONF2_PORT:-8807}"
 
-FRONT=$(curl -fs "http://localhost:${CONF2_PORT}/") || fail "conf2 front page did not return 200"
+# DUO-3238: retry the whole front-page render as one unit. Two documented
+# load-flake instances against exactly this assertion set motivated
+# _retry_helper.sh (docs/grind/r3b-events-memberships.md; DUO-3228 task 0's
+# About-permalink failure) — this is its first wiring. front_page_checks()
+# bundles every assertion below against the SAME curled body (a stale or
+# incomplete render is a property of the page as a whole, not any single
+# assertion — see _retry_helper.sh's header) and records the specific
+# failing message in FSE_FRONT_FAIL instead of calling fail() itself, so a
+# genuine, persistent failure still reports the exact same message it
+# always has — the helper changes WHEN this check gives up, not what it
+# checks or how specifically it reports.
+source "$(dirname "${BASH_SOURCE[0]}")/_retry_helper.sh"
 
-# The sharpest possible test of the report's exact corruption: conf1's own
-# origin must not leak into conf2's rendered output anywhere.
-if grep -q "localhost:${CONF1_PORT}" <<<"$FRONT"; then
-    fail "conf2's rendered front page links back to conf1 (localhost:${CONF1_PORT}) — navigation-link id/url not rebound"
-fi
+FSE_FRONT_FAIL="conf2 front page did not return 200"
+front_page_checks() { # front_page_checks <body> — sets FSE_FRONT_FAIL on any mismatch
+  local body="$1"
 
-grep -q 'href="http://localhost:'"$CONF2_PORT"'/duo-fse-about/"' <<<"$FRONT" \
-  || fail "post-type navigation-link (kind_from -> post ref) did not resolve to conf2's own About permalink"
-grep -q 'href="http://localhost:'"$CONF2_PORT"'/category/conformance-fse-news/"' <<<"$FRONT" \
-  || fail "taxonomy navigation-link (kind_from -> term ref) did not resolve to conf2's own category archive"
-grep -q 'href="https://duo-conformance-external.example.test/features"' <<<"$FRONT" \
-  || fail "custom navigation-link's genuinely external URL was altered (should pass through unchanged)"
-grep -q 'src="http://localhost:'"$CONF2_PORT"'/wp-content/uploads/[0-9]\{4\}/[0-9]\{2\}/conf-fse-cta\.png"' <<<"$FRONT" \
-  || fail "reusable block's image did not load from conf2's own uploads"
-grep -q 'href="http://localhost:'"$CONF2_PORT"'/duo-fse-contact/"' <<<"$FRONT" \
-  || fail "customized footer template-part's Contact link did not resolve to conf2's own permalink"
+  # The sharpest possible test of the report's exact corruption: conf1's own
+  # origin must not leak into conf2's rendered output anywhere.
+  if grep -q "localhost:${CONF1_PORT}" <<<"$body"; then
+    FSE_FRONT_FAIL="conf2's rendered front page links back to conf1 (localhost:${CONF1_PORT}) — navigation-link id/url not rebound"
+    return 1
+  fi
+  if ! grep -q 'href="http://localhost:'"$CONF2_PORT"'/duo-fse-about/"' <<<"$body"; then
+    FSE_FRONT_FAIL="post-type navigation-link (kind_from -> post ref) did not resolve to conf2's own About permalink"
+    return 1
+  fi
+  if ! grep -q 'href="http://localhost:'"$CONF2_PORT"'/category/conformance-fse-news/"' <<<"$body"; then
+    FSE_FRONT_FAIL="taxonomy navigation-link (kind_from -> term ref) did not resolve to conf2's own category archive"
+    return 1
+  fi
+  if ! grep -q 'href="https://duo-conformance-external.example.test/features"' <<<"$body"; then
+    FSE_FRONT_FAIL="custom navigation-link's genuinely external URL was altered (should pass through unchanged)"
+    return 1
+  fi
+  if ! grep -q 'src="http://localhost:'"$CONF2_PORT"'/wp-content/uploads/[0-9]\{4\}/[0-9]\{2\}/conf-fse-cta\.png"' <<<"$body"; then
+    FSE_FRONT_FAIL="reusable block's image did not load from conf2's own uploads"
+    return 1
+  fi
+  if ! grep -q 'href="http://localhost:'"$CONF2_PORT"'/duo-fse-contact/"' <<<"$body"; then
+    FSE_FRONT_FAIL="customized footer template-part's Contact link did not resolve to conf2's own permalink"
+    return 1
+  fi
+  return 0
+}
+
+retry_render_check "http://localhost:${CONF2_PORT}/" front_page_checks \
+  || fail "$FSE_FRONT_FAIL"
 
 pass "conf2 renders its own nav (post/term/custom links), reusable-block image, and footer link — none point at conf1"
 
