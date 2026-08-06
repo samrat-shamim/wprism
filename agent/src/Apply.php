@@ -582,8 +582,13 @@ final class Apply {
         // commit (their WP-CLI subprocesses need to observe those writes) but
         // before ANY convergence metadata advances. A failure therefore
         // leaves the target truthfully unapplied and retryable instead of
-        // recording a false-green revision.
-        $this->rebuild($newAttachmentIds, count($work) > 0);
+        // recording a false-green revision. $work/$tree (DUO-3234) let the
+        // regen_dependencies() pass inside rebuild() see this run's changed
+        // posts alongside any regen_pending:<uuid> markers left by a prior
+        // failed run — see that method's own docblock for why plan's content
+        // hash alone (unchanged after a regen-verify failure, since derived
+        // tables are excluded from the hash basis) can't carry this signal.
+        $this->rebuild($newAttachmentIds, count($work) > 0, $work, $tree);
 
         // ---- ledger bookkeeping (one atomic convergence boundary) ----
         // The retry marker, every base hash, deletes, and applied revision
@@ -1420,6 +1425,10 @@ final class Apply {
                 Db::delete($wpdb->postmeta, ['post_id' => $id], null, 'apply delete post meta');
                 Db::delete($wpdb->posts, ['ID' => $id], null, 'apply delete post');
             }
+            // DUO-3234: a deleted post can never usefully retry regeneration
+            // again — clear any outstanding marker so it doesn't linger
+            // forever for a uuid that no longer resolves to anything.
+            Ledger::kv_delete(self::REGEN_PENDING_PREFIX . $uuid);
         } elseif ($type === 'term' || $type === 'menu') {
             $termId = Ledger::id_for($uuid, Ledger::KIND_TERM);
             $tt = Ledger::id_for($uuid, Ledger::KIND_TT);
@@ -1526,8 +1535,27 @@ final class Apply {
 
     // --------------------------------------------------------------- rebuild
 
-    private function rebuild(array $newAttachmentIds, bool $didWork = true): void {
+    /**
+     * @param array<int,array{uuid:string,type:string,path?:string}> $work
+     *   this run's applied entities (create+adopt+update+forced-conflict) —
+     *   DUO-3234's regen_dependencies() needs the full batch, not just
+     *   $didWork's boolean collapse of it.
+     * @param array<string,array> $tree the full compiled repository tree,
+     *   keyed by uuid — needed to resolve a $work entry's post_type
+     *   ($tree[$uuid]['data']['type']).
+     */
+    private function rebuild(array $newAttachmentIds, bool $didWork, array $work = [], array $tree = []): void {
         global $wpdb;
+
+        // DUO-3234: derived tables with a hard per-entity query-availability
+        // dependency — run FIRST, deliberately, since it is the only step in
+        // this method that can hard-fail the whole apply; no point spending
+        // time on term recounts/attachment metadata/rebuilders first if this
+        // is about to throw. Runs regardless of $didWork: a prior run's
+        // still-outstanding regen_pending: marker must be retried even when
+        // THIS run's own $work is empty (see regen_dependencies()'s own
+        // docblock for why $didWork/an empty $work cannot gate this step).
+        $this->regen_dependencies($work, $tree);
 
         // term recounts (published posts), incl. nav_menu
         $taxes = array_merge($this->policy->taxonomies(), ['nav_menu']);
@@ -1607,5 +1635,153 @@ final class Apply {
         if (wp_cache_flush() === false) {
             throw new \RuntimeException('duo: required object-cache flush failed');
         }
+    }
+
+    /**
+     * DUO-3234 — derived tables with a hard per-entity query-availability
+     * dependency (TEC's tec_occurrences shape): after applying a post whose
+     * type declares `post_types.<type>.regen_dependency`, call the declared
+     * manifest-shipped regenerator, then verify the declared table/column
+     * actually gained a row for it. A failure here is a hard apply failure
+     * (Architecture Rulings §2 — no third "green with warnings" state) —
+     * this was written to deliberately NOT follow the `rebuilders` step's
+     * warn-only behavior a few lines below (that gap was DUO-3206, tracked
+     * separately). DUO-3206 has since landed and made rebuilders/mutations
+     * fatal too, so both steps now share the same hard-fail posture; this
+     * method's own marker-retry mechanics (below) remain necessary regardless
+     * — DUO-3206's apply_in_progress marker forces a full-tree retry on the
+     * next plan/apply, which functionally re-surfaces this method's own
+     * candidates through $work, but regen_pending:<uuid> is what lets THIS
+     * method resolve a stale marker (self-heal on kv_prefix()) independent of
+     * whether apply_in_progress is still set, and is the more precise signal
+     * if these two mechanisms are ever reconsidered together.
+     *
+     * Candidate set is the UNION of two sources, not just $work — this is
+     * the load-bearing correctness point design review surfaced (DUO-3234's
+     * Linear thread): plan's own create/update/unchanged bucketing is driven
+     * by the entity's CONTENT hash, which by design never reflects a derived
+     * table's state (that is exactly why tec_events/tec_occurrences classify
+     * `derived` in the first place) — so an entity whose regeneration failed
+     * on a PRIOR apply, but whose captured content hasn't changed since,
+     * shows as 'unchanged' and never re-enters $work on a later run. Without
+     * source (b) below, a hard failure followed by a plain re-run would
+     * report all clear while the dependency stays broken — the exact
+     * false-green retry this mechanism exists to prevent.
+     *   (a) this run's $work, filtered to posts of a declared-dependency
+     *       post type — the ordinary, common path.
+     *   (b) any uuid still carrying a `regen_pending:<uuid>` duo_kv marker
+     *       from a past failed verification, even when it is NOT in $work
+     *       this run (content unchanged) — this is what makes "the next
+     *       apply retries naturally" true. The marker's value is the post
+     *       type (stored at set time — see below), so re-resolving it here
+     *       costs nothing beyond the one kv read already required to find it.
+     *
+     * A stopgap, stated plainly: this marker mechanism stands in for
+     * duo_state genuinely reflecting derived-dependency status — a targeted,
+     * per-uuid signal, independent of DUO-3206's coarser apply_in_progress
+     * (whole-apply retry-forcing on ANY rebuild-pass failure, this method's
+     * failures included). The two don't conflict — apply_in_progress forces
+     * this method's candidates back into $work on retry regardless, and this
+     * method's own marker is a no-op once that happens — but this method's
+     * marker is what makes the retry precise (one uuid, not every entity
+     * currently unchanged/drift/conflict) and keeps working even if
+     * apply_in_progress's own semantics change later. Worth reconsidering
+     * together if DUO-3206's mechanism is ever revisited, not a reason to
+     * hold this issue on it.
+     */
+    private const REGEN_PENDING_PREFIX = 'regen_pending:';
+
+    private function regen_dependencies(array $work, array $tree): void {
+        global $wpdb;
+
+        $candidates = []; // uuid => post_type
+        foreach ($work as $r) {
+            $e = $tree[$r['uuid']] ?? null;
+            if ($e === null || $e['type'] !== 'post') {
+                continue;
+            }
+            $postType = (string) ($e['data']['type'] ?? '');
+            if ($postType !== '' && $this->policy->regen_dependency($postType) !== null) {
+                $candidates[$r['uuid']] = $postType;
+            }
+        }
+        foreach (Ledger::kv_prefix(self::REGEN_PENDING_PREFIX) as $k => $postType) {
+            $uuid = substr($k, strlen(self::REGEN_PENDING_PREFIX));
+            if (isset($candidates[$uuid])) {
+                continue; // already covered by $work above
+            }
+            if ($this->policy->regen_dependency($postType) !== null) {
+                $candidates[$uuid] = $postType;
+            }
+            // else: manifest no longer declares this post type's dependency
+            // (unpinned, or the declaration was removed) — nothing safe to
+            // verify or regenerate against; the marker is simply orphaned
+            // and harmless (never consulted for anything but this lookup).
+        }
+        if (!$candidates) {
+            return;
+        }
+
+        $regenerators = $this->policy->regenerators();
+        foreach ($candidates as $uuid => $postType) {
+            $localId = Ledger::id_for($uuid, Ledger::KIND_POST);
+            if ($localId === null) {
+                continue; // deleted, or never actually applied — nothing live to verify
+            }
+            $decl = $this->policy->regen_dependency($postType);
+            $verify = $decl['verify'];
+            $markerKey = self::REGEN_PENDING_PREFIX . $uuid;
+
+            if ($this->regen_verify_exists($verify, $localId)) {
+                Ledger::kv_delete($markerKey); // self-heals a marker left over from a since-resolved failure
+                continue;
+            }
+
+            $regenName = (string) $decl['regenerator'];
+            $regenerator = $regenerators[$regenName]
+                ?? throw new \RuntimeException(
+                    "duo: post type '$postType' declares regen_dependency.regenerator='$regenName' "
+                    . 'but it did not load (see Policy::regenerators())'
+                );
+            try {
+                $regenerator->regenerate($localId);
+            } catch (\Throwable $t) {
+                Ledger::kv_set($markerKey, $postType);
+                throw new \RuntimeException(
+                    "duo: regenerator '$regenName' failed for post $localId (uuid $uuid, type '$postType'): "
+                    . $t->getMessage(),
+                    0, $t
+                );
+            }
+
+            if (!$this->regen_verify_exists($verify, $localId)) {
+                Ledger::kv_set($markerKey, $postType);
+                throw new \RuntimeException(
+                    "duo: regen_dependency verification failed for post $localId (uuid $uuid, type '$postType') — "
+                    . "expected a row in {$verify['table']} where {$verify['column']} = $localId after calling "
+                    . "regenerator '$regenName', found none. Re-running apply will retry (a regen_pending marker "
+                    . 'was recorded), but the underlying regeneration mechanism needs investigation.'
+                );
+            }
+            Ledger::kv_delete($markerKey);
+        }
+    }
+
+    /** Declarative existence check ({table, column} only — no plugin
+     *  knowledge needed), matching `invalidate`'s own precedent for the
+     *  purely-mechanical half of a typed-snapshot declaration. A missing
+     *  table is treated as "not satisfied," not skipped — a manifest
+     *  declaring a verify table this environment doesn't have is a real
+     *  configuration problem the loud failure above should surface, not a
+     *  silent pass. */
+    private function regen_verify_exists(array $verify, int $localId): bool {
+        global $wpdb;
+        $table = preg_replace('/[^A-Za-z0-9_]/', '', (string) $verify['table']);
+        $col = preg_replace('/[^A-Za-z0-9_]/', '', (string) $verify['column']);
+        $prefixed = $wpdb->prefix . $table;
+        if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
+            return false;
+        }
+        return (bool) $wpdb->get_var($wpdb->prepare("SELECT 1 FROM `$prefixed` WHERE `$col` = %d LIMIT 1", $localId));
     }
 }

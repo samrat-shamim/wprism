@@ -12,6 +12,8 @@ final class Policy {
     public array $manifests = [];
     /** @var array<string, object>|null lazily-built interpreter instances */
     private ?array $interpreterInstances = null;
+    /** @var array<string, object>|null lazily-built regenerator instances (DUO-3234) */
+    private ?array $regeneratorInstances = null;
 
     /**
      * Interpreter contract. An interpreter is a class with
@@ -61,6 +63,7 @@ final class Policy {
             }
             $manifest = Canon::decode(Canon::read_file($file));
             self::validate_field_classes($manifest);
+            self::validate_regen_dependencies($manifest);
             self::validate_scope_classes($manifest, "manifest '$name'", false);
             self::validate_sub_keys($manifest);
             $p->manifests[] = $manifest;
@@ -594,6 +597,68 @@ final class Policy {
     }
 
     /**
+     * DUO-3234 regenerator loading — the exact same trust boundary and
+     * validate/load/instantiate shape as interpreters() above (same
+     * rationale: manifest-shipped PHP, engine holds only the loading
+     * contract, never plugin-specific logic), deliberately mirrored rather
+     * than sharing code with interpreters(), for the same reason
+     * assert_meta_schema() stays separate from assert_row_schema() in
+     * Snapshot.php — the two mechanisms' discovery differs enough
+     * (interpreters: one name per manifest, off a top-level `interpreter`
+     * key; regenerators: potentially several names per manifest, one per
+     * declaring post_types{} entry's `regen_dependency.regenerator`) that
+     * a shared helper would need its own branching, buying nothing over two
+     * short, independently-readable methods.
+     *
+     * A declared name resolves to <manifests_dir>/regenerators/<name>.php,
+     * which must define \Duo\Regenerators\<CamelCase(name)> with
+     * regenerate(int $localId): void. Any exception it throws is the
+     * caller's (Apply::regen_dependencies()) hard-failure signal — there is
+     * no success/failure return-value protocol, matching interpreters' own
+     * all-or-throw shape.
+     *
+     * Public (unlike interpreters(), which only Policy's own methods call):
+     * Apply::regen_dependencies() is the caller, in a different class.
+     *
+     * @return array<string, object> regenerator name => instance
+     */
+    public function regenerators(): array {
+        if ($this->regeneratorInstances !== null) {
+            return $this->regeneratorInstances;
+        }
+        $this->regeneratorInstances = [];
+        foreach ($this->manifests as $m) {
+            foreach ($m['post_types'] ?? [] as $postType => $decl) {
+                $name = $decl['regen_dependency']['regenerator'] ?? null;
+                if ($name === null || isset($this->regeneratorInstances[$name])) {
+                    continue;
+                }
+                if (!preg_match('/^[a-z0-9_-]+$/', $name)) {
+                    throw new \RuntimeException(
+                        "duo: manifest '{$m['name']}' post_types.$postType declares invalid regenerator name '$name'"
+                    );
+                }
+                $file = self::manifests_dir() . '/regenerators/' . $name . '.php';
+                if (!is_file($file)) {
+                    throw new \RuntimeException(
+                        "duo: manifest '{$m['name']}' post_types.$postType wants regenerator '$name' but $file is missing — "
+                        . 'regenerator code ships with its manifest, not the engine'
+                    );
+                }
+                require_once $file;
+                $class = '\\Duo\\Regenerators\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $name)));
+                if (!class_exists($class) || !method_exists($class, 'regenerate')) {
+                    throw new \RuntimeException(
+                        "duo: regenerator file $file must define $class with regenerate(int \$localId): void"
+                    );
+                }
+                $this->regeneratorInstances[$name] = new $class($this);
+            }
+        }
+        return $this->regeneratorInstances;
+    }
+
+    /**
      * Post-context-aware meta classification: interpreters see the entity's
      * full meta map (shadow keys and all) and win over static rules.
      */
@@ -759,6 +824,32 @@ final class Policy {
     }
 
     /**
+     * DUO-3234 — a post type's derived-table hard-dependency declaration, if
+     * any: `{"regenerator": "<name>", "verify": {"table": "<t>", "column": "<c>"}}`.
+     * v1 scope, stated loudly: post_types{}-keyed only (a per-post-type
+     * property, matching the phase/fields precedents immediately above and
+     * below — never a `tables{}` declaration, since the derived table itself
+     * has no independent identity to declare; see agent/src/Snapshot.php's
+     * own "gives no special meaning to any class value besides
+     * authored_snapshot/authored_snapshot_meta" precedent, unchanged by
+     * this). If a derived table ever hangs off a TERM or a declared
+     * custom-table row instead of a post, that needs its own design — not
+     * assumed covered here. First-declaring-manifest wins, same precedence
+     * as its post_types{} siblings (phase/body) immediately around it, for
+     * the same reason: consistency with how this section already resolves,
+     * not an independently-chosen precedence rule for this one field.
+     */
+    public function regen_dependency(string $postType): ?array {
+        foreach ($this->manifests as $m) {
+            $decl = $m['post_types'][$postType]['regen_dependency'] ?? null;
+            if ($decl !== null) {
+                return $decl;
+            }
+        }
+        return null;
+    }
+
+    /**
      * v1-supported post FIELD classification surface (task #88). A field
      * name must appear here before ANY manifest may declare it under
      * `post_types.<type>.fields.<field>` — validate_field_classes() below
@@ -868,6 +959,43 @@ final class Policy {
                         . ' is supported for post fields in v1'
                     );
                 }
+            }
+        }
+    }
+
+    /**
+     * Validate `post_types.<type>.regen_dependency` shape at load time
+     * (DUO-3234) — same "catch a bad declaration before it reaches a lookup
+     * call site" posture as validate_field_classes() immediately above,
+     * mirrored for its own key shape rather than extended, for the same
+     * reason regenerators() doesn't share code with interpreters(). Checks
+     * SHAPE only (required keys present, correct scalar types) — same as
+     * validate_field_classes() never touches interpreter files, this never
+     * touches the regenerator PHP file or class; that stays regenerators()'s
+     * lazy-load-on-first-use job, so a manifest pinning a regen_dependency
+     * declaration it never actually exercises this run pays no file-system
+     * cost merely for being loaded.
+     */
+    private static function validate_regen_dependencies(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        foreach ($manifest['post_types'] ?? [] as $postType => $decl) {
+            $regen = $decl['regen_dependency'] ?? null;
+            if ($regen === null) {
+                continue;
+            }
+            $regenerator = $regen['regenerator'] ?? null;
+            if (!is_string($regenerator) || $regenerator === '') {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$postType.regen_dependency needs a non-empty string 'regenerator'"
+                );
+            }
+            $verify = $regen['verify'] ?? null;
+            if (!is_array($verify) || !is_string($verify['table'] ?? null) || ($verify['table'] ?? '') === ''
+                || !is_string($verify['column'] ?? null) || ($verify['column'] ?? '') === '') {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$postType.regen_dependency needs "
+                    . "verify: {table: <non-empty string>, column: <non-empty string>}"
+                );
             }
         }
     }
