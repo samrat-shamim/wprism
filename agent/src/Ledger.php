@@ -166,6 +166,43 @@ final class Ledger {
         );
     }
 
+    /**
+     * Generalization of prune_dead_map() above for Snapshot.php's declared
+     * custom-table id_kinds — same rationale, same "run wherever canonical
+     * state is built" placement, but POLICY-AWARE: unlike post/term/
+     * term_taxonomy (core WP concepts, always present, hardcoded above),
+     * which (table, pk column) a given id_kind maps to is only known from
+     * the currently-loaded manifests, so the caller (Snapshot::capture())
+     * supplies it instead of this method assuming a fixed roster.
+     *
+     * A declared table's rows carry NO identity of their own outside this
+     * ledger (no _duo_uuid-equivalent column — see Snapshot.php's docblock),
+     * so this is the ONLY reconciliation mechanism dead map rows for these
+     * id_kinds ever get; skipping it would let a deleted row's uuid linger
+     * forever, silently colliding with a future row that reuses the same
+     * auto-increment local_id (exactly the hazard prune_dead_map() exists to
+     * close for posts/terms, just with no meta-column fallback here).
+     *
+     * @param array<string, array{table: string, pk: string}> $tables
+     *   id_kind => {table: UNPREFIXED table name, pk: primary key column}
+     */
+    public static function prune_dead_table_map(array $tables): void {
+        global $wpdb;
+        $p = $wpdb->prefix;
+        foreach ($tables as $idKind => $decl) {
+            $table = preg_replace('/[^A-Za-z0-9_]/', '', $decl['table']);
+            $pk = preg_replace('/[^A-Za-z0-9_]/', '', $decl['pk']);
+            if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $p . $table))) {
+                continue; // plugin's table not present on this environment — nothing to reconcile
+            }
+            $wpdb->query($wpdb->prepare(
+                "DELETE m FROM {$p}duo_map m LEFT JOIN `{$p}{$table}` src ON src.`{$pk}` = m.local_id
+                 WHERE m.id_kind = %s AND src.`{$pk}` IS NULL",
+                $idKind
+            ));
+        }
+    }
+
     public static function kv_get(string $k): ?string {
         global $wpdb;
         return $wpdb->get_var($wpdb->prepare(

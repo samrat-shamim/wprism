@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a pair-up pair-reset pair-destroy pair-list
 
 up:
 	$(COMPOSE) up -d
@@ -69,3 +69,25 @@ grind-r1a:
 # r1b2 :8817, profile r1b). See docs/grind/r1b-shop.md for the full report.
 grind-r1b:
 	bash sandbox/tests/grind_r1b_shop.sh
+
+# Sandbox redesign (task #74): one parameterized pair (sandbox/pair.yml)
+# against one shared MariaDB (sandbox/db.yml), driven by sandbox/bin/pair.sh
+# — additive to, and independent of, every target above (which all still
+# operate the legacy sandbox/docker-compose.yml mega-file untouched this
+# round). See docs/sandbox.md for the full model.
+#
+#   make pair-up NAME=sbx1 PORT1=8830 PORT2=8831 [FLAGS="--journal"]
+#   make pair-reset NAME=sbx1
+#   make pair-destroy NAME=sbx1
+#   make pair-list
+pair-up:
+	bash sandbox/bin/pair.sh up $(NAME) $(PORT1) $(PORT2) $(FLAGS)
+
+pair-reset:
+	bash sandbox/bin/pair.sh reset $(NAME)
+
+pair-destroy:
+	bash sandbox/bin/pair.sh destroy $(NAME)
+
+pair-list:
+	bash sandbox/bin/pair.sh list

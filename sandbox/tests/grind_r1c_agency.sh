@@ -23,6 +23,9 @@
 #   4. (found along the way, not planned) elementor_active_kit's ref-typed
 #      option landing on an out-of-scope post type — a manifest-completeness
 #      footgun, reproduced deliberately below rather than silently avoided.
+#      Originally surfaced as a SILENT warn-and-drop (this round's escalation
+#      became task #73); the engine now aborts loudly by default, so step (1)
+#      asserts the abort + the --force-unresolved-refs escape hatch instead.
 #
 # Re-run safety: envs r1c1/r1c2 are never torn down (docker compose down/
 # clean is off-limits — other agents share this stack), so every run wipes
@@ -195,20 +198,33 @@ pass "both envs installed (WP+ACF+Elementor active); duo-agency-cpt present in c
 
 # ============================================================ baseline + the elementor_active_kit footgun
 
-say "(1) baseline capture on r1c1: duo-agency-cpt inactive, zero content, Elementor/ACF active"
-OUT1=$(wp_r1c1 duo capture --repo=/siterepo 2>&1)
+say "(1) INTERPLAY FINDING (behavior updated by task #73): elementor_active_kit is classified authored+ref:post by manifests/elementor.json, but 'elementor_library' is not yet in THIS site's policy.post_types — and the kit post is REAL, so this is a scope gap, not a dangling ref. This grind originally found a silent warn-and-drop here (docs/grind/r1c-agency.md's engine-gap writeup, escalated as task #73); capture must now ABORT loudly instead"
+if OUT1=$(wp_r1c1 duo capture --repo=/siterepo 2>&1); then
+  echo "$OUT1"
+  fail "capture succeeded despite elementor_active_kit pointing at a real, out-of-scope elementor_library post (expected task #73's loud-and-blocking gate)"
+fi
 echo "$OUT1"
-jq -e '.active_plugins | index("duo-agency-cpt/duo-agency-cpt.php") == null' siterepo/r1c1/state/options/core.json >/dev/null \
-  || fail "r1c1's baseline active_plugins already includes duo-agency-cpt (got: $(jq -c .active_plugins siterepo/r1c1/state/options/core.json))"
-pass "baseline captured: ACF+Elementor active, duo-agency-cpt correctly absent from active_plugins"
+grep -q "option 'elementor_active_kit' references post id" <<<"$OUT1" \
+  || fail "abort message does not name elementor_active_kit and its raw id (got: $OUT1)"
+grep -q "'elementor_library' is not in policy.post_types" <<<"$OUT1" \
+  || fail "abort message does not name the unscoped post type and the exact policy key that fixes it (got: $OUT1)"
+grep -q -- '--force-unresolved-refs' <<<"$OUT1" \
+  || fail "abort message does not name the --force-unresolved-refs escape hatch (got: $OUT1)"
+[ ! -e siterepo/r1c1/state/options/core.json ] \
+  || fail "aborted capture still wrote state/ — the gate must block the whole capture, not just the one option"
+pass "capture ABORTED loudly, naming the option, its raw id, the unscoped post type, the policy key to fix, and the escape hatch — and wrote nothing (task #73's posture upgrade over the quiet drop this grind first documented)"
 
-say "(1) INTERPLAY FINDING: elementor_active_kit is classified authored+ref:post by manifests/elementor.json, but 'elementor_library' is not yet in THIS site's policy.post_types — the kit post was never minted a uuid, so the option's ref-token resolution fails"
-grep -qi 'elementor_active_kit.*unmanaged post id\|unmanaged post id.*elementor_active_kit' <<<"$OUT1" \
-  || fail "expected a warning naming elementor_active_kit's unmanaged post id (got: $OUT1)"
+say "(1) escape hatch: --force-unresolved-refs opts back into the pre-#73 warn-and-drop for this capture only — baseline capture proceeds under it"
+OUT1F=$(wp_r1c1 duo capture --repo=/siterepo --force-unresolved-refs 2>&1)
+echo "$OUT1F"
+grep -qi 'elementor_active_kit.*unmanaged post id\|unmanaged post id.*elementor_active_kit' <<<"$OUT1F" \
+  || fail "expected the old-style warning naming elementor_active_kit's unmanaged post id under --force-unresolved-refs (got: $OUT1F)"
 if jq -e 'has("elementor_active_kit")' siterepo/r1c1/state/options/core.json >/dev/null 2>&1; then
   fail "elementor_active_kit unexpectedly present in captured state despite the unmapped-ref warning"
 fi
-pass "confirmed: the warning fired AND elementor_active_kit is silently ABSENT from captured state — not a loud abort, a quiet drop (see docs/grind/r1c-agency.md's engine-gap writeup)"
+jq -e '.active_plugins | index("duo-agency-cpt/duo-agency-cpt.php") == null' siterepo/r1c1/state/options/core.json >/dev/null \
+  || fail "r1c1's baseline active_plugins already includes duo-agency-cpt (got: $(jq -c .active_plugins siterepo/r1c1/state/options/core.json))"
+pass "baseline captured under the escape hatch: warning fired, elementor_active_kit dropped from state (old behavior, now an explicit opt-in), duo-agency-cpt correctly absent from active_plugins"
 
 say "(1) fix: scope 'elementor_library' into policy.post_types, re-capture"
 jq '.policy.post_types += ["elementor_library"]' siterepo/r1c1/site.duo.json > siterepo/r1c1/.tmp-site.json

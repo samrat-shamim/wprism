@@ -1,0 +1,40 @@
+# -----------------------------------------------------------------------------
+# Override: bind-mount a plugin directory from THIS pair's own siterepo
+# checkout's code/ tree, instead of a shared static fixture (sandbox/
+# pair.yml's --codebind <plugin-dir> mode; spike G's pattern —
+# sandbox/tests/spike_g_code.sh, docs/proposals/code-half.md §5 — generalized
+# off g1/g2's one-off profile). Layered in via `docker compose -f pair.yml
+# -f pair.codebind.yml ...` with DUO_CODEBIND_PLUGIN set to the plugin's
+# directory name (e.g. "duo-loop-demo", "duo-agency-cpt").
+#
+# Compose merges `volumes` list entries by target path across layered
+# files, not by full replacement (confirmed via `docker compose config`
+# against this exact file while authoring it) — so this only ADDS the one
+# new mount target below to each service's existing standard-mount list; it
+# does not disturb wp1/wp2/cli1/cli2's other four mounts from pair.yml.
+#
+# Bootstrap-order caveat inherited from spike G, unchanged: this bind-mount
+# SOURCE (siterepo/<name>{1,2}/code/wp-content/plugins/<plugin-dir>) must
+# already exist, host-owned, with real content, before a container that
+# mounts it is first CREATED — Docker auto-creates a missing bind source as
+# an empty root-owned directory rather than failing, and an already-running
+# container's mount stays pinned to whatever inode existed at
+# container-create time (rprivate propagation). pair.sh's --codebind wiring
+# authors code/ on the host before ever bringing these containers up, and
+# --force-recreate's the wp side on any later `up` against an existing pair
+# so a fresh checkout is what gets attached, not a prior run's stale mount —
+# see spike_g_code.sh's own extended comment on this for the full story.
+# -----------------------------------------------------------------------------
+services:
+  wp1:
+    volumes:
+      - ./siterepo/${DUO_PAIR}1/code/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:/var/www/html/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:ro
+  cli1:
+    volumes:
+      - ./siterepo/${DUO_PAIR}1/code/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:/var/www/html/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:ro
+  wp2:
+    volumes:
+      - ./siterepo/${DUO_PAIR}2/code/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:/var/www/html/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:ro
+  cli2:
+    volumes:
+      - ./siterepo/${DUO_PAIR}2/code/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:/var/www/html/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:ro

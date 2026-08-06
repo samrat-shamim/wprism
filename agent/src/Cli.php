@@ -13,12 +13,20 @@ final class Cli {
      * ## OPTIONS
      * --repo=<path>    : Site repo root (contains site.duo.json).
      * [--out=<path>]   : Write the state tree elsewhere (determinism checks); skips ledger/media updates.
+     * [--force-unresolved-refs] : drop an authored, ref-typed option whose target row exists but is out of
+     *   policy scope the same way a dangling (deleted-target) reference is dropped, instead of aborting
+     *   (task #73's loud-and-blocking gate; the honest fix is adding the target's post type/taxonomy to
+     *   policy scope — this flag is the explicit best-effort escape hatch for when that isn't wanted).
      * [--json]           : JSON summary (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
     public function capture($args, $assoc) {
         try {
-            $summary = Capture::run($assoc['repo'] ?? WP_CLI::error('--repo required'), $assoc['out'] ?? null);
+            $summary = Capture::run(
+                $assoc['repo'] ?? WP_CLI::error('--repo required'),
+                $assoc['out'] ?? null,
+                isset($assoc['force-unresolved-refs'])
+            );
         } catch (\Throwable $t) {
             WP_CLI::error($t->getMessage());
         }
@@ -49,6 +57,8 @@ final class Cli {
      * ## OPTIONS
      * --repo=<path>
      * [--adopt-by-slug=<kinds>] : e.g. terms,posts,menus
+     * [--force-unresolved-refs] : see `duo capture`'s option of the same name — plan's own drift
+     *   detection captures the live environment too, so it hits the identical gate.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -56,6 +66,7 @@ final class Cli {
         try {
             $plan = Apply::plan($assoc['repo'] ?? WP_CLI::error('--repo required'), [
                 'adopt_by_slug' => $assoc['adopt-by-slug'] ?? '',
+                'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
             ]);
         } catch (\Throwable $t) {
             WP_CLI::error($t->getMessage());
@@ -107,6 +118,8 @@ final class Cli {
      * [--force-delete-referenced] : override referential delete guards.
      * [--force-theirs]
      * [--force-code-mismatch] : override the cross-partition invariant's missing_in_code/outside_version_range block.
+     * [--force-unresolved-refs] : see `duo capture`'s option of the same name — apply's own drift
+     *   detection captures the live environment too, so it hits the identical gate.
      * [--default-author=<login>]
      * [--revision=<rev>]
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
@@ -120,6 +133,7 @@ final class Cli {
                 'force_delete_referenced' => isset($assoc['force-delete-referenced']),
                 'force_theirs' => isset($assoc['force-theirs']),
                 'force_code_mismatch' => isset($assoc['force-code-mismatch']),
+                'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
                 'default_author' => $assoc['default-author'] ?? '',
                 'revision' => $assoc['revision'] ?? '',
             ]);

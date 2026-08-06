@@ -100,6 +100,9 @@ final class Lint {
         if (is_file($stateDir . '/options/core.json')) {
             self::scan_options_file($stateDir, 'options/core.json', $policy, $home, $homeEscaped, $findings);
         }
+        foreach (self::glob_rel($stateDir, 'tables/*/*.json') as $rel) {
+            self::scan_table_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
+        }
         return $findings;
     }
 
@@ -396,6 +399,76 @@ final class Lint {
         self::walk_strings($options, 'options', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
         });
+    }
+
+    // ------------------------------------------------------------ tables
+
+    /**
+     * Typed-snapshot table rows (agent/src/Snapshot.php, task #75): the
+     * finding-#8 rule extended to custom-table columns — a declared ref
+     * column is already owned (tokenized on capture, or a loud THROW if
+     * dangling — Snapshot.php never lets one reach canonical state
+     * unresolved, so there is nothing here for lint to catch on that
+     * axis); an undeclared `columns` entry that happens to hold a live
+     * entity id is exactly finding #9's bare_id case, generalized from
+     * post_meta/options keys to table columns — same shallow, no-naming-
+     * heuristic-gate scan as scan_options_file() above (a table's column
+     * set is finite and fully enumerated by the manifest, the same shape
+     * as options/post_meta, not the open-ended nested structure
+     * scan_structured_bare_ids() exists for).
+     *
+     * The attached-meta `meta` sidecar (nf3_field_meta etc., folded into
+     * this same file — see Snapshot.php's docblock) is a FLAT key=>value
+     * map by construction, exactly the shape scan_structured_bare_ids()
+     * already expects: reused verbatim, not reimplemented. A meta key
+     * Snapshot.php declares as a ref (e.g. nf3_field_meta's "parent_id")
+     * is already a token string by the time it reaches this file, so
+     * Pending::numeric_candidates() never matches it — no separate
+     * "declared meta ref" exclusion list is needed here, mirroring why
+     * scan_structured_bare_ids() itself needs none for json_refs/key_refs-
+     * declared paths elsewhere in this class.
+     */
+    private static function scan_table_file(string $stateDir, string $rel, Policy $policy, string $home, string $homeEscaped, array &$findings): void {
+        $front = Canon::decode(Canon::read_file($stateDir . '/' . $rel));
+        $table = (string) ($front['table'] ?? '');
+        $decl = $policy->table_rule($table) ?? [];
+        $refCols = array_column($decl['refs'] ?? [], 'column');
+
+        // (a) bare_id — columns with no declared ref
+        $columns = (array) ($front['columns'] ?? []);
+        foreach ($columns as $col => $value) {
+            if (in_array($col, $refCols, true)) {
+                continue; // declared ref: already owned (tokenized, or Snapshot.php threw if dangling)
+            }
+            if (!empty($decl['columns'][$col]['lint_ok'])) {
+                continue; // human-reviewed declaration: numeric but genuinely not a ref
+            }
+            foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
+                $hit = Pending::resolve_id($id);
+                if ($hit === null) {
+                    continue;
+                }
+                $findings[] = self::finding('bare_id', $rel, "columns.$col" . $locSuffix, $id, $hit, sprintf(
+                    "table '%s' column '%s' has no ref declared; the number coincides with an existing %s id "
+                    . '(#%d "%s", %s) on this environment — could be a genuine unrewritten reference, or an '
+                    . 'unrelated small number (a count, a version, an ordering index...). Small ids coincide; '
+                    . 'this is a signal to investigate, not proof.',
+                    $table, $col, $hit['kind'], $hit['id'], $hit['title'], $hit['post_type']
+                ));
+            }
+        }
+
+        // (b) escaped_home — columns and the attached-meta sidecar
+        $meta = (array) ($front['meta'] ?? []);
+        self::walk_strings($columns, 'columns', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
+            self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
+        });
+        self::walk_strings($meta, 'meta', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
+            self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
+        });
+
+        // (c) the attached-meta sidecar's own id-shaped-key check
+        self::scan_structured_bare_ids($meta, $rel, 'meta', $findings);
     }
 
     // ------------------------------------------------------------ shared

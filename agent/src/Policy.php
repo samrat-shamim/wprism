@@ -151,6 +151,33 @@ final class Policy {
         return $out;
     }
 
+    /**
+     * Every declared table rule, keyed by unprefixed table name, merged
+     * across manifests (last pinned manifest declaring a given table wins —
+     * same enumeration precedence as authored_options()/block_attr_rules(),
+     * a different precedence than the single-name lookup table_rule()/
+     * rule() use, which is an existing, pre-existing inconsistency in this
+     * class, not one this method introduces) with site policy overrides
+     * applied last. Snapshot.php filters this by `class` itself (row-shaped
+     * "authored_snapshot" vs attached-meta "authored_snapshot_meta" vs the
+     * honest-intent-only "authored_typed_snapshot_post_v1" markers that have
+     * no engine effect) — this accessor just answers "what did every pinned
+     * manifest + this site's own policy say about tables," mirroring
+     * authored_options()'s shape for the tables section.
+     */
+    public function declared_tables(): array {
+        $out = [];
+        foreach ($this->manifests as $m) {
+            foreach ($m['tables'] ?? [] as $name => $r) {
+                $out[$name] = $r;
+            }
+        }
+        foreach ($this->site['policy']['tables'] ?? [] as $name => $r) {
+            $out[$name] = $r;
+        }
+        return $out;
+    }
+
     /** blockName => list of {path, kind, type} rules, merged across manifests. */
     public function block_attr_rules(): array {
         $out = [];

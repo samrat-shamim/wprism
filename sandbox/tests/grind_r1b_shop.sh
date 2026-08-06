@@ -441,7 +441,7 @@ rm -rf siterepo/r1b2/.tmp-final
 echo "$DIFF_OUT"
 NON_TITLE_DIFFS=$(echo "$DIFF_OUT" | grep -v 'product_variation.*duo-tee-' | grep -c 'differ' || true)
 [ "$NON_TITLE_DIFFS" = "0" ] || fail "unexpected non-title byte differences between r1b1 and r1b2 (see diff output above)"
-pass "byte-identical except the 4 variation post_title word-order anomaly (task #72, root cause not identified — everything else including price/sku/stock-flags/attributes/terms/options is byte-for-byte identical)"
+pass "byte-identical except the 4 variation post_title word-order anomaly (task #72, ROOT CAUSE CONFIRMED, not an engine bug: WooCommerce's own WC_Product_Variation_Data_Store_CPT::read() silently self-heals a variation's post_title from the parent's _product_attributes order + current attribute values on EVERY wc_get_product() load, writing via raw \$wpdb->update() specifically to skip wp_update_post()/save_post — invisible to Apply's canary, no post_modified bump. Capture/Apply both write/read the title field byte-verbatim (verified); the two envs just accumulate a different history of WooCommerce-mediated touches before any given snapshot, so a derived field can transiently disagree even though its inputs are identical and both sides converge to the same self-healed value. post_title is a POST FIELD, not meta/options, so there is no manifest classification hook to mark it derived today — see task #88 for the characterized follow-up; everything else including price/sku/stock-flags/attributes/terms/options is byte-for-byte identical)"
 
 say "lint (final, hard gate)"
 LINT_FINAL=$(wp_r1b1 duo lint --repo=/siterepo --format=json | tail -1)

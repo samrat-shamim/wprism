@@ -15,6 +15,11 @@ final class Capture {
     private string $repo;
     /** @var string[] */
     private array $unclassified = [];
+    /** @var array<int, array{option:string, kind:string, id:int, target_type:string}>
+     *  authored, ref-typed OPTION values whose target row is real but out
+     *  of policy scope — task #73's loud-and-blocking gate; see
+     *  option_ref_tokens()/queue_or_warn_unscoped(). */
+    private array $unscopedRefs = [];
     /** @var array<int, string> user id -> login */
     private array $userLogins = [];
     /** @var array<string, string[]> post_type -> taxonomy[], scoped by each
@@ -37,12 +42,14 @@ final class Capture {
      *
      * @return array summary
      */
-    public static function run(string $repo, ?string $outDir = null): array {
+    public static function run(string $repo, ?string $outDir = null, bool $forceUnresolvedRefs = false): array {
         Canary::suppress_cron_spawn();
         Ledger::ensure();
         Ledger::prune_dead_map();
-        $c = new self($repo, Policy::load($repo));
-        $build = $c->build(true);
+        $policy = Policy::load($repo);
+        Snapshot::prune_dead_map($policy); // declared-table id_kinds get the same dead-map hygiene as post/term/tt
+        $c = new self($repo, $policy);
+        $build = $c->build(true, $forceUnresolvedRefs);
 
         $intoRepo = ($outDir === null);
         $stateDir = $intoRepo ? $c->repo . '/state' : rtrim($outDir, '/');
@@ -87,12 +94,14 @@ final class Capture {
      *
      * @return array<string, array{type: string, hash: string, content: string, path: string}>
      */
-    public static function snapshot(string $repo): array {
+    public static function snapshot(string $repo, bool $forceUnresolvedRefs = false): array {
         Canary::suppress_cron_spawn();
         Ledger::ensure();
         Ledger::prune_dead_map();
-        $c = new self($repo, Policy::load($repo));
-        $build = $c->build(false);
+        $policy = Policy::load($repo);
+        Snapshot::prune_dead_map($policy);
+        $c = new self($repo, $policy);
+        $build = $c->build(false, $forceUnresolvedRefs);
         $out = [];
         foreach ($build['entities'] as $e) {
             $out[$e['uuid']] = [
@@ -171,9 +180,10 @@ final class Capture {
     // ------------------------------------------------------------------
 
     /** @return array{entities: array, media: array<string,string>, warnings: string[]} */
-    private function build(bool $mint): array {
+    private function build(bool $mint, bool $forceUnresolvedRefs = false): array {
         global $wpdb;
         $this->unclassified = [];
+        $this->unscopedRefs = [];
         $entities = [];
         $media = [];
 
@@ -200,6 +210,32 @@ final class Capture {
             }
         }
         $menus = $this->scope_menus($mint);
+
+        // ---- table rows (typed snapshot; agent/src/Snapshot.php, task #75) ----
+        // Declared authored_snapshot tables (Ninja Forms' nf3_forms/nf3_fields/
+        // nf3_actions + their _meta twins, WooCommerce's woocommerce_attribute_
+        // taxonomies, ...) — a manifest pinning one is both necessary and
+        // sufficient to activate it, same as authored_options() needs no
+        // separate site-policy scope toggle (see manifests/ninja-forms.json's
+        // own note on why this differs from Polylang's taxonomy-scoping trap).
+        // Schema-completeness ("every live column must be declared") is
+        // enforced inside Snapshot::capture() itself, loudly, before any row
+        // is read — the same posture as the unclassified-meta gate below.
+        //
+        // Deliberately run HERE — after post/term/menu IDENTITY minting
+        // above, but BEFORE any post body is actually built below — because
+        // a manifest may declare a block_attrs rule pointing at a table's own
+        // id_kind (e.g. Ninja Forms' `ninja-forms/form` block's "formID"
+        // attribute, ref kind "nf3_form": manifests/ninja-forms.json). That
+        // rule resolves through Tokens::id_to_token(), which needs this
+        // table's rows already minted into duo_map; capturing tables only
+        // AFTER build_post()'s Blocks::capture_rewrite() calls would silently
+        // leave every such block attribute as a raw, unrewritten local id —
+        // caught the hard way running this exact fixture, not designed in
+        // from the start. $tableEntities is merged into $entities below,
+        // after post files — its POSITION in the array is cosmetic; only the
+        // TIMING of the capture() call itself (identity side effects) matters.
+        $tableEntities = Snapshot::capture($this->policy, $this->tokens, $mint);
 
         // ---- term files ----
         foreach ($terms as $t) {
@@ -261,13 +297,17 @@ final class Capture {
         }
 
         // ---- options file ----
-        $options = $this->build_options();
+        $options = $this->build_options($forceUnresolvedRefs);
         $entities[] = [
             'uuid' => 'options/core',
             'type' => 'options',
             'path' => 'options/core.json',
             'content' => Canon::encode($options),
         ];
+
+        foreach ($tableEntities as $e) {
+            $entities[] = $e;
+        }
 
         if ($this->unclassified) {
             $keys = array_unique($this->unclassified);
@@ -277,6 +317,31 @@ final class Capture {
                 . implode("\n  - ", $keys)
                 . "\nClassify them in site.duo.json policy.post_meta / policy.term_meta or a manifest."
                 . " Run: wp duo pending --repo={$this->repo} for evidence + proposals, then wp duo classify --repo={$this->repo} --set '<section>:<key>=<class>'."
+            );
+        }
+
+        // Task #73's loud-and-blocking gate: an authored, ref-typed OPTION
+        // whose value names a REAL row that simply isn't in policy scope
+        // (as opposed to a dangling reference — deleted target, handled by
+        // option_ref_tokens()'s ordinary warn-and-drop, never reaches this
+        // list). This is a scope gap a policy edit can actually fix, so —
+        // same posture as the unclassified-meta gate above — it aborts by
+        // default instead of silently vanishing from captured state.
+        if ($this->unscopedRefs) {
+            $lines = [];
+            foreach ($this->unscopedRefs as $r) {
+                $scopeKey = $r['kind'] === 'term' ? 'policy.taxonomies' : 'policy.post_types';
+                $lines[] = "option '{$r['option']}' references {$r['kind']} id {$r['id']}, which is a real "
+                    . "'{$r['target_type']}' — but '{$r['target_type']}' is not in $scopeKey, so its identity was "
+                    . 'never tracked and the reference cannot resolve';
+            }
+            throw new \RuntimeException(
+                "duo: unresolvable ref-typed option(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
+                . implode("\n  - ", $lines)
+                . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
+                . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
+                . "Add the missing post type/taxonomy to policy scope above and re-run capture, or reclassify the "
+                . "option, or pass --force-unresolved-refs to drop it anyway (same as a dangling reference)."
             );
         }
 
@@ -827,7 +892,7 @@ final class Capture {
         return $out;
     }
 
-    private function build_options(): array {
+    private function build_options(bool $forceUnresolvedRefs = false): array {
         global $wpdb;
         $out = [];
         foreach ($this->policy->authored_options() as $name => $rule) {
@@ -847,7 +912,7 @@ final class Capture {
                 $decoded = $this->decode_structured($v, $rule, "option $name");
                 $v = $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
             } elseif (!empty($rule['ref'])) {
-                $v = $this->option_ref_tokens($name, $v, $rule['ref']);
+                $v = $this->option_ref_tokens($name, $v, $rule['ref'], $forceUnresolvedRefs);
                 if ($v === null) {
                     continue;
                 }
@@ -915,33 +980,138 @@ final class Capture {
      * Options must never propagate env-local numeric ids: unmapped ref => skip
      * key. Id 0 is WordPress's ordinary "unset" for these options (fresh sites
      * have page_on_front=0 etc.) — skipped silently, not warned as dangling.
+     *
+     * Task #73: an unmapped id is either DANGLING (no such row exists at
+     * all — the target was deleted, or never existed; e.g. a stale
+     * wp_page_for_privacy_policy after its page was removed) or UNSCOPED
+     * (the row genuinely exists but its post_type/taxonomy was never added
+     * to policy scope, so it was never minted a uuid — e.g.
+     * elementor_active_kit when elementor_library isn't in
+     * policy.post_types). Dangling keeps today's exact warn-and-drop
+     * behavior (spec'd, correct, must not regress). Unscoped is a policy
+     * gap a human can actually fix, so it queues into $this->unscopedRefs
+     * for build()'s loud-and-blocking gate instead of silently vanishing
+     * — unless $forceUnresolvedRefs (--force-unresolved-refs) asks for the
+     * old best-effort drop explicitly. Array-ref elements get the exact
+     * same per-element treatment as the scalar case (acceptance criterion
+     * 3 — scalar and array refs must not diverge in severity).
      */
-    private function option_ref_tokens(string $name, $value, string $ref) {
+    private function option_ref_tokens(string $name, $value, string $ref, bool $forceUnresolvedRefs = false) {
         if (str_ends_with($ref, '[]')) {
             $kind = substr($ref, 0, -2);
             $ok = [];
             foreach ((array) $value as $v) {
-                if ((int) $v === 0) {
+                $id = (int) $v;
+                if ($id === 0) {
                     continue;
                 }
-                $tok = $this->tokens->id_to_token((int) $v, $kind);
+                $tok = $this->tokens->id_to_token($id, $kind);
                 if ($tok === null) {
-                    $this->tokens->warnings[] = "option $name: unmanaged $kind id $v dropped";
+                    if (!$this->queue_or_warn_unscoped($name, $kind, $id, $forceUnresolvedRefs)) {
+                        $this->tokens->warnings[] = "option $name: unmanaged $kind id $v dropped";
+                    }
                     continue;
                 }
                 $ok[] = $tok;
             }
             return $ok;
         }
-        if ((int) $value === 0) {
+        $id = (int) $value;
+        if ($id === 0) {
             return null;
         }
-        $tok = $this->tokens->id_to_token((int) $value, $ref);
+        $tok = $this->tokens->id_to_token($id, $ref);
         if ($tok === null) {
-            $this->tokens->warnings[] = "option $name: unmanaged $ref id " . (int) $value . ' — key skipped';
+            if (!$this->queue_or_warn_unscoped($name, $ref, $id, $forceUnresolvedRefs)) {
+                $this->tokens->warnings[] = "option $name: unmanaged $ref id $id — key skipped";
+            }
             return null;
         }
         return $tok;
+    }
+
+    /**
+     * Shared dangling-vs-unscoped triage for option_ref_tokens()'s scalar
+     * and array branches. Returns true when the violation was queued as
+     * UNSCOPED (caller must NOT also emit its own warning — build()'s gate
+     * reports this instead) or false when the caller should fall through
+     * to its ordinary warn-and-drop, for any of three reasons:
+     *   - the target is genuinely DANGLING (ref_target_type() found no
+     *     real row at all — out of scope for this task, spec'd, unchanged);
+     *   - the target's type IS already in policy scope, but THIS build
+     *     simply hasn't minted it a uuid yet — Capture::snapshot()'s
+     *     non-minting mode (plan/apply's drift check against a target
+     *     environment before its own first capture) fails id_to_token()
+     *     for EVERY not-yet-minted entity regardless of scope, so that
+     *     alone can never be the unscoped signal: checking id_to_token()'s
+     *     success is a MINTING check, not a POLICY check, and conflating
+     *     the two would hard-abort `duo apply` on essentially any fresh
+     *     target site using core.json's default_category (caught
+     *     empirically running this task's own core-manifest conformance
+     *     validation — a fresh install's own term_id 1 "Uncategorized" is
+     *     unminted-but-in-scope, not unscoped, the first time anything
+     *     snapshots it). Scope is decided ONLY by policy membership below,
+     *     the same source of truth build_post()'s own meta gate uses,
+     *     never by whether identity happens to exist yet on this build;
+     *   - $forceUnresolvedRefs explicitly asked for the old best-effort
+     *     behavior regardless of which of the above this is.
+     */
+    private function queue_or_warn_unscoped(string $option, string $kind, int $id, bool $force): bool {
+        if ($force) {
+            return false;
+        }
+        $targetType = $this->ref_target_type($id, $kind);
+        if ($targetType === null) {
+            return false; // dangling — caller's normal warn-and-drop handles it
+        }
+        $inPolicyScope = $kind === 'term'
+            ? in_array($targetType, $this->policy->taxonomies(), true)
+            : in_array($targetType, $this->policy->post_types(), true);
+        if ($inPolicyScope) {
+            return false; // real row, correctly scoped, just not minted on THIS build yet
+        }
+        $this->unscopedRefs[] = ['option' => $option, 'kind' => $kind, 'id' => $id, 'target_type' => $targetType];
+        return true;
+    }
+
+    /**
+     * The target row's own post_type ('post' kind) or taxonomy ('term'
+     * kind) name, if $id names a real, addressable row — independent of
+     * whether it's in THIS build's policy scope (i.e. independent of
+     * whether Tokens::id_to_token() can resolve it, which requires a
+     * ledger uuid, which in turn requires the row's type to already be in
+     * policy.post_types/taxonomies). Null means no such row exists at all:
+     * DANGLING. A non-null return alongside a failed id_to_token() means
+     * UNSCOPED. Only 'post'/'term' are checked (options' only ref kinds
+     * per Policy::set_rule()'s validation, aside from 'user' — no shipped
+     * manifest declares a user-ref option today, and this returns null for
+     * any other kind, i.e. the safe, pre-existing dangling-style fallback).
+     *
+     * Excludes post_type=revision/post_status=auto-draft for the 'post'
+     * kind, mirroring Pending::resolve_id()'s identical exclusion: neither
+     * is ever a valid policy.post_types scope target, so reporting either
+     * as "just add this to policy.post_types" would be actionable-sounding
+     * but wrong advice — closer to dangling than unscoped.
+     */
+    private function ref_target_type(int $id, string $kind): ?string {
+        global $wpdb;
+        if ($id <= 0) {
+            return null;
+        }
+        if ($kind === 'post') {
+            $type = $wpdb->get_var($wpdb->prepare(
+                "SELECT post_type FROM {$wpdb->posts} WHERE ID = %d AND post_type != 'revision' AND post_status != 'auto-draft'",
+                $id
+            ));
+            return $type === null ? null : (string) $type;
+        }
+        if ($kind === 'term') {
+            $tax = $wpdb->get_var($wpdb->prepare(
+                "SELECT taxonomy FROM {$wpdb->term_taxonomy} WHERE term_id = %d LIMIT 1", $id
+            ));
+            return $tax === null ? null : (string) $tax;
+        }
+        return null;
     }
 
     /**

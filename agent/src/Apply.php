@@ -22,11 +22,24 @@ final class Apply {
     /** @var array{by_post_type: array<string,string[]>, term_object: string[]}|null
      *  memoized — see taxes_by_object_type() */
     private ?array $taxesByObjectType = null;
+    /** @var array|null memoized Snapshot::row_tables() — a pure-PHP manifest
+     *  merge (no DB queries of its own), but every dispatch site below
+     *  needs "is this entity type a declared table" cheaply and repeatedly,
+     *  same rationale as taxesByObjectType's own memoization. */
+    private ?array $snapshotRowTablesCache = null;
 
     private function __construct(string $repo) {
         $this->repo = rtrim($repo, '/');
         $this->policy = Policy::load($repo);
         $this->tokens = new Tokens();
+    }
+
+    /** @return array<string, array> declared authored_snapshot tables, keyed by table name (== entity type). */
+    private function snapshotRowTables(): array {
+        if ($this->snapshotRowTablesCache === null) {
+            $this->snapshotRowTablesCache = Snapshot::row_tables($this->policy);
+        }
+        return $this->snapshotRowTablesCache;
     }
 
     // ------------------------------------------------------------------ plan
@@ -49,7 +62,13 @@ final class Apply {
     private function build_plan(array $opts): array {
         $tree = $this->load_tree();
         $this->check_theme_mismatch($tree);
-        $env = Capture::snapshot($this->repo);
+        // Capture::snapshot() runs the SAME build() capture.php's own `duo
+        // capture` does (drift detection needs the live environment's
+        // current canonical view) — so it hits the identical task #73
+        // loud-and-blocking gate on an unscoped ref-typed option. Threaded
+        // through so plan/apply have the same escape hatch `duo capture`
+        // does, matching this file's existing --force-* precedents.
+        $env = Capture::snapshot($this->repo, !empty($opts['force_unresolved_refs']));
         $base = Ledger::all_state();
         $adopt = array_fill_keys(array_filter(explode(',', $opts['adopt_by_slug'] ?? '')), true);
 
@@ -77,7 +96,16 @@ final class Apply {
             }
             $coll = $this->find_collision($e);
             if ($coll !== null) {
-                $kindOk = isset($adopt[$e['type'] === 'menu' ? 'menus' : $e['type'] . 's']);
+                // Table entities' own 'type' IS the specific table name (see
+                // Snapshot.php's row_tables() docblock) — pluralizing it
+                // ("woocommerce_attribute_taxonomiess") the way posts/terms/
+                // menus already do would be unusable, so every declared
+                // table shares ONE adopt-by-slug key, "tables", regardless
+                // of which specific table a natural_key collision belongs to.
+                $kind = isset($this->snapshotRowTables()[$e['type']])
+                    ? 'tables'
+                    : ($e['type'] === 'menu' ? 'menus' : $e['type'] . 's');
+                $kindOk = isset($adopt[$kind]);
                 if ($kindOk) {
                     $plan['adopt'][] = $row + ['env_id' => $coll];
                 } else {
@@ -137,8 +165,19 @@ final class Apply {
         return $plan;
     }
 
-    /** Phase-2 finalize order: 'early' post types first, stable otherwise. */
+    /**
+     * Phase-2 finalize order: 'early' post types first, then ordinary
+     * posts/terms/menus/options, then declared table rows in their own
+     * topo order (parents before children — nf3_forms before nf3_fields/
+     * nf3_actions) — offset past every other rank since nothing in this
+     * round's scope cross-references between tables and posts/terms in
+     * either direction, so their RELATIVE order to each other never
+     * matters, only their INTERNAL order does.
+     */
     private function phase2_rank(array $entity): int {
+        if (isset($this->snapshotRowTables()[$entity['type']])) {
+            return 2 + Snapshot::phase2_rank($this->policy, $entity['type']);
+        }
         if ($entity['type'] === 'post'
             && $this->policy->post_type_phase($entity['post_type'] ?? '') === 'early') {
             return 0;
@@ -162,6 +201,13 @@ final class Apply {
     /** Same-slug env entity: managed w/ different uuid (hard collision) or unmanaged (adoptable). */
     private function find_collision(array $e): ?int {
         global $wpdb;
+        if (isset($this->snapshotRowTables()[$e['type']])) {
+            // natural_key-identity tables only (e.g. woocommerce_attribute_
+            // taxonomies pre-provisioned by hand on the target) — see
+            // Snapshot::find_collision()'s own docblock; mapped-identity
+            // tables have no collision concept and return null here.
+            return Snapshot::find_collision($this->policy, $e);
+        }
         if ($e['type'] === 'post') {
             [$front] = Canon::parse_post_file($e['content']);
             $id = $wpdb->get_var($wpdb->prepare(
@@ -225,6 +271,12 @@ final class Apply {
                 'hash' => hash('sha256', $content), 'content' => $content,
             ];
         }
+        // Typed-snapshot table rows (agent/src/Snapshot.php, task #75) — each
+        // entity's own 'type' is the declared table name itself (never a
+        // generic wrapper), so every dispatch site below that already
+        // switches on $e['type'] gains table rows for free by adding one
+        // more branch, exactly like posts/terms/menus/options already do.
+        $out = array_merge($out, Snapshot::load_tree_entries($stateDir));
         return $out;
     }
 
@@ -302,7 +354,7 @@ final class Apply {
                 $plan['collision']
             ));
             throw new \RuntimeException(
-                "duo: slug collisions need explicit resolution (--adopt-by-slug=posts,terms,menus adopts unmanaged rows):\n  - $list"
+                "duo: slug collisions need explicit resolution (--adopt-by-slug=posts,terms,menus,tables adopts unmanaged rows):\n  - $list"
             );
         }
         if ($plan['conflict'] && empty($opts['force_theirs'])) {
@@ -370,7 +422,9 @@ final class Apply {
             // ---- phase 1: rows exist with placeholder refs ----
             foreach ($work as $r) {
                 $e = $tree[$r['uuid']];
-                if ($e['type'] === 'term') {
+                if (isset($this->snapshotRowTables()[$e['type']])) {
+                    Snapshot::ensure_row($this->policy, $e);
+                } elseif ($e['type'] === 'term') {
                     $this->ensure_term_row(Canon::decode($e['content']), 'term');
                 } elseif ($e['type'] === 'menu') {
                     $front = Canon::decode($e['content']);
@@ -398,7 +452,9 @@ final class Apply {
                 $this->phase2_rank($tree[$x['uuid']]) <=> $this->phase2_rank($tree[$y['uuid']]));
             foreach ($phase2 as $r) {
                 $e = $tree[$r['uuid']];
-                if ($e['type'] === 'term') {
+                if (isset($this->snapshotRowTables()[$e['type']])) {
+                    Snapshot::finalize_row($this->policy, $this->tokens, $e);
+                } elseif ($e['type'] === 'term') {
                     $this->finalize_term(Canon::decode($e['content']));
                 } elseif ($e['type'] === 'post') {
                     [$front, $body] = Canon::parse_post_file($e['content']);
@@ -466,6 +522,11 @@ final class Apply {
     private function adopt(array $row, array $e): void {
         global $wpdb;
         $envId = (int) $row['env_id'];
+        if (isset($this->snapshotRowTables()[$e['type']])) {
+            Snapshot::adopt($this->policy, $row['uuid'], $e['type'], $envId);
+            $this->warnings[] = "adopted env table row {$e['type']}:$envId as {$row['uuid']} ({$row['path']})";
+            return;
+        }
         if ($e['type'] === 'post') {
             $existing = $wpdb->get_var($wpdb->prepare(
                 "SELECT meta_id FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = '_duo_uuid' LIMIT 1", $envId
@@ -1037,6 +1098,11 @@ final class Apply {
 
     private function delete_entity(string $uuid, string $type): void {
         global $wpdb;
+        if (isset($this->snapshotRowTables()[$type])) {
+            Snapshot::delete_row($this->policy, $uuid, $type);
+            $this->warnings[] = "deleted $type $uuid";
+            return;
+        }
         if ($type === 'post') {
             $id = Ledger::id_for($uuid, Ledger::KIND_POST);
             if ($id !== null) {

@@ -21,6 +21,7 @@ require_once __DIR__ . '/src/JsonRefs.php';
 require_once __DIR__ . '/src/Tokens.php';
 require_once __DIR__ . '/src/Blocks.php';
 require_once __DIR__ . '/src/Canary.php';
+require_once __DIR__ . '/src/Snapshot.php';
 require_once __DIR__ . '/src/Capture.php';
 require_once __DIR__ . '/src/Apply.php';
 require_once __DIR__ . '/src/Deploy.php';

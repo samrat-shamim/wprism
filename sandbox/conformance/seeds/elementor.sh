@@ -19,8 +19,11 @@
 # empirically this session; not mentioned in the original report's prose).
 #
 # Invoked by conformance/run.sh with wp_conf1/$COMPOSE already exported;
-# runs from the sandbox/ directory.
+# runs from the sandbox/ directory. CONF1_PORT is set by run.sh (default
+# below matches the legacy docker-compose.yml conf1 port for any standalone
+# invocation).
 set -euo pipefail
+CONF1_PORT="${CONF1_PORT:-8806}"
 
 TARGET_ID=$(wp_conf1 post create --post_type=page --post_title='Duo Elementor Target' --post_name=duo-elementor-target \
   --post_status=publish --post_content='<!-- wp:paragraph --><p>The link target.</p><!-- /wp:paragraph -->' --porcelain)
@@ -151,7 +154,7 @@ if (\$result === false) {
 
 echo "elementor seed: target=$TARGET_ID page=\$page_id hero=\$hero galA=\$galA galB=\$galB bg=\$bg\n";
 PHP
-$COMPOSE run --rm -T cli-conf1 wp eval-file /siterepo/.tmp-elementor-seed.php
+$COMPOSE run --rm -T cli1 wp eval-file /siterepo/.tmp-elementor-seed.php
 rm -f siterepo/conf1/.tmp-elementor-seed.php
 
 # docs/frontier/elementor.md's own finding, reproduced independently this
@@ -161,7 +164,7 @@ rm -f siterepo/conf1/.tmp-elementor-seed.php
 # any render never sees them, which would let this seed silently exercise
 # only 7 of the 10 real loud-gate keys and falsely look complete. Render
 # conf1's own page now, before conformance/run.sh's first capture.
-curl -fs http://localhost:8806/duo-conformance-elementor-page/ >/dev/null \
+curl -fs "http://localhost:${CONF1_PORT}/duo-conformance-elementor-page/" >/dev/null \
   || fail "conf1 front-end render of the seeded elementor page failed"
 
 echo "elementor seed: target page + hero/gallery/background images + kit (elementor_active_kit already set by activation), rendered once on conf1"

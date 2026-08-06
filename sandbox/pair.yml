@@ -1,0 +1,112 @@
+name: duo-${DUO_PAIR}
+
+# -----------------------------------------------------------------------------
+# ONE generic, parameterized sandbox pair (task #74's sandbox redesign) —
+# the single template that replaces every one of sandbox/docker-compose.yml's
+# ~10 hand-duplicated pair profiles (a/b, c, e1/e2, f1/f2, conf1/conf2,
+# fx1/fx2, g1/g2, r1a*, r1b*, r1c*). That file is untouched and still owns
+# those historical pairs this round (see docs/sandbox.md) — this is the new
+# pattern going forward, driven entirely by env vars and brought up under
+# its OWN compose project per pair (`-p duo-${DUO_PAIR}`, set both via the
+# `name:` above and explicitly by sandbox/bin/pair.sh) so any number of
+# pairs can come and go independently, each in its own blast radius.
+#
+# No per-pair MariaDB here — every pair's two databases (wp_${DUO_PAIR}1 /
+# wp_${DUO_PAIR}2) live on the ONE shared server sandbox/db.yml owns. That
+# server must already be up (sandbox/bin/pair.sh guarantees this — it's
+# also the only supported entry point for bringing a pair up at all) and
+# its `duo-shared` network must already exist, since that's how these
+# services reach WORDPRESS_DB_HOST (duo-shared-db, db.yml's container_name)
+# across the compose-project boundary: `depends_on` can't cross projects,
+# so there is deliberately no depends_on on the db here — pair.sh's own
+# readiness wait (DB-level: `wp db check`, not the fake-readiness
+# `wp core version` this sandbox used everywhere before this redesign)
+# stands in for it.
+#
+# Required env vars (sandbox/bin/pair.sh sets all of these; see its usage):
+#   DUO_PAIR   pair name, e.g. "sbx1", "conf" — becomes the compose project
+#              suffix and the wp_${DUO_PAIR}{1,2} database names.
+#   DUO_PORT1  host port for wp1 (only actually published if pair.http.yml
+#              is layered in — see that file and pair.sh's --http/--headless).
+#   DUO_PORT2  host port for wp2, same caveat.
+#
+# Optional overrides, layered with additional -f flags (never edited into
+# this file):
+#   pair.http.yml      publish DUO_PORT1/DUO_PORT2 to wp1/wp2 (pair.sh's
+#                       default; omitted entirely under --headless).
+#   pair.journal.yml   turn on DUO_JOURNAL (WORDPRESS_CONFIG_EXTRA) on all
+#                       four services — pair.sh's --journal.
+#   pair.codebind.yml  add the spike-G-style nested bind mount of this
+#                       pair's own siterepo/<name>{1,2}/code/... plugin
+#                       directory — pair.sh's --codebind <plugin-dir>.
+# -----------------------------------------------------------------------------
+
+networks:
+  duo-shared:
+    name: duo-shared
+    external: true
+
+x-wp-env-base: &wp-env-base
+  WORDPRESS_DB_USER: wordpress
+  WORDPRESS_DB_PASSWORD: wordpress
+  WORDPRESS_DB_HOST: duo-shared-db
+  DUO_MANIFESTS_DIR: /duo-manifests
+  WORDPRESS_CONFIG_EXTRA: |
+    define('WP_ENVIRONMENT_TYPE', 'local');
+
+volumes:
+  wp1: {}
+  wp2: {}
+
+services:
+  wp1:
+    image: wordpress:php8.3-apache
+    networks: [duo-shared]
+    environment:
+      <<: *wp-env-base
+      WORDPRESS_DB_NAME: wp_${DUO_PAIR}1
+    volumes: &vol1
+      - wp1:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/${DUO_PAIR}1:/siterepo
+    mem_limit: 1g
+    cpus: "1.0"
+
+  cli1:
+    image: wordpress:cli-php8.3
+    user: "33:33"
+    networks: [duo-shared]
+    environment:
+      <<: *wp-env-base
+      WORDPRESS_DB_NAME: wp_${DUO_PAIR}1
+    volumes: *vol1
+    mem_limit: 768m
+    cpus: "0.75"
+
+  wp2:
+    image: wordpress:php8.3-apache
+    networks: [duo-shared]
+    environment:
+      <<: *wp-env-base
+      WORDPRESS_DB_NAME: wp_${DUO_PAIR}2
+    volumes: &vol2
+      - wp2:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/${DUO_PAIR}2:/siterepo
+    mem_limit: 1g
+    cpus: "1.0"
+
+  cli2:
+    image: wordpress:cli-php8.3
+    user: "33:33"
+    networks: [duo-shared]
+    environment:
+      <<: *wp-env-base
+      WORDPRESS_DB_NAME: wp_${DUO_PAIR}2
+    volumes: *vol2
+    mem_limit: 768m
+    cpus: "0.75"

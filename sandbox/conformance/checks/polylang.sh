@@ -13,8 +13,12 @@
 # exploration's did.
 #
 # Invoked by conformance/run.sh after a clean apply, from the sandbox/
-# directory; conf2 is always :8807 regardless of manifest.
+# directory; conf1/conf2's ports are set by run.sh via CONF1_PORT/CONF2_PORT
+# (defaults below match the legacy docker-compose.yml conf1/conf2 ports for
+# any standalone invocation).
 set -euo pipefail
+CONF1_PORT="${CONF1_PORT:-8806}"
+CONF2_PORT="${CONF2_PORT:-8807}"
 
 POST_EN_ID=$(wp_conf2 post list --post_type=post --name=conformance-polylang-post-en --field=ID)
 POST_FR_ID=$(wp_conf2 post list --post_type=post --name=conformance-polylang-post-fr --field=ID)
@@ -127,9 +131,9 @@ echo "ok: re-serialized descriptions are byte-exact PHP serialize() output with 
 
 # --- render/negative host-leak convention (checks/fse.sh's methodology, ---
 # --- extended here to prove ordinary post round-trip wasn't disturbed) ----
-FRONT=$(curl -fs "http://localhost:8807/conformance-polylang-post-en/") || { echo "FAIL: conf2 post_en page did not return 200" >&2; exit 1; }
-if grep -q 'localhost:8806' <<<"$FRONT"; then
-    echo "FAIL: conf2's rendered post_en page links back to conf1 (localhost:8806)" >&2
+FRONT=$(curl -fs "http://localhost:${CONF2_PORT}/conformance-polylang-post-en/") || { echo "FAIL: conf2 post_en page did not return 200" >&2; exit 1; }
+if grep -q "localhost:${CONF1_PORT}" <<<"$FRONT"; then
+    echo "FAIL: conf2's rendered post_en page links back to conf1 (localhost:${CONF1_PORT})" >&2
     exit 1
 fi
 grep -q 'Conformance content (English)' <<<"$FRONT" \

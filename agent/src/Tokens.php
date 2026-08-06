@@ -101,16 +101,37 @@ final class Tokens {
 
     // ---- typed id refs ----
 
+    /**
+     * The three core keyspaces keep their short, historical token spelling
+     * ({{post:...}} not {{Duo\Ledger::KIND_POST:...}}) for every canonical
+     * file already shipped; anything else is a manifest-declared id_kind
+     * STRING used verbatim as both the token's kind-name and the ledger
+     * lookup kind — Ledger::id_for()/uuid_for()/set() have taken an
+     * arbitrary id_kind string since day one (duo_map has no enum
+     * constraint on the column, only PHP's own call sites were narrowed to
+     * these three), so Snapshot.php's typed-snapshot tables (id_kind values
+     * like "nf3_form", "attr_taxonomy" — see its docblock for the VARCHAR(16)
+     * budget this engine has always implicitly kept within, "term_taxonomy"
+     * being the prior high-water mark) need no engine-side registration
+     * beyond what's already declared in their own manifest.
+     */
     private const KIND_MAP = [
         'post' => Ledger::KIND_POST,
         'term' => Ledger::KIND_TERM,
         'tt'   => Ledger::KIND_TT,
     ];
 
-    /** id -> "{{post:uuid}}" (capture direction). Returns null when unmapped. */
+    /** A ref/token kind name is a bare lowercase-ish identifier, matching
+     *  every id_kind this engine has ever declared (post/term/tt, and every
+     *  Snapshot.php table id_kind) — deliberately excludes anything that
+     *  could collide with the OTHER token forms this class recognizes by
+     *  their own fixed spelling ({{home}}, {{uploads}}, user:<login>). */
+    private const KIND_NAME_RE = '[a-z][a-z0-9_]*';
+
+    /** id -> "{{<kind>:uuid}}" (capture direction). Returns null when unmapped. */
     public function id_to_token(int $id, string $refKind): ?string {
-        $kind = self::KIND_MAP[$refKind] ?? null;
-        if ($kind === null || $id <= 0) {
+        $kind = self::KIND_MAP[$refKind] ?? $refKind;
+        if ($kind === '' || $id <= 0) {
             return null;
         }
         $uuid = Ledger::uuid_for($id, $kind);
@@ -121,12 +142,13 @@ final class Tokens {
         return '{{' . $refKind . ':' . $uuid . '}}';
     }
 
-    /** "{{post:uuid}}" -> id (apply direction). Throws when unresolvable. */
+    /** "{{<kind>:uuid}}" -> id (apply direction). Throws when unresolvable. */
     public function token_to_id(string $token): int {
-        if (!preg_match('/^\{\{(post|term|tt):([0-9a-f-]{36})\}\}$/', $token, $m)) {
+        if (!preg_match('/^\{\{(' . self::KIND_NAME_RE . '):([0-9a-f-]{36})\}\}$/', $token, $m)) {
             throw new \RuntimeException("duo: malformed ref token '$token'");
         }
-        $id = Ledger::id_for($m[2], self::KIND_MAP[$m[1]]);
+        $kind = self::KIND_MAP[$m[1]] ?? $m[1];
+        $id = Ledger::id_for($m[2], $kind);
         if ($id === null) {
             throw new \RuntimeException("duo: unresolvable ref $token (entity not in this environment)");
         }

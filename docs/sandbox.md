@@ -1,0 +1,298 @@
+# Sandbox redesign (task #74): one pair template + one shared MariaDB
+
+*Replaces the pattern (not the file — see "what stays on the legacy
+mega-compose" below) of `sandbox/docker-compose.yml`: one dedicated MariaDB
+container per env pair, ~10 pairs hand-duplicated as compose profiles. That
+mega-file wedged the OrbStack daemon under three concurrent stacks this
+session — the incident that motivated this redesign. New surface:
+`sandbox/pair.yml`, `sandbox/db.yml`, three override files
+(`sandbox/pair.{http,journal,codebind}.yml`), and the lifecycle tool
+`sandbox/bin/pair.sh`.*
+
+## The model
+
+**One shared MariaDB server, many pairs.** `sandbox/db.yml` brings up a
+single long-lived `mariadb:11` container (`duo-shared-db`, its own compose
+project `duo-db`) that hosts every pair's databases. `sandbox/pair.yml` is
+one generic pair template — services `wp1`, `wp2` (`wordpress:php8.3-apache`)
+and `cli1`, `cli2` (`wordpress:cli-php8.3`, `user: "33:33"`) — with no
+MariaDB service of its own. Each pair is brought up as its own compose
+project (`-p duo-<name>`), so any number of pairs come and go independently,
+each in its own blast radius. Everything is driven through
+`sandbox/bin/pair.sh`; nobody should invoke `docker compose -f pair.yml`
+directly except pair.sh itself (it sets several env vars — `DUO_PAIR`,
+`DUO_PORT1/2`, `DUO_CODEBIND_PLUGIN` — that the compose files need to
+resolve correctly).
+
+Why one server instead of one-per-pair: a clean-room reset becomes `DROP
+DATABASE` + `CREATE DATABASE` against a server that's already initialized
+and warm, instead of removing a volume and paying MariaDB's full InnoDB
+bootstrap again on next boot. Measured on this machine, warm image cache,
+nothing else contending for resources (see "Measured reset time" below):
+**~0.75s for the new reset vs ~7.8s for the old volume-cycle** — and the old
+number excludes the `docker compose rm -sf` step the real
+`sandbox/conformance/run.sh` also pays before its `docker volume rm -f`, so
+real-world old-flow resets cost more than that baseline.
+
+### Cross-project networking
+
+`db.yml` owns an external docker network, `duo-shared` (declares it without
+`external: true`, so its own `up` is what creates it). `pair.yml` and every
+override attach to that same network with `external: true` — attach only,
+never create. This is how `wp1`/`wp2`/`cli1`/`cli2` reach the shared server
+at `WORDPRESS_DB_HOST=duo-shared-db` (the db's `container_name`, globally
+unique on the docker host) despite living in a different compose project.
+`depends_on` cannot cross that project boundary, which is exactly why
+pair.sh's own readiness waits exist (below) instead of a compose-level
+health dependency.
+
+**Known constraint, not a bug**: `wp1`/`wp2`/`cli1`/`cli2` are the same
+literal service names in *every* pair, all sharing the one `duo-shared`
+network. Docker's embedded DNS does not scope a service-name-based alias
+per compose project on a shared external network — resolving the bare name
+`wp1` from inside any pair's container is not guaranteed to reach *that
+pair's own* `wp1`. Nothing in this design relies on that resolution (the
+only cross-container hostname anything depends on is `duo-shared-db`,
+which is unambiguous); headless installs use an RFC 2606 `.invalid`
+placeholder URL specifically to avoid ever needing it. Don't add code that
+assumes `wp1`/`wp2` resolve to "your own" pair on this network.
+
+### The shared user, grants, and per-pair database naming
+
+Every pair gets two databases on the shared server: `wp_<name>1` /
+`wp_<name>2` (e.g. pair `conf` → `wp_conf1`/`wp_conf2`). One application
+user, `wordpress`/`wordpress`, is shared by every pair via a **wildcard
+grant** — `pair.sh up` idempotently runs:
+
+```sql
+CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED BY 'wordpress';
+GRANT ALL PRIVILEGES ON `wp\_%`.* TO 'wordpress'@'%';
+FLUSH PRIVILEGES;
+```
+
+(`wp\_%` — escaped underscore, then a wildcard — matches every
+`wp_<name>{1,2}` database any pair will ever create; no per-pair user, no
+re-granting on every `up`.) Root credentials (`root`/`root`) are for admin
+operations only (`CREATE`/`DROP DATABASE`), always via `docker exec
+duo-shared-db mariadb -uroot ...` from pair.sh — never over the published
+port. That port (`127.0.0.1:3316`, loopback-only) exists solely for a human
+who wants to point a GUI SQL client at the fleet directly; no tooling here
+depends on it.
+
+Pair names are constrained to lowercase letters/digits, starting with a
+letter (`pair.sh`'s `validate_name`) — used bare as both a MySQL identifier
+fragment and a compose project suffix, so this one rule keeps every name
+safe in both contexts without any identifier-quoting logic. Two names are
+reserved and rejected outright: `db` (`duo-db` is this file's own shared-
+MariaDB project — `pair.sh destroy db` would otherwise tear down the server
+every other pair depends on) and `sandbox` (`duo-sandbox` is the legacy
+mega-compose's project — same risk, against a file this tool must never
+touch).
+
+**mariadb:11 image note**: this image ships only the `mariadb` client
+binary — no `mysql` symlink (confirmed while authoring this; MariaDB has
+been renaming its client tools). `pair.sh`'s `db_sql()` uses `mariadb`, not
+`mysql`, and passes the password via `MYSQL_PWD` (still honored) rather
+than `-p`, avoiding the "insecure password on command line" warning.
+
+## `pair.sh`
+
+```
+pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--http|--headless]
+pair.sh reset <name>
+pair.sh destroy <name>
+pair.sh list
+```
+
+Run as `bash sandbox/bin/pair.sh ...` (this repo's shell is zsh; every
+script here, this one included, is bash and always invoked explicitly that
+way).
+
+### `up` — idempotent bring-up
+
+In order: ensure the shared db is up and healthy; ensure the `wordpress`
+user/grant exist; create this pair's two databases; create its site-repo
+directories (and, under `--codebind`, the plugin subdirectory the bind
+mount needs to exist before any container attaches to it — see below); warn
+if this pushes the live-pair count above 2; bring up `wp1/wp2/cli1/cli2`;
+wait for DB-level readiness on both sides; run the generic WordPress
+bootstrap (`core install`, theme, permalinks, `.htaccess`) on each side
+*unless it's already installed*; print the pair's wp-cli invocation
+pattern. Re-running `up` on an already-installed pair is safe and fast — it
+re-converges the containers (a no-op if config hasn't changed) and skips
+the bootstrap entirely.
+
+**The readiness fix task #74 called for**: every script in this sandbox
+(`setup.sh`, `conformance/run.sh`, the spike scripts) polls `wp core
+version` in a `wait_for()` loop to decide when an env is ready. That command
+reads a static PHP file — it never touches the database — so it reports
+"ready" before the database connection is actually live; this session hit
+exactly that gap. `pair.sh` waits on two different things instead, both
+real: the shared server's own healthcheck (`healthcheck.sh --connect
+--innodb_initialized`, polled via `docker inspect`, since `depends_on` can't
+cross the compose-project boundary to the shared db), and then, per side,
+`wp db query "SELECT 1"` run through that side's own `cli` container. The
+latter is deliberately not `wp db check` (`mysqlcheck`) — that inspects
+*tables*, and right after `CREATE DATABASE` there are zero tables to check,
+which would make it a false negative exactly when it matters most. A plain
+query round-trip has no such blind spot.
+
+**`--http` vs `--headless`**: `--http` (default) publishes `wp1`/`wp2` on
+`<port1>`/`<port2>` and installs with `http://localhost:<port>` as the site
+URL — what every existing script needs, since they curl the live site.
+`--headless` publishes no host port at all and installs with an
+unresolvable `http://<name>{1,2}.invalid` placeholder (see the DNS
+constraint above for why an in-network hostname isn't used instead).
+Nothing about wp-cli access depends on this flag either way — the printed
+invocation pattern always goes through `docker compose run`, never HTTP.
+Publishing ports is its own overlay (`pair.http.yml`) so a pair that will
+never be curled can skip host-port consumption entirely — one less shared,
+finite resource to collide over when several pairs run at once.
+
+**`--journal`** layers in `pair.journal.yml`, which adds `DUO_JOURNAL` to
+`WORDPRESS_CONFIG_EXTRA` on all four services (matching the exact define the
+legacy compose file's `spikec`/`spikef`/`r1a`/`r1b`/`r1c` profiles already
+use). **`--codebind <plugin-dir>`** layers in `pair.codebind.yml`, spike G's
+pattern generalized: `wp-content/plugins/<plugin-dir>` is bind-mounted from
+this pair's *own* `siterepo/<name>{1,2}/code/wp-content/plugins/<plugin-dir>`
+tree instead of a shared static fixture, so a `git pull`/file edit on the
+host is visible inside the already-running container immediately, no
+restart. `pair.sh` pre-creates that directory (empty, host-owned) *before*
+any container that mounts it exists — Docker auto-vivifies a missing bind
+source as an empty root-owned directory otherwise, and an already-running
+container's mount stays pinned to whichever directory/inode existed at
+container-create time. Confirmed during self-test: copying a real plugin
+file into the pre-created host directory made it appear inside the
+already-running `wp1` container instantly, and `wp plugin activate` against
+it worked for real (hooks fired). `up --codebind` also passes
+`--force-recreate wp1 wp2` so an existing pair picks up a freshly re-authored
+`code/` tree on a repeat `up`, not a prior run's stale mount (same fix spike
+G's own script applies to itself).
+
+Compose's multi-file merge for `volumes:` is by target path, not whole-list
+replacement — confirmed via `docker compose config` while authoring
+`pair.codebind.yml` — so layering it on top of `pair.yml` only *adds* the
+one new mount; it doesn't disturb the other four. `environment:` merges by
+key, which is why `pair.journal.yml` has to repeat the
+`WP_ENVIRONMENT_TYPE` line alongside `DUO_JOURNAL` rather than only adding
+the new define — `WORDPRESS_CONFIG_EXTRA` is one scalar value, and the
+override's value for that key wholly replaces the base's.
+
+### `reset` — what it covers, and what it deliberately doesn't
+
+```
+pair.sh reset <name>
+```
+
+Drops and recreates both of the pair's databases, and wipes+recreates its
+site-repo directories (`siterepo/<name>{1,2}`, `siterepo/origin-<name>.git`)
+— the same clean-room scope `conformance/run.sh` currently hand-rolls per
+manifest run. It does **not** touch the `wp1`/`wp2` webroot named volumes,
+does **not** restart or recreate any container, and does **not** re-run
+`core install`. This is a deliberate, narrow scope: the webroot volume was
+never the slow part (the official WordPress image's entrypoint re-templates
+`wp-config.php` from the current environment on every container start
+regardless of what's already on disk, so a persisted webroot carries no
+staleness risk), and WordPress doesn't hold a persistent DB connection
+across requests, so an already-running container transparently sees the
+freshly-recreated, empty database on its very next wp-cli call or HTTP
+request — no restart needed for reset to take effect. The next `core
+is-installed` check (whether via `pair.sh up` again or a caller's own
+install routine) correctly sees an uninstalled site and proceeds.
+
+### `destroy` — full teardown, minus site-repo history
+
+```
+pair.sh destroy <name>
+```
+
+`docker compose -p duo-<name> -f pair.yml down -v --remove-orphans`
+(containers + the pair's own named webroot volumes; never touches the
+external `duo-shared` network or the shared db) plus `DROP DATABASE` on
+both of the pair's databases. `siterepo/<name>{1,2}` is left on disk
+untouched — intentionally asymmetric with `reset`: destroy means "this name
+is done," and the existing convention throughout this sandbox is that
+site-repo directories are never auto-deleted on teardown (every historical
+spike's `siterepo/` still sits there, inspectable, long after the spike
+finished). Remove them by hand if you want the name fully gone.
+
+### `list`
+
+Shows live pairs and the shared db's status. Filters `docker compose ls`
+by `ConfigFiles` containing `pair.yml`, not by project-name pattern —
+the legacy compose file's own project is literally named `duo-sandbox`,
+which (being lowercase letters only) would otherwise pass right through a
+naming-convention filter and get miscounted as one of this redesign's own
+pairs. Confirmed this was a real, not hypothetical, bug during self-test.
+
+### The concurrency warning
+
+`up` and `list` both warn — never block — once more than 2 pairs would be
+(or are) live at once: exactly the concurrency level that wedged the
+OrbStack daemon this session. The warning names every pair currently up and
+points at `pair.sh destroy`. There is no hard cap; the whole point of the
+per-pair-project model is that any number *can* run, this is just a nudge
+back toward the operating discipline that avoids re-triggering the incident.
+
+## The destroy-when-green convention
+
+Going forward, an agent that brings up a pair.sh-managed pair for its own
+work is expected to `pair.sh destroy <name>` it once that work is green —
+the old convention of leaving finished spike/grind pairs running
+indefinitely (still visible today: `a`, `b`, every `r1a*/r1b*/r1c*`, `conf*`
+all still up on the legacy file from earlier this session) is exactly what
+made three-stacks-at-once an ordinary occurrence rather than an edge case.
+This convention applies to pair.sh-managed pairs only; it does not
+retroactively apply to anything already running on the legacy
+`docker-compose.yml`, and destroying one of *those* pairs is out of scope
+for whoever manages this redesign — see below.
+
+## What stays on the legacy `sandbox/docker-compose.yml` this round
+
+Untouched, on purpose: the mega-compose file itself, every pair it defines
+(`a`/`b`, `c`, `e1`/`e2`, `f1`/`f2`, `conf1`/`conf2`, `fx1`/`fx2`, `g1`/`g2`,
+`r1a*`, `r1b*`, `r1c*`), `sandbox/setup.sh`, every `sandbox/tests/spike_*.sh`
+and `grind_*.sh` script, and `sandbox/conformance/run.sh`'s *env
+provisioning* only gets migrated once tasks #72/#73/#75 (the sibling
+engine-gap work using the conformance pair concurrently) are all complete —
+see the git history / task board around task #74 for the migration status
+of `run.sh` specifically. Migrating the spike/grind scripts themselves to
+pair.sh, and deleting the mega-compose file, are explicitly **follow-up**
+work for a later round, not this one. Nothing here removes or renames
+anything in `docker-compose.yml`.
+
+## Measured reset time: DROP/CREATE vs the old volume cycle
+
+Measured back-to-back on this machine, warm image cache, no other load —
+i.e. a best case for the *old* approach, since the incident this redesign
+responds to was specifically about behavior *under contention*:
+
+| approach | steps timed | wall time |
+|---|---|---|
+| new (`pair.sh reset`) | ensure shared db healthy (already warm) + `DROP`/`CREATE DATABASE` ×2 + `rm -rf`/`mkdir -p` site-repo dirs | **0.75s** |
+| old (per-pair volume cycle) | `docker rm -f` container + `docker volume rm -f` + fresh `docker run` + poll until the MariaDB healthcheck reports healthy | **7.83s** |
+
+The old number is a lower bound on what `conformance/run.sh` actually pays
+today — it excludes the `docker compose rm -sf` step that precedes the
+volume removal in the real script, and excludes any contention with other
+running stacks. The ~10x gap is entirely the InnoDB bootstrap
+(`mariadb-install-db` + system-table creation) that a brand-new, empty
+datadir must pay and an already-initialized, already-warm server does not.
+
+## Self-test evidence
+
+Exercised end-to-end against scratch pairs (`sbx1`/`sbx2`/`sbx3`, ports
+8830–8835, all destroyed afterward) before this was considered done: plain
+`up`; idempotent re-`up` on an already-installed pair (correctly skipped
+reinstall); `--journal` (confirmed `DUO_JOURNAL` actually defined via `wp
+eval`); `--codebind` (confirmed the live bind-mount propagation into an
+already-running container, and a real `wp plugin activate`); `--headless`
+(confirmed no host port published, `.invalid` URL used); the >2-pair
+warning (confirmed firing with the right pair names, both from `up` and
+`list`); `reset`; `destroy` (confirmed containers/volumes/databases all
+removed, site-repo directories correctly left behind, the shared db and
+`duo-shared` network correctly left running); resource caps (confirmed via
+`docker inspect` — `mem_limit`/`cpus` on `pair.yml`'s services and `db.yml`
+actually reach the container's `HostConfig`, not just parsed and ignored).
+The legacy `docker-compose.yml` pairs (`a`, `b`, `conf1/2`, `r1a*/r1b*/r1c*`)
+were confirmed still running, untouched, throughout.

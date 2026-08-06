@@ -53,7 +53,7 @@ duo_conf_yoast_png('/tmp/duo-conf-yoast-person.png', 80, 200, 80);
 duo_conf_yoast_png('/tmp/duo-conf-yoast-ogdefault.png', 80, 80, 200);
 echo "made\n";
 EOF
-IMG_IDS=$($COMPOSE run --rm -T cli-conf1 bash -c '
+IMG_IDS=$($COMPOSE run --rm -T cli1 bash -c '
   wp eval-file /siterepo/.tmp-makeimg-yoast.php >/dev/null &&
   echo OG_ID=$(wp media import /tmp/duo-conf-yoast-og.png --title="Conformance Yoast OG Image" --porcelain) &&
   echo COMPANY_LOGO_ID=$(wp media import /tmp/duo-conf-yoast-company.png --title="Conformance Yoast Company Logo" --porcelain) &&
@@ -76,7 +76,7 @@ WPSEO_Taxonomy_Meta::set_values((int) $CAT_A, 'category', [
 ]);
 echo "taxonomy meta set for term $CAT_A\n";
 PHP
-$COMPOSE run --rm -T cli-conf1 wp eval-file /siterepo/.tmp-yoast-taxmeta-seed.php
+$COMPOSE run --rm -T cli1 wp eval-file /siterepo/.tmp-yoast-taxmeta-seed.php
 rm -f siterepo/conf1/.tmp-yoast-taxmeta-seed.php
 
 # wpseo_titles (company/person logo) + wpseo_social (site-wide OG default
@@ -101,7 +101,7 @@ WPSEO_Options::set('og_default_image_id', (int) $OG_DEFAULT_ID);
 WPSEO_Options::set('og_default_image', wp_get_attachment_url((int) $OG_DEFAULT_ID));
 echo "wpseo_titles/wpseo_social logo+image sub-keys set\n";
 PHP
-$COMPOSE run --rm -T cli-conf1 wp eval-file /siterepo/.tmp-yoast-options-seed.php
+$COMPOSE run --rm -T cli1 wp eval-file /siterepo/.tmp-yoast-options-seed.php
 rm -f siterepo/conf1/.tmp-yoast-options-seed.php
 
 echo "yoast seed: cat_a=$CAT_A cat_b=$CAT_B post=$POST_ID og_image=$OG_ID company_logo=$COMPANY_LOGO_ID person_logo=$PERSON_LOGO_ID og_default=$OG_DEFAULT_ID"

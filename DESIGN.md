@@ -64,9 +64,9 @@ Secret guard: pattern denylists first (`sk_live_`, `AKIA`, `ghp_`, …) + manife
 
 - **Entity-per-file**, deterministic serialization: sorted keys; PHP-serialize → canonical structured form *for plain data only*. Non-plain serializations (PHP objects `O:…`, e.g. Beaver Builder) get a **verbatim-preservation path**: original bytes kept, refs rewritten only via safe in-place token substitution, or refused with a loud warning — never round-tripped through a foreign format.
 - **Post files are front-matter + raw body**: fields/meta/terms as canonical-JSON front matter, `post_content` as raw Gutenberg HTML below the `---` separator. Rationale: the body merges in git as plain lines (an escaped-into-a-string body would make every content merge a conflict), while remaining byte-faithful to what plugins expect.
-- **URLs/paths tokenized at capture** (`{{home}}`, `{{media:uuid}}`, `{{link:uuid}}`) — serialized-length corruption can't happen because we operate on parsed structures and re-bind per environment at apply. JSON-escaped URL forms (`https:\/\/…` inside `_elementor_data`-style meta) are a *required extension* the shipped tokenizer does not yet handle — plain-form substitution only today (empirically confirmed by the Elementor frontier report; see docs/frontier/elementor.md).
+- **URLs/paths tokenized at capture** (`{{home}}`, `{{media:uuid}}`, `{{link:uuid}}`) — serialized-length corruption can't happen because we operate on parsed structures and re-bind per environment at apply. JSON-escaped URL forms (`https:\/\/…` inside `_elementor_data`-style meta) were originally a gap (docs/frontier/elementor.md found it empirically); the tokenizer now matches both spellings and collapses them to one plain-spelled token, with structural re-encode restoring the host convention on apply (spec v0.7).
 - **Media**: binaries content-addressed (sha256), stored via git LFS in real site repos (plain files in the sandbox); the attachment *entity* is a normal authored file; `_wp_attachment_metadata` is derived → regenerated.
-- **Custom tables** (post-v1, design pinned now): opaque snapshots are **refused** for tables with FK-like columns (int columns whose values join posts/terms/users) — authored custom tables almost always embed local ids (WPML `icl_translations`, Ninja Forms `nf3_*`), so pick-side replay would corrupt silently. Middle tier: **typed snapshot** with column-level ref declarations. WPML/Polylang are manifest-mandatory, never opaque-eligible.
+- **Custom tables**: opaque snapshots are **refused** for tables with FK-like columns (int columns whose values join posts/terms/users) — authored custom tables almost always embed local ids (WPML `icl_translations`, Ninja Forms `nf3_*`), so pick-side replay would corrupt silently. The middle tier — **typed snapshot** with column-level ref declarations — is now implemented (grind round 2, task #75): manifest-declared `tables` with per-column classification, ledger-only identity (mapped UUIDv7 or natural-key-derived UUIDv5), structural row refs vs optional sidecar refs, and declarative cache invalidation; proven on Ninja Forms (`nf3_*`) and `woocommerce_attribute_taxonomies` (spec v0.10). WPML/Polylang are manifest-mandatory, never opaque-eligible.
 
 Site-repo layout (full contract in [spec/repo-format.md](spec/repo-format.md)):
 
@@ -117,7 +117,7 @@ The repo is the declarative source of truth for the branchable partition; enviro
 - Multi-master replication (two prods diverging) — one authored truth, many materializations.
 - Versioning runtime data (orders, comments, analytics).
 - Requiring anything from plugin authors.
-- Multisite (v1). Opaque/typed snapshot custom-table modes (v1 designs them, ships them post-v1).
+- Multisite (v1). Opaque custom-table snapshots (refused on FK-bearing tables, by principle); typed snapshot shipped early (grind round 2) — see §3.3.
 - Silent best-effort coverage of unknown plugins — out of principle, not just scope.
 
 ## 6. Prior art & lessons (verified — sources in [docs/design-review-v0.md](docs/design-review-v0.md))

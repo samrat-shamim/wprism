@@ -1,0 +1,20 @@
+# -----------------------------------------------------------------------------
+# Override: publish wp1/wp2 to the host (sandbox/pair.yml's --http mode,
+# pair.sh's default). Layered in via `docker compose -f pair.yml -f
+# pair.http.yml ...`; never applied under --headless, which leaves wp1/wp2
+# reachable only from inside the duo-shared network (wp-cli access, which
+# every pair supports either way, never goes over these host ports at all —
+# see pair.sh's printed wp-cli invocation pattern).
+#
+# Kept as its own overlay, instead of always-on in pair.yml, so a pair that
+# will never be curled (wp-cli-only workflows) can skip host port
+# consumption entirely — one less thing to collide when several pairs are
+# up concurrently (the OrbStack-under-three-stacks incident that motivated
+# this whole redesign was about resource pressure generally, and host ports
+# are a similarly finite, shared resource across concurrent pairs).
+# -----------------------------------------------------------------------------
+services:
+  wp1:
+    ports: ["${DUO_PORT1}:80"]
+  wp2:
+    ports: ["${DUO_PORT2}:80"]

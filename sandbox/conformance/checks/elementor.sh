@@ -16,31 +16,35 @@
 # checks/fse.sh's).
 #
 # Invoked by conformance/run.sh after a clean apply, from the sandbox/
-# directory; conf2 is always :8807 regardless of manifest.
+# directory; conf1/conf2's ports are set by run.sh via CONF1_PORT/CONF2_PORT
+# (defaults below match the legacy docker-compose.yml conf1/conf2 ports for
+# any standalone invocation).
 set -euo pipefail
+CONF1_PORT="${CONF1_PORT:-8806}"
+CONF2_PORT="${CONF2_PORT:-8807}"
 
-FRONT=$(curl -fs http://localhost:8807/duo-conformance-elementor-page/) \
+FRONT=$(curl -fs "http://localhost:${CONF2_PORT}/duo-conformance-elementor-page/") \
   || fail "conf2 elementor page did not return 200"
 
 # The sharpest possible test of the report's exact corruption: conf1's own
 # origin must not leak into conf2's rendered output anywhere.
-if grep -q 'localhost:8806' <<<"$FRONT"; then
-    fail "conf2's rendered elementor page links back to conf1 (localhost:8806) — _elementor_data ids/urls not rebound"
+if grep -q "localhost:${CONF1_PORT}" <<<"$FRONT"; then
+    fail "conf2's rendered elementor page links back to conf1 (localhost:${CONF1_PORT}) — _elementor_data ids/urls not rebound"
 fi
 
 # widget "image" control (json_refs $..image.id + the auto-tokenized url sibling)
-grep -q 'src="http://localhost:8807/wp-content/uploads/[0-9]\{4\}/[0-9]\{2\}/duo-conf-elementor-hero[^"]*"' <<<"$FRONT" \
+grep -q 'src="http://localhost:'"$CONF2_PORT"'/wp-content/uploads/[0-9]\{4\}/[0-9]\{2\}/duo-conf-elementor-hero[^"]*"' <<<"$FRONT" \
   || fail "image widget did not render from conf2's own uploads (json_refs \$..image.id)"
 
 # gallery widget "wp_gallery" control (json_refs $..wp_gallery.id, an ARRAY — array-transparency)
-grep -q 'src="http://localhost:8807/wp-content/uploads/[0-9]\{4\}/[0-9]\{2\}/duo-conf-elementor-gallery-a[^"]*"' <<<"$FRONT" \
+grep -q 'src="http://localhost:'"$CONF2_PORT"'/wp-content/uploads/[0-9]\{4\}/[0-9]\{2\}/duo-conf-elementor-gallery-a[^"]*"' <<<"$FRONT" \
   || fail "gallery image A did not render from conf2's own uploads (json_refs \$..wp_gallery.id)"
-grep -q 'src="http://localhost:8807/wp-content/uploads/[0-9]\{4\}/[0-9]\{2\}/duo-conf-elementor-gallery-b[^"]*"' <<<"$FRONT" \
+grep -q 'src="http://localhost:'"$CONF2_PORT"'/wp-content/uploads/[0-9]\{4\}/[0-9]\{2\}/duo-conf-elementor-gallery-b[^"]*"' <<<"$FRONT" \
   || fail "gallery image B did not render from conf2's own uploads (json_refs \$..wp_gallery.id)"
 
 # button widget's plain-URL internal link (the report's original verified
 # shape: NO id at all — only the generic string-leaf tokenize pass rebinds this)
-grep -q 'href="http://localhost:8807/duo-elementor-target/"' <<<"$FRONT" \
+grep -q 'href="http://localhost:'"$CONF2_PORT"'/duo-elementor-target/"' <<<"$FRONT" \
   || fail "button widget's internal link did not resolve to conf2's own target page permalink"
 
 # section background-image (json_refs $..background_image.id): lives in
@@ -55,14 +59,14 @@ grep -q 'href="http://localhost:8807/duo-elementor-target/"' <<<"$FRONT" \
 # Ask conf2 directly which local id the seeded page itself resolved to.
 PAGE_ID=$(wp_conf2 post list --post_type=page --name=duo-conformance-elementor-page --field=ID) \
   || fail "could not find conf2's own local id for the seeded elementor page"
-POST_CSS_URL="http://localhost:8807/wp-content/uploads/elementor/css/post-${PAGE_ID}.css"
+POST_CSS_URL="http://localhost:${CONF2_PORT}/wp-content/uploads/elementor/css/post-${PAGE_ID}.css"
 grep -q "elementor-post-${PAGE_ID}-css" <<<"$FRONT" \
   || fail "conf2's rendered page has no elementor CSS link for its own post id ($PAGE_ID)"
 CSS=$(curl -fs "$POST_CSS_URL") || fail "could not fetch conf2's regenerated elementor CSS ($POST_CSS_URL)"
-if grep -q 'localhost:8806' <<<"$CSS"; then
-    fail "conf2's regenerated elementor CSS still references conf1 (localhost:8806) — rebuilder did not pick up the rebound background_image"
+if grep -q "localhost:${CONF1_PORT}" <<<"$CSS"; then
+    fail "conf2's regenerated elementor CSS still references conf1 (localhost:${CONF1_PORT}) — rebuilder did not pick up the rebound background_image"
 fi
-grep -q 'background-image:url("http://localhost:8807/wp-content/uploads/[0-9]\{4\}/[0-9]\{2\}/duo-conf-elementor-bg[^"]*")' <<<"$CSS" \
+grep -q 'background-image:url("http://localhost:'"$CONF2_PORT"'/wp-content/uploads/[0-9]\{4\}/[0-9]\{2\}/duo-conf-elementor-bg[^"]*")' <<<"$CSS" \
   || fail "section background-image did not regenerate pointing at conf2's own uploads (json_refs \$..background_image.id + the elementor flush-css --regenerate rebuilder)"
 
 pass "conf2 renders its own image/gallery/background-image (json_refs, incl. the array case) and internal link (plain-URL tokenize) — none point at conf1"

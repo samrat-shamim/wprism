@@ -38,7 +38,7 @@ imagefilledrectangle($im, 0, 0, 63, 47, imagecolorallocate($im, 140, 60, 160));
 imagepng($im, '/tmp/conf-fse-cta.png');
 echo "made\n";
 EOF
-ATT_ID=$($COMPOSE run --rm -T cli-conf1 bash -c \
+ATT_ID=$($COMPOSE run --rm -T cli1 bash -c \
   "wp eval-file /siterepo/.tmp-makeimg-fse.php >/dev/null && wp media import /tmp/conf-fse-cta.png --title='Conformance FSE CTA Image' --alt='Conformance FSE CTA image' --porcelain")
 rm -f siterepo/conf1/.tmp-makeimg-fse.php
 ATT_URL=$(wp_conf1 eval "echo wp_get_attachment_url((int) $ATT_ID);")

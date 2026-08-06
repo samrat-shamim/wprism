@@ -6,6 +6,16 @@
 # declared in conformance/manifests.json and a seed script per manifest —
 # all manifest-specific authoring happens in conformance/seeds/<name>.sh.
 #
+# Env provider: sandbox/bin/pair.sh (task #74's sandbox redesign), not a
+# per-manifest docker-compose profile. `pair.sh reset conf` + `pair.sh up
+# conf ...` gives a genuinely fresh WordPress install on both sides every
+# run — DROP/CREATE against the one shared MariaDB server instead of the
+# old per-pair volume-rm-and-reinit cycle, and DB-level readiness instead of
+# the `wp core version` check every other script in this sandbox still
+# uses. See docs/sandbox.md for the full model. Everything from "init the
+# site repo" onward is unchanged from before this migration — only env
+# provisioning (this file's first ~60 lines) moved.
+#
 # Usage: bash sandbox/conformance/run.sh <manifest-name>
 set -euo pipefail
 cd "$(dirname "$0")/.."   # -> sandbox/
@@ -22,71 +32,73 @@ ENTRY=$(jq -e --arg m "$MANIFEST" '.[$m]' "$REG") \
 mapfile -t PLUGINS < <(echo "$ENTRY" | jq -r '.plugins[]?')
 SETUP=$(echo "$ENTRY" | jq -r '.setup // ""')
 
-COMPOSE="docker compose -f docker-compose.yml --profile conf"
-wp_env() { local env="$1"; shift; $COMPOSE run --rm -T "cli-$env" wp "$@"; }
+# Prefer the legacy docker-compose.yml conf1/conf2 ports (8806/8807) so
+# conformance/checks/*.sh and seeds/elementor.sh — which read CONF1_PORT/
+# CONF2_PORT with those exact values as their DEFAULT, so they're unchanged
+# in the common case — need no override. Fall back only if the legacy
+# conf1/conf2 containers are actually still running (this migration runs
+# once tasks #72/#73/#75 are complete, which says nothing about whether
+# anyone has torn down their own containers since — see docs/sandbox.md's
+# note that "leave it running" was the old norm this whole redesign
+# responds to): a real port collision there would otherwise surface as an
+# opaque `docker compose up` failure instead of this explicit, named cause.
+if docker ps --format '{{.Names}}' | grep -qE 'duo-sandbox-wp-conf[12]-1'; then
+  CONF1_PORT=8840
+  CONF2_PORT=8841
+  echo "note: legacy conf1/conf2 containers are still running — using fallback ports $CONF1_PORT/$CONF2_PORT instead of 8806/8807" >&2
+else
+  CONF1_PORT=8806
+  CONF2_PORT=8807
+fi
+COMPOSE="docker compose -p duo-conf -f pair.yml -f pair.http.yml"
+wp_env() { # wp_env <conf1|conf2> <wp args...>
+  local env="$1"; shift
+  local side="${env#conf}"   # conf1 -> 1, conf2 -> 2 (pair.sh's generic side numbering)
+  $COMPOSE run --rm -T "cli${side}" wp "$@"
+}
 wp_conf1() { wp_env conf1 "$@"; }
 wp_conf2() { wp_env conf2 "$@"; }
-export COMPOSE
+# pair.sh set these for ITS OWN compose invocations while bringing the pair
+# up, but that was a separate process — its exports die with it. Every one
+# of run.sh's own $COMPOSE calls below creates a fresh --rm container
+# (never a persistent one), so pair.yml's ${DUO_PAIR}/${DUO_PORT1}/
+# ${DUO_PORT2} interpolation (WORDPRESS_DB_NAME among them) needs these set
+# in THIS shell too, every time — confirmed the hard way: without this,
+# WORDPRESS_DB_NAME silently resolved to "wp_1" (DUO_PAIR defaulting to an
+# empty string) instead of "wp_conf1", surfacing only as a generic "Error
+# establishing a database connection" from wp-cli, not a missing-variable
+# warning that would have pointed straight at the cause.
+export DUO_PAIR=conf DUO_PORT1="$CONF1_PORT" DUO_PORT2="$CONF2_PORT"
+export COMPOSE CONF1_PORT CONF2_PORT
 export -f wp_env wp_conf1 wp_conf2 say pass fail
 
-say "clean-room: removing any existing conf1/conf2 containers + volumes"
-# Conformance never trusts leftover state from a previous manifest's run —
-# unlike the spikes (persistent envs, run once against a fresh boot), this
-# gate re-installs WordPress from scratch every invocation.
-$COMPOSE rm -sf db-conf1 wp-conf1 cli-conf1 db-conf2 wp-conf2 cli-conf2 >/dev/null 2>&1 || true
-docker volume rm -f duo-sandbox_dbconf1 duo-sandbox_wpconf1 duo-sandbox_dbconf2 duo-sandbox_wpconf2 >/dev/null 2>&1 || true
-rm -rf siterepo/conf1 siterepo/conf2 siterepo/origin-conf.git
-mkdir -p siterepo/conf1 siterepo/conf2
+say "clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run)"
+bash bin/pair.sh reset conf
 
-say "boot conf1 (:8806) / conf2 (:8807)"
-$COMPOSE up -d db-conf1 wp-conf1 db-conf2 wp-conf2
+say "pair.sh up: boot conf1 (:$CONF1_PORT) / conf2 (:$CONF2_PORT), DB-level readiness, generic WordPress bootstrap"
+bash bin/pair.sh up conf "$CONF1_PORT" "$CONF2_PORT" --http
 
-wait_for() { # wait_for <conf1|conf2>
+install_env() { # install_env <conf1|conf2> — pair.sh's `up` already fully
+  # installed WordPress (core install, theme, permalinks, .htaccess) on a
+  # freshly reset (empty) database and waited for real DB-level readiness;
+  # this only does what's specific to conformance: the manifest-decorated
+  # title (cosmetic parity with the pre-migration title), stripping the
+  # default seed content, then this manifest's own plugins + setup hook.
   local env="$1"
-  echo "waiting for env $env..."
-  for _ in $(seq 1 90); do
-    wp_env "$env" core version >/dev/null 2>&1 && return 0
-    sleep 2
-  done
-  echo "env $env never became ready" >&2
-  exit 1
-}
-
-# wp-cli can't write .htaccess without extra config; apache needs it for
-# pretty permalinks — same two steps sandbox/setup.sh performs for envs A/B.
-write_htaccess() { # write_htaccess <conf1|conf2>
-  $COMPOSE exec -T -u www-data "wp-$1" tee /var/www/html/.htaccess >/dev/null <<'EOF'
-# BEGIN WordPress
-<IfModule mod_rewrite.c>
-RewriteEngine On
-RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
-RewriteBase /
-RewriteRule ^index\.php$ - [L]
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule . /index.php [L]
-</IfModule>
-# END WordPress
-EOF
-}
-
-install_env() { # install_env <conf1|conf2> <port> <title>
-  local env="$1" port="$2" title="$3"
-  wait_for "$env"
-  if ! wp_env "$env" core is-installed >/dev/null 2>&1; then
-    wp_env "$env" core install \
-      --url="http://localhost:$port" --title="$title" \
-      --admin_user=admin --admin_password=admin \
-      --admin_email=admin@example.test --skip-email
-    wp_env "$env" theme install twentytwentyone --activate
-    wp_env "$env" option update permalink_structure '/%postname%/'
-    wp_env "$env" rewrite flush
-    write_htaccess "$env"
-    wp_env "$env" site empty --yes
-  fi
+  wp_env "$env" option update blogname "Duo ${env} (${MANIFEST})"
+  wp_env "$env" site empty --yes
   if [ "${#PLUGINS[@]}" -gt 0 ]; then
     for plugin in "${PLUGINS[@]}"; do
-      wp_env "$env" plugin is-installed "$plugin" >/dev/null 2>&1 \
+      # is-active, not is-installed: pair.sh's reset deliberately leaves the
+      # webroot volume alone (only the database is DROP/CREATE'd — that's
+      # the whole reset-speed win), so a plugin's FILES can persist from an
+      # earlier manifest's run on this same pair while the freshly-reset
+      # database has no record of it being active. is-installed (files on
+      # disk) would short-circuit past `install --activate` entirely in
+      # that case — confirmed the hard way: `install --activate` DOES
+      # activate an already-present-but-inactive plugin fine when actually
+      # invoked (it's not a no-op), the bug was this guard never calling it.
+      wp_env "$env" plugin is-active "$plugin" >/dev/null 2>&1 \
         || wp_env "$env" plugin install "$plugin" --activate
     done
   fi
@@ -98,8 +110,8 @@ install_env() { # install_env <conf1|conf2> <port> <title>
   esac
   echo "env $env installed ($MANIFEST: ${PLUGINS[*]:-no plugins}${SETUP:+, setup=$SETUP})"
 }
-install_env conf1 8806 "Duo Conf1 ($MANIFEST)"
-install_env conf2 8807 "Duo Conf2 ($MANIFEST)"
+install_env conf1
+install_env conf2
 pass "both envs installed"
 
 say "init the site repo (own origin, own clones — pins: $(echo "$ENTRY" | jq -c '.pin'))"

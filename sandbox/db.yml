@@ -1,0 +1,77 @@
+name: duo-db
+
+# -----------------------------------------------------------------------------
+# The ONE shared MariaDB server for every sandbox pair (task #74's sandbox
+# redesign). Long-lived, brought up once, independent of any single pair's
+# lifecycle — contrast sandbox/docker-compose.yml, where every one of its
+# ~10 pair profiles carries its OWN dedicated MariaDB container + named
+# volume. That meant ~10 idle MariaDB servers, each paying its own InnoDB
+# bootstrap cost on every clean-room reset (rm the volume -> re-init from an
+# empty datadir on next boot) and each holding its own chunk of memory the
+# OrbStack daemon has to account for even while idle — the multiplication
+# that wedged the daemon under three concurrent stacks this session.
+#
+# Here, each pair (sandbox/pair.yml) gets two logical databases on THIS one
+# server: wp_${DUO_PAIR}1 / wp_${DUO_PAIR}2. sandbox/bin/pair.sh creates/
+# drops those databases (and the shared `wordpress` application user's
+# wildcard grant) — this compose file only brings up the server itself, it
+# never touches per-pair schema.
+#
+# Own compose project (`duo-db`, set via the top-level `name:` below and
+# also passed explicitly as `-p duo-db` by pair.sh) — deliberately separate
+# from every pair's own project (`duo-<name>`, sandbox/pair.yml) so pairs
+# can be created and destroyed freely without this server ever being in
+# their `compose down`/`up --force-recreate` blast radius.
+#
+# Cross-project reachability is via the `duo-shared` external network this
+# file OWNS: it's declared here WITHOUT `external: true`, so this is the one
+# compose invocation that creates it (on this file's first `up`). Every
+# other file in this redesign (sandbox/pair.yml and its overrides)
+# references the same network with `external: true` — attach only, never
+# create — and therefore depends on this file having been brought up at
+# least once first. sandbox/bin/pair.sh enforces that ordering; it is the
+# only supported entry point for bringing a pair up, so this ordering
+# should never need to be reasoned about by hand.
+# -----------------------------------------------------------------------------
+
+networks:
+  duo-shared:
+    name: duo-shared
+
+volumes:
+  duo-db-data: {}
+
+services:
+  db:
+    image: mariadb:11
+    container_name: duo-shared-db
+    networks: [duo-shared]
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+    # Admin operations (pair.sh's CREATE/DROP DATABASE, the shared
+    # `wordpress` user's grant) always go through `docker exec duo-shared-db
+    # mysql -uroot ...` — never over this published port. It's bound to
+    # loopback only, for the rare case a human wants to point a GUI client
+    # (TablePlus, Sequel Ace, ...) at the sandbox fleet's data directly;
+    # nothing in this repo's tooling depends on it being open.
+    ports:
+      - "127.0.0.1:3316:3306"
+    volumes:
+      - duo-db-data:/var/lib/mysql
+    # Same healthcheck sandbox/docker-compose.yml's x-db anchor already
+    # used per-pair — --innodb_initialized is the part that matters: a
+    # server that accepts TCP connections but hasn't finished InnoDB
+    # startup will still refuse real queries, which is exactly the gap
+    # `wp core version` (a static-file read, no DB touched at all) papered
+    # over in every wait_for() this sandbox had before this redesign.
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    # Sized generously, per task #74's brief — this one server now carries
+    # every pair's databases at once, unlike pair.yml's per-service caps
+    # below which are sized for a single pair's own wp/cli containers.
+    mem_limit: 2g
+    cpus: "2.0"
+    restart: unless-stopped

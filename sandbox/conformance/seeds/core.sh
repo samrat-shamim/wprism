@@ -18,7 +18,7 @@ imagefilledrectangle($im, 0, 0, 63, 47, imagecolorallocate($im, 60, 140, 60));
 imagepng($im, '/tmp/conf-core-logo.png');
 echo "made\n";
 EOF
-ATT_ID=$($COMPOSE run --rm -T cli-conf1 bash -c \
+ATT_ID=$($COMPOSE run --rm -T cli1 bash -c \
   "wp eval-file /siterepo/.tmp-makeimg.php >/dev/null && wp media import /tmp/conf-core-logo.png --title='Conformance Logo' --alt='Conformance logo' --porcelain")
 rm -f siterepo/conf1/.tmp-makeimg.php
 UP_URL=$(wp_conf1 eval "echo wp_get_attachment_url($ATT_ID);")
