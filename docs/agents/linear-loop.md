@@ -15,7 +15,14 @@ Two shipping modes:
   branches auto-delete on merge).
 - **Owner-session:** direct commits to `main`. Reserved for sessions the
   project owner drives interactively on the primary machine — never for a
-  dispatched agent.
+  dispatched agent. Owner sessions work in a dedicated worktree pinned to
+  `main` (`git worktree add ../duo-wp-main main`), never in a checkout an
+  agent may be using.
+
+**One checkout per actor, no exceptions:** every agent and session operates in
+its own clone or its own `git worktree` — never in a working copy anything
+else uses. A shared checkout means one actor's branch switch or reset lands
+under another actor's feet mid-edit (this rule exists because it happened).
 
 Genesis's "no partial ships" becomes "no *silent* partial ships" — slices are
 legitimate in this project only with an owner scope note (Close Gate step 6).
@@ -50,9 +57,14 @@ Ask before claiming if a required parameter is genuinely ambiguous.
 Once per host, before the first claim:
 
 ```
-git clone https://github.com/duotronic-ai/duo-wp && cd duo-wp
+git clone https://github.com/duotronic-ai/duo-wp duo-wp-<AGENT_NAME> && cd duo-wp-<AGENT_NAME>
 bash scripts/agent-bootstrap.sh
 ```
+
+The clone directory is yours alone (one checkout per actor, above). If the
+host already has a clone that other sessions use, do NOT work in it — make
+your own clone, or `git worktree add ../duo-wp-<AGENT_NAME> origin/main`
+from it.
 
 The script fail-loud-verifies host prerequisites (git, jq, php, curl, docker +
 compose v2; `gh` authenticated for the close gate), pre-pulls the sandbox
