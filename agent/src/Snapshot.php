@@ -1394,8 +1394,8 @@ final class Snapshot {
             $data[$ref['column']] = 0;
         }
         [$data, $format] = self::write_format($data, $colTypes);
-        $wpdb->insert($prefixed, $data, $format);
-        $localId = (int) $wpdb->insert_id;
+        Db::insert($prefixed, $data, $format, "apply insert typed-snapshot row {$entity['type']}");
+        $localId = Db::insert_id("apply insert typed-snapshot row {$entity['type']}");
         Ledger::set($uuid, $entity['type'], $idKind, $localId);
         return true;
     }
@@ -1435,7 +1435,7 @@ final class Snapshot {
             $data[$col] = $v === null ? 0 : $tokens->token_to_id((string) $v);
         }
         [$data, $format] = self::write_format($data, $colTypes);
-        $wpdb->update($prefixed, $data, [$pk => $localId], $format, '%d');
+        Db::update($prefixed, $data, [$pk => $localId], $format, '%d', "apply update typed-snapshot row {$entity['type']}");
 
         foreach (self::meta_tables($policy) as $metaName => $metaDecl) {
             if (($metaDecl['attached_to']['table'] ?? null) !== $entity['type']) {
@@ -1588,7 +1588,7 @@ final class Snapshot {
             if (($rule['class'] ?? $default) !== 'authored') {
                 continue; // runtime/derived/env key — never owned by this mechanism, never deleted
             }
-            $wpdb->delete($prefixed, [$idCol => $rowId]);
+            Db::delete($prefixed, [$idCol => $rowId], null, "apply delete authored $metaTable sidecar row");
         }
         foreach ($desiredRaw as $key => $val) {
             $data = [$attachCol => $ownerLocalId, $keyCol => $key, $valCol => $val];
@@ -1599,9 +1599,9 @@ final class Snapshot {
                 $data[$decl['legacy_value_column']] = $val;
             }
             if (isset($existingByKey[$key])) {
-                $wpdb->update($prefixed, $data, [$idCol => $existingByKey[$key]]);
+                Db::update($prefixed, $data, [$idCol => $existingByKey[$key]], null, null, "apply update $metaTable sidecar row");
             } else {
-                $wpdb->insert($prefixed, $data);
+                Db::insert($prefixed, $data, null, "apply insert $metaTable sidecar row");
             }
         }
     }
@@ -1622,11 +1622,23 @@ final class Snapshot {
             $col = preg_replace('/[^A-Za-z0-9_]/', '', $inv['column'] ?? 'id');
             $prefixed = $wpdb->prefix . $t;
             if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
-                $wpdb->query($wpdb->prepare("DELETE FROM `$prefixed` WHERE `$col` = %d", $localId));
+                Db::query(
+                    $wpdb->prepare("DELETE FROM `$prefixed` WHERE `$col` = %d", $localId),
+                    "apply invalidate $t cache row"
+                );
             }
         }
         if (isset($inv['option_pattern'])) {
-            delete_option(str_replace('{id}', (string) $localId, (string) $inv['option_pattern']));
+            $name = str_replace('{id}', (string) $localId, (string) $inv['option_pattern']);
+            $exists = $wpdb->get_var($wpdb->prepare(
+                "SELECT option_id FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                $name
+            ));
+            if ($exists !== null) {
+                Db::delete($wpdb->options, ['option_name' => $name], null, 'apply invalidate option cache row');
+            }
+            wp_cache_delete($name, 'options');
+            wp_cache_delete('alloptions', 'options');
         }
     }
 
@@ -1664,13 +1676,20 @@ final class Snapshot {
             if (($metaDecl['attached_to']['table'] ?? null) !== $table) {
                 continue;
             }
-            $wpdb->delete($wpdb->prefix . $metaName, [$metaDecl['attached_to']['column'] => $localId]);
+            Db::delete(
+                $wpdb->prefix . $metaName,
+                [$metaDecl['attached_to']['column'] => $localId],
+                null,
+                "apply delete $metaName sidecar rows"
+            );
         }
         foreach ($decl['invalidate'] ?? [] as $inv) {
             self::run_invalidate($inv, $localId);
         }
-        $wpdb->delete($wpdb->prefix . $table, [$decl['pk'] => $localId]);
-        Ledger::forget($uuid);
+        Db::delete($wpdb->prefix . $table, [$decl['pk'] => $localId], null, "apply delete typed-snapshot row $table");
+        // Identity/base metadata is forgotten by Apply's post-rebuild ledger
+        // transaction. Doing it here would commit convergence metadata with
+        // the authored-row transaction before required rebuilds succeeded.
     }
 
     // ------------------------------------------------------------- ledger

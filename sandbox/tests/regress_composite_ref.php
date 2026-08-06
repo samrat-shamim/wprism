@@ -7,7 +7,7 @@
  * another keyspace — proving fixture PMPro's pmpro_memberships_pages
  * (membership_id -> a declared pmpro_level row, page_id -> a post).
  *
- * Runs the REAL, unmodified agent/src/{Canon,Policy,Uuid,Secrets,Ledger,
+ * Runs the REAL, unmodified agent/src/{Canon,Policy,Uuid,Secrets,Db,Ledger,
  * Tokens,Snapshot}.php against a hand-built fixture, with only a minimal
  * fake $wpdb (below) standing in for the query/mutation shapes Snapshot.php
  * and Ledger.php actually issue — mirrors regress_block_refs.php's own
@@ -287,6 +287,7 @@ require __DIR__ . '/../../agent/src/Canon.php';
 require __DIR__ . '/../../agent/src/Policy.php';
 require __DIR__ . '/../../agent/src/Uuid.php';
 require __DIR__ . '/../../agent/src/Secrets.php';
+require __DIR__ . '/../../agent/src/Db.php';
 require __DIR__ . '/../../agent/src/Ledger.php';
 require __DIR__ . '/../../agent/src/Tokens.php';
 require __DIR__ . '/../../agent/src/Snapshot.php';

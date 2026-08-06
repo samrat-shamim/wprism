@@ -403,15 +403,15 @@ final class Capture {
         $attempt = 0;
         while (true) {
             $attempt++;
-            $wpdb->query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+            Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT', 'capture transaction start');
             self::check_transient_db_error('START TRANSACTION WITH CONSISTENT SNAPSHOT');
             try {
                 $result = $fn();
-                $wpdb->query('COMMIT');
+                Db::commit('capture transaction commit');
                 self::check_transient_db_error('COMMIT');
                 return $result;
             } catch (TransientDbException $e) {
-                $wpdb->query('ROLLBACK');
+                Db::rollback('capture transaction rollback');
                 if ($attempt >= self::MAX_DB_ATTEMPTS) {
                     throw new \RuntimeException(
                         "duo: capture failed after $attempt attempt(s) — repeated transient database contention "
@@ -422,7 +422,7 @@ final class Capture {
                 usleep(200_000 * $attempt); // 200ms, 400ms, ... — short: this targets brief lock contention, not an outage
                 continue;
             } catch (\Throwable $t) {
-                $wpdb->query('ROLLBACK');
+                Db::rollback('capture transaction rollback');
                 throw $t;
             }
         }
@@ -433,16 +433,10 @@ final class Capture {
      * docblock for the full rationale. $wpdb never throws on a failed
      * query: it records the driver's error string into $wpdb->last_error
      * and returns false/null instead, so this is the one signal available
-     * without adopting DUO-3206's full unchecked-mutation-site sweep
-     * (~65 sites across the whole engine, a separate, broader issue) — this
-     * is deliberately narrow, called only at checkpoints this class
-     * controls directly: right after START TRANSACTION/COMMIT above,
-     * right after the identity-minting INSERTs in ensure_post_uuid()/
-     * ensure_term_uuid(), and right after the Snapshot::capture() call in
-     * build(). A deadlock buried between two writes INSIDE Snapshot::
-     * capture()'s own internal sequence — between this checkpoint and the
-     * previous one — is a documented residual gap, not silently claimed as
-     * covered; see the DUO-3213 PR/issue evidence.
+     * in addition to the checked Db mutation layer. Db promotes false
+     * mutation results immediately (including transient contention), while
+     * these checkpoints also catch a driver error left by a read or by a
+     * nested operation whose public contract does not expose its result.
      *
      * Matches literal MySQL/MariaDB error text for errno 1213 (deadlock)
      * and 1205 (lock wait timeout) — stable across server versions, and
@@ -461,9 +455,9 @@ final class Capture {
             return;
         }
         if (stripos($err, 'Deadlock found') !== false || stripos($err, 'Lock wait timeout') !== false) {
-            throw new TransientDbException("duo: transient DB contention at $where: $err");
+            throw new TransientDbException("duo: transient DB contention at $where");
         }
-        throw new \RuntimeException("duo: unexpected SQL error at $where: $err");
+        throw new \RuntimeException("duo: unexpected SQL error at $where");
     }
 
     // ------------------------------------------------------------------
@@ -868,14 +862,10 @@ final class Capture {
                 return null;
             }
             $uuid = Uuid::v7();
-            $wpdb->insert($wpdb->postmeta, ['post_id' => $id, 'meta_key' => '_duo_uuid', 'meta_value' => $uuid]);
-            // Checked immediately, not only at this function's end: a
-            // later query that happens to succeed would overwrite
-            // $wpdb->last_error and mask a deadlock on THIS specific
-            // insert (see check_transient_db_error()'s docblock on why
-            // that matters — a killed transaction doesn't stop the client
-            // from sending more statements, it just stops them being part
-            // of the SAME logical unit of work).
+            Db::insert($wpdb->postmeta, ['post_id' => $id, 'meta_key' => '_duo_uuid', 'meta_value' => $uuid], null, 'capture mint post identity');
+            // Retain DUO-3213's immediate checkpoint in addition to Db's
+            // strict false check so a later query cannot overwrite a driver
+            // error associated with this identity mint.
             self::check_transient_db_error("mint _duo_uuid for post $id");
         }
         Ledger::set($uuid, $entityType, Ledger::KIND_POST, $id);
@@ -898,7 +888,7 @@ final class Capture {
                 return null;
             }
             $uuid = Uuid::v7();
-            $wpdb->insert($wpdb->termmeta, ['term_id' => $termId, 'meta_key' => '_duo_uuid', 'meta_value' => $uuid]);
+            Db::insert($wpdb->termmeta, ['term_id' => $termId, 'meta_key' => '_duo_uuid', 'meta_value' => $uuid], null, 'capture mint term identity');
             // DUO-3213 checkpoint — see ensure_post_uuid()'s identical comment.
             self::check_transient_db_error("mint _duo_uuid for term $termId");
         }

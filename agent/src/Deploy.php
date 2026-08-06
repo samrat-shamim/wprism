@@ -382,8 +382,7 @@ final class Deploy {
                 }
                 $result = activate_plugin($plugin); // hooks fire deliberately — this is the point of this class
                 if (is_wp_error($result)) {
-                    $warnings[] = "activating '$plugin' failed: " . $result->get_error_message();
-                    continue;
+                    throw new \RuntimeException("duo: required plugin activation failed for '$plugin'");
                 }
                 $activated[] = $plugin;
             }
@@ -397,6 +396,17 @@ final class Deploy {
                 deactivate_plugins($toDeactivate);
                 $deactivated = $toDeactivate;
             }
+            $after = self::current_active_plugins();
+            foreach ($toActivate as $plugin) {
+                if (!in_array($plugin, $missingPlugins, true) && !in_array($plugin, $after, true)) {
+                    throw new \RuntimeException("duo: plugin activation did not persist for '$plugin'");
+                }
+            }
+            foreach ($toDeactivate as $plugin) {
+                if (in_array($plugin, $after, true)) {
+                    throw new \RuntimeException("duo: plugin deactivation did not persist for '$plugin'");
+                }
+            }
         }
 
         $desiredStylesheet = $desired['stylesheet'] ?? null;
@@ -407,10 +417,13 @@ final class Deploy {
             } else {
                 switch_theme($desiredStylesheet); // hooks fire deliberately (switch_theme/after_switch_theme)
                 $themeSwitched = $desiredStylesheet;
+                if (get_option('stylesheet') !== $desiredStylesheet) {
+                    throw new \RuntimeException("duo: theme switch did not persist for '$desiredStylesheet'");
+                }
                 if ($desiredTemplate !== null && get_option('template') !== $desiredTemplate) {
-                    $warnings[] = "after switch_theme('$desiredStylesheet'), this environment's 'template' option "
-                        . "is '" . get_option('template') . "' but state/options/core.json declares '$desiredTemplate' "
-                        . "— the theme's own parent-theme header disagrees with captured state";
+                    throw new \RuntimeException(
+                        "duo: theme switch to '$desiredStylesheet' produced a template that disagrees with canonical state"
+                    );
                 }
             }
         }

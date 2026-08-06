@@ -15,26 +15,26 @@ final class Ledger {
         global $wpdb;
         $p = $wpdb->prefix;
         $charset = $wpdb->get_charset_collate();
-        $wpdb->query("CREATE TABLE IF NOT EXISTS {$p}duo_map (
+        Db::query("CREATE TABLE IF NOT EXISTS {$p}duo_map (
             uuid CHAR(36) NOT NULL,
             entity_type VARCHAR(32) NOT NULL,
             id_kind VARCHAR(16) NOT NULL,
             local_id BIGINT UNSIGNED NOT NULL,
             PRIMARY KEY (uuid, id_kind),
             UNIQUE KEY kind_local (id_kind, local_id)
-        ) $charset");
-        $wpdb->query("CREATE TABLE IF NOT EXISTS {$p}duo_state (
+        ) $charset", 'ledger schema create duo_map');
+        Db::query("CREATE TABLE IF NOT EXISTS {$p}duo_state (
             uuid VARCHAR(64) NOT NULL,
             entity_type VARCHAR(32) NOT NULL,
             content_hash CHAR(64) NOT NULL,
             PRIMARY KEY (uuid)
-        ) $charset");
-        $wpdb->query("CREATE TABLE IF NOT EXISTS {$p}duo_kv (
+        ) $charset", 'ledger schema create duo_state');
+        Db::query("CREATE TABLE IF NOT EXISTS {$p}duo_kv (
             k VARCHAR(191) NOT NULL,
             v LONGTEXT NULL,
             PRIMARY KEY (k)
-        ) $charset");
-        $wpdb->query("CREATE TABLE IF NOT EXISTS {$p}duo_journal (
+        ) $charset", 'ledger schema create duo_kv');
+        Db::query("CREATE TABLE IF NOT EXISTS {$p}duo_journal (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             t DATETIME NOT NULL,
             op VARCHAR(8) NOT NULL,
@@ -47,7 +47,7 @@ final class Ledger {
             proposal VARCHAR(16) NOT NULL,
             PRIMARY KEY (id),
             KEY tbl_item (tbl, item)
-        ) $charset");
+        ) $charset", 'ledger schema create duo_journal');
     }
 
     public static function id_for(string $uuid, string $kind): ?int {
@@ -105,25 +105,22 @@ final class Ledger {
                 . "refusing to retype it as $entityType"
             );
         }
-        $wpdb->query($wpdb->prepare(
+        Db::query($wpdb->prepare(
             "INSERT INTO {$wpdb->prefix}duo_map (uuid, entity_type, id_kind, local_id)
              VALUES (%s, %s, %s, %d)
              ON DUPLICATE KEY UPDATE entity_type = VALUES(entity_type)",
             $uuid, $entityType, $kind, $localId
-        ));
-        if ($wpdb->last_error) {
-            throw new \RuntimeException("duo: failed to persist identity $uuid ($kind:$localId): {$wpdb->last_error}");
-        }
+        ), 'ledger upsert identity');
     }
 
     public static function forget(string $uuid): void {
         global $wpdb;
-        $wpdb->query($wpdb->prepare(
+        Db::query($wpdb->prepare(
             "DELETE FROM {$wpdb->prefix}duo_map WHERE uuid = %s", $uuid
-        ));
-        $wpdb->query($wpdb->prepare(
+        ), 'ledger forget identity');
+        Db::query($wpdb->prepare(
             "DELETE FROM {$wpdb->prefix}duo_state WHERE uuid = %s", $uuid
-        ));
+        ), 'ledger forget state hash');
     }
 
     public static function state_hash(string $uuid): ?string {
@@ -135,12 +132,12 @@ final class Ledger {
 
     public static function set_state_hash(string $uuid, string $entityType, string $hash): void {
         global $wpdb;
-        $wpdb->query($wpdb->prepare(
+        Db::query($wpdb->prepare(
             "INSERT INTO {$wpdb->prefix}duo_state (uuid, entity_type, content_hash)
              VALUES (%s, %s, %s)
              ON DUPLICATE KEY UPDATE entity_type = VALUES(entity_type), content_hash = VALUES(content_hash)",
             $uuid, $entityType, $hash
-        ));
+        ), 'ledger upsert state hash');
     }
 
     /** @return array<string, array{entity_type: string, content_hash: string}> keyed by uuid */
@@ -176,9 +173,9 @@ final class Ledger {
         $keep = array_fill_keys($keepUuids, true);
         foreach (self::all_state() as $uuid => $_) {
             if (!isset($keep[$uuid])) {
-                $wpdb->query($wpdb->prepare(
+                Db::query($wpdb->prepare(
                     "DELETE FROM {$wpdb->prefix}duo_state WHERE uuid = %s", $uuid
-                ));
+                ), 'ledger prune state hash');
             }
         }
     }
@@ -195,17 +192,20 @@ final class Ledger {
     public static function prune_dead_map(): void {
         global $wpdb;
         $p = $wpdb->prefix;
-        $wpdb->query(
+        Db::query(
             "DELETE m FROM {$p}duo_map m LEFT JOIN {$wpdb->posts} po ON po.ID = m.local_id
-             WHERE m.id_kind = '" . self::KIND_POST . "' AND po.ID IS NULL"
+             WHERE m.id_kind = '" . self::KIND_POST . "' AND po.ID IS NULL",
+            'ledger prune dead post identities'
         );
-        $wpdb->query(
+        Db::query(
             "DELETE m FROM {$p}duo_map m LEFT JOIN {$wpdb->terms} t ON t.term_id = m.local_id
-             WHERE m.id_kind = '" . self::KIND_TERM . "' AND t.term_id IS NULL"
+             WHERE m.id_kind = '" . self::KIND_TERM . "' AND t.term_id IS NULL",
+            'ledger prune dead term identities'
         );
-        $wpdb->query(
+        Db::query(
             "DELETE m FROM {$p}duo_map m LEFT JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = m.local_id
-             WHERE m.id_kind = '" . self::KIND_TT . "' AND tt.term_taxonomy_id IS NULL"
+             WHERE m.id_kind = '" . self::KIND_TT . "' AND tt.term_taxonomy_id IS NULL",
+            'ledger prune dead term-taxonomy identities'
         );
     }
 
@@ -238,11 +238,11 @@ final class Ledger {
             if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $p . $table))) {
                 continue; // plugin's table not present on this environment — nothing to reconcile
             }
-            $wpdb->query($wpdb->prepare(
+            Db::query($wpdb->prepare(
                 "DELETE m FROM {$p}duo_map m LEFT JOIN `{$p}{$table}` src ON src.`{$pk}` = m.local_id
                  WHERE m.id_kind = %s AND src.`{$pk}` IS NULL",
                 $idKind
-            ));
+            ), "ledger prune dead $table identities");
         }
     }
 
@@ -255,10 +255,18 @@ final class Ledger {
 
     public static function kv_set(string $k, string $v): void {
         global $wpdb;
-        $wpdb->query($wpdb->prepare(
+        Db::query($wpdb->prepare(
             "INSERT INTO {$wpdb->prefix}duo_kv (k, v) VALUES (%s, %s)
              ON DUPLICATE KEY UPDATE v = VALUES(v)",
             $k, $v
-        ));
+        ), 'ledger upsert key/value');
+    }
+
+    public static function kv_delete(string $k): void {
+        global $wpdb;
+        Db::query($wpdb->prepare(
+            "DELETE FROM {$wpdb->prefix}duo_kv WHERE k = %s",
+            $k
+        ), 'ledger delete key/value');
     }
 }

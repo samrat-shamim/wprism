@@ -17,6 +17,8 @@ namespace Duo\Orchestrator;
  *     below does not apply to it.
  *   - warnings: a plain list<string> (only Apply::plan()'s entry point
  *     attaches this to the returned array — see its own comment).
+ *   - incomplete_apply: a retained apply marker means authored writes may
+ *     have committed but required rebuild/convergence work did not.
  */
 final class PlanSummary {
     private const BUCKETS = ['create', 'update', 'adopt', 'unchanged', 'drift', 'conflict', 'collision', 'delete'];
@@ -29,8 +31,10 @@ final class PlanSummary {
             $counts[$k] = count($plan[$k] ?? []);
         }
         $codeMismatch = $plan['code_mismatch'] ?? [];
+        $incompleteApply = $plan['incomplete_apply'] ?? [];
         $summary = 'plan: ' . implode(', ', array_map(fn($k) => "{$counts[$k]} $k", self::BUCKETS));
         $summary .= ', ' . count($codeMismatch) . ' code_mismatch';
+        $summary .= ', ' . count($incompleteApply) . ' incomplete_apply';
         $lines[] = $summary;
 
         if (!empty($plan['drift'])) {
@@ -79,6 +83,13 @@ final class PlanSummary {
             $lines[] = 'WARNING: ' . $w;
         }
 
+        if ($incompleteApply) {
+            $lines[] = 'INCOMPLETE_APPLY (a prior promotion failed before required rebuild/convergence completed):';
+            foreach ($incompleteApply as $r) {
+                $lines[] = '  - ' . ($r['reason'] ?? 'retry required');
+            }
+        }
+
         // --- fail-closed exit semantics (DUO-3221) ---
         //
         // `duo status` answers "safe to promote?" for this environment, so
@@ -91,6 +102,9 @@ final class PlanSummary {
         //   - code_mismatch : apply refuses without --force-code-mismatch
         //                     (Apply::run(); Deploy::run() has the same
         //                     refuse-precondition for `duo deploy`).
+        //   - incomplete_apply: a previous apply already failed after or
+        //                     during mutation/rebuild; status must remain
+        //                     non-zero until the retry clears its marker.
         //   - blocked delete: `apply --with-deletes` refuses this row
         //                     without --force-delete-referenced. A status
         //                     reader can't know in advance whether the next
@@ -118,6 +132,7 @@ final class PlanSummary {
         $ok = $counts['conflict'] === 0
             && $counts['collision'] === 0
             && count($codeMismatch) === 0
+            && !$incompleteApply
             && !$blocked
             && $counts['drift'] === 0;
 

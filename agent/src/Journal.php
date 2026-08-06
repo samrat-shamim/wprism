@@ -72,19 +72,22 @@ final class Journal {
         $rows = self::$buffer;
         self::$buffer = [];
         remove_filter('query', [self::class, 'observe'], -2147483646);
-        Ledger::ensure();
-        $values = [];
-        $params = [];
-        foreach ($rows as $r) {
-            $values[] = '(%s,%s,%s,%s,%s,%d,%s,%s,%s)';
-            array_push($params, $r[0], $r[1], $r[2], $r[3], $r[4], $r[5], $r[6], $r[7], $r[8]);
+        try {
+            Ledger::ensure();
+            $values = [];
+            $params = [];
+            foreach ($rows as $r) {
+                $values[] = '(%s,%s,%s,%s,%s,%d,%s,%s,%s)';
+                array_push($params, $r[0], $r[1], $r[2], $r[3], $r[4], $r[5], $r[6], $r[7], $r[8]);
+            }
+            Db::query($wpdb->prepare(
+                "INSERT INTO {$wpdb->prefix}duo_journal (t, op, tbl, item, surface, actor, caps, hook, proposal) VALUES "
+                . implode(',', $values),
+                $params
+            ), 'journal flush observations');
+        } finally {
+            add_filter('query', [self::class, 'observe'], -2147483646);
         }
-        $wpdb->query($wpdb->prepare(
-            "INSERT INTO {$wpdb->prefix}duo_journal (t, op, tbl, item, surface, actor, caps, hook, proposal) VALUES "
-            . implode(',', $values),
-            $params
-        ));
-        add_filter('query', [self::class, 'observe'], -2147483646);
     }
 
     private static function table_of(string $sql, string $op): ?string {

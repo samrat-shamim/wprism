@@ -326,6 +326,18 @@ Plan, apply, and deploy construct or load this artifact before target contact an
 5. **Rebuild** — canary disarmed: term recounts (direct SQL), attachment metadata regeneration, cache flush; harness-level: rewrite flush, thumbnail regen.
 6. Ledger + `duo_state` hashes updated; `applied_revision` set.
 
+Every direct database mutation and transaction boundary is checked for
+WordPress's `false` failure result; zero affected rows remains a valid
+UPDATE/DELETE result, while an insert without a positive generated id fails
+before identity can enter the ledger. Apply writes an environment-local
+`apply_in_progress` marker before the first target mutation and clears it only
+after all required rebuilders succeed. If a post-commit rebuild fails, base
+hashes and `applied_revision` do not advance; the marker makes the next apply
+reprocess canonical entities (including attachment metadata) rather than
+mistaking byte-equal authored rows for a completed promotion. Plan exposes the
+marker as a structured `incomplete_apply` condition, so `duo status` remains
+non-zero until that retry succeeds and clears it.
+
 Snapshot/rollback is the orchestrator's job in v0 (`wp db export` before apply).
 
 ## Code-half facts & deploy (spec v0.9 — docs/proposals/code-half.md phase 1)
