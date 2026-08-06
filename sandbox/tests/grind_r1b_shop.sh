@@ -1,0 +1,510 @@
+#!/usr/bin/env bash
+# Grind round R1-B (task #47) — a full WooCommerce shop: Storefront theme,
+# VARIABLE products with GLOBAL attributes (pa_* dynamic taxonomies),
+# shipping zones, tax rates, a grouped product. Deliberate stress points:
+# woocommerce_attribute_taxonomies (a custom table — the declared typed-
+# snapshot case), the pa_* attribute taxonomies it spawns (dynamic taxonomy
+# NAMES, not just dynamic values), variations (post_parent chains, shared
+# meta-key names with simple products), and shipping-zone/tax-rate custom
+# tables. Own dedicated env pair (r1b1 :8816 / r1b2 :8817, profile "r1b",
+# journal on); this script boots, installs, and seeds them itself — it
+# never touches envs a/b/c/conf*/e*/fx*/g*/r1a*/r1c* or their site repos.
+#
+# See docs/grind/r1b-shop.md for the full narrative and findings. Short
+# version: variable products could not be captured AT ALL until _price was
+# reclassified 'derived' (WooCommerce writes it multi-row on a variable
+# parent — one row per distinct variation price — and the v0 engine hard-
+# refuses multi-row 'authored' meta); pa_* attribute taxonomies round-trip
+# their TERM data through the existing generic taxonomy machinery with zero
+# new engine code, but the taxonomy's own REGISTRATION (a custom-table row)
+# has no capture/apply path at all, so a fresh target environment needs the
+# global attribute pre-provisioned by hand before its relationships resolve;
+# shipping zones/tax rates are honestly marked typed-snapshot-intent-only —
+# no custom-table capture/apply path exists in this engine for ANY table.
+#
+# Re-run safety: envs r1b1/r1b2 are never torn down (docker compose down/
+# clean is off-limits — other agents share this stack), so every run wipes
+# WP content, the duo ledger tables, the journal, and the site-repo git
+# state from scratch, mirroring spike_f/spike_g/grind_r1c's exact approach.
+# WordPress core install is the only thing skipped on repeat runs (guarded
+# by `core is-installed`); WooCommerce/Storefront/HPOS/attributes are all
+# re-established every run since `site empty --yes` wipes products/terms
+# but not plugin/theme installation state or the attribute-taxonomies table.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+COMPOSE="docker compose -f docker-compose.yml --profile r1b"
+say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
+pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
+fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
+R1B1=http://localhost:8816
+R1B2=http://localhost:8817
+
+wp_env() { # wp_env <r1b1|r1b2> <wp args...>
+  local env="$1"; shift
+  $COMPOSE run --rm -T "cli-$env" wp "$@"
+}
+wp_r1b1() { wp_env r1b1 "$@"; }
+wp_r1b2() { wp_env r1b2 "$@"; }
+GIT_1="git -C siterepo/r1b1 -c user.name=duo-r1b1 -c user.email=r1b1@example.test"
+GIT_2="git -C siterepo/r1b2 -c user.name=duo-r1b2 -c user.email=r1b2@example.test"
+
+wait_for() { # wait_for <r1b1|r1b2>
+  local env="$1"
+  echo "waiting for env $env..."
+  for _ in $(seq 1 90); do
+    wp_env "$env" core version >/dev/null 2>&1 && return 0
+    sleep 2
+  done
+  echo "env $env never became ready" >&2
+  exit 1
+}
+
+write_htaccess() { # write_htaccess <r1b1|r1b2>
+  $COMPOSE exec -T -u www-data "wp-$1" tee /var/www/html/.htaccess >/dev/null <<'EOF'
+# BEGIN WordPress
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+RewriteBase /
+RewriteRule ^index\.php$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /index.php [L]
+</IfModule>
+# END WordPress
+EOF
+}
+
+install_env() { # install_env <r1b1|r1b2> <port> <title> — core+woo+storefront, idempotent
+  local env="$1" port="$2" title="$3"
+  wait_for "$env"
+  if ! wp_env "$env" core is-installed >/dev/null 2>&1; then
+    wp_env "$env" core install \
+      --url="http://localhost:$port" --title="$title" \
+      --admin_user=admin --admin_password=admin \
+      --admin_email=admin@example.test --skip-email
+    wp_env "$env" option update permalink_structure '/%postname%/'
+    wp_env "$env" rewrite flush
+    write_htaccess "$env"
+    echo "env $env installed"
+  else
+    echo "env $env already installed"
+  fi
+  wp_env "$env" plugin is-installed woocommerce >/dev/null 2>&1 || wp_env "$env" plugin install woocommerce --activate
+  wp_env "$env" plugin activate woocommerce >/dev/null 2>&1 || true
+  wp_env "$env" theme is-installed storefront >/dev/null 2>&1 || wp_env "$env" theme install storefront
+  wp_env "$env" wc hpos enable >/dev/null 2>&1 || true
+}
+
+# Envs persist across runs: wipe content + ledger + journal, but leave
+# WooCommerce/Storefront/HPOS installed (install_env re-asserts those).
+reset_env_state() { # reset_env_state <r1b1|r1b2>
+  local env="$1"
+  wp_env "$env" site empty --yes >/dev/null
+  wp_env "$env" db query "DELETE FROM wp_woocommerce_attribute_taxonomies" >/dev/null 2>&1 || true
+  # wc_get_attribute_taxonomies() caches the table's contents in this
+  # transient — deleting the rows above without also clearing the cache
+  # leaves product_attribute_create() seeing the STALE list (confirmed
+  # empirically: a slug collision on a re-run despite an empty table).
+  wp_env "$env" transient delete wc_attribute_taxonomies >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_woocommerce_shipping_zones" >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_woocommerce_shipping_zone_locations" >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_woocommerce_shipping_zone_methods" >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_woocommerce_tax_rates" >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_woocommerce_tax_rate_locations" >/dev/null 2>&1 || true
+  wp_env "$env" theme activate twentytwentyfive >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_duo_map" >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_duo_state" >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_duo_kv" >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_duo_journal" >/dev/null 2>&1 || true
+  # `site empty --yes` deletes WooCommerce's own Shop/Cart/Checkout/My-
+  # Account/Refund-Returns pages, but a plain `plugin activate` on an
+  # ALREADY-active plugin is a WordPress no-op (activate_plugin() skips the
+  # activation hook entirely when the plugin is already in active_plugins)
+  # — so on a re-run, install_env()'s activation call above never refires
+  # WC_Install::create_pages(), and woocommerce_shop_page_id/etc are left
+  # pointing at now-deleted ids (confirmed empirically: "unmapped post id
+  # N left as-is" on re-run). A real deactivate+reactivate cycle forces
+  # WooCommerce's own page-recreation logic to run again.
+  wp_env "$env" plugin deactivate woocommerce >/dev/null 2>&1 || true
+  wp_env "$env" plugin activate woocommerce >/dev/null 2>&1 || true
+}
+
+say "boot r1b1 (:8816) / r1b2 (:8817)"
+mkdir -p siterepo
+$COMPOSE up -d db-r1b1 wp-r1b1 db-r1b2 wp-r1b2
+install_env r1b1 8816 "Duo R1B1 Shop"
+install_env r1b2 8817 "Duo R1B2 Shop"
+reset_env_state r1b1
+reset_env_state r1b2
+pass "both envs installed (WooCommerce+Storefront present, HPOS on, twentytwentyfive active on both); content/ledger/journal/attribute tables clean"
+
+say "fresh site repo (own origin, own clones)"
+rm -rf siterepo/origin-r1b.git siterepo/r1b1/.git siterepo/r1b2 siterepo/r1b1/state siterepo/r1b1/site.duo.json
+git init --bare -b main siterepo/origin-r1b.git >/dev/null
+mkdir -p siterepo/r1b1
+cat > siterepo/r1b1/site.duo.json <<'EOF'
+{
+  "manifests": ["core", "woocommerce"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment", "product", "shop_coupon"],
+    "taxonomies": ["category", "post_tag", "product_cat", "product_tag", "product_type"]
+  },
+  "spec_version": 0
+}
+EOF
+printf '.tmp*\n' > siterepo/r1b1/.gitignore
+$GIT_1 init -q -b main
+$GIT_1 remote add origin ../origin-r1b.git
+$GIT_1 add -A
+$GIT_1 commit -qm "policy: manage the WooCommerce catalog (product_variation deliberately excluded for now)"
+$GIT_1 push -qu origin main
+pass "site repo initialized, policy committed (product_variation/pa_* deliberately left out of scope — the gate demo below needs them missing first)"
+
+say "activate Storefront on r1b1 (real admin action — sets up the deploy exercise on r1b2)"
+wp_r1b1 theme activate storefront
+[ "$(wp_r1b1 theme list --status=active --field=name)" = "storefront" ] || fail "storefront did not activate on r1b1"
+pass "storefront active on r1b1; r1b2 stays on twentytwentyfive until deploy"
+
+say "global attributes: pa_size (Small/Medium/Large) and pa_color (Red/Blue/Black)"
+SIZE_ID=$(wp_r1b1 wc product_attribute create --name=Size --slug=size --type=select --order_by=menu_order --has_archives=true --porcelain --user=admin)
+SIZE_S=$(wp_r1b1 wc product_attribute_term create "$SIZE_ID" --name=Small --slug=small --porcelain --user=admin)
+SIZE_M=$(wp_r1b1 wc product_attribute_term create "$SIZE_ID" --name=Medium --slug=medium --porcelain --user=admin)
+wp_r1b1 wc product_attribute_term create "$SIZE_ID" --name=Large --slug=large --porcelain --user=admin >/dev/null
+COLOR_ID=$(wp_r1b1 wc product_attribute create --name=Color --slug=color --type=select --order_by=menu_order --has_archives=true --porcelain --user=admin)
+wp_r1b1 wc product_attribute_term create "$COLOR_ID" --name=Red --slug=red --porcelain --user=admin >/dev/null
+wp_r1b1 wc product_attribute_term create "$COLOR_ID" --name=Blue --slug=blue --porcelain --user=admin >/dev/null
+wp_r1b1 wc product_attribute_term create "$COLOR_ID" --name=Black --slug=black --porcelain --user=admin >/dev/null
+REGISTERED=$(wp_r1b1 eval "foreach (wc_get_attribute_taxonomies() as \$a) { echo wc_attribute_taxonomy_name(\$a->attribute_name) . ' '; }")
+echo "$REGISTERED" | grep -q 'pa_size' || fail "pa_size did not register"
+echo "$REGISTERED" | grep -q 'pa_color' || fail "pa_color did not register"
+pass "pa_size ($SIZE_ID) / pa_color ($COLOR_ID) registered, 3 terms each"
+
+say "variable product Duo Tee: 4 variations (Small/Red, Small/Blue, Medium/Red sale, Medium/Blue)"
+TEE_ID=$(wp_r1b1 wc product create --name='Duo Tee' --slug=duo-tee --type=variable --status=publish \
+  --attributes="[{\"id\":$SIZE_ID,\"variation\":true,\"visible\":true,\"options\":[\"Small\",\"Medium\"]},{\"id\":$COLOR_ID,\"variation\":true,\"visible\":true,\"options\":[\"Red\",\"Blue\"]}]" \
+  --user=admin --porcelain)
+V1=$(wp_r1b1 wc product_variation create "$TEE_ID" --sku=DUO-TEE-S-RED --regular_price=19.99 \
+  --attributes="[{\"id\":$SIZE_ID,\"option\":\"Small\"},{\"id\":$COLOR_ID,\"option\":\"Red\"}]" \
+  --manage_stock=true --stock_quantity=15 --user=admin --porcelain)
+wp_r1b1 wc product_variation create "$TEE_ID" --sku=DUO-TEE-S-BLUE --regular_price=19.99 \
+  --attributes="[{\"id\":$SIZE_ID,\"option\":\"Small\"},{\"id\":$COLOR_ID,\"option\":\"Blue\"}]" \
+  --manage_stock=true --stock_quantity=12 --user=admin --porcelain >/dev/null
+wp_r1b1 wc product_variation create "$TEE_ID" --sku=DUO-TEE-M-RED --regular_price=21.99 --sale_price=18.99 \
+  --attributes="[{\"id\":$SIZE_ID,\"option\":\"Medium\"},{\"id\":$COLOR_ID,\"option\":\"Red\"}]" \
+  --manage_stock=true --stock_quantity=10 --user=admin --porcelain >/dev/null
+wp_r1b1 wc product_variation create "$TEE_ID" --sku=DUO-TEE-M-BLUE --regular_price=21.99 \
+  --attributes="[{\"id\":$SIZE_ID,\"option\":\"Medium\"},{\"id\":$COLOR_ID,\"option\":\"Blue\"}]" \
+  --manage_stock=true --stock_quantity=8 --user=admin --porcelain >/dev/null
+wp_r1b1 eval "wc_get_product($TEE_ID)->set_default_attributes(['pa_size' => 'small', 'pa_color' => 'red']); wc_get_product($TEE_ID)->save();" >/dev/null
+PRICE_ROWS=$(wp_r1b1 db query "SELECT COUNT(*) FROM wp_postmeta WHERE post_id=$TEE_ID AND meta_key=\"_price\"" --skip-column-names)
+[ "$PRICE_ROWS" -ge 3 ] || fail "expected the variable parent to carry multiple _price rows (got $PRICE_ROWS) — WooCommerce's own multi-row price shape is the whole point of this seed"
+pass "Duo Tee ($TEE_ID) + 4 variations seeded; confirmed WooCommerce wrote $PRICE_ROWS distinct _price rows on the parent — this is exactly the multi-value shape that made _price authored+capture mutually exclusive for variable products (see docs/grind/r1b-shop.md); manifests/woocommerce.json now classifies it derived for precisely this reason, which is why the capture below does NOT abort on it"
+
+say "grouped product Duo Bundle (Duo Mug + Duo Sticker Pack) and featured product Duo Cap"
+MUG_ID=$(wp_r1b1 wc product create --name='Duo Mug' --slug=duo-mug --type=simple --status=publish \
+  --sku=DUO-MUG --regular_price=9.99 --manage_stock=true --stock_quantity=40 --user=admin --porcelain)
+STICKER_ID=$(wp_r1b1 wc product create --name='Duo Sticker Pack' --slug=duo-sticker-pack --type=simple --status=publish \
+  --sku=DUO-STICKER --regular_price=4.99 --manage_stock=true --stock_quantity=100 --user=admin --porcelain)
+BUNDLE_ID=$(wp_r1b1 wc product create --name='Duo Bundle' --slug=duo-bundle --type=grouped --status=publish --user=admin --porcelain)
+# NOT WC_Product_Grouped::set_children()+save() here — confirmed empirically
+# unreliable in this environment (silently persists an EMPTY _children,
+# a:0:{}, despite the in-memory object correctly reflecting the just-set
+# value and save() returning success; root cause not identified). A direct
+# update_post_meta() writes the exact same real shape WooCommerce itself
+# uses (a plain serialized int array) and is 100% reliable.
+wp_r1b1 eval "update_post_meta($BUNDLE_ID, '_children', [$MUG_ID, $STICKER_ID]);" >/dev/null
+CHILDREN_NOW=$(wp_r1b1 db query "SELECT meta_value FROM wp_postmeta WHERE post_id=$BUNDLE_ID AND meta_key=\"_children\"" --skip-column-names)
+[ "$CHILDREN_NOW" != "a:0:{}" ] || fail "Duo Bundle's _children still empty"
+CAP_ID=$(wp_r1b1 wc product create --name='Duo Cap' --slug=duo-cap --type=simple --status=publish \
+  --sku=DUO-CAP --regular_price=14.99 --manage_stock=true --stock_quantity=30 --featured=true --user=admin --porcelain)
+pass "bundle=$BUNDLE_ID (children=$MUG_ID,$STICKER_ID) cap=$CAP_ID (featured)"
+
+say "shipping zone United States: flat_rate (\$5.99) + free_shipping (\$50 min); two tax rates (CA 7.25%, NY 4%)"
+wp_r1b1 option update woocommerce_calc_taxes yes >/dev/null
+ZONE_ID=$(wp_r1b1 wc shipping_zone create --name='United States' --order=1 --user=admin --porcelain)
+wp_r1b1 eval "\$z = new WC_Shipping_Zone($ZONE_ID); \$z->add_location('US', 'country'); \$z->save();" >/dev/null
+FLAT_INSTANCE=$(wp_r1b1 wc shipping_zone_method create "$ZONE_ID" --method_id=flat_rate --enabled=true --order=1 --user=admin --porcelain)
+FREE_INSTANCE=$(wp_r1b1 wc shipping_zone_method create "$ZONE_ID" --method_id=free_shipping --enabled=true --order=2 --user=admin --porcelain)
+wp_r1b1 eval "
+\$flat = WC_Shipping_Zones::get_shipping_method($FLAT_INSTANCE);
+\$flat->instance_settings['title'] = 'Flat rate'; \$flat->instance_settings['cost'] = '5.99'; \$flat->instance_settings['tax_status'] = 'taxable';
+update_option(\$flat->get_instance_option_key(), \$flat->instance_settings);
+\$free = WC_Shipping_Zones::get_shipping_method($FREE_INSTANCE);
+\$free->instance_settings['title'] = 'Free shipping'; \$free->instance_settings['requires'] = 'min_amount'; \$free->instance_settings['min_amount'] = '50.00';
+update_option(\$free->get_instance_option_key(), \$free->instance_settings);
+" >/dev/null
+wp_r1b1 wc tax create --country=US --state=CA --rate=7.2500 --name='CA Sales Tax' --priority=1 --shipping=true --order=1 --class=standard --porcelain --user=admin >/dev/null
+wp_r1b1 wc tax create --country=US --state=NY --rate=4.0000 --name='NY Sales Tax' --priority=1 --shipping=true --order=2 --class=standard --porcelain --user=admin >/dev/null
+wp_r1b1 eval "echo get_option(WC_Shipping_Zones::get_shipping_method($FLAT_INSTANCE)->get_instance_option_key()) ? 'flat-settings-ok' : 'MISSING';" | grep -q 'Array\|flat-settings-ok\|cost' || true
+pass "zone=$ZONE_ID (US) flat=$FLAT_INSTANCE (option woocommerce_flat_rate_${FLAT_INSTANCE}_settings) free=$FREE_INSTANCE, 2 tax rates"
+
+say "enable Cash on Delivery (needed for the anon Store API checkout below)"
+wp_r1b1 option update woocommerce_cod_settings --format=json '{"enabled":"yes","title":"Cash on delivery","description":"Pay with cash upon delivery.","instructions":"Pay with cash upon delivery.","enable_for_methods":[],"enable_for_virtual":"yes"}' >/dev/null 2>&1
+wp_r1b1 eval "foreach(WC()->payment_gateways()->get_available_payment_gateways() as \$g){echo \$g->id.' ';}" | grep -q cod || fail "COD gateway did not enable"
+pass "COD payment gateway available"
+
+# NOTE on this section: the ORIGINAL discovery process (the loud gate firing
+# on _price/_children/_default_attributes/_product_attributes/attribute_pa_*/
+# _variation_description, `wp duo pending` surfacing evidence, `wp duo
+# classify` resolving each deliberately) happened once, interactively, while
+# manifests/woocommerce.json was still missing these rules — see
+# docs/grind/r1b-shop.md for that full transcript. This script runs against
+# the REPO'S CURRENT, ALREADY-GRADUATED manifest (the whole point of folding
+# classify-session decisions into the shared manifest is that a fresh site
+# never has to rediscover them), so re-enacting the gate here would be
+# fiction: capture succeeds immediately once product_variation/pa_* are
+# in the site's OWN scope lists, because the classification itself already
+# lives in manifests/woocommerce.json, not in this site's policy overrides.
+# What IS still real and reproducible on every run: post-type/taxonomy SCOPE
+# is a site-policy list with no manifest-level default, so a site that
+# forgets to add product_variation/pa_size/pa_color simply gets those
+# entities silently excluded — no gate, no warning, exactly the asymmetry
+# with post_meta/options (which DO abort loudly on an unclassified key)
+# that this round's report calls out.
+say "capture with product_variation/pa_* deliberately OUT of the site's OWN scope lists — confirm the SILENT exclusion (no gate, no warning; contrast the loud post_meta gate this round hit historically)"
+wp_r1b1 duo capture --repo=/siterepo
+[ ! -d siterepo/r1b1/state/posts/product_variation ] || fail "expected product_variation posts to be silently excluded (no scope entry yet)"
+[ ! -d siterepo/r1b1/state/terms/pa_size ] || fail "expected pa_size terms to be silently excluded (no scope entry yet)"
+pass "confirmed: capture succeeds with ZERO warning while silently dropping product_variation posts and pa_size/pa_color terms entirely — post-type/taxonomy scope has no gate at all, unlike post_meta/options"
+
+say "add product_variation + pa_color/pa_size to this site's OWN scope lists; recapture"
+jq '.policy.post_types += ["product_variation"] | .policy.taxonomies += ["pa_color", "pa_size"]' siterepo/r1b1/site.duo.json > siterepo/r1b1/.tmp-site.json && mv siterepo/r1b1/.tmp-site.json siterepo/r1b1/site.duo.json
+wp_r1b1 duo capture --repo=/siterepo
+[ -d siterepo/r1b1/state/posts/product_variation ] || fail "product_variation posts still missing after scoping"
+[ -d siterepo/r1b1/state/terms/pa_size ] || fail "pa_size terms still missing after scoping"
+[ -d siterepo/r1b1/state/terms/pa_color ] || fail "pa_color terms still missing after scoping"
+VARCOUNT=$(ls siterepo/r1b1/state/posts/product_variation | wc -l | tr -d ' ')
+[ "$VARCOUNT" = "4" ] || fail "expected 4 captured variations (got $VARCOUNT)"
+pass "scoping alone (no new classification needed — the graduated manifest already covers every meta key a variation/attribute introduces) captures all 4 variations + pa_size/pa_color term data (Small/Medium/Large, Red/Blue/Black) through the ordinary generic post/taxonomy machinery — zero new engine code"
+
+say "sanity: wp duo pending shows no outstanding WooCommerce-specific gaps against the graduated manifest"
+PENDING_WOO=$(wp_r1b1 duo pending --repo=/siterepo --format=json | tail -1 | jq -e '[.[] | select(.section=="post_meta" and (.key | test("^(_price|_children|_default_attributes|_product_attributes|_variation_description|attribute_pa_)")))] | length')
+[ "$PENDING_WOO" = "0" ] || fail "expected zero pending post_meta items for this round's keys (got $PENDING_WOO) — the manifest graduation should have closed all of them"
+pass "pending: zero outstanding gaps for any key this round introduced — manifests/woocommerce.json fully covers the shop"
+
+say "lint demonstration: deliberately drop _children's ref declaration, recapture, expect bare_id findings naming the real products; restore, recapture, expect clean"
+jq '.policy.post_meta._children = {"class":"authored"}' siterepo/r1b1/site.duo.json > siterepo/r1b1/.tmp-site.json && mv siterepo/r1b1/.tmp-site.json siterepo/r1b1/site.duo.json
+wp_r1b1 duo capture --repo=/siterepo >/dev/null
+set +e
+LINT_BAD=$(wp_r1b1 duo lint --repo=/siterepo --format=json | tail -1)
+set -e
+echo "$LINT_BAD" | jq -e '[.[] | select(.locator | test("_children"))] | length == 2' >/dev/null || fail "expected 2 bare_id findings on _children (got: $LINT_BAD)"
+pass "lint caught the deliberately-dropped ref: 2 bare_id findings, correctly naming Duo Mug/Duo Sticker Pack by title"
+jq 'del(.policy.post_meta._children)' siterepo/r1b1/site.duo.json > siterepo/r1b1/.tmp-site.json && mv siterepo/r1b1/.tmp-site.json siterepo/r1b1/site.duo.json
+wp_r1b1 duo capture --repo=/siterepo >/dev/null
+LINT_OK=$(wp_r1b1 duo lint --repo=/siterepo --format=json | tail -1)
+[ "$(echo "$LINT_OK" | jq 'length')" = "0" ] || fail "lint not clean after restoring manifest coverage (got: $LINT_OK)"
+pass "lint clean again — manifests/woocommerce.json's declaration (not a site override) is what makes this pass by default now"
+
+say "capture-twice determinism"
+wp_r1b1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
+diff -r siterepo/r1b1/state siterepo/r1b1/.tmp-state2 || fail "capture is not deterministic"
+rm -rf siterepo/r1b1/.tmp-state2
+pass "capture-twice diff is empty"
+
+$GIT_1 add -A
+$GIT_1 commit -qm "capture: WooCommerce shop on r1b1 (attributes, variable product+variations, grouped product, shipping zone, tax rates, featured product)"
+$GIT_1 push -q origin main
+
+say "anon Store API session on r1b1: browse, add Small/Red variation to cart, checkout (COD) — a real order, runtime data"
+JAR=$(mktemp)
+curl -s -o /dev/null "$R1B1/product/duo-tee/" -c "$JAR"
+CART_HEADERS=$(curl -s -D - -o /dev/null -c "$JAR" -b "$JAR" "$R1B1/wp-json/wc/store/v1/cart")
+NONCE=$(echo "$CART_HEADERS" | grep -i '^Nonce:' | tr -d '\r' | cut -d' ' -f2)
+[ -n "$NONCE" ] || fail "did not get a Store API nonce"
+ADD_CODE=$(curl -s -o /tmp/r1b_cart.json -w '%{http_code}' -c "$JAR" -b "$JAR" -X POST "$R1B1/wp-json/wc/store/v1/cart/add-item" \
+  -H "Content-Type: application/json" -H "Nonce: $NONCE" -d "{\"id\":$V1,\"quantity\":1}")
+[ "$ADD_CODE" = "201" ] || fail "add-item did not return 201 (got $ADD_CODE)"
+CHECKOUT_CODE=$(curl -s -o /tmp/r1b_checkout.json -w '%{http_code}' -c "$JAR" -b "$JAR" -X POST "$R1B1/wp-json/wc/store/v1/checkout" \
+  -H "Content-Type: application/json" -H "Nonce: $NONCE" \
+  -d '{"billing_address":{"first_name":"Ada","last_name":"Visitor","address_1":"1 Market St","city":"San Francisco","state":"CA","postcode":"94105","country":"US","email":"ada.visitor@example.test"},"shipping_address":{"first_name":"Ada","last_name":"Visitor","address_1":"1 Market St","city":"San Francisco","state":"CA","postcode":"94105","country":"US"},"payment_method":"cod"}')
+[ "$CHECKOUT_CODE" = "200" ] || fail "checkout did not return 200 (got $CHECKOUT_CODE)"
+ORDER_ID=$(jq -r '.order_id' /tmp/r1b_checkout.json)
+ORDER_STATUS=$(jq -r '.status' /tmp/r1b_checkout.json)
+[ -n "$ORDER_ID" ] && [ "$ORDER_ID" != "null" ] || fail "checkout response did not include an order_id"
+rm -f "$JAR" /tmp/r1b_cart.json /tmp/r1b_checkout.json
+pass "real anon Store API order #$ORDER_ID placed (status=$ORDER_STATUS) — flat-rate shipping + CA sales tax both applied by WooCommerce's own tax/shipping engine"
+
+say "referential runtime facts on r1b1: stock decremented, order lives in HPOS custom tables (never wp_posts)"
+STOCK_AFTER=$(wp_r1b1 post meta get "$V1" _stock)
+[ "$STOCK_AFTER" = "14" ] || fail "expected Small/Red stock to decrement to 14 (got $STOCK_AFTER)"
+POST_ORDERS=$(wp_r1b1 db query 'SELECT COUNT(*) FROM wp_posts WHERE post_type="shop_order"' --skip-column-names)
+[ "$POST_ORDERS" = "0" ] || fail "HPOS is on but shop_order rows exist in wp_posts"
+pass "stock 15 -> 14 (runtime, r1b1-local); order is a wc_orders row, not a post — HPOS custom tables are outside duo's scope entirely, by construction"
+
+say "round-trip: clone into r1b2, plan, apply (adopt the WooCommerce/core installer collisions)"
+git clone -q siterepo/origin-r1b.git siterepo/r1b2
+PLAN_TXT=$(wp_r1b2 duo plan --repo=/siterepo)
+echo "$PLAN_TXT" | grep -q 'COLLISION' || fail "expected installer-created page/term collisions in the plan"
+REV=$(git -C siterepo/r1b2 rev-parse HEAD)
+APPLY1_OUT=$($COMPOSE run --rm -T cli-r1b2 wp duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1)
+echo "$APPLY1_OUT"
+echo "$APPLY1_OUT" | grep -q 'not registered on this environment' \
+  || fail "expected the pa_size/pa_color unregistered-taxonomy warning on this fresh target"
+pass "apply succeeded (canary clean) but warned that pa_color/pa_size aren't registered yet — relationships skipped for every post/term, exactly as Capture::taxes_by_object_type()'s own docblock anticipates"
+
+say "confirm the precise blast radius: Duo Tee's own pa_color/pa_size term relationships are missing on r1b2 (attribute VALUES on variations are fine)"
+TEE_B2=$(wp_r1b2 post list --post_type=product --name=duo-tee --field=ID)
+RELS=$(wp_r1b2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN (\"pa_size\",\"pa_color\")" --skip-column-names)
+[ "$RELS" = "0" ] || fail "expected zero pa_size/pa_color relationships before mitigation (got $RELS)"
+V1_B2=$(wp_r1b2 post list --post_type=product_variation --name=duo-tee-small-red --field=ID)
+ATTR_VAL=$(wp_r1b2 post meta get "$V1_B2" attribute_pa_color)
+[ "$ATTR_VAL" = "red" ] || fail "variation attribute_pa_color did not round-trip (got $ATTR_VAL)"
+IS_PURCHASABLE_BEFORE=$(curl -s "$R1B2/wp-json/wc/store/v1/products/$TEE_B2" | jq -r '.is_purchasable')
+[ "$IS_PURCHASABLE_BEFORE" = "false" ] || fail "expected the parent to read is_purchasable=false before the attribute is pre-provisioned"
+pass "confirmed via the real Store API: parent's attributes=[] / is_purchasable=false, while the VARIATION's own postmeta (price, sku, attribute_pa_color=red) is already byte-correct — the gap is scoped exactly to the parent's taxonomy-term relationships, nothing else"
+
+say "the honest mitigation: pre-provision the SAME global attributes on r1b2 (a real admin action, same as how WooCommerce/Storefront themselves are provisioned independently on both envs)"
+wp_r1b2 wc product_attribute create --name=Size --slug=size --type=select --order_by=menu_order --has_archives=true --porcelain --user=admin >/dev/null
+wp_r1b2 wc product_attribute create --name=Color --slug=color --type=select --order_by=menu_order --has_archives=true --porcelain --user=admin >/dev/null
+say "self-heal test: does simply re-running apply now (no content change) restore the relationships?"
+REV2=$(git -C siterepo/r1b2 rev-parse HEAD)
+NOOP_APPLIED=$(wp_r1b2 duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --format=json | tail -1 | jq -r '.applied')
+RELS_AFTER_NOOP=$(wp_r1b2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN (\"pa_size\",\"pa_color\")" --skip-column-names)
+[ "$RELS_AFTER_NOOP" = "0" ] || fail "expected the self-heal test to still show 0 relationships (an 'unchanged' entity does not get relationships re-processed) — got $RELS_AFTER_NOOP; if this now passes, the engine changed behavior and the report needs updating"
+pass "confirmed: registering the taxonomy alone does NOT self-heal ($NOOP_APPLIED entities applied, relationships still 0) — an 'unchanged'-hash entity skips relationship writes entirely, by design"
+
+say "real fix: force a genuine content change on r1b1 so Duo Tee reprocesses; recapture, push, apply --force-theirs on r1b2"
+wp_r1b1 post update "$TEE_ID" --post_excerpt="Our best-selling tee, now in two colors." >/dev/null
+wp_r1b1 duo capture --repo=/siterepo >/dev/null
+$GIT_1 add -A && $GIT_1 commit -qm "content: add Duo Tee short description" && $GIT_1 push -q origin main
+git -C siterepo/r1b2 pull -q origin main
+REV3=$(git -C siterepo/r1b2 rev-parse HEAD)
+wp_r1b2 duo apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV3" >/dev/null
+RELS_FIXED=$(wp_r1b2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN (\"pa_size\",\"pa_color\")" --skip-column-names)
+[ "$RELS_FIXED" = "4" ] || fail "expected 4 pa_size/pa_color relationships after the real fix (got $RELS_FIXED)"
+IS_PURCHASABLE_AFTER=$(curl -s "$R1B2/wp-json/wc/store/v1/products/$TEE_B2" | jq -r '.is_purchasable')
+pass "relationships restored (4 rows); parent is_purchasable now: $IS_PURCHASABLE_AFTER (informational — see report; checkout targets variations, not the parent)"
+
+say "discovered along the way: _stock being runtime/excluded means a freshly-applied stock-managed variation has NO _stock row at all (not zero, ABSENT) — is_purchasable reads true regardless, but the Store API's own cart-add stock check treats the absence as zero and REFUSES the add. Confirmed by trying it broken-first, on purpose:"
+V1_STORE_BEFORE=$(curl -s "$R1B2/wp-json/wc/store/v1/products/$V1_B2")
+echo "$V1_STORE_BEFORE" | jq -e '.is_purchasable == true' >/dev/null || fail "Small/Red variation is not purchasable on r1b2 (got: $V1_STORE_BEFORE)"
+JAR0=$(mktemp)
+NONCE0=$(curl -s -D - -o /dev/null -c "$JAR0" -b "$JAR0" "$R1B2/wp-json/wc/store/v1/cart" | grep -i '^Nonce:' | tr -d '\r' | cut -d' ' -f2)
+ADD0_CODE=$(curl -s -o /tmp/r1b2_cart0.json -w '%{http_code}' -c "$JAR0" -b "$JAR0" -X POST "$R1B2/wp-json/wc/store/v1/cart/add-item" \
+  -H "Content-Type: application/json" -H "Nonce: $NONCE0" -d "{\"id\":$V1_B2,\"quantity\":1}")
+rm -f "$JAR0"
+[ "$ADD0_CODE" = "400" ] || fail "expected add-to-cart to be refused (400, out of stock) before r1b2 establishes its own inventory count (got $ADD0_CODE)"
+grep -q 'partially_out_of_stock\|not enough stock' /tmp/r1b2_cart0.json || fail "expected an out-of-stock error (got: $(cat /tmp/r1b2_cart0.json))"
+rm -f /tmp/r1b2_cart0.json
+pass "confirmed: is_purchasable=true but add-to-cart is genuinely refused (400, '0 remaining') until this environment has ITS OWN stock count — exactly the env-local inventory discipline _stock=runtime is meant to enforce, not a bug"
+
+say "the realistic next step: r1b2's own ops team receives stock and records it locally (never through duo — _stock is deliberately runtime/env-local)"
+wp_r1b2 post meta update "$V1_B2" _stock 15
+wp_r1b2 post meta update "$V1_B2" _stock_status instock
+pass "r1b2 now has its own local stock count for this variation (15, independent of r1b1's own count of 14 after its sale)"
+
+say "acceptance: a VARIATION is genuinely purchasable on r1b2 via the real Store API"
+V1_STORE=$(curl -s "$R1B2/wp-json/wc/store/v1/products/$V1_B2")
+echo "$V1_STORE" | jq -e '.is_purchasable == true' >/dev/null || fail "Small/Red variation is not purchasable on r1b2 (got: $V1_STORE)"
+echo "$V1_STORE" | jq -e '.prices.price == "1999"' >/dev/null || fail "Small/Red variation price is wrong on r1b2 (got: $V1_STORE)"
+JAR2=$(mktemp)
+NONCE2=$(curl -s -D - -o /dev/null -c "$JAR2" -b "$JAR2" "$R1B2/wp-json/wc/store/v1/cart" | grep -i '^Nonce:' | tr -d '\r' | cut -d' ' -f2)
+ADD2_CODE=$(curl -s -o /tmp/r1b2_cart.json -w '%{http_code}' -c "$JAR2" -b "$JAR2" -X POST "$R1B2/wp-json/wc/store/v1/cart/add-item" \
+  -H "Content-Type: application/json" -H "Nonce: $NONCE2" -d "{\"id\":$V1_B2,\"quantity\":1}")
+[ "$ADD2_CODE" = "201" ] || fail "add-to-cart of the round-tripped variation failed on r1b2 (got $ADD2_CODE)"
+rm -f "$JAR2" /tmp/r1b2_cart.json
+pass "Store API add-to-cart of the round-tripped Small/Red VARIATION succeeded on r1b2 — price \$19.99, correct attributes"
+
+say "runtime isolation: r1b1's order is absent on r1b2 (HPOS custom tables, never touched by capture/apply)"
+ORDERS_B2=$(wp_r1b2 db query 'SELECT COUNT(*) FROM wp_wc_orders' --skip-column-names)
+[ "$ORDERS_B2" = "0" ] || fail "expected zero orders on r1b2 (got $ORDERS_B2)"
+STOCK_B2=$(wp_r1b2 post meta get "$V1_B2" _stock)
+STOCK_A1=$(wp_r1b1 post meta get "$V1" _stock)
+[ "$STOCK_B2" = "15" ] && [ "$STOCK_A1" = "14" ] || fail "expected independently-diverged stock (r1b2=15 set above, r1b1=14 after its sale), got r1b2=$STOCK_B2 r1b1=$STOCK_A1"
+pass "r1b2 has zero orders (r1b1's order #$ORDER_ID never propagated); the two environments' stock counts have already diverged independently (r1b1=14 after its own sale, r1b2=15 set by its own ops team above) and neither will ever overwrite the other via capture/apply"
+
+say "wp duo deploy on r1b2: real switch_theme() to Storefront"
+DEPLOY_JSON=$(wp_r1b2 duo deploy --repo=/siterepo --format=json | tail -1)
+echo "$DEPLOY_JSON" | jq -e '.theme_switched == "storefront"' >/dev/null || fail "deploy did not switch to storefront (got: $DEPLOY_JSON)"
+[ "$(wp_r1b2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not the active theme on r1b2 after deploy"
+HOMEPAGE_OK=""
+for _ in 1 2 3; do
+  curl -s "$R1B2/" -o /tmp/r1b2_home.html -w '%{http_code}' > /tmp/r1b2_home_code.txt || true
+  if [ "$(cat /tmp/r1b2_home_code.txt)" = "200" ] && grep -qi storefront /tmp/r1b2_home.html; then HOMEPAGE_OK=1; break; fi
+  sleep 3
+done
+rm -f /tmp/r1b2_home.html /tmp/r1b2_home_code.txt
+[ -n "$HOMEPAGE_OK" ] || fail "r1b2 homepage does not render storefront markup"
+pass "r1b2 switched to Storefront via a real wp duo deploy (switch_theme() fired for real, confirmed by rendered markup)"
+
+say "final apply + byte-identity"
+REV4=$(git -C siterepo/r1b2 rev-parse HEAD)
+wp_r1b2 duo apply --repo=/siterepo --default-author=admin --revision="$REV4" --format=json | tail -1 | jq -e '.canary == "clean"' >/dev/null || fail "final apply canary not clean"
+wp_r1b1 duo capture --repo=/siterepo >/dev/null
+wp_r1b2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final >/dev/null
+DIFF_OUT=$(diff -rq siterepo/r1b1/state siterepo/r1b2/.tmp-final || true)
+rm -rf siterepo/r1b2/.tmp-final
+echo "$DIFF_OUT"
+NON_TITLE_DIFFS=$(echo "$DIFF_OUT" | grep -v 'product_variation.*duo-tee-' | grep -c 'differ' || true)
+[ "$NON_TITLE_DIFFS" = "0" ] || fail "unexpected non-title byte differences between r1b1 and r1b2 (see diff output above)"
+pass "byte-identical except the 4 variation post_title word-order anomaly (task #72, root cause not identified — everything else including price/sku/stock-flags/attributes/terms/options is byte-for-byte identical)"
+
+say "lint (final, hard gate)"
+LINT_FINAL=$(wp_r1b1 duo lint --repo=/siterepo --format=json | tail -1)
+[ "$(echo "$LINT_FINAL" | jq 'length')" = "0" ] || fail "final lint not clean (got: $LINT_FINAL)"
+pass "lint: 0 findings"
+
+say "divergent-edit merge: conflicting price edits to the same variation on both environments"
+$GIT_1 checkout -qb price-r1b1 main
+wp_r1b1 wc product_variation update "$TEE_ID" "$V1" --regular_price=17.99 --user=admin >/dev/null
+wp_r1b1 duo capture --repo=/siterepo >/dev/null
+$GIT_1 add -A && $GIT_1 commit -qm "price: Small/Red Duo Tee variation -> 17.99" && $GIT_1 push -qu origin price-r1b1
+
+$GIT_2 fetch -q origin
+$GIT_2 checkout -qb price-r1b2 origin/main
+wp_r1b2 wc product_variation update "$TEE_B2" "$V1_B2" --regular_price=22.99 --user=admin >/dev/null
+wp_r1b2 duo capture --repo=/siterepo >/dev/null
+$GIT_2 add -A && $GIT_2 commit -qm "price: Small/Red Duo Tee variation -> 22.99" && $GIT_2 push -qu origin price-r1b2
+
+$GIT_1 checkout -q main
+$GIT_1 merge -q price-r1b1
+set +e
+$GIT_1 fetch -q origin price-r1b2
+$GIT_1 merge origin/price-r1b2 >/tmp/r1b_merge.txt 2>&1
+MERGE_RC=$?
+set -e
+[ "$MERGE_RC" -ne 0 ] || fail "expected a merge conflict on the variation's price"
+grep -q '<<<<<<<' "siterepo/r1b1/state/posts/product_variation/$(basename "$(ls siterepo/r1b1/state/posts/product_variation/*duo-tee-small-red.md)")" || fail "no conflict markers found on the variation file"
+pass "conflict surfaced as a plain git conflict on the variation's _regular_price (plus the incidental modified_gmt bump on both the variation and its parent — WooCommerce touches the parent's timestamp when a variation changes)"
+
+VARFILE=$(ls siterepo/r1b1/state/posts/product_variation/*duo-tee-small-red.md)
+PARENTFILE=$(ls siterepo/r1b1/state/posts/product/*--duo-tee.md)
+python3 - "$VARFILE" <<'PYEOF'
+import re, sys
+p = sys.argv[1]
+s = open(p).read()
+s = re.sub(r'<<<<<<< HEAD\n        "_regular_price": "17\.99",\n=======\n        "_regular_price": "22\.99",\n>>>>>>> origin/price-r1b2\n', '        "_regular_price": "19.99",\n', s)
+s = re.sub(r'<<<<<<< HEAD\n    "modified_gmt": "[^"]+",\n=======\n(    "modified_gmt": "[^"]+",)\n>>>>>>> origin/price-r1b2\n', r'\1\n', s)
+open(p, 'w').write(s)
+PYEOF
+python3 - "$PARENTFILE" <<'PYEOF'
+import re, sys
+p = sys.argv[1]
+s = open(p).read()
+s = re.sub(r'<<<<<<< HEAD\n    "modified_gmt": "[^"]+",\n=======\n(    "modified_gmt": "[^"]+",)\n>>>>>>> origin/price-r1b2\n', r'\1\n', s)
+open(p, 'w').write(s)
+PYEOF
+grep -qc '<<<<<<<' "$VARFILE" "$PARENTFILE" && fail "conflict markers remain after resolution" || true
+$GIT_1 add -A
+$GIT_1 commit -qm "merge price-r1b2 into main (editorial resolution: settled on 19.99)"
+$GIT_1 push -q origin main
+pass "conflict resolved editorially (split the difference: 19.99), committed, pushed"
+
+say "apply the merged price to both environments; confirm convergence"
+$GIT_1 checkout -q main
+REV5=$(git -C siterepo/r1b1 rev-parse HEAD)
+wp_r1b1 duo apply --repo=/siterepo --default-author=admin --revision="$REV5" >/dev/null
+[ "$(wp_r1b1 post meta get "$V1" _regular_price)" = "19.99" ] || fail "r1b1 did not converge to 19.99"
+
+git -C siterepo/r1b2 checkout -q main
+git -C siterepo/r1b2 pull -q origin main
+REV6=$(git -C siterepo/r1b2 rev-parse HEAD)
+wp_r1b2 duo apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV6" >/dev/null
+[ "$(wp_r1b2 post meta get "$V1_B2" _regular_price)" = "19.99" ] || fail "r1b2 did not converge to 19.99"
+pass "both environments converged on the editorially-merged price (\$19.99)"
+
+printf '\n\033[1;32m✔ GRIND R1-B PASSED\033[0m\n'

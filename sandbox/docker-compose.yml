@@ -468,6 +468,270 @@ services:
       WORDPRESS_DB_HOST: db-g2
     volumes: *vol-g2
 
+  # Grind round R1-A (task #46): forms-driven business site, CF7 + Ninja
+  # Forms on twentytwentyone. Own pair, own site-repo sandbox
+  # (siterepo/{origin-r1a.git,r1a1,r1a2}) — never touches a/b/c/conf/e*/fx*/g*.
+  # Journal ON (DUO_JOURNAL), same pattern as spikef/spikec: the core loop
+  # (loud gate -> pending -> classify) needs journal evidence to propose
+  # classifications from.
+  db-r1a1:
+    <<: *db
+    profiles: [r1a]
+    volumes: [dbr1a1:/var/lib/mysql]
+
+  wp-r1a1:
+    image: wordpress:php8.3-apache
+    profiles: [r1a]
+    depends_on:
+      db-r1a1: {condition: service_healthy}
+    ports: ["8814:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-r1a1
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: &vol-r1a1
+      - wpr1a1:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/r1a1:/siterepo
+
+  cli-r1a1:
+    image: wordpress:cli-php8.3
+    profiles: [r1a]
+    user: "33:33"
+    depends_on:
+      db-r1a1: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-r1a1
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: *vol-r1a1
+
+  db-r1a2:
+    <<: *db
+    profiles: [r1a]
+    volumes: [dbr1a2:/var/lib/mysql]
+
+  wp-r1a2:
+    image: wordpress:php8.3-apache
+    profiles: [r1a]
+    depends_on:
+      db-r1a2: {condition: service_healthy}
+    ports: ["8815:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-r1a2
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: &vol-r1a2
+      - wpr1a2:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/r1a2:/siterepo
+
+  cli-r1a2:
+    image: wordpress:cli-php8.3
+    profiles: [r1a]
+    user: "33:33"
+    depends_on:
+      db-r1a2: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-r1a2
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: *vol-r1a2
+
+  # Grind round R1-B (task #47): full WooCommerce shop — Storefront theme,
+  # variable products with GLOBAL attributes (pa_* dynamic taxonomies),
+  # shipping zones, tax rates, a grouped product. Own pair, own site-repo
+  # sandbox (siterepo/{origin-r1b.git,r1b1,r1b2}) — never touches
+  # a/b/c/conf/e*/fx*/g*/r1a*/r1c*. Journal ON (DUO_JOURNAL), same pattern as
+  # spikef/spikec/r1a: the core loop (loud gate -> pending -> classify) needs
+  # journal evidence to propose classifications from.
+  db-r1b1:
+    <<: *db
+    profiles: [r1b]
+    volumes: [dbr1b1:/var/lib/mysql]
+
+  wp-r1b1:
+    image: wordpress:php8.3-apache
+    profiles: [r1b]
+    depends_on:
+      db-r1b1: {condition: service_healthy}
+    ports: ["8816:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-r1b1
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: &vol-r1b1
+      - wpr1b1:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/r1b1:/siterepo
+
+  cli-r1b1:
+    image: wordpress:cli-php8.3
+    profiles: [r1b]
+    user: "33:33"
+    depends_on:
+      db-r1b1: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-r1b1
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: *vol-r1b1
+
+  db-r1b2:
+    <<: *db
+    profiles: [r1b]
+    volumes: [dbr1b2:/var/lib/mysql]
+
+  wp-r1b2:
+    image: wordpress:php8.3-apache
+    profiles: [r1b]
+    depends_on:
+      db-r1b2: {condition: service_healthy}
+    ports: ["8817:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-r1b2
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: &vol-r1b2
+      - wpr1b2:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/r1b2:/siterepo
+
+  cli-r1b2:
+    image: wordpress:cli-php8.3
+    profiles: [r1b]
+    user: "33:33"
+    depends_on:
+      db-r1b2: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-r1b2
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: *vol-r1b2
+
+  # Grind round R1-C (task #48): the agency stack, tested for INTERPLAY —
+  # Elementor + ACF active together, plus a custom CPT plugin
+  # (duo-agency-cpt: a 'project' post type + 'project_type' taxonomy)
+  # shipped through the site repo's OWN code/ tree, dogfooding spike G's
+  # pattern rather than a static read-only fixture mount (contrast wp-f1/
+  # wp-f2's ro mount of the shared ../fixtures/duo-loop-demo below). Each
+  # env's wp-content/plugins/duo-agency-cpt binds from THAT env's own
+  # site-repo checkout's code/wp-content/plugins/duo-agency-cpt — per spike
+  # G's bootstrap-order finding (docs/proposals/code-half.md's phase-1
+  # appendix): code/ must be authored on the host BEFORE wp-r1c1/wp-r1c2 are
+  # ever created (docker pins a bind-mount source at container-create time),
+  # and any rm+recreate of that source needs `--force-recreate` on the
+  # container(s) that mount it. Own pair, own site-repo sandbox
+  # (siterepo/{origin-r1c.git,r1c1,r1c2}) — never touches
+  # a/b/c/conf/e*/fx*/g*/r1a*/r1b*. Journal ON (DUO_JOURNAL): the core loop
+  # (loud gate -> pending -> classify) needs journal evidence to propose
+  # classifications from, same pattern as spikef/spikec/r1a/r1b.
+  db-r1c1:
+    <<: *db
+    profiles: [r1c]
+    volumes: [dbr1c1:/var/lib/mysql]
+
+  wp-r1c1:
+    image: wordpress:php8.3-apache
+    profiles: [r1c]
+    depends_on:
+      db-r1c1: {condition: service_healthy}
+    ports: ["8818:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-r1c1
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: &vol-r1c1
+      - wpr1c1:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/r1c1:/siterepo
+      # NEW, the point of this profile — see the block comment above: this
+      # environment's OWN site-repo checkout's code/ tree, not a shared
+      # static fixture (spike G's per-env dogfooding pattern).
+      - ./siterepo/r1c1/code/wp-content/plugins/duo-agency-cpt:/var/www/html/wp-content/plugins/duo-agency-cpt:ro
+
+  cli-r1c1:
+    image: wordpress:cli-php8.3
+    profiles: [r1c]
+    user: "33:33"
+    depends_on:
+      db-r1c1: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-r1c1
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: *vol-r1c1
+
+  db-r1c2:
+    <<: *db
+    profiles: [r1c]
+    volumes: [dbr1c2:/var/lib/mysql]
+
+  wp-r1c2:
+    image: wordpress:php8.3-apache
+    profiles: [r1c]
+    depends_on:
+      db-r1c2: {condition: service_healthy}
+    ports: ["8819:80"]
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-r1c2
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: &vol-r1c2
+      - wpr1c2:/var/www/html
+      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../manifests:/duo-manifests:ro
+      - ./siterepo/r1c2:/siterepo
+      # per-env code source — see wp-r1c1's comment above (r1c2's own checkout).
+      - ./siterepo/r1c2/code/wp-content/plugins/duo-agency-cpt:/var/www/html/wp-content/plugins/duo-agency-cpt:ro
+
+  cli-r1c2:
+    image: wordpress:cli-php8.3
+    profiles: [r1c]
+    user: "33:33"
+    depends_on:
+      db-r1c2: {condition: service_healthy}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-r1c2
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DUO_JOURNAL', true);
+    volumes: *vol-r1c2
+
 volumes:
   dba: {}
   dbb: {}
@@ -482,6 +746,12 @@ volumes:
   dbfx2: {}
   dbg1: {}
   dbg2: {}
+  dbr1a1: {}
+  dbr1a2: {}
+  dbr1b1: {}
+  dbr1b2: {}
+  dbr1c1: {}
+  dbr1c2: {}
   wpa: {}
   wpb: {}
   wpc: {}
@@ -495,3 +765,9 @@ volumes:
   wpfx2: {}
   wpg1: {}
   wpg2: {}
+  wpr1a1: {}
+  wpr1a2: {}
+  wpr1b1: {}
+  wpr1b2: {}
+  wpr1c1: {}
+  wpr1c2: {}

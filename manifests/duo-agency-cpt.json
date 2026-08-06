@@ -1,0 +1,17 @@
+{
+    "name": "duo-agency-cpt",
+    "options": {
+        "duo_agency_client_api_key": {
+            "class": "env"
+        }
+    },
+    "post_meta": {
+        "_duo_project_internal_notes": {
+            "class": "authored"
+        },
+        "_duo_project_views": {
+            "class": "runtime"
+        }
+    },
+    "term_meta": {}
+}

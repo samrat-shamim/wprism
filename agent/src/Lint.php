@@ -268,9 +268,17 @@ final class Lint {
         }
     }
 
-    /** id / ids / ref, or camelCase-suffixed *Id / *Ids (mediaId, termIds, ...). */
+    /**
+     * id / ids / ref, or a suffixed *Id / *Ids / *ID / *IDs (task #76:
+     * Ninja Forms' Gutenberg block declares "formID"; the old /(Id|Ids)$/
+     * missed the all-caps convention, letting a dangling formID pass both
+     * the lint gate and byte-diff round-trip, then fatal on the target when
+     * NF resolved the missing form). NOT a bare /i flag — that would match
+     * innocent lowercase suffixes ("grid", "valid"); the camel/caps boundary
+     * is what makes the heuristic safe, so only the cased variants widen.
+     */
     private static function looks_like_id_attr(string $key): bool {
-        return $key === 'id' || $key === 'ids' || $key === 'ref' || (bool) preg_match('/(Id|Ids)$/', $key);
+        return $key === 'id' || $key === 'ids' || $key === 'ref' || (bool) preg_match('/(Id|ID)s?$/', $key);
     }
 
     /**
@@ -291,8 +299,11 @@ final class Lint {
      * Elementor's snake_case controls, and the camelCase case too.
      */
     private static function looks_like_id_key(string $key): bool {
+        // [-_]ids? is safe lowercase (separator boundary); the suffix variants
+        // widen to the all-caps convention per task #76, same as the attr
+        // heuristic above — never a bare /i (would match "grid", "valid").
         return $key === 'id' || $key === 'ids' || $key === 'ref'
-            || (bool) preg_match('/([-_]ids?|Ids?)$/', $key);
+            || (bool) preg_match('/([-_][iI][dD]s?|(Id|ID)s?)$/', $key);
     }
 
     // ------------------------------------------------------------ terms

@@ -1,0 +1,33 @@
+{
+  "name": "ninja-forms",
+  "notes": [
+    "Grind R1-A (docs/grind/r1a-forms.md — full acceptance criteria there): this manifest deliberately captures NOTHING about a Ninja Forms form's own content. Its form/field/action DEFINITIONS (the thing a site builder actually authors) live entirely in custom tables (nf3_forms/nf3_fields/nf3_actions + their _meta twins) that this engine has zero capture/apply path for today — Policy::table_rule() is consulted only by Journal.php's provenance report (spike C ground truth), never by Capture.php; there is no generic custom-table snapshot mechanism at all, for any plugin, yet. This is honestly narrower than design-review finding #8's one-line 'Ninja Forms nf3_* (intra-table FKs)' framing suggested — see the next two notes.",
+    "Real schema, DESCRIBE'd live on NF 3.14.11, not assumed from memory: 11 tables, not the generic single-object-model shape the finding's phrasing implies. nf3_fields.parent_id and nf3_actions.parent_id are PLAIN single-target integer FKs into nf3_forms.id (never polymorphic — confirmed by reading NF_Admin_Processes_ImportForm's own insert code) — simpler than the polymorphic _menu_item_type/_menu_item_object_id shape this engine already handles for menus. nf3_form_meta/nf3_field_meta/nf3_action_meta hold overflow settings one row per key (not one serialized blob). Classified authored_typed_snapshot_post_v1 (the exact marker manifests/woocommerce.json already uses for woocommerce_attribute_taxonomies) purely as an honest intent marker: this class is NOT in Policy's validated CLASSES list and has no engine effect — it means 'known-authored, no capture path exists,' not 'safe to enable.'",
+    "The genuinely good news, also empirical: submissions do NOT live in these custom tables. Submitting the seeded Job Application form six times (admin-ajax.php?action=nf_ajax_submit, the plugin's real anonymous front-end path) produced ordinary WordPress posts — post_type=nf_sub — with ordinary wp_postmeta (_field_<id>, _form_id, _seq_num). nf3_objects/nf3_object_meta/nf3_relationships (the generic, polymorphic-shaped tables that most resemble finding #8's danger) were confirmed EMPTY of submission data throughout; the only rows ever observed there (type=log) were this session's own debugging byproducts. Caveat stated plainly: this only rules out the core submit path (save/email/successmessage actions) — save-and-resume (PayPal/Stripe return flows), repeater sub-structures, and other addons were not exercised and are not confirmed empty.",
+    "nf_sub is classified runtime here as a defensive backstop — the real protection is that site.duo.json's policy.post_types must never list it (visitor-submitted, never site-builder-authored; manifests cannot declare post_type scope, only classify a type IF a site policy adds it).",
+    "A real caching hazard, found empirically, not theoretical: nf3_upgrades is not just migration-stage bookkeeping — it doubles as Ninja Forms' own per-form-id settings CACHE (WPN_Helper::update_nf_cache()/get_nf_cache(), keyed by the same id-space as nf3_forms.id), read by both the general model API and the submission handler. Classified env (environment-local, rebuildable, never authored) rather than runtime, matching how this manifest's sibling reports treat activation-time/environment bookkeeping. If a future typed-snapshot capability is ever built for the tables above, its apply/rebuild pass MUST regenerate this cache per form id (WPN_Helper::build_nf_cache($id)) — the same 'manifest declares rebuilders' pattern already shipped for Yoast (`wp yoast index`) and Elementor (`wp elementor flush-css`). Getting this wrong silently serves a form's OLD settings under a reused id after any apply that recreates nf3_forms rows — reproduced firsthand in this exploration.",
+    "nf3_chunks: no FK-shaped column and no confirmed authored content observed in this exploration (empty throughout) — classified runtime defensively rather than guessed at from an unexercised, unverified shape.",
+    "Engine-adjacent finding, reported separately, not encoded here: Ninja Forms' own Gutenberg block (`ninja-forms/form`) and shortcode (`[ninja_form id=N]`) both embed the RAW numeric nf3_forms.id in captured post_content/block-attrs, with no rewriting path — confirmed live (captured a page's `{\"formID\":1,...}` block attribute verbatim, unrewritten). Sharper still: `wp duo lint`'s unregistered_block_attr check, which exists specifically to flag exactly this shape, did NOT catch it — Lint::looks_like_id_attr()'s regex only matches the camelCase `Id`/`Ids` suffix convention (WordPress core's own, e.g. mediaId), case-sensitively; Ninja Forms' real attribute name is `formID` (all-caps ID), which the pattern silently misses (verified: preg_match('/(Id|Ids)$/', 'formID') is false; 'formId' would have matched). A general lint blind spot, not Ninja-Forms-specific — any block using the equally common all-caps-ID naming convention evades this safety net today. See docs/grind/r1a-forms.md and the engine-track task for both findings' full acceptance criteria."
+  ],
+  "options": {
+    "nf_doing_import_form": {"class": "runtime"},
+    "nf_import_form": {"class": "runtime"},
+    "ninja_forms_needs_updates": {"class": "runtime"}
+  },
+  "post_types": {
+    "nf_sub": {"class": "runtime"}
+  },
+  "tables": {
+    "nf3_action_meta": {"class": "authored_typed_snapshot_post_v1"},
+    "nf3_actions": {"class": "authored_typed_snapshot_post_v1"},
+    "nf3_chunks": {"class": "runtime"},
+    "nf3_field_meta": {"class": "authored_typed_snapshot_post_v1"},
+    "nf3_fields": {"class": "authored_typed_snapshot_post_v1"},
+    "nf3_form_meta": {"class": "authored_typed_snapshot_post_v1"},
+    "nf3_forms": {"class": "authored_typed_snapshot_post_v1"},
+    "nf3_object_meta": {"class": "runtime"},
+    "nf3_objects": {"class": "runtime"},
+    "nf3_relationships": {"class": "runtime"},
+    "nf3_upgrades": {"class": "env"}
+  }
+}
