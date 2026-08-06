@@ -1,0 +1,451 @@
+<?php
+/**
+ * Offline (no docker, no WordPress bootstrap) regression harness for
+ * DUO-3213: capture's atomic tree publication.
+ *
+ * agent/src/Publish.php is the filesystem half of this issue's fix and was
+ * deliberately written with ZERO WordPress/$wpdb dependency (see its own
+ * docblock) specifically so every guarantee it makes — the capture lock,
+ * the staging directory, the atomic two-step rename swap, and deterministic
+ * crash recovery — is provable here, on real files, with no live database
+ * or WordPress install involved. Runs the REAL, unmodified
+ * agent/src/{Canon,Publish}.php, plus a Reflection-based check of Capture's
+ * private check_transient_db_error() string matching (its only piece that
+ * needs zero DB fixture at all).
+ *
+ * The DB-side half of DUO-3213 (the consistent-snapshot transaction, the
+ * InnoDB engine check, and the deadlock/lock-wait-timeout retry actually
+ * firing against real contention) is NOT exercised here — that needs a
+ * live MySQL/MariaDB and is covered by the sandbox pair test instead (see
+ * the DUO-3213 PR body for that evidence). This file's job is the
+ * filesystem guarantee: a crash/disk-full/kill at any point before the
+ * final swap must never touch the previously-published tree.
+ *
+ * Exit 0 and "ALL PASSED" on success; any failed check prints "FAIL: ..."
+ * and the script exits 1.
+ */
+
+require __DIR__ . '/../../agent/src/Canon.php';
+require __DIR__ . '/../../agent/src/Publish.php';
+require __DIR__ . '/../../agent/src/TransientDbException.php';
+require __DIR__ . '/../../agent/src/Capture.php';
+
+use Duo\Canon;
+use Duo\Publish;
+
+$failures = 0;
+function check(bool $cond, string $msg): void {
+    global $failures;
+    if ($cond) {
+        echo "ok: $msg\n";
+    } else {
+        echo "FAIL: $msg\n";
+        $failures++;
+    }
+}
+
+function rrmdir_test(string $dir): void {
+    Publish::rrmdir($dir);
+}
+
+/** Fresh scratch root for one test group; auto-removed at process exit. */
+function fresh_root(string $label): string {
+    $root = sys_get_temp_dir() . '/duo_regress_capture_publish_' . $label . '_' . bin2hex(random_bytes(4));
+    mkdir($root, 0777, true);
+    register_shutdown_function(fn() => rrmdir_test($root));
+    return $root;
+}
+
+function write_tree(string $dir, array $files): void {
+    foreach ($files as $rel => $content) {
+        Canon::write_file($dir . '/' . $rel, $content);
+    }
+}
+
+function read_tree(string $dir): array {
+    if (!is_dir($dir)) {
+        return [];
+    }
+    $out = [];
+    $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS));
+    foreach ($it as $f) {
+        if ($f->isFile()) {
+            $rel = substr($f->getPathname(), strlen($dir) + 1);
+            $out[$rel] = file_get_contents($f->getPathname());
+        }
+    }
+    ksort($out);
+    return $out;
+}
+
+// ======================================================================
+// P1 — capture lock: mutual exclusion, clean failure, release
+// ======================================================================
+echo "\n== P1: Publish::lock()/unlock() ==\n";
+{
+    $root = fresh_root('lock');
+    $stateDir = "$root/state";
+
+    $h1 = Publish::lock($stateDir);
+    check(is_resource($h1), 'P1a: first lock() succeeds and returns a resource');
+
+    $threw = null;
+    try {
+        Publish::lock($stateDir);
+    } catch (\Throwable $t) {
+        $threw = $t;
+    }
+    check($threw instanceof \RuntimeException, 'P1b: a second concurrent lock() on the SAME destination throws');
+    check(
+        $threw !== null && str_contains($threw->getMessage(), 'already publishing') && str_contains($threw->getMessage(), $stateDir),
+        'P1c: the failure names the destination and reads as an actionable refusal (got: ' . ($threw->getMessage() ?? '') . ')'
+    );
+
+    // A DIFFERENT destination must be entirely independent — no contention.
+    $h2 = Publish::lock("$root/other-state");
+    check(is_resource($h2), 'P1d: lock() on a DIFFERENT destination is unaffected by P1a\'s still-held lock');
+    Publish::unlock($h2);
+
+    Publish::unlock($h1);
+    $h3 = null;
+    $threw2 = null;
+    try {
+        $h3 = Publish::lock($stateDir);
+    } catch (\Throwable $t) {
+        $threw2 = $t;
+    }
+    check($threw2 === null && is_resource($h3), 'P1e: after unlock(), the SAME destination can be locked again immediately');
+    if ($h3 !== null) {
+        Publish::unlock($h3);
+    }
+
+    check(is_file(Publish::lock_path($stateDir)), 'P1f: the lock file itself persists on disk (only its flock() STATE matters, never its content)');
+}
+
+// ======================================================================
+// P2 — recover(): all four crash-state combinations
+// ======================================================================
+echo "\n== P2: Publish::recover() deterministic crash reconciliation ==\n";
+{
+    // P2a: neither staging nor backup present (first-ever capture, or a
+    // clean prior run) -- no-op, no error, nothing to report.
+    $root = fresh_root('recover_a');
+    $stateDir = "$root/state";
+    $log = Publish::recover($stateDir);
+    check($log === [], 'P2a: nothing leftover -> recover() is a silent no-op (got: ' . json_encode($log) . ')');
+    check(!is_dir($stateDir), 'P2a: recover() never CREATES state/ out of nothing');
+
+    // P2b: leftover STAGING dir only -- always discarded, regardless of
+    // whether 'state' exists, and regardless of whether it "looks complete."
+    $root = fresh_root('recover_b');
+    $stateDir = "$root/state";
+    write_tree($stateDir, ['a.json' => "old\n"]);
+    write_tree(Publish::stage_dir($stateDir), ['a.json' => "PARTIAL-CANDIDATE\n", 'b.json' => "also partial\n"]);
+    $log = Publish::recover($stateDir);
+    check(count($log) === 1 && str_contains($log[0], 'abandoned staging'), 'P2b: reports removing the abandoned staging dir (got: ' . json_encode($log) . ')');
+    check(!is_dir(Publish::stage_dir($stateDir)), 'P2b: staging dir is gone');
+    check(read_tree($stateDir) === ['a.json' => "old\n"], 'P2b: the PUBLISHED tree is completely untouched by discarding an abandoned candidate');
+
+    // P2c: leftover BACKUP + state MISSING -- crashed between swap()'s two
+    // renames; the backup IS the last known-good tree and must be restored.
+    $root = fresh_root('recover_c');
+    $stateDir = "$root/state";
+    write_tree(Publish::backup_dir($stateDir), ['a.json' => "last-known-good\n"]);
+    check(!is_dir($stateDir), 'P2c precondition: state/ genuinely missing before recover()');
+    $log = Publish::recover($stateDir);
+    check(count($log) === 1 && str_starts_with($log[0], 'RECOVERED:'), 'P2c: reports a RECOVERED (capitalized -- this is the dangerous branch) restoration (got: ' . json_encode($log) . ')');
+    check(read_tree($stateDir) === ['a.json' => "last-known-good\n"], 'P2c: state/ now holds exactly the backup\'s content');
+    check(!is_dir(Publish::backup_dir($stateDir)), 'P2c: the backup name itself is gone (renamed away, not copied)');
+
+    // P2d: leftover BACKUP + state PRESENT -- swap() fully completed, only
+    // its own final cleanup didn't run; backup is stale, sweep it, state/
+    // is untouched (it's already the CORRECT published tree).
+    $root = fresh_root('recover_d');
+    $stateDir = "$root/state";
+    write_tree($stateDir, ['a.json' => "current-published\n"]);
+    write_tree(Publish::backup_dir($stateDir), ['a.json' => "stale-old\n"]);
+    $log = Publish::recover($stateDir);
+    check(count($log) === 1 && str_contains($log[0], 'stale backup'), 'P2d: reports sweeping a stale (non-dangerous) backup (got: ' . json_encode($log) . ')');
+    check(read_tree($stateDir) === ['a.json' => "current-published\n"], 'P2d: state/ (already correct) is untouched');
+    check(!is_dir(Publish::backup_dir($stateDir)), 'P2d: stale backup is gone');
+}
+
+// ======================================================================
+// P3 — write_entities(): correctness + disk-full fault injection
+// ======================================================================
+echo "\n== P3: Publish::write_entities() ==\n";
+{
+    $root = fresh_root('write');
+    $stateDir = "$root/state";
+    $staging = Publish::stage_dir($stateDir);
+    $entities = [
+        ['path' => 'options/core.json', 'content' => "{\"a\":1}\n"],
+        ['path' => 'posts/page/uuid1--home.md', 'content' => "---\n{}\n---\nbody\n"],
+    ];
+    Publish::write_entities($staging, $entities);
+    check(
+        read_tree($staging) === [
+            'options/core.json' => "{\"a\":1}\n",
+            'posts/page/uuid1--home.md' => "---\n{}\n---\nbody\n",
+        ],
+        'P3a: every entity lands at the right relative path with exact byte content'
+    );
+    check(!is_dir($stateDir), 'P3b: write_entities() never creates or touches the PUBLISHED dir, only the staging one');
+
+    // P3c: fault-injected "disk full" -- a writer that throws partway
+    // through. Simulates the AC's disk-full scenario deterministically,
+    // without needing a real constrained filesystem.
+    $root2 = fresh_root('write_fault');
+    $stateDir2 = "$root2/state";
+    write_tree($stateDir2, ['keep.json' => "PUBLISHED-BEFORE-THE-CRASH\n"]);
+    $staging2 = Publish::stage_dir($stateDir2);
+    $calls = 0;
+    $faultyWriter = function (string $path, string $content) use (&$calls) {
+        $calls++;
+        if ($calls > 2) {
+            throw new \RuntimeException('simulated disk-full on write #' . $calls);
+        }
+        Canon::write_file($path, $content);
+    };
+    $bigEntityList = [
+        ['path' => 'e1.json', 'content' => "1\n"],
+        ['path' => 'e2.json', 'content' => "2\n"],
+        ['path' => 'e3.json', 'content' => "3\n"], // this one triggers the simulated failure
+        ['path' => 'e4.json', 'content' => "4\n"],
+    ];
+    $threw3 = null;
+    try {
+        Publish::write_entities($staging2, $bigEntityList, $faultyWriter);
+    } catch (\Throwable $t) {
+        $threw3 = $t;
+    }
+    check($threw3 instanceof \RuntimeException && str_contains($threw3->getMessage(), 'simulated disk-full'), 'P3c: the injected failure propagates out of write_entities()');
+    check(
+        read_tree($stateDir2) === ['keep.json' => "PUBLISHED-BEFORE-THE-CRASH\n"],
+        'P3d: the PUBLISHED tree is byte-for-byte untouched by a failure during staging (the core DUO-3213 guarantee)'
+    );
+    // Clean up per P2b's already-proven contract before this scratch root's
+    // own shutdown handler runs, just to leave the fixture tidy.
+    $notes = Publish::recover($stateDir2);
+    check(count($notes) === 1 && str_contains($notes[0], 'abandoned staging'), 'P3e: recover() cleanly sweeps the partially-written staging dir on the next run');
+}
+
+// P3f: zero entities (a legitimate, if unusual, empty capture) must still
+// create the staging dir -- otherwise swap() below would spuriously refuse
+// with "no staged candidate" for a perfectly valid empty build.
+{
+    $root = fresh_root('write_empty');
+    $stateDir = "$root/state";
+    $staging = Publish::stage_dir($stateDir);
+    Publish::write_entities($staging, []);
+    check(is_dir($staging), 'P3f: write_entities() with zero entities still creates the staging dir');
+    Publish::swap($stateDir);
+    check(is_dir($stateDir) && read_tree($stateDir) === [], 'P3f: swap() then publishes a legitimately empty tree without error');
+}
+
+// ======================================================================
+// P4 — swap(): the atomic two-step rename and its invariants
+// ======================================================================
+echo "\n== P4: Publish::swap() ==\n";
+{
+    // P4a: ordinary swap, prior published tree exists.
+    $root = fresh_root('swap_a');
+    $stateDir = "$root/state";
+    write_tree($stateDir, ['old.json' => "old\n"]);
+    write_tree(Publish::stage_dir($stateDir), ['new.json' => "new\n"]);
+    Publish::swap($stateDir);
+    check(read_tree($stateDir) === ['new.json' => "new\n"], 'P4a: state/ now holds exactly the staged candidate');
+    check(!is_dir(Publish::stage_dir($stateDir)), 'P4a: staging name is gone (renamed away)');
+    check(!is_dir(Publish::backup_dir($stateDir)), 'P4a: backup was cleaned up after a successful swap');
+
+    // P4b: first-ever swap, no prior published tree at all.
+    $root = fresh_root('swap_b');
+    $stateDir = "$root/state";
+    write_tree(Publish::stage_dir($stateDir), ['first.json' => "first capture ever\n"]);
+    check(!is_dir($stateDir), 'P4b precondition: no prior state/');
+    Publish::swap($stateDir);
+    check(read_tree($stateDir) === ['first.json' => "first capture ever\n"], 'P4b: a first-ever capture (no prior tree) swaps in cleanly');
+
+    // P4c: refuses when no staged candidate exists.
+    $root = fresh_root('swap_c');
+    $stateDir = "$root/state";
+    write_tree($stateDir, ['a.json' => "a\n"]);
+    $threw = null;
+    try {
+        Publish::swap($stateDir);
+    } catch (\Throwable $t) {
+        $threw = $t;
+    }
+    check($threw instanceof \RuntimeException && str_contains($threw->getMessage(), 'no staged candidate'), 'P4c: swap() with nothing staged refuses loudly (got: ' . ($threw->getMessage() ?? 'no exception') . ')');
+    check(read_tree($stateDir) === ['a.json' => "a\n"], 'P4c: refusing to swap leaves state/ untouched');
+
+    // P4d: refuses on an unexpected pre-existing backup (invariant guard —
+    // should be unreachable while the capture lock is held correctly).
+    $root = fresh_root('swap_d');
+    $stateDir = "$root/state";
+    write_tree($stateDir, ['a.json' => "a\n"]);
+    write_tree(Publish::stage_dir($stateDir), ['b.json' => "b\n"]);
+    write_tree(Publish::backup_dir($stateDir), ['stale.json' => "should not be here\n"]);
+    $threw = null;
+    try {
+        Publish::swap($stateDir);
+    } catch (\Throwable $t) {
+        $threw = $t;
+    }
+    check($threw instanceof \RuntimeException && str_contains($threw->getMessage(), 'unexpected pre-existing'), 'P4d: swap() refuses when a backup dir already exists (invariant violation, not ordinary recovery) (got: ' . ($threw->getMessage() ?? 'no exception') . ')');
+}
+
+// ======================================================================
+// P5 — end-to-end: two full capture cycles using Publish's own primitives
+// ======================================================================
+echo "\n== P5: end-to-end capture-cycle simulation ==\n";
+{
+    $root = fresh_root('e2e');
+    $stateDir = "$root/state";
+
+    // Cycle 1: first-ever capture.
+    $lock = Publish::lock($stateDir);
+    $notes = Publish::recover($stateDir);
+    check($notes === [], 'P5a: cycle 1 has nothing to recover');
+    Publish::write_entities(Publish::stage_dir($stateDir), [['path' => 'options/core.json', 'content' => "{\"rev\":1}\n"]]);
+    Publish::swap($stateDir);
+    Publish::unlock($lock);
+    check(read_tree($stateDir) === ['options/core.json' => "{\"rev\":1}\n"], 'P5b: cycle 1 published successfully');
+    check(!is_dir(Publish::stage_dir($stateDir)) && !is_dir(Publish::backup_dir($stateDir)), 'P5c: cycle 1 leaves no staging/backup artifacts behind');
+
+    // Cycle 2: a real content change, proving the swap actually REPLACES
+    // (not merges) — a stale file from cycle 1 that cycle 2 doesn't
+    // re-emit must be gone afterward (matches spec's "entity-per-file,
+    // capture rebuilds the whole tree" semantics, the same thing the old
+    // clear_state_dir() achieved, just atomically now).
+    $lock = Publish::lock($stateDir);
+    Publish::recover($stateDir);
+    Publish::write_entities(Publish::stage_dir($stateDir), [['path' => 'options/core.json', 'content' => "{\"rev\":2}\n"]]);
+    Publish::swap($stateDir);
+    Publish::unlock($lock);
+    check(read_tree($stateDir) === ['options/core.json' => "{\"rev\":2}\n"], 'P5d: cycle 2 fully replaced the tree (rev 1 -> rev 2, no leftover files)');
+}
+
+// ======================================================================
+// P6 — real process kill (SIGKILL) mid-staging: the actual crash scenario
+// ======================================================================
+echo "\n== P6: real SIGKILL mid-publish ==\n";
+{
+    $root = fresh_root('kill');
+    $stateDir = "$root/state";
+    write_tree($stateDir, ['before.json' => "PUBLISHED-BEFORE-THE-KILL\n"]);
+
+    $driver = __DIR__ . '/support/capture_publish_kill_driver.php';
+    check(is_file($driver), 'P6 precondition: kill-driver support script exists');
+
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+    $proc = proc_open(['php', $driver, $stateDir], $descriptors, $pipes);
+    check(is_resource($proc), 'P6a: child capture process spawned');
+
+    if (is_resource($proc)) {
+        // Give it time to acquire the lock, run recover(), and get partway
+        // through writing a deliberately large, deliberately slowed-down
+        // staging tree (see the driver script) -- well before it could
+        // reach swap(). Then SIGKILL it, exactly like an OOM-killer would.
+        usleep(300_000);
+        proc_terminate($proc, SIGKILL);
+        // Drain pipes so proc_close() doesn't hang on a full buffer, then
+        // reap the process.
+        stream_get_contents($pipes[1]);
+        stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($proc);
+
+        check(
+            read_tree($stateDir) === ['before.json' => "PUBLISHED-BEFORE-THE-KILL\n"],
+            'P6b: the published tree is BYTE-IDENTICAL to before the kill -- a real SIGKILL mid-staging never touched it'
+        );
+        check(is_dir(Publish::stage_dir($stateDir)), 'P6c: a partially-written staging dir was left behind (expected -- evidence for the next recover())');
+
+        // The lock must be free again -- SIGKILL closes the fd, which
+        // releases the flock() the OS was holding for that process.
+        $relock = null;
+        $lockThrew = null;
+        try {
+            $relock = Publish::lock($stateDir);
+        } catch (\Throwable $t) {
+            $lockThrew = $t;
+        }
+        check($lockThrew === null && is_resource($relock), 'P6d: the capture lock is free again after the holder is SIGKILLed (OS-level release, not application cleanup)');
+
+        // And a normal follow-up cycle completes cleanly, proving recovery
+        // isn't just "safe," it's actually USABLE on the next run.
+        if ($relock !== null) {
+            $notes = Publish::recover($stateDir);
+            check(count($notes) === 1 && str_contains($notes[0], 'abandoned staging'), 'P6e: the next run\'s recover() sweeps the killed run\'s leftover staging dir');
+            Publish::write_entities(Publish::stage_dir($stateDir), [['path' => 'after.json', 'content' => "recovered-and-published\n"]]);
+            Publish::swap($stateDir);
+            Publish::unlock($relock);
+            check(read_tree($stateDir) === ['after.json' => "recovered-and-published\n"], 'P6f: the very next capture after a kill publishes normally');
+        }
+    }
+}
+
+// ======================================================================
+// P7 — Capture::check_transient_db_error() string matching (Reflection;
+// the only DB-adjacent logic that needs no live database at all)
+// ======================================================================
+echo "\n== P7: Capture::check_transient_db_error() (Reflection, stub \$wpdb) ==\n";
+{
+    // No setAccessible() call: a no-op since PHP 8.1 (private methods are
+    // directly ->invoke()-able via Reflection since then) and deprecated
+    // outright in 8.5 — this repo's target runtimes span both.
+    $method = new ReflectionMethod(\Duo\Capture::class, 'check_transient_db_error');
+
+    $wpdb = new stdClass();
+    $wpdb->last_error = '';
+    $GLOBALS['wpdb'] = $wpdb;
+
+    $threw = null;
+    try {
+        $method->invoke(null, 'nowhere');
+    } catch (\Throwable $t) {
+        $threw = $t;
+    }
+    check($threw === null, 'P7a: empty last_error -> no exception (the common case: every query succeeded)');
+
+    $GLOBALS['wpdb']->last_error = "WordPress database error Deadlock found when trying to get lock; try restarting transaction for query INSERT ...";
+    $threw = null;
+    try {
+        $method->invoke(null, 'mint _duo_uuid for post 5');
+    } catch (\Throwable $t) {
+        $threw = $t;
+    }
+    check($threw instanceof \Duo\TransientDbException, 'P7b: a real MySQL deadlock message -> TransientDbException (retryable)');
+
+    $GLOBALS['wpdb']->last_error = "WordPress database error Lock wait timeout exceeded; try restarting transaction for query INSERT ...";
+    $threw = null;
+    try {
+        $method->invoke(null, 'somewhere');
+    } catch (\Throwable $t) {
+        $threw = $t;
+    }
+    check($threw instanceof \Duo\TransientDbException, 'P7c: a real MySQL lock-wait-timeout message -> TransientDbException (retryable)');
+
+    $GLOBALS['wpdb']->last_error = "WordPress database error You have an error in your SQL syntax; ...";
+    $threw = null;
+    try {
+        $method->invoke(null, 'somewhere');
+    } catch (\Throwable $t) {
+        $threw = $t;
+    }
+    check(
+        $threw instanceof \RuntimeException && !($threw instanceof \Duo\TransientDbException),
+        'P7d: a DIFFERENT SQL error -> plain RuntimeException, NOT retried (a real error must never be silently retried into a false green)'
+    );
+}
+
+// ======================================================================
+echo "\n";
+if ($failures > 0) {
+    echo "FAIL: $failures check(s) failed\n";
+    exit(1);
+}
+echo "ALL PASSED\n";
+exit(0);

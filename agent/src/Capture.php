@@ -8,8 +8,30 @@ namespace Duo;
  * rows). Unclassified meta keys on in-scope entities abort loudly — the
  * loud-and-blocking gate. Entities without a uuid are unmanaged and invisible
  * (snapshot mode never mints, so a fresh environment snapshots as empty).
+ *
+ * DUO-3213 — publication is atomic and DB-consistent, not clear-then-write-
+ * in-place: every read build() performs, plus the identity-minting writes
+ * alongside them, runs inside one InnoDB `START TRANSACTION WITH CONSISTENT
+ * SNAPSHOT` (run_in_consistent_snapshot() below) so a single build() always
+ * sees one coherent point-in-time view, regardless of what concurrent
+ * WordPress requests commit meanwhile — never a tree assembled from two
+ * different moments. The resulting entities are written to a STAGING
+ * directory and only ever swapped into the published `state/` atomically
+ * (agent/src/Publish.php) once every file is down and validated; a crash,
+ * disk-full, or OOM-kill at any point before that swap leaves the
+ * previously-published tree completely untouched. Concurrent publishers to
+ * the same destination are serialized by a capture lock (Publish::lock()).
+ * See Publish.php's own docblock for the filesystem mechanics and
+ * check_transient_db_error()'s for the deadlock/lock-wait-timeout retry.
  */
 final class Capture {
+    /** 1 initial attempt + 2 retries on TransientDbException (see
+     *  check_transient_db_error()) — tuned for brief lock contention
+     *  against ordinary concurrent WordPress writes, not a sustained
+     *  outage; a sustained failure should surface immediately; retrying it
+     *  would just burn attempts reproducing the identical failure. */
+    private const MAX_DB_ATTEMPTS = 3;
+
     private Policy $policy;
     private Tokens $tokens;
     private string $repo;
@@ -56,35 +78,90 @@ final class Capture {
         $policy = Policy::load($repo);
         Snapshot::prune_dead_map($policy); // declared-table id_kinds get the same dead-map hygiene as post/term/tt
         $c = new self($repo, $policy);
-        $build = $c->build(true, $forceUnresolvedRefs);
 
         $intoRepo = ($outDir === null);
         $stateDir = $intoRepo ? $c->repo . '/state' : rtrim($outDir, '/');
-        self::clear_state_dir($stateDir);
-        foreach ($build['entities'] as $e) {
-            Canon::write_file($stateDir . '/' . $e['path'], $e['content']);
-        }
-        $lint = Lint::scan_tree($stateDir, $c->policy);
-        if ($lint) {
-            $build['warnings'][] = count($lint)
-                . ' suspicious unrewritten ref(s) in captured state — run: wp duo lint --repo=' . $c->repo;
-        }
-        if ($intoRepo) {
-            foreach ($build['media'] as $file => $src) {
-                $dst = $c->repo . '/media/' . $file;
-                if (!is_file($dst)) {
-                    Canon::write_file($dst, Canon::read_file($src));
+
+        self::verify_engine_support($policy);
+
+        // DUO-3213: a capture lock serializes concurrent publishers to this
+        // SAME destination (Publish::lock() fails cleanly, non-blocking, if
+        // another capture already holds it — see its own docblock for why).
+        // Held for the full remainder of this method, including the ledger
+        // bookkeeping tail below: that's "publication," end to end, and two
+        // publishers interleaving any part of it is exactly what the lock
+        // exists to rule out.
+        $lock = Publish::lock($stateDir);
+        try {
+            // Deterministic recovery of whatever a prior crashed run left
+            // behind MUST happen before this run builds anything of its
+            // own — see Publish::recover()'s docblock for why holding the
+            // lock is what makes "leftover staging/backup dir" unambiguous.
+            $notes = Publish::recover($stateDir);
+
+            // The one consistent-snapshot transaction: every SELECT build()
+            // issues, plus the _duo_uuid/duo_map identity-minting writes
+            // alongside them, see one coherent point-in-time view. Retries
+            // on its own (see run_in_consistent_snapshot()) if a concurrent
+            // WordPress write collides with one of THIS build's own writes.
+            $build = self::run_in_consistent_snapshot(fn() => $c->build(true, $forceUnresolvedRefs));
+
+            // Build + validate the COMPLETE candidate in an isolated
+            // staging location — 'state/' itself is never touched until
+            // Publish::swap() below, so a failure here (disk-full mid-
+            // write, a crash, anything) leaves the previously-published
+            // tree completely untouched.
+            $staging = Publish::stage_dir($stateDir);
+            Publish::write_entities($staging, $build['entities']);
+            // Lint against the STAGED candidate (relocated from the old
+            // post-publish call — strictly more correct: the warning now
+            // reflects the tree about to be published, not one already
+            // live) — still warn-only, unchanged semantics. Upgrading this
+            // to a hard gate is DUO-3208's "repository semantic compiler"
+            // territory, deliberately decoupled from this issue — see the
+            // DUO-3213 issue comments/PR body.
+            $lint = Lint::scan_tree($staging, $c->policy);
+            if ($lint) {
+                $build['warnings'][] = count($lint)
+                    . ' suspicious unrewritten ref(s) in captured state — run: wp duo lint --repo=' . $c->repo;
+            }
+
+            // The only step that ever touches 'state/': an atomic two-step
+            // rename swap (agent/src/Publish.php). Before this line, a
+            // crash changes nothing an outside reader (git, a human) can
+            // observe; after it returns, 'state/' is unconditionally the
+            // complete new tree.
+            Publish::swap($stateDir);
+
+            if ($intoRepo) {
+                foreach ($build['media'] as $file => $src) {
+                    $dst = $c->repo . '/media/' . $file;
+                    if (!is_file($dst)) {
+                        Canon::write_file($dst, Canon::read_file($src));
+                    }
                 }
+                // Ledger/base hashes advance only AFTER the swap above
+                // succeeded — "in the same success protocol as tree
+                // publication" (the issue's own non-negotiable constraint):
+                // a crash before this point leaves duo_state exactly as it
+                // was, which is safe (plan/drift then sees the untouched
+                // repo state as unchanged, since 'state/' itself was never
+                // touched either); a crash AFTER 'state/' updates but
+                // BEFORE this completes just leaves duo_state briefly
+                // stale, which fails toward "more drift visible," never
+                // toward silently missing a real change.
+                foreach ($build['entities'] as $e) {
+                    // task #88: hash the entity's derived-aware basis when it has
+                    // one (posts only, today — see build()'s post-entity
+                    // construction above); every other entity type has no
+                    // 'hash_basis' key and falls back to hashing its literal
+                    // content, unchanged from before this task.
+                    Ledger::set_state_hash($e['uuid'], $e['type'], hash('sha256', $e['hash_basis'] ?? $e['content']));
+                }
+                Ledger::prune_state(array_column($build['entities'], 'uuid'));
             }
-            foreach ($build['entities'] as $e) {
-                // task #88: hash the entity's derived-aware basis when it has
-                // one (posts only, today — see build()'s post-entity
-                // construction above); every other entity type has no
-                // 'hash_basis' key and falls back to hashing its literal
-                // content, unchanged from before this task.
-                Ledger::set_state_hash($e['uuid'], $e['type'], hash('sha256', $e['hash_basis'] ?? $e['content']));
-            }
-            Ledger::prune_state(array_column($build['entities'], 'uuid'));
+        } finally {
+            Publish::unlock($lock);
         }
 
         $counts = ['post' => 0, 'term' => 0, 'menu' => 0, 'options' => 0];
@@ -94,7 +171,7 @@ final class Capture {
         return [
             'counts' => $counts,
             'media' => count($build['media']),
-            'warnings' => $build['warnings'],
+            'warnings' => array_merge($notes, $build['warnings']),
             'state_dir' => $stateDir,
         ];
     }
@@ -113,7 +190,22 @@ final class Capture {
         $policy = Policy::load($repo);
         Snapshot::prune_dead_map($policy);
         $c = new self($repo, $policy);
-        $build = $c->build(false, $forceUnresolvedRefs);
+
+        self::verify_engine_support($policy);
+
+        // DUO-3213: read-only (mint=false — build() never writes in this
+        // mode), but still wrapped in the SAME consistent-snapshot
+        // transaction as run() above. Apply::build_plan() diffs this
+        // against the repo's own files for its three-way compare, and a
+        // torn read here — half this build's SELECTs from before a
+        // concurrent edit, half from after — could manufacture a bogus
+        // plan/conflict/drift finding just as easily as an inconsistent
+        // read could corrupt a captured tree. No capture lock needed: this
+        // mode performs zero writes, so it can't collide with a concurrent
+        // publisher's filesystem operations, and MVCC gives it a coherent
+        // view regardless of what a concurrent capture() is doing on the
+        // DB side.
+        $build = self::run_in_consistent_snapshot(fn() => $c->build(false, $forceUnresolvedRefs));
         $out = [];
         foreach ($build['entities'] as $e) {
             // task #88: same derived-aware basis as run() above — this is
@@ -197,6 +289,158 @@ final class Capture {
     }
 
     // ------------------------------------------------------------------
+    // DUO-3213: consistent-snapshot transaction helpers (run()/snapshot())
+    // ------------------------------------------------------------------
+
+    /**
+     * The consistent-snapshot transaction above only means what it claims
+     * on InnoDB (MVCC + undo logs give every SELECT in the transaction one
+     * stable point-in-time view). MyISAM (WordPress's historical default
+     * on some old hosts, and occasionally hand-picked per table) has
+     * neither — a plain SELECT there always reads the latest committed
+     * data regardless of any surrounding transaction, so `START
+     * TRANSACTION WITH CONSISTENT SNAPSHOT` would silently give NO real
+     * isolation guarantee for it. Rather than claim a guarantee the
+     * storage engine can't back — a "warning-only correctness failure,"
+     * exactly what the project constitution rules out — this refuses
+     * loudly and names every offending table before any read happens.
+     *
+     * Checked against every table Capture's own build() reads from
+     * directly, Ledger's own tables (duo_map/duo_state/duo_kv — created by
+     * Ledger::ensure(), already run by the time this is called), and every
+     * manifest-declared custom table (Snapshot::capture() reads those
+     * too). A declared table that doesn't exist on this environment (its
+     * plugin isn't installed here) is silently skipped — mirroring
+     * Snapshot.php's own tolerant `SHOW TABLES LIKE` pattern: there's
+     * nothing to protect if there's no table.
+     */
+    private static function verify_engine_support(Policy $policy): void {
+        global $wpdb;
+        $prefix = $wpdb->prefix;
+        $tables = [
+            $wpdb->posts, $wpdb->postmeta, $wpdb->terms, $wpdb->term_taxonomy,
+            $wpdb->term_relationships, $wpdb->termmeta, $wpdb->options, $wpdb->users,
+            $prefix . 'duo_map', $prefix . 'duo_state', $prefix . 'duo_kv',
+        ];
+        foreach (array_keys($policy->declared_tables()) as $name) {
+            $tables[] = $prefix . preg_replace('/[^A-Za-z0-9_]/', '', $name);
+        }
+        $tables = array_values(array_unique($tables));
+
+        $placeholders = implode(',', array_fill(0, count($tables), '%s'));
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ($placeholders)",
+            $tables
+        ), ARRAY_A) ?: [];
+
+        $bad = [];
+        foreach ($rows as $r) {
+            $engine = strtoupper((string) ($r['ENGINE'] ?? ''));
+            if ($engine !== '' && $engine !== 'INNODB') {
+                $bad[] = "{$r['TABLE_NAME']} (engine: $engine)";
+            }
+        }
+        if ($bad) {
+            sort($bad);
+            throw new \RuntimeException(
+                'duo: capture refused — consistent-snapshot isolation requires InnoDB, but the following table(s) '
+                . "capture reads from use a different storage engine (no MVCC/undo log, so a consistent-snapshot "
+                . "transaction gives no real point-in-time guarantee for them):\n  - " . implode("\n  - ", $bad)
+                . "\nConvert the table(s) to InnoDB (e.g. ALTER TABLE <table> ENGINE=InnoDB) and re-run capture."
+            );
+        }
+    }
+
+    /**
+     * Runs $fn() inside one InnoDB consistent-read transaction so every
+     * SELECT it issues (build() performs many, across posts/terms/menus/
+     * options/tables) sees one coherent point-in-time view — "a candidate
+     * tree assembled from different moments" is the exact failure mode
+     * this whole mechanism exists to close. $wpdb never throws on a failed
+     * query (see check_transient_db_error()'s docblock), so a deadlock or
+     * lock-wait timeout only surfaces at the checkpoints this class
+     * explicitly checks.
+     *
+     * Bounded retry: those two specific errors are the standard signature
+     * of a concurrent, ordinary WordPress write losing a race with one of
+     * THIS build's own mutating statements (the _duo_uuid mint inserts;
+     * Snapshot::capture()'s typed-snapshot writes) — transient by nature,
+     * and the standard fix is "roll back, retry the whole transaction from
+     * a fresh snapshot." Any OTHER \Throwable — every existing loud-and-
+     * blocking gate in build() included — is a real, deterministic failure
+     * and is never retried; retrying it would just burn attempts
+     * reproducing the identical failure.
+     */
+    private static function run_in_consistent_snapshot(callable $fn) {
+        global $wpdb;
+        $attempt = 0;
+        while (true) {
+            $attempt++;
+            $wpdb->query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+            self::check_transient_db_error('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+            try {
+                $result = $fn();
+                $wpdb->query('COMMIT');
+                self::check_transient_db_error('COMMIT');
+                return $result;
+            } catch (TransientDbException $e) {
+                $wpdb->query('ROLLBACK');
+                if ($attempt >= self::MAX_DB_ATTEMPTS) {
+                    throw new \RuntimeException(
+                        "duo: capture failed after $attempt attempt(s) — repeated transient database contention "
+                        . "(a concurrent WordPress write kept colliding with capture's own identity-minting "
+                        . 'writes): ' . $e->getMessage()
+                    );
+                }
+                usleep(200_000 * $attempt); // 200ms, 400ms, ... — short: this targets brief lock contention, not an outage
+                continue;
+            } catch (\Throwable $t) {
+                $wpdb->query('ROLLBACK');
+                throw $t;
+            }
+        }
+    }
+
+    /**
+     * DUO-3213's "documented retry" — see run_in_consistent_snapshot()'s
+     * docblock for the full rationale. $wpdb never throws on a failed
+     * query: it records the driver's error string into $wpdb->last_error
+     * and returns false/null instead, so this is the one signal available
+     * without adopting DUO-3206's full unchecked-mutation-site sweep
+     * (~65 sites across the whole engine, a separate, broader issue) — this
+     * is deliberately narrow, called only at checkpoints this class
+     * controls directly: right after START TRANSACTION/COMMIT above,
+     * right after the identity-minting INSERTs in ensure_post_uuid()/
+     * ensure_term_uuid(), and right after the Snapshot::capture() call in
+     * build(). A deadlock buried between two writes INSIDE Snapshot::
+     * capture()'s own internal sequence — between this checkpoint and the
+     * previous one — is a documented residual gap, not silently claimed as
+     * covered; see the DUO-3213 PR/issue evidence.
+     *
+     * Matches literal MySQL/MariaDB error text for errno 1213 (deadlock)
+     * and 1205 (lock wait timeout) — stable across server versions, and
+     * avoids depending on $wpdb->dbh's concrete driver type to extract a
+     * numeric errno.
+     *
+     * Any OTHER SQL error at these checkpoints is treated as real, not
+     * transient: silently continuing past a mutation that didn't do what
+     * the code assumed is exactly the kind of half-consistent state this
+     * issue exists to prevent, so it throws immediately, non-retryably.
+     */
+    private static function check_transient_db_error(string $where): void {
+        global $wpdb;
+        $err = (string) $wpdb->last_error;
+        if ($err === '') {
+            return;
+        }
+        if (stripos($err, 'Deadlock found') !== false || stripos($err, 'Lock wait timeout') !== false) {
+            throw new TransientDbException("duo: transient DB contention at $where: $err");
+        }
+        throw new \RuntimeException("duo: unexpected SQL error at $where: $err");
+    }
+
+    // ------------------------------------------------------------------
 
     /** @return array{entities: array, media: array<string,string>, warnings: string[]} */
     private function build(bool $mint, bool $forceUnresolvedRefs = false): array {
@@ -273,6 +517,7 @@ final class Capture {
         // after post files — its POSITION in the array is cosmetic; only the
         // TIMING of the capture() call itself (identity side effects) matters.
         $tableEntities = Snapshot::capture($this->policy, $this->tokens, $mint);
+        self::check_transient_db_error('Snapshot::capture()'); // DUO-3213 checkpoint — see its docblock
 
         // ---- term files ----
         foreach ($terms as $t) {
@@ -598,8 +843,20 @@ final class Capture {
             }
             $uuid = Uuid::v7();
             $wpdb->insert($wpdb->postmeta, ['post_id' => $id, 'meta_key' => '_duo_uuid', 'meta_value' => $uuid]);
+            // Checked immediately, not only at this function's end: a
+            // later query that happens to succeed would overwrite
+            // $wpdb->last_error and mask a deadlock on THIS specific
+            // insert (see check_transient_db_error()'s docblock on why
+            // that matters — a killed transaction doesn't stop the client
+            // from sending more statements, it just stops them being part
+            // of the SAME logical unit of work).
+            self::check_transient_db_error("mint _duo_uuid for post $id");
         }
         Ledger::set($uuid, $entityType, Ledger::KIND_POST, $id);
+        // DUO-3213 checkpoint: catches a deadlock/lock-wait-timeout from
+        // Ledger::set()'s own two queries — see check_transient_db_error()'s
+        // docblock.
+        self::check_transient_db_error("identity ledger for post $id");
         return $uuid;
     }
 
@@ -616,9 +873,13 @@ final class Capture {
             }
             $uuid = Uuid::v7();
             $wpdb->insert($wpdb->termmeta, ['term_id' => $termId, 'meta_key' => '_duo_uuid', 'meta_value' => $uuid]);
+            // DUO-3213 checkpoint — see ensure_post_uuid()'s identical comment.
+            self::check_transient_db_error("mint _duo_uuid for term $termId");
         }
         Ledger::set($uuid, $entityType, Ledger::KIND_TERM, $termId);
+        self::check_transient_db_error("identity ledger (term) for term $termId");
         Ledger::set($uuid, $entityType, Ledger::KIND_TT, (int) $t->term_taxonomy_id);
+        self::check_transient_db_error("identity ledger (term_taxonomy) for term $termId");
         return $uuid;
     }
 
@@ -1429,24 +1690,6 @@ final class Capture {
             foreach ($v as $x) {
                 self::assert_plain($x, $ctx);
             }
-        }
-    }
-
-    private static function clear_state_dir(string $dir): void {
-        if (!is_dir($dir)) {
-            return;
-        }
-        $real = realpath($dir);
-        if ($real === false || !str_contains($real, 'state')) {
-            // refuse to recursively delete anything that doesn't look like a state dir
-            return;
-        }
-        $it = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($real, \FilesystemIterator::SKIP_DOTS),
-            \RecursiveIteratorIterator::CHILD_FIRST
-        );
-        foreach ($it as $f) {
-            $f->isDir() ? rmdir($f->getPathname()) : unlink($f->getPathname());
         }
     }
 }
