@@ -245,3 +245,30 @@ claim in place, and report. When nothing is claimable, report each blocked
 issue and its blocker, poll at the configured cadence, and stop when the
 limit expires — never idle silently, never mark anything Done to make the
 queue look better than it is.
+
+## Field notes — shell & process hygiene (hard-won, 2026-08-06)
+
+Lessons from live multi-agent operation on this repo; each one cost real
+debugging time. Follow them; extend this list when you pay for a new one.
+
+- **Checking for a running conformance/sweep process:** naive
+  `pgrep -f "conformance/run.sh"` matches YOUR OWN watcher/daemon process
+  (its command line contains the pattern) and any other agent's watcher —
+  two watchers see each other forever (a self-sustaining false-busy
+  deadlock, observed live). Use both defenses: the bracket trick AND a
+  start-anchor — `pgrep -f "^[b]ash sandbox/conformance/run.sh"` — the
+  character class can't match its own literal text, and the anchor
+  excludes wrapper shells that merely EMBED the string (also observed
+  live: an unanchored bracket pattern still matched a `bash -lc` watcher
+  whose body quoted the plain literal).
+- **Posting content to Linear (or any API) from a shell:** never build the
+  payload inside a double-quoted shell argument. Double quotes do NOT
+  suppress backticks or `$var` — backtick-quoted code spans in comment
+  text get silently EXECUTED and blanked, and `$path` in a code sample
+  expanded to the entire host `$PATH` inside a posted issue body (observed
+  live; three artifacts corrupted, caught only by re-fetching). Pattern
+  that is safe by construction: write the payload to a JSON spec FILE with
+  the file tool (content never touches a command line), then POST the file
+  (`python3 helper.py spec.json`). And always **re-fetch what actually
+  posted** — the write succeeding says nothing about what the shell did to
+  the bytes first.
