@@ -54,6 +54,8 @@ final class Acf {
 
     /** @var array<string, array|null> field key -> unserialized post_content (null = no such field). */
     private array $fieldDefs = [];
+    /** @var array<string,string> field key -> canonical source path */
+    private array $fieldDefPaths = [];
     private bool $repositoryPrimed = false;
 
     public function __construct(Policy $policy) {
@@ -76,7 +78,12 @@ final class Acf {
             if (($entity['type'] ?? '') !== 'post') {
                 continue;
             }
-            [$front, $body] = \Duo\Canon::parse_post_file((string) $entity['content']);
+            if (isset($entity['data'])) {
+                $front = $entity['data'];
+                $body = (string) ($entity['body'] ?? '');
+            } else {
+                [$front, $body] = \Duo\Canon::parse_post_file((string) $entity['content']);
+            }
             if (($front['type'] ?? '') !== 'acf-field') {
                 continue;
             }
@@ -86,7 +93,92 @@ final class Acf {
             }
             $decoded = @unserialize($body, ['allowed_classes' => false]);
             $this->fieldDefs[$fieldKey] = is_array($decoded) ? $decoded : null;
+            $this->fieldDefPaths[$fieldKey] = (string) ($entity['path'] ?? '');
         }
+    }
+
+    /**
+     * Compiler extension: prove that the schema post named by every ACF
+     * shadow key exists in this same immutable revision and that the
+     * canonical value has the scalar/list token shape that schema declares.
+     * A clean JSON/Git merge can otherwise pair a relationship value with a
+     * field changed to image (or delete its field definition) while every
+     * individual file remains syntactically valid.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public function repository_diagnostics(array $tree): array {
+        $out = [];
+        foreach ($this->fieldDefs as $key => $def) {
+            if ($def !== null && is_string($def['type'] ?? null) && $def['type'] !== '') {
+                continue;
+            }
+            $out[] = [
+                'code' => 'adapter_schema_content_mismatch',
+                'path' => $this->fieldDefPaths[$key] ?? '',
+                'locator' => 'body',
+                'message' => "ACF field definition '$key' is not a serialized field schema with a type",
+            ];
+        }
+        foreach ($tree as $entity) {
+            if (($entity['type'] ?? '') !== 'post') {
+                continue;
+            }
+            $front = $entity['data'] ?? \Duo\Canon::parse_post_file((string) $entity['content'])[0];
+            $meta = (array) ($front['meta'] ?? []);
+            foreach ($meta as $shadow => $pointer) {
+                if (!is_string($shadow) || !str_starts_with($shadow, '_')) {
+                    continue;
+                }
+                $name = substr($shadow, 1);
+                if (!array_key_exists($name, $meta) || !is_string($pointer)
+                    || !preg_match(self::FIELD_KEY_PATTERN, $pointer)) {
+                    continue;
+                }
+                $def = $this->fieldDefs[$pointer] ?? null;
+                if ($def === null) {
+                    $out[] = [
+                        'code' => 'adapter_schema_content_mismatch',
+                        'path' => (string) $entity['path'],
+                        'locator' => "meta.$shadow",
+                        'message' => "ACF value '$name' points to field schema '$pointer', absent or invalid in this revision",
+                    ];
+                    continue;
+                }
+                $rule = $this->rule_for_type((string) ($def['type'] ?? ''), $def);
+                $ref = (string) ($rule['ref'] ?? '');
+                if ($ref === '') {
+                    continue;
+                }
+                $value = $meta[$name];
+                $many = str_ends_with($ref, '[]');
+                $kind = $many ? substr($ref, 0, -2) : $ref;
+                $values = $many ? (is_array($value) ? $value : null) : [$value];
+                if ($values === null || (!$many && is_array($value))) {
+                    $out[] = [
+                        'code' => 'adapter_schema_content_mismatch',
+                        'path' => (string) $entity['path'],
+                        'locator' => "meta.$name",
+                        'message' => "ACF field '$pointer' ($kind" . ($many ? '[]' : '') . ') has the wrong scalar/list shape',
+                    ];
+                    continue;
+                }
+                foreach ($values as $i => $v) {
+                    $valid = $v === null || ($kind === 'user'
+                        ? is_string($v) && str_starts_with($v, 'user:')
+                        : is_string($v) && preg_match('/^\{\{' . preg_quote($kind, '/') . ':[0-9a-f-]{36}\}\}$/', $v));
+                    if (!$valid) {
+                        $out[] = [
+                            'code' => 'adapter_schema_content_mismatch',
+                            'path' => (string) $entity['path'],
+                            'locator' => "meta.$name" . ($many ? "[$i]" : ''),
+                            'message' => "ACF field '$pointer' expects a canonical $kind reference token",
+                        ];
+                    }
+                }
+            }
+        }
+        return $out;
     }
 
     /**

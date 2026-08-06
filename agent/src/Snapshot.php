@@ -840,6 +840,7 @@ final class Snapshot {
                 'path' => substr($f, strlen($stateDir) + 1),
                 'hash' => hash('sha256', $content),
                 'content' => $content,
+                'data' => $front,
             ];
         }
         return $out;
@@ -860,7 +861,7 @@ final class Snapshot {
         if ($decl === null || ($decl['identity']['mode'] ?? 'mapped') !== 'natural_key') {
             return null;
         }
-        $front = Canon::decode($entity['content']);
+        $front = $entity['data'] ?? Canon::decode($entity['content']);
         $col = $decl['identity']['column'];
         $value = $front['columns'][$col] ?? null;
         if (!is_string($value) || $value === '') {
@@ -900,7 +901,7 @@ final class Snapshot {
         global $wpdb;
         $decl = self::row_tables($policy)[$entity['type']];
         $idKind = $decl['id_kind'];
-        $front = Canon::decode($entity['content']);
+        $front = $entity['data'] ?? Canon::decode($entity['content']);
         $uuid = $front['uuid'];
         if (Ledger::id_for($uuid, $idKind) !== null) {
             return false;
@@ -934,7 +935,7 @@ final class Snapshot {
         global $wpdb;
         $decl = self::row_tables($policy)[$entity['type']];
         $idKind = $decl['id_kind'];
-        $front = Canon::decode($entity['content']);
+        $front = $entity['data'] ?? Canon::decode($entity['content']);
         $uuid = $front['uuid'];
         $localId = Ledger::id_for($uuid, $idKind)
             ?? throw new \RuntimeException("duo: table row $uuid ({$entity['type']}) missing from ledger after phase 1");

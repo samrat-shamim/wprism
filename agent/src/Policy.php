@@ -560,6 +560,32 @@ final class Policy {
         }
     }
 
+    /**
+     * Optional offline cross-entity constraints supplied by the same pinned
+     * interpreter artifact that already classifies schema-driven meta. This
+     * is deliberately not a second extension loader or a plugin callback:
+     * compiler constraints execute only manifest-shipped interpreter code,
+     * and that interpreter's bytes are part of the compiled artifact hash.
+     *
+     * @return array<int,array<string,mixed>> stable compiler diagnostics
+     */
+    public function repository_constraint_diagnostics(array $tree): array {
+        $out = [];
+        foreach ($this->interpreters() as $name => $i) {
+            if (!method_exists($i, 'repository_diagnostics')) {
+                continue;
+            }
+            foreach ((array) $i->repository_diagnostics($tree) as $d) {
+                if (!is_array($d)) {
+                    throw new \RuntimeException("duo: interpreter '$name' returned a non-array repository diagnostic");
+                }
+                $d['adapter'] ??= $name;
+                $out[] = $d;
+            }
+        }
+        return $out;
+    }
+
     /** @return array{rule:?array, source:?string} */
     public function post_type_rule_details(string $postType): array {
         foreach ($this->manifests as $m) {

@@ -24,6 +24,7 @@ require_once __DIR__ . '/src/Canary.php';
 require_once __DIR__ . '/src/Snapshot.php';
 require_once __DIR__ . '/src/Capture.php';
 require_once __DIR__ . '/src/RepositoryAuthorization.php';
+require_once __DIR__ . '/src/RepositoryCompiler.php';
 require_once __DIR__ . '/src/Apply.php';
 require_once __DIR__ . '/src/Deploy.php';
 require_once __DIR__ . '/src/Journal.php';
