@@ -4,7 +4,8 @@ namespace Duo\Orchestrator;
 /**
  * Turns the JSON from `wp duo plan --format=json` (agent/src/Apply.php
  * build_plan(): keys create/update/unchanged/drift/conflict/adopt/
- * collision/delete, each a list of {uuid,type,path?,blocked?,env_id?}) into
+ * collision/delete/delete_conflict/deleted, each a list of
+ * {uuid,type,path?,blocked?,env_id?,reason?}) into
  * `duo status`'s human summary.
  *
  * More top-level keys live outside BUCKETS and get their own handling
@@ -28,7 +29,10 @@ namespace Duo\Orchestrator;
  *     doesn't say what's actually pending.
  */
 final class PlanSummary {
-    private const BUCKETS = ['create', 'update', 'adopt', 'unchanged', 'drift', 'conflict', 'collision', 'delete'];
+    private const BUCKETS = [
+        'create', 'update', 'adopt', 'unchanged', 'drift', 'conflict',
+        'collision', 'delete', 'delete_conflict', 'deleted',
+    ];
 
     /** @return array{lines: list<string>, ok: bool} */
     public static function render(array $plan): array {
@@ -56,7 +60,10 @@ final class PlanSummary {
             $lines[] = 'environment drift detected — capture-first workflow recommended';
         }
 
-        $blocked = array_values(array_filter($plan['delete'] ?? [], fn($r) => isset($r['blocked'])));
+        $blocked = array_values(array_filter(
+            array_merge($plan['delete'] ?? [], $plan['delete_conflict'] ?? []),
+            fn($r) => isset($r['blocked'])
+        ));
         if ($blocked) {
             $lines[] = 'blocked deletes (referential guard):';
             foreach ($blocked as $r) {
@@ -68,6 +75,13 @@ final class PlanSummary {
             $lines[] = 'CONFLICT (repo and environment both changed since last sync):';
             foreach ($plan['conflict'] as $r) {
                 $lines[] = '  - ' . self::label($r);
+            }
+        }
+
+        if (!empty($plan['delete_conflict'])) {
+            $lines[] = 'DELETE_CONFLICT (target differs from the tombstone expected base):';
+            foreach ($plan['delete_conflict'] as $r) {
+                $lines[] = '  - ' . self::label($r) . ': ' . ($r['reason'] ?? 'deletion base mismatch');
             }
         }
 
@@ -160,6 +174,7 @@ final class PlanSummary {
         // case applies would be fragile in a way structured plan data
         // isn't — ok is computed from counts/flags only, never from strings.
         $ok = $counts['conflict'] === 0
+            && $counts['delete_conflict'] === 0
             && $counts['collision'] === 0
             && count($codeMismatch) === 0
             && !$incompleteApply

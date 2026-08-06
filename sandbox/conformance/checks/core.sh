@@ -29,3 +29,159 @@ diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-identity-recovered" \
   || fail "restoring the page's original UUID did not restore deterministic capture"
 
 pass "copied and invalid _duo_uuid metadata block before atomic state publication; original identities recover deterministically"
+
+# DUO-3210: absence alone is not authority; capture replaces the prior Home
+# page with a versioned tombstone. A target-only comment blocks deletion,
+# the explicit force path stays loud, comments are preserved, and the
+# tombstone receipt makes retry a no-op.
+HOME_FILE=$(find "$CONF_REPO1/state/posts/page" -name '*--home.md' -print -quit)
+HOME_UUID=$(basename "$HOME_FILE" | sed -E 's/--home\.md$//')
+HOME1=$(wp_conf1 post list --post_type=page --name=home --field=ID | tr -d '[:space:]')
+HOME2=$(wp_conf2 post list --post_type=page --name=home --field=ID | tr -d '[:space:]')
+COMMENT2=$(wp_conf2 comment create --comment_post_ID="$HOME2" --comment_content='runtime deletion guard' --comment_author='Runtime Visitor' --porcelain)
+wp_conf1 post delete "$HOME1" --force >/dev/null
+DELETE_CAPTURE=$(wp_conf1 duo capture --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+[ "$(jq -r '.counts.deletion' <<<"$DELETE_CAPTURE")" -ge 1 ] \
+  || fail "page deletion did not emit a tombstone: $DELETE_CAPTURE"
+[ -f "$CONF_REPO1/state/deletions/$HOME_UUID.json" ] || fail "Home tombstone was not published"
+git -C "$CONF_REPO1" add -A
+git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: explicit page deletion'
+git -C "$CONF_REPO1" push -q origin main
+git -C "$CONF_REPO2" pull -q origin main
+
+DELETE_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e --arg uuid "$HOME_UUID" '.delete | any(.uuid == $uuid and (.blocked | contains("comments reference")))' \
+  <<<"$DELETE_PLAN" >/dev/null || fail "target-only comment did not block the explicit page deletion: $DELETE_PLAN"
+DELETE_RC=0
+DELETE_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || DELETE_RC=$?
+[ "$DELETE_RC" -ne 0 ] && grep -qi 'referential guard' <<<"$DELETE_OUT" \
+  || fail "guarded page delete was not refused: $DELETE_OUT"
+DELETE_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e '.canary == "clean" and (.warnings | any(contains("FORCED delete")))' <<<"$DELETE_OUT" >/dev/null \
+  || fail "forced page deletion was not loud and clean: $DELETE_OUT"
+[ -z "$(wp_conf2 post list --post_type=page --name=home --field=ID)" ] || fail "Home page survived exact deletion"
+[ "$(wp_conf2 comment get "$COMMENT2" --field=comment_ID)" = "$COMMENT2" ] || fail "runtime comment was cascaded or lost"
+RETRY_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e --arg uuid "$HOME_UUID" '(.delete | length) == 0 and (.delete_conflict | length) == 0 and (.deleted | any(.uuid == $uuid))' \
+  <<<"$RETRY_PLAN" >/dev/null || fail "page tombstone retry did not settle as deleted: $RETRY_PLAN"
+pass "explicit page tombstone guards and preserves comments, verifies exact deletion, and retries idempotently"
+
+# Local edit: the tombstone expected base matches duo_state, but the live
+# hash does not. Editing creates a derived revision child; the adapter
+# explicitly cascades and verifies revisions while --force-theirs reports
+# the overridden delete conflict.
+HELLO_FILE=$(find "$CONF_REPO1/state/posts/post" -name '*--hello-conformance.md' -print -quit)
+HELLO_UUID=$(basename "$HELLO_FILE" | sed -E 's/--hello-conformance\.md$//')
+HELLO1=$(wp_conf1 post list --post_type=post --name=hello-conformance --field=ID | tr -d '[:space:]')
+HELLO2=$(wp_conf2 post list --post_type=post --name=hello-conformance --field=ID | tr -d '[:space:]')
+wp_conf2 post update "$HELLO2" --post_content='target-only deletion conflict' >/dev/null
+wp_conf1 post delete "$HELLO1" --force >/dev/null
+wp_conf1 duo capture --repo=/siterepo >/dev/null
+git -C "$CONF_REPO1" add -A
+git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: delete against target local edit'
+git -C "$CONF_REPO1" push -q origin main
+git -C "$CONF_REPO2" pull -q origin main
+LOCAL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e --arg uuid "$HELLO_UUID" '.delete_conflict | any(.uuid == $uuid and (.reason | contains("changed locally")) and (has("blocked") | not))' \
+  <<<"$LOCAL_PLAN" >/dev/null || fail "local edit did not become a deletion conflict: $LOCAL_PLAN"
+LOCAL_RC=0
+LOCAL_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || LOCAL_RC=$?
+[ "$LOCAL_RC" -ne 0 ] && grep -qi 'deletion conflicts' <<<"$LOCAL_OUT" \
+  || fail "unforced delete conflict was not refused: $LOCAL_OUT"
+LOCAL_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e '.canary == "clean" and (.warnings | any(contains("FORCED deletion conflict")))' <<<"$LOCAL_OUT" >/dev/null \
+  || fail "forced local-edit deletion did not report its override: $LOCAL_OUT"
+[ -z "$(wp_conf2 post list --post_type=post --name=hello-conformance --field=ID)" ] || fail "locally edited post survived forced deletion"
+pass "delete-vs-local-edit conflicts; force-theirs is loud and revision children cascade exactly"
+
+# Branch edit: capture the changed entity into git without applying it to
+# conf2, then delete it on conf1. The tombstone therefore expects the new
+# branch hash while conf2's base is still the old hash.
+ATT_FILE=$(find "$CONF_REPO1/state/posts/attachment" -name '*--conformance-logo.md' -print -quit)
+ATT_UUID=$(basename "$ATT_FILE" | sed -E 's/--conformance-logo\.md$//')
+ATT1=$(wp_conf1 post list --post_type=attachment --name=conformance-logo --field=ID | tr -d '[:space:]')
+wp_conf1 post update "$ATT1" --post_title='Conformance Logo Branch Edit' >/dev/null
+wp_conf1 duo capture --repo=/siterepo >/dev/null
+git -C "$CONF_REPO1" add -A
+git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: branch edits attachment'
+git -C "$CONF_REPO1" push -q origin main
+wp_conf1 post delete "$ATT1" --force >/dev/null
+wp_conf1 duo capture --repo=/siterepo >/dev/null
+git -C "$CONF_REPO1" add -A
+git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: delete branch-edited attachment'
+git -C "$CONF_REPO1" push -q origin main
+git -C "$CONF_REPO2" pull -q origin main
+BRANCH_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e --arg uuid "$ATT_UUID" '.delete_conflict | any(.uuid == $uuid and (.reason | contains("expected hash")))' \
+  <<<"$BRANCH_PLAN" >/dev/null || fail "delete-vs-branch-edit did not conflict on its expected base: $BRANCH_PLAN"
+wp_conf2 duo apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin --format=json >/dev/null
+[ -z "$(wp_conf2 post list --post_type=attachment --name=conformance-logo --field=ID)" ] || fail "branch-conflicted attachment survived forced deletion"
+pass "delete-vs-branch-edit conflicts on the tombstone expected base"
+
+# Missing guard infrastructure is a refusal, never a skipped warning.
+CHILD_FILE=$(find "$CONF_REPO1/state/posts/page" -name '*--shared-child.md' -print | sort | head -1)
+CHILD_UUID=$(basename "$CHILD_FILE" | sed -E 's/--shared-child\.md$//')
+CHILD1=$(wp_conf1 eval "echo \\Duo\\Ledger::id_for('$CHILD_UUID', \\Duo\\Ledger::KIND_POST);")
+wp_conf1 post delete "$CHILD1" --force >/dev/null
+wp_conf1 duo capture --repo=/siterepo >/dev/null
+git -C "$CONF_REPO1" add -A
+git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: missing deletion guard table'
+git -C "$CONF_REPO1" push -q origin main
+git -C "$CONF_REPO2" pull -q origin main
+wp_conf2 db query 'RENAME TABLE wp_comments TO wp_comments_duo_hold' >/dev/null
+MISSING_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e --arg uuid "$CHILD_UUID" '.delete | any(.uuid == $uuid and (.blocked | contains("required guard table")))' \
+  <<<"$MISSING_PLAN" >/dev/null || fail "missing guard table did not fail closed: $MISSING_PLAN"
+wp_conf2 db query 'RENAME TABLE wp_comments_duo_hold TO wp_comments' >/dev/null
+wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json >/dev/null
+pass "missing reverse-reference guard infrastructure fails closed"
+
+# Transaction rollback: two safe deletions, but an external FK refuses the
+# lexically second UUID. The first row is deleted before the failure and
+# must reappear after rollback; removing the test FK lets both complete.
+ROLL_A1=$(wp_conf1 post create --post_type=page --post_title='Rollback Alpha' --post_name=rollback-alpha --post_status=publish --porcelain)
+ROLL_B1=$(wp_conf1 post create --post_type=page --post_title='Rollback Beta' --post_name=rollback-beta --post_status=publish --porcelain)
+wp_conf1 duo capture --repo=/siterepo >/dev/null
+git -C "$CONF_REPO1" add -A
+git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: seed transactional deletion pair'
+git -C "$CONF_REPO1" push -q origin main
+git -C "$CONF_REPO2" pull -q origin main
+wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json >/dev/null
+ROLL_A_FILE=$(find "$CONF_REPO1/state/posts/page" -name '*--rollback-alpha.md' -print -quit)
+ROLL_B_FILE=$(find "$CONF_REPO1/state/posts/page" -name '*--rollback-beta.md' -print -quit)
+ROLL_A_UUID=$(basename "$ROLL_A_FILE" | sed -E 's/--rollback-alpha\.md$//')
+ROLL_B_UUID=$(basename "$ROLL_B_FILE" | sed -E 's/--rollback-beta\.md$//')
+ROLL_A2=$(wp_conf2 post list --post_type=page --name=rollback-alpha --field=ID | tr -d '[:space:]')
+ROLL_B2=$(wp_conf2 post list --post_type=page --name=rollback-beta --field=ID | tr -d '[:space:]')
+wp_conf1 post delete "$ROLL_A1" "$ROLL_B1" --force >/dev/null
+wp_conf1 duo capture --repo=/siterepo >/dev/null
+git -C "$CONF_REPO1" add -A
+git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: transactional deletion pair'
+git -C "$CONF_REPO1" push -q origin main
+git -C "$CONF_REPO2" pull -q origin main
+if [[ "$ROLL_A_UUID" < "$ROLL_B_UUID" ]]; then BLOCK_ID=$ROLL_B2; else BLOCK_ID=$ROLL_A2; fi
+wp_conf2 db query 'DROP TABLE IF EXISTS wp_duo_delete_block' >/dev/null
+wp_conf2 db query 'CREATE TABLE wp_duo_delete_block (post_id bigint(20) unsigned NOT NULL PRIMARY KEY, CONSTRAINT duo_delete_block_fk FOREIGN KEY (post_id) REFERENCES wp_posts(ID)) ENGINE=InnoDB' >/dev/null
+wp_conf2 db query "INSERT INTO wp_duo_delete_block (post_id) VALUES ($BLOCK_ID)" >/dev/null
+ROLL_RC=0
+ROLL_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || ROLL_RC=$?
+[ "$ROLL_RC" -ne 0 ] || fail "injected second-row deletion failure unexpectedly applied"
+[ "$(wp_conf2 post list --post_type=page --name=rollback-alpha --field=ID | tr -d '[:space:]')" = "$ROLL_A2" ] \
+  || fail "partial deletion failure did not roll back the first page"
+[ "$(wp_conf2 post list --post_type=page --name=rollback-beta --field=ID | tr -d '[:space:]')" = "$ROLL_B2" ] \
+  || fail "partial deletion failure lost the blocked page"
+wp_conf2 db query 'DROP TABLE wp_duo_delete_block' >/dev/null
+wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json >/dev/null
+[ -z "$(wp_conf2 post list --post_type=page --name=rollback-alpha --field=ID)" ] \
+  && [ -z "$(wp_conf2 post list --post_type=page --name=rollback-beta --field=ID)" ] \
+  || fail "transactional deletion pair did not complete after removing injected failure"
+pass "partial delete failure rolls the transaction back; retry completes exactly"
+
+# Clear environment-bound history to simulate a fresh target. Tombstones
+# remain `deleted`, never reinterpret absence through ledger history.
+TOMBSTONES=$(find "$CONF_REPO1/state/deletions" -type f -name '*.json' | wc -l | tr -d '[:space:]')
+wp_conf2 db query 'TRUNCATE TABLE wp_duo_map; TRUNCATE TABLE wp_duo_state' >/dev/null
+FRESH_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e --argjson count "$TOMBSTONES" '(.deleted | length) == $count and (.delete | length) == 0 and (.delete_conflict | length) == 0' \
+  <<<"$FRESH_PLAN" >/dev/null || fail "fresh target interpreted repository deletion intent differently: $FRESH_PLAN"
+pass "fresh and previously mapped targets make the same repository-level deletion decision"

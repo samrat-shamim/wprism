@@ -133,10 +133,15 @@
     "shop_coupon": {"class": "authored"},
     "shop_order": {"class": "runtime"}
   },
-  "delete_guards": {
-    "post:product": [
-      {"table": "wc_order_product_lookup", "column": "product_id", "reason": "orders reference this product"}
-    ]
+  "deletions": {
+    "post:product": {
+      "cascades": ["postmeta", "post_revisions", "term_relationships"],
+      "guards": [
+        {"column": "comment_post_ID", "id_kind": "post", "reason": "comments reference this product", "table": "comments"},
+        {"column": "post_parent", "exclude_where": {"post_type": "revision"}, "id_kind": "post", "reason": "child posts reference this product", "source_id_kind": "post", "source_pk": "ID", "table": "posts"},
+        {"column": "product_id", "id_kind": "post", "reason": "orders reference this product", "table": "wc_order_product_lookup"}
+      ]
+    }
   },
   "tables": {
     "actionscheduler_actions": {"class": "runtime"},

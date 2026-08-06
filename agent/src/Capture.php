@@ -77,6 +77,7 @@ final class Capture {
         Identity::assert_embedded_unique();
         Ledger::prune_dead_map();
         $policy = Policy::load($repo);
+        $observedDeletedTables = Snapshot::observed_deleted_mapped_uuids($policy);
         Snapshot::prune_dead_map($policy); // declared-table id_kinds get the same dead-map hygiene as post/term/tt
         $c = new self($repo, $policy);
 
@@ -99,19 +100,34 @@ final class Capture {
             // own — see Publish::recover()'s docblock for why holding the
             // lock is what makes "leftover staging/backup dir" unambiguous.
             $notes = Publish::recover($stateDir);
+            // The previous compiled revision is the only authority from
+            // which a deletion intent can be created. A first capture has no
+            // prior state and therefore cannot infer a deletion. Compiling
+            // before target reads also refuses to build new state on top of
+            // an already-invalid repository revision.
+            $previous = is_dir($c->repo . '/state')
+                ? RepositoryCompiler::compile($c->repo, $policy)
+                : null;
 
             // The one consistent-snapshot transaction: every SELECT build()
             // issues, plus the _duo_uuid/duo_map identity-minting writes
             // alongside them, see one coherent point-in-time view. Retries
             // on its own (see run_in_consistent_snapshot()) if a concurrent
             // WordPress write collides with one of THIS build's own writes.
-            $build = self::run_in_consistent_snapshot(function () use ($c, $policy, $repo, $forceUnresolvedRefs): array {
+            $build = self::run_in_consistent_snapshot(function () use (
+                $c, $policy, $repo, $forceUnresolvedRefs, $observedDeletedTables
+            ): array {
                 Identity::assert_embedded_unique();
-                Snapshot::assert_mapped_history_present($policy, $repo);
+                Snapshot::assert_mapped_history_present($policy, $repo, $observedDeletedTables);
                 $candidate = $c->build(true, $forceUnresolvedRefs);
                 Identity::assert_entities_unique($candidate['entities']);
                 return $candidate;
             });
+            $build['deletions'] = Deletion::capture_tombstones(
+                $previous,
+                $build['entities'],
+                $policy
+            );
 
             // Build + validate the COMPLETE candidate in an isolated
             // staging location — 'state/' itself is never touched until
@@ -119,7 +135,7 @@ final class Capture {
             // write, a crash, anything) leaves the previously-published
             // tree completely untouched.
             $staging = Publish::stage_dir($stateDir);
-            Publish::write_entities($staging, $build['entities']);
+            Publish::write_entities($staging, array_merge($build['entities'], $build['deletions']));
             // Lint against the STAGED candidate (relocated from the old
             // post-publish call — strictly more correct: the warning now
             // reflects the tree about to be published, not one already
@@ -165,7 +181,10 @@ final class Capture {
                     // content, unchanged from before this task.
                     Ledger::set_state_hash($e['uuid'], $e['type'], hash('sha256', $e['hash_basis'] ?? $e['content']));
                 }
-                Ledger::prune_state(array_column($build['entities'], 'uuid'));
+                Ledger::prune_state(array_merge(
+                    array_column($build['entities'], 'uuid'),
+                    array_column($build['deletions'], 'uuid')
+                ));
                 // DUO-3231: a real (into-repo) capture is, same as a
                 // successful `duo deploy`, a moment Duo legitimately
                 // observed this environment's code — record it as a
@@ -185,10 +204,11 @@ final class Capture {
             Publish::unlock($lock);
         }
 
-        $counts = ['post' => 0, 'term' => 0, 'menu' => 0, 'options' => 0];
+        $counts = ['post' => 0, 'term' => 0, 'menu' => 0, 'options' => 0, 'deletion' => 0];
         foreach ($build['entities'] as $e) {
             $counts[$e['type']] = ($counts[$e['type']] ?? 0) + 1;
         }
+        $counts['deletion'] = count($build['deletions']);
         return [
             'counts' => $counts,
             'media' => count($build['media']),

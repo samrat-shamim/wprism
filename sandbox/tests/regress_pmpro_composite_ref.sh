@@ -193,7 +193,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
     "post_types": ["page"],
     "taxonomies": []
   },
-  "spec_version": 0
+  "spec_version": 1
 }
 EOF
 printf '.tmp*\n' > "siterepo/${PAIR}1/.gitignore"

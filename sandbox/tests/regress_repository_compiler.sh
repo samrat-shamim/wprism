@@ -7,11 +7,12 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 php -d display_errors=1 -- "$ROOT" <<'PHP'
 <?php
 $root = $argv[1];
-define('DUO_SPEC_VERSION', 0);
+define('DUO_SPEC_VERSION', 1);
 require_once "$root/agent/src/Uuid.php";
 require_once "$root/agent/src/Canon.php";
 require_once "$root/agent/src/Policy.php";
 require_once "$root/agent/src/Snapshot.php";
+require_once "$root/agent/src/Deletion.php";
 require_once "$root/agent/src/RepositoryAuthorization.php";
 require_once "$root/agent/src/RepositoryCompiler.php";
 
@@ -69,7 +70,7 @@ function build_valid(string $repo, array $manifests = ['core']): array {
             'post_types' => ['post','page','attachment','acf-field','acf-field-group'],
             'taxonomies' => ['category','post_tag'],
         ],
-        'spec_version' => 0,
+        'spec_version' => 1,
     ]));
     put("$repo/state/terms/category/$term--news.json", Canon::encode([
         'description' => '', 'name' => 'News', 'parent' => null,
@@ -165,10 +166,64 @@ put("$bad2/state/widgets/unknown.json", Canon::encode(['uuid' => uuid(21)]));
 if (failure($bad2) !== $payload) fail('equivalent invalid revisions produced different diagnostics');
 ok('diagnostic codes, source locations, messages, and ordering are machine-independent');
 
-$refs = "$tmp/refs"; $r = build_valid($refs);
+$refs = "$tmp/refs"; $r = build_valid($refs); $refsBefore = compile_repo($refs);
+$termEntity = $refsBefore->tree()[$r['term']];
 unlink("$refs/state/terms/category/{$r['term']}--news.json");
+put("$refs/state/deletions/{$r['term']}.json", Canon::encode([
+    'expected_hash' => $termEntity['hash'], 'expected_revision' => $refsBefore->revision_hash(),
+    'format' => \Duo\Deletion::FORMAT, 'kind' => 'term', 'source_path' => $termEntity['path'],
+    'type' => 'category', 'uuid' => $r['term'],
+]));
 $p = failure($refs); needs($p, 'semantic_delete_reference');
+$semantic = array_values(array_filter($p['diagnostics'], fn($d) => $d['code'] === 'semantic_delete_reference'));
+if (!$semantic || !isset($semantic[0]['related_path'])) fail('delete reference diagnostic omitted the tombstone path');
 ok('delete-versus-reference is a blocking semantic merge conflict before target contact');
+
+$absence = "$tmp/absence"; $gone = build_valid($absence);
+$before = compile_repo($absence);
+$attachment = $before->tree()[$gone['attachment']];
+$liveWithoutAttachment = [];
+foreach ($before->tree() as $uuid => $_entity) {
+    if ($uuid !== $gone['attachment'] && $uuid !== 'options/core') $liveWithoutAttachment[] = ['uuid' => $uuid];
+}
+$capturedTombstones = \Duo\Deletion::capture_tombstones($before, $liveWithoutAttachment, Policy::load($absence));
+if (count($capturedTombstones) !== 1 || $capturedTombstones[0]['uuid'] !== $gone['attachment']) {
+    fail('capture did not convert exactly the disappeared prior entity into a tombstone');
+}
+unlink("$absence/state/posts/attachment/{$gone['attachment']}--photo.md");
+$withoutIntent = compile_repo($absence);
+if ($withoutIntent->deletions() !== []) fail('file absence was incorrectly compiled as deletion intent');
+ok('repository absence alone is not deletion authority');
+
+$tombstonePath = "$absence/state/deletions/{$gone['attachment']}.json";
+put($tombstonePath, Canon::encode([
+    'expected_hash' => $attachment['hash'],
+    'expected_revision' => $before->revision_hash(),
+    'format' => \Duo\Deletion::FORMAT,
+    'kind' => 'post',
+    'source_path' => $attachment['path'],
+    'type' => 'attachment',
+    'uuid' => $gone['attachment'],
+]));
+$withIntent = compile_repo($absence);
+if (!isset($withIntent->deletions()[$gone['attachment']])) fail('valid tombstone missing from compiled artifact');
+$preserved = \Duo\Deletion::capture_tombstones($withIntent, $liveWithoutAttachment, Policy::load($absence));
+if (count($preserved) !== 1 || $preserved[0]['content'] !== file_get_contents($tombstonePath)) {
+    fail('subsequent capture did not preserve an absent tombstone byte-for-byte');
+}
+ok('versioned tombstone with expected base compiles into explicit deletion IR');
+
+$front = post_front($gone['attachment'], 'attachment', 'photo');
+$front += ['alt' => 'Photo', 'file' => 'photo.txt', 'media' => "{$gone['mediaHash']}.txt", 'mime' => 'text/plain'];
+put("$absence/state/posts/attachment/{$gone['attachment']}--photo.md", Canon::post_file($front, ''));
+$p = failure($absence); needs($p, 'delete_live_conflict');
+unlink("$absence/state/posts/attachment/{$gone['attachment']}--photo.md");
+$badTombstone = Canon::decode(file_get_contents($tombstonePath));
+$badTombstone['type'] = 'acf-field';
+$badTombstone['source_path'] = "posts/acf-field/{$gone['attachment']}--photo.md";
+put($tombstonePath, Canon::encode($badTombstone));
+$p = failure($absence); needs($p, 'unsupported_deletion');
+ok('live+tombstone and undeclared adapter deletion both fail closed');
 
 $cycle = "$tmp/cycle"; $cy = build_valid($cycle); $other = uuid(22);
 $firstPath = "$cycle/state/terms/category/{$cy['term']}--news.json";

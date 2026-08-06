@@ -2,6 +2,18 @@
   "block_attrs": {
     "ninja-forms/form": [{"kind": "nf3_form", "path": "formID", "type": "int"}]
   },
+  "deletions": {
+    "table:nf3_actions": {"cascades": ["attached_meta"], "guards": []},
+    "table:nf3_fields": {"cascades": ["attached_meta"], "guards": []},
+    "table:nf3_forms": {
+      "cascades": ["attached_meta"],
+      "guards": [
+        {"column": "parent_id", "id_kind": "nf3_form", "reason": "Ninja Forms actions reference this form", "source_id_kind": "nf3_action", "source_pk": "id", "table": "nf3_actions"},
+        {"column": "parent_id", "id_kind": "nf3_form", "reason": "Ninja Forms fields reference this form", "source_id_kind": "nf3_field", "source_pk": "id", "table": "nf3_fields"},
+        {"column": "meta_value", "id_kind": "nf3_form", "reason": "form submissions reference this form", "table": "postmeta", "where": {"meta_key": "_form_id"}}
+      ]
+    }
+  },
   "name": "ninja-forms",
   "notes": [
     "Task #75 CLOSED (was: Grind R1-A's honest-partial marker). This manifest now captures a Ninja Forms form's actual content — nf3_forms/nf3_fields/nf3_actions + their _meta twins — via the typed-snapshot grammar in agent/src/Snapshot.php. Real schema DESCRIBE'd live on NF 3.14.11 again for THIS implementation (not reused from the R1-A report's summary alone): nf3_forms has 14 columns (id, title, key, created_at, updated_at, views, subs, form_title, default_label_pos, show_title, clear_complete, hide_complete, logged_in, seq_num); nf3_fields.parent_id and nf3_actions.parent_id are PLAIN single-target integer FKs into nf3_forms.id, confirmed via SHOW CREATE TABLE to carry no real FOREIGN KEY constraint at all (ordinary WordPress-plugin practice) — so a phase-1 placeholder of 0 is always safe. nf3_forms.key was empirically NULL on the live Job Application fixture, contradicting task #75's own one-line speculation that it might serve as a natural key — mapped identity is used for all three tables. Because plugin rows cannot carry `_duo_uuid`, durability is supplied by duo_map plus the versioned, database-matched identity recovery sidecar; populated restores without it block rather than minting or rebinding identities (DUO-3209).",

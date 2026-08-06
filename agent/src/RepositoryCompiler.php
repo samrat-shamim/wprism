@@ -47,6 +47,11 @@ final class CompiledRepository {
         return $this->artifact['tree'];
     }
 
+    /** @return array<string,array<string,mixed>> keyed by deleted UUID */
+    public function deletions(): array {
+        return (array) ($this->artifact['deletions'] ?? []);
+    }
+
     public function artifact_hash(): string {
         return $this->artifact['artifact_hash'];
     }
@@ -129,6 +134,8 @@ final class RepositoryCompiler {
     private array $diagnostics = [];
     /** @var array<string,array{kind:string,path:string}> */
     private array $identities = [];
+    /** @var array<string,array<string,mixed>> */
+    private array $deletions = [];
     /** @var array<string,string> upload-relative path => source path */
     private array $uploadPaths = [];
     /** @var array<string,array{sha256:string,base64:string}> media blob => immutable payload */
@@ -223,6 +230,22 @@ final class RepositoryCompiler {
                 $line = 1 + substr_count(substr($content, 0, $m[0][1]), "\n");
                 $this->add('conflict_marker', $path, "line $line", 'Git conflict marker survives in canonical content');
             }
+            if (preg_match('#^deletions/([^/]+)\.json$#', $path)) {
+                $deletion = $this->parse_deletion($path, $content);
+                if ($deletion !== null) {
+                    $uuid = (string) $deletion['data']['uuid'];
+                    if (isset($this->deletions[$uuid])) {
+                        $this->add(
+                            'duplicate_deletion', $path, 'uuid',
+                            "deletion intent for $uuid is already declared by {$this->deletions[$uuid]['path']}",
+                            $this->deletions[$uuid]['path']
+                        );
+                    } else {
+                        $this->deletions[$uuid] = $deletion;
+                    }
+                }
+                continue;
+            }
             $entity = $this->parse_entity($path, $content);
             if ($entity === null) {
                 continue;
@@ -249,6 +272,16 @@ final class RepositoryCompiler {
         }
 
         ksort($tree, SORT_STRING);
+        ksort($this->deletions, SORT_STRING);
+        foreach ($this->deletions as $uuid => $deletion) {
+            if (isset($this->identities[$uuid])) {
+                $this->add(
+                    'delete_live_conflict', $deletion['path'], 'uuid',
+                    "uuid $uuid is both live and explicitly deleted by this revision",
+                    $this->identities[$uuid]['path']
+                );
+            }
+        }
         usort($sourceRows, static fn(array $a, array $b): int => $a['path'] <=> $b['path']);
         $this->policy->prime_interpreters_from_repository($tree);
         $this->validate_natural_identities($tree);
@@ -289,6 +322,7 @@ final class RepositoryCompiler {
             'media_catalog' => $this->mediaCatalog,
             'media' => $this->media,
             'tree' => $tree,
+            'deletions' => $this->deletions,
         ]);
     }
 
@@ -406,6 +440,77 @@ final class RepositoryCompiler {
         return [
             'type' => $type, 'path' => $path,
             'hash' => hash('sha256', $content), 'source_hash' => hash('sha256', $content),
+            'data' => $data,
+        ];
+    }
+
+    /** @return ?array typed deletion IR entry */
+    private function parse_deletion(string $path, string $content): ?array {
+        try {
+            $data = Canon::decode($content);
+        } catch (\Throwable $t) {
+            $this->add('malformed_deletion', $path, '', $t->getMessage());
+            return null;
+        }
+        if (!is_array($data) || array_is_list($data)) {
+            $this->add('malformed_deletion', $path, '', 'deletion intent must decode to an object');
+            return null;
+        }
+        $required = ['format', 'uuid', 'kind', 'type', 'expected_hash', 'expected_revision', 'source_path'];
+        $unknown = array_values(array_diff(array_keys($data), $required));
+        if ($unknown) {
+            sort($unknown, SORT_STRING);
+            $this->add('malformed_deletion', $path, '', 'unknown deletion field(s): ' . implode(', ', $unknown));
+        }
+        foreach ($required as $field) {
+            if (!isset($data[$field]) || !is_string($data[$field]) || $data[$field] === '') {
+                $this->add('malformed_deletion', $path, $field, 'required deletion field is missing or not a non-empty string');
+            }
+        }
+        $uuid = (string) ($data['uuid'] ?? '');
+        if (($data['format'] ?? '') !== Deletion::FORMAT) {
+            $this->add('malformed_deletion', $path, 'format', 'unsupported deletion intent format');
+        }
+        if (!preg_match(self::UUID_RE, $uuid)) {
+            $this->add('invalid_uuid', $path, 'uuid', "'$uuid' is not a lowercase RFC UUID");
+        }
+        if (basename($path) !== $uuid . '.json') {
+            $this->add('malformed_deletion', $path, 'uuid', 'deletion filename does not match its uuid');
+        }
+        $kind = (string) ($data['kind'] ?? '');
+        $type = (string) ($data['type'] ?? '');
+        if (!in_array($kind, ['post', 'term', 'menu', 'table'], true)) {
+            $this->add('malformed_deletion', $path, 'kind', "unsupported deletion kind '$kind'");
+        }
+        foreach (['expected_hash', 'expected_revision'] as $field) {
+            if (!preg_match('/^[0-9a-f]{64}$/', (string) ($data[$field] ?? ''))) {
+                $this->add('malformed_deletion', $path, $field, 'field must be a lowercase SHA-256 hash');
+            }
+        }
+        $source = (string) ($data['source_path'] ?? '');
+        $sourceOk = match ($kind) {
+            'post' => preg_match('#^posts/' . preg_quote($type, '#') . '/' . preg_quote($uuid, '#') . '--[^/]+\.md$#', $source),
+            'term' => preg_match('#^terms/' . preg_quote($type, '#') . '/' . preg_quote($uuid, '#') . '--[^/]+\.json$#', $source),
+            'menu' => $type === 'nav_menu' && preg_match('#^menus/[^/]+\.json$#', $source),
+            'table' => preg_match('#^tables/' . preg_quote($type, '#') . '/' . preg_quote($uuid, '#') . '--[^/]+\.json$#', $source),
+            default => false,
+        };
+        if (!$sourceOk) {
+            $this->add('malformed_deletion', $path, 'source_path', 'source_path does not match the declared kind, type, and uuid');
+        }
+        if (in_array($kind, ['post', 'term', 'menu', 'table'], true) && $type !== '') {
+            try {
+                Deletion::capability($this->policy, $kind, $type);
+            } catch (\Throwable $t) {
+                $this->add('unsupported_deletion', $path, 'type', $t->getMessage());
+            }
+        }
+        return [
+            'type' => 'deletion',
+            'path' => $path,
+            'hash' => hash('sha256', $content),
+            'source_hash' => hash('sha256', $content),
+            'content' => $content,
             'data' => $data,
         ];
     }
@@ -842,7 +947,15 @@ final class RepositoryCompiler {
             return;
         }
         if (!isset($this->identities[$uuid])) {
-            $this->add('semantic_delete_reference', $path, $locator, "reference target $uuid is absent from the compiled revision");
+            if (isset($this->deletions[$uuid])) {
+                $this->add(
+                    'semantic_delete_reference', $path, $locator,
+                    "reference target $uuid is explicitly deleted by {$this->deletions[$uuid]['path']}",
+                    $this->deletions[$uuid]['path']
+                );
+            } else {
+                $this->add('semantic_delete_reference', $path, $locator, "reference target $uuid is absent from the compiled revision");
+            }
             return;
         }
         $actual = $this->identities[$uuid]['kind'];

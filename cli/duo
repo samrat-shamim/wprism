@@ -55,11 +55,13 @@ Verbs:
                           duo agent, and repo_path/site.duo.json. Non-zero exit
                           on any failing check.
   status <env>            Run `wp duo plan --format=json` and print counts per
-                          plan bucket (incl. code_mismatch), drift paths,
-                          blocked deletes, code_mismatch findings, and any
+                          plan bucket (incl. deletion conflicts and
+                          code_mismatch), drift paths, blocked deletes,
+                          code_mismatch findings, and any
                           plan-level warnings. Non-zero exit ("not safe to
-                          promote") if the plan has any conflict, collision,
-                          code_mismatch, blocked delete, or drift (drift is
+                          promote") if the plan has any conflict, deletion
+                          conflict, collision, code_mismatch, blocked delete,
+                          or drift (drift is
                           the one case `duo apply` itself does not refuse
                           on, but status still reports as not clean — see
                           cli/src/PlanSummary.php's decision-matrix

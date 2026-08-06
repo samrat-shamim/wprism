@@ -161,7 +161,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
     "post_types": ["post", "page", "attachment", "tribe_events"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 0
+  "spec_version": 1
 }
 EOF
 printf '.tmp*\nstate.capture.lock\nstate.capture-staging/\nstate.capture-backup/\n' > "siterepo/${PAIR}1/.gitignore"

@@ -82,11 +82,12 @@ final class Cli {
             WP_CLI::warning($w);
         }
         WP_CLI::success(sprintf(
-            'captured %d posts, %d terms, %d menus, %d options file(s), %d media blob(s) -> %s',
+            'captured %d posts, %d terms, %d menus, %d options file(s), %d deletion tombstone(s), %d media blob(s) -> %s',
             $summary['counts']['post'] ?? 0,
             $summary['counts']['term'] ?? 0,
             $summary['counts']['menu'] ?? 0,
             $summary['counts']['options'] ?? 0,
+            $summary['counts']['deletion'] ?? 0,
             $summary['media'],
             $summary['state_dir']
         ));
@@ -167,7 +168,10 @@ final class Cli {
             WP_CLI::line(json_encode($plan, JSON_UNESCAPED_SLASHES));
             return;
         }
-        $kinds = ['create', 'update', 'adopt', 'unchanged', 'drift', 'conflict', 'collision', 'delete'];
+        $kinds = [
+            'create', 'update', 'adopt', 'unchanged', 'drift', 'conflict',
+            'collision', 'delete', 'delete_conflict', 'deleted',
+        ];
         foreach ($kinds as $kind) {
             foreach ($plan[$kind] as $r) {
                 $line = strtoupper(str_pad($kind, 9)) . ' ' . ($r['path'] ?? ($r['type'] . ' ' . $r['uuid']));

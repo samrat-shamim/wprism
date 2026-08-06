@@ -93,7 +93,7 @@ if [ ! -d siterepo/e1/.git ]; then
     "post_types": ["post", "page", "attachment", "acf-field-group", "acf-field"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 0
+  "spec_version": 1
 }
 EOF
   printf '.tmp*\n' > siterepo/e1/.gitignore
