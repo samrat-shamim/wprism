@@ -46,9 +46,13 @@ final class Apply {
 
     public static function plan(string $repo, array $opts = []): array {
         Canary::suppress_cron_spawn();
-        Ledger::ensure();
         $a = new self($repo);
-        $plan = $a->build_plan($opts);
+        // Authorization is deliberately before Ledger::ensure(): even a
+        // plan must not create ledger tables for a repository revision that
+        // current policy refuses, and apply/deploy share this exact gate.
+        $tree = $a->load_tree();
+        Ledger::ensure();
+        $plan = $a->build_plan($opts, $tree);
         // Only the plan-only entry point attaches warnings to the returned
         // array itself — run() below calls build_plan() too, but folds
         // $this->warnings into ITS OWN summary separately (see run()'s
@@ -59,8 +63,7 @@ final class Apply {
         return $plan;
     }
 
-    private function build_plan(array $opts): array {
-        $tree = $this->load_tree();
+    private function build_plan(array $opts, array $tree): array {
         $this->check_theme_mismatch($tree);
         // Capture::snapshot() runs the SAME build() capture.php's own `duo
         // capture` does (drift detection needs the live environment's
@@ -233,61 +236,7 @@ final class Apply {
 
     /** @return array<string, array{type:string, path:string, hash:string, content:string}> */
     private function load_tree(): array {
-        $stateDir = $this->repo . '/state';
-        if (!is_dir($stateDir)) {
-            throw new \RuntimeException("duo: no state/ directory in {$this->repo}");
-        }
-        $out = [];
-        foreach (glob($stateDir . '/posts/*/*.md') ?: [] as $f) {
-            $content = Canon::read_file($f);
-            [$front, $body] = Canon::parse_post_file($content);
-            $out[$front['uuid']] = [
-                'type' => 'post', 'post_type' => $front['type'],
-                'path' => substr($f, strlen($stateDir) + 1),
-                // task #88: hash the derived-aware basis (Canon::post_hash_
-                // basis()), not the raw file bytes — this is the REPO side
-                // of build_plan()'s three-way compare against Capture::
-                // snapshot()'s identically-computed env-side hash, so a
-                // field like product_variation's title (classified derived
-                // in manifests/woocommerce.json) never registers as a
-                // create/update/drift/conflict purely from self-heal
-                // timing. 'content' stays the literal file bytes — used for
-                // writing/collision checks elsewhere, never for this hash.
-                'hash' => hash('sha256', Canon::post_hash_basis($front, $body, $this->policy)),
-                'content' => $content,
-            ];
-        }
-        foreach (glob($stateDir . '/terms/*/*.json') ?: [] as $f) {
-            $content = Canon::read_file($f);
-            $front = Canon::decode($content);
-            $out[$front['uuid']] = [
-                'type' => 'term', 'path' => substr($f, strlen($stateDir) + 1),
-                'hash' => hash('sha256', $content), 'content' => $content,
-            ];
-        }
-        foreach (glob($stateDir . '/menus/*.json') ?: [] as $f) {
-            $content = Canon::read_file($f);
-            $front = Canon::decode($content);
-            $out[$front['uuid']] = [
-                'type' => 'menu', 'path' => substr($f, strlen($stateDir) + 1),
-                'hash' => hash('sha256', $content), 'content' => $content,
-            ];
-        }
-        $optFile = $stateDir . '/options/core.json';
-        if (is_file($optFile)) {
-            $content = Canon::read_file($optFile);
-            $out['options/core'] = [
-                'type' => 'options', 'path' => 'options/core.json',
-                'hash' => hash('sha256', $content), 'content' => $content,
-            ];
-        }
-        // Typed-snapshot table rows (agent/src/Snapshot.php, task #75) — each
-        // entity's own 'type' is the declared table name itself (never a
-        // generic wrapper), so every dispatch site below that already
-        // switches on $e['type'] gains table rows for free by adding one
-        // more branch, exactly like posts/terms/menus/options already do.
-        $out = array_merge($out, Snapshot::load_tree_entries($stateDir));
-        return $out;
+        return RepositoryAuthorization::load_authorized_tree($this->repo, $this->policy);
     }
 
     /**
@@ -348,15 +297,15 @@ final class Apply {
 
     public static function apply(string $repo, array $opts = []): array {
         Canary::suppress_cron_spawn();
-        Ledger::ensure();
         $a = new self($repo);
-        return $a->run($opts);
+        $tree = $a->load_tree();
+        Ledger::ensure();
+        return $a->run($opts, $tree);
     }
 
-    private function run(array $opts): array {
+    private function run(array $opts, array $tree): array {
         global $wpdb;
-        $plan = $this->build_plan($opts);
-        $tree = $this->load_tree();
+        $plan = $this->build_plan($opts, $tree);
 
         if ($plan['collision']) {
             $list = implode("\n  - ", array_map(

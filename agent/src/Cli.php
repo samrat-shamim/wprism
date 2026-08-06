@@ -69,6 +69,10 @@ final class Cli {
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
             ]);
         } catch (\Throwable $t) {
+            if ($t instanceof RepositoryAuthorizationException && ($assoc['format'] ?? '') === 'json') {
+                WP_CLI::line(json_encode($t->payload(), JSON_UNESCAPED_SLASHES));
+                WP_CLI::halt(1);
+            }
             WP_CLI::error($t->getMessage());
         }
         // See capture(): --json arrives here as $assoc['format'] === 'json', never $assoc['json'].
@@ -138,6 +142,10 @@ final class Cli {
                 'revision' => $assoc['revision'] ?? '',
             ]);
         } catch (\Throwable $t) {
+            if ($t instanceof RepositoryAuthorizationException && ($assoc['format'] ?? '') === 'json') {
+                WP_CLI::line(json_encode($t->payload(), JSON_UNESCAPED_SLASHES));
+                WP_CLI::halt(1);
+            }
             WP_CLI::error($t->getMessage());
         }
         // See capture(): --json arrives here as $assoc['format'] === 'json', never $assoc['json'].
@@ -186,6 +194,10 @@ final class Cli {
                 'force_code_mismatch' => isset($assoc['force-code-mismatch']),
             ]);
         } catch (\Throwable $t) {
+            if ($t instanceof RepositoryAuthorizationException && ($assoc['format'] ?? '') === 'json') {
+                WP_CLI::line(json_encode($t->payload(), JSON_UNESCAPED_SLASHES));
+                WP_CLI::halt(1);
+            }
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {
