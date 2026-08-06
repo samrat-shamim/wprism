@@ -152,12 +152,14 @@ final class Capture {
      * *why* a key is unclassified is useful on its own.
      *
      * @return array{
+     *   scope: array<string, array{entities:int}>,
      *   post_meta: array<string, array{entities:int, post_types: string[]}>,
      *   term_meta: array<string, array{entities:int}>
      * }
      */
     public static function gate_scan(string $repo): array {
         $c = new self($repo, Policy::load($repo));
+        $scope = $c->scope_gaps();
 
         $postMeta = [];
         foreach ($c->scope_posts() as $p) {
@@ -185,6 +187,7 @@ final class Capture {
         }
 
         return [
+            'scope' => $scope,
             'post_meta' => array_map(
                 fn($ev) => ['entities' => $ev['entities'], 'post_types' => array_keys($ev['post_types'] ?? [])],
                 $postMeta
@@ -205,6 +208,23 @@ final class Capture {
         $media = [];
 
         // ---- scope ----
+        $scopeGaps = $this->scope_gaps();
+        if ($scopeGaps) {
+            $lines = [];
+            foreach ($scopeGaps as $key => $evidence) {
+                [$kind, $name] = explode(':', $key, 2);
+                $policyKey = $kind === 'post_type' ? 'policy.post_types' : 'policy.taxonomies';
+                $noun = $evidence['entities'] === 1 ? 'entity' : 'entities';
+                $lines[] = "$kind '$name' has {$evidence['entities']} capturable $noun but is absent from $policyKey; "
+                    . "include it there, or record a deliberate exclusion with scope:$kind:$name=runtime|derived|env";
+            }
+            throw new \RuntimeException(
+                "duo: registered or adapter-declared authored state exists outside policy scope (loud-and-blocking gate):\n  - "
+                . implode("\n  - ", $lines)
+                . "\nRun: wp duo pending --repo={$this->repo} for evidence, then either add the type/taxonomy "
+                . "to policy scope or run wp duo classify --repo={$this->repo} --set='scope:<kind>:<name>=<class>'."
+            );
+        }
         $posts = $this->scope_posts();
         $terms = $this->scope_terms();
         $taxesByObjectType = $this->taxes_by_object_type($this->policy->taxonomies(), $this->policy->post_types());
@@ -418,6 +438,69 @@ final class Capture {
         return $wpdb->get_results(
             "SELECT * FROM {$wpdb->posts} WHERE " . implode(' OR ', $conds) . " ORDER BY ID ASC"
         ) ?: [];
+    }
+
+    /**
+     * Find live authored-looking entities that the current site scope would
+     * silently omit. The candidate boundary is intentional and finite:
+     * WordPress-registered public surfaces plus whole-type contracts from
+     * pinned manifests. A non-authored whole-type class is an explicit,
+     * auditable exclusion; absence of any disposition is not.
+     *
+     * @return array<string,array{entities:int}> keyed post_type:<name> or taxonomy:<name>
+     */
+    private function scope_gaps(): array {
+        global $wpdb;
+
+        $publicPostTypes = array_values(get_post_types(['public' => true], 'names'));
+        $postCandidates = array_fill_keys(array_unique(array_merge(
+            $publicPostTypes, $this->policy->declared_post_types()
+        )), true);
+        $scopedPostTypes = array_fill_keys($this->policy->post_types(), true);
+        $postCounts = $wpdb->get_results(
+            "SELECT post_type, COUNT(*) AS entities FROM {$wpdb->posts}
+             WHERE (post_status IN ('publish','draft','pending','private','future')
+                    OR (post_type = 'attachment' AND post_status = 'inherit'))
+             GROUP BY post_type",
+            ARRAY_A
+        ) ?: [];
+
+        $out = [];
+        foreach ($postCounts as $row) {
+            $name = (string) $row['post_type'];
+            if (!isset($postCandidates[$name]) || isset($scopedPostTypes[$name])) {
+                continue;
+            }
+            $class = $this->policy->post_type_rule_details($name)['rule']['class'] ?? null;
+            if ($class !== null && $class !== 'authored') {
+                continue; // explicit manifest/site runtime|derived|env exclusion
+            }
+            $out["post_type:$name"] = ['entities' => (int) $row['entities']];
+        }
+
+        $publicTaxonomies = array_values(get_taxonomies(['public' => true], 'names'));
+        $taxCandidates = array_fill_keys(array_unique(array_merge(
+            $publicTaxonomies, $this->policy->declared_taxonomies()
+        )), true);
+        $scopedTaxonomies = array_fill_keys($this->policy->taxonomies(), true);
+        $taxCounts = $wpdb->get_results(
+            "SELECT taxonomy, COUNT(*) AS entities FROM {$wpdb->term_taxonomy} GROUP BY taxonomy",
+            ARRAY_A
+        ) ?: [];
+        foreach ($taxCounts as $row) {
+            $name = (string) $row['taxonomy'];
+            if (!isset($taxCandidates[$name]) || isset($scopedTaxonomies[$name])) {
+                continue;
+            }
+            $class = $this->policy->taxonomy_rule_details($name)['rule']['class'] ?? null;
+            if ($class !== null && $class !== 'authored') {
+                continue;
+            }
+            $out["taxonomy:$name"] = ['entities' => (int) $row['entities']];
+        }
+
+        ksort($out, SORT_STRING);
+        return $out;
     }
 
     private function scope_terms(): array {
