@@ -9,7 +9,7 @@ Duo makes a WordPress site **branchable like code** — branch, edit, merge, pro
 - **Spike C — provenance**: the journal classifies live DB writes (admin-authored vs runtime) with WooCommerce as the stress test.
 - **Spike D — WooCommerce catalog**: full product-meta manifest (field-granular: `_stock` is runtime, `_regular_price` is authored), plus the referential delete guard — deleting a product that this environment's orders reference blocks at plan time.
 - **Spike E — ACF interpreter**: schema-driven classification — field-group definitions type the meta values (image/relationship ids, string-cast serialized arrays), with verbatim byte-preservation for serialized field-config bodies.
-- **Conformance harness** ([sandbox/conformance/](sandbox/conformance/)): the manifest-treadmill answer — per-manifest clean-room round-trip gates (capture-twice determinism, apply, re-capture = byte-identical), run in CI ([.github/workflows/conformance.yml](.github/workflows/conformance.yml)) for core, woocommerce, acf, yoast.
+- **Conformance harness** ([sandbox/conformance/](sandbox/conformance/)): the manifest-treadmill answer — per-manifest clean-room round-trip gates (capture-twice determinism, hard lint gate, real `wp duo deploy` on the target, apply, re-capture = byte-identical, render checks), run in CI ([.github/workflows/conformance.yml](.github/workflows/conformance.yml)) for all nine manifests: core, woocommerce, acf, yoast, fse, elementor, polylang, contact-form-7, ninja-forms. (This list is hand-maintained and has drifted before — the CI matrix is authoritative until DUO-3227's capability registry generates it.)
 - **`duo` CLI** ([cli/](cli/)): host-agnostic orchestration — `duo capture|plan|apply|status|doctor|pending|classify <env>` over local/docker/ssh transports from a committable env registry.
 - **The core loop (Spike F)**: unclassified write → loud block → `wp duo pending` (journal-evidenced proposals, ref hints, secret flags) → `duo classify` triage (interactive or `--accept-proposals`; secrets can never be authored silently) → clean capture → `policy-to-manifest` export that reproduces identical state when pinned. The secret guard aborts capture on key-pattern hits in authored values.
 - **Frontier maps** ([docs/frontier/](docs/frontier/)): empirically-grounded gap reports for FSE block themes, Polylang, and Elementor — including the engine work each needs before it's safe. **Design proposal** for the `code/` half in [docs/proposals/code-half.md](docs/proposals/code-half.md).
@@ -41,6 +41,15 @@ make conformance-yoast  # per-manifest clean-room gate (:8806/:8807); also core/
 make cli-smoke        # duo CLI end-to-end over the docker transport
 make cli-triage-smoke # interactive duo classify triage end-to-end
 make down             # stop; `make clean` also deletes volumes
+```
+
+## Working an issue (agents)
+
+Engineering work is tracked in Linear ("Duo WP Branchability — Correctness Closure"). Agents dispatched with a `LINEAR-LOOP` prompt follow [docs/agents/linear-loop.md](docs/agents/linear-loop.md) — claim gate with Linear readback, branch-per-issue → PR → squash-merge, verified close gate ([scripts/close-gate-check.sh](scripts/close-gate-check.sh)). Fresh host setup is one command:
+
+```sh
+git clone https://github.com/duotronic-ai/duo-wp && cd duo-wp
+bash scripts/agent-bootstrap.sh   # verifies host prereqs, pre-pulls sandbox images
 ```
 
 ## The elevator pitch, technically

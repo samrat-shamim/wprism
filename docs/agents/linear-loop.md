@@ -7,19 +7,29 @@ the start of the run, after every close, and at every polling resume. If the
 dispatch prompt conflicts with this file, prompt parameters win; this
 procedure still wins over improvisation.
 
-Differences from genesis, deliberate: duo-wp ships work as **direct commits to
-`main`** (no PR/squash-merge/worktree machinery), so the close gate here is
-verification evidence + a commit on `main` referencing the issue, not merge
-ancestry. Genesis's "no partial ships" becomes "no *silent* partial ships" —
-slices are legitimate in this project only with an owner scope note (see Close
-Gate step 4).
+Two shipping modes:
+
+- **Distributed (default for dispatched agents):** branch per issue → PR →
+  squash-merge → verified close gate. Assume this mode unless the prompt says
+  otherwise. Repo: `github.com/duotronic-ai/duo-wp` (squash-only merges;
+  branches auto-delete on merge).
+- **Owner-session:** direct commits to `main`. Reserved for sessions the
+  project owner drives interactively on the primary machine — never for a
+  dispatched agent.
+
+Genesis's "no partial ships" becomes "no *silent* partial ships" — slices are
+legitimate in this project only with an owner scope note (Close Gate step 6).
 
 ## Required parameters
 
-- `AGENT_NAME` — claim prefix for comments (and titles when concurrent).
+- `AGENT_NAME` — claim prefix for comments/branches (and titles when the
+  prompt says multiple agents share the pool). Keep it short and alphanumeric
+  (it also namespaces sandbox pairs).
 - `PROJECT_URL(s)` — default when omitted: the "Duo WP Branchability —
   Correctness Closure" project.
 - Poll cadence and limit. Default: every 10 minutes, up to 60 minutes.
+- `PORT_BASE` (distributed hosts sharing a VM) — a per-agent even port base
+  ≥ 8900 for sandbox pairs; default 8900 when the agent is alone on the host.
 
 Ask before claiming if a required parameter is genuinely ambiguous.
 
@@ -37,14 +47,30 @@ Ask before claiming if a required parameter is genuinely ambiguous.
 
 ## Environment bootstrap
 
-- Sandbox envs come from `sandbox/bin/pair.sh` (see `docs/sandbox.md`). Create
-  scratch pairs with unique names/ports, **destroy them when done**. Heed the
-  >2-live-pairs warning; check `pair.sh list` before adding load.
-- Never run `docker compose down` / `make clean` against stacks you did not
-  create; never touch another agent's pair (the conformance `conf` pair
-  belongs to whoever is running the sweep).
-- A missing tool is a setup step, not a blocker: provision and proceed;
-  escalate only when provisioning itself fails.
+Once per host, before the first claim:
+
+```
+git clone https://github.com/duotronic-ai/duo-wp && cd duo-wp
+bash scripts/agent-bootstrap.sh
+```
+
+The script fail-loud-verifies host prerequisites (git, jq, php, curl, docker +
+compose v2; `gh` authenticated for the close gate), pre-pulls the sandbox
+images, and prints current pair load. Re-run it whenever a verification step
+reports a missing tool — a missing tool is a **setup step, not a blocker**;
+escalate only when provisioning itself fails.
+
+Sandbox discipline (see `docs/sandbox.md`):
+
+- Envs come from `sandbox/bin/pair.sh`. Name pairs `<AGENT_NAME><issue-no>`
+  (e.g. `a73213`) and allocate ports from your `PORT_BASE` so co-hosted agents
+  never collide. **Destroy your pairs when done.** Heed the >2-live-pairs
+  warning; check `pair.sh list` before adding load.
+- Never run `docker compose down`/`make clean` against stacks you did not
+  create; never touch another agent's pair. The conformance `conf` pair
+  belongs to whoever is running a sweep on this host — check
+  `pgrep -f "conformance/run.sh"` before starting one, and wait rather than
+  interleave (two writers on one pair produce false failures).
 
 ## Candidate selection
 
@@ -54,77 +80,101 @@ Ask before claiming if a required parameter is genuinely ambiguous.
    anything not Backlog, already assigned/claimed/prefixed by another agent,
    blocked by an open issue, or a parent with unfinished children. No
    relation-capable read = not claimable.
-3. **Held-files check (duo-wp-specific):** run `git status`. If the issue's
-   likely files carry uncommitted changes you don't own, another session is
-   mid-work — the issue is not claimable; report it instead. Never edit a
-   file with foreign uncommitted changes; never commit or revert them.
+3. **Shared-working-copy check:** when operating in a working copy you share
+   with other sessions (owner-session hosts), run `git status` — if the
+   issue's likely files carry uncommitted changes you don't own, the issue is
+   not claimable here; report it. Never edit/commit/revert another session's
+   in-flight files. (Distributed clones are isolated by construction; this
+   rule then applies only to the pair/`conf` contention above.)
 4. Re-fetch the issue immediately before claiming. If anything changed or a
    blocker appeared, drop it and pick again.
 
 ## Claim gate
 
-A claim is complete only when Linear readback proves it. Do not edit files
-before this passes.
+A claim is complete only when Linear readback proves it. Do not create a
+branch or edit files before this passes.
 
 1. Set state In Progress; assign yourself if the account allows.
-2. Comment: `Claimed by AGENT_NAME. Original title: {title}.` Prefix the title
-   `[AGENT_NAME] ` only when the prompt says multiple agents share the pool.
+2. Comment: `Claimed by AGENT_NAME. Branch: {branch}. Original title:
+   {title}.` Prefix the title `[AGENT_NAME] ` only when the prompt says
+   multiple agents share the pool.
 3. Re-read with relations and confirm: state, claim comment, no new blocker.
    Missing marker → fix and re-read, or release. Never work an unclaimed or
    blocked issue.
 
 ## Work and verify
 
-1. Fix the **root cause** within the pinned architecture — no quick fixes,
+1. **Branch (distributed mode):** `git fetch origin && git switch -c
+   {branch} origin/main` — use the issue's own `gitBranchName` from Linear as
+   `{branch}`. Never branch from a stale local `main`.
+2. Fix the **root cause** within the pinned architecture — no quick fixes,
    silent fallbacks, or compat shims. Match the codebase's comment style
    (rationale-dense docblocks stating constraints and evidence).
-2. Held files stay held: if the fix requires one, stop and report — do not
-   work around it by editing.
 3. Every fix ships with regression coverage that fails against the prior
    defect (a `sandbox/tests/regress_*.sh` or a conformance fixture — read an
    existing one for the idiom). Tests use the product path, not shortcuts.
 4. Verify per the issue's Evidence section, plus mechanically: `php -l` every
    touched PHP file, `bash -n` every touched script. Anything touching
-   `agent/src`, `manifests/`, or the harness needs the conformance sweep
-   (`bash sandbox/conformance/run.sh <manifest>` for affected manifests; the
-   full 9-manifest sweep for engine-wide changes). Warnings are not green:
-   human output, machine output, and exit status must agree.
+   `agent/src`, `manifests/`, or the harness needs conformance evidence:
+   run `bash sandbox/conformance/run.sh <manifest>` locally for every
+   affected manifest **before** opening the PR (PR CI runs the full
+   9-manifest matrix as confirmation, not as your first test). Warnings are
+   not green: human output, machine output, and exit status must agree.
 5. Out-of-scope discoveries: report on the issue (or file a new one), never
    fix silently.
 
-## Close gate
+## Close gate (distributed mode — strict order)
 
-Strict order; do not flip Linear to Done before the evidence exists.
+1. Push the branch; open a PR titled `DUO-XXXX: {summary}` whose body carries
+   the evidence: what changed (file:line), test tails (paste, don't
+   paraphrase), conformance evidence for affected manifests, and anything
+   re-homed or discovered.
+2. Wait for PR CI (the conformance matrix) to be green. A red leg is yours to
+   root-cause: distinguish your change / a latent real finding (valuable —
+   report it) / infrastructure, before any re-run.
+3. `gh pr merge --squash` only when the PR fully satisfies the claimed issue
+   against current `origin/main`. Then **prove the merge**:
 
-1. Commit to `main` with the issue id in the message (`DUO-XXXX: …`) so Linear
-   auto-links it. One issue per commit where practical.
-2. Comment the evidence on the issue: commit SHA, what changed (file:line),
-   test tails (paste, don't paraphrase), and anything re-homed or discovered.
-3. Scope check: compare the commit against the issue's acceptance criteria.
-   Fully satisfied → mark Done.
-4. **Slice case:** if deliberately partial, do not mark Done silently — append
-   a `## Scope note` to the issue description stating what was delivered
-   (with the SHA) and where every remaining criterion was re-homed, then
-   return the issue to Backlog with your claim removed. A Done issue must
-   never hide unchecked boxes.
-5. Re-read the issue and confirm: state, evidence comment, scope note if any.
-   Then re-read this file before selecting the next issue.
+   ```
+   bash scripts/close-gate-check.sh <pr-number>
+   ```
+
+   It verifies GitHub reports MERGED with a 40-hex squash SHA (from the API —
+   never local HEAD), single-parent squash, and `merge-base --is-ancestor`
+   against freshly-fetched `origin/main`.
+4. If the helper fails: do **not** mark Done. Comment the discrepancy on the
+   issue (PR number, helper output, current `origin/main` HEAD) and escalate.
+   A Done issue whose commit is not on `main` is the phantom-Done class.
+5. Only after the helper passes: comment on the issue with the PR link, the
+   squash SHA, the literal line `merge-base --is-ancestor: ok`, and the test
+   evidence; remove any title prefix; mark Done.
+6. **Slice case:** if deliberately partial, do not mark Done — append a
+   `## Scope note` to the issue description stating what was delivered (with
+   the SHA) and where every remaining criterion was re-homed, then return the
+   issue to Backlog with your claim removed. A Done issue must never hide
+   unchecked boxes.
+7. Re-read the issue and confirm the markers. Then re-read this file before
+   selecting the next issue.
+
+(Owner-session mode replaces steps 1–3 with a direct commit to `main`
+referencing `DUO-XXXX`, and step 5's evidence comment quotes the commit SHA
+instead of a PR.)
 
 ## Stale claim release
 
 A leftover claim marker is not a tombstone. Before declaring the queue empty:
 inspect prefixed/claimed open issues (relations + comments). Release only when
-there is no fresh claim comment, no foreign assignee doing visible work, and
-no human hold — comment
+there is no fresh claim comment, no foreign assignee doing visible work, no
+open PR for its branch, and no human hold — comment
 `Releasing stale claim from [{old}]. Reason: no active ownership found.`,
 strip the prefix, return to Backlog, then claim through the normal gate. If
 staleness can't be proven, it is not claimable — report it.
 
 ## Escalation / empty queue
 
-Blocked (needs a human decision, a held file, a dependency, or verification
-that won't provision): comment the blocker on the issue with exact evidence,
-leave the claim in place, and report. When nothing is claimable, report each
-blocked issue and its blocker, poll at the configured cadence, and stop when
-the limit expires — never idle silently, never mark anything Done to make the
+Blocked (needs a human decision, a dependency, or verification that won't
+provision): comment the blocker on the issue with exact evidence, leave the
+claim in place, and report. When nothing is claimable, report each blocked
+issue and its blocker, poll at the configured cadence, and stop when the
+limit expires — never idle silently, never mark anything Done to make the
 queue look better than it is.
