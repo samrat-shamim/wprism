@@ -131,6 +131,47 @@ bash bin/pair.sh reset "$CONF_PAIR"
 say "pair.sh up: boot conf1 (:$CONF1_PORT) / conf2 (:$CONF2_PORT), DB-level readiness, generic WordPress bootstrap"
 bash bin/pair.sh up "$CONF_PAIR" "$CONF1_PORT" "$CONF2_PORT" --http
 
+# DUO-3242: derive a guard-safe SLUG from a manifest's plugins[] entry.
+# `wp plugin is-active`/`is-installed` (install_env's own guard, below)
+# both expect a slug (the wp-content/plugins/ directory name) — given a
+# raw URL (paid-memberships-pro's own manifest entry, the first of this
+# shape — DUO-3239), both always report "not found" regardless of actual
+# state, so the guard never short-circuits for a URL-sourced plugin, and a
+# second `install` call on files already present from an earlier
+# manifest's run on this SAME (reset-but-not-destroyed) pair hard-fails:
+# confirmed live — "Warning: Destination folder already exists" / "Plugin
+# installation failed." / "Error: No plugins installed." (exit 1), NOT the
+# graceful "Plugin already installed." warning a same-slug re-install
+# produces (also confirmed live, side by side — the two are genuinely
+# different wp-cli code paths, not a memory error). wp-cli's own
+# GitHub-archive install path (every URL this project currently ships — a
+# .../<repo>/archive/refs/{tags,heads}/<ref>.zip download) unpacks to
+# `<repo>-<ref>/` then renames to the bare `<repo>` directory (confirmed
+# live: "Renamed Github-based project from 'paid-memberships-pro-3.8.3' to
+# 'paid-memberships-pro'") — so the repo name, one path segment before
+# "archive", IS the eventual slug.
+#
+# Returns empty for any URL shape that doesn't match — not a guess dressed
+# up as an answer. install_env()'s own fallback for that case (below)
+# stays CORRECT either way, at the cost of an unconditional --force
+# re-fetch instead of a cheap guard check: confirmed live that --force
+# succeeds identically whether the destination already exists (updates in
+# place) or doesn't (installs fresh) — unlike a bare re-attempted
+# `install`, which is only safe for a KNOWN-matching slug.
+plugin_slug() { # plugin_slug <plugin-identifier> -> slug, or empty if unknown
+  local id="$1"
+  case "$id" in
+    http://*|https://*)
+      if [[ "$id" =~ /([^/]+)/archive/ ]]; then
+        printf '%s' "${BASH_REMATCH[1]}"
+      fi
+      ;;
+    *)
+      printf '%s' "$id"   # already a plain wp.org slug (or slug/file.php) — unchanged
+      ;;
+  esac
+}
+
 install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
   # already fully installed WordPress (core install, theme, permalinks,
   # .htaccess) on a freshly reset (empty) database and waited for real
@@ -155,6 +196,25 @@ install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
   wp_env "$env" site empty --yes
   if [ "${#PLUGINS[@]}" -gt 0 ]; then
     for plugin in "${PLUGINS[@]}"; do
+      slug=$(plugin_slug "$plugin")
+      # DUO-3242: a URL-sourced install call needs --force regardless of
+      # whether plugin_slug() above could derive a slug. is-active/
+      # is-installed (the guard just below) correctly gate WHETHER to call
+      # `install` at all once a slug is known — but activation/installation
+      # state is a DIFFERENT question from whether the URL's own download
+      # destination already exists on disk from an earlier manifest's run
+      # on this pair. Confirmed live: even when the guard correctly finds
+      # "not active" (a fresh database has no activation record — see the
+      # role=author comment below) and the derived slug is exactly right,
+      # a plain, non-forced `install` on an existing destination still
+      # hard-fails for a URL. A plain slug never has this problem (`wp
+      # plugin install <slug>` gracefully warns "already installed" and
+      # proceeds), so --force is scoped to URL-shaped entries only —
+      # unnecessary weight on the common, already-working case.
+      case "$plugin" in
+        http://*|https://*) force=--force ;;
+        *) force= ;;
+      esac
       if [ "$role" = author ]; then
         # is-active, not is-installed: pair.sh's reset deliberately leaves the
         # webroot volume alone (only the database is DROP/CREATE'd — that's
@@ -165,16 +225,18 @@ install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
         # that case — confirmed the hard way: `install --activate` DOES
         # activate an already-present-but-inactive plugin fine when actually
         # invoked (it's not a no-op), the bug was this guard never calling it.
-        wp_env "$env" plugin is-active "$plugin" >/dev/null 2>&1 \
-          || wp_env "$env" plugin install "$plugin" --activate
+        if [ -z "$slug" ] || ! wp_env "$env" plugin is-active "$slug" >/dev/null 2>&1; then
+          wp_env "$env" plugin install "$plugin" --activate $force
+        fi
       else
         # role=target: files only, deliberately never --activate — `wp duo
         # deploy` (below, once conf2 has its clone) is what activates this
         # FOR REAL, from canonical. Same cross-manifest-run persistence
         # caveat as the author branch above, just guarding on the thing
         # this branch actually needs (files on disk), not activation state.
-        wp_env "$env" plugin is-installed "$plugin" >/dev/null 2>&1 \
-          || wp_env "$env" plugin install "$plugin"
+        if [ -z "$slug" ] || ! wp_env "$env" plugin is-installed "$slug" >/dev/null 2>&1; then
+          wp_env "$env" plugin install "$plugin" $force
+        fi
       fi
     done
   fi
