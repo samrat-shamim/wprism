@@ -241,14 +241,49 @@ final class RepositoryAuthorization {
 
     private static function authorize_options(Policy $policy, string $uuid, array $entity, array &$out): void {
         $options = $entity['data'] ?? Canon::decode($entity['content']);
-        foreach ($options as $name => $_) {
+        foreach ($options as $name => $value) {
             $details = str_contains((string) $name, '{{')
                 ? $policy->canonical_option_name_ref_details((string) $name)
                 : $policy->option_rule_details((string) $name);
-            $class = $details['rule']['class'] ?? 'unclassified';
+            $rule = $details['rule'] ?? [];
+            if (!empty($rule['sub_keys'])) {
+                // DUO-3233: this option's OWN top-level class is legitimately
+                // something other than 'authored' (Polylang's `polylang`/
+                // Yoast's `wpseo` are both 'env' — excluded whole, except
+                // named sub-keys carved out below them) — so the ordinary
+                // whole-value check below does not apply. Instead, every KEY
+                // actually present in the repository's captured value must
+                // be individually declared authored in sub_keys; anything
+                // else is exactly the "unknown field" case
+                // unexpected_fields() already guards for post/term/menu/
+                // table entities, applied here to an option's own sub-keys.
+                self::authorize_option_sub_keys(
+                    (string) $name, $value, $rule['sub_keys'], $details['source'], $entity['path'], $uuid, $out
+                );
+                continue;
+            }
+            $class = $rule['class'] ?? 'unclassified';
             $managed = $class === 'managed' && in_array($name, self::MANAGED_OPTIONS, true);
             if ($class !== 'authored' && !$managed) {
                 self::finding($out, 'repository_field_not_authored', $entity['path'], $uuid, 'option', (string) $name, $class, $details['source']);
+            }
+        }
+    }
+
+    private static function authorize_option_sub_keys(
+        string $name, $value, array $subKeys, ?string $source, string $path, string $uuid, array &$out
+    ): void {
+        if (!is_array($value)) {
+            self::finding($out, 'repository_field_not_authored', $path, $uuid, 'option', $name, 'malformed', $source);
+            return;
+        }
+        foreach ($value as $subKey => $_) {
+            $subClass = $subKeys[$subKey]['class'] ?? 'unclassified';
+            if ($subClass !== 'authored') {
+                self::finding(
+                    $out, 'repository_field_not_authored', $path, $uuid, 'option_sub_key',
+                    "$name.$subKey", $subClass, $source
+                );
             }
         }
     }
