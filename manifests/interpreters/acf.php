@@ -54,12 +54,39 @@ final class Acf {
 
     /** @var array<string, array|null> field key -> unserialized post_content (null = no such field). */
     private array $fieldDefs = [];
+    private bool $repositoryPrimed = false;
 
     public function __construct(Policy $policy) {
         // Unused: classification here is fully schema-driven from acf-field
         // post_content, so no static-policy lookups are needed — the param
         // exists to satisfy the interpreter contract (Policy::interpreters()
         // constructs every interpreter as `new $class($this)`).
+    }
+
+    /**
+     * Prime field definitions from the immutable repository rather than the
+     * target database. An acf-field post is deliberately captured with a
+     * verbatim serialized body; using that same body for authorization makes
+     * the result target-independent (fresh targets do not have these rows
+     * until apply phase 1/2, while mapped targets already do).
+     */
+    public function prime_repository(array $tree): void {
+        $this->repositoryPrimed = true;
+        foreach ($tree as $entity) {
+            if (($entity['type'] ?? '') !== 'post') {
+                continue;
+            }
+            [$front, $body] = \Duo\Canon::parse_post_file((string) $entity['content']);
+            if (($front['type'] ?? '') !== 'acf-field') {
+                continue;
+            }
+            $fieldKey = (string) ($front['slug'] ?? '');
+            if (!preg_match(self::FIELD_KEY_PATTERN, $fieldKey)) {
+                continue;
+            }
+            $decoded = @unserialize($body, ['allowed_classes' => false]);
+            $this->fieldDefs[$fieldKey] = is_array($decoded) ? $decoded : null;
+        }
     }
 
     /**
@@ -129,6 +156,12 @@ final class Acf {
     private function field_definition(string $fieldKey): ?array {
         if (array_key_exists($fieldKey, $this->fieldDefs)) {
             return $this->fieldDefs[$fieldKey];
+        }
+        if ($this->repositoryPrimed) {
+            // Authorization is about one immutable revision. Falling back to
+            // a mapped target's DB here would let that target authorize a
+            // stale/incomplete tree which a fresh target correctly refuses.
+            return null;
         }
         global $wpdb;
         $raw = $wpdb->get_var($wpdb->prepare(

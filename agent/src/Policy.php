@@ -93,14 +93,25 @@ final class Policy {
         'term_meta' => 'meta_patterns',
     ];
 
-    private function rule(string $section, string $name): ?array {
+    /**
+     * Resolve a policy rule together with the declaration that won. Apply's
+     * repository authorization gate needs the source as evidence: a refusal
+     * that only says "runtime" but not whether site.duo.json or which pinned
+     * manifest made that decision is not actionable enough to repair safely.
+     *
+     * @return array{rule:?array, source:?string}
+     */
+    private function rule_details(string $section, string $name): array {
         $sitePolicy = $this->site['policy'][$section][$name] ?? null;
         if ($sitePolicy !== null) {
-            return $sitePolicy;
+            return ['rule' => $sitePolicy, 'source' => 'site.duo.json'];
         }
         foreach ($this->manifests as $m) {
             if (isset($m[$section][$name])) {
-                return $m[$section][$name];
+                return [
+                    'rule' => $m[$section][$name],
+                    'source' => (string) ($m['name'] ?? '?'),
+                ];
             }
         }
         $patternKey = self::PATTERN_KEYS[$section] ?? null;
@@ -108,20 +119,37 @@ final class Policy {
             foreach ($this->manifests as $m) {
                 foreach ($m[$patternKey] ?? [] as $pat) {
                     if (preg_match('/' . $pat['match'] . '/', $name)) {
-                        return array_diff_key($pat, ['match' => true]);
+                        return [
+                            'rule' => array_diff_key($pat, ['match' => true]),
+                            'source' => (string) ($m['name'] ?? '?'),
+                        ];
                     }
                 }
             }
         }
-        return null;
+        return ['rule' => null, 'source' => null];
+    }
+
+    private function rule(string $section, string $name): ?array {
+        return $this->rule_details($section, $name)['rule'];
     }
 
     public function option_rule(string $name): ?array {
         return $this->rule('options', $name);
     }
 
+    /** @return array{rule:?array, source:?string} */
+    public function option_rule_details(string $name): array {
+        return $this->rule_details('options', $name);
+    }
+
     public function post_meta_rule(string $key): ?array {
         return $this->rule('post_meta', $key);
+    }
+
+    /** @return array{rule:?array, source:?string} */
+    public function post_meta_rule_details(string $key): array {
+        return $this->rule_details('post_meta', $key);
     }
 
     public function term_meta_rule(string $key): ?array {
@@ -130,6 +158,31 @@ final class Policy {
 
     public function table_rule(string $unprefixedTable): ?array {
         return $this->rule('tables', $unprefixedTable);
+    }
+
+    /**
+     * Snapshot consumes declared_tables(), whose established precedence is
+     * last pinned manifest then site override. Report the source of that same
+     * effective declaration; using rule_details() here would reproduce the
+     * older first-manifest single-name inconsistency instead of the rule the
+     * typed-snapshot writer actually follows.
+     *
+     * @return array{rule:?array, source:?string}
+     */
+    public function declared_table_details(string $name): array {
+        $rule = null;
+        $source = null;
+        foreach ($this->manifests as $m) {
+            if (isset($m['tables'][$name])) {
+                $rule = $m['tables'][$name];
+                $source = (string) ($m['name'] ?? '?');
+            }
+        }
+        if (isset($this->site['policy']['tables'][$name])) {
+            $rule = $this->site['policy']['tables'][$name];
+            $source = 'site.duo.json';
+        }
+        return ['rule' => $rule, 'source' => $source];
     }
 
     /** Option names classified authored (the capture whitelist). */
@@ -378,6 +431,35 @@ final class Policy {
     }
 
     /**
+     * Resolve a canonical option name containing one identity token against
+     * option_name_refs without consulting a target ledger. Replacing the
+     * token with a representative positive integer lets the declaration's
+     * existing numeric-name regex decide ownership, while checking id_kind
+     * separately prevents a hand-edited token of the wrong keyspace from
+     * borrowing that authorization.
+     *
+     * @return array{rule:?array, source:?string}
+     */
+    public function canonical_option_name_ref_details(string $name): array {
+        if (!preg_match('/\{\{([a-z][a-z0-9_]*):[0-9a-f-]{36}\}\}/', $name, $m)) {
+            return ['rule' => null, 'source' => null];
+        }
+        $representative = str_replace($m[0], '1', $name);
+        foreach ($this->manifests as $manifest) {
+            foreach ($manifest['option_name_refs'] ?? [] as $rule) {
+                if (($rule['id_kind'] ?? '') === $m[1]
+                    && preg_match('/' . $rule['match'] . '/', $representative)) {
+                    return [
+                        'rule' => $rule,
+                        'source' => (string) ($manifest['name'] ?? '?'),
+                    ];
+                }
+            }
+        }
+        return ['rule' => null, 'source' => null];
+    }
+
+    /**
      * The first option_name_refs rule whose `match` regex matches
      * $realOptionName (a name with any embedded id already in its REAL,
      * numeric form — never a token) — or null. Shared by Capture's
@@ -441,6 +523,76 @@ final class Policy {
             }
         }
         return $this->post_meta_rule($key);
+    }
+
+    /** @return array{rule:?array, source:?string} */
+    public function meta_rule_details_for_post(string $key, array $allMeta): array {
+        foreach ($this->interpreters() as $name => $i) {
+            $rule = $i->post_meta_rule($key, $allMeta);
+            if ($rule === null) {
+                continue;
+            }
+            foreach ($this->manifests as $m) {
+                if (($m['interpreter'] ?? null) === $name) {
+                    return [
+                        'rule' => $rule,
+                        'source' => (string) ($m['name'] ?? '?') . " (interpreter $name)",
+                    ];
+                }
+            }
+            return ['rule' => $rule, 'source' => "interpreter $name"];
+        }
+        return $this->post_meta_rule_details($key);
+    }
+
+    /**
+     * Give schema-driven interpreters the immutable repository tree before
+     * authorization. ACF field definitions are themselves canonical posts;
+     * priming from those files keeps a fresh target and an already-mapped
+     * target from classifying the same payload differently merely because
+     * only one target has the definitions in its database yet.
+     */
+    public function prime_interpreters_from_repository(array $tree): void {
+        foreach ($this->interpreters() as $i) {
+            if (method_exists($i, 'prime_repository')) {
+                $i->prime_repository($tree);
+            }
+        }
+    }
+
+    /** @return array{rule:?array, source:?string} */
+    public function post_type_rule_details(string $postType): array {
+        foreach ($this->manifests as $m) {
+            if (isset($m['post_types'][$postType]['class'])) {
+                return [
+                    'rule' => ['class' => $m['post_types'][$postType]['class']],
+                    'source' => (string) ($m['name'] ?? '?'),
+                ];
+            }
+        }
+        return ['rule' => null, 'source' => null];
+    }
+
+    /**
+     * Pure repository-side taxonomy authorization. taxonomies() expands
+     * pattern matches from the live target database, which is right for
+     * capture discovery but wrong for immutable-revision preflight: the same
+     * repository must not pass on a mapped target and fail on a fresh one.
+     *
+     * @return array{authorized:bool, source:?string}
+     */
+    public function taxonomy_scope_details(string $taxonomy): array {
+        if (in_array($taxonomy, $this->site['policy']['taxonomies'] ?? ['category', 'post_tag'], true)) {
+            return ['authorized' => true, 'source' => 'site.duo.json'];
+        }
+        foreach ($this->manifests as $m) {
+            foreach ($m['taxonomy_patterns'] ?? [] as $pat) {
+                if (preg_match('/' . $pat['match'] . '/', $taxonomy)) {
+                    return ['authorized' => true, 'source' => (string) ($m['name'] ?? '?')];
+                }
+            }
+        }
+        return ['authorized' => false, 'source' => null];
     }
 
     /**
@@ -536,13 +688,21 @@ final class Policy {
      * never silently here.
      */
     public function field_class(string $postType, string $field): string {
+        return $this->field_rule_details($postType, $field)['class'];
+    }
+
+    /** @return array{class:string, source:string} */
+    public function field_rule_details(string $postType, string $field): array {
         foreach ($this->manifests as $m) {
             $class = $m['post_types'][$postType]['fields'][$field]['class'] ?? null;
             if ($class !== null) {
-                return $class;
+                return [
+                    'class' => $class,
+                    'source' => (string) ($m['name'] ?? '?'),
+                ];
             }
         }
-        return 'authored';
+        return ['class' => 'authored', 'source' => 'repo-format'];
     }
 
     /**

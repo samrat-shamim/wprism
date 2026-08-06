@@ -156,10 +156,17 @@ final class Deploy {
      */
     public static function run(string $repo, array $opts = []): array {
         Canary::suppress_cron_spawn();
-        Ledger::ensure();
         $repo = rtrim($repo, '/');
         $policy = Policy::load($repo);
-        $desired = self::read_desired_code_state($repo);
+        // Deploy fires lifecycle hooks deliberately, so it must share apply's
+        // complete immutable-repository authorization gate. Otherwise an
+        // unauthorized siteurl/_stock/etc. could be discovered only after
+        // plugin activation or a theme switch had already escaped.
+        $tree = RepositoryAuthorization::load_authorized_tree($repo, $policy);
+        Ledger::ensure();
+        $desired = isset($tree['options/core'])
+            ? self::extract_desired(Canon::decode($tree['options/core']['content']))
+            : [];
 
         $mismatch = self::code_mismatch($policy, $desired);
         if ($mismatch && empty($opts['force_code_mismatch'])) {
@@ -243,15 +250,6 @@ final class Deploy {
             'code_mismatch' => $mismatch,
             'warnings' => $warnings,
         ];
-    }
-
-    /** @return array{active_plugins?: string[], template?: string, stylesheet?: string} */
-    private static function read_desired_code_state(string $repo): array {
-        $file = $repo . '/state/options/core.json';
-        if (!is_file($file)) {
-            return [];
-        }
-        return self::extract_desired(Canon::decode(Canon::read_file($file)));
     }
 
     /**
