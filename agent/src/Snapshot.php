@@ -961,7 +961,41 @@ final class Snapshot {
                 'table' => $table,
                 'uuid' => $uuid,
             ];
-            $slug = self::slug_for_composite($localByCol, $cols);
+            // "--slug" suffix (DUO-3239 finding, overriding a previous
+            // deliberate choice; also required unconditionally by
+            // RepositoryCompiler's own filename validator — every non-menu
+            // entity's basename must start with "<uuid>--", so this can't
+            // simply be dropped): built from the TWO REFERENCED ENTITIES'
+            // OWN uuids (short prefixes, via uuid_from_token() — already
+            // resolved above by identify_composite_row(), not a second
+            // lookup), never this environment's local ids. Still lets two
+            // different rows of the same table look different in a
+            // directory listing (unlike a single static per-table fallback,
+            // e.g. id_kind, would), while staying fully portable.
+            //
+            // This used to join THIS environment's own local ids
+            // ("<local-id-1>-<local-id-2>"), defended as "cosmetic only ...
+            // the same as every other slug's 'renames change the filename's
+            // slug half' convention already tolerates looking different
+            // across environments." That analogy doesn't actually hold: a
+            // post/term slug is AUTHORED content that transfers verbatim
+            // across environments via apply, so it stays identical under an
+            // ordinary cross-environment round-trip — it only changes when
+            // the content genuinely changes. A local id is NEVER transferred
+            // (Apply.php always mints a fresh one on the target) and differs
+            // by construction, so the old local-id slug produced a spurious
+            // filename difference on EVERY cross-environment
+            // capture-apply-recapture, not just on an actual rename.
+            // Confirmed live during DUO-3239: a directory-tree round-trip
+            // diff (conformance/run.sh's `diff -r`) caught it;
+            // regress_pmpro_composite_ref.sh's own file-content-only diff
+            // (explicit `diff -u $file_a $file_b`, never a directory
+            // listing) structurally could never have exercised this, so it
+            // went uncaught since DUO-3235.
+            $slug = implode('-', array_map(
+                fn($c) => substr(self::uuid_from_token($tokensByCol[$c]), 0, 8),
+                $cols
+            ));
             $entities[] = [
                 'uuid' => $uuid,
                 'type' => $table,
@@ -1188,14 +1222,6 @@ final class Snapshot {
         return [$packed >> self::COMPOSITE_COMPONENT_BITS, $packed & self::COMPOSITE_COMPONENT_MAX];
     }
 
-    /** Cosmetic only (slug is a human affordance, uuid is identity — spec/
-     *  repo-format.md's Identity section): "<local-id-1>-<local-id-2>" using
-     *  THIS environment's own current local ids at capture time, the same
-     *  as every other slug's "renames change the filename's slug half"
-     *  convention already tolerates looking different across environments. */
-    private static function slug_for_composite(array $localByCol, array $cols): string {
-        return implode('-', array_map(fn($c) => (string) $localByCol[$c], $cols));
-    }
 
     /**
      * An attached-meta key's classification RULE: the `keys{}`-declared
@@ -1472,7 +1498,15 @@ final class Snapshot {
     private static function finalize_composite_row(Tokens $tokens, array $entity, array $decl): void {
         global $wpdb;
         $idKind = $decl['id_kind'];
-        $front = Canon::decode($entity['content']);
+        // Same dual-source read as ensure_row()/finalize_row()/find_collision()
+        // above: RepositoryCompiler-built tree entries (the live Apply::run()
+        // path since DUO-3208) carry pre-decoded 'data', never a raw 'content'
+        // string — this was the one call site DUO-3235 missed when adding
+        // composite_ref, so every composite_ref row fatal'd on its first real
+        // apply through the CLI (Canon::decode(null)). 'content' stays as the
+        // fallback for any caller that still passes the older
+        // Snapshot::load_tree_entries() shape directly.
+        $front = $entity['data'] ?? Canon::decode($entity['content']);
         $uuid = $front['uuid'];
         $cols = $decl['identity']['columns'];
         $prefixed = $wpdb->prefix . $entity['type'];

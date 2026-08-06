@@ -36,6 +36,12 @@
     "post_types": ["post", "page", "attachment"],
     "taxonomies": ["category", "post_tag"]
   },
+  "paid-memberships-pro": {
+    "pin": ["core", "paid-memberships-pro"],
+    "plugins": ["https://github.com/strangerstudios/paid-memberships-pro/archive/refs/tags/3.8.3.zip"],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
   "polylang": {
     "pin": ["core", "polylang"],
     "plugins": ["polylang"],
