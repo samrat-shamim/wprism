@@ -89,7 +89,7 @@ final class Apply {
         $plan = [
             'create' => [], 'update' => [], 'unchanged' => [], 'drift' => [],
             'conflict' => [], 'adopt' => [], 'collision' => [], 'delete' => [],
-            'code_mismatch' => [],
+            'code_mismatch' => [], 'code_drift' => [],
         ];
         foreach ($tree as $uuid => $e) {
             $fileH = $e['hash'];
@@ -176,6 +176,10 @@ final class Apply {
             ? Deploy::extract_desired($tree['options/core']['data'])
             : [];
         $plan['code_mismatch'] = Deploy::code_mismatch($this->policy, $desired);
+        // DUO-3231: same $desired, same call shape as code_mismatch above —
+        // see Deploy::code_drift()'s own docblock for why it's a distinct
+        // question (out-of-band version change vs. compatibility range).
+        $plan['code_drift'] = Deploy::code_drift($this->policy, $desired);
         return $plan;
     }
 
@@ -343,6 +347,25 @@ final class Apply {
                 . "Run 'duo deploy <env>' first if this environment simply hasn't been deployed/reconciled yet, "
                 . 'or pass --force-code-mismatch to proceed anyway.'
             );
+        }
+
+        // DUO-3231: same blocking posture and escape-hatch convention as
+        // code_mismatch immediately above — see Deploy::code_drift()'s
+        // docblock for what distinguishes the two questions.
+        if ($plan['code_drift'] && empty($opts['force_code_drift'])) {
+            $list = implode("\n\n", array_map(fn($r) => '  - ' . $r['message'], $plan['code_drift']));
+            throw new \RuntimeException(
+                "duo: apply refused — code_drift:\n\n$list\n\n"
+                . "Run 'duo deploy <env>' to reconcile and re-baseline, or pass --force-code-drift to proceed anyway."
+            );
+        }
+        // Architecture Rulings §1 (report-not-hide): reaching this line with
+        // findings present is only possible via --force-code-drift — surface
+        // what was overridden, same convention as "FORCED delete of guarded
+        // ..." below, so `wp duo apply`'s own (non --format=json) output
+        // doesn't silently swallow it.
+        foreach ($plan['code_drift'] as $r) {
+            $this->warnings[] = 'FORCED past code_drift: ' . $r['message'];
         }
 
         if (!empty($opts['with_deletes'])) {

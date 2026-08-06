@@ -206,7 +206,13 @@ function cmd_envs(?string $envsFileOverride): int {
 function cmd_doctor(Transport $t): int {
     $result = Doctor::run($t);
     foreach ($result['checks'] as $c) {
-        $mark = $c['ok'] ? 'PASS' : 'FAIL';
+        // DUO-3231: an advisory check (DISALLOW_FILE_MODS today) never
+        // fails the command (Doctor::run()'s own $ok fold already skips
+        // it) — labeling a not-ok advisory row WARN rather than FAIL keeps
+        // the printed severity honest about that, matching the issue's own
+        // "reports its absence as a warning" language rather than implying
+        // doctor considers the environment broken.
+        $mark = $c['ok'] ? 'PASS' : (!empty($c['advisory']) ? 'WARN' : 'FAIL');
         $line = "[$mark] {$c['label']}";
         if (!$c['ok'] && $c['detail'] !== '') {
             $line .= " — {$c['detail']}";
