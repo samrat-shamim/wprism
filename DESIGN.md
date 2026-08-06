@@ -24,7 +24,7 @@ Classify every piece of state along three orthogonal axes:
 
 Duo is machinery to (1) enforce this partition on a system that never made the distinction, (2) represent the branchable partition canonically in git, (3) materialize it into any environment safely.
 
-Examples: `blogname` → authored · `_transient_*` → derived · `siteurl` → env-bound · a page → authored · a Woo order → runtime · a Woo product → authored **except its `_stock` meta → runtime** (classification is field-granular) · ERP-synced products → external/re-sync · `cron` option → runtime · API key in options → env-bound secret.
+Examples: `blogname` → authored · `_transient_*` → derived · `siteurl` → env-bound · a page → authored · a Woo order → runtime · a Woo product → authored **except its `_stock` meta → runtime** (classification is field-granular) · ERP-synced products → external/re-sync · `cron` option → runtime · API key in options → env-bound secret. Field-granularity reaches **post fields themselves** since round 3 (spec v0.11): a plugin-owned, self-healing field like a variation's `post_title` classifies `derived` per post type — captured verbatim for humans, excluded from the hash basis plan/drift compare against, never overwritten on update (tasks #72/#88).
 
 **Posture principle (the meta-lesson from prior-art deaths):** loud, blocking, *scoped* guarantees — never quiet best-effort. For a state-merge tool, 95% correct is negative value: the failing 5% is silent corruption.
 
@@ -62,11 +62,11 @@ Secret guard: pattern denylists first (`sk_live_`, `AKIA`, `ghp_`, …) + manife
 
 ### 3.3 Canonical repo representation (vs. opacity; the thing that makes merge possible)
 
-- **Entity-per-file**, deterministic serialization: sorted keys; PHP-serialize → canonical structured form *for plain data only*. Non-plain serializations (PHP objects `O:…`, e.g. Beaver Builder) get a **verbatim-preservation path**: original bytes kept, refs rewritten only via safe in-place token substitution, or refused with a loud warning — never round-tripped through a foreign format.
+- **Entity-per-file**, deterministic serialization: sorted keys; PHP-serialize → canonical structured form *for plain data only*. Non-plain serializations (PHP objects `O:…`, e.g. Beaver Builder) get a **verbatim-preservation path**: original bytes kept, refs rewritten only via safe in-place token substitution, or refused with a loud warning — never round-tripped through a foreign format. **Known crack in the sorted-keys assumption (grind round 3, task #123, open)**: sorting is only safe when no consumer reads a value's raw iteration order — WooCommerce's variation-title generator reads `_product_attributes`' array order directly, so canonicalization permanently reorders it on every applied target (causation-proven, signature confirmed on two fixtures). The fix direction is an opt-in order-preservation declaration on the meta rule plus a manifest-set audit for other order-sensitive associative values; until it lands, the r1b/r3a assertions carry an explicitly-scoped, anagram-checked title carve-out citing #123.
 - **Post files are front-matter + raw body**: fields/meta/terms as canonical-JSON front matter, `post_content` as raw Gutenberg HTML below the `---` separator. Rationale: the body merges in git as plain lines (an escaped-into-a-string body would make every content merge a conflict), while remaining byte-faithful to what plugins expect.
 - **URLs/paths tokenized at capture** (`{{home}}`, `{{media:uuid}}`, `{{link:uuid}}`) — serialized-length corruption can't happen because we operate on parsed structures and re-bind per environment at apply. JSON-escaped URL forms (`https:\/\/…` inside `_elementor_data`-style meta) were originally a gap (docs/frontier/elementor.md found it empirically); the tokenizer now matches both spellings and collapses them to one plain-spelled token, with structural re-encode restoring the host convention on apply (spec v0.7).
 - **Media**: binaries content-addressed (sha256), stored via git LFS in real site repos (plain files in the sandbox); the attachment *entity* is a normal authored file; `_wp_attachment_metadata` is derived → regenerated.
-- **Custom tables**: opaque snapshots are **refused** for tables with FK-like columns (int columns whose values join posts/terms/users) — authored custom tables almost always embed local ids (WPML `icl_translations`, Ninja Forms `nf3_*`), so pick-side replay would corrupt silently. The middle tier — **typed snapshot** with column-level ref declarations — is now implemented (grind round 2, task #75): manifest-declared `tables` with per-column classification, ledger-only identity (mapped UUIDv7 or natural-key-derived UUIDv5), structural row refs vs optional sidecar refs, and declarative cache invalidation; proven on Ninja Forms (`nf3_*`) and `woocommerce_attribute_taxonomies` (spec v0.10). WPML/Polylang are manifest-mandatory, never opaque-eligible.
+- **Custom tables**: opaque snapshots are **refused** for tables with FK-like columns (int columns whose values join posts/terms/users) — authored custom tables almost always embed local ids (WPML `icl_translations`, Ninja Forms `nf3_*`), so pick-side replay would corrupt silently. The middle tier — **typed snapshot** with column-level ref declarations — is now implemented (grind round 2, task #75): manifest-declared `tables` with per-column classification, ledger-only identity (mapped UUIDv7 or natural-key-derived UUIDv5), structural row refs vs optional sidecar refs, and declarative cache invalidation; proven on Ninja Forms (`nf3_*`) and `woocommerce_attribute_taxonomies` (spec v0.10); extended in round 3 to the WooCommerce shipping-zone/tax-rate families plus **option-name-embedded refs** (`option_name_refs`, spec v0.12 — options whose *name* carries another table's id, pattern-discovered and re-materialized per environment). Known grammar edges filed with acceptance criteria: derived tables with hard availability dependencies (#124), composite primary keys (#125), sidecar PK name override (#126). WPML/Polylang are manifest-mandatory, never opaque-eligible.
 
 Site-repo layout (full contract in [spec/repo-format.md](spec/repo-format.md)):
 
@@ -74,7 +74,10 @@ Site-repo layout (full contract in [spec/repo-format.md](spec/repo-format.md)):
 site.duo.json                # policy: classifications, env defs, manifest pins
 code/
   composer.json              # core + public plugins via composer where possible
-  wp-content/plugins/        # vendored (premium/unknown)
+  wp-content/plugins/        # vendored (premium/unknown — and "free but not wp.org":
+                             #   plugins self-distributed outside the registry, e.g.
+                             #   Paid Memberships Pro post-2024; pin the upstream
+                             #   release-tag URL in provenance, grind round 3)
   wp-content/themes/
   wp-content/mu-plugins/duo/ # the capture agent itself
 state/

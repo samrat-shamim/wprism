@@ -240,11 +240,21 @@ final class Apply {
         $out = [];
         foreach (glob($stateDir . '/posts/*/*.md') ?: [] as $f) {
             $content = Canon::read_file($f);
-            [$front] = Canon::parse_post_file($content);
+            [$front, $body] = Canon::parse_post_file($content);
             $out[$front['uuid']] = [
                 'type' => 'post', 'post_type' => $front['type'],
                 'path' => substr($f, strlen($stateDir) + 1),
-                'hash' => hash('sha256', $content), 'content' => $content,
+                // task #88: hash the derived-aware basis (Canon::post_hash_
+                // basis()), not the raw file bytes — this is the REPO side
+                // of build_plan()'s three-way compare against Capture::
+                // snapshot()'s identically-computed env-side hash, so a
+                // field like product_variation's title (classified derived
+                // in manifests/woocommerce.json) never registers as a
+                // create/update/drift/conflict purely from self-heal
+                // timing. 'content' stays the literal file bytes — used for
+                // writing/collision checks elsewhere, never for this hash.
+                'hash' => hash('sha256', Canon::post_hash_basis($front, $body, $this->policy)),
+                'content' => $content,
             ];
         }
         foreach (glob($stateDir . '/terms/*/*.json') ?: [] as $f) {
@@ -580,6 +590,11 @@ final class Apply {
             'post_date' => $front['date'],
             'post_date_gmt' => $front['date_gmt'],
             'post_content' => '',
+            // task #88: written unconditionally even for a 'derived'-
+            // classified field (e.g. product_variation's title) — a new
+            // row needs SOME starting value and there's no rebuilder to
+            // conjure one; finalize_post() below is where derived fields
+            // stop being overwritten, once the row actually exists.
             'post_title' => $front['title'],
             'post_excerpt' => '',
             'post_status' => $front['status'],
@@ -718,7 +733,7 @@ final class Apply {
         $content = $this->policy->body_mode($front['type']) === 'verbatim'
             ? $body
             : Blocks::apply_rewrite($body, $this->policy, $this->tokens);
-        $wpdb->update($wpdb->posts, [
+        $fields = [
             'post_author' => $authorId,
             'post_date' => $front['date'],
             'post_date_gmt' => $front['date_gmt'],
@@ -734,7 +749,36 @@ final class Apply {
             'post_parent' => $parentId,
             'menu_order' => (int) ($front['menu_order'] ?? 0),
             'post_mime_type' => $front['mime'] ?? '',
-        ], ['ID' => $id]);
+        ];
+        // Post-FIELD classification (task #88): a field this post_type
+        // classifies 'derived' (v1 scope: product_variation's title —
+        // WooCommerce's own hook-free self-heal, #72's root cause) is
+        // dropped from this UPDATE entirely rather than overwritten with
+        // the captured byte string, once the row already exists.
+        // ensure_post_row() (phase 1, moments ago in this same apply for a
+        // brand-new row) already wrote the captured value as a real
+        // starting title — there's no rebuilder to conjure one the way
+        // _wp_attachment_metadata gets one on create, and WordPress
+        // requires SOME value on insert — so this only ever skips touching
+        // an ALREADY-populated column, never leaves one null.
+        //
+        // Argued explicitly (task #88's report): the alternative —
+        // overwrite it on every apply, same as any authored field — would
+        // make a target environment's own, more-progressed self-heal
+        // regress to a stale source snapshot on every single apply cycle,
+        // only to re-heal itself on the very next ordinary WooCommerce read
+        // (an admin view, a Store API request) — a pointless oscillation
+        // for a value nothing authored actually controls. Letting the
+        // plugin's own derivation stand once the row exists is what
+        // "derived" is supposed to mean; Canon::post_hash_basis() (see
+        // load_tree() above) is the other half — it keeps this field's
+        // divergence from ever registering as drift/conflict in the first
+        // place, so skipping the write here is consistent with what plan
+        // already told the operator would happen.
+        if ($this->policy->field_class($front['type'], 'title') === 'derived') {
+            unset($fields['post_title']);
+        }
+        $wpdb->update($wpdb->posts, $fields, ['ID' => $id]);
 
         // authored meta reconciliation: we own exactly the authored-classified keys
         $frontMeta = (array) ($front['meta'] ?? []);
@@ -842,14 +886,20 @@ final class Apply {
             $termObject = [];
             foreach ($this->policy->taxonomies() as $tax) {
                 $taxObj = get_taxonomy($tax);
-                if ($taxObj === false) {
+                // task #92: same object_type fallback as Capture's copy of
+                // this method — see its comment for the full timing
+                // argument (a taxonomy_patterns-matched name landed by
+                // Snapshot's OWN phase-1 write this same apply request is
+                // never registered in time for get_taxonomy() to see it).
+                $objectTypes = $taxObj !== false ? (array) $taxObj->object_type : $this->policy->pattern_object_type($tax);
+                if ($objectTypes === null) {
                     $this->warnings[] =
                         "taxonomy '$tax' is in policy scope but not registered on this environment"
                         . " (plugin inactive?) — cannot determine which object type its relationships"
                         . " belong to, so its relationships are skipped for every post and term on apply";
                     continue;
                 }
-                foreach ((array) $taxObj->object_type as $objectType) {
+                foreach ($objectTypes as $objectType) {
                     if ($objectType === 'term') {
                         $termObject[] = $tax;
                     } else {
@@ -1014,6 +1064,34 @@ final class Apply {
 
     private function apply_options(array $options): void {
         foreach ($options as $name => $v) {
+            // option_name_refs (task #93) — MUST run before the ordinary
+            // option_rule($name) lookup below, unconditionally: a token-
+            // form key like "woocommerce_flat_rate_{{wc_zone_method:...}}
+            // _settings" matches no manifest's exact "options" map entry,
+            // so option_rule() would return null -> an empty rule -> the
+            // ordinary generic write path below, which would silently
+            // upsert a REAL wp_options row whose NAME contains literal
+            // "{{...}}" bytes — not a crash, a silent corruption of the
+            // target's own options table. Detecting and detokenizing first
+            // is what this task's own design review specifically flagged.
+            if (str_contains($name, '{{')) {
+                if (!preg_match('/\{\{([a-z][a-z0-9_]*):([0-9a-f-]{36})\}\}/', $name, $tm)) {
+                    throw new \RuntimeException("duo: option key '$name' contains '{{' but is not a well-formed ref token");
+                }
+                $realId = $this->tokens->token_to_id($tm[0]);
+                $realName = str_replace($tm[0], (string) $realId, $name);
+                $rule = $this->policy->match_option_name_ref($realName);
+                if ($rule === null) {
+                    throw new \RuntimeException(
+                        "duo: captured option key '$name' looks token-form (option_name_refs) but matches no "
+                        . "declared option_name_refs pattern once detokenized to '$realName' — manifest unpinned "
+                        . 'or stale?'
+                    );
+                }
+                $vv = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+                $this->upsert_option($realName, maybe_serialize($vv));
+                continue;
+            }
             $rule = $this->policy->option_rule($name) ?? [];
             if (($rule['class'] ?? '') === 'managed') {
                 // active_plugins/template/stylesheet (docs/proposals/code-half.md

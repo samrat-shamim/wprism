@@ -20,6 +20,13 @@ final class Capture {
      *  of policy scope — task #73's loud-and-blocking gate; see
      *  option_ref_tokens()/queue_or_warn_unscoped(). */
     private array $unscopedRefs = [];
+    /** @var array<int, array{option:string, id_kind:string, id:int}>
+     *  option_name_refs (task #93) rows whose embedded id names a row that
+     *  genuinely exists in its declared table but was never minted a uuid
+     *  (table not pinned as authored_snapshot in currently-loaded manifests,
+     *  or an equivalent scope gap) — the #73 unscoped class, mirrored onto
+     *  table id_kinds; see Snapshot::row_exists_for_kind()/build()'s gate. */
+    private array $unscopedOptionNameRefs = [];
     /** @var array<int, string> user id -> login */
     private array $userLogins = [];
     /** @var array<string, string[]> post_type -> taxonomy[], scoped by each
@@ -70,7 +77,12 @@ final class Capture {
                 }
             }
             foreach ($build['entities'] as $e) {
-                Ledger::set_state_hash($e['uuid'], $e['type'], hash('sha256', $e['content']));
+                // task #88: hash the entity's derived-aware basis when it has
+                // one (posts only, today — see build()'s post-entity
+                // construction above); every other entity type has no
+                // 'hash_basis' key and falls back to hashing its literal
+                // content, unchanged from before this task.
+                Ledger::set_state_hash($e['uuid'], $e['type'], hash('sha256', $e['hash_basis'] ?? $e['content']));
             }
             Ledger::prune_state(array_column($build['entities'], 'uuid'));
         }
@@ -104,9 +116,13 @@ final class Capture {
         $build = $c->build(false, $forceUnresolvedRefs);
         $out = [];
         foreach ($build['entities'] as $e) {
+            // task #88: same derived-aware basis as run() above — this is
+            // the env-side snapshot Apply::build_plan() diffs against the
+            // repo file's own hash, so both sides must agree on what
+            // "the same" means for a field a manifest classifies derived.
             $out[$e['uuid']] = [
                 'type' => $e['type'],
-                'hash' => hash('sha256', $e['content']),
+                'hash' => hash('sha256', $e['hash_basis'] ?? $e['content']),
                 'content' => $e['content'],
                 'path' => $e['path'],
             ];
@@ -184,6 +200,7 @@ final class Capture {
         global $wpdb;
         $this->unclassified = [];
         $this->unscopedRefs = [];
+        $this->unscopedOptionNameRefs = [];
         $entities = [];
         $media = [];
 
@@ -283,6 +300,13 @@ final class Capture {
                 'type' => 'post',
                 'path' => "posts/{$p->post_type}/{$uuid}--{$p->post_name}.md",
                 'content' => Canon::post_file($front, $body),
+                // task #88: the DRIFT/PLAN hash basis, not necessarily the
+                // same bytes as 'content' above — a post_type may classify
+                // a field 'derived' (e.g. product_variation's title), which
+                // stays in 'content' verbatim but is excluded from what
+                // gets hashed below, so self-heal timing alone never reads
+                // as authored change. See Canon::post_hash_basis().
+                'hash_basis' => Canon::post_hash_basis($front, $body, $this->policy),
             ];
         }
 
@@ -297,7 +321,7 @@ final class Capture {
         }
 
         // ---- options file ----
-        $options = $this->build_options($forceUnresolvedRefs);
+        $options = $this->build_options($mint, $forceUnresolvedRefs);
         $entities[] = [
             'uuid' => 'options/core',
             'type' => 'options',
@@ -342,6 +366,33 @@ final class Capture {
                 . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
                 . "Add the missing post type/taxonomy to policy scope above and re-run capture, or reclassify the "
                 . "option, or pass --force-unresolved-refs to drop it anyway (same as a dangling reference)."
+            );
+        }
+
+        // option_name_refs' own unscoped gate (task #93) — same posture as
+        // task #73's option-ref gate immediately above, adapted for a table
+        // id_kind instead of a post_type/taxonomy: the embedded id names a
+        // row that genuinely exists in its declared table, just never
+        // minted a uuid (the table isn't pinned as authored_snapshot in
+        // currently-loaded manifests, most likely) — a fixable manifest
+        // gap, not permanent data loss, so it aborts by default instead of
+        // silently vanishing. --force-unresolved-refs is the identical
+        // escape hatch task #73 already established, reused rather than a
+        // second flag.
+        if ($this->unscopedOptionNameRefs) {
+            $lines = [];
+            foreach ($this->unscopedOptionNameRefs as $r) {
+                $lines[] = "option '{$r['option']}' embeds {$r['id_kind']} id {$r['id']}, which is a real row in "
+                    . "its declared table — but that table's rows were never minted a uuid (not pinned as "
+                    . "authored_snapshot in a currently-loaded manifest?), so the reference cannot resolve";
+            }
+            throw new \RuntimeException(
+                "duo: option_name_refs option(s) point at real, unminted table rows (loud-and-blocking gate):\n  - "
+                . implode("\n  - ", $lines)
+                . "\nThis differs from a dangling reference (no such row anywhere — dropped with a warning, "
+                . "unchanged): the row genuinely exists right now, so this is a manifest/table-pinning gap, not "
+                . "permanent data loss.\nPin the owning table as authored_snapshot and re-run capture, or pass "
+                . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
             );
         }
 
@@ -421,14 +472,27 @@ final class Capture {
         $termObject = [];
         foreach ($taxes as $tax) {
             $taxObj = get_taxonomy($tax);
-            if ($taxObj === false) {
+            // task #92: a taxonomy_patterns-matched name (e.g. pa_size) can
+            // be in scope (Policy::taxonomies() found its term_taxonomy
+            // rows live) without being REGISTERED yet this same request —
+            // WooCommerce reads its defining table on `init`, which already
+            // ran before Snapshot's own phase-1 write of that table's row.
+            // A manifest-declared object_type (Policy::pattern_object_type())
+            // is a fact about the PLUGIN's own registration code, sidestepping
+            // the need for get_taxonomy() to have caught up. get_taxonomy()
+            // stays authoritative whenever it succeeds; this is a narrow
+            // fallback for the one specific timing gap, not a general
+            // override — an exact-list taxonomy with no declared pattern
+            // still warns+skips exactly as before if unregistered.
+            $objectTypes = $taxObj !== false ? (array) $taxObj->object_type : $this->policy->pattern_object_type($tax);
+            if ($objectTypes === null) {
                 $this->tokens->warnings[] =
                     "taxonomy '$tax' is in policy scope but not registered on this environment"
                     . " (plugin inactive?) — cannot determine which object type its relationships"
                     . " belong to, so its relationships are skipped for every post and term";
                 continue;
             }
-            foreach ((array) $taxObj->object_type as $objectType) {
+            foreach ($objectTypes as $objectType) {
                 if ($objectType === 'term') {
                     $termObject[] = $tax;
                 } elseif (isset($byPostType[$objectType])) {
@@ -892,7 +956,7 @@ final class Capture {
         return $out;
     }
 
-    private function build_options(bool $forceUnresolvedRefs = false): array {
+    private function build_options(bool $mint, bool $forceUnresolvedRefs = false): array {
         global $wpdb;
         $out = [];
         foreach ($this->policy->authored_options() as $name => $rule) {
@@ -922,6 +986,114 @@ final class Capture {
             $out[$name] = $v;
         }
 
+        // option_name_refs (task #93): options discovered by NAME PATTERN
+        // — Policy::authored_options() above is exact-whitelist only and
+        // never finds these rows at all (r1b-shop.md's own finding:
+        // WooCommerce's woocommerce_<method_id>_<instance_id>_settings
+        // rows are otherwise invisible to capture). One full option-NAME
+        // scan (names only, not values — cheap, and this runs once per
+        // capture, not per-option), tested against every declared pattern;
+        // $forceUnresolvedRefs reuses task #73's exact escape hatch rather
+        // than inventing a second flag.
+        foreach ($this->policy->option_name_ref_rules() as $rule) {
+            if (($rule['class'] ?? '') !== 'authored') {
+                continue; // future-proofing: a runtime-classified family is discovered, never captured
+            }
+            foreach ($this->option_name_scan() as $name) {
+                if (!preg_match('/' . $rule['match'] . '/', $name, $m, PREG_OFFSET_CAPTURE) || !isset($m['id'])) {
+                    continue;
+                }
+                $id = (int) $m['id'][0];
+                $offset = $m['id'][1];
+                $length = strlen($m['id'][0]);
+                $token = $this->tokens->id_to_token($id, $rule['id_kind']);
+                if ($token === null) {
+                    // task #73's dangling-vs-unscoped distinction, mirrored
+                    // onto table id_kinds — but GATED on $mint === true,
+                    // which #73's OWN original mechanism never needed to do
+                    // (post_type/taxonomy scope is a fact about a FIXED core
+                    // table, checkable regardless of minting state; a
+                    // custom table's very identity is only knowable via its
+                    // OWN declaration, so "declared" and "in policy scope"
+                    // are not analogous the same way). Reproduced directly,
+                    // not just reasoned about: calling Capture::snapshot()
+                    // (mint=false — Apply::build_plan()'s own drift-check
+                    // path) against a genuinely-declared table's row that
+                    // simply hadn't been through a real `duo capture` yet
+                    // threw this gate. This IS the same design rule as
+                    // queue_or_warn_unscoped()'s own documented false
+                    // positive below (default_category on a never-captured
+                    // fresh install — "id_to_token()'s success is a MINTING
+                    // check, not a POLICY check" — caught empirically
+                    // running THAT task's own core-manifest conformance
+                    // validation) — one rule, two instances: an unresolved
+                    // ref on a non-minting snapshot is never, by itself,
+                    // proof of a scope gap, only of "hasn't been captured
+                    // through Duo yet." The reason mint=true never
+                    // legitimately reaches this branch at all: Snapshot::
+                    // capture() (called earlier in the SAME build(), before
+                    // build_options() runs) already mints EVERY row of
+                    // every DECLARED table unconditionally — so for
+                    // mint=true, row_exists_for_kind() returning true
+                    // alongside a failed id_to_token() would be a genuine
+                    // invariant violation, worth flagging loudly; for
+                    // mint=false it is the ordinary, expected shape of
+                    // "hasn't been captured through Duo yet" and must fall
+                    // through to the same warn-and-drop dangling gets.
+                    if ($mint && !$forceUnresolvedRefs && Snapshot::row_exists_for_kind($this->policy, $rule['id_kind'], $id)) {
+                        $this->unscopedOptionNameRefs[] = ['option' => $name, 'id_kind' => $rule['id_kind'], 'id' => $id];
+                    } else {
+                        $this->tokens->warnings[] = "option $name: unmapped {$rule['id_kind']} id $id dropped (option_name_refs)";
+                    }
+                    continue;
+                }
+                $key = substr_replace($name, $token, $offset, $length);
+                $raw = $wpdb->get_var($wpdb->prepare(
+                    "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
+                ));
+                if ($raw === null) {
+                    continue;
+                }
+                $v = maybe_unserialize($raw);
+                self::assert_plain($v, "option $name");
+                // Deep secret scan, not the shallow is_string() guard the
+                // ordinary options loop above uses: this value is typically
+                // an ARRAY (a settings blob — title/cost/tax_status for
+                // flat_rate), and Secrets::hard_match_deep() is what
+                // actually recurses into it (a plain is_string() check
+                // would silently never scan an array's own string leaves —
+                // caught during this task's own design review before any
+                // code shipped; see Snapshot::guard_secret()'s identical
+                // reasoning for typed-snapshot table/attached-meta values).
+                if (empty($rule['allow_secret'])) {
+                    $secretLabel = Secrets::hard_match_deep($v);
+                    if ($secretLabel !== null) {
+                        throw new \RuntimeException(
+                            "duo: secret guard tripped — option '$name' looks like a $secretLabel but is classified "
+                            . "authored (option_name_refs); refusing to capture it into state/.\n"
+                            . "If this is really a secret, reclassify it runtime/derived/env instead of authored.\n"
+                            . 'If this is a false positive, declare "allow_secret": true on its option_name_refs rule.'
+                        );
+                    }
+                }
+                // Unconditional struct_capture (not gated on json_refs/
+                // key_refs being non-empty, unlike the ordinary options
+                // loop above): this is what gives an array-shaped settings
+                // blob "plain authored + normal URL tokenization" on every
+                // string leaf with zero per-method-id special-casing —
+                // struct_capture() tokenizes leaves regardless of whether
+                // $jsonRefs/$keyRefs are empty. Deliberately NOT the same
+                // default as the ordinary authored_options() loop above
+                // (which leaves an array value untouched unless json_refs/
+                // key_refs is declared) — changing THAT loop's default
+                // risks already-shipped manifests; this is a new, narrower
+                // path with its own default, scoped only to option_name_
+                // refs-discovered rows.
+                $v = $this->tokens->struct_capture($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+                $out[$key] = $v;
+            }
+        }
+
         // docs/proposals/code-half.md §3.1: active_plugins/template/
         // stylesheet are core-manifest options classified 'managed', not
         // 'authored' — bespoke read here, alongside (not through) the
@@ -949,6 +1121,18 @@ final class Capture {
                 : (string) $v;
         }
         return $out;
+    }
+
+    /** All live option NAMES (not values) — the candidate set
+     *  option_name_refs patterns test against (task #93). One full scan
+     *  per capture, not per-pattern/per-option: cheap (option_name is
+     *  indexed, and this reads only that one column), and Policy::rule()'s
+     *  existing pattern-fallback loop already sets the precedent of
+     *  testing a candidate against every declared pattern in PHP rather
+     *  than pushing regex evaluation into SQL. */
+    private function option_name_scan(): array {
+        global $wpdb;
+        return $wpdb->get_col("SELECT option_name FROM {$wpdb->options}") ?: [];
     }
 
     /**

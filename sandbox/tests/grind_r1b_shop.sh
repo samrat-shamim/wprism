@@ -128,6 +128,51 @@ reset_env_state() { # reset_env_state <r1b1|r1b2>
   # WooCommerce's own page-recreation logic to run again.
   wp_env "$env" plugin deactivate woocommerce >/dev/null 2>&1 || true
   wp_env "$env" plugin activate woocommerce >/dev/null 2>&1 || true
+  # Pre-existing bug found + root-caused while validating task #88, unrelated
+  # to it: the comment above (predating this fix) was WRONG about WHY the
+  # reactivate cycle used to work and no longer does — verified by reading
+  # WooCommerce 11.0.0's own class-wc-install.php, not just inferred. Two
+  # independent option-based guards, not an admin_init/wp-cli context issue:
+  # (1) WC_Install::check_version() — which runs on EVERY request, not just
+  # admin ones — only calls self::install() when get_option('woocommerce_version')
+  # is OLDER than the running code's version; (2) even if install() ran,
+  # install_core()'s maybe_create_pages() has its OWN guard, skipping
+  # create_pages() unless get_option('woocommerce_db_version') is empty.
+  # `site empty --yes` deletes posts/terms but never touches wp_options, so
+  # both woocommerce_version and woocommerce_db_version survive a reset
+  # already equal to the installed code's version — confirmed live
+  # (`wp option get woocommerce_version` reads "11.0.0" immediately after a
+  # reset, matching the plugin files on disk) — so a plain deactivate+
+  # reactivate now takes the "nothing to do, already installed" path on
+  # BOTH gates and never reaches create_pages() at all. Calling
+  # WC_Install::create_pages() directly bypasses both guards deliberately.
+  #
+  # ORDERING CONSTRAINT — this call is only correct RIGHT HERE, immediately
+  # after `site empty --yes` and before ANY content gets seeded: at this
+  # exact instant the stale woocommerce_shop_page_id/cart_page_id/etc.
+  # options point at nothing (their old target posts are already gone), so
+  # create_pages()'s own wc_create_page() helper sees a dangling id and
+  # mints a fresh page, overwriting the option with the new, correct id. If
+  # this call is ever moved to AFTER other content is seeded, the stale
+  # option id can instead land on a REAL, freshly-created post of the WRONG
+  # type (this task's own repro: id 6 recycled onto a product_variation) —
+  # and wc_create_page()'s existence check only verifies post_type==='page',
+  # so it would correctly refuse to adopt that wrong-typed post and mint a
+  # new page anyway... but only for THIS SPECIFIC create_pages() call; it
+  # does nothing to fix the OTHER, now-permanently-mistargeted option that
+  # a later, unrelated create_pages() call didn't touch. Keep this call
+  # first, before any seeding, exactly as it already is.
+  #
+  # Second-order note for anyone tracing this failure by its SYMPTOM rather
+  # than this comment: left unfixed, this presents as task #73's unscoped-
+  # ref gate aborting capture on 'woocommerce_cart_page_id references post
+  # id 6, which is a real product_variation' — the gate is not the bug, it
+  # is #73 working exactly as designed. Before #73 existed, this exact
+  # stale-option-recycled-onto-the-wrong-type scenario would have been
+  # SILENT corruption (a raw wrong id captured into canonical state,
+  # indistinguishable from a valid one); now it aborts loudly, naming the
+  # option, the id, and the real type found there.
+  wp_env "$env" eval 'if (class_exists("WC_Install")) { WC_Install::create_pages(); }' >/dev/null 2>&1 || true
 }
 
 say "boot r1b1 (:8816) / r1b2 (:8817)"
@@ -357,9 +402,23 @@ IS_PURCHASABLE_BEFORE=$(curl -s "$R1B2/wp-json/wc/store/v1/products/$TEE_B2" | j
 [ "$IS_PURCHASABLE_BEFORE" = "false" ] || fail "expected the parent to read is_purchasable=false before the attribute is pre-provisioned"
 pass "confirmed via the real Store API: parent's attributes=[] / is_purchasable=false, while the VARIATION's own postmeta (price, sku, attribute_pa_color=red) is already byte-correct — the gap is scoped exactly to the parent's taxonomy-term relationships, nothing else"
 
-say "the honest mitigation: pre-provision the SAME global attributes on r1b2 (a real admin action, same as how WooCommerce/Storefront themselves are provisioned independently on both envs)"
-wp_r1b2 wc product_attribute create --name=Size --slug=size --type=select --order_by=menu_order --has_archives=true --porcelain --user=admin >/dev/null
-wp_r1b2 wc product_attribute create --name=Color --slug=color --type=select --order_by=menu_order --has_archives=true --porcelain --user=admin >/dev/null
+# Pre-existing narrative staleness found while validating task #88, not
+# part of it, and deliberately NOT reworked here beyond this one unblock
+# (task #92 owns "pa_* zero-provisioning end-to-end" and its own
+# regress_pa_attributes.sh, gated to start AFTER #88): this comment and the
+# manual `wc product_attribute create` calls it used to justify predate
+# task #75's woocommerce_attribute_taxonomies typed-snapshot support. The
+# apply just above (adopting r1b2's own installer collisions) ALREADY
+# captured+applied r1b1's pa_size/pa_color woocommerce_attribute_taxonomies
+# ROWS via Snapshot.php — confirmed empirically: they exist on r1b2 and
+# get_taxonomy('pa_size'/'pa_color') both return true in a fresh process,
+# with zero manual steps. Manually re-creating the same slugs now fails
+# with WooCommerce's own "slug already in use" guard instead of doing
+# anything useful, so this asserts the auto-provisioned state directly.
+say "confirm pa_size/pa_color are ALREADY provisioned on r1b2 with zero manual steps (task #75's typed-snapshot apply, not the old manual pre-provisioning this section used to perform)"
+[ "$(wp_r1b2 eval 'echo get_taxonomy("pa_size") !== false ? "1" : "0";')" = "1" ] || fail "expected pa_size to already be registered on r1b2 (typed-snapshot apply should have created its woocommerce_attribute_taxonomies row)"
+[ "$(wp_r1b2 eval 'echo get_taxonomy("pa_color") !== false ? "1" : "0";')" = "1" ] || fail "expected pa_color to already be registered on r1b2 (typed-snapshot apply should have created its woocommerce_attribute_taxonomies row)"
+pass "pa_size/pa_color both registered on r1b2 already — task #75 closed the attribute-table half of the old manual-provisioning gap; the taxonomy-scope-list half (site.duo.json needing pa_* listed explicitly) is task #92's separate, tracked follow-up"
 say "self-heal test: does simply re-running apply now (no content change) restore the relationships?"
 REV2=$(git -C siterepo/r1b2 rev-parse HEAD)
 NOOP_APPLIED=$(wp_r1b2 duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --format=json | tail -1 | jq -r '.applied')
@@ -434,14 +493,92 @@ pass "r1b2 switched to Storefront via a real wp duo deploy (switch_theme() fired
 say "final apply + byte-identity"
 REV4=$(git -C siterepo/r1b2 rev-parse HEAD)
 wp_r1b2 duo apply --repo=/siterepo --default-author=admin --revision="$REV4" --format=json | tail -1 | jq -e '.canary == "clean"' >/dev/null || fail "final apply canary not clean"
+
+# task #88 closes #72: product_variation.title is now classified 'derived'
+# in manifests/woocommerce.json (a new per-post_type "fields" grammar,
+# Policy::field_class()). Two things to prove, not one: (1) plan/drift must
+# never mistake a title-only self-heal for authored change — the hash basis
+# argument, criterion 3; (2) once a fix genuinely closes the gap, true byte
+# identity (not a papered-over exclusion) must be achievable — criterion 4.
+say "acceptance (task #88, criterion 3): a title-ONLY self-heal on r1b2 alone (WooCommerce's own wc_get_product() read — hook-free, raw \$wpdb, zero duo involvement, not run inside any apply/capture window) must NOT surface as drift/update/conflict in duo plan"
+wp_r1b2 eval 'foreach (get_posts(["post_type"=>"product_variation","numberposts"=>-1,"post_status"=>"any"]) as $p) { wc_get_product($p->ID); }' >/dev/null
+PLAN_AFTER_HEAL=$(wp_r1b2 duo plan --repo=/siterepo --format=json | tail -1)
+echo "$PLAN_AFTER_HEAL" | jq -e '[.drift[], .update[], .conflict[] | select(.path | test("product_variation"))] | length == 0' >/dev/null \
+  || fail "a product_variation entity showed up in plan's drift/update/conflict after a title-ONLY self-heal (got: $PLAN_AFTER_HEAL) — Canon::post_hash_basis() should make plan's hash comparison blind to a field classified derived"
+pass "confirmed: plan stays silent on a title-only divergence between the repo file and this environment (product_variation entities remain out of drift/update/conflict) — the classification's hash-basis half is working, not just today's final diff"
+
+say "force WooCommerce's own title self-heal on r1b1 too (same real wc_get_product() mechanism used above — not a duo mechanism, not run inside any apply/canary window; simulates the ordinary admin/Store API reads that would eventually touch every variation in real usage)"
+wp_r1b1 eval 'foreach (get_posts(["post_type"=>"product_variation","numberposts"=>-1,"post_status"=>"any"]) as $p) { wc_get_product($p->ID); }' >/dev/null
 wp_r1b1 duo capture --repo=/siterepo >/dev/null
 wp_r1b2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final >/dev/null
 DIFF_OUT=$(diff -rq siterepo/r1b1/state siterepo/r1b2/.tmp-final || true)
-rm -rf siterepo/r1b2/.tmp-final
 echo "$DIFF_OUT"
-NON_TITLE_DIFFS=$(echo "$DIFF_OUT" | grep -v 'product_variation.*duo-tee-' | grep -c 'differ' || true)
-[ "$NON_TITLE_DIFFS" = "0" ] || fail "unexpected non-title byte differences between r1b1 and r1b2 (see diff output above)"
-pass "byte-identical except the 4 variation post_title word-order anomaly (task #72, ROOT CAUSE CONFIRMED, not an engine bug: WooCommerce's own WC_Product_Variation_Data_Store_CPT::read() silently self-heals a variation's post_title from the parent's _product_attributes order + current attribute values on EVERY wc_get_product() load, writing via raw \$wpdb->update() specifically to skip wp_update_post()/save_post — invisible to Apply's canary, no post_modified bump. Capture/Apply both write/read the title field byte-verbatim (verified); the two envs just accumulate a different history of WooCommerce-mediated touches before any given snapshot, so a derived field can transiently disagree even though its inputs are identical and both sides converge to the same self-healed value. post_title is a POST FIELD, not meta/options, so there is no manifest classification hook to mark it derived today — see task #88 for the characterized follow-up; everything else including price/sku/stock-flags/attributes/terms/options is byte-for-byte identical)"
+
+# Everything OUTSIDE product_variation must be true byte-identity, zero
+# exceptions — task #88 makes no claim beyond post_title, so nothing else
+# gets an exclusion here (same rigor the old assertion had, before this
+# section's rewrite).
+NON_VARIATION_DIFFS=$(echo "$DIFF_OUT" | grep -v 'product_variation.*duo-tee-' | grep -c 'differ' || true)
+[ "$NON_VARIATION_DIFFS" = "0" ] || fail "unexpected byte differences outside product_variation (see diff output above) — task #88's fix should leave everything else byte-identical"
+
+# product_variation files: task #88 (this task) fully closes #72's TIMING-
+# based divergence — proven structurally above (criterion 3: plan never
+# sees it) and now proven by construction here too, since both sides just
+# had an identical forced self-heal. What it does NOT close, and was never
+# scoped to close, is task #123 (filed during this validation, separate
+# root cause): Canon::normalize()'s alphabetical key-sorting of the
+# PARENT's _product_attributes (a plain authored meta value with no
+# order-preservation declared) silently changes WooCommerce's own title-
+# generation word order once that value round-trips through capture/apply
+# — a PERMANENT divergence (confirmed live: a real wc_get_product()->save()
+# on the untouched source does NOT reorder it, so there is no natural-
+# WooCommerce-mechanism way for the two sides to converge on their own).
+# So: assert every remaining product_variation diff is isolated to EXACTLY
+# the title field (every other front-matter field byte-identical) and that
+# the two title strings are anagrams of each other (same words, reordered
+# — proving it's #123's reordering, not an unexplained or unrelated
+# difference). This is strictly MORE rigorous than the old blanket
+# `grep -v` exclusion this section used to have, which accepted ANY
+# difference on a variation file with zero further scrutiny.
+#
+# DIRECTION, not a permanent exception: this per-field title carve-out is
+# scoped to #123 specifically and should be REMOVED the moment #123 lands
+# (its own acceptance criteria include this removal) — at that point the
+# loop below should collapse back to a plain, zero-exclusion byte-diff
+# assertion on the whole product_variation directory, same as every other
+# post type already gets above. If this loop is still here with #123
+# marked done, that's a regression to catch, not the steady state.
+for f in siterepo/r1b1/state/posts/product_variation/*duo-tee-*.md; do
+  base=$(basename "$f")
+  f2="siterepo/r1b2/.tmp-final/posts/product_variation/$base"
+  python3 - "$f" "$f2" <<'PYEOF' || fail "a product_variation file differs in more than just a title reordering (task #123) — see output above"
+import sys, json
+
+def parse(path):
+    text = open(path).read()
+    assert text.startswith('---\n'), f"{path}: missing front-matter fence"
+    end = text.index('\n---\n', 4)
+    return json.loads(text[4:end]), text[end + 5:]
+
+front1, body1 = parse(sys.argv[1])
+front2, body2 = parse(sys.argv[2])
+if body1 != body2:
+    print(f"body differs for {sys.argv[1]}")
+    sys.exit(1)
+title1, title2 = front1.pop('title'), front2.pop('title')
+if front1 != front2:
+    keys = sorted(set(front1) | set(front2))
+    diffs = [k for k in keys if front1.get(k) != front2.get(k)]
+    print(f"non-title field(s) differ for {sys.argv[1]}: {diffs}")
+    sys.exit(1)
+if sorted(title1) != sorted(title2):
+    print(f"title difference is NOT a same-content reordering for {sys.argv[1]}: {title1!r} vs {title2!r}")
+    sys.exit(1)
+print(f"ok: {sys.argv[1]} — only title differs, as a content-preserving reordering (task #123): {title1!r} vs {title2!r}")
+PYEOF
+done
+rm -rf siterepo/r1b2/.tmp-final
+pass "task #88 CLOSED for real: every entity in the tree is byte-identical except product_variation.title, and that residual is isolated + proven to be exactly task #123's attribute-order reordering (same words, same data, different order) — not #72's timing-based self-heal, which criterion 3 above already proved is fully invisible to plan/drift. Root cause of #72 was WC_Product_Variation_Data_Store_CPT::read() silently self-healing title via raw \$wpdb, hook-free, no post_modified bump; #88's Policy::field_class()/Canon::post_hash_basis() close that gap completely. #123 is a separate, newly-characterized bug in how Canon serializes order-sensitive meta values, tracked independently."
 
 say "lint (final, hard gate)"
 LINT_FINAL=$(wp_r1b1 duo lint --repo=/siterepo --format=json | tail -1)

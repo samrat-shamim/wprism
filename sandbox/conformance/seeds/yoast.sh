@@ -53,6 +53,13 @@ duo_conf_yoast_png('/tmp/duo-conf-yoast-person.png', 80, 200, 80);
 duo_conf_yoast_png('/tmp/duo-conf-yoast-ogdefault.png', 80, 80, 200);
 echo "made\n";
 EOF
+# Same-filename re-import across pair.sh resets gets WordPress's collision
+# suffix (uploads persist; reset only drops the DB) — delete our own four
+# artifact files on both sides first. See seeds/fse.sh's identical block.
+for side in conf1 conf2; do
+  wp_env "$side" eval 'foreach (glob(wp_upload_dir()["basedir"] . "/*/*/duo-conf-yoast-*.png") as $f) { unlink($f); }' >/dev/null
+done
+
 IMG_IDS=$($COMPOSE run --rm -T cli1 bash -c '
   wp eval-file /siterepo/.tmp-makeimg-yoast.php >/dev/null &&
   echo OG_ID=$(wp media import /tmp/duo-conf-yoast-og.png --title="Conformance Yoast OG Image" --porcelain) &&

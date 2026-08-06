@@ -58,7 +58,9 @@ final class Policy {
             if (!is_file($file)) {
                 throw new \RuntimeException("duo: manifest '$name' not found in $dir");
             }
-            $p->manifests[] = Canon::decode(Canon::read_file($file));
+            $manifest = Canon::decode(Canon::read_file($file));
+            self::validate_field_classes($manifest);
+            $p->manifests[] = $manifest;
         }
         return $p;
     }
@@ -225,8 +227,173 @@ final class Policy {
         return $this->site['policy']['post_types'] ?? ['post', 'page', 'attachment'];
     }
 
+    /**
+     * taxonomy_patterns (task #92): dynamic-taxonomy-NAME scope, the
+     * mirror-in-INTENT (not in mechanism) of option_patterns/meta_patterns.
+     * Deliberately NOT added to PATTERN_KEYS/rule() above: that map's shape
+     * is "classify a single key some OTHER enumeration already produced"
+     * (an options/post_meta row is discovered some other way, THEN
+     * classified by pattern); taxonomy scope has no outer enumeration to
+     * piggyback on — answering "which taxonomy NAMES are in scope" is
+     * itself the job, so the pattern consultation has to happen inside
+     * taxonomies() below, a structurally different shape by necessity, not
+     * an inconsistency with the existing mechanism.
+     *
+     * @return array<int, array{match:string, object_type:string[]}>
+     */
+    public function taxonomy_pattern_rules(): array {
+        $out = [];
+        foreach ($this->manifests as $m) {
+            foreach ($m['taxonomy_patterns'] ?? [] as $pat) {
+                $out[] = [
+                    'match' => (string) $pat['match'],
+                    'object_type' => array_values((array) ($pat['object_type'] ?? [])),
+                ];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The declared object_type for the first taxonomy_pattern matching
+     * $tax, or null. Consulted by Capture's/Apply's taxes_by_object_type()
+     * ONLY as a fallback when get_taxonomy() fails — WooCommerce registers
+     * pa_* taxonomies from a DB table read on `init`, which already ran
+     * before Snapshot's own phase-1 write of that table's row this same
+     * request/apply — so a taxonomy_patterns-matched name can be genuinely
+     * in scope (its term_taxonomy rows exist, found live) without being
+     * registered yet THIS request. A manifest-declared object_type is a
+     * fact about the PLUGIN's own registration code (confirmed against
+     * WooCommerce's actual source for pa_*: object_type defaults to
+     * `['product']`), sidestepping the need for get_taxonomy() to have
+     * caught up. get_taxonomy() stays authoritative whenever it succeeds —
+     * this is a narrow fallback for one specific timing gap, never a
+     * general override.
+     */
+    public function pattern_object_type(string $tax): ?array {
+        foreach ($this->taxonomy_pattern_rules() as $pat) {
+            if (preg_match('/' . $pat['match'] . '/', $tax)) {
+                return $pat['object_type'];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The full in-scope taxonomy list: site.duo.json's exact
+     * `policy.taxonomies` PLUS every taxonomy name actually present in
+     * wp_term_taxonomy that matches a manifest's taxonomy_patterns regex
+     * (WooCommerce's pa_* — task #92). Empirically confirmed live (not
+     * just reasoned) which source is timing-safe: after a raw-SQL insert
+     * into wp_woocommerce_attribute_taxonomies (Snapshot's own phase 1),
+     * get_taxonomy('pa_x') still returns false for the REST of that SAME
+     * request/process, but a term_taxonomy row for the new taxonomy (ALSO
+     * written raw-SQL in phase 1, unconditionally, no registration check)
+     * is immediately visible to a live SELECT DISTINCT — so expansion
+     * reads LIVE TABLE DATA, never get_taxonomies()'s in-memory registry,
+     * which is exactly the thing that's stale mid-request.
+     *
+     * SCOPE-GATED, not a blanket widen: only names that match a DECLARED
+     * pattern are ever added to the exact list — never every distinct
+     * taxonomy the database happens to hold. This is the identical posture
+     * task #73 established for ref-typed options (a real-but-out-of-scope
+     * target aborts loudly rather than silently entering canonical state);
+     * silently widening scope to "whatever's in the database" would be the
+     * same failure class in the opposite direction, and is deliberately
+     * not what this does. When no manifest declares taxonomy_patterns,
+     * this method's behavior (and its DB query) is byte-for-byte unchanged
+     * from before task #92 — an empty pattern list is a fast exact-return,
+     * no query at all, so every manifest that doesn't use this pays zero
+     * cost.
+     *
+     * This is the one deliberate exception to this class's DB-free-ness
+     * elsewhere (Snapshot.php's own docblock states that purity as a
+     * layering principle): unlike a post_meta/option KEY (already
+     * enumerated by its caller before Policy::rule() is ever consulted),
+     * the taxonomy SCOPE LIST has no outer enumeration of its own to
+     * piggyback on. Centralizing the live-DB expansion HERE — rather than
+     * duplicating a DISTINCT-query-and-filter snippet at every one of
+     * taxonomies()'s several call sites in Capture.php/Apply.php — means
+     * every caller (scope_terms(), taxes_by_object_type()'s input,
+     * Capture's unscoped-ref scope check, Apply::rebuild()'s recount list)
+     * gets pattern support for free with zero changes of their own beyond
+     * this one method.
+     */
     public function taxonomies(): array {
-        return $this->site['policy']['taxonomies'] ?? ['category', 'post_tag'];
+        $exact = $this->site['policy']['taxonomies'] ?? ['category', 'post_tag'];
+        $patterns = $this->taxonomy_pattern_rules();
+        if (!$patterns) {
+            return $exact;
+        }
+        global $wpdb;
+        $live = $wpdb->get_col("SELECT DISTINCT taxonomy FROM {$wpdb->term_taxonomy}") ?: [];
+        $matched = [];
+        foreach ($live as $tax) {
+            if (in_array($tax, $exact, true)) {
+                continue;
+            }
+            foreach ($patterns as $pat) {
+                if (preg_match('/' . $pat['match'] . '/', $tax)) {
+                    $matched[] = $tax;
+                    break;
+                }
+            }
+        }
+        return array_values(array_unique(array_merge($exact, $matched)));
+    }
+
+    /**
+     * option_name_refs (task #93): options discovered by NAME PATTERN, not
+     * exact-key whitelist — for options whose NAME embeds another declared
+     * table's local id (WooCommerce's woocommerce_<method_id>_<instance_id>
+     * _settings, instance_id being a woocommerce_shipping_zone_methods
+     * row's own pk). Pure manifest merge (flat concatenated list, manifest
+     * pin order then declaration order — same first-match-wins semantics
+     * as the PATTERN_KEYS fallback loop in rule() above); the live
+     * wp_options NAME scan this declares is Capture::build_options()'s job,
+     * not this accessor's — mirrors declared_tables()/block_attr_rules()'s
+     * existing split between "what did manifests declare" (pure, here) and
+     * "what do we do about it against a live environment" (the DB-touching
+     * caller).
+     *
+     * A DELIBERATE sibling of option_patterns, not a variant of it:
+     * option_patterns is consulted only to CLASSIFY a key some other
+     * enumeration already produced (Policy::rule()'s fallback loop);
+     * Capture::build_options() is exact-whitelist-only and NEVER consults
+     * option_patterns for DISCOVERY (confirmed by reading it — r1b-shop.md's
+     * own finding). option_name_refs entries drive their OWN discovery scan
+     * because these rows are otherwise invisible to every existing option
+     * mechanism.
+     *
+     * @return array<int, array{match:string, id_kind:string, class:string, json_refs?:array, key_refs?:array}>
+     */
+    public function option_name_ref_rules(): array {
+        $out = [];
+        foreach ($this->manifests as $m) {
+            foreach ($m['option_name_refs'] ?? [] as $rule) {
+                $out[] = $rule;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The first option_name_refs rule whose `match` regex matches
+     * $realOptionName (a name with any embedded id already in its REAL,
+     * numeric form — never a token) — or null. Shared by Capture's
+     * discovery pass (matching a live wp_options row's actual name) and
+     * Apply's apply-direction path (matching the DETOKENIZED name, i.e.
+     * after splicing the resolved local id back in) — same regex, same
+     * semantics, both directions, so capture and apply can never disagree
+     * about which rows this mechanism owns.
+     */
+    public function match_option_name_ref(string $realOptionName): ?array {
+        foreach ($this->option_name_ref_rules() as $rule) {
+            if (preg_match('/' . $rule['match'] . '/', $realOptionName)) {
+                return $rule;
+            }
+        }
+        return null;
     }
 
     /** @return array<string, object> */
@@ -304,6 +471,112 @@ final class Policy {
             }
         }
         return 'normal';
+    }
+
+    /**
+     * v1-supported post FIELD classification surface (task #88). A field
+     * name must appear here before ANY manifest may declare it under
+     * `post_types.<type>.fields.<field>` — validate_field_classes() below
+     * enforces this at load() time, loudly, rather than silently ignoring
+     * an unsupported declaration. Deliberately just 'title': it is the
+     * only field with a proven self-healing precedent (WooCommerce's
+     * product_variation, task #72's root cause). 'slug' is excluded on
+     * purpose even though it's a plausible next case — a post's slug
+     * participates in its canonical FILENAME and in collision/identity
+     * checks (Apply::find_collision()), so "derived" would need to answer
+     * questions (does the filename track the live value? does identity?)
+     * this task never had to face. status/dates/menu_order/comment_status/
+     * ping_status/excerpt have no self-healing precedent at all yet.
+     * Widening this list is a deliberate, separate decision per field, not
+     * a mechanical extension of the mechanism.
+     */
+    private const DERIVABLE_FIELDS = ['title'];
+
+    /** @see DERIVABLE_FIELDS */
+    private const FIELD_CLASSES = ['derived'];
+
+    /**
+     * Post-FIELD classification — NOT post_meta/options (Policy::rule()'s
+     * 'post_meta'/'term_meta'/'options' sections), and not the same thing
+     * as this class's own post_types()/body_mode()/post_type_phase()
+     * either: post_types() is the site-policy SCOPE list (which types
+     * capture at all), body_mode()/post_type_phase() classify how a whole
+     * post TYPE behaves. This classifies one of the ~13 keys every post
+     * FILE carries unconditionally (Capture::build_post()'s $front /
+     * Apply::finalize_post()'s $wpdb->update() payload — title, slug,
+     * status, dates, parent, menu_order, comment_status, ping_status,
+     * excerpt) — fields no manifest could classify at all before task #88,
+     * unlike meta/options which have supported `class: derived` from v0.
+     *
+     * The proven case: WC_Product_Variation_Data_Store_CPT::read() (task
+     * #72's confirmed root cause) silently recomputes a variation's
+     * post_title from the parent's attribute order + the variation's own
+     * current attribute values on EVERY wc_get_product() load, writing it
+     * via a raw $wpdb->update() specifically to dodge wp_update_post()/
+     * save_post — hook-free, invisible to Apply's canary, no post_modified
+     * bump. Two environments that have received a different number/timing
+     * of ordinary WooCommerce-mediated reads can transiently disagree on
+     * this ONE field's bytes while every authored input is identical.
+     *
+     * Manifest-only, first declaring manifest wins — same precedence as
+     * body_mode()/post_type_phase() immediately above, for the identical
+     * reason description_refs_for_taxonomy() gives for its own no-site-
+     * override stance: this is a structural fact about how a PLUGIN's post
+     * type behaves (a fact this manifest is asserting about WooCommerce's
+     * own code), not a site-local policy choice. It also sidesteps the
+     * same real naming collision body_mode()/post_type_phase() already
+     * avoid: site.duo.json's policy.post_types is already the flat SCOPE
+     * LIST post_types() reads above — a site-policy override here would
+     * need a different key or silently shadow that list.
+     *
+     * Default 'authored': every field is authored unless a manifest says
+     * otherwise, matching how every post type captures fully today with
+     * zero manifest declarations. See DERIVABLE_FIELDS for what a manifest
+     * may actually declare — anything else fails loudly at load() time,
+     * never silently here.
+     */
+    public function field_class(string $postType, string $field): string {
+        foreach ($this->manifests as $m) {
+            $class = $m['post_types'][$postType]['fields'][$field]['class'] ?? null;
+            if ($class !== null) {
+                return $class;
+            }
+        }
+        return 'authored';
+    }
+
+    /**
+     * Loud, load-time guard for field_class()'s manifest input (mirrors
+     * interpreters()'s "throw immediately, never degrade silently" posture
+     * for a bad manifest declaration): a manifest naming an unsupported
+     * field, or an unsupported class for a supported field, fails EVERY
+     * command that loads this manifest (capture/plan/apply/lint/pending),
+     * not just the specific post_type/field it misdeclares — task #88's
+     * "start v1 scope tight" instruction, enforced structurally rather than
+     * left as a convention. Called from load() for every manifest, so a
+     * bad declaration can never reach field_class()'s per-post lookup.
+     */
+    private static function validate_field_classes(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        foreach ($manifest['post_types'] ?? [] as $postType => $decl) {
+            foreach ($decl['fields'] ?? [] as $field => $rule) {
+                if (!in_array($field, self::DERIVABLE_FIELDS, true)) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' declares post_types.$postType.fields.$field, but only "
+                        . implode(', ', self::DERIVABLE_FIELDS) . ' may be field-classified in v1 (task #88 '
+                        . 'scoped this deliberately tight — see Policy::DERIVABLE_FIELDS\' docblock)'
+                    );
+                }
+                $class = $rule['class'] ?? null;
+                if (!in_array($class, self::FIELD_CLASSES, true)) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' declares post_types.$postType.fields.$field.class="
+                        . var_export($class, true) . ' but only ' . implode(', ', self::FIELD_CLASSES)
+                        . ' is supported for post fields in v1'
+                    );
+                }
+            }
+        }
     }
 
     /** Manifest-declared rebuilders (wp-cli commands run in the rebuild pass). */

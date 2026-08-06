@@ -45,9 +45,9 @@
   "woocommerce": {
     "pin": ["core", "woocommerce"],
     "plugins": ["woocommerce"],
-    "post_types": ["post", "page", "attachment", "product"],
+    "post_types": ["post", "page", "attachment", "product", "product_variation"],
     "setup": "hpos",
-    "taxonomies": ["category", "post_tag", "product_cat"]
+    "taxonomies": ["category", "post_tag", "product_cat", "product_type"]
   },
   "yoast": {
     "pin": ["core", "yoast"],

@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a pair-up pair-reset pair-destroy pair-list
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones
 
 up:
 	$(COMPOSE) up -d
@@ -91,3 +91,32 @@ pair-destroy:
 
 pair-list:
 	bash sandbox/bin/pair.sh list
+
+# Grind round R3-B (task #91): an events + memberships site — The Events
+# Calendar + Paid Memberships Pro — stress-testing the typed-snapshot
+# custom-table grammar (task #75) against schemas it wasn't designed
+# around. Own sandbox/bin/pair.sh pair (r3b1 :8852 / r3b2 :8853, journal
+# on) — NOT the legacy sandbox/docker-compose.yml. See
+# docs/grind/r3b-events-memberships.md for the full report.
+grind-r3b:
+	bash sandbox/tests/grind_r3b_events.sh
+
+# Grind round R3-A (task #90): a multilingual WooCommerce shop — Polylang
+# (free) + WooCommerce + Storefront, two languages (en/de), translated
+# pages/category/pa_color terms/one product, per-language menus, an
+# UNTRANSLATED variable product (pa_size x pa_color, 4 variations). Own
+# sandbox/bin/pair.sh pair (r3a1 :8850 / r3a2 :8851) — NOT the legacy
+# sandbox/docker-compose.yml. See docs/grind/r3a-multilingual-shop.md for
+# the full report.
+grind-r3a:
+	bash sandbox/tests/grind_r3a_multilingual.sh
+
+# Engine tasks #92/#93 (taxonomy_patterns + shipping-zone stack /
+# option_name_refs): regressions against the r3e pair (sandbox/bin/pair.sh,
+# 8854/8855) — see docs/grind's r3-eng-woo report for the full live
+# acceptance narrative these regressions guard on an ongoing basis.
+regress-pa-attributes:
+	bash sandbox/tests/regress_pa_attributes.sh
+
+regress-shipping-zones:
+	bash sandbox/tests/regress_shipping_zones.sh

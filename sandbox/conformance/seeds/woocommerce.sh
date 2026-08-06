@@ -22,9 +22,20 @@
 # WooCommerce releases — rather than re-tripping a known, already-reported
 # engine bug on every run.
 #
-# Does not edit manifests/woocommerce.json — that manifest is owned by the
-# Spike D work. Invoked by conformance/run.sh with wp_conf1/wp_conf2/$COMPOSE
-# exported.
+# A VARIABLE product with global attributes (pa_size/pa_color) is added
+# below — task #92/#117's own recommendation, deliberately deferred until
+# taxonomy_patterns shipped (docs/grind/r1b-shop.md's original conformance-
+# extension note flagged this needed a generic "pre-provision named global
+# attributes" setup hook first; that recommendation is now OBSOLETE, not
+# just unneeded — taxonomy_patterns + task #75's woocommerce_attribute_
+# taxonomies typed-snapshot together make pa_size/pa_color travel with ZERO
+# manual pre-provisioning on conf2, the same zero-provisioning proof already
+# run live on the r3e pair for this task; conf2's manifests.json entry
+# deliberately does NOT list pa_size/pa_color in "taxonomies" either — the
+# whole point is that the pattern, not a hand-added exact name, is what
+# puts them in scope). Does not edit manifests/woocommerce.json — that
+# manifest is owned by the Spike D/task #92/#93 work. Invoked by
+# conformance/run.sh with wp_conf1/wp_conf2/$COMPOSE exported.
 set -euo pipefail
 
 CAT_ID=$(wp_conf1 term create product_cat "Conformance Widgets" --slug=conformance-widgets --porcelain)
@@ -44,4 +55,28 @@ COUPON_ID=$(wp_conf1 wc shop_coupon create --code=CONF-WELCOME10 \
   --date_expires=2027-06-30T00:00:00 \
   --status=publish --user=admin --porcelain)
 
-echo "woocommerce seed: category=$CAT_ID product=$PID coupon=$COUPON_ID"
+
+# Variable product with global attributes (task #92): exercises
+# taxonomy_patterns' zero-provisioning end-to-end as part of the ordinary
+# conformance sweep, not just the dedicated r3e regression. Attribute ids
+# are NOT hardcoded — a fresh conf1 mints them in creation order, so this
+# reads them back rather than assuming 1/2 (conf's own reset cycle can
+# leave a different starting id across repeated runs).
+SIZE_ATTR_ID=$(wp_conf1 wc product_attribute create --name="Conf Size" --slug="conf-size" --type=select --order_by=menu_order --has_archives=false --porcelain --user=admin)
+COLOR_ATTR_ID=$(wp_conf1 wc product_attribute create --name="Conf Color" --slug="conf-color" --type=select --order_by=menu_order --has_archives=false --porcelain --user=admin)
+wp_conf1 wc product_attribute_term create "$SIZE_ATTR_ID" --name=Small --user=admin >/dev/null
+wp_conf1 wc product_attribute_term create "$SIZE_ATTR_ID" --name=Large --user=admin >/dev/null
+wp_conf1 wc product_attribute_term create "$COLOR_ATTR_ID" --name=Red --user=admin >/dev/null
+wp_conf1 wc product_attribute_term create "$COLOR_ATTR_ID" --name=Blue --user=admin >/dev/null
+
+VPID=$(wp_conf1 wc product create --name='Conformance Variable Widget' --type=variable \
+  --attributes="[{\"id\":$SIZE_ATTR_ID,\"variation\":true,\"visible\":true,\"options\":[\"Small\",\"Large\"]},{\"id\":$COLOR_ATTR_ID,\"variation\":true,\"visible\":true,\"options\":[\"Red\",\"Blue\"]}]" \
+  --status=publish --user=admin --porcelain)
+wp_conf1 wc product_variation create "$VPID" \
+  --attributes="[{\"id\":$SIZE_ATTR_ID,\"option\":\"Small\"},{\"id\":$COLOR_ATTR_ID,\"option\":\"Red\"}]" \
+  --regular_price=9.99 --sku=CONF-VAR-S-RED --manage_stock=true --stock_quantity=10 --user=admin --porcelain >/dev/null
+wp_conf1 wc product_variation create "$VPID" \
+  --attributes="[{\"id\":$SIZE_ATTR_ID,\"option\":\"Large\"},{\"id\":$COLOR_ATTR_ID,\"option\":\"Blue\"}]" \
+  --regular_price=12.99 --sku=CONF-VAR-L-BLUE --manage_stock=true --stock_quantity=8 --user=admin --porcelain >/dev/null
+
+echo "woocommerce seed: category=$CAT_ID product=$PID coupon=$COUPON_ID variable_product=$VPID (attrs size=$SIZE_ATTR_ID color=$COLOR_ATTR_ID)"

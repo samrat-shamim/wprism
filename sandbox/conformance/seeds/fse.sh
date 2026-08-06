@@ -31,6 +31,20 @@ CONTACT_URL=$(wp_conf1 post get "$CONTACT_ID" --field=url)
 NEWS_ID=$(wp_conf1 term create category "Conformance FSE News" --slug=conformance-fse-news --porcelain)
 NEWS_URL=$(wp_conf1 eval "echo get_term_link((int) $NEWS_ID, 'category');")
 
+# Uploads persist across pair.sh resets (the webroot volume is deliberately
+# kept — that's the reset-speed design, docs/sandbox.md), so a re-run's
+# `media import` of the same filename gets WordPress's collision suffix
+# (conf-fse-cta-1.png), silently changing the canonical src on every repeat
+# run and breaking checks/fse.sh's exact-filename grep — surfaced on this
+# pair's second-ever fse run (round-3 integration sweep). The freshly-reset
+# DB has no attachment rows, so same-named files are orphans by
+# construction. Delete OUR OWN artifact glob on both sides before importing
+# (conf2 too, so its copy can only exist via apply's media materialization)
+# — the ninja-forms seed's delete-your-own-leftovers reset discipline.
+for side in conf1 conf2; do
+  wp_env "$side" eval 'foreach (glob(wp_upload_dir()["basedir"] . "/*/*/conf-fse-cta*.png") as $f) { unlink($f); }' >/dev/null
+done
+
 cat > siterepo/conf1/.tmp-makeimg-fse.php <<'EOF'
 <?php
 $im = imagecreatetruecolor(64, 48);

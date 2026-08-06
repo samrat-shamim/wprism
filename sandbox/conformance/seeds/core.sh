@@ -11,6 +11,16 @@ NEWS_ID=$(wp_conf1 term create category News --slug=news --description="Conforma
 HOME_ID=$(wp_conf1 post create --post_type=page --post_title=Home --post_name=home --post_status=publish \
   --post_content='<!-- wp:paragraph --><p>Welcome to the conformance home page.</p><!-- /wp:paragraph -->' --porcelain)
 
+# Same-filename re-import across pair.sh resets gets WordPress's collision
+# suffix (uploads persist in the webroot volume; the reset only drops the
+# DB) — nondeterministic canonical filenames across runs. Fresh DB = the
+# old files are orphans; delete our own artifact glob on both sides first.
+# See seeds/fse.sh's identical block for the full story (its check greps
+# the exact filename, which is how this class of bug surfaced).
+for side in conf1 conf2; do
+  wp_env "$side" eval 'foreach (glob(wp_upload_dir()["basedir"] . "/*/*/conf-core-logo*.png") as $f) { unlink($f); }' >/dev/null
+done
+
 cat > siterepo/conf1/.tmp-makeimg.php <<'EOF'
 <?php
 $im = imagecreatetruecolor(64, 48);
