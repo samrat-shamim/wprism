@@ -352,6 +352,17 @@ final class Deploy {
             fn($r) => 'FORCED past code_drift: ' . $r['message'],
             $drift
         );
+        // Same posture, one issue over: an outside_version_range code_mismatch
+        // finding that survived the refuse-gate above (only possible via
+        // --force-code-mismatch) still needs to surface here, not just in
+        // --format=json output. missing_in_code findings are excluded — they
+        // already get their own more specific "skipped activating .../skipped
+        // theme switch ..." message below, once activation actually reaches
+        // them; double-reporting the same finding under two different
+        // messages would be noise, not signal.
+        foreach (array_filter($mismatch, fn($r) => $r['issue'] === 'outside_version_range') as $r) {
+            $warnings[] = 'FORCED past code_mismatch: ' . $r['message'];
+        }
         $activated = [];
         $deactivated = [];
         $themeSwitched = null;

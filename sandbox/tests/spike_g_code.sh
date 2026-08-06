@@ -437,15 +437,58 @@ fi
 grep -q 'apply refused' <<<"$OUT" || fail "apply's refusal did not read 'apply refused' (got: $OUT)"
 pass "(e) apply refused too: $(tail -1 <<<"$OUT")"
 
-DEPLOY_JSON=$(wp_g2 duo deploy --repo=/siterepo --force-code-mismatch --format=json | tail -1)
+# --force-code-drift is ALSO required on this specific call, pre-existing
+# and unrelated to DUO-3240: this spike predates code_drift (DUO-3231) and
+# was never re-run against it until now. The version-bump fixture above
+# (editing duo-loop-demo's file directly, no deploy in between) is exactly
+# the "code changed outside Duo's own reconciliation" shape code_drift
+# exists to catch — g2's last deploy (the "(e) control" one above)
+# baselined $BASE_VERSION as last-known-good, so it now ALSO drifts, on
+# top of being outside_version_range. Needed on THIS call only: deploy
+# unconditionally re-baselines to the CURRENT (bumped) version at the end
+# of every successful run, so from here on code_drift is naturally quiet
+# again (installed == recorded) while code_mismatch's outside_version_range
+# persists (it compares against the manifest's declared range, never a
+# baseline) — asserted below, not just assumed.
+DEPLOY_JSON=$(wp_g2 duo deploy --repo=/siterepo --force-code-mismatch --force-code-drift --format=json | tail -1)
 echo "$DEPLOY_JSON" | jq -e '.code_mismatch | length == 1' >/dev/null \
   || fail "--force-code-mismatch deploy did not report the (overridden) finding in its own summary (got: $DEPLOY_JSON)"
-pass "(e) deploy --force-code-mismatch: proceeds, still reports the finding in its summary (forced through, not hidden)"
+echo "$DEPLOY_JSON" | jq -e '.code_drift | length == 1' >/dev/null \
+  || fail "--force-code-drift deploy did not report the (overridden) drift finding in its own summary (got: $DEPLOY_JSON)"
+pass "(e) deploy --force-code-mismatch --force-code-drift: proceeds, still reports BOTH overridden findings in its summary (forced through, not hidden) — and re-baselines to $BUMPED_VERSION"
+
+say "(e) confirm the re-baseline: a plain plan (no force flags at all) now shows code_drift EMPTY — only outside_version_range remains, exactly as this fixture's own remaining calls below assume"
+PLAN_POST_DEPLOY=$(wp_g2 duo plan --repo=/siterepo --format=json | tail -1)
+echo "$PLAN_POST_DEPLOY" | jq -e '.code_drift == []' >/dev/null \
+  || fail "expected code_drift to be cleared by the forced deploy's unconditional re-baseline, got: $(echo "$PLAN_POST_DEPLOY" | jq -c .code_drift)"
+echo "$PLAN_POST_DEPLOY" | jq -e '.code_mismatch | length == 1' >/dev/null \
+  || fail "expected outside_version_range to still be present (it never clears via re-baseline), got: $(echo "$PLAN_POST_DEPLOY" | jq -c .code_mismatch)"
+pass "(e) confirmed: code_drift cleared by re-baseline, code_mismatch's outside_version_range persists — every call below needs only --force-code-mismatch"
 
 REV=$(git -C siterepo/g2 rev-parse HEAD)
 APPLY_JSON=$(wp_g2 duo apply --repo=/siterepo --adopt-by-slug=terms --revision="$REV" --force-code-mismatch --format=json | tail -1)
 [ "$(echo "$APPLY_JSON" | jq -r '.canary')" = "clean" ] || fail "apply --force-code-mismatch's canary was not clean (got: $APPLY_JSON)"
 pass "(e) apply --force-code-mismatch: succeeds, canary clean"
+
+# DUO-3240: the two calls above proved the overridden finding survives in
+# --format=json output; the outside_version_range condition is untouched by
+# either (it checks the plugin's installed version against the manifest's
+# declared version_range, not a re-baselined "last known good" the way
+# code_drift is — see part (f) below, "still out-of-range" persists across
+# repeated deploys), so re-running both WITHOUT --format=json here proves
+# the exact gap DUO-3240 closed: human-mode output must ALSO carry the
+# override, not just the machine-readable summary.
+say "(e) deploy/apply --force-code-mismatch also report the overridden finding in HUMAN-mode output, not just --format=json (DUO-3240 — the same gap code_drift's own 'FORCED past code_drift' warning was built to avoid, now closed for code_mismatch too)"
+DEPLOY_FORCED_HUMAN=$(wp_g2 duo deploy --repo=/siterepo --force-code-mismatch 2>&1)
+echo "$DEPLOY_FORCED_HUMAN" | grep -q "FORCED past code_mismatch" \
+  || fail "forced deploy did not report the overridden outside_version_range finding in human-mode output (got: $DEPLOY_FORCED_HUMAN)"
+pass "(e) deploy --force-code-mismatch: human-mode output reports the overridden finding"
+
+REV=$(git -C siterepo/g2 rev-parse HEAD)
+APPLY_FORCED_HUMAN=$(wp_g2 duo apply --repo=/siterepo --adopt-by-slug=terms --revision="$REV" --force-code-mismatch 2>&1)
+echo "$APPLY_FORCED_HUMAN" | grep -q "FORCED past code_mismatch" \
+  || fail "forced apply did not report the overridden outside_version_range finding in human-mode output (got: $APPLY_FORCED_HUMAN)"
+pass "(e) apply --force-code-mismatch: human-mode output reports the overridden finding"
 
 say "(f) idempotency: a second deploy and a second apply on the same (still out-of-range) branch are genuine no-ops"
 DEPLOY_JSON2=$(wp_g2 duo deploy --repo=/siterepo --force-code-mismatch --format=json | tail -1)

@@ -451,6 +451,17 @@ final class Apply {
         foreach ($plan['code_drift'] as $r) {
             $this->warnings[] = 'FORCED past code_drift: ' . $r['message'];
         }
+        // Same gap, one issue over: unlike Deploy::run() (which emits a more
+        // specific "skipped activating .../skipped theme switch ..." message
+        // for missing_in_code findings once activation actually reaches
+        // them), apply never attempts activation at all — that's deploy's
+        // job (see the refuse-gate's own message above). Every forced-through
+        // code_mismatch finding, missing_in_code included, is only ever
+        // visible via THIS warning in apply's context, so none are excluded
+        // here.
+        foreach ($plan['code_mismatch'] as $r) {
+            $this->warnings[] = 'FORCED past code_mismatch: ' . $r['message'];
+        }
 
         if (!empty($opts['with_deletes'])) {
             $blocked = array_filter($plan['delete'], fn($r) => isset($r['blocked']));
