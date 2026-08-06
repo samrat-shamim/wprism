@@ -3,8 +3,32 @@
 # manifest-treadmill answer): a generalized capture -> apply -> re-capture
 # round-trip harness, run per manifest against a FRESH, disposable env pair.
 # This is what CI runs; it knows nothing manifest-specific beyond what's
-# declared in conformance/manifests.json and a seed script per manifest —
-# all manifest-specific authoring happens in conformance/seeds/<name>.sh.
+# declared in conformance/manifests.json and three optional per-manifest
+# hook files, each invoked at a fixed point in the flow below IF PRESENT —
+# this file never inspects what any of them actually do:
+#   conformance/seeds/<name>.sh        conf1 only, before capture: author
+#                                       the manifest's representative content.
+#   conformance/postdeploy/<name>.sh   conf2 only, strictly after `wp duo
+#                                       deploy` and strictly before `duo
+#                                       apply`: fixups that need conf2's
+#                                       plugin genuinely ACTIVE, which only
+#                                       becomes true once deploy runs (conf2
+#                                       arrives at the seed step with plugin
+#                                       FILES only — install_env's
+#                                       role=target). Motivating case (task
+#                                       DUO-3223): a plugin's OWN activation
+#                                       hook can mint default content
+#                                       independently on each side with no
+#                                       natural key for apply to converge on
+#                                       (Snapshot.php's "mapped" identity
+#                                       mode docblock) — see
+#                                       seeds/ninja-forms.sh and
+#                                       postdeploy/ninja-forms.sh for the
+#                                       concrete case, split across the two
+#                                       hooks because conf1 is active at
+#                                       seed time and conf2 isn't.
+#   conformance/checks/<name>.sh       conf2 only, after apply: render-level
+#                                       acceptance a byte-diff can't see.
 #
 # Env provider: sandbox/bin/pair.sh (task #74's sandbox redesign), not a
 # per-manifest docker-compose profile. `pair.sh reset conf` + `pair.sh up
@@ -78,41 +102,66 @@ bash bin/pair.sh reset conf
 say "pair.sh up: boot conf1 (:$CONF1_PORT) / conf2 (:$CONF2_PORT), DB-level readiness, generic WordPress bootstrap"
 bash bin/pair.sh up conf "$CONF1_PORT" "$CONF2_PORT" --http
 
-install_env() { # install_env <conf1|conf2> — pair.sh's `up` already fully
-  # installed WordPress (core install, theme, permalinks, .htaccess) on a
-  # freshly reset (empty) database and waited for real DB-level readiness;
-  # this only does what's specific to conformance: the manifest-decorated
-  # title (cosmetic parity with the pre-migration title), stripping the
-  # default seed content, then this manifest's own plugins + setup hook.
-  local env="$1"
+install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
+  # already fully installed WordPress (core install, theme, permalinks,
+  # .htaccess) on a freshly reset (empty) database and waited for real
+  # DB-level readiness; this only does what's specific to conformance: the
+  # manifest-decorated title (cosmetic parity with the pre-migration
+  # title), stripping the default seed content, then this manifest's own
+  # plugins + (author-only) setup hook.
+  #
+  # role=author (conf1) is where canonical state gets AUTHORED: full
+  # install + activate + setup hook, same as always — capture must see the
+  # fully-set-up environment.
+  #
+  # role=target (conf2) is the actual promotion target `wp duo deploy`
+  # reconciles later (see the "deploy conf2" step below, after the clone):
+  # plugin FILES only, no --activate, no setup hook. Pre-activating conf2
+  # here too (the old behavior, before this restructure) made `duo
+  # apply`'s job artificially easy — activation state already matched
+  # canonical before deploy ever ran, so conformance never actually
+  # exercised deploy's reconciliation. This is bug #2's fix.
+  local env="$1" role="$2"
   wp_env "$env" option update blogname "Duo ${env} (${MANIFEST})"
   wp_env "$env" site empty --yes
   if [ "${#PLUGINS[@]}" -gt 0 ]; then
     for plugin in "${PLUGINS[@]}"; do
-      # is-active, not is-installed: pair.sh's reset deliberately leaves the
-      # webroot volume alone (only the database is DROP/CREATE'd — that's
-      # the whole reset-speed win), so a plugin's FILES can persist from an
-      # earlier manifest's run on this same pair while the freshly-reset
-      # database has no record of it being active. is-installed (files on
-      # disk) would short-circuit past `install --activate` entirely in
-      # that case — confirmed the hard way: `install --activate` DOES
-      # activate an already-present-but-inactive plugin fine when actually
-      # invoked (it's not a no-op), the bug was this guard never calling it.
-      wp_env "$env" plugin is-active "$plugin" >/dev/null 2>&1 \
-        || wp_env "$env" plugin install "$plugin" --activate
+      if [ "$role" = author ]; then
+        # is-active, not is-installed: pair.sh's reset deliberately leaves the
+        # webroot volume alone (only the database is DROP/CREATE'd — that's
+        # the whole reset-speed win), so a plugin's FILES can persist from an
+        # earlier manifest's run on this same pair while the freshly-reset
+        # database has no record of it being active. is-installed (files on
+        # disk) would short-circuit past `install --activate` entirely in
+        # that case — confirmed the hard way: `install --activate` DOES
+        # activate an already-present-but-inactive plugin fine when actually
+        # invoked (it's not a no-op), the bug was this guard never calling it.
+        wp_env "$env" plugin is-active "$plugin" >/dev/null 2>&1 \
+          || wp_env "$env" plugin install "$plugin" --activate
+      else
+        # role=target: files only, deliberately never --activate — `wp duo
+        # deploy` (below, once conf2 has its clone) is what activates this
+        # FOR REAL, from canonical. Same cross-manifest-run persistence
+        # caveat as the author branch above, just guarding on the thing
+        # this branch actually needs (files on disk), not activation state.
+        wp_env "$env" plugin is-installed "$plugin" >/dev/null 2>&1 \
+          || wp_env "$env" plugin install "$plugin"
+      fi
     done
   fi
-  case "$SETUP" in
-    "") ;;
-    hpos) wp_env "$env" wc hpos enable || fail "could not enable HPOS on $env" ;;
-    block-theme) wp_env "$env" theme activate twentytwentyfive || fail "could not activate twentytwentyfive on $env" ;;
-    *) fail "unknown setup hook '$SETUP' for manifest '$MANIFEST'" ;;
-  esac
-  echo "env $env installed ($MANIFEST: ${PLUGINS[*]:-no plugins}${SETUP:+, setup=$SETUP})"
+  if [ "$role" = author ]; then
+    case "$SETUP" in
+      "") ;;
+      hpos) wp_env "$env" wc hpos enable || fail "could not enable HPOS on $env" ;;
+      block-theme) wp_env "$env" theme activate twentytwentyfive || fail "could not activate twentytwentyfive on $env" ;;
+      *) fail "unknown setup hook '$SETUP' for manifest '$MANIFEST'" ;;
+    esac
+  fi
+  echo "env $env installed, role=$role ($MANIFEST: ${PLUGINS[*]:-no plugins}${SETUP:+, setup=$SETUP})"
 }
-install_env conf1
-install_env conf2
-pass "both envs installed"
+install_env conf1 author
+install_env conf2 target
+pass "conf1 fully authored (activated + setup); conf2 has plugin files only — deploy (below) reconciles the rest"
 
 say "init the site repo (own origin, own clones — pins: $(echo "$ENTRY" | jq -c '.pin'))"
 git init --bare -b main siterepo/origin-conf.git >/dev/null
@@ -144,10 +193,33 @@ git -C siterepo/conf1 push -qu origin main
 # all in-tree manifests run clean against it; a finding here means either a
 # manifest gap or a genuinely dangling/unrewritten ref — both are failures.
 say "lint conf1's captured state (hard gate)"
-LINT_JSON=$(wp_conf1 duo lint --repo=/siterepo --format=json | tail -1 || true)
-LINT_N=$(echo "$LINT_JSON" | jq 'length' 2>/dev/null || echo 0)
-if [ "${LINT_N:-0}" != "0" ]; then
-  echo "$LINT_JSON" | jq . 2>/dev/null || echo "$LINT_JSON"
+# `wp duo lint --format=json` exits 1 when it HAS findings (Cli.php's
+# lint() prints the findings array, then WP_CLI::halt(1)) — that's the
+# ordinary, expected non-zero outcome for the "found suspicious refs" case
+# this whole gate exists to catch, which is why a bare `|| true` used to
+# sit here. But a CRASH (Policy::load()/Lint::scan_tree() throwing —
+# fatal, a DB/connection error, a malformed manifest) reaches
+# WP_CLI::error(), which ALSO exits 1 — with no JSON ever printed to
+# stdout. Exit code alone can't tell "1 because findings" apart from "1
+# because crash", and the old `|| true` + `jq ... || echo 0` swallowed
+# BOTH into "0 findings" — a crash silently became a pass. Fix: capture
+# the exit code and stdout separately, and gate on stdout actually being a
+# JSON array — a crash can't fake that (every code path that prints
+# anything to stdout at all prints the findings array, nothing else).
+LINT_RC=0
+LINT_OUT=$(wp_conf1 duo lint --repo=/siterepo --format=json) || LINT_RC=$?
+LINT_JSON=$(printf '%s\n' "$LINT_OUT" | tail -1)
+if ! printf '%s\n' "$LINT_JSON" | jq -e 'type == "array"' >/dev/null 2>&1; then
+  printf '%s\n' "$LINT_OUT"
+  fail "wp duo lint crashed or produced malformed output (exit $LINT_RC, manifest: $MANIFEST) — expected a JSON array as the last line of output; raw output above"
+fi
+LINT_N=$(printf '%s\n' "$LINT_JSON" | jq 'length')
+if [ "$LINT_RC" != "0" ] && [ "$LINT_N" = "0" ]; then
+  printf '%s\n' "$LINT_OUT"
+  fail "wp duo lint exited $LINT_RC but its own output claims 0 findings (manifest: $MANIFEST) — inconsistent, treating as a crash rather than trusting it"
+fi
+if [ "$LINT_N" != "0" ]; then
+  echo "$LINT_JSON" | jq .
   fail "wp duo lint found $LINT_N suspicious ref(s) in captured state (manifest: $MANIFEST)"
 fi
 echo "lint: clean, 0 findings"
@@ -159,9 +231,88 @@ diff -r siterepo/conf1/state siterepo/conf1/.tmp-state2 || fail "capture is not 
 rm -rf siterepo/conf1/.tmp-state2
 pass "capture-twice diff is empty"
 
-say "clone the repo for conf2, apply"
+say "clone the repo for conf2"
 git clone -q siterepo/origin-conf.git siterepo/conf2
 REV=$(git -C siterepo/conf2 rev-parse HEAD)
+
+# --- deploy conf2 from canonical --------------------------------------------
+# The real promotion path this harness used to skip entirely (spec/
+# repo-format.md's "Code-half facts & deploy"): conf2 arrived above with
+# plugin FILES only, no activation, no setup hook (install_env's
+# role=target) — this is the step that actually reconciles activation/
+# theme state from canonical, via real activate_plugin()/switch_theme()
+# calls (Deploy.php), deliberately outside `duo apply`'s hook-free canary.
+# Must run after conf2's clone (it reads canonical from THIS environment's
+# /siterepo, pair.yml mounts siterepo/conf2 there — not conf1's) and
+# before `duo apply` (spec ordering: deploy code -> reconcile activation ->
+# migrations fire as an activation side effect -> THEN apply state).
+say "deploy conf2 from canonical (wp duo deploy) — the real promotion path"
+DEPLOY_RC=0
+DEPLOY_OUT=$(wp_conf2 duo deploy --repo=/siterepo --format=json) || DEPLOY_RC=$?
+if [ "$DEPLOY_RC" != "0" ]; then
+  echo "$DEPLOY_OUT"
+  fail "wp duo deploy failed on conf2 (exit $DEPLOY_RC, manifest: $MANIFEST) — conf2's plugin-files-only install was likely insufficient (missing plugin/theme code), or deploy hit a genuine code_mismatch; see output above"
+fi
+echo "$DEPLOY_OUT" | jq .
+pass "deploy succeeded on conf2"
+
+say "acceptance: conf2's activation/theme state matches canonical, from deploy alone"
+CANON_ACTIVE=$(jq -r '.active_plugins[]? | split("/")[0]' siterepo/conf1/state/options/core.json | sort -u)
+CONF2_ACTIVE=$(wp_conf2 plugin list --status=active --field=name | sort -u)
+if [ "$CANON_ACTIVE" != "$CONF2_ACTIVE" ]; then
+  echo "canonical active plugins (from conf1's capture): $CANON_ACTIVE"
+  echo "conf2 active plugins (post-deploy):               $CONF2_ACTIVE"
+  fail "conf2's active-plugin set does not match canonical after deploy (manifest: $MANIFEST)"
+fi
+CANON_TEMPLATE=$(jq -r '.template // empty' siterepo/conf1/state/options/core.json)
+CANON_STYLESHEET=$(jq -r '.stylesheet // empty' siterepo/conf1/state/options/core.json)
+CONF2_TEMPLATE=$(wp_conf2 option get template)
+CONF2_STYLESHEET=$(wp_conf2 option get stylesheet)
+[ "$CANON_TEMPLATE" = "$CONF2_TEMPLATE" ] \
+  || fail "conf2 template ('$CONF2_TEMPLATE') does not match canonical ('$CANON_TEMPLATE') after deploy (manifest: $MANIFEST)"
+[ "$CANON_STYLESHEET" = "$CONF2_STYLESHEET" ] \
+  || fail "conf2 stylesheet ('$CONF2_STYLESHEET') does not match canonical ('$CANON_STYLESHEET') after deploy (manifest: $MANIFEST)"
+pass "conf2 active plugins (${CANON_ACTIVE:-none}) and theme (template=$CONF2_TEMPLATE, stylesheet=$CONF2_STYLESHEET) match canonical — deploy alone did this"
+# --- end deploy --------------------------------------------------------------
+
+# Optional per-manifest post-deploy hook (conformance/postdeploy/<name>.sh,
+# see this file's header comment for the full timing contract): conf2-only
+# fixups that need the plugin genuinely ACTIVE, which only just became true.
+# Runs strictly here — after deploy, before apply — never folded into the
+# seed (conf2 isn't active yet at seed time) and never left to apply (apply
+# is content reconciliation, not a place to special-case one manifest's
+# activation-hook side effects).
+POSTDEPLOY="conformance/postdeploy/$MANIFEST.sh"
+if [ -f "$POSTDEPLOY" ]; then
+  say "post-deploy conf2 fixup (conformance/postdeploy/$MANIFEST.sh)"
+  bash "$POSTDEPLOY"
+  pass "post-deploy fixup applied"
+fi
+
+# Setup hooks that need the plugin ACTIVE on conf2 run here, after deploy —
+# never in install_env (role=target skipped this on purpose; see there).
+case "$SETUP" in
+  "") ;;
+  hpos)
+    # WooCommerce is active on conf2 now (deploy, just above). HPOS is a
+    # feature FLAG, not activation state, so deploy (activation/theme only)
+    # never touches it — enable it explicitly, the same call conf1's
+    # install_env made pre-capture. Must happen before `duo apply` below:
+    # apply is about to write order data, and it needs to land in whichever
+    # storage backend HPOS selects — same reason conf1 needed it enabled
+    # before its seed authored any orders.
+    wp_conf2 wc hpos enable || fail "could not enable HPOS on conf2 (post-deploy)"
+    ;;
+  block-theme)
+    # Nothing left to do — deploy's switch_theme() call above already put
+    # twentytwentyfive live on conf2 (asserted above). conf1's install_env
+    # still activates it pre-capture (role=author) so canonical carries it;
+    # conf2 gets it FROM deploy, which is the point of this restructure.
+    ;;
+  *) fail "unknown setup hook '$SETUP' for manifest '$MANIFEST'" ;;
+esac
+
+say "apply conf2 (content only — activation/theme were deploy's job, above)"
 # adopt both terms (the default "Uncategorized" category every fresh install
 # has) and posts (plugins like WooCommerce auto-create their own default
 # pages — Shop/Cart/Checkout/... — on activation, independently on conf1 and

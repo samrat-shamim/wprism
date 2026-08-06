@@ -11,24 +11,36 @@ set -euo pipefail
 
 # Ninja Forms auto-creates a default "Contact Me" sample form on activation —
 # confirmed live, also noted in docs/grind/r1a-forms.md ("nobody asked for
-# it"). install_env() activates the plugin independently on BOTH conf1 and
-# conf2, so BOTH environments mint their OWN "Contact Me" row before this
-# seed ever runs — two genuinely independent rows with no shared origin.
-# nf3_forms is a MAPPED-identity table (no natural key exists for "the
-# sample form" — see manifests/ninja-forms.json), so typed-snapshot has no
-# way to recognize two independently-created rows as "the same" form:
-# capturing conf1's and applying to conf2 correctly creates a SECOND,
-# distinct "Contact Me" row on conf2 rather than silently guessing the two
-# coincide — confirmed by deliberately running this suite without this
-# cleanup first, which reproduced exactly that (conf2 ending up with two
-# "Contact Me" rows and conf1 with one, a genuine round-trip mismatch, not a
-# capture/apply bug). Removing each side's own copy before either capture
-# establishes the same clean, deterministic baseline sandbox/tests/
+# it"). install_env() activates the plugin on conf1 (role=author) before
+# this seed ever runs, so conf1 already has its own "Contact Me" row by now.
+# nf3_forms is a "mapped"-identity table (no natural key exists for "the
+# sample form" — see Snapshot.php's identity-modes docblock, which names
+# nf3_forms/nf3_fields/nf3_actions specifically: a fresh row always mints a
+# random uuid, so there is no way for apply to recognize two independently-
+# activation-created rows as "the same" form, ever — this is not a bug to
+# fix, it's the documented, honest trade-off of that identity mode).
+# Capturing conf1's row and applying it to conf2 would therefore correctly
+# create a SECOND, distinct "Contact Me" row on conf2 rather than silently
+# guessing the two coincide — confirmed by deliberately running this suite
+# without this cleanup first, which reproduced exactly that (conf2 ending up
+# with two "Contact Me" rows and conf1 with one, a genuine round-trip
+# mismatch, not a capture/apply bug). Removing conf1's own copy before
+# capture establishes the same clean, deterministic baseline sandbox/tests/
 # grind_r1a_forms.sh's reset_env_state() already established for the r1a
 # pair (which truncates nf3_forms outright); this harness's conf pair has no
 # such reset hook of its own, so it's done here, scoped to just this one row
 # and its cascade, rather than truncating tables shared with other manifests
 # this same conf pair rotates through.
+#
+# conf2 needs the identical cleanup for the identical reason, but NOT here:
+# at seed time conf2 has no active Ninja Forms install at all (install_env's
+# role=target is plugin-files-only — `wp duo deploy` is what activates it,
+# later, after this seed and after conf1's capture/lint), so conf2's own
+# "Contact Me" row doesn't exist yet to remove. That half of this cleanup
+# lives in conformance/postdeploy/ninja-forms.sh, run by run.sh's generic
+# post-deploy hook point strictly after deploy and strictly before apply —
+# see run.sh's header comment for the timing contract, and that file for the
+# (deliberately identical) cleanup this comment describes.
 read -r -d '' REMOVE_CONTACT_ME_PHP <<'PHPEOF' || true
 <?php
 global $wpdb;
@@ -50,14 +62,9 @@ if ($id) {
     echo "removed this environment's own activation-created 'Contact Me' form (id=$id)\n";
 }
 PHPEOF
-# Each env's cli container mounts ITS OWN host siterepo/<env> dir as /siterepo
-# (cli2 never sees siterepo/conf1) — the temp file is written into both,
-# not shared, even though its content is identical.
-for env in conf1 conf2; do
-    printf '%s' "$REMOVE_CONTACT_ME_PHP" > "siterepo/$env/.tmp-nf-remove-contact-me.php"
-    wp_env "$env" eval-file /siterepo/.tmp-nf-remove-contact-me.php
-    rm -f "siterepo/$env/.tmp-nf-remove-contact-me.php"
-done
+printf '%s' "$REMOVE_CONTACT_ME_PHP" > siterepo/conf1/.tmp-nf-remove-contact-me.php
+wp_conf1 eval-file /siterepo/.tmp-nf-remove-contact-me.php
+rm -f siterepo/conf1/.tmp-nf-remove-contact-me.php
 
 cat > siterepo/conf1/.tmp-nf-import-step.php <<'PHPEOF'
 <?php
