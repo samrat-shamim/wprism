@@ -32,7 +32,13 @@ namespace Duo\Orchestrator;
  *     apply and has not yet been resolved by a later one. Row shape
  *     {uuid,type,post_type} — label() applies (uuid/type present), but the
  *     rendering below adds post_type since a plain uuid/type pair alone
- *     doesn't say what's actually pending.
+ *     doesn't say what's actually pending. Deliberately independent of
+ *     incomplete_apply above rather than folded into it — both flip `ok`
+ *     on their own because they mean different things (whole-apply retry
+ *     vs. one entity's derived-state gap) and regen_pending resolves
+ *     through a path incomplete_apply cannot reach at all (no apply needs
+ *     to have failed — see Apply::regen_dependencies()'s own docblock,
+ *     "RESOLVED (DUO-3245)", for the full reasoning and the live proof).
  *   - env_missing (DUO-3232's Apply::build_plan()): a manifest-declared
  *     `class: "env"` option that is unset (row absent or empty string) on
  *     THIS environment. Row shape {name, required} — no uuid/path/type at

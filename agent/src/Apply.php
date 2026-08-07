@@ -3347,6 +3347,34 @@ final class Apply {
      *     longer resolves) actively `Ledger::kv_delete()` the marker and
      *     warn loudly, rather than leaving it to sit in duo_kv forever with
      *     nothing left to ever consult it again.
+     *
+     * RESOLVED (DUO-3245): the "worth reconsidering together" question above
+     * was formally revisited, not just left as a standing caveat. Verdict:
+     * keep both markers exactly as they are — this is deliberate,
+     * complementary layering, not incidental double coverage, and no cheaper
+     * unification exists that preserves what each one alone provides.
+     *   - regen_pending resolves through a code path that has NOTHING to do
+     *     with apply_in_progress or a failed apply at all — sandbox/tests/
+     *     regress_tec_regen.sh's step (7) proves this by hand-planting a bare
+     *     regen_pending:<uuid> marker with apply_in_progress never set, and
+     *     watching this method find and resolve it purely off its own
+     *     kv_prefix() scan. Folding regen_pending into apply_in_progress
+     *     would delete that capability outright, not merely rename it.
+     *   - Precision: plan.regen_pending / `duo status` name the exact
+     *     uuid+post_type at risk; incomplete_apply is a blunt "something
+     *     failed, retry the whole tree" signal with no entity-level detail.
+     *     An operator deciding whether a specific promotion is safe benefits
+     *     from knowing WHICH entity, not just THAT something might still be
+     *     wrong.
+     *   - Decoupling: this method's own correctness never depends on
+     *     apply_in_progress's implementation, so the two can evolve
+     *     independently (already true today, reconfirmed rather than
+     *     assumed).
+     * Both mechanisms were re-run live against current main as part of this
+     * resolution (regress_tec_regen.sh, all steps including the isolation
+     * proof above and the two orphan-sweep shapes in step (8)) — see
+     * PlanSummary.php's own `ok` computation for the companion half of this
+     * reasoning (why both flip status independently, not just one).
      */
     private const REGEN_PENDING_PREFIX = 'regen_pending:';
 
