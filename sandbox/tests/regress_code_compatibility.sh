@@ -81,7 +81,7 @@ $clean = CodeCompatibility::diagnostics(
     $adapters,
     ['provider/provider.php', 'dependent/dependent.php']
 );
-check_compat($clean === [], 'in-range provider/theme and valid dependency order must pass');
+check_compat($clean === [], 'in-range provider/theme and provider closure must pass');
 check_compat(Canon::encode($descriptor) === $beforeDescriptor, 'compatibility checks must not mutate the descriptor');
 
 put_compat("$source/plugins/provider/provider.php", str_replace('1.5.0', '2.0.0', $provider));
@@ -107,7 +107,8 @@ check_compat(
 );
 
 // The descriptor source currently carries an uppercase token; use a source
-// copy with the valid lowercase token to prove the real order gate remains.
+// copy with the valid lowercase token to prove provider closure is enforced
+// while native/author active_plugins order remains acceptable.
 put_compat(
     "$source/plugins/dependent/dependent.php",
     str_replace('Requires Plugins: Provider', 'Requires Plugins: provider', $dependent)
@@ -119,7 +120,12 @@ $lowercaseOrder = CodeCompatibility::diagnostics(
     $adapters,
     ['dependent/dependent.php', 'provider/provider.php']
 );
-check_compat(has_code_compat($lowercaseOrder, 'code_plugin_dependency_order'), 'lowercase dependency order must be rejected');
+check_compat(
+    !has_code_compat($lowercaseOrder, 'code_plugin_dependency_order')
+        && !has_code_compat($lowercaseOrder, 'code_plugin_dependency_missing')
+        && !has_code_compat($lowercaseOrder, 'code_plugin_dependency_inactive'),
+    'lowercase dependency must accept native/alphabetical active_plugins order'
+);
 put_compat("$source/plugins/dependent/dependent.php", $dependent);
 
 $invalidSource = "$tmp/invalid/code/wp-content";
@@ -225,13 +231,13 @@ $mappingClean = CodeCompatibility::diagnostics(
     ['foo.php-bar.php', 'dependent/dependent.php']
 );
 check_compat($mappingClean === [], 'strange provider slug must satisfy dependency closure');
-$mappingOrder = CodeCompatibility::diagnostics(
+$mappingReversed = CodeCompatibility::diagnostics(
     $mappingSource,
     $mappingDescriptor,
     [],
     ['dependent/dependent.php', 'foo.php-bar.php']
 );
-check_compat(has_code_compat($mappingOrder, 'code_plugin_dependency_order'), 'strange provider dependency order must be enforced');
+check_compat($mappingReversed === [], 'strange provider dependency closure must ignore active_plugins order');
 
 // Exercise the actual offline compiler gate, including its stable structured
 // diagnostic payload, rather than only the pure helper.
@@ -296,7 +302,7 @@ try {
     check_compat(has_code_compat($diagnostics, 'code_source_outside_version_range'), 'comparison compiler must retain source range validation');
 }
 
-echo "ok: source version/theme ranges and dependency closure/order diagnostics are deterministic and descriptor-neutral\n";
+echo "ok: source version/theme ranges and dependency closure diagnostics are deterministic and descriptor-neutral\n";
 echo "ok: RepositoryCompiler and compile_for_diff reject out-of-range vendored source before target contact\n";
 PHP
 
@@ -419,9 +425,16 @@ if (Ledger::$rows !== []) {
     fail_stage_compat('out-of-range stage left durable staged markers');
 }
 
-// The same pre-write boundary catches a valid-version source whose canonical
-// active_plugins order violates Requires Plugins.
-put_stage_compat("$source/plugins/provider/provider.php", str_replace('2.0.0', '1.5.0', $provider));
+// A valid-version source whose canonical active_plugins order is native/
+// alphabetical must pass the same pre-write boundary. Lifecycle activation
+// ordering is Deploy's responsibility, not a source canonical-order gate.
+$stageProvider = str_replace('2.0.0', '1.5.0', $provider);
+$stageDependent = str_replace('Requires Plugins: Provider', 'Requires Plugins: provider', $dependent);
+put_stage_compat("$source/plugins/provider/provider.php", $stageProvider);
+put_stage_compat(
+    "$source/plugins/dependent/dependent.php",
+    $stageDependent
+);
 $descriptor = Code::descriptor_from_source($source);
 $compiled = new CompiledRepository(
     $descriptor,
@@ -436,18 +449,18 @@ $compiled = new CompiledRepository(
         'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
     ]]
 );
-$failure = null;
+$stageResult = null;
 try {
-    Code::stage($repo, $compiled, ['artifact_hash' => str_repeat('b', 64), 'promotion_owner' => 'compat-stage-order']);
+    $stageResult = Code::stage($repo, $compiled, ['artifact_hash' => str_repeat('b', 64), 'promotion_owner' => 'compat-stage-order']);
 } catch (\Throwable $e) {
-    $failure = $e->getMessage();
+    fail_stage_compat('stage rejected native/alphabetical dependency order: ' . $e->getMessage());
 }
-if ($failure === null || !str_contains($failure, 'code_plugin_dependency_order')) {
-    fail_stage_compat('stage did not refuse reversed dependency order before writing: ' . (string) $failure);
+if (!is_array($stageResult) || ($stageResult['staged'] ?? false) !== true) {
+    fail_stage_compat('stage did not report success for native/alphabetical dependency order');
 }
-if (file_get_contents(WP_CONTENT_DIR . '/plugins/provider/provider.php') !== $beforeProvider
-    || file_get_contents(WP_CONTENT_DIR . '/plugins/dependent/dependent.php') !== $beforeDependent) {
-    fail_stage_compat('dependency-order stage changed target bytes');
+if (file_get_contents(WP_CONTENT_DIR . '/plugins/provider/provider.php') !== $stageProvider
+    || file_get_contents(WP_CONTENT_DIR . '/plugins/dependent/dependent.php') !== $stageDependent) {
+    fail_stage_compat('accepted native/alphabetical dependency stage did not materialize expected target bytes');
 }
 
 remove_stage_compat($repo);

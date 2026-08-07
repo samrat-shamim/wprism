@@ -1,5 +1,5 @@
 <?php
-/** Offline proof that retirement follows Requires Plugins, not list order. */
+/** Offline proof that lifecycle topology follows Requires Plugins, not list order. */
 
 $root = dirname(__DIR__, 2);
 require_once $root . '/agent/src/Deploy.php';
@@ -78,7 +78,8 @@ $throws(
 
 // Exercise the source-header path too. It must share the same slug
 // validation as CodeCompatibility: uppercase and slash-containing values
-// are ignored, while a lowercase valid token orders the provider first.
+// are ignored, while a lowercase valid token orders the provider first for
+// activation and the dependent first for retirement.
 $tmp = sys_get_temp_dir() . '/duo-plugin-dependency-' . bin2hex(random_bytes(6));
 define('WP_PLUGIN_DIR', $tmp . '/plugins');
 mkdir(WP_PLUGIN_DIR . '/dependent', 0777, true);
@@ -117,6 +118,32 @@ $check(
     $retiredLowercase === ['dependent/dependent.php', 'provider/provider.php'],
     'lowercase dependency token did not order the provider after its dependent'
 );
+$activate = new ReflectionMethod(Deploy::class, 'dependency_ordered_activations');
+$activate->setAccessible(true);
+$GLOBALS['duo_dependency_headers'][WP_PLUGIN_DIR . '/dependent/dependent.php'] = [
+    'RequiresPlugins' => 'provider',
+];
+$nativeDesired = [
+    'dependent/dependent.php',
+    'provider/provider.php',
+];
+$activationNative = $activate->invoke(null, $nativeDesired);
+$check(
+    $activationNative === ['provider/provider.php', 'dependent/dependent.php'],
+    'provider was not activated before dependent when desired order was native/alphabetical'
+);
+$activationAuthored = $activate->invoke(null, [
+    'provider/provider.php',
+    'dependent/dependent.php',
+]);
+$check(
+    $activationAuthored === ['provider/provider.php', 'dependent/dependent.php'],
+    'provider-first activation topology changed for an authored provider-first order'
+);
+$check(
+    $nativeDesired === ['dependent/dependent.php', 'provider/provider.php'],
+    'native/alphabetical desired active_plugins order fixture was unexpectedly rewritten'
+);
 $GLOBALS['duo_dependency_headers'][WP_PLUGIN_DIR . '/dependent/dependent.php'] = [
     'RequiresPlugins' => 'not/a-slug',
 ];
@@ -147,4 +174,4 @@ $check(
 @rmdir(WP_PLUGIN_DIR);
 @rmdir($tmp);
 
-echo "ok: plugin retirement is reverse-topological with stable independent ordering\n";
+echo "ok: plugin activation is provider-first while authored order remains independent; retirement is reverse-topological\n";
