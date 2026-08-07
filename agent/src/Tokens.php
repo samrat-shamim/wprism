@@ -20,6 +20,22 @@ final class Tokens {
     private string $uploadsUrlEscaped;
     /** @var string[] capture-time warnings (unmapped ids etc.) */
     public array $warnings = [];
+    /**
+     * @var list<array{post:string,block:string,attr:string,kind:string,id:int,target_type:string}>
+     * Block-ref violations of the SAME shape task #73 gives ref-typed
+     * options (Capture::$unscopedRefs): a "kind"/"kind_from" block_attrs
+     * ref whose id names a REAL row genuinely outside policy scope, as
+     * opposed to a merely dangling one (Blocks::walk() itself resolves the
+     * dangling-vs-unscoped question via Capture::ref_target_type() + the
+     * live Policy, since Blocks.php has no persistent instance state of its
+     * own to hold this across a recursive innerBlocks walk — this array,
+     * like $warnings above, is the side-channel). Populated during
+     * Blocks::capture_rewrite(); Capture::build() reads it after the whole
+     * post loop completes (accumulates across every post in one build, the
+     * same way $warnings does) and throws its own batched abort if
+     * non-empty — see build()'s gate for the exact posture and message.
+     */
+    public array $unscopedBlockRefs = [];
     /** @var array<int,string> user id -> login (capture direction) */
     private array $userLogins = [];
     /** @var array<string,int> login -> user id (apply direction) */
@@ -128,18 +144,36 @@ final class Tokens {
      *  their own fixed spelling ({{home}}, {{uploads}}, user:<login>). */
     private const KIND_NAME_RE = '[a-z][a-z0-9_]*';
 
-    /** id -> "{{<kind>:uuid}}" (capture direction). Returns null when unmapped. */
+    /**
+     * id -> "{{<kind>:uuid}}" (capture direction). Returns null when unmapped.
+     *
+     * DUO-3212: deliberately silent on failure — this method has no opinion
+     * on disposition, because there isn't one universal disposition. Its
+     * callers currently do at least three different things with a null
+     * return: drop-with-warning (options, meta, block attrs, key_refs),
+     * throw (post_parent, menu item object refs, Snapshot.php's structural
+     * table refs), or queue as a policy-scope violation for a batched abort
+     * (Capture::option_ref_tokens()'s unscoped path). A single message
+     * emitted HERE used to claim the value was "left as-is" — true for
+     * none of those outcomes (every drop path actually drops the value;
+     * every throw path aborts the whole capture) — and every caller that
+     * already builds its own precise, context-rich message (naming the
+     * option/post/block/attribute) got that generic string prepended to
+     * its own, a double warning for one event. Callers that want a warning
+     * emit their own; two call sites (Tokens::struct_capture()'s json_refs
+     * path, Snapshot::authored_snapshot_meta_value()'s ref handling) had no
+     * warning of their own and gained one where this method's internal
+     * warning used to be their only coverage — see those methods.
+     * (Tokens::struct_capture()'s json_refs handling and Snapshot.php's
+     * capture_meta_rows() ref handling, respectively.)
+     */
     public function id_to_token(int $id, string $refKind): ?string {
         $kind = self::KIND_MAP[$refKind] ?? $refKind;
         if ($kind === '' || $id <= 0) {
             return null;
         }
         $uuid = Ledger::uuid_for($id, $kind);
-        if ($uuid === null) {
-            $this->warnings[] = "unmapped $refKind id $id left as-is (broken or out-of-scope reference)";
-            return null;
-        }
-        return '{{' . $refKind . ':' . $uuid . '}}';
+        return $uuid === null ? null : '{{' . $refKind . ':' . $uuid . '}}';
     }
 
     /** "{{<kind>:uuid}}" -> id (apply direction). Throws when unresolvable. */
@@ -313,7 +347,13 @@ final class Tokens {
                 if ($n <= 0) {
                     return; // unset convention: leave 0/''/absent-ish values alone
                 }
-                $tok = $this->id_to_token($n, $rule['kind']); // warns internally if unmapped
+                $tok = $this->id_to_token($n, $rule['kind']);
+                if ($tok === null) {
+                    // DUO-3212: id_to_token() no longer warns internally (see
+                    // its own docblock) -- this was this call site's ONLY
+                    // warning coverage, so it's now explicit here.
+                    $this->warnings[] = "json_refs path '$locator': unmapped {$rule['kind']} id $n dropped (dangling reference)";
+                }
                 $container[$key] = $tok; // token string, or null (dropped) if unmapped
             }, '');
         }
