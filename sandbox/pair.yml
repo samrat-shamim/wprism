@@ -46,6 +46,18 @@ name: duo-${DUO_PAIR}
 #                    manifests/ is mounted TO — that one is fixed and
 #                    unaffected by any of this.)
 #
+# DUO_AGENT_SRC/DUO_MANIFESTS_SRC reach compose two ways at once, deliberately:
+# pair.sh's own subcommands get them via plain `export` (pair_compose()),
+# but any OTHER script that invokes `pair.sh up` as a subprocess and then
+# makes its own separate `docker compose -f pair.yml ...` calls afterward
+# (sandbox/conformance/run.sh, every regress_*.sh/grind_*.sh — this is most
+# callers, not an edge case) never sees that export; a process boundary
+# stops it cold. pair.sh also writes sandbox/.env with the same two values
+# every time it runs, which compose auto-loads from the CWD with no export
+# needed by the caller — every script here already `cd`s into sandbox/
+# before touching compose, so this covers all of them for free. See
+# pair_compose()'s own comment for the live verification.
+#
 # Optional overrides, layered with additional -f flags (never edited into
 # this file):
 #   pair.http.yml      publish DUO_PORT1/DUO_PORT2 to wp1/wp2 (pair.sh's

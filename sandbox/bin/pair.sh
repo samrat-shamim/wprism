@@ -199,6 +199,35 @@ pair_compose() { # pair_compose <name> [overlay-file ...]
   # rather than duplicated at each call site (caught live: the first
   # version of this fix only set them in cmd_up and `stop` broke instantly).
   export DUO_AGENT_SRC="$(canonical_root)/agent" DUO_MANIFESTS_SRC="$(canonical_root)/manifests"
+
+  # DUO-3277 (CI caught this the first version above missed): that export
+  # only reaches pair.sh's OWN "${PAIR_COMPOSE[@]}" calls -- it dies with
+  # this process and never reaches the many OTHER scripts (sandbox/
+  # conformance/run.sh, every regress_*.sh/grind_*.sh) that invoke `pair.sh
+  # up` once as a subprocess and then make their own separate, direct
+  # `docker compose -f pair.yml ...` calls afterward (confirmed: that's how
+  # essentially every one of them actually works, not a hypothetical edge
+  # case -- see run.sh's own $COMPOSE + its wp_env() helper). Those scripts
+  # already re-export DUO_PAIR/DUO_PORT1/DUO_PORT2 themselves for the same
+  # process-boundary reason (see run.sh's comment by its own export line),
+  # but making every caller duplicate canonical_root()'s git logic too
+  # would be fragile -- easy to add a new call site and forget it, with no
+  # loud failure until that exact path runs.
+  #
+  # Persist the same two values to sandbox/.env instead, in addition to the
+  # export above: docker compose auto-loads a file by that exact name from
+  # the CWD (verified live with `env -i` stripping every inherited
+  # variable -- compose still resolved both mounts correctly from .env
+  # alone), and every caller in this codebase already `cd`s into sandbox/
+  # before making its own compose calls (this script's own line 45 above;
+  # run.sh's equivalent). One write here, in the single choke point every
+  # subcommand already funnels through, covers every current AND future
+  # caller with zero changes to any of them. Overwritten (never appended)
+  # so a stale value can never survive a worktree/checkout change; safe
+  # under concurrent pair.sh invocations against the same checkout too,
+  # since canonical_root() is a pure function of the checkout, not the pair
+  # name -- any two concurrent writers here always agree on the value.
+  printf 'DUO_AGENT_SRC=%s\nDUO_MANIFESTS_SRC=%s\n' "$DUO_AGENT_SRC" "$DUO_MANIFESTS_SRC" > .env
 }
 
 prepare_siterepo_roots() { # prepare_siterepo_roots <name>
