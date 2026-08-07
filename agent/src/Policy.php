@@ -16,10 +16,13 @@ final class Policy {
     private ?array $regeneratorInstances = null;
 
     /**
-     * Interpreter contract. An interpreter is a class with
+     * Interpreter contract. An interpreter is a class with the required
      *   post_meta_rule(string $key, array $allMeta): ?array
-     * returning a classification rule (same shape as manifest post_meta rules,
-     * optionally with 'cast') or null to defer. Manifests opt in via
+     * hook and may additionally define either of the optional hooks
+     *   term_meta_rule(string $key, array $allMeta): ?array
+     *   user_meta_rule(string $key, array $allMeta): ?array
+     * Each returns a classification rule (same shape as the corresponding
+     * static meta rule, optionally with 'cast') or null to defer. Manifests opt in via
      * {"interpreter": "<name>"} — for schema-driven plugins (ACF) whose meta
      * semantics live in data, not in a static key list.
      *
@@ -324,6 +327,10 @@ final class Policy {
 
     public function term_meta_rule(string $key): ?array {
         return $this->rule('term_meta', $key);
+    }
+
+    public function user_meta_rule(string $key): ?array {
+        return $this->rule('user_meta', $key);
     }
 
     public function table_rule(string $unprefixedTable): ?array {
@@ -864,17 +871,59 @@ final class Policy {
     }
 
     /**
-     * Post-context-aware meta classification: interpreters see the entity's
-     * full meta map (shadow keys and all) and win over static rules.
+     * Context-aware meta classification: interpreters see the owning
+     * entity's full meta map (shadow keys and all) and win over static rules.
+     * post_meta_rule() is the required baseline contract; term/user hooks are
+     * deliberately optional, so an existing post-only interpreter retains
+     * byte-for-byte lookup behavior on the two new dispatch paths.
      */
     public function meta_rule_for_post(string $key, array $allMeta): ?array {
+        return $this->meta_rule_for_interpreter_hook('post_meta_rule', 'post_meta', $key, $allMeta);
+    }
+
+    public function meta_rule_for_term(string $key, array $allMeta): ?array {
+        return $this->meta_rule_for_interpreter_hook('term_meta_rule', 'term_meta', $key, $allMeta);
+    }
+
+    public function meta_rule_for_user(string $key, array $allMeta): ?array {
+        return $this->meta_rule_for_interpreter_hook('user_meta_rule', 'user_meta', $key, $allMeta);
+    }
+
+    /**
+     * User-meta classification is useful before user meta is portable:
+     * runtime/env/derived decisions explicitly keep a key target-local, and
+     * interpreters can make those decisions from the owning user's complete
+     * meta map. `authored`, however, cannot become an inert declaration —
+     * spec v1 deliberately has no user entity or user-meta sidecar. Capture
+     * asks this guard about every live user-meta key and folds any returned
+     * reason into its ordinary aggregate loud gate, so the unsupported shape
+     * refuses by name until DUO-3268 defines representation, identity,
+     * missing-target, PII/secret, and deletion semantics.
+     */
+    public function user_meta_capture_blocker(string $key, array $allMeta): ?string {
+        $rule = $this->meta_rule_for_user($key, $allMeta);
+        if (($rule['class'] ?? '') === 'authored') {
+            return 'authored is unsupported by the v1 repository schema; capture is blocked pending DUO-3268';
+        }
+        return null;
+    }
+
+    private function meta_rule_for_interpreter_hook(
+        string $hook,
+        string $section,
+        string $key,
+        array $allMeta
+    ): ?array {
         foreach ($this->interpreters() as $i) {
-            $rule = $i->post_meta_rule($key, $allMeta);
+            if (!method_exists($i, $hook)) {
+                continue;
+            }
+            $rule = $i->{$hook}($key, $allMeta);
             if ($rule !== null) {
                 return $rule;
             }
         }
-        return $this->post_meta_rule($key);
+        return $this->rule($section, $key);
     }
 
     /** @return array{rule:?array, source:?string} */
@@ -1807,7 +1856,7 @@ final class Policy {
         return $out;
     }
 
-    private const SECTIONS = ['options', 'post_meta', 'term_meta'];
+    private const SECTIONS = ['options', 'post_meta', 'term_meta', 'user_meta'];
     private const CLASSES = ['authored', 'runtime', 'derived', 'env', 'managed'];
     private const SCOPE_CLASSES = ['authored', 'runtime', 'derived', 'env'];
     private const CASTS = ['string', 'csv'];
@@ -1884,7 +1933,7 @@ final class Policy {
      * shareable upstream as draft manifests"): every rule in THIS site's own
      * policy overrides (not inherited manifest rules — the human is
      * promoting decisions they made) whose key matches $matchRegex, grouped
-     * into a manifest-shaped {name, options, post_meta, term_meta}
+     * into a manifest-shaped {name, options, post_meta, term_meta, user_meta}
      * structure. Reads site.duo.json; never writes it — promotion is a
      * deliberate, separate human act (`wp duo policy-to-manifest` only
      * prints to stdout).
@@ -1893,7 +1942,7 @@ final class Policy {
         $policy = self::load($repo);
         $sitePolicy = $policy->site['policy'] ?? [];
 
-        $out = ['name' => $name, 'options' => [], 'post_meta' => [], 'term_meta' => []];
+        $out = ['name' => $name, 'options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []];
         foreach (self::SECTIONS as $section) {
             foreach ($sitePolicy[$section] ?? [] as $key => $rule) {
                 $matched = @preg_match('/' . $matchRegex . '/', $key);

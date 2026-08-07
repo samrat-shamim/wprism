@@ -576,7 +576,8 @@ final class Cli {
 
     /**
      * The core loop's review queue (DESIGN.md 3.1.5): unclassified post_meta
-     * /term_meta on in-scope entities plus registered/adapter-declared
+     * /term_meta on in-scope entities, authored-but-unrepresentable user_meta,
+     * plus registered/adapter-declared
      * entity types with live rows but no scope disposition (the same gates
      * `duo capture` aborts on), plus journal-observed unclassified options (options are
      * whitelist-only at capture, so an unlisted option is only visible via
@@ -615,6 +616,9 @@ final class Cli {
             if (!empty($ev['taxonomies'])) {
                 $evParts[] = 'taxonomies=' . implode(',', $ev['taxonomies']);
             }
+            if (!empty($ev['users'])) {
+                $evParts[] = 'users=' . implode(',', $ev['users']);
+            }
             if (!empty($ev['owner_candidates'])) {
                 $evParts[] = 'owner=' . implode(',', $ev['owner_candidates']);
             }
@@ -652,7 +656,7 @@ final class Cli {
      * ## OPTIONS
      * --repo=<path>
      * --set=<spec>         : "section:key=class[,ref=post][,cast=string]"
-     *   (section is options|post_meta|term_meta|scope; scope keys are
+     *   (section is options|post_meta|term_meta|user_meta|scope; scope keys are
      *   post_type:<name> or taxonomy:<name>, and accept only
      *   authored|runtime|derived|env. The spec is split on the
      *   FIRST ':' and the FIRST '='). Two wp-cli parsing quirks verified

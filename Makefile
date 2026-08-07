@@ -219,6 +219,11 @@ regress-fatal-mutations:
 regress-adapter-contract:
 	bash sandbox/tests/regress_adapter_contract.sh
 
+# DUO-3262: optional term/user interpreter hooks plus static-policy fallback;
+# pure PHP fixture manifests/interpreters, no WordPress or docker.
+regress-interpreter-policy:
+	bash sandbox/tests/regress_interpreter_policy.sh
+
 # DUO-3222's one genuinely live leg: Deploy::code_mismatch()'s new THEME
 # version_range check, called directly against a real bundled WordPress
 # theme (twentytwentyfour, zero network installs) via `wp eval` — no

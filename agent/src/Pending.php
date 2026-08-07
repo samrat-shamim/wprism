@@ -8,7 +8,7 @@ namespace Duo;
  * whatever evidence exists to help a human decide.
  *
  * Two disjoint sources, per finding #5/#9:
- *   - Gate items (scope, post_meta, term_meta): Capture::gate_scan()'s
+ *   - Gate items (scope, post_meta, term_meta, user_meta): Capture::gate_scan()'s
  *     exact scope/classification walk — the SAME walk Capture's abort gates
  *     run, collecting instead of aborting. Journal evidence, when the same
  *     meta key was also observed there, is joined on.
@@ -63,6 +63,9 @@ final class Pending {
         foreach ($gate['menu_item_meta'] as $key => $ev) {
             $items[] = self::make_item('menu_item_meta', $key, $ev, $journalPostMeta[$key] ?? null);
         }
+        foreach ($gate['user_meta'] as $key => $ev) {
+            $items[] = self::make_item('user_meta', $key, $ev, null);
+        }
         foreach (Snapshot::keyspace_gaps($policy) as $gap) {
             $items[] = self::make_item('table_meta', $gap['table'] . ':' . $gap['key'], [
                 'entities' => $gap['count'],
@@ -96,6 +99,9 @@ final class Pending {
             )),
             'term_meta' => $wpdb->get_var($wpdb->prepare(
                 "SELECT meta_value FROM {$wpdb->termmeta} WHERE meta_key = %s LIMIT 1", $key
+            )),
+            'user_meta' => $wpdb->get_var($wpdb->prepare(
+                "SELECT meta_value FROM {$wpdb->usermeta} WHERE meta_key = %s LIMIT 1", $key
             )),
             default => null,
         };
