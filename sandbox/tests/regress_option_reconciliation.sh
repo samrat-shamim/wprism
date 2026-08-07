@@ -2,12 +2,32 @@
 # Regression — DUO-3211: authored options are explicit records, not an
 # upsert-only flat map. Exercises the product capture/compiler/plan/apply
 # path against real wp_options rows, including storage flags and recapture.
+#
+# DUO-3252: the pair NAME/PORTS are parameterized so this regression can run
+# on its own pair instead of colliding with whoever else is using the
+# hardcoded default — this exact footgun already reset a foreign pair live
+# (an agent ran this script unread, as an ancillary check, and its
+# unconditional `pair.sh reset` wiped that pair's database and host state).
+# Default PAIR=codexmac3211/PORT1=8900/PORT2=8901 keeps existing single-
+# user/CI behavior byte-identical; an agent runs its own copy with e.g.
+#   PAIR=amergeor PORT1=8920 PORT2=8921 bash regress_option_reconciliation.sh
+# A custom PAIR REQUIRES explicit PORT1/PORT2 (mirrors sandbox/conformance/
+# run.sh's own CONF_PAIR mechanism, commit 3aab875, the precedent for this
+# exact class of fix): defaulting a custom pair name onto the SAME hardcoded
+# ports would just relocate the collision risk from the pair name to the
+# port numbers instead of removing it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-PAIR=codexmac3211
-PORT1=8900
-PORT2=8901
+PAIR="${PAIR:-codexmac3211}"
+[[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] \
+  || { echo "FAIL: PAIR '$PAIR' invalid (pair.sh naming: lowercase letters/digits, letter first)" >&2; exit 1; }
+if [ "$PAIR" != "codexmac3211" ] && { [ -z "${PORT1:-}" ] || [ -z "${PORT2:-}" ]; }; then
+  echo "FAIL: custom PAIR '$PAIR' requires explicit PORT1 and PORT2 (the 8900/8901 defaults belong to the original pair)" >&2
+  exit 1
+fi
+PORT1="${PORT1:-8900}"
+PORT2="${PORT2:-8901}"
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
 COMPOSE="docker compose -p duo-$PAIR -f pair.yml"
 wp_env() { local side="$1"; shift; $COMPOSE run --rm -T -e DUO_MANIFESTS_DIR=/siterepo/test-manifests "cli$side" wp "$@"; }
