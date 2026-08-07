@@ -8,7 +8,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
 	regress-snapshot-meta regress-ssh-adopt regress-tec-regen regress-user-meta \
-	regress-option-name-refs-wiring regress-offline-all regress-live-list \
+	regress-option-name-refs-wiring regress-offline-all regress-live-list regress-code-compatibility \
 	regress-coverage-offline regress-coverage
 
 up:
@@ -297,7 +297,7 @@ regress-promotion-unit:
 # detection, and both public host orchestration paths. Keep this separate
 # from the Docker/live promotion regression below so it is cheap to run while
 # iterating on the safety gates.
-code-half-unit: regress-repository-compiler regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-promotion-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order
+code-half-unit: regress-repository-compiler regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-promotion-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-code-compatibility
 
 regress-repository-compiler:
 	bash sandbox/tests/regress_repository_compiler.sh
@@ -348,6 +348,9 @@ regress-lifecycle-phase-handoff-unit:
 
 regress-plugin-dependency-order:
 	php sandbox/tests/regress_plugin_dependency_order.php
+
+regress-code-compatibility:
+	bash sandbox/tests/regress_code_compatibility.sh
 
 # Clean-room code-half grind: no code bind mount. Public promotion must
 # materialize, migrate, heal drift, fail atomically, deactivate before prune,

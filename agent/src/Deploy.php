@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/CodeCompatibility.php';
+
 /**
  * docs/proposals/code-half.md §3.4/§6: reconciles active_plugins/template/
  * stylesheet (managed-class core-manifest options, see manifests/core.json)
@@ -1097,7 +1099,7 @@ final class Deploy {
             if ($raw === '') {
                 continue;
             }
-            foreach (preg_split('/\s*,\s*/', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $requiredSlug) {
+            foreach (CodeCompatibility::dependency_slugs($raw) as $requiredSlug) {
                 if (isset($bySlug[$requiredSlug])) {
                     $requirements[$plugin][] = $bySlug[$requiredSlug];
                 }
@@ -1109,12 +1111,7 @@ final class Deploy {
 
     /** WordPress core's plugin-file -> dependency-slug mapping. */
     private static function plugin_dependency_slug(string $plugin): string {
-        if ($plugin === 'hello.php') {
-            return 'hello-dolly';
-        }
-        return str_contains($plugin, '/')
-            ? dirname($plugin)
-            : (string) preg_replace('/\.php$/', '', $plugin);
+        return CodeCompatibility::plugin_slug($plugin);
     }
 
     /**

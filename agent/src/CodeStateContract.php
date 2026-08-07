@@ -35,6 +35,20 @@ final class CodeStateContract {
         self::validate_requirements(self::requirements_from_tree($tree), $descriptor);
     }
 
+    /**
+     * Expose the same lifecycle-only extraction used by validate_tree() to the
+     * separate source/plugin compatibility bridge.  No code facts are derived
+     * here: callers receive only canonical active_plugins/theme identities and
+     * record-presence state, so CodeStateContract remains the narrow
+     * code/state lifecycle bridge.
+     *
+     * @param array<string,mixed> $tree
+     * @return array<string,mixed>
+     */
+    public static function lifecycle_requirements_from_tree(array $tree): array {
+        return self::requirements_from_tree($tree);
+    }
+
     /** @param array<string,mixed> $requirements @param array<string,mixed> $descriptor */
     private static function validate_requirements(array $requirements, array $descriptor): void {
         self::assert_explicit_lifecycle_intent($requirements);

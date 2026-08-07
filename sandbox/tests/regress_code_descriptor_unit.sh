@@ -14,6 +14,7 @@ foreach (['Canon', 'OptionState', 'Uuid', 'Db', 'Ledger', 'Policy', 'Snapshot', 
 
 use Duo\Canon;
 use Duo\Code;
+use Duo\CodeCompatibility;
 use Duo\CompiledRepository;
 use Duo\OptionState;
 use Duo\Policy;
@@ -88,13 +89,53 @@ put_test($repo . '/site.duo.json', Canon::encode([
 put_test($repo . '/code/wp-content/plugins/example/example.php', "<?php\n/*\nPlugin Name: Example\nVersion: 1.0.0\n*/\n");
 // A PHP include is inventory-owned but must not be blessed as a plugin main file.
 put_test($repo . '/code/wp-content/plugins/example/include.php', "<?php\n// no WordPress Plugin Name header\n");
-put_test($repo . '/code/wp-content/plugins/example/late.php', str_repeat("x\n", 5000) . "Plugin Name: Late\n");
+put_test($repo . '/code/wp-content/plugins/example/late.php', str_repeat("x\n", 5000) . "# Plugin Name: Late\n");
 // WordPress get_plugins() discovers plugin headers only at the plugins root
 // or one directory below it. A deep include must not satisfy active_plugins.
 put_test($repo . '/code/wp-content/plugins/example/includes/fake-main.php', "<?php\n/*\nPlugin Name: Deep fake\n*/\n");
 put_test($repo . '/code/wp-content/themes/example/style.css', "/*\nTheme Name: Example\n*/\n");
 put_test($repo . '/code/wp-content/themes/example/index.php', "<?php\n");
 put_test($repo . '/code/wp-content/mu-plugins/bootstrap.php', "<?php\n");
+
+// Code descriptor discovery must use the same bounded WordPress header
+// grammar as get_file_data(): line/shell comments, an opening PHP marker,
+// and close-comment/PHP cleanup all discover the same components.
+$headerSource = $repo . '/header-forms';
+put_test($headerSource . '/plugins/line/line.php', "<?php\n// Plugin Name: Line Plugin */\n");
+put_test($headerSource . '/plugins/hash.php', "<?php\n# Plugin Name: Hash Plugin\n");
+put_test($headerSource . '/plugins/php/php.php', "<?php/* Plugin Name: PHP Plugin ?>\n");
+put_test($headerSource . '/themes/line-theme/style.css', "// Theme Name: Line Theme\n// Template: parent */\n");
+put_test($headerSource . '/themes/hash-theme/style.css', "# Theme Name: Hash Theme\n# Template: parent\n");
+put_test($headerSource . '/themes/php-theme/style.css', "<?php/* Theme Name: PHP Theme */\n<?php/* Template: parent ?>\n");
+put_test($headerSource . '/themes/parent/style.css', "/*\nTheme Name: Parent\n*/\n");
+$headerDescriptor = Code::descriptor_from_source($headerSource);
+$headerBasenames = array_column($headerDescriptor['plugin_main_files'], 'basename');
+sort($headerBasenames, SORT_STRING);
+assert_test(
+    $headerBasenames === ['hash.php', 'line/line.php', 'php/php.php'],
+    'WordPress comment/PHP-opening Plugin Name headers were not discovered'
+);
+assert_test(
+    $headerDescriptor['theme_templates'] === [
+        'hash-theme' => 'parent',
+        'line-theme' => 'parent',
+        'parent' => null,
+        'php-theme' => 'parent',
+    ],
+    'WordPress comment/PHP-opening Theme Name/Template headers were not cleaned or discovered'
+);
+assert_test(
+    CodeCompatibility::header_value($headerSource . '/plugins/line/line.php', 'Plugin Name') === 'Line Plugin',
+    'trailing block-comment terminator was not removed from a Plugin Name header'
+);
+assert_test(
+    CodeCompatibility::header_value($headerSource . '/plugins/php/php.php', 'Plugin Name') === 'PHP Plugin',
+    'trailing PHP terminator was not removed from a PHP-opening Plugin Name header'
+);
+assert_test(
+    CodeCompatibility::header_value($repo . '/code/wp-content/plugins/example/late.php', 'Plugin Name') === null,
+    'headers beyond the first 8 KiB must remain undiscoverable'
+);
 
 // A code-enabled artifact has to carry explicit lifecycle intent. A present
 // empty plugin list is meaningful; absent/deleted is not, because finalize
