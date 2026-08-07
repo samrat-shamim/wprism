@@ -429,20 +429,50 @@ say "render checks (buffered curl — never curl | grep under pipefail) + negati
 # point-in-time, and `curl -s` swallowing a truncated mid-transfer body
 # is the live theory: a body cut before the late-page NF markup fails
 # the content grep while looking exactly like a render bug, with nothing
-# in the failure output able to tell the two apart. These floors make a
-# repeat NAME itself (truncated fetch vs. genuine non-render) instead of
-# reproducing the same diagnosis-cycle. Healthy sizes observed live:
-# Contact ~20KB+, Careers ~134KB -- 20000 is a safe floor for both.
+# in the failure output able to tell the two apart. Healthy sizes observed
+# live: Contact ~20KB+, Careers ~134KB.
+#
+# DUO-3267 round 4->5 (team-lead's own apache-log dissection): the ORIGINAL
+# 20000 floor was calibrated to Contact's own healthy size, then reused for
+# Careers -- but a healthy Careers page's FIRST nf-form/ninja-forms byte
+# offset is 29,436. A curl receive truncated anywhere in the 20000-29435
+# window passed that floor silently while still missing every content
+# match, and the content-grep's own fail message never printed the byte
+# count that would have named it -- across all four prior rounds we had
+# ZERO direct evidence of the received size at failure time. Apache's
+# access log shows bytes SENT, not received, so a mid-stream receive loss
+# is invisible there too -- exactly why every prior theory (BSD grep, NF
+# lazy-warm caching, required-updates suppression) chased a symptom this
+# one number would have resolved directly.
 CONTACT_HTML=$(curl -s "$R1A2/contact/")
 [ "${#CONTACT_HTML}" -gt 20000 ] || fail "contact fetch truncated: ${#CONTACT_HTML} bytes"
 echo "$CONTACT_HTML" | grep -qi "wpcf7" || fail "CF7's own form markup did not render on r1a2's Contact page"
 echo "$CONTACT_HTML" | grep -q "localhost:8814" && fail "host:port leak: r1a1's port appears on r1a2's Contact page"
 pass "Contact page: CF7's shortcode-based form renders correctly on r1a2, no host leak (${#CONTACT_HTML} bytes, not truncated)"
+
+# Careers floor raised to 130000 (healthy is ~133.5K; 20000 was meaningless
+# once the first content match sits at byte 29,436 -- see the note above).
+# Self-diagnosing per team-lead's own spec: every failure path below prints
+# the byte count(s) it actually saw, and a floor-failure gets exactly ONE
+# documented retry (not an open-ended loop) before failing for real, so a
+# genuine first-fetch truncation/warm-up effect shows up as DATA in this
+# script's own output -- both fetch sizes, every time -- instead of being
+# inferred afterward from apache log archaeology.
+CAREERS_FLOOR=130000
 CAREERS_HTML=$(curl -s "$R1A2/careers/")
-[ "${#CAREERS_HTML}" -gt 20000 ] || fail "careers fetch truncated: ${#CAREERS_HTML} bytes"
-echo "$CAREERS_HTML" | grep -qiE "nf-form|ninja-forms" || fail "Ninja Forms block markup did not render on r1a2's Careers page (expected it to now, since formID correctly re-bound above)"
-echo "$CAREERS_HTML" | grep -q "localhost:8814" && fail "host:port leak: r1a1's port appears on r1a2's Careers page"
-pass "Careers page: Ninja Forms block renders using r1a2's own re-bound formID, no host leak (${#CAREERS_HTML} bytes, not truncated)"
+if [ "${#CAREERS_HTML}" -lt "$CAREERS_FLOOR" ]; then
+  echo "careers fetch #1 came in under the floor: ${#CAREERS_HTML} bytes (floor $CAREERS_FLOOR) -- retrying once to distinguish a genuine truncation from a first-fetch warm-up effect" >&2
+  sleep 2
+  CAREERS_HTML2=$(curl -s "$R1A2/careers/")
+  [ "${#CAREERS_HTML2}" -ge "$CAREERS_FLOOR" ] || fail "careers fetch truncated on BOTH attempts: #1=${#CAREERS_HTML} bytes, #2=${#CAREERS_HTML2} bytes (floor $CAREERS_FLOOR)"
+  echo "$CAREERS_HTML2" | grep -qiE "nf-form|ninja-forms" || fail "Ninja Forms block markup did not render on r1a2's Careers page even on retry (fetch #1=${#CAREERS_HTML} bytes, fetch #2=${#CAREERS_HTML2} bytes)"
+  echo "$CAREERS_HTML2" | grep -q "localhost:8814" && fail "host:port leak: r1a1's port appears on r1a2's Careers page (retry fetch)"
+  pass "Careers page: Ninja Forms block renders using r1a2's own re-bound formID, no host leak -- but only on the SECOND fetch (#1=${#CAREERS_HTML} bytes, #2=${#CAREERS_HTML2} bytes) -- the warm-up effect is directly evidenced here, not inferred"
+else
+  echo "$CAREERS_HTML" | grep -qiE "nf-form|ninja-forms" || fail "Ninja Forms block markup did not render on r1a2's Careers page despite a full-size fetch (${#CAREERS_HTML} bytes, floor $CAREERS_FLOOR) -- not a truncation; a genuinely new fact"
+  echo "$CAREERS_HTML" | grep -q "localhost:8814" && fail "host:port leak: r1a1's port appears on r1a2's Careers page"
+  pass "Careers page: Ninja Forms block renders using r1a2's own re-bound formID, no host leak (${#CAREERS_HTML} bytes, not truncated, first fetch)"
+fi
 
 say "runtime isolation: r1a1's own visitor-submitted nf_sub content never propagates to r1a2 (post_types scope deliberately excludes it), and vice versa"
 NFSUB_B1=$(wp_1 post list --post_type=nf_sub --format=count)
