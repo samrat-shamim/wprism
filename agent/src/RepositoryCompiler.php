@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/CodeCompatibility.php';
+
 /**
  * One immutable, typed result of compiling a repository revision. The
  * constructor is private on purpose: plan/apply/deploy can receive this
@@ -91,17 +93,16 @@ final class CompiledRepository {
      * DUO-3222: the resolved adapter compatibility contract this artifact
      * was compiled against — one row per pinned manifest (name, per-
      * manifest digest, spec_version if declared, plugin/version_range or
-     * theme/theme_version_range if declared). This is compilation staying
-     * honest about what it validated: proof of DECLARATION validity and
-     * non-ambiguity (every range well-formed, no conflicting ownership —
-     * Policy::load()'s own validators already refused the artifact from
-     * ever existing otherwise), not a live-environment match — compilation
-     * is deliberately target-DB-free (no $wpdb, no get_plugins()/
-     * wp_get_theme() calls anywhere in this compiler), so it cannot also
-     * prove what's actually INSTALLED matches. That second proof is
-     * Deploy::code_mismatch()'s job, unchanged by this artifact's own
-     * offline-ness. DUO-3227's capability registry is expected to generate
-     * from exactly this shape (one machine-readable row per adapter).
+     * theme/theme_version_range if declared). Policy declaration validity
+     * and source header compatibility are checked offline by
+     * CodeCompatibility during compilation; the source check is repeated by
+     * Code::stage under the target lease. This field still records only the
+     * manifest declarations: it does not persist header facts or claim a
+     * live-environment match. Compilation remains target-DB-free (no $wpdb,
+     * get_plugins(), or wp_get_theme() calls), while Deploy::code_mismatch()
+     * remains the independent proof of what is installed on the target.
+     * DUO-3227's capability registry is expected to generate from exactly
+     * this shape (one machine-readable row per adapter).
      *
      * @return list<array{name:string, digest:string, spec_version:?int, plugin:?string, version_range:?array, theme:?string, theme_version_range:?array}>
      */
@@ -536,14 +537,43 @@ final class RepositoryCompiler {
         // non-action artifact to express the lifecycle intent needed to
         // authorize stage/finalize/apply. compile() and compile_staged()
         // remain strict because they construct actionable artifacts.
-        if ($codeDescriptor !== null && !$this->completenessOptional) {
-            if (!class_exists(CodeStateContract::class)) {
+        if ($codeDescriptor !== null) {
+            $lifecycleRequirements = null;
+            if (!$this->completenessOptional && !class_exists(CodeStateContract::class)) {
                 $this->add('code_state_contract_unavailable', 'code', '', 'code/state bridge support is not loaded');
-            } else {
+            } elseif (!$this->completenessOptional) {
+                try {
+                    $lifecycleRequirements = CodeStateContract::lifecycle_requirements_from_tree($tree);
+                } catch (\Throwable $_requirementsFailure) {
+                    // validate_tree() below owns the structured lifecycle
+                    // diagnostic. Do not let a malformed active_plugins value
+                    // turn the separate source compatibility gate into a
+                    // second, less-specific failure.
+                }
                 try {
                     CodeStateContract::validate_tree($tree, $codeDescriptor);
                 } catch (\Throwable $t) {
                     $this->add('code_state_mismatch', 'state/options/core.json', '', $t->getMessage());
+                }
+                if ($lifecycleRequirements !== null) {
+                    foreach (CodeCompatibility::diagnostics(
+                        $this->repo . '/' . Code::SOURCE,
+                        $codeDescriptor,
+                        self::resolved_adapters($this->policy),
+                        (array) ($lifecycleRequirements['active_plugins'] ?? [])
+                    ) as $diagnostic) {
+                        $this->diagnostics[] = $diagnostic;
+                    }
+                }
+            }
+            if ($this->completenessOptional || $lifecycleRequirements === null) {
+                foreach (CodeCompatibility::diagnostics(
+                    $this->repo . '/' . Code::SOURCE,
+                    $codeDescriptor,
+                    self::resolved_adapters($this->policy),
+                    null
+                ) as $diagnostic) {
+                    $this->diagnostics[] = $diagnostic;
                 }
             }
         }

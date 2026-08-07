@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/CodeCompatibility.php';
+
 /**
  * v0 code-half payload support.
  *
@@ -174,10 +176,10 @@ final class Code {
                             if (is_link($style) || !is_file($style)) {
                                 self::diagnostic($diagnostics, 'invalid_theme', $componentRelative, 'style.css', 'each theme must contain a regular style.css with a Theme Name header');
                             } else {
-                                if (self::header_value($style, 'Theme Name') === null) {
+                                if (CodeCompatibility::header_value($style, 'Theme Name') === null) {
                                     self::diagnostic($diagnostics, 'invalid_theme', $componentRelative, 'style.css', 'style.css must contain a non-empty Theme Name header in its first 8KB');
                                 }
-                                $template = self::header_value($style, 'Template');
+                                $template = CodeCompatibility::header_value($style, 'Template');
                                 if ($template !== null && !self::safe_component($template)) {
                                     self::diagnostic($diagnostics, 'invalid_theme', $componentRelative, 'style.css', 'Template header must name one safe theme directory slug in its first 8KB');
                                 }
@@ -523,6 +525,12 @@ final class Code {
             // check below catches a change during materialization.
             self::assert_source_matches($repo, $descriptor);
             CodeStateContract::validate($compiled, $descriptor);
+            // Version ranges and Requires Plugins are source/header facts,
+            // not descriptor fields. Re-read them after acquiring the target
+            // lease and immediately before the first payload rename so a
+            // precompiled artifact cannot stage an out-of-range or
+            // dependency-incoherent checkout.
+            self::assert_source_compatibility($repo, $compiled, $descriptor);
             $previous = self::stored_descriptor();
             $materialized = self::materialize_payload(
                 $repo,
@@ -882,6 +890,26 @@ final class Code {
                 'duo: code payload changed after compilation; re-run `wp duo compile` and stage the new artifact'
             );
         }
+    }
+
+    private static function assert_source_compatibility(
+        string $repo,
+        CompiledRepository $compiled,
+        array $descriptor
+    ): void {
+        $requirements = [];
+        if (method_exists(CodeStateContract::class, 'requirements')) {
+            $requirements = CodeStateContract::requirements($compiled);
+        }
+        $resolvedAdapters = method_exists($compiled, 'resolved_adapters')
+            ? $compiled->resolved_adapters()
+            : [];
+        CodeCompatibility::assert_source(
+            rtrim($repo, '/') . '/' . self::SOURCE,
+            $descriptor,
+            $resolvedAdapters,
+            (array) ($requirements['active_plugins'] ?? [])
+        );
     }
 
     private static function assert_expected_artifact(CompiledRepository $compiled, array $opts): void {
@@ -1541,7 +1569,7 @@ final class Code {
             }
             $files[] = ['path' => $relative, 'sha256' => $hash];
             if ($root === 'plugins' && self::plugin_main_candidate($relative)
-                && self::header_value($absolute, 'Plugin Name') !== null) {
+                && CodeCompatibility::header_value($absolute, 'Plugin Name') !== null) {
                 $pluginMainFiles[] = [
                     'basename' => substr($relative, strlen('plugins/')),
                     'path' => $relative,
@@ -1583,7 +1611,7 @@ final class Code {
             }
             $files[] = ['path' => $relative, 'sha256' => $hash];
             if ($root === 'plugins' && self::plugin_main_candidate($relative)
-                && self::header_value($full, 'Plugin Name') !== null) {
+                && CodeCompatibility::header_value($full, 'Plugin Name') !== null) {
                 $pluginMainFiles[] = [
                     'basename' => substr($relative, strlen('plugins/')),
                     'path' => $relative,
@@ -1591,20 +1619,6 @@ final class Code {
                 ];
             }
         }
-    }
-
-    /** Read one WordPress-style header from only the first 8 KiB. */
-    private static function header_value(string $path, string $header): ?string {
-        $bytes = @file_get_contents($path, false, null, 0, 8192);
-        if ($bytes === false) {
-            return null;
-        }
-        $quoted = preg_quote($header, '/');
-        if (!preg_match('/^[ \t]*\*?[ \t]*' . $quoted . '[ \t]*:[ \t]*(.+?)[ \t]*$/mi', $bytes, $m)) {
-            return null;
-        }
-        $value = trim((string) $m[1]);
-        return $value === '' ? null : $value;
     }
 
     private static function safe_join(string $root, string $relative): string {

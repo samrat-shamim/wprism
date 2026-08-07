@@ -78,6 +78,18 @@ The first live runs found three product-path gaps:
    stops before apply. Apply uses the pre-hook comparison only if its fresh
    environment hash still equals the recorded post-hook hash; a later edit
    fails closed through the normal conflict path.
+4. Vendored plugin/theme headers could be outside a pinned adapter range even
+   though the descriptor and state were internally valid. `CodeCompatibility`
+   now checks bounded `Version` headers against resolved adapter rows during
+   offline compilation and repeats the same source check under the stage
+   lease, before the first target rename. The descriptor schema and code
+   revision remain byte-only inventories; target-installed compatibility stays
+   Deploy's independent `code_mismatch` proof.
+5. `Requires Plugins` was previously used only to order the exact retirement
+   set. The source compatibility bridge now rejects duplicate slugs, cycles,
+   missing/inactive providers, and provider-after-dependent canonical order
+   before code materialization. Canonical `active_plugins` is never silently
+   reordered.
 
 A lifecycle API can commit an option and then throw before deploy reaches its
 post-hook snapshot. Deploy therefore also publishes a pre-hook attempt receipt
