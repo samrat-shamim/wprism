@@ -54,10 +54,17 @@ final class Identity {
         ], $rows);
     }
 
-    /** Validate the completed capture graph, including nested menu-item identities. */
+    /** Validate the completed capture graph, including nested menu-item/widget identities. */
     public static function assert_entities_unique(array $entities): void {
         $seen = [];
         foreach ($entities as $entity) {
+            if (($entity['type'] ?? '') === SidebarState::ENTITY_TYPE) {
+                $front = Canon::decode($entity['content']);
+                foreach ((array) ($front['widgets'] ?? []) as $i => $widget) {
+                    self::claim($seen, (string) ($widget['uuid'] ?? ''), $entity['path'] . "#widgets[$i]");
+                }
+                continue;
+            }
             if (in_array(($entity['type'] ?? ''), ['options', 'user-meta'], true)) {
                 continue;
             }

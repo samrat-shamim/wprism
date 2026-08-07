@@ -24,23 +24,26 @@ final class Ledger {
      * every Ledger::set(), refusing the truncated-vs-full mismatch on the
      * very next recapture. See Snapshot::MAX_ENTITY_TYPE_LEN (the mirrored,
      * manually-synced budget assert this same width backs — the existing
-     * MAX_ID_KIND_LEN/id_kind precedent in Snapshot.php, applied here
-     * instead of copied there, since id_kind's own budget is deliberately
-     * enforced against the EXISTING width rather than widened) and
+     * MAX_ID_KIND_LEN/id_kind precedent in Snapshot.php, now backed by the
+     * shared ID_KIND_WIDTH constant below) and
      * Snapshot::repair_truncated_entity_types() (the migration-time repair
      * for rows already corrupted under the old width).
      */
     private const ENTITY_TYPE_WIDTH = 64;
+    /** Long enough for the closed widget_<type> family (longest core member:
+     * widget_media_gallery, 20) and declared custom-table kinds. */
+    public const ID_KIND_WIDTH = 32;
 
     public static function ensure(): void {
         global $wpdb;
         $p = $wpdb->prefix;
         $charset = $wpdb->get_charset_collate();
         $w = self::ENTITY_TYPE_WIDTH;
+        $kw = self::ID_KIND_WIDTH;
         Db::query("CREATE TABLE IF NOT EXISTS {$p}duo_map (
             uuid CHAR(36) NOT NULL,
             entity_type VARCHAR($w) NOT NULL,
-            id_kind VARCHAR(16) NOT NULL,
+            id_kind VARCHAR($kw) NOT NULL,
             local_id BIGINT UNSIGNED NOT NULL,
             PRIMARY KEY (uuid, id_kind),
             UNIQUE KEY kind_local (id_kind, local_id)
@@ -71,6 +74,24 @@ final class Ledger {
             KEY tbl_item (tbl, item)
         ) $charset", 'ledger schema create duo_journal');
         self::migrate_widen_entity_type();
+        self::migrate_widen_id_kind();
+    }
+
+    private static function migrate_widen_id_kind(): void {
+        global $wpdb;
+        $table = $wpdb->prefix . 'duo_map';
+        $width = self::ID_KIND_WIDTH;
+        $len = $wpdb->get_var($wpdb->prepare(
+            'SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS '
+            . "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'id_kind'",
+            $table
+        ));
+        if ($len !== null && (int) $len < $width) {
+            Db::query(
+                "ALTER TABLE `$table` MODIFY COLUMN id_kind VARCHAR($width) NOT NULL",
+                'ledger migrate widen duo_map.id_kind'
+            );
+        }
     }
 
     /**

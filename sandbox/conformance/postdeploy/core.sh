@@ -20,4 +20,14 @@ OUT=$(wp_conf2 duo plan --repo=/siterepo --adopt-by-slug=posts 2>&1) || RC=$?
   || fail "duplicate full hierarchical adoption key was not rejected: $OUT"
 wp_conf2 post delete "$DUP" --force >/dev/null
 
-echo "target hierarchy seeded in reverse order: branch-b=$B child=$B_CHILD, branch-a=$A child=$A_CHILD; ambiguous-key refusal verified"
+# DUO-3278: unrelated target defaults deliberately reuse every source
+# counter. Planning must expose their removal, and apply must allocate the
+# canonical UUIDs at free target-local counters instead of copying 21.
+wp_conf2 eval '
+update_option("widget_block", [21=>["content"=>"<!-- wp:paragraph --><p>Target default block</p><!-- /wp:paragraph -->"],"_multiwidget"=>1]);
+update_option("widget_text", [21=>["title"=>"Target default","text"=>"Do not merge","filter"=>false,"visual"=>true],"_multiwidget"=>1]);
+update_option("widget_nav_menu", [21=>["title"=>"Target default menu","nav_menu"=>0],"_multiwidget"=>1]);
+update_option("sidebars_widgets", ["sidebar-1"=>["block-21","text-21","nav_menu-21"],"wp_inactive_widgets"=>[],"array_version"=>3]);
+' >/dev/null
+
+echo "target hierarchy and colliding widget defaults seeded; ambiguous-key refusal verified"

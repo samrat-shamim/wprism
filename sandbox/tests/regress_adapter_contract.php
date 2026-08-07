@@ -32,8 +32,11 @@
 
 require __DIR__ . '/../../agent/src/Canon.php';
 require __DIR__ . '/../../agent/src/OptionState.php';
+require __DIR__ . '/../../agent/src/Db.php';
 require __DIR__ . '/../../agent/src/Policy.php';
+require __DIR__ . '/../../agent/src/Ledger.php';
 require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
+require __DIR__ . '/../../agent/src/SidebarState.php';
 require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
 require __DIR__ . '/../../agent/src/Deploy.php';
 

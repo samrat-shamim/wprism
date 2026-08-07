@@ -17,8 +17,11 @@ final class IdentityBackup {
             Identity::assert_embedded_unique();
             Ledger::prune_dead_map();
             Snapshot::prune_dead_map($policy);
+            SidebarState::prune_dead_map($policy);
             Snapshot::assert_mapped_history_present($policy, $repo);
+            SidebarState::assert_mapped_history_present($repo);
             Snapshot::assert_all_mapped_rows_managed($policy);
+            SidebarState::assert_all_owned_widgets_mapped($policy, $repo);
 
             $plainMaps = Ledger::all_map();
             $mapLookup = [];
@@ -222,11 +225,18 @@ final class IdentityBackup {
         return $value;
     }
 
-    /** @return array<string,array> id_kind => table declaration plus table name */
+    /** @return array<string,array> id_kind => table declaration or widget_type */
     private static function tables_by_kind(Policy $policy): array {
         $out = [];
         foreach (Snapshot::row_tables($policy) as $table => $decl) {
             $out[$decl['id_kind']] = ['table' => $table] + $decl;
+        }
+        foreach ($policy->widget_types() as $type => $_decl) {
+            $kind = SidebarState::kind((string) $type);
+            if (isset($out[$kind])) {
+                throw new \RuntimeException("duo: identity kind '$kind' is declared by both a table and widget type");
+            }
+            $out[$kind] = ['widget_type' => (string) $type];
         }
         return $out;
     }
@@ -265,6 +275,10 @@ final class IdentityBackup {
             return hash('sha256', Canon::encode([
                 'kind' => $kind, 'local_id' => $local, 'term_id' => (int) $termId, 'uuid' => $uuid,
             ]));
+        }
+        $widgetType = $tables[$kind]['widget_type'] ?? null;
+        if (is_string($widgetType)) {
+            return SidebarState::witness($widgetType, $local);
         }
         $decl = $tables[$kind] ?? null;
         if ($decl === null) {

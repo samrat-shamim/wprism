@@ -85,6 +85,25 @@
   "menu_fields": {
     "locations": {"class": "authored"}
   },
+  "widgets": {
+    "block": {
+      "settings": {"content": {"class": "authored", "codec": "blocks"}}
+    },
+    "nav_menu": {
+      "settings": {
+        "nav_menu": {"class": "authored", "ref": "term"},
+        "title": {"class": "authored"}
+      }
+    },
+    "text": {
+      "settings": {
+        "filter": {"class": "authored"},
+        "text": {"class": "authored"},
+        "title": {"class": "authored"},
+        "visual": {"class": "authored"}
+      }
+    }
+  },
   "option_patterns": [
     {"class": "derived", "match": "^_transient_"},
     {"class": "derived", "match": "^_site_transient_"},

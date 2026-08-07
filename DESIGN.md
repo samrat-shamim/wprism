@@ -85,6 +85,7 @@ state/
   posts/<type>/<uuid>--<slug>.md    # canonical-JSON front matter + raw block-HTML body
   terms/<taxonomy>/<uuid>--<slug>.json
   menus/<slug>.json
+  sidebars/<sidebar_id>.json
 media/<sha256>.<ext>         # LFS
 ```
 

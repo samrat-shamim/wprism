@@ -107,6 +107,22 @@ $check(
     'status did not render the incomplete apply condition'
 );
 
+$widgetPlan = $emptyPlan;
+$widgetPlan['incomplete_apply'] = [];
+$widgetPlan['warnings'] = [];
+$widgetPlan['update'] = [[
+    'uuid' => 'sidebar/sidebar-1', 'type' => 'sidebar', 'path' => 'sidebars/sidebar-1.json',
+    'widget_deletes' => [[
+        'uuid' => '00000000-0000-4000-8000-000000000001',
+        'type' => 'block', 'unmanaged' => true,
+    ]],
+]];
+$widgetStatus = PlanSummary::render($widgetPlan);
+$check(
+    count(array_filter($widgetStatus['lines'], fn(string $line): bool => str_contains($line, 'WIDGET_DELETE'))) === 1,
+    'status did not render a plan-visible scoped widget deletion'
+);
+
 if ($failures) {
     fwrite(STDERR, "FAIL\n - " . implode("\n - ", $failures) . "\n");
     exit(1);

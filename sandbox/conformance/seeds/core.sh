@@ -54,4 +54,25 @@ wp_conf1 option update page_on_front "$HOME_ID" >/dev/null
 wp_conf1 option update default_category "$NEWS_ID" >/dev/null
 wp_conf1 option update sticky_posts "[$HELLO_ID]" --format=json >/dev/null
 
-echo "core seed: news=$NEWS_ID home=$HOME_ID att=$ATT_ID hello=$HELLO_ID hierarchy=$BRANCH_A/$CHILD_A,$BRANCH_B/$CHILD_B"
+# DUO-3278: representative closed widget family. Counters are deliberately
+# sparse and later collide with unrelated target defaults; portable identity
+# comes only from duo_map, never from settings injected into these arrays.
+WIDGET_MENU_ID=$(wp_conf1 menu create 'Conformance Widget Menu' --porcelain)
+wp_conf1 menu item add-post "$WIDGET_MENU_ID" "$HOME_ID" >/dev/null
+wp_conf1 eval "
+\$menu=$WIDGET_MENU_ID; \$attachment=$ATT_ID; \$url='$UP_URL';
+update_option('widget_block', [
+  21=>['content'=>'<!-- wp:image {\"id\":'.\$attachment.',\"sizeSlug\":\"full\"} --><figure class=\"wp-block-image size-full\"><img src=\"'.\$url.'\" class=\"wp-image-'.\$attachment.'\"/></figure><!-- /wp:image -->'],
+  99=>['content'=>'<!-- wp:paragraph --><p>Parked source-only widget</p><!-- /wp:paragraph -->'],
+  '_multiwidget'=>1,
+]);
+update_option('widget_text', [21=>['title'=>'About','text'=>'Visit '.home_url('/about'),'filter'=>false,'visual'=>true],'_multiwidget'=>1]);
+update_option('widget_nav_menu', [21=>['title'=>'Navigation','nav_menu'=>\$menu],'_multiwidget'=>1]);
+update_option('sidebars_widgets', [
+  'sidebar-1'=>['block-21','text-21','nav_menu-21'],
+  'wp_inactive_widgets'=>['block-99'],
+  'array_version'=>3,
+]);
+" >/dev/null
+
+echo "core seed: news=$NEWS_ID home=$HOME_ID att=$ATT_ID hello=$HELLO_ID widget-menu=$WIDGET_MENU_ID hierarchy=$BRANCH_A/$CHILD_A,$BRANCH_B/$CHILD_B"
