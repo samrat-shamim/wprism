@@ -1,4 +1,5 @@
 {
+    "spec_version": 1,
     "name": "duo-loop-demo",
     "options": {
         "duo_loop_api_key": {

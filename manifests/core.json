@@ -65,6 +65,7 @@
       ]
     }
   },
+  "spec_version": 1,
   "name": "core",
   "notes": [
     "options.active_plugins/template/stylesheet (task #39, docs/proposals/code-half.md §3.1): the cross-partition invariant DESIGN.md §3.4 names (active_plugins ⊆ plugins in code/) needs these captured, but applying them via direct SQL is actively wrong — activate_plugin()/switch_theme() do real one-time setup in register_activation_hook/switch_theme/after_switch_theme that a raw UPDATE wp_options would skip while leaving WordPress believing the plugin/theme is active. Classified managed (the same class _menu_item_* and _wp_attached_file already use for 'authored-domain fact, bespoke capture/apply handling'): Capture::build_options() reads them with bespoke code alongside (not through) the authored-options whitelist loop; Apply::apply_options() excludes them from the generic direct-SQL upsert loop; only agent/src/Deploy.php's `wp duo deploy` reconciles them, via real WP APIs, deliberately outside Canary::arm()/disarm() — activation hooks must fire there, and apply's canary requires the opposite. Values are plain portable strings (plugin file paths, theme directory slugs) — no ref-tokenization, since that stability across environments IS the invariant.",

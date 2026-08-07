@@ -1,4 +1,5 @@
 {
+  "spec_version": 1,
   "name": "yoast",
   "plugin": "wordpress-seo/wp-seo.php",
   "version_range": {"min": "28.0.0", "max": "29.0.0"},

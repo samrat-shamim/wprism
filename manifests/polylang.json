@@ -1,4 +1,5 @@
 {
+  "spec_version": 1,
   "name": "polylang",
   "plugin": "polylang/polylang.php",
   "version_range": {"min": "3.0.0", "max": "4.0.0"},

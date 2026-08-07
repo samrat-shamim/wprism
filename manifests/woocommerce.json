@@ -2,6 +2,7 @@
   "block_attrs": {
     "woocommerce/product-collection": [{"lint_ok": true, "path": "queryId"}]
   },
+  "spec_version": 1,
   "name": "woocommerce",
   "plugin": "woocommerce/woocommerce.php",
   "version_range": {"min": "11.0.0", "max": "12.0.0"},

@@ -1,4 +1,5 @@
 {
+    "spec_version": 1,
     "name": "duo-agency-cpt",
     "options": {
         "duo_agency_client_api_key": {

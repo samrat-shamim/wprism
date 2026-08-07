@@ -1,4 +1,5 @@
 {
+  "spec_version": 1,
   "name": "contact-form-7",
   "plugin": "contact-form-7/wp-contact-form-7.php",
   "version_range": {"min": "6.0.0", "max": "7.0.0"},
