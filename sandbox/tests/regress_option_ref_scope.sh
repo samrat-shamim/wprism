@@ -228,6 +228,46 @@ EOF
 wp1 option update wp_page_for_privacy_policy "$PAGE_ID" >/dev/null
 # $PAGE_ID has never been in scope in any earlier step above, so it has never
 # been minted a uuid — exactly the "in scope, not yet identified" case.
+#
+# Third aged layer (team-lead's v2 live run): unlike run() (steps 1-3b
+# above, via ordinary `wp duo capture --out=...`), whose own $previous
+# computation gates RepositoryCompiler::compile() behind
+# `is_dir($c->repo.'/state')` -- confirmed by reading Capture.php:130
+# directly, deliberately tolerant of "first capture, no prior state" --
+# Capture::snapshot() (Capture.php:295) calls RepositoryCompiler::compile()
+# UNCONDITIONALLY: its entire contract is comparing the live environment
+# against the repo's own COMMITTED state (Apply::build_plan()'s three-way
+# compare), which presupposes committed state exists. This scratch repo
+# never creates $REPO/state (every step above captures to --out only, by
+# design, so nothing here ever mints on r1b1's real ledger) -- this step
+# predates snapshot()'s compile-first requirement and is the only one in
+# this script that calls snapshot() directly, so it's the only one exposed.
+#
+# Fix is an EMPTY $REPO/state, created here (immediately before the one
+# call that needs it), not in the shared setup above: creating it earlier
+# would flip steps 1-3b's OWN is_dir() check too, and while that path
+# traces as harmless (RepositoryCompiler::compile() on an empty state/
+# dir: state_directory_missing check passes, spec_version already
+# correct, state_files()'s RecursiveDirectoryIterator yields nothing so
+# the file-scan loop adds zero diagnostics, the final `if ($this->
+# diagnostics) fail()` gate is skipped, RepositoryAuthorization::
+# assert_tree() foreach's over an empty $tree and returns immediately --
+# confirmed by reading all four checkpoints directly, not assumed) --
+# there is no reason to touch three already-verified-passing steps to fix
+# a fourth. An empty state/ is also sufficient, not just necessary: with
+# nothing compiled, RepositoryCompiler::compile(...)->tree()['options/
+# core']['data'] ?? null (Capture.php:295) still evaluates to null via
+# the null-coalesce (no 'options/core' key exists), so $repositoryOptions
+# stays null here exactly as it did before this fix -- this step's own
+# subject (build(false, ...)'s minting-vs-scope classification) is
+# unaffected; only the compile gate blocking it from running at all is.
+#
+# Sweep for the same exposure elsewhere in this script (team-lead's ask):
+# this is the ONLY step that evaluates snapshot()/plan/apply directly --
+# steps 1-3b all go through run() via the ordinary `wp duo capture` CLI
+# path, gated as above. Step (4) is also the LAST step in the file (see
+# the closing pass() below) -- there is no step 5+ to sweep.
+mkdir -p "$HOST_REPO/state"
 SNAP_OUT=$(wp1 eval "try { \Duo\Capture::snapshot('$REPO'); echo 'OK'; } catch (\Throwable \$e) { echo 'THROWN: ' . \$e->getMessage(); }" 2>&1 | tail -1)
 echo "$SNAP_OUT"
 echo "$SNAP_OUT" | grep -q '^OK' || fail "Capture::snapshot() (non-minting) incorrectly treated an in-scope-but-unminted page as UNSCOPED (got: $SNAP_OUT)"
