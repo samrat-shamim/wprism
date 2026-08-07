@@ -25,9 +25,10 @@
 # non-negotiable ("the harness installs exact artifacts; it never pulls
 # latest") exists to catch before a manifest's own claimed range is trusted.
 #
-# Own dedicated pair (vmatrix1 :8870 / vmatrix2 :8871), destroyed only
-# after every assertion below passes (docs/sandbox.md's own convention) —
-# a failing run leaves it up for inspection.
+# Own dedicated pair (vmatrix1 :8870 / vmatrix2 :8871 by default; agents set
+# VMATRIX_PAIR and explicit ports), destroyed only after every assertion below
+# passes (docs/sandbox.md's own convention) — a failing run leaves it up for
+# inspection.
 set -euo pipefail
 cd "$(dirname "$0")/.."   # -> sandbox/
 
@@ -37,7 +38,7 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 command -v jq >/dev/null || fail "jq required"
 
-PAIR=vmatrix
+PAIR="${VMATRIX_PAIR:-vmatrix}"
 PORT1="${VMATRIX_PORT1:-8870}"
 PORT2="${VMATRIX_PORT2:-8871}"
 export DUO_PAIR="$PAIR"
@@ -250,10 +251,11 @@ echo "$DEPLOY_OUT" | grep -q "outside_version_range\|outside the '.*' manifest's
   || fail "deploy refused, but not for the expected outside_version_range reason (got: $DEPLOY_OUT)"
 echo "$DEPLOY_OUT" | grep -q "advanced-custom-fields/acf.php" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
 echo "$DEPLOY_OUT" | grep -q "5.12.6" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
+echo "$DEPLOY_OUT"
 pass "confirmed: acf 5.12.6 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
 
 say "cleanup"
 bash bin/pair.sh destroy "$PAIR"
-pass "destroyed vmatrix (every assertion above passed)"
+pass "destroyed $PAIR (every assertion above passed)"
 
 printf '\n\033[1;32m✔ CERTIFY_VERSION_MATRIX PASSED\033[0m\n'
