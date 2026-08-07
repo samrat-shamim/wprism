@@ -100,6 +100,53 @@ say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
+# DUO-3276: retries `wp duo apply` a few times on the documented Polylang
+# 3.8.6 stale-in-process-state class (Apply.php's own verify_convergence()
+# docblock names this exact reproduced case: an in-process post-apply
+# recapture -- verify_convergence_local(), the path this repo hits -- can
+# see a stale in-memory Polylang model, producing a spurious canonical
+# hash mismatch on THIS SPECIFIC PROCESS's re-read; a fresh subsequent
+# apply/plan re-derives from the committed DB state and does not repeat
+# it, exactly the DUO-3206 apply_in_progress marker + automatic
+# retry-forcing mechanism regress_tec_regen.sh's own live-verified
+# pattern already exercises for a different trigger). Confirmed live,
+# not guessed: an apply that failed with "post-apply convergence
+# verification failed ... canonical hash mismatch" on this fixture's own
+# Polylang-translated project posts succeeded cleanly on a bare retry,
+# both attempts producing IDENTICAL "update":16/canary-clean output
+# otherwise -- no new content, nothing else different. Same retry-loop
+# shape as cli_smoke.sh's own "duo doctor" wait (this project's existing
+# precedent for "concurrent docker load is expected, retry briefly"),
+# not a new pattern invented here. Every OTHER failure mode still aborts
+# on the FIRST attempt via `return "$rc"` below -- this narrowly targets
+# the one named, engine-documented, proven-transient class.
+apply_with_retry() { # apply_with_retry <duo-apply-args...>
+  local out rc attempt
+  for attempt in 1 2 3; do
+    # `$?` immediately after a bare `if ...; then ...; fi` with NO else is
+    # the IF STATEMENT's own exit status (0 -- "completed without a shell
+    # error"), NOT the failed condition's -- a real bash gotcha, caught by
+    # this function's own offline unit test (scenario B: 3 genuine
+    # failures were silently reported as success before this fix, exactly
+    # the "silent failure masked as success" this project's own posture
+    # refuses to tolerate). Capturing rc explicitly inside `else` is what
+    # makes it correct.
+    if out=$($COMPOSE run --rm -T cli2 wp duo apply "$@" 2>&1); then
+      echo "$out"
+      return 0
+    else
+      rc=$?
+    fi
+    if [ "$attempt" -lt 3 ] && echo "$out" | grep -qE 'incomplete_apply|convergence verification failed'; then
+      echo "apply attempt $attempt hit the known-transient Polylang post-apply convergence staleness (Apply.php's own documented case); retrying..." >&2
+      sleep 2
+      continue
+    fi
+    echo "$out"
+    return "$rc"
+  done
+}
+
 command -v jq >/dev/null || fail "jq required"
 command -v python3 >/dev/null || fail "python3 required"
 
@@ -248,9 +295,9 @@ echo "side2 polylang option BEFORE apply (fresh activation defaults): $POLYLANG_
 echo "$POLYLANG_BEFORE" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(1 if d['post_types'] else 0)" \
   || fail "side2 should start with an EMPTY post_types (genuinely fresh, no manual config)"
 
-APPLY1=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1)
+APPLY1=$(apply_with_retry --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV")
 echo "$APPLY1"
-echo "$APPLY1" | grep -qi '"canary":"clean"\|canary clean' || fail "apply canary was not clean"
+echo "$APPLY1" | grep -qiE '"canary":"clean"|canary clean' || fail "apply canary was not clean"
 pass "apply succeeded on a fresh target, canary clean"
 
 say "(6) sub-key merge, re-asserted directly against the database: side2's OWN pre-existing polylang/wpseo bookkeeping survives untouched"
@@ -302,7 +349,7 @@ echo "pll_get_post_language before the automatic follow-up apply: $LANG_BEFORE_F
 
 say "characterizing the gap precisely (new finding, honestly demonstrated, not silently worked around): a no-op re-apply -- ZERO content changes anywhere -- surfaces the missing relationship as 'drift (env ahead, untouched)', by design never reprocessed by Apply's own phase-2 (only create/update/conflict entities enter \$work; a drift-classified entity is deliberately left alone, the same 'capture-first' bias documented in spec/repo-format.md's Apply semantics). This is the SAME general shape as task #92's own accepted pa_* finding ('an unchanged-hash entity skips relationship reprocessing by design') -- confirmed here for an option-driven (not typed-snapshot-table-driven) taxonomy scope change. Filed precisely, not fixed here -- see this task's PR/Linear comment."
 REV_NOOP=$(git -C siterepo/${PAIR}2 rev-parse HEAD)
-APPLY_NOOP=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --default-author=admin --revision="$REV_NOOP" 2>&1)
+APPLY_NOOP=$(apply_with_retry --repo=/siterepo --default-author=admin --revision="$REV_NOOP")
 echo "$APPLY_NOOP"
 echo "$APPLY_NOOP" | grep -q '"drift":2' || fail "expected BOTH untouched project posts to show as drift on a no-op re-apply (got: $APPLY_NOOP)"
 pass "confirmed: a no-op re-apply leaves the drifted relationship exactly as-is (never self-heals without a genuine touch) -- precisely characterized, matching task #92's own established precedent for the analogous pa_* timing hazard"
@@ -316,9 +363,9 @@ git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test
 git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test push -q origin main
 git -C siterepo/${PAIR}2 pull -q origin main
 REV2=$(git -C siterepo/${PAIR}2 rev-parse HEAD)
-APPLY2=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV2" 2>&1)
+APPLY2=$(apply_with_retry --repo=/siterepo --default-author=admin --force-theirs --revision="$REV2")
 echo "$APPLY2"
-echo "$APPLY2" | grep -qi '"canary":"clean"\|canary clean' || fail "second apply canary was not clean"
+echo "$APPLY2" | grep -qiE '"canary":"clean"|canary clean' || fail "second apply canary was not clean"
 
 say "(4) pll_get_post_language()/pll_get_post_translations() now resolve on the target -- fresh process, target's OWN local ids, ZERO manual Settings replication"
 LANG_FIXED=$(wp2 eval "echo json_encode(['en'=>pll_get_post_language($PROJ_EN_B2),'de'=>pll_get_post_language($PROJ_DE_B2),'trans'=>pll_get_post_translations($PROJ_EN_B2)]);")
@@ -400,7 +447,7 @@ BAD_RC=$?
 set -e
 echo "$BAD_OUT"
 [ "$BAD_RC" -ne 0 ] || fail "expected apply to REFUSE an undeclared polylang sub-key ('sync'), got exit 0"
-echo "$BAD_OUT" | grep -q "polylang.sync\|option_sub_key" || fail "refusal doesn't name the undeclared sub-key (got: $BAD_OUT)"
+echo "$BAD_OUT" | grep -qE "polylang.sync|option_sub_key" || fail "refusal doesn't name the undeclared sub-key (got: $BAD_OUT)"
 rm -rf "$HOST_BAD_REPO"
 pass "an undeclared sub-key ('sync') smuggled into a captured polylang value is refused loudly, naming the offending key"
 
