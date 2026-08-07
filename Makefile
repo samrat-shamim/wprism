@@ -243,12 +243,16 @@ regress-interpreter-policy:
 regress-adapter-theme-range:
 	bash sandbox/tests/regress_adapter_theme_range.sh
 
-# DUO-3266: menu-item meta capture used to read a fixed 8-key allowlist and
-# silently drop everything else, never reaching the unclassified-meta gate
-# ordinary post_meta already has. Live, own pair (asub3266 8950/8951): an
-# unclassified key makes capture refuse loudly by name; a site-policy-
-# declared authored+ref key captures/applies/round-trips across two
-# independent environments with real token resolution.
+# DUO-3266/DUO-3275: menu-item meta capture used to read a fixed 8-key
+# allowlist and silently drop everything else, never reaching the
+# unclassified-meta gate ordinary post_meta already has. Live, own pair
+# (asub3275 8954/8955): runs the FULL canonical loud-gate -> pending ->
+# classify -> clean-capture cycle (not just capture-time refusal) — a fake
+# mega-menu plugin's meta key refuses capture, surfaces in `wp duo pending`
+# under section=post_meta with nav_menu_item in post_types (DUO-3275: not a
+# dead-end 'menu_item_meta' section), classifies via the exact `wp duo
+# classify --set` syntax pending suggests, then captures/applies/round-trips
+# across two independent environments with real token resolution.
 regress-menu-item-meta-gate:
 	bash sandbox/tests/regress_menu_item_meta_gate.sh
 
