@@ -208,6 +208,16 @@ final class Doctor {
             $checks[] = self::check('compatibility baseline (docs/compatibility-baseline.json)', false, 'skipped: WordPress not installed');
         }
 
+        // DUO-3290: surfaced, not run — doctor stays fast and never
+        // triggers coverage's own table-enumeration/row-count queries on
+        // every routine health check. Purely a discoverability pointer,
+        // always present, never affects doctor's own pass/fail.
+        $checks[] = self::check(
+            'coverage report available', true,
+            'run `wp duo coverage --repo=<repo>` to see what this site has vs what Duo actually captures (options, custom tables) — never blocking, purely informational',
+            true
+        );
+
         $ok = true;
         foreach ($checks as $c) {
             if (!empty($c['advisory'])) {

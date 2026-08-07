@@ -54,6 +54,7 @@ Usage:
   duo promote <env> [extra apply flags...]
   duo pending <env>
   duo classify <env> [--accept-proposals]
+  duo coverage <env> [--format=json]
   duo -h | --help
 
 Verbs:
@@ -147,6 +148,16 @@ Verbs:
                           human). Exit 0 if the queue was empty or fully
                           handled; non-zero if any secret-authored items had
                           to be skipped.
+  coverage <env>          Names and counts what this site actually has versus
+                          what Duo can see (options, custom tables) —
+                          deliberately NOT a gate: never blocks capture/plan/
+                          apply, never appears in `pending`'s queue, purely
+                          additive visibility for an operator deciding how
+                          much of a site is really under management.
+  coverage <env>
+    --format=json         Raw passthrough of the agent's own JSON (same
+                          precedent as `duo plan --format=json`), instead of
+                          the rendered summary.
 
 Global flags:
   --envs-file=<path>      Load the machine-local overlay registry from <path>
@@ -202,7 +213,7 @@ function main(array $argv): int {
     }
 
     $verb = array_shift($rest);
-    $verbsNeedingEnv = ['doctor', 'adopt', 'status', 'capture', 'plan', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify'];
+    $verbsNeedingEnv = ['doctor', 'adopt', 'status', 'capture', 'plan', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage'];
 
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
@@ -226,7 +237,7 @@ function main(array $argv): int {
         'doctor' => cmd_doctor($transport),
         'adopt' => cmd_adopt($transport, $extra),
         'status' => cmd_status($transport),
-        'capture', 'plan', 'apply', 'env-set' => cmd_passthrough($transport, $verb, $extra),
+        'capture', 'plan', 'apply', 'env-set', 'coverage' => cmd_passthrough($transport, $verb, $extra),
         'deploy' => cmd_deploy($transport, $extra),
         'promote' => cmd_promote($transport, $extra),
         'pending' => cmd_pending($transport, $extra),
