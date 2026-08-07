@@ -24,8 +24,13 @@ fi
 grep -q '<form action="/conformance-contact/#wpcf7-f[0-9]\+-p[0-9]\+-o1"' <<<"$FRONT" \
   || fail "CF7 form did not render its own action/unit-tag on conf2"
 
-CONF2_WPCF7_ID=$(grep -o '_wpcf7" value="[0-9]\+"' <<<"$FRONT" | grep -o '[0-9]\+')
-[ -n "$CONF2_WPCF7_ID" ] || fail "could not find conf2's rendered _wpcf7 numeric id"
+mapfile -t CONF2_WPCF7_IDS < <(
+  grep -o '_wpcf7" value="[0-9]\+"' <<<"$FRONT" \
+    | sed 's/.*value="//; s/"$//'
+)
+[ "${#CONF2_WPCF7_IDS[@]}" -eq 1 ] \
+  || fail "expected exactly one rendered _wpcf7 numeric id, got ${#CONF2_WPCF7_IDS[@]} (${CONF2_WPCF7_IDS[*]:-none})"
+CONF2_WPCF7_ID="${CONF2_WPCF7_IDS[0]}"
 
 CONF1_WPCF7_ID=$($COMPOSE run --rm -T cli1 wp post list --post_type=wpcf7_contact_form --field=ID | head -1)
 if [ "$CONF2_WPCF7_ID" = "$CONF1_WPCF7_ID" ]; then
