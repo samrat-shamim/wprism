@@ -2450,7 +2450,7 @@ final class Capture {
             $rule = $details['rule'] ?? [];
             if ($record['state'] === 'present'
                 && ($rule['class'] ?? null) === 'authored' && empty($rule['sub_keys'])) {
-                $out[$name] = OptionState::deleted($record);
+                $out[$name] = OptionState::deleted($record, !empty($rule['deletion_witness']));
             } else {
                 $out[$name] = OptionState::absent();
             }

@@ -216,11 +216,11 @@ Versioned option-record document. Every exact option classified authored (plus t
 
 - `absent`: no portable value and no deletion intent; apply leaves a target row untouched.
 - `present`: carries the lossless canonical `value` and the row's exact `autoload` storage flag.
-- `deleted`: durable destructive intent carrying the sha256 `expected_hash` of the prior `present` record.
+- `deleted`: durable destructive intent carrying the sha256 `expected_hash` of the prior `present` record. In v2 it may also carry a hash-bound `classification_witness` when the current interpreter rule explicitly declares `deletion_witness: true`.
 
 ```json
 {
-  "format": "duo-options/v1",
+  "format": "duo-options/v2",
   "records": {
     "blogdescription": {"state": "present", "autoload": "yes", "value": ""},
     "blogname": {"state": "present", "autoload": "yes", "value": "Duo Demo"},
@@ -229,12 +229,19 @@ Versioned option-record document. Every exact option classified authored (plus t
     "retired_authored_option": {
       "state": "deleted",
       "expected_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    "_options_retired_acf_field": {
+      "state": "deleted",
+      "expected_hash": "d0c4953f210e6aacc1ef0f7445a1f9aea4da930126b4584433e8163ed1253eba",
+      "classification_witness": {"autoload": "off", "value": "field_retired_acf_field"}
     }
   }
 }
 ```
 
 `null`, `false`, `""`, empty containers, and serialized structures are ordinary `present.value` values and never deletion signals. Capture converts a prior `present` record to `deleted` only after observing that exact authored row absent; it preserves a still-absent deletion record byte-for-byte, while reappearance replaces it with `present`. Apply requires `--with-deletes`, checks the tombstone's expected record hash during planning, and treats post-base edits or recreation as conflicts. Removing a required exact-name record fails compilation with its `records.<name>` location.
+
+`duo-options/v2` adds the optional `classification_witness`. It is not desired option data and apply never writes it. It contains the prior record's exact `autoload` and `value`, and its reconstructed `present` record must hash to the tombstone's `expected_hash`; malformed or independently edited witnesses fail compilation. Repository authorization builds interpreter context from present values, deleted-name presence, and valid witnesses, then asks the currently pinned interpreter to classify the tombstone normally. The witness is emitted only when that prior rule explicitly returns `deletion_witness: true`, allowing a shadow-key interpreter to retain its minimum schema pointer without retaining the deleted authored payload. A bare provenance or `authored: true` assertion is never trusted. `duo-options/v1` remains the canonical encoding for documents that need no witness, preserving their existing hashes; capture selects v2 exactly when at least one record uses the v2 field. Both versions remain accepted for reads.
 
 Every manifest surface that can author a whole option row (`options`, an authored `option_patterns`/`option_name_refs`, or a rule with authored `sub_keys`) must declare autoload storage semantics. A rule may give an exact supported value, or the manifest/site policy may declare `option_autoload: "preserve"` to authorize capture and replay of the source row's exact value. Missing declarations block policy load; create and update both write the canonical flag, never a WordPress/version-local default.
 

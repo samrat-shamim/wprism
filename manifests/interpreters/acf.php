@@ -241,9 +241,9 @@ final class Acf {
      * DUO-3263: ACF options-page fields (manifests/interpreters/acf.php's
      * own class docblock has the full empirical grounding for the
      * 'options_'/'_options_' prefix convention this resolves against).
-     * $allOptions is Duo's own option_name => raw option_value map (live
-     * wp_options during capture, the repository's captured options document
-     * during repository-side authorization/compilation — see
+     * $allOptions is Duo's own option-name classification map (raw values
+     * during live capture; present values plus valid deletion witnesses for
+     * repository-side authorization/compilation — see
      * Policy::meta_rule_for_option()'s own docblock) — NOT ACF's internal
      * store, so this never touches the database or acf_get_value() itself.
      */
@@ -297,12 +297,18 @@ final class Acf {
         return $this->rule_for_type((string) ($def['type'] ?? ''), $def);
     }
 
-    /** The options-page field-key pointer ("_options_<name>" => "field_..."): a plain authored string, prefix sibling of shadow_key_rule(). */
+    /**
+     * The options-page field-key pointer ("_options_<name>" => "field_..."):
+     * a plain authored string, prefix sibling of shadow_key_rule(). Its
+     * value is also the minimum context needed to classify both halves
+     * after ACF atomically deletes them, so capture retains it in the
+     * shadow tombstone as a hash-bound deletion witness.
+     */
     private function shadow_options_key_rule(string $name, array $allOptions): ?array {
         $base = substr($name, 1); // strip leading '_', leaving "options_<field>"
         $pointer = $allOptions[$name] ?? null;
         if (array_key_exists($base, $allOptions) && is_string($pointer) && preg_match(self::FIELD_KEY_PATTERN, $pointer)) {
-            return ['class' => 'authored'];
+            return ['class' => 'authored', 'deletion_witness' => true];
         }
         return null;
     }

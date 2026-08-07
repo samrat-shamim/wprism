@@ -2005,8 +2005,9 @@ final class Apply {
         // DUO-3263: an interpreter-classified option (ACF's options-page
         // fields) needs the same document-sourced sibling map (the shadow
         // pointer) RepositoryAuthorization/RepositoryCompiler already build
-        // from this same document — built once, reused per name below.
-        $allOptions = OptionState::values($document);
+        // from this same document (including valid v2 deletion witnesses) —
+        // built once, reused per name below.
+        $allOptions = OptionState::classification_values($document);
         foreach (OptionState::records($document) as $name => $record) {
             if ($record['state'] === 'absent') {
                 continue; // explicit no-value/no-delete intent; target row is untouched

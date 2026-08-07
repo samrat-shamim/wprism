@@ -13,22 +13,37 @@ namespace Duo;
  */
 final class OptionState {
     public const FORMAT = 'duo-options/v1';
+    public const WITNESS_FORMAT = 'duo-options/v2';
     public const AUTOLOAD_VALUES = ['yes', 'no', 'auto', 'on', 'off', 'auto-on', 'auto-off'];
 
     /** @return array{format:string,records:array<string,array<string,mixed>>} */
     public static function document(array $records): array {
+        // Keep ordinary option documents byte-identical to v1. A global
+        // tag-only rewrite would make an old v1 ledger base and a freshly
+        // observed target both appear edited during three-way planning.
+        // v2 is selected exactly when its new record shape is present.
+        $format = self::FORMAT;
+        foreach ($records as $record) {
+            if (is_array($record) && array_key_exists('classification_witness', $record)) {
+                $format = self::WITNESS_FORMAT;
+                break;
+            }
+        }
         ksort($records, SORT_STRING);
-        return ['format' => self::FORMAT, 'records' => $records];
+        return ['format' => $format, 'records' => $records];
     }
 
     /** @return array<string,array<string,mixed>> */
     public static function records(array $document): array {
         $fields = array_keys($document);
         sort($fields, SORT_STRING);
-        if ($fields !== ['format', 'records'] || ($document['format'] ?? null) !== self::FORMAT
+        $format = $document['format'] ?? null;
+        if ($fields !== ['format', 'records']
+            || !in_array($format, [self::FORMAT, self::WITNESS_FORMAT], true)
             || !is_array($document['records'] ?? null)) {
             throw new \RuntimeException(
-                'options/core.json must be a ' . self::FORMAT . ' object with exactly format and records fields'
+                'options/core.json must be a ' . self::FORMAT . ' or ' . self::WITNESS_FORMAT
+                . ' object with exactly format and records fields'
             );
         }
         $records = $document['records'];
@@ -36,7 +51,7 @@ final class OptionState {
             throw new \RuntimeException('options/core.json records must be an object keyed by canonical option name');
         }
         foreach ($records as $name => $record) {
-            self::validate_record((string) $name, $record);
+            self::validate_record((string) $name, $record, (string) $format);
         }
         return $records;
     }
@@ -50,11 +65,22 @@ final class OptionState {
         return ['state' => 'absent'];
     }
 
-    public static function deleted(array $previousPresent): array {
+    public static function deleted(array $previousPresent, bool $retainClassificationWitness = false): array {
         if (($previousPresent['state'] ?? null) !== 'present') {
             throw new \RuntimeException('duo: an option tombstone requires a prior present record');
         }
-        return ['state' => 'deleted', 'expected_hash' => self::record_hash($previousPresent)];
+        $out = ['state' => 'deleted', 'expected_hash' => self::record_hash($previousPresent)];
+        if ($retainClassificationWitness) {
+            // The witness deliberately excludes `state`: it is context for
+            // current-policy classification, never a second desired value.
+            // validate_record() binds it to expected_hash by reconstructing
+            // the exact prior present envelope before any caller may use it.
+            $out['classification_witness'] = [
+                'autoload' => $previousPresent['autoload'],
+                'value' => $previousPresent['value'],
+            ];
+        }
+        return $out;
     }
 
     public static function record_hash(array $record): string {
@@ -67,6 +93,39 @@ final class OptionState {
         foreach (self::records($document) as $name => $record) {
             if ($record['state'] === 'present') {
                 $out[$name] = $record['value'];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Immutable-revision classification context.
+     *
+     * Present records contribute their ordinary values. When (and only
+     * when) this document contains a self-verifying witness, deleted names
+     * are represented as present-in-the-document with null and the
+     * witnessed name contributes its retained value. Interpreters may
+     * therefore re-derive a shadow-key relationship from a cold checkout
+     * without changing legacy/plain-tombstone context or treating a
+     * tombstone as desired option data.
+     */
+    public static function classification_values(array $document): array {
+        $out = [];
+        $records = self::records($document);
+        $hasWitness = false;
+        foreach ($records as $record) {
+            if (array_key_exists('classification_witness', $record)) {
+                $hasWitness = true;
+                break;
+            }
+        }
+        foreach ($records as $name => $record) {
+            if ($record['state'] === 'present') {
+                $out[$name] = $record['value'];
+            } elseif ($hasWitness && $record['state'] === 'deleted') {
+                $out[$name] = array_key_exists('classification_witness', $record)
+                    ? $record['classification_witness']['value']
+                    : null;
             }
         }
         return $out;
@@ -97,7 +156,7 @@ final class OptionState {
         }
     }
 
-    private static function validate_record(string $name, $record): void {
+    private static function validate_record(string $name, $record, string $format): void {
         if ($name === '' || !is_array($record)) {
             throw new \RuntimeException('options/core.json has an empty name or non-object option record');
         }
@@ -122,12 +181,36 @@ final class OptionState {
         if ($state === 'deleted') {
             $fields = array_keys($record);
             sort($fields, SORT_STRING);
-            if ($fields !== ['expected_hash', 'state']
+            $plain = $fields === ['expected_hash', 'state'];
+            $witnessed = $format === self::WITNESS_FORMAT
+                && $fields === ['classification_witness', 'expected_hash', 'state'];
+            if ((!$plain && !$witnessed)
                 || !is_string($record['expected_hash'])
                 || !preg_match('/^[0-9a-f]{64}$/', $record['expected_hash'])) {
                 throw new \RuntimeException(
-                    "option '$name' deleted record must contain exactly state and a lowercase sha256 expected_hash"
+                    "option '$name' deleted record must contain state, a lowercase sha256 expected_hash, "
+                    . 'and only the optional v2 classification_witness'
                 );
+            }
+            if ($witnessed) {
+                $witness = $record['classification_witness'];
+                if (!is_array($witness)) {
+                    throw new \RuntimeException("option '$name' classification_witness must be an object");
+                }
+                $witnessFields = array_keys($witness);
+                sort($witnessFields, SORT_STRING);
+                if ($witnessFields !== ['autoload', 'value']) {
+                    throw new \RuntimeException(
+                        "option '$name' classification_witness must contain exactly autoload and value"
+                    );
+                }
+                self::validate_autoload($witness['autoload'], "option '$name' classification_witness");
+                $prior = self::present($witness['value'], $witness['autoload']);
+                if (!hash_equals($record['expected_hash'], self::record_hash($prior))) {
+                    throw new \RuntimeException(
+                        "option '$name' classification_witness does not match its expected_hash"
+                    );
+                }
             }
             return;
         }
