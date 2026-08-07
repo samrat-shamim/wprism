@@ -52,7 +52,7 @@ require __DIR__ . '/../../agent/src/Deletion.php';
 require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
 require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
 if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 1); // agent/duo.php's own value; not required here to avoid its ABSPATH/WP_CLI bootstrap guard
+    define('DUO_SPEC_VERSION', 2); // agent/duo.php's own value; not required here to avoid its ABSPATH/WP_CLI bootstrap guard
 }
 
 use Duo\Canon;
@@ -149,7 +149,7 @@ function p8_site_json(): string {
             'post_types' => ['post', 'page', 'attachment'],
             'taxonomies' => ['category', 'post_tag'],
         ],
-        'spec_version' => 1,
+        'spec_version' => 2,
     ]);
 }
 

@@ -2,7 +2,7 @@
   "block_attrs": {
     "woocommerce/product-collection": [{"lint_ok": true, "path": "queryId"}]
   },
-  "spec_version": 1,
+  "spec_version": 2,
   "name": "woocommerce",
   "option_autoload": "preserve",
   "plugin": "woocommerce/woocommerce.php",
@@ -12,6 +12,9 @@
     {"class": "authored", "match": "^attribute_pa_"},
     {"class": "runtime", "match": "^product_count_"}
   ],
+  "term_meta": {
+    "thumbnail_id": {"class": "authored", "ref": "post"}
+  },
   "rebuilders": [
     {"command": "transient delete wc_attribute_taxonomies"}
   ],

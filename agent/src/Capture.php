@@ -403,16 +403,14 @@ final class Capture {
             $flatMeta = $c->term_meta_map((int) $t->term_id);
             foreach ($flatMeta as $key => $raw) {
                 $rule = $c->policy->meta_rule_for_term($key, $flatMeta);
-                if ($rule !== null && ($rule['class'] ?? '') !== 'authored') {
+                if ($rule !== null) {
                     continue;
                 }
                 $termMeta[$key]['entities'] = ($termMeta[$key]['entities'] ?? 0) + 1;
                 $termMeta[$key]['taxonomies'][$t->taxonomy] = true;
                 $value = is_serialized($raw) ? @unserialize(trim($raw), ['allowed_classes' => false]) : $raw;
                 $termMeta[$key]['value_shapes'][get_debug_type($value)] = true;
-                $termMeta[$key]['reason'] = $rule === null
-                    ? 'unclassified term meta on an in-scope taxonomy'
-                    : 'authored term meta is unsupported by the v1 term-file schema; taxonomy capture is blocked';
+                $termMeta[$key]['reason'] = 'unclassified term meta on an in-scope taxonomy';
             }
         }
 
@@ -459,7 +457,7 @@ final class Capture {
             }
         }
 
-        // Users remain environment-local and unscoped in spec v1, so an
+        // Users remain environment-local and unscoped in spec v2, so an
         // unclassified user-meta key is not implicitly claimed. A static or
         // interpreter rule can still classify a known key runtime/env/derived
         // today; authored is the one actionable pending finding because no
@@ -475,7 +473,7 @@ final class Capture {
                 $userMeta[$key]['users'][$user['login']] = true;
                 $value = is_serialized($raw) ? @unserialize(trim($raw), ['allowed_classes' => false]) : $raw;
                 $userMeta[$key]['value_shapes'][get_debug_type($value)] = true;
-                $userMeta[$key]['reason'] = 'authored user meta is unsupported by the v1 repository schema; '
+                $userMeta[$key]['reason'] = 'authored user meta is unsupported by the v2 repository schema; '
                     . 'capture is blocked pending DUO-3268';
             }
         }
@@ -714,7 +712,7 @@ final class Capture {
             }
         }
 
-        // User meta has classification but intentionally has no v1 wire
+        // User meta has classification but intentionally has no v2 wire
         // format. Run the Policy guard against every live key: non-authored
         // rules are usable target-local dispositions, while authored joins
         // the ordinary aggregate loud gate before canonical state can
@@ -729,18 +727,15 @@ final class Capture {
         }
         $menus = $this->scope_menus($mint);
 
-        // Term files have no meta field in spec v1. Unknown term-meta must
-        // therefore block, and an "authored" classification must also block
-        // explicitly rather than becoming an inert rule that appears to
-        // resolve the review item while its value is still dropped.
+        // Spec v2 term files carry authored meta. Unknown term-meta still
+        // blocks loudly; every classified non-authored disposition remains
+        // target-local and every classified authored key is captured below.
         foreach ($terms as $t) {
             $flatMeta = $this->term_meta_map((int) $t->term_id);
             foreach ($flatMeta as $key => $_) {
                 $rule = $this->policy->meta_rule_for_term($key, $flatMeta);
                 if ($rule === null) {
                     $this->unclassified[] = "term_meta:$key (unclassified on taxonomy {$t->taxonomy})";
-                } elseif (($rule['class'] ?? '') === 'authored') {
-                    $this->unclassified[] = "term_meta:$key (authored is unsupported by the v1 term-file schema; taxonomy {$t->taxonomy} blocked)";
                 }
             }
         }
@@ -785,6 +780,22 @@ final class Capture {
                     $this->tokens->warnings[] = "term {$t->slug}: unmanaged parent term {$t->parent} dropped";
                 }
             }
+            $termByKey = $this->term_meta_by_key((int) $t->term_id);
+            $termFlatMeta = array_map(fn($values) => $values[0], $termByKey);
+            $termMeta = [];
+            foreach ($termByKey as $key => $values) {
+                [$store, $value] = $this->classify_meta_value(
+                    $key,
+                    $values,
+                    $termFlatMeta,
+                    "term {$t->taxonomy}:{$t->slug}",
+                    'term_meta',
+                    true
+                );
+                if ($store) {
+                    $termMeta[$key] = $value;
+                }
+            }
             $front = [
                 'uuid' => $uuid,
                 'taxonomy' => $t->taxonomy,
@@ -792,6 +803,7 @@ final class Capture {
                 'slug' => $t->slug,
                 'description' => $this->term_description($t),
                 'parent' => $parentUuid,
+                'meta' => (object) $termMeta,
                 'relationships' => (object) $this->term_relationships((int) $t->term_id),
             ];
             $entities[] = [
@@ -1311,7 +1323,7 @@ final class Capture {
         if ((string) $p->post_password !== '') {
             throw new \RuntimeException(
                 "duo: protected {$p->post_type} '{$p->post_name}' (post $id) has post_password; "
-                . 'spec v1 has no portable secret representation for post passwords, so capture refuses it'
+                . 'spec v2 has no portable secret representation for post passwords, so capture refuses it'
             );
         }
 
@@ -1692,9 +1704,12 @@ final class Capture {
         array $values,
         array $flatMeta,
         string $ownerLabel,
-        string $unclassifiedPrefix
+        string $unclassifiedPrefix,
+        bool $termMeta = false
     ): array {
-        $rule = $this->policy->meta_rule_for_post($key, $flatMeta);
+        $rule = $termMeta
+            ? $this->policy->meta_rule_for_term($key, $flatMeta)
+            : $this->policy->meta_rule_for_post($key, $flatMeta);
         if ($rule === null) {
             $this->unclassified[] = "$unclassifiedPrefix:$key";
             return [false, null];
@@ -1711,7 +1726,7 @@ final class Capture {
         // authored value that decoded to an array (a serialized settings
         // blob) must be scanned too; guard_secret() deep-scans internally
         // now (see its own docblock).
-        $this->guard_secret('post_meta', $key, $v, $rule, " on $ownerLabel");
+        $this->guard_secret($termMeta ? 'term_meta' : 'post_meta', $key, $v, $rule, " on $ownerLabel");
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
             $decoded = $this->decode_structured($v, $rule, "$ownerLabel meta $key");
             $v = $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
@@ -1736,10 +1751,7 @@ final class Capture {
         return [true, $v];
     }
 
-    /** Mirrors post_meta_map() for termmeta. The review scan and capture's
-     *  loud pre-wire-format gate both pass this whole-object context to an
-     *  optional interpreter hook; no term-meta serialization pipeline exists
-     *  yet (DUO-3261). */
+    /** First-value-per-key termmeta context for static/interpreter rules. */
     private function term_meta_map(int $termId): array {
         global $wpdb;
         $rows = $wpdb->get_results($wpdb->prepare(
@@ -1753,6 +1765,20 @@ final class Capture {
             }
         }
         return $out;
+    }
+
+    /** Multi-value termmeta read, preserving meta_id order per key. */
+    private function term_meta_by_key(int $termId): array {
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT meta_key, meta_value FROM {$wpdb->termmeta} WHERE term_id = %d ORDER BY meta_key ASC, meta_id ASC",
+            $termId
+        ), ARRAY_A) ?: [];
+        $byKey = [];
+        foreach ($rows as $row) {
+            $byKey[$row['meta_key']][] = $row['meta_value'];
+        }
+        return $byKey;
     }
 
     /**

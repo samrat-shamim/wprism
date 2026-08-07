@@ -47,7 +47,7 @@ final class RepositoryAuthorization {
     ];
     private const ATTACHMENT_FIELDS = ['file', 'media', 'mime', 'alt'];
     private const TERM_FIELDS = [
-        'uuid', 'taxonomy', 'name', 'slug', 'description', 'parent', 'relationships',
+        'uuid', 'taxonomy', 'name', 'slug', 'description', 'parent', 'meta', 'relationships',
     ];
     private const MENU_FIELDS = ['uuid', 'name', 'slug', 'locations', 'items'];
     private const MENU_ITEM_FIELDS = [
@@ -214,6 +214,14 @@ final class RepositoryAuthorization {
         $path = $entity['path'];
         self::unexpected_fields($front, self::TERM_FIELDS, $path, $uuid, 'term_field', $out);
         self::authorize_taxonomy($policy, (string) ($front['taxonomy'] ?? ''), $path, $uuid, 'taxonomy', $out);
+        $meta = (array) ($front['meta'] ?? []);
+        foreach ($meta as $key => $_) {
+            $details = $policy->meta_rule_details_for_term((string) $key, $meta);
+            $class = $details['rule']['class'] ?? 'unclassified';
+            if ($class !== 'authored') {
+                self::finding($out, 'repository_field_not_authored', $path, $uuid, 'term_meta', (string) $key, $class, $details['source']);
+            }
+        }
         foreach ((array) ($front['relationships'] ?? []) as $taxonomy => $_) {
             self::authorize_taxonomy($policy, (string) $taxonomy, $path, $uuid, 'term_relationships', $out);
         }

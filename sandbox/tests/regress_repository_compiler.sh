@@ -16,7 +16,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 php -d display_errors=1 -- "$ROOT" <<'PHP'
 <?php
 $root = $argv[1];
-define('DUO_SPEC_VERSION', 1);
+define('DUO_SPEC_VERSION', 2);
 require_once "$root/agent/src/Uuid.php";
 require_once "$root/agent/src/Canon.php";
 require_once "$root/agent/src/OptionState.php";
@@ -38,6 +38,7 @@ use Duo\CompiledRepository;
 use Duo\Policy;
 use Duo\RepositoryCompilationException;
 use Duo\RepositoryCompiler;
+use Duo\RepositoryAuthorizationException;
 
 $tmp = sys_get_temp_dir() . '/duo-3208-' . bin2hex(random_bytes(6));
 mkdir($tmp, 0777, true);
@@ -81,10 +82,10 @@ function build_valid(string $repo, array $manifests = ['core']): array {
             'post_types' => ['post','page','attachment','acf-field','acf-field-group'],
             'taxonomies' => ['category','post_tag'],
         ],
-        'spec_version' => 1,
+        'spec_version' => 2,
     ]));
     put("$repo/state/terms/category/$term--news.json", Canon::encode([
-        'description' => '', 'name' => 'News', 'parent' => null,
+        'description' => '', 'meta' => (object) [], 'name' => 'News', 'parent' => null,
         'relationships' => (object) [], 'slug' => 'news', 'taxonomy' => 'category', 'uuid' => $term,
     ]));
     $front = post_front($page, 'page', 'about');
@@ -133,6 +134,12 @@ function failure(string $repo): array {
     try { compile_repo($repo); }
     catch (RepositoryCompilationException $e) { return $e->payload(); }
     fail("$repo compiled successfully but failure was required");
+}
+
+function authorization_failure(string $repo): array {
+    try { compile_repo($repo); }
+    catch (RepositoryAuthorizationException $e) { return $e->payload(); }
+    fail("$repo compiled successfully but authorization failure was required");
 }
 
 function codes(array $payload): array { return array_column($payload['diagnostics'], 'code'); }
@@ -252,7 +259,7 @@ $firstPath = "$cycle/state/terms/category/{$cy['term']}--news.json";
 $first = Canon::decode(file_get_contents($firstPath)); $first['parent'] = $other;
 put($firstPath, Canon::encode($first));
 put("$cycle/state/terms/category/$other--other.json", Canon::encode([
-    'description'=>'', 'name'=>'Other', 'parent'=>$cy['term'], 'relationships'=>(object) [],
+    'description'=>'', 'meta'=>(object) [], 'name'=>'Other', 'parent'=>$cy['term'], 'relationships'=>(object) [],
     'slug'=>'other', 'taxonomy'=>'category', 'uuid'=>$other,
 ]));
 $p = failure($cycle); needs($p, 'reference_cycle');
@@ -264,6 +271,41 @@ $options = Canon::decode(file_get_contents($optionsPath)); $options['records']['
 put($optionsPath, Canon::encode($options));
 $p = failure($rawId); needs($p, 'nonportable_reference');
 ok('declared ref fields reject raw environment ids even when JSON is otherwise valid');
+
+$termRef = "$tmp/term-meta-ref"; $tr = build_valid($termRef);
+$sitePath = "$termRef/site.duo.json";
+$site = Canon::decode(file_get_contents($sitePath));
+$site['policy']['term_meta']['thumbnail_id'] = ['class'=>'authored', 'ref'=>'post'];
+put($sitePath, Canon::encode($site));
+$termPath = "$termRef/state/terms/category/{$tr['term']}--news.json";
+$term = Canon::decode(file_get_contents($termPath));
+$term['meta'] = (object) ['thumbnail_id' => 3];
+put($termPath, Canon::encode($term));
+$p = failure($termRef); needs($p, 'nonportable_reference');
+$term['meta'] = (object) ['thumbnail_id' => "{{post:{$tr['attachment']}}}"];
+put($termPath, Canon::encode($term));
+compile_repo($termRef);
+ok('termmeta ref declarations reject raw ids and accept canonical tokens offline');
+
+$termRuntime = "$tmp/term-meta-runtime"; $rt = build_valid($termRuntime);
+$sitePath = "$termRuntime/site.duo.json";
+$site = Canon::decode(file_get_contents($sitePath));
+$site['policy']['term_meta']['runtime_counter'] = ['class'=>'runtime'];
+put($sitePath, Canon::encode($site));
+$termPath = "$termRuntime/state/terms/category/{$rt['term']}--news.json";
+$term = Canon::decode(file_get_contents($termPath));
+$term['meta'] = (object) ['runtime_counter' => 'must-not-apply'];
+put($termPath, Canon::encode($term));
+$p = authorization_failure($termRuntime); needs($p, 'repository_field_not_authored');
+ok('term files cannot smuggle runtime or undeclared meta past repository authorization');
+
+$termSchema = "$tmp/term-meta-required"; $ts = build_valid($termSchema);
+$termPath = "$termSchema/state/terms/category/{$ts['term']}--news.json";
+$term = Canon::decode(file_get_contents($termPath));
+unset($term['meta']);
+put($termPath, Canon::encode($term));
+$p = failure($termSchema); needs($p, 'schema_content_mismatch');
+ok('spec-v2 term files require an explicit meta object, including when empty');
 
 $missingOption = "$tmp/missing-option-record"; build_valid($missingOption);
 $optionsPath = "$missingOption/state/options/core.json";

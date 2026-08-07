@@ -632,7 +632,7 @@ final class RepositoryCompiler {
     private function validate_schema(string $kind, string $path, array $data, ?string $body): void {
         $required = match ($kind) {
             'post' => ['uuid','type','slug','title','status','date','date_gmt','modified_gmt','author','parent','menu_order','comment_status','ping_status','excerpt','meta','terms'],
-            'term' => ['uuid','taxonomy','name','slug','description','parent','relationships'],
+            'term' => ['uuid','taxonomy','name','slug','description','parent','meta','relationships'],
             // DUO-3272: 'locations' drops out of the required set the
             // moment a pinned manifest reclassifies menu_fields.locations
             // 'derived' (e.g. Polylang) -- Capture::scope_menus() omits the
@@ -678,8 +678,9 @@ final class RepositoryCompiler {
                 }
             }
         }
-        if ($kind === 'term' && isset($data['relationships']) && !is_array($data['relationships'])) {
-            $this->add('schema_content_mismatch', $path, 'relationships', 'term relationships must be an object map');
+        if ($kind === 'term' && (!isset($data['meta']) || !is_array($data['meta'])
+            || !isset($data['relationships']) || !is_array($data['relationships']))) {
+            $this->add('schema_content_mismatch', $path, 'meta/relationships', 'term meta and relationships must be object maps');
         } elseif ($kind === 'term') {
             foreach ((array) ($data['relationships'] ?? []) as $taxonomy => $uuids) {
                 if (!is_string($taxonomy) || !is_array($uuids) || !array_is_list($uuids)) {
@@ -939,6 +940,14 @@ final class RepositoryCompiler {
                         : (($item['type'] ?? '') === 'taxonomy' ? 'term' : null);
                     if ($kind !== null) {
                         $this->validate_declared_ref($item['ref'] ?? null, $kind, $path, "items[$i].ref");
+                    }
+                }
+            } elseif ($entity['type'] === 'term') {
+                $meta = (array) ($d['meta'] ?? []);
+                foreach ($meta as $key => $value) {
+                    $rule = $this->policy->meta_rule_for_term((string) $key, $meta) ?? [];
+                    if (!empty($rule['ref'])) {
+                        $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'meta.' . $key);
                     }
                 }
             } elseif ($entity['type'] === 'options') {

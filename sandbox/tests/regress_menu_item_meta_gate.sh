@@ -70,7 +70,7 @@ cat > "$SITE1/site.duo.json" <<'EOF'
     "post_meta": {},
     "post_types": ["post", "page", "attachment"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 cp sandbox/site-repo.gitignore.template "$SITE1/.gitignore"

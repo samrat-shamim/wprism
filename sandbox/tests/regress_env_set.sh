@@ -98,7 +98,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
     "post_types": ["post", "page"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
@@ -190,7 +190,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
     "post_types": ["post", "page"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 wp1 duo env-set --repo=/siterepo --name=wpseo --value=x >/tmp/duo_refuse_5.txt 2>&1 && fail "should have refused a sub_keys-bearing env option"
@@ -205,7 +205,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
     "post_types": ["post", "page"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 

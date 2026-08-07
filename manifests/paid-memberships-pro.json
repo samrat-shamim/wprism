@@ -2,7 +2,7 @@
   "deletions": {
     "table:pmpro_memberships_pages": {"cascades": [], "guards": []}
   },
-  "spec_version": 1,
+  "spec_version": 2,
   "name": "paid-memberships-pro",
   "option_autoload": "preserve",
   "notes": [

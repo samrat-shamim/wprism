@@ -140,7 +140,7 @@ for ACF_VERSION in 6.0.0 6.8.7; do
     "post_types": ["post", "page", "attachment", "acf-field-group", "acf-field"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
   cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
@@ -219,7 +219,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
     "post_types": ["post", "page", "attachment", "acf-field-group", "acf-field"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"

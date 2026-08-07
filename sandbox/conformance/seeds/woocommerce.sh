@@ -40,6 +40,23 @@ set -euo pipefail
 
 CAT_ID=$(wp_conf1 term create product_cat "Conformance Widgets" --slug=conformance-widgets --porcelain)
 
+# Real WooCommerce-authored product-category image. The stored termmeta is
+# thumbnail_id -> attachment post ID, so this exercises termmeta ref
+# tokenization and target-local resolution rather than opaque passthrough.
+for side in conf1 conf2; do
+  wp_env "$side" eval 'foreach (glob(wp_upload_dir()["basedir"] . "/*/*/conf-woo-category*.png") as $f) { unlink($f); }' >/dev/null
+done
+cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-make-woo-category-image.php <<'EOF'
+<?php
+$im = imagecreatetruecolor(48, 48);
+imagefilledrectangle($im, 0, 0, 47, 47, imagecolorallocate($im, 115, 70, 175));
+imagepng($im, '/tmp/conf-woo-category.png');
+EOF
+THUMB_ID=$($COMPOSE run --rm -T cli1 bash -c \
+  "wp eval-file /siterepo/.tmp-make-woo-category-image.php >/dev/null && wp media import /tmp/conf-woo-category.png --title='Woo Category Thumbnail' --porcelain")
+rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-make-woo-category-image.php
+wp_conf1 term meta update "$CAT_ID" thumbnail_id "$THUMB_ID" >/dev/null
+
 PID=$(wp_conf1 wc product create --name='Conformance Widget' --type=simple \
   --regular_price=19.99 --sale_price=14.99 --sku=CONF-WIDGET-1 \
   --manage_stock=true --stock_quantity=25 --virtual=false \
@@ -79,4 +96,4 @@ wp_conf1 wc product_variation create "$VPID" \
   --attributes="[{\"id\":$SIZE_ATTR_ID,\"option\":\"Large\"},{\"id\":$COLOR_ATTR_ID,\"option\":\"Blue\"}]" \
   --regular_price=12.99 --sku=CONF-VAR-L-BLUE --manage_stock=true --stock_quantity=8 --user=admin --porcelain >/dev/null
 
-echo "woocommerce seed: category=$CAT_ID product=$PID coupon=$COUPON_ID variable_product=$VPID (attrs size=$SIZE_ATTR_ID color=$COLOR_ATTR_ID)"
+echo "woocommerce seed: category=$CAT_ID thumbnail=$THUMB_ID product=$PID coupon=$COUPON_ID variable_product=$VPID (attrs size=$SIZE_ATTR_ID color=$COLOR_ATTR_ID)"

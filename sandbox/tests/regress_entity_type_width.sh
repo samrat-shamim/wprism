@@ -79,7 +79,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
 {
   "manifests": ["core", "woocommerce"],
   "policy": {"options": {}, "post_meta": {}, "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon"], "taxonomies": ["category", "post_tag", "product_cat", "product_type"]},
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
@@ -125,7 +125,7 @@ cat > "$HOST_REPO/site.duo.json" <<EOF
       "$LONGNAME": {"class": "authored_snapshot", "pk": "id", "id_kind": "toolong", "columns": {}, "refs": []}
     }
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 # capture (not plan): plan is apply-side and requires a pre-existing state/
