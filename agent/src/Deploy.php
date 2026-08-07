@@ -370,9 +370,20 @@ final class Deploy {
         $tree = $compiled->tree();
         Canary::suppress_cron_spawn();
         Ledger::ensure();
-        $desired = isset($tree['options/core'])
-            ? self::extract_desired($tree['options/core']['data'])
-            : [];
+        $promotionOwner = PromotionLock::owner($opts);
+        $promotionArtifact = $compiled->artifact_hash();
+        PromotionLock::acquire($promotionOwner, $promotionArtifact, 'deploy');
+        try {
+            $lockedPolicy = Policy::load($repo);
+            $lockedCompiled = $compiledPath !== ''
+                ? RepositoryCompiler::read_artifact($compiledPath, $lockedPolicy)
+                : RepositoryCompiler::compile($repo, $lockedPolicy);
+            if (!hash_equals($promotionArtifact, $lockedCompiled->artifact_hash())) {
+                throw new \RuntimeException('duo: compiled artifact changed before locked deploy');
+            }
+            $desired = isset($tree['options/core'])
+                ? self::extract_desired($tree['options/core']['data'])
+                : [];
 
         $mismatch = self::code_mismatch($policy, $desired);
         // An inactive-but-installed plugin is exactly the condition deploy
@@ -477,6 +488,7 @@ final class Deploy {
                 $toDeactivate = array_values(array_diff($current, $desiredActive));
 
                 foreach ($toActivate as $plugin) {
+                    PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-activate');
                     if (in_array($plugin, $missingPlugins, true)) {
                         $warnings[] = "skipped activating '$plugin' (missing_in_code, --force-code-mismatch was set)";
                         continue;
@@ -488,6 +500,7 @@ final class Deploy {
                     $activated[] = $plugin;
                 }
                 if ($toDeactivate) {
+                    PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-deactivate');
                     // Symmetric with activation, matching §3.3's own failure-mode
                     // wording for the inverse case ("this environment will do so
                     // automatically on the next 'duo deploy'") — deactivation is
@@ -509,6 +522,7 @@ final class Deploy {
                     }
                 }
                 if (!$missingPlugins && $after !== $desiredActive) {
+                    PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-plugin-order');
                     // WordPress exposes no lifecycle API for load-order changes.
                     // Membership has already been reconciled through activate/
                     // deactivate above; this managed option write changes order
@@ -525,6 +539,7 @@ final class Deploy {
             $desiredStylesheet = $desired['stylesheet'] ?? null;
             $desiredTemplate = $desired['template'] ?? null;
             if ($desiredStylesheet !== null && get_option('stylesheet') !== $desiredStylesheet) {
+                PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-theme');
                 if ($themeMissing) {
                     $warnings[] = "skipped theme switch to '$desiredStylesheet' (missing_in_code, --force-code-mismatch was set)";
                 } else {
@@ -559,10 +574,11 @@ final class Deploy {
         // NEXT run. Runs regardless of whether $drift/$mismatch fired, same
         // as code_mismatch's own findings don't gate whether reconciliation
         // proceeds once past the refuse-gate above.
+        PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-verify');
         self::record_code_versions($policy);
 
         $remainingMismatch = self::code_mismatch($policy, $desired);
-        return [
+        $summary = [
             'artifact' => [
                 'hash' => $compiled->artifact_hash(),
                 'revision' => $compiled->revision_hash(),
@@ -586,6 +602,25 @@ final class Deploy {
             'external_side_effects' => $externalSideEffects,
             'warnings' => $warnings,
         ];
+            if (!empty($opts['promotion_hold'])) {
+                PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deployed');
+            } else {
+                PromotionLock::release($promotionOwner, $promotionArtifact);
+            }
+            $summary['promotion_lock'] = [
+                'owner' => $promotionOwner,
+                'held_for_apply' => !empty($opts['promotion_hold']),
+            ];
+            return $summary;
+        } catch (\Throwable $t) {
+            try {
+                PromotionLock::release($promotionOwner, $promotionArtifact);
+            } catch (\Throwable $_releaseFailure) {
+                // Preserve the lifecycle/precondition failure. An unreleased
+                // lease is bounded and the next owner can recover it.
+            }
+            throw $t;
+        }
     }
 
     /**

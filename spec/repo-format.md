@@ -405,6 +405,24 @@ the target repo's gitignored `.duo/checkpoints/`, then sequences deploy → appl
 against that same artifact. A failed phase stops all later phases and prints the
 checkpoint plus the exact transport-shaped `wp db import` recovery command.
 
+Deploy and apply also share one target-authoritative lease in the target
+database. The `duo_kv.promotion_lock` record names a random orchestrator owner,
+the compiled artifact hash, current phase, and bounded expiry. Acquisition is
+one conditional upsert with owner readback: concurrent Duo writers fail before
+mutation, the same owner may hand the lease from deploy to apply, and a crashed
+owner is recoverable only after expiry. Every mutating phase renews and verifies
+ownership; loss or expiry fails closed. Direct `wp duo deploy` and `wp duo
+apply` calls acquire their own single-phase lease too.
+
+Under that lease, apply computes the live plan a second time immediately before
+the first write and hashes only mutation-authorizing facts: live entity state,
+identity/adoption decisions, collisions/conflicts, deletion guards, active code
+state, manifest association, incomplete-apply state, and pending rebuilds. Any
+change refuses without a stale-plan force path. Runtime reverse-reference guards
+are then queried once more immediately before each DELETE inside the mutation
+transaction. This gate serializes Duo writers while leaving public reads and
+unrelated runtime traffic available; a global maintenance page is not implied.
+
 ## Code-half facts & deploy (spec v0.9 — docs/proposals/code-half.md phase 1)
 
 - `active_plugins`, `template`, `stylesheet` are **managed-class** core-manifest options: captured bespoke into `state/options/core.json` (plain portable strings — plugin file paths and theme slugs need no tokenization; their cross-environment stability *is* the invariant), and **excluded from apply's generic direct-SQL path** — a raw options UPDATE would skip activation/switch hooks while leaving WordPress believing the code is active.

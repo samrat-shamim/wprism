@@ -31,13 +31,14 @@ second="${args[$((pos + 1))]:-}"
 
 if [ "$first" = duo ] && [ "$second" = compile ]; then
   [ "${FAKE_COMPILE_FAIL:-0}" = 0 ] || exit 6
+  artifact_hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   for arg in "${args[@]}"; do
     if [[ "$arg" == --out=* ]]; then
       out="${arg#--out=}"
-      printf '{"artifact_hash":"unit"}\n' > "$out"
+      printf '{"artifact_hash":"%s"}\n' "$artifact_hash" > "$out"
     fi
   done
-  printf '{"artifact_hash":"unit"}\n'
+  printf '{"artifact_hash":"%s"}\n' "$artifact_hash"
   exit 0
 fi
 
@@ -80,11 +81,22 @@ mapfile -t CALLS < "$LOG"
 DEPLOY_ARTIFACT="$(printf '%s\n' "${CALLS[2]}" | grep -o -- '--compiled=[^ ]*')"
 APPLY_ARTIFACT="$(printf '%s\n' "${CALLS[3]}" | grep -o -- '--compiled=[^ ]*')"
 [ "$DEPLOY_ARTIFACT" = "$APPLY_ARTIFACT" ] || fail "deploy/apply used different compiled artifacts"
+DEPLOY_OWNER="$(printf '%s\n' "${CALLS[2]}" | grep -o -- '--promotion-owner=[^ ]*')"
+APPLY_OWNER="$(printf '%s\n' "${CALLS[3]}" | grep -o -- '--promotion-owner=[^ ]*')"
+[ -n "$DEPLOY_OWNER" ] && [ "$DEPLOY_OWNER" = "$APPLY_OWNER" ] \
+  || fail "deploy/apply did not share one target lease owner"
+[[ "${CALLS[2]}" == *"--promotion-hold"* ]] || fail "deploy did not retain the lease for apply"
+[[ "${CALLS[3]}" != *"--promotion-hold"* ]] || fail "apply was told to retain the completed lease"
 CHECKPOINT="$(printf '%s\n' "$OUT" | sed -n 's/^database checkpoint: //p' | head -1)"
 [ -f "$CHECKPOINT" ] || fail "database checkpoint was not retained"
 [[ "$CHECKPOINT" == "$SITE/.duo/checkpoints/"* ]] \
   || fail "checkpoint was not isolated below the target operational directory"
-pass "compile -> checkpoint -> deploy -> apply used one frozen artifact"
+pass "compile -> checkpoint -> deploy -> apply used one frozen artifact and one target lease"
+
+if $DUO --envs-file="$ENVS" promote unit --promotion-owner=intruder >/dev/null 2>&1; then
+  fail "caller-supplied internal promotion owner was accepted"
+fi
+pass "host promote owns its internal lease flags"
 
 : > "$LOG"
 if OUT="$(FAKE_DEPLOY_FAIL=1 $DUO --envs-file="$ENVS" promote unit --with-deletes 2>&1)"; then
