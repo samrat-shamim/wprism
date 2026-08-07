@@ -11,13 +11,35 @@ final class Ledger {
     public const KIND_TERM = 'term';
     public const KIND_TT   = 'term_taxonomy';
 
+    /**
+     * DUO-3246: entity_type shipped as VARCHAR(32). A table-row entity's own
+     * 'type' IS its declared table name (Snapshot.php's own docblock/
+     * row_tables()) — not a short, freely-chosen abbreviation the way
+     * id_kind is — so it must fit whatever WooCommerce/PMPro/etc. actually
+     * named their table, not the other way around. Two shipped tables
+     * already exceed 32 (woocommerce_shipping_zone_locations, 35;
+     * woocommerce_shipping_zone_methods, 33), silently truncated by MySQL
+     * on insert — harmless-latent until DUO-3209's identity-contradiction
+     * guard started strictly comparing stored-vs-computed entity_type on
+     * every Ledger::set(), refusing the truncated-vs-full mismatch on the
+     * very next recapture. See Snapshot::MAX_ENTITY_TYPE_LEN (the mirrored,
+     * manually-synced budget assert this same width backs — the existing
+     * MAX_ID_KIND_LEN/id_kind precedent in Snapshot.php, applied here
+     * instead of copied there, since id_kind's own budget is deliberately
+     * enforced against the EXISTING width rather than widened) and
+     * Snapshot::repair_truncated_entity_types() (the migration-time repair
+     * for rows already corrupted under the old width).
+     */
+    private const ENTITY_TYPE_WIDTH = 64;
+
     public static function ensure(): void {
         global $wpdb;
         $p = $wpdb->prefix;
         $charset = $wpdb->get_charset_collate();
+        $w = self::ENTITY_TYPE_WIDTH;
         Db::query("CREATE TABLE IF NOT EXISTS {$p}duo_map (
             uuid CHAR(36) NOT NULL,
-            entity_type VARCHAR(32) NOT NULL,
+            entity_type VARCHAR($w) NOT NULL,
             id_kind VARCHAR(16) NOT NULL,
             local_id BIGINT UNSIGNED NOT NULL,
             PRIMARY KEY (uuid, id_kind),
@@ -25,7 +47,7 @@ final class Ledger {
         ) $charset", 'ledger schema create duo_map');
         Db::query("CREATE TABLE IF NOT EXISTS {$p}duo_state (
             uuid VARCHAR(64) NOT NULL,
-            entity_type VARCHAR(32) NOT NULL,
+            entity_type VARCHAR($w) NOT NULL,
             content_hash CHAR(64) NOT NULL,
             PRIMARY KEY (uuid)
         ) $charset", 'ledger schema create duo_state');
@@ -48,6 +70,35 @@ final class Ledger {
             PRIMARY KEY (id),
             KEY tbl_item (tbl, item)
         ) $charset", 'ledger schema create duo_journal');
+        self::migrate_widen_entity_type();
+    }
+
+    /**
+     * DUO-3246: CREATE TABLE IF NOT EXISTS above never widens a table that
+     * already exists — any environment that created duo_map/duo_state
+     * before this fix shipped stays at the old VARCHAR(32) forever without
+     * this. Idempotent by construction: checked via information_schema
+     * before ever issuing an ALTER, so an already-migrated environment
+     * (the normal case, after the first run post-fix) pays one cheap
+     * SELECT per table on every ensure() call, never a repeated ALTER.
+     */
+    private static function migrate_widen_entity_type(): void {
+        global $wpdb;
+        $p = $wpdb->prefix;
+        $w = self::ENTITY_TYPE_WIDTH;
+        foreach (['duo_map', 'duo_state'] as $table) {
+            $len = $wpdb->get_var($wpdb->prepare(
+                'SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS '
+                . "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'entity_type'",
+                $p . $table
+            ));
+            if ($len !== null && (int) $len < $w) {
+                Db::query(
+                    "ALTER TABLE `{$p}{$table}` MODIFY COLUMN entity_type VARCHAR($w) NOT NULL",
+                    "ledger migrate widen $table.entity_type"
+                );
+            }
+        }
     }
 
     public static function id_for(string $uuid, string $kind): ?int {

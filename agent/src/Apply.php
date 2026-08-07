@@ -62,6 +62,7 @@ final class Apply {
         Canary::suppress_cron_spawn();
         $a = new self($repo, $policy, $compiled);
         Ledger::ensure();
+        Snapshot::repair_truncated_entity_types($policy); // DUO-3246
         $plan = $a->build_plan($opts, $compiled);
         if (Ledger::kv_get('apply_in_progress') !== null) {
             $a->warnings[] = 'previous apply did not complete required rebuilds; canonical entities require retry';
@@ -545,6 +546,7 @@ final class Apply {
         Canary::suppress_cron_spawn();
         $a = new self($repo, $policy, $compiled);
         Ledger::ensure();
+        Snapshot::repair_truncated_entity_types($policy); // DUO-3246
         return $a->run($opts, $compiled);
     }
 
