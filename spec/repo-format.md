@@ -394,20 +394,22 @@ Plan, apply, and deploy construct or load this artifact before target contact an
 5. **Phase 1** — upsert rows (posts, terms) with placeholder refs, direct `$wpdb`; mint local ids; write `_duo_uuid`.
 6. **Phase 2** — resolve refs through the ledger: parents, metas, term relationships, menu structure, option values, body detokenization (block registry restores numeric types).
 7. **Deletes** — only with `--with-deletes`, custom-table children before parents. The engine performs the declared cascades, then queries every exact target and attached sidecar before commit. Any survivor rolls back the transaction. Menus delete their owned menu-item posts; comments, Woo order lookups, Ninja Forms submissions, and other declared runtime references are preserved by guards rather than cascaded.
-8. **Receipts and retry** — a successful or already-absent deletion stores the tombstone hash in `duo_state` with entity type `deletion`; re-planning returns `deleted`, so retries are idempotent. Live hashes and `applied_revision` update normally.
-9. **Rebuild** — canary disarmed: term recounts (direct SQL), attachment metadata regeneration, cache flush; harness-level: rewrite flush, thumbnail regen.
+8. **Rebuild** — canary disarmed: required derived-dependency synthesis and verification, term recounts (direct SQL), attachment metadata regeneration, manifest-declared rebuilders, and cache flush.
+9. **Verify convergence** — recapture the live target through the canonical snapshot reader in a fresh WordPress process before any convergence metadata advances. The verifier is pinned to the exact compiled artifact used by apply, avoiding stale pre-apply plugin models and refusing a concurrently changed repository. Every entity in the compiled tree must have the same type and canonical hash. Target-only entities remain untouched because absence is not deletion authority; when `--with-deletes` is explicit, every compiled tombstone UUID must be absent. A mismatch names the failed invariant, retains `apply_in_progress`, and leaves all base hashes and `applied_revision` unadvanced.
+10. **Receipts and retry** — only after verification passes, a successful or already-absent deletion stores the tombstone hash in `duo_state` with entity type `deletion`; re-planning returns `deleted`, so retries are idempotent. Live hashes and `applied_revision` update atomically with clearing `apply_in_progress`.
 
 Every direct database mutation and transaction boundary is checked for
 WordPress's `false` failure result; zero affected rows remains a valid
 UPDATE/DELETE result, while an insert without a positive generated id fails
 before identity can enter the ledger. Apply writes an environment-local
 `apply_in_progress` marker before the first target mutation and clears it only
-after all required rebuilders succeed. If a post-commit rebuild fails, base
-hashes and `applied_revision` do not advance; the marker makes the next apply
-reprocess canonical entities (including attachment metadata) rather than
-mistaking byte-equal authored rows for a completed promotion. Plan exposes the
-marker as a structured `incomplete_apply` condition, so `duo status` remains
-non-zero until that retry succeeds and clears it.
+after all required rebuilders and the canonical recapture verification gate
+succeed. If a post-commit rebuild or verification fails, base hashes and
+`applied_revision` do not advance; the marker makes the next apply reprocess
+canonical entities (including attachment metadata) rather than mistaking
+byte-equal authored rows for a completed promotion. Plan exposes the marker as
+a structured `incomplete_apply` condition, so `duo status` remains non-zero
+until that retry succeeds and clears it.
 
 Snapshot/rollback is the orchestrator's job in v0. The normal host path,
 `duo promote <env>`, compiles one immutable artifact, exports the database to

@@ -406,6 +406,45 @@ final class Cli {
     }
 
     /**
+     * Recapture and compare one compiled revision from a fresh WordPress
+     * process. Internal half of apply's post-mutation convergence gate.
+     *
+     * ## OPTIONS
+     * --repo=<path>
+     * --expected-artifact=<sha256>
+     * [--compiled=<path>]
+     * [--with-deletes]
+     * [--force-unresolved-refs]
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand verify-canonical
+     */
+    public function verify_canonical($args, $assoc) {
+        try {
+            $summary = Apply::verify_canonical(
+                $assoc['repo'] ?? WP_CLI::error('--repo required'),
+                [
+                    'expected_artifact' => $assoc['expected-artifact'] ?? WP_CLI::error('--expected-artifact required'),
+                    'compiled' => $assoc['compiled'] ?? '',
+                    'with_deletes' => isset($assoc['with-deletes']),
+                    'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
+                ]
+            );
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        WP_CLI::success(sprintf(
+            'canonical verification passed (%d live entities, %d deletions)',
+            $summary['live_entities'],
+            $summary['deletions']
+        ));
+    }
+
+    /**
      * Reconcile this environment's active_plugins/template/stylesheet to
      * what state/options/core.json declares — the ONLY place
      * activate_plugin()/deactivate_plugins()/switch_theme() run, and

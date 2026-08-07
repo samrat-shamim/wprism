@@ -754,6 +754,33 @@ final class Apply {
         }
     }
 
+    /**
+     * Fresh-process side of DUO-3220's convergence gate. The mutating apply
+     * process launches this through WP_CLI::runcommand(); keeping canonical
+     * recapture in a newly-booted WordPress runtime matters because plugins
+     * may retain pre-apply models and persist them from shutdown callbacks.
+     */
+    public static function verify_canonical(string $repo, array $opts = []): array {
+        $policy = Policy::load($repo);
+        $compiled = self::compiled($repo, $policy, $opts);
+        $expectedArtifact = (string) ($opts['expected_artifact'] ?? '');
+        if ($expectedArtifact !== '' && !hash_equals($expectedArtifact, $compiled->artifact_hash())) {
+            throw new \RuntimeException(
+                'duo: post-apply convergence verification refused a different compiled artifact'
+            );
+        }
+        Canary::suppress_cron_spawn();
+        $a = new self($repo, $policy, $compiled);
+        Ledger::ensure();
+        Snapshot::repair_truncated_entity_types($policy);
+        return $a->verify_convergence_local(
+            $compiled->tree(),
+            $compiled->deletions(),
+            !empty($opts['with_deletes']),
+            !empty($opts['force_unresolved_refs'])
+        );
+    }
+
     private function run(array $opts, CompiledRepository $compiled): array {
         global $wpdb;
         $tree = $compiled->tree();
@@ -908,8 +935,9 @@ final class Apply {
         }
 
         // Written before the first target mutation and cleared only after
-        // required rebuilds succeed. It is failure state, never convergence
-        // state: applied_revision and base hashes still advance afterward.
+        // required rebuilds AND the post-apply canonical verification gate
+        // succeed. It is failure state, never convergence state:
+        // applied_revision and base hashes still advance afterward.
         Ledger::kv_set('apply_in_progress', '1');
         Canary::arm();
         $attachmentIds = [];
@@ -1027,6 +1055,18 @@ final class Apply {
             || (!empty($opts['with_deletes']) && count($deleteWork) > 0);
         $this->rebuild($attachmentIds, $didMutate, $work, $tree);
 
+        // DUO-3220: never infer convergence from the absence of a thrown
+        // mutation/rebuilder error. Re-capture the target through the same
+        // canonical reader used by plan/capture and prove that every entity
+        // in the immutable compiled tree landed byte-semantically (same
+        // type + canonical hash). Target-only entities are deliberately not
+        // failures: absence is not deletion authority in v1. When deletes
+        // were explicitly requested, every compiled tombstone IS authority,
+        // so its uuid must now be absent. Any mismatch throws before the
+        // ledger transaction below, retaining apply_in_progress and every
+        // prior base hash/revision for a truthful retry.
+        $verification = $this->verify_convergence($opts, $compiled);
+
         // ---- ledger bookkeeping (one atomic convergence boundary) ----
         // The retry marker, every base hash, deletes, and applied revision
         // move together. A failure at any one statement or at COMMIT rolls
@@ -1080,6 +1120,7 @@ final class Apply {
             'drift' => array_column($plan['drift'], 'path'),
             'warnings' => array_merge($this->warnings, $this->tokens->warnings),
             'canary' => 'clean',
+            'verification' => $verification,
         ];
     }
 
@@ -1132,6 +1173,162 @@ final class Apply {
             );
         }
         $this->warnings[] = "FORCED delete after final guard recheck {$row['type']} {$row['uuid']} ($reason)";
+    }
+
+    /**
+     * Mandatory post-apply canonical convergence gate (DUO-3220).
+     *
+     * This is intentionally the cheap, engine-owned verifier from the
+     * Architecture Ruling for this slice. Adapter-declared behavioural /
+     * render probes and signed verification reports belong to DUO-3223;
+     * required derived dependencies are already hard-verified in rebuild().
+     *
+     * @return array{verifier:string,result:string,live_entities:int,deletions:int}
+     */
+    private function verify_convergence(array $opts, CompiledRepository $compiled): array {
+        if (!class_exists('\WP_CLI')) {
+            throw new \RuntimeException(
+                'duo: post-apply convergence verification is unavailable outside wp-cli; promotion metadata was not committed'
+            );
+        }
+
+        // Do not recapture inside this mutating process. Adapter runtimes
+        // were initialized against the pre-apply database and may persist
+        // stale in-memory models from a shutdown callback if a post-apply
+        // read refreshes only part of that model (Polylang 3.8.6 is the
+        // reproduced case). A launched command boots from the committed
+        // authored state, so its snapshot is both independent and unable to
+        // contaminate this process's shutdown state. Pin it to the exact
+        // artifact used above; a concurrently changed repository fails
+        // closed instead of verifying a different desired revision.
+        $cmd = 'duo verify-canonical --repo=' . escapeshellarg($this->repo)
+            . ' --expected-artifact=' . $compiled->artifact_hash()
+            . ' --format=json';
+        if (!empty($opts['compiled'])) {
+            $cmd .= ' --compiled=' . escapeshellarg((string) $opts['compiled']);
+        }
+        if (!empty($opts['with_deletes'])) {
+            $cmd .= ' --with-deletes';
+        }
+        if (!empty($opts['force_unresolved_refs'])) {
+            $cmd .= ' --force-unresolved-refs';
+        }
+
+        try {
+            $res = \WP_CLI::runcommand($cmd, [
+                'launch' => true,
+                'return' => 'all',
+                'exit_error' => false,
+            ]);
+        } catch (\Throwable $t) {
+            throw new \RuntimeException(
+                'duo: post-apply convergence verification subprocess failed; promotion metadata was not committed',
+                0,
+                $t
+            );
+        }
+        if ((int) $res->return_code !== 0) {
+            $detail = trim((string) ($res->stderr ?? ''));
+            if (str_starts_with($detail, 'Error: ')) {
+                $detail = substr($detail, strlen('Error: '));
+            }
+            throw new \RuntimeException(
+                $detail !== ''
+                    ? $detail
+                    : 'duo: post-apply convergence verification subprocess failed; promotion metadata was not committed'
+            );
+        }
+        $lines = preg_split('/\R/', trim((string) ($res->stdout ?? ''))) ?: [];
+        $json = (string) end($lines);
+        try {
+            $report = Canon::decode($json);
+        } catch (\Throwable $t) {
+            throw new \RuntimeException(
+                'duo: post-apply convergence verification returned malformed evidence; promotion metadata was not committed',
+                0,
+                $t
+            );
+        }
+        if (!is_array($report)
+            || ($report['verifier'] ?? '') !== 'canonical-recapture/v1'
+            || ($report['result'] ?? '') !== 'pass') {
+            throw new \RuntimeException(
+                'duo: post-apply convergence verification returned invalid evidence; promotion metadata was not committed'
+            );
+        }
+        return $report;
+    }
+
+    private function verify_convergence_local(
+        array $tree,
+        array $deletions,
+        bool $verifyDeletes,
+        bool $forceUnresolvedRefs
+    ): array {
+        $actual = Capture::snapshot($this->repo, $forceUnresolvedRefs);
+        $failures = [];
+
+        foreach ($tree as $uuid => $expected) {
+            $observed = $actual[$uuid] ?? null;
+            if ($observed === null) {
+                $failures[] = "{$expected['type']} {$expected['path']} ($uuid): missing after apply";
+                continue;
+            }
+            if (!hash_equals((string) $expected['type'], (string) $observed['type'])) {
+                $failures[] = "{$expected['type']} {$expected['path']} ($uuid): type mismatch"
+                    . " (observed {$observed['type']})";
+                continue;
+            }
+            // Repository JSON publication is documented/formatted at two
+            // spaces while Canon::encode() currently emits PHP's native
+            // four-space JSON_PRETTY_PRINT form in Capture::snapshot().
+            // Hash decoded+re-encoded data on both sides so verification is
+            // exact about authored meaning, not serializer presentation.
+            // Posts keep their existing derived-field-aware hash basis.
+            $expectedHash = $this->verification_hash($expected);
+            $observedHash = $expected['type'] === 'post'
+                ? (string) $observed['hash']
+                : hash('sha256', Canon::encode(Canon::decode((string) $observed['content'])));
+            if (!hash_equals($expectedHash, $observedHash)) {
+                $failures[] = "{$expected['type']} {$expected['path']} ($uuid): canonical hash mismatch"
+                    . " (expected $expectedHash, observed $observedHash)";
+            }
+        }
+
+        $verifiedDeletions = 0;
+        if ($verifyDeletes) {
+            foreach ($deletions as $uuid => $deletion) {
+                $verifiedDeletions++;
+                if (isset($actual[$uuid])) {
+                    $failures[] = "deletion {$deletion['path']} ($uuid): entity still present after apply";
+                }
+            }
+        }
+
+        if ($failures) {
+            throw new \RuntimeException(
+                "duo: post-apply convergence verification failed; promotion metadata was not committed:\n  - "
+                . implode("\n  - ", $failures)
+            );
+        }
+
+        return [
+            'verifier' => 'canonical-recapture/v1',
+            'result' => 'pass',
+            'live_entities' => count($tree),
+            'deletions' => $verifiedDeletions,
+        ];
+    }
+
+    /** @param array<string,mixed> $entity */
+    private function verification_hash(array $entity): string {
+        if (($entity['type'] ?? '') === 'post') {
+            return (string) $entity['hash'];
+        }
+        return hash(
+            'sha256',
+            Canon::encode((array) $entity['data'])
+        );
     }
 
     // ------------------------------------------------------- entity plumbing
