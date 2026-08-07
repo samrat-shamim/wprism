@@ -9,8 +9,9 @@
 # translated-CPT's language relationship and a per-language menu-location
 # swap broke on every fresh target.
 #
-# Covers, against a fresh, from-scratch pair (own pair.sh-managed pair
-# `asub3233`, :8910/:8911 — the driver never tears it down):
+# Covers, against a fresh, from-scratch pair (own pair.sh-managed pair,
+# default `asub3233`/:8910/:8911, parameterized -- see DUO-3276 note below
+# -- the driver never tears it down):
 #   (1) capture carves out ONLY the declared sub-keys of `polylang`
 #       (post_types/taxonomies/nav_menus) — none of force_lang/domains/
 #       hide_default/rewrite/redirect_lang/browser/media_support/sync/
@@ -64,10 +65,33 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."   # -> sandbox/
 
-PORT1=8910
-PORT2=8911
-export DUO_PAIR=asub3233 DUO_PORT1=$PORT1 DUO_PORT2=$PORT2
-COMPOSE="docker compose -p duo-asub3233 -f pair.yml -f pair.http.yml"
+# DUO-3276: the pair NAME/PORTS are parameterized so this regression can run
+# on its own pair instead of colliding with whoever else is using the
+# hardcoded default -- the identical footgun class DUO-3252 (PR #35, commit
+# 414a577) fixed for regress_option_reconciliation.sh, which already reset a
+# FOREIGN pair live once (an agent ran that script unread as an ancillary
+# check; its unconditional `pair.sh reset` wiped that pair's database and
+# host state with zero warning). `asub3233` here is the same shape: dead
+# residue naming from asub's own long-closed DUO-3233 work, sitting in a
+# script anyone might run. Default PAIR=asub3233/PORT1=8910/PORT2=8911 keeps
+# existing single-user/CI behavior byte-identical; run your own copy with
+#   PAIR=acore3276 PORT1=8930 PORT2=8931 bash regress_option_subkeys.sh
+# A custom PAIR REQUIRES explicit PORT1/PORT2 (mirrors sandbox/conformance/
+# run.sh's own CONF_PAIR mechanism, commit 3aab875 -- the same precedent
+# DUO-3252 itself cites): defaulting a custom pair name onto the SAME
+# hardcoded ports would just relocate the collision risk from the pair name
+# to the port numbers instead of removing it.
+PAIR="${PAIR:-asub3233}"
+[[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] \
+  || { echo "FAIL: PAIR '$PAIR' invalid (pair.sh naming: lowercase letters/digits, letter first)" >&2; exit 1; }
+if [ "$PAIR" != "asub3233" ] && { [ -z "${PORT1:-}" ] || [ -z "${PORT2:-}" ]; }; then
+  echo "FAIL: custom PAIR '$PAIR' requires explicit PORT1 and PORT2 (the 8910/8911 defaults belong to the original pair)" >&2
+  exit 1
+fi
+PORT1="${PORT1:-8910}"
+PORT2="${PORT2:-8911}"
+export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
+COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.http.yml"
 
 wp_env() { local side="$1"; shift; $COMPOSE run --rm -T "cli${side}" wp "$@"; }
 wp1() { wp_env 1 "$@"; }
@@ -80,9 +104,9 @@ command -v jq >/dev/null || fail "jq required"
 command -v python3 >/dev/null || fail "python3 required"
 
 say "pair.sh reset + up: TRUE clean slate (DROP/CREATE database, not just wp-cli-level content wiping) -- plugin FILES persist in the webroot volume (pair.sh reset never touches it), so the installs below are fast re-activations, not re-downloads"
-bash bin/pair.sh reset asub3233
-bash bin/pair.sh up asub3233 "$PORT1" "$PORT2" --http
-pass "pair asub3233 ready, database genuinely fresh on both sides"
+bash bin/pair.sh reset "$PAIR"
+bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --http
+pass "pair $PAIR ready, database genuinely fresh on both sides"
 
 install_env() { # install_env <1|2> -- Polylang+Yoast, idempotent
   local side="$1"
@@ -163,10 +187,10 @@ update_option('wpseo', \$o);
 "
 
 say "init site repo (own origin, own clones)"
-rm -rf siterepo/origin-asub3233.git siterepo/asub32331/.git siterepo/asub32331/state siterepo/asub32331/site.duo.json siterepo/asub32332
-git init --bare -b main siterepo/origin-asub3233.git >/dev/null
-mkdir -p siterepo/asub32331
-cat > siterepo/asub32331/site.duo.json <<'EOF'
+rm -rf siterepo/origin-${PAIR}.git siterepo/${PAIR}1/.git siterepo/${PAIR}1/state siterepo/${PAIR}1/site.duo.json siterepo/${PAIR}2
+git init --bare -b main siterepo/origin-${PAIR}.git >/dev/null
+mkdir -p siterepo/${PAIR}1
+cat > siterepo/${PAIR}1/site.duo.json <<'EOF'
 {
   "manifests": ["core", "polylang", "yoast"],
   "policy": {
@@ -178,47 +202,47 @@ cat > siterepo/asub32331/site.duo.json <<'EOF'
   "spec_version": 2
 }
 EOF
-cp site-repo.gitignore.template siterepo/asub32331/.gitignore
-git -C siterepo/asub32331 init -q -b main
-git -C siterepo/asub32331 remote add origin ../origin-asub3233.git
-git -C siterepo/asub32331 -c user.name=duo-asub32331 -c user.email=a1@example.test add -A
-git -C siterepo/asub32331 -c user.name=duo-asub32331 -c user.email=a1@example.test commit -qm "policy: DUO-3233 regression scope" >/dev/null
-git -C siterepo/asub32331 -c user.name=duo-asub32331 -c user.email=a1@example.test push -qu origin main
+cp site-repo.gitignore.template siterepo/${PAIR}1/.gitignore
+git -C siterepo/${PAIR}1 init -q -b main
+git -C siterepo/${PAIR}1 remote add origin ../origin-${PAIR}.git
+git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test add -A
+git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test commit -qm "policy: DUO-3233 regression scope" >/dev/null
+git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test push -qu origin main
 pass "site repo initialized"
 
 say "(1) capture: sub_keys carves out ONLY the declared keys"
 wp1 duo capture --repo=/siterepo >/dev/null
-POLYLANG_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/asub32331/state/options/core.json'))['records']; print(sorted(d['polylang']['value'].keys()))")
+POLYLANG_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']; print(sorted(d['polylang']['value'].keys()))")
 [ "$POLYLANG_KEYS" = "['nav_menus', 'post_types', 'taxonomies']" ] || fail "expected captured polylang option to carry EXACTLY [nav_menus, post_types, taxonomies], got: $POLYLANG_KEYS"
 for excluded in force_lang domains hide_default rewrite redirect_lang browser media_support sync default_lang first_activation previous_version version; do
-  python3 -c "import json,sys; d=json.load(open('siterepo/asub32331/state/options/core.json'))['records']; sys.exit(1 if '$excluded' in d['polylang']['value'] else 0)" \
+  python3 -c "import json,sys; d=json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']; sys.exit(1 if '$excluded' in d['polylang']['value'] else 0)" \
     || fail "excluded sub-key '$excluded' leaked into captured polylang option"
 done
 pass "captured polylang option carries exactly nav_menus/post_types/taxonomies -- every env-bound/bookkeeping sibling excluded"
 
-WPSEO_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/asub32331/state/options/core.json'))['records']; print(sorted(d['wpseo']['value'].keys()))")
+WPSEO_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']; print(sorted(d['wpseo']['value'].keys()))")
 [ "$WPSEO_KEYS" = "['disableadvanced_meta']" ] || fail "expected captured wpseo option to carry EXACTLY [disableadvanced_meta], got: $WPSEO_KEYS"
 pass "captured wpseo option carries exactly disableadvanced_meta -- the ~115 other sibling keys (version, first_activated_on, tokens, ...) excluded"
 
-NAV_TOKENS=$(python3 -c "import json; d=json.load(open('siterepo/asub32331/state/options/core.json'))['records']; print(d['polylang']['value']['nav_menus'])")
+NAV_TOKENS=$(python3 -c "import json; d=json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']; print(d['polylang']['value']['nav_menus'])")
 echo "$NAV_TOKENS" | grep -q '{{term:' || fail "expected nav_menus term ids tokenized as {{term:<uuid>}}, got: $NAV_TOKENS"
 pass "nav_menus per-language menu-term-ids correctly tokenized via json_refs"
 
 say "hard lint gate + capture-twice determinism (positive path)"
 wp1 duo lint --repo=/siterepo
 wp1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
-diff -r siterepo/asub32331/state siterepo/asub32331/.tmp-state2 || fail "capture is not deterministic"
-rm -rf siterepo/asub32331/.tmp-state2
+diff -r siterepo/${PAIR}1/state siterepo/${PAIR}1/.tmp-state2 || fail "capture is not deterministic"
+rm -rf siterepo/${PAIR}1/.tmp-state2
 pass "lint clean, capture-twice diff empty"
 
-git -C siterepo/asub32331 -c user.name=duo-asub32331 -c user.email=a1@example.test add -A
-git -C siterepo/asub32331 -c user.name=duo-asub32331 -c user.email=a1@example.test commit -qm "capture: DUO-3233 fixture"
-git -C siterepo/asub32331 -c user.name=duo-asub32331 -c user.email=a1@example.test push -q origin main
+git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test add -A
+git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test commit -qm "capture: DUO-3233 fixture"
+git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test push -q origin main
 
 say "(2)/(3) round-trip onto a GENUINELY FRESH target: side2 has Polylang+Yoast active, but ZERO manual language/Settings config"
-rm -rf siterepo/asub32332
-git clone -q siterepo/origin-asub3233.git siterepo/asub32332
-REV=$(git -C siterepo/asub32332 rev-parse HEAD)
+rm -rf siterepo/${PAIR}2
+git clone -q siterepo/origin-${PAIR}.git siterepo/${PAIR}2
+REV=$(git -C siterepo/${PAIR}2 rev-parse HEAD)
 POLYLANG_BEFORE=$(wp2 option get polylang --format=json | tail -1)
 echo "side2 polylang option BEFORE apply (fresh activation defaults): $POLYLANG_BEFORE"
 echo "$POLYLANG_BEFORE" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(1 if d['post_types'] else 0)" \
@@ -277,7 +301,7 @@ echo "pll_get_post_language before the automatic follow-up apply: $LANG_BEFORE_F
 [ "$LANG_BEFORE_FIX" = "false" ] || fail "expected no language relationship yet (this apply run's own registration predates its own sub_keys merge) -- got $LANG_BEFORE_FIX"
 
 say "characterizing the gap precisely (new finding, honestly demonstrated, not silently worked around): a no-op re-apply -- ZERO content changes anywhere -- surfaces the missing relationship as 'drift (env ahead, untouched)', by design never reprocessed by Apply's own phase-2 (only create/update/conflict entities enter \$work; a drift-classified entity is deliberately left alone, the same 'capture-first' bias documented in spec/repo-format.md's Apply semantics). This is the SAME general shape as task #92's own accepted pa_* finding ('an unchanged-hash entity skips relationship reprocessing by design') -- confirmed here for an option-driven (not typed-snapshot-table-driven) taxonomy scope change. Filed precisely, not fixed here -- see this task's PR/Linear comment."
-REV_NOOP=$(git -C siterepo/asub32332 rev-parse HEAD)
+REV_NOOP=$(git -C siterepo/${PAIR}2 rev-parse HEAD)
 APPLY_NOOP=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --default-author=admin --revision="$REV_NOOP" 2>&1)
 echo "$APPLY_NOOP"
 echo "$APPLY_NOOP" | grep -q '"drift":2' || fail "expected BOTH untouched project posts to show as drift on a no-op re-apply (got: $APPLY_NOOP)"
@@ -287,11 +311,11 @@ say "a genuine content change on BOTH posts (forces reprocessing, matching task 
 wp1 post update "$PROJ_EN" --post_excerpt="A ground-up rebuild of the marketing site." >/dev/null
 wp1 post update "$PROJ_DE" --post_excerpt="Eine grundlegende Neugestaltung der Marketing-Website." >/dev/null
 wp1 duo capture --repo=/siterepo >/dev/null
-git -C siterepo/asub32331 -c user.name=duo-asub32331 -c user.email=a1@example.test add -A
-git -C siterepo/asub32331 -c user.name=duo-asub32331 -c user.email=a1@example.test commit -qm "content: force reprocessing"
-git -C siterepo/asub32331 -c user.name=duo-asub32331 -c user.email=a1@example.test push -q origin main
-git -C siterepo/asub32332 pull -q origin main
-REV2=$(git -C siterepo/asub32332 rev-parse HEAD)
+git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test add -A
+git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test commit -qm "content: force reprocessing"
+git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test push -q origin main
+git -C siterepo/${PAIR}2 pull -q origin main
+REV2=$(git -C siterepo/${PAIR}2 rev-parse HEAD)
 APPLY2=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV2" 2>&1)
 echo "$APPLY2"
 echo "$APPLY2" | grep -qi '"canary":"clean"\|canary clean' || fail "second apply canary was not clean"
@@ -329,10 +353,10 @@ fi
 
 say "(8) negative: RepositoryAuthorization refuses an UNDECLARED sub-key smuggled into a captured polylang value"
 BAD_REPO=/siterepo/.tmp-duo3233-badsubkey
-HOST_BAD_REPO=siterepo/asub32332/.tmp-duo3233-badsubkey
+HOST_BAD_REPO=siterepo/${PAIR}2/.tmp-duo3233-badsubkey
 rm -rf "$HOST_BAD_REPO"
 mkdir -p "$HOST_BAD_REPO/state/options"
-cp siterepo/asub32332/site.duo.json "$HOST_BAD_REPO/site.duo.json"
+cp siterepo/${PAIR}2/site.duo.json "$HOST_BAD_REPO/site.duo.json"
 # DUO-3276: was `jq -n` building a single-record file from scratch (only
 # polylang's own record, nothing else) -- that shape predates DUO-3211's
 # absent-record contract becoming mandatory for every authored-exact
@@ -363,13 +387,13 @@ cp siterepo/asub32332/site.duo.json "$HOST_BAD_REPO/site.duo.json"
 # Fix: base the smuggled-key fixture on the REAL, already-captured
 # state/options/core.json this pair produced (every required option
 # already has a correct record, from the actual capture pipeline --
-# `git -C siterepo/asub32332 pull` a few lines above this step is the
+# `git -C siterepo/${PAIR}2 pull` a few lines above this step is the
 # last write to this file, and nothing between there and here touches
 # it again) and inject ONLY the undeclared 'sync' key into polylang's
 # own value, rather than hand-reconstructing every option's record --
 # robust against this option set changing later, unlike a hardcoded
 # snapshot would be.
-jq '.records.polylang.value.sync = ["taxonomies"]' siterepo/asub32332/state/options/core.json > "$HOST_BAD_REPO/state/options/core.json"
+jq '.records.polylang.value.sync = ["taxonomies"]' siterepo/${PAIR}2/state/options/core.json > "$HOST_BAD_REPO/state/options/core.json"
 set +e
 BAD_OUT=$($COMPOSE run --rm -T cli2 wp duo apply --repo="$BAD_REPO" --format=json 2>&1)
 BAD_RC=$?
@@ -387,10 +411,10 @@ say "(9) negative: wp duo lint flags a bare numeric id smuggled into a PLAIN (no
 # scan_structured_bare_ids() path (see the note below on why nav_menus
 # itself is a DIFFERENT, NOT-asserted case here).
 BAD_REPO2=/siterepo/.tmp-duo3233-badlint
-HOST_BAD_REPO2=siterepo/asub32331/.tmp-duo3233-badlint
+HOST_BAD_REPO2=siterepo/${PAIR}1/.tmp-duo3233-badlint
 rm -rf "$HOST_BAD_REPO2"
 mkdir -p "$HOST_BAD_REPO2/state/options"
-cp siterepo/asub32331/site.duo.json "$HOST_BAD_REPO2/site.duo.json"
+cp siterepo/${PAIR}1/site.duo.json "$HOST_BAD_REPO2/site.duo.json"
 jq -n --argjson pid "$PROJ_EN" '{format:"duo-options/v1",records:{polylang:{state:"present",autoload:"yes",value:{post_types:[($pid | tostring)]}}}}' > "$HOST_BAD_REPO2/state/options/core.json"
 set +e
 LINT_OUT=$(wp1 duo lint --repo="$BAD_REPO2" 2>&1)
