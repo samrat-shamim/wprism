@@ -146,9 +146,22 @@ final class SidebarState {
                 $instances[(int) $key] = $settings;
             }
             if ($instances && !isset($declared[$type]) && $scanUndeclared) {
+                // DUO-3264 (cross-PR layering ruling, decided alongside
+                // DUO-3278): this is the FIRST of two independent blocking
+                // gates for the identical condition (an undeclared
+                // widget_<type> with real content) -- this one fires first
+                // in build()'s own call order (SidebarState::capture() runs
+                // before build_options()'s own option_namespaces-driven
+                // check ever gets a chance to). Both remedies named inline,
+                // not just "go declare it": a type this manifest never
+                // intends to make portable is a deliberate exclusion
+                // (options.widget_<type>=runtime in core.json/site.duo.json
+                // policy), not an oversight to route around.
                 throw new \RuntimeException(
-                    "duo: widget option '$name' contains instances but type '$type' is undeclared; "
-                    . 'add a pinned manifest declaration before capture'
+                    "duo: widget option '$name' contains instances but type '$type' is undeclared -- either add "
+                    . "\"$type\" to a pinned manifest's widgets{} grammar (see manifests/core.json's "
+                    . 'widgets.block/nav_menu/text for the shape) if its settings should be portable, or declare it '
+                    . "a deliberate exclusion (wp duo classify --set 'options:$name=runtime') if not"
                 );
             }
             if (isset($declared[$type])) {

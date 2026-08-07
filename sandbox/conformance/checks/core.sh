@@ -71,6 +71,12 @@ FAKE_RC=0
 FAKE_CAPTURE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || FAKE_RC=$?
 [ "$FAKE_RC" -ne 0 ] && echo "$FAKE_CAPTURE_OUT" | grep -q "options:widget_regress_fake_type" \
   || fail "capture did not loudly refuse the unknown widget type by name: $FAKE_CAPTURE_OUT"
+# team-lead's own requirement: this refusal must read as widgets-aware, not
+# a generic "go classify it" -- both real remedies named inline.
+echo "$FAKE_CAPTURE_OUT" | grep -q "widget content: either declare it a deliberate exclusion" \
+  || fail "refusal did not name the widget-specific remedy (deliberate exclusion): $FAKE_CAPTURE_OUT"
+echo "$FAKE_CAPTURE_OUT" | grep -q "add \"regress_fake_type\" to a pinned manifest's widgets{} grammar" \
+  || fail "refusal did not name the second widget-specific remedy (extend widgets{} grammar), or misidentified the type: $FAKE_CAPTURE_OUT"
 
 cp "$CONF_REPO1/site.duo.json" "$CONF_REPO1/.tmp-site-backup.json"
 jq '.policy.options.widget_regress_fake_type = {"class": "runtime"}' "$CONF_REPO1/site.duo.json" > "$CONF_REPO1/.tmp-site-new.json"
@@ -79,7 +85,7 @@ wp_conf1 duo capture --repo=/siterepo >/dev/null || fail "capture still refused 
 mv "$CONF_REPO1/.tmp-site-backup.json" "$CONF_REPO1/site.duo.json"
 wp_conf1 option delete widget_regress_fake_type >/dev/null
 wp_conf1 duo capture --repo=/siterepo >/dev/null
-pass "unknown widget type: pending surfaces it by name, capture refuses until classified, clean once declared, and clean again once removed -- live-verified, not assumed"
+pass "unknown widget type: pending surfaces it by name, capture refuses naming BOTH remedies (deliberate exclusion or extend widgets{}), clean once declared, and clean again once removed -- live-verified, not assumed"
 
 # DUO-3278: the core fixture's three declared widget kinds round-trip through
 # the sidebar wire format with ledger-only identity and target-local counters.
