@@ -213,9 +213,25 @@ rm -rf siterepo/r1a1 && mkdir -p siterepo/r1a1
 # the same generalized Tokens::id_to_token()/token_to_id() every other ref
 # kind uses). This fixture just never got wired to that manifest once it
 # existed. See DUO-3267's own Linear scope note for the full trace.
+#
+# "contact-form-7" added the same way, found by team-lead's live run of the
+# round-trip leg above: this script's very first `wp duo capture` (never
+# exercised before -- the ORIGINAL script had none) hit the discovery gate
+# ("duo: incomplete state discovery on manifest-owned or in-scope surfaces")
+# naming CF7's own seven postmeta keys (_form/_mail/_mail_2/_messages/
+# _additional_settings/_hash/_locale) as unclassified. manifests/contact-
+# form-7.json already declares all seven as authored -- built during the
+# ORIGINAL R1-A grind round (docs/grind/r1a-forms.md) and empirically
+# verified then -- and its own note already says "wpcf7_contact_form must
+# be added to site.duo.json's policy.post_types for any of this to take
+# effect": post_types already had it (below), but the manifest declaring
+# what those keys ARE was never pinned. This script predates the discovery-
+# gate rework entirely (round-2 era, per team-lead) -- it had literally
+# never run a single capture before tonight, so this gap sat unexercised
+# rather than merely stale.
 cat > siterepo/r1a1/site.duo.json <<'EOF'
 {
-  "manifests": ["core", "ninja-forms"],
+  "manifests": ["core", "contact-form-7", "ninja-forms"],
   "policy": {
     "options": {},
     "post_meta": {},
