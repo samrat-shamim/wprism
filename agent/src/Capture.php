@@ -95,6 +95,28 @@ final class Capture {
         // exists to rule out.
         $lock = Publish::lock($stateDir);
         try {
+            // DUO-3223 (concurrency-scenario harness): the SAME deterministic
+            // test-pause idiom DUO-3217 established for PromotionLock
+            // (agent/src/Apply.php's own DUO_TEST_MODE/DUO_TEST_PROMOTION_
+            // PAUSE_MS), applied to the capture lock instead — a live test
+            // driving two real `wp duo capture` processes against the same
+            // destination needs a way to GUARANTEE the first one is still
+            // holding the lock when the second one starts, rather than
+            // gambling on wall-clock timing against however large the
+            // fixture happens to be. Ledger::kv_set() is a cross-process,
+            // DB-backed marker (the lock itself is a local flock(), not
+            // observable from another wp-cli invocation's own process) —
+            // the same reason PromotionLock's phase marker is DB-backed
+            // rather than in-memory. No effect at all unless a caller
+            // explicitly opts into both env vars; production capture is
+            // unchanged.
+            if (getenv('DUO_TEST_MODE') === '1') {
+                Ledger::kv_set('capture_test_phase', 'locked');
+                $pauseMs = (int) (getenv('DUO_TEST_CAPTURE_PAUSE_MS') ?: 0);
+                if ($pauseMs > 0 && $pauseMs <= 10000) {
+                    usleep($pauseMs * 1000);
+                }
+            }
             // Deterministic recovery of whatever a prior crashed run left
             // behind MUST happen before this run builds anything of its
             // own — see Publish::recover()'s docblock for why holding the
