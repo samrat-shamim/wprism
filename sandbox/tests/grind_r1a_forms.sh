@@ -425,7 +425,7 @@ echo "$CONTACT_HTML" | grep -qi "wpcf7" || fail "CF7's own form markup did not r
 echo "$CONTACT_HTML" | grep -q "localhost:8814" && fail "host:port leak: r1a1's port appears on r1a2's Contact page"
 pass "Contact page: CF7's shortcode-based form renders correctly on r1a2, no host leak"
 CAREERS_HTML=$(curl -s "$R1A2/careers/")
-echo "$CAREERS_HTML" | grep -qi "nf-form\|ninja-forms" || fail "Ninja Forms block markup did not render on r1a2's Careers page (expected it to now, since formID correctly re-bound above)"
+echo "$CAREERS_HTML" | grep -qiE "nf-form|ninja-forms" || fail "Ninja Forms block markup did not render on r1a2's Careers page (expected it to now, since formID correctly re-bound above)"
 echo "$CAREERS_HTML" | grep -q "localhost:8814" && fail "host:port leak: r1a1's port appears on r1a2's Careers page"
 pass "Careers page: Ninja Forms block renders using r1a2's own re-bound formID, no host leak"
 
