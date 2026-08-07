@@ -23,26 +23,43 @@
 #     translations (price/stock/gallery mirroring) is what the commercial
 #     "Polylang for WooCommerce" add-on actually sells.
 #  3. Per-language menus: a purpose-built second-language menu's own
-#     structure/items round-trip correctly, but it is never actually USED
-#     at its location on a fresh target — the per-language menu-to-location
-#     mapping lives in the polylang option's excluded `nav_menus` sub-key,
-#     entirely separate from core.json's language-blind theme_mods capture.
-#  4. THE KNOWN GAP, characterized precisely post-#75's typed-snapshot:
-#     woocommerce_attribute_taxonomies rows now self-provision on a FRESH
-#     target with ZERO manual pre-provisioning (real progress over r1b) —
-#     but relationship-writing for a just-registered taxonomy still skips
-#     on that SAME apply (ordinary request-lifecycle timing: WooCommerce's
-#     init-time registration already ran before the row landed) and does
-#     NOT self-heal on a no-op re-apply (an "unchanged" entity skips
-#     relationship reprocessing) — only a genuine content change reprocesses
-#     it, exactly matching r1b's original finding. SEPARATELY, and NOT
-#     fixed by any of this: Polylang's OWN post_types/taxonomies opt-in
-#     (also in the excluded polylang option) gates whether `language`
-#     relationships get written for a translated CPT like `product` AT ALL
-#     — unrelated to pa_* attribute-taxonomy registration, and with no
-#     self-heal path short of manually replicating the admin's Settings
-#     page action on the target. See docs/grind/r3a-multilingual-shop.md
-#     and task #121 for the full writeup.
+#     structure/items always round-tripped correctly; whether it's actually
+#     USED at its location on a fresh target used to depend on the
+#     polylang option's `nav_menus` sub-key, which was excluded from Duo
+#     capture entirely, separate from core.json's language-blind theme_mods
+#     capture. DUO-3233's sub_keys mechanism (task #121) now declares
+#     `nav_menus` (alongside post_types/taxonomies) an authored, captured/
+#     applied sub-key of the SAME option (manifests/polylang.json) — this
+#     should mean the second menu now DOES land at its per-language
+#     location on a fresh target with zero manual wiring, but that chain
+#     was reasoned from source/manifest declarations, not independently
+#     verified live end-to-end here — see this file's own render-check
+#     comments below and the close-gate ping for the explicit flag.
+#  4. THE ORIGINAL KNOWN GAP, characterized precisely post-#75's typed-
+#     snapshot, has since NARROWED — task #92 (taxonomy_patterns +
+#     Apply::taxes_by_object_type()'s own object_type fallback, mirroring
+#     Capture's copy) means a just-registered pattern-matched taxonomy like
+#     pa_size/pa_color no longer NEEDS get_taxonomy() to have caught up
+#     within the same apply request; the "not registered on this
+#     environment" warning this section's own test used to assert is no
+#     longer reachable for a declared taxonomy_patterns match, confirmed
+#     live. What's NOT fully closed: Apply's own taxesByObjectType() is
+#     still lazily memoized on first access, so whether Snapshot's phase-1
+#     typed-snapshot write of the attribute-taxonomies row lands before or
+#     after that first access — an entity-processing-order question this
+#     script does not control — can still leave relationship-writing
+#     order-dependent within a single apply run (still does NOT self-heal
+#     on a no-op re-apply either way; only a genuine content change forces
+#     reprocessing, converging on the fully-resolved state regardless of
+#     where it started). SEPARATELY: Polylang's OWN post_types/taxonomies
+#     opt-in (in the polylang option) gating whether `language`
+#     relationships get written for a translated CPT like `product` IS now
+#     closed — DUO-3233's sub_keys mechanism (task #121) captures/applies
+#     post_types/taxonomies/nav_menus as declared sub-keys of the SAME
+#     option (see manifests/polylang.json), so a fresh target no longer
+#     needs the admin's Settings page action replicated by hand. See
+#     docs/grind/r3a-multilingual-shop.md and task #121 for the original
+#     writeup this narrows.
 #
 # Re-run safety: r3a1/r3a2 are never torn down (pair.sh destroy is off-
 # limits for a script re-run — other agents may share the fleet), so every
@@ -284,7 +301,7 @@ wp_1 eval "
 \$o['nav_menus'] = ['storefront' => ['primary' => ['en' => $MENU_EN, 'de' => $MENU_DE]]];
 update_option('polylang', \$o);
 "
-pass "Main Menu ($MENU_EN) / Hauptmenu ($MENU_DE) — flat theme_mods names Main Menu only (core.json's language-blind capture); Polylang's OWN nav_menus option correctly names both per-language (excluded from Duo capture — see task #121)"
+pass "Main Menu ($MENU_EN) / Hauptmenu ($MENU_DE) — flat theme_mods names Main Menu only (core.json's language-blind capture); Polylang's OWN nav_menus option correctly names both per-language (DUO-3233's sub_keys mechanism now captures/applies this SAME sub-key — see task #121 and the render-check comments below)"
 
 say "init site repo (own origin, own clones)"
 rm -rf siterepo/origin-r3a.git siterepo/r3a1/.git siterepo/r3a2 siterepo/r3a1/state siterepo/r3a1/site.duo.json
@@ -338,29 +355,45 @@ git clone -q siterepo/origin-r3a.git siterepo/r3a2
 REV=$(git -C siterepo/r3a2 rev-parse HEAD)
 APPLY1_OUT=$(wp_env 2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1)
 echo "$APPLY1_OUT"
+# Task #92 gave Apply::taxes_by_object_type() the same pattern_object_type()
+# fallback Capture's own copy already had (manifests/woocommerce.json's
+# taxonomy_patterns declares object_type:["product"] for ^pa_) -- this
+# specific warning can no longer fire for pa_size/pa_color deterministically
+# (a static manifest lookup, not a live query), confirmed live on an
+# independent minimal fixture before this assertion was tightened. Still
+# reported rather than asserted to a fixed value below, since a different,
+# still-present timing question (relationship-WRITING order, not the
+# warning) survives task #92 -- see the next comment.
 echo "$APPLY1_OUT" | grep -q 'not registered on this environment' \
   && FRESH_TARGET_WARNED=1 || FRESH_TARGET_WARNED=0
+[ "$FRESH_TARGET_WARNED" = "0" ] || fail "unexpected unregistered-taxonomy warning for pa_size/pa_color -- task #92's object_type fallback should make this unreachable for a declared taxonomy_patterns match (got: $APPLY1_OUT)"
 echo "$APPLY1_OUT" | grep -q 'canary clean\|"canary":"clean"\|(canary clean)' || fail "apply canary was not clean"
-pass "apply succeeded, canary clean"
+pass "apply succeeded, canary clean, no unregistered-taxonomy warning"
 
-say "confirm the precise blast radius on the fresh target: pa_* attribute taxonomy rows self-provision (task #75); relationships + language for 'product' are order-of-processing dependent within the SAME apply run"
+say "confirm the precise blast radius on the fresh target: pa_* attribute taxonomy rows self-provision (task #75); relationship-WRITING for 'product' is still order-of-processing dependent within the SAME apply run"
 TEE_B2=$(wp_2 post list --post_type=product --name=duo-tee --field=ID)
 REGISTERED_B2=$(wp_2 eval "var_export(['pa_size'=>taxonomy_exists('pa_size'),'pa_color'=>taxonomy_exists('pa_color')]);")
 echo "$REGISTERED_B2" | grep -q "'pa_size' => true" || fail "pa_size did not self-register on the fresh target (task #75 regression)"
 RELS_BEFORE=$(wp_2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN ('pa_size','pa_color')" --skip-column-names)
-# NOT asserted to be exactly 0: Apply's taxesByObjectType is memoized on
-# FIRST access, lazily, not eagerly at the top of apply() (agent/src/
-# Apply.php:883-885) -- whether the woocommerce_attribute_taxonomies
-# typed-snapshot row (task #75) lands in phase 1 BEFORE or AFTER that first
-# access, within the SAME apply run, is an entity-processing-order question
-# this script does not control. Confirmed by direct observation across
-# repeat runs: sometimes 0 (needs the self-heal dance below), sometimes 4
-# (already correct on the very first apply) -- both are legitimate,
-# non-buggy outcomes of the SAME underlying mechanism. Reported, not forced.
+# NOT asserted to be exactly 0: Apply::taxes_by_object_type() (agent/src/
+# Apply.php) memoizes $taxesByObjectType on FIRST access, lazily, not
+# eagerly at the top of apply() -- whether the woocommerce_attribute_
+# taxonomies typed-snapshot row (task #75) lands in phase 1 BEFORE or AFTER
+# that first access, within the SAME apply run, is an entity-processing-
+# order question this script does not control; task #92's object_type
+# fallback (see the warning comment above) only helps a taxonomy name
+# that's ALREADY a scope candidate -- it doesn't affect whether
+# Policy::taxonomies()'s own live-DB scan finds pa_size/pa_color's
+# term_taxonomy rows in time for that same first memoized call, which is a
+# separate, still-live timing question. Confirmed by direct observation
+# across repeat runs: sometimes 0 (needs the self-heal dance below),
+# sometimes 4 (already correct on the very first apply) -- both are
+# legitimate, non-buggy outcomes of the SAME underlying mechanism.
+# Reported, not forced.
 echo "pa_size/pa_color relationships on first apply: $RELS_BEFORE (0 = needs reprocessing below, 4 = already self-provisioned this run — both legitimate, see task #90 report)"
 LANG_BEFORE=$(wp_2 eval "var_export(pll_get_post_language($TEE_B2));")
-[ "$LANG_BEFORE" = "false" ] || fail "expected Duo Tee to have no language before the fix (got $LANG_BEFORE) — this one IS deterministic, gated by Polylang's own post_types option, not entity-processing order"
-pass "confirmed: pa_size/pa_color taxonomy rows self-provision with ZERO manual pre-provisioning (real progress over r1b) — Duo Tee's language (false) is deterministically missing until Polylang's own config is replicated on the target"
+[ "$LANG_BEFORE" = "false" ] || fail "expected Duo Tee to have no language before the fix (got $LANG_BEFORE) — this one IS deterministic: Polylang registers its OWN 'language' taxonomy at 'init', before apply's own sub_keys-merged polylang option write can affect the SAME request, regardless of entity-processing order"
+pass "confirmed: pa_size/pa_color taxonomy rows self-provision with ZERO manual pre-provisioning (real progress over r1b) — Duo Tee's language (false) is deterministically missing this SAME request regardless of Polylang's own config, a request-lifecycle boundary DUO-3233's sub_keys mechanism (below) doesn't cross"
 
 say "self-heal test: does a no-op re-apply (no content change) change anything?"
 REV2=$(git -C siterepo/r3a2 rev-parse HEAD)
@@ -369,10 +402,22 @@ RELS_NOOP=$(wp_2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp
 [ "$RELS_NOOP" = "$RELS_BEFORE" ] || fail "expected the self-heal test to leave pa_size/pa_color relationships unchanged from $RELS_BEFORE (an 'unchanged' entity skips relationship reprocessing) — got $RELS_NOOP"
 pass "confirmed: a no-op re-apply never changes relationship state either way (unchanged entities skip reprocessing) — matches r1b's finding exactly, post-#75"
 
-say "the real fix, two parts: (a) replicate Polylang's admin config on the target (operational, matching WooCommerce/Storefront/attribute precedent), (b) force a genuine content change so entities reprocess"
-# No deactivate/reactivate here either -- see task #121: it wipes rather
-# than fixes. A single update_option() reliably takes effect on the very
-# next process, verified via the same object_type signal used above.
+say "the real fix, two parts: (a) replicate Polylang's admin config on the target, (b) force a genuine content change so entities reprocess"
+# DUO-3233's sub_keys mechanism (task #121, manifests/polylang.json's
+# polylang.sub_keys.post_types/taxonomies) means r3a1's OWN post_types/
+# taxonomies are now captured and merged into r3a2's live polylang option
+# automatically by the FIRST apply above -- this manual update_option()
+# step is very plausibly redundant now (reasoned from source: Policy::
+# taxonomies()/sub_keys merge-into-live-blob semantics), but that chain was
+# NOT verified live end-to-end (a full Polylang+WooCommerce fixture is a
+# substantially bigger live setup than this reconciliation pass's other
+# checks) -- see the close-gate ping for this one, explicitly flagged
+# rather than guessed. Left in place deliberately: harmless if already
+# redundant (re-asserting values sub_keys already wrote), still load-
+# bearing if the reasoning above has a gap. No deactivate/reactivate here
+# either -- see task #121: it wipes rather than fixes. A single
+# update_option() reliably takes effect on the very next process, verified
+# via the same object_type signal used above.
 wp_2 eval "
 \$o = get_option('polylang');
 \$o['default_lang'] = 'en';
@@ -533,10 +578,17 @@ else
   echo "$BODY2_EN" | grep -qi 'Duo' || fail "r3a2 EN homepage missing expected content"
   echo "$BODY2_EN" | grep -q "$PORT1" && fail "r3a2 output leaks r3a1's host:port" || true
   BODY2_DE=$(curl -s "$R3A2/de/")
-  echo "$BODY2_DE" | grep -qi 'Startseite' || fail "r3a2 DE homepage missing Startseite (per-item auto-translate should still surface it via post_translations even without the second menu wired)"
-  echo "$BODY2_DE" | grep -qi 'Hauptmenu' && echo "note: Hauptmenu itself rendered (unexpected — nav_menus mapping isn't captured; re-check task #121)" || echo "confirmed: Hauptmenu (the dedicated 2nd menu) is NOT used at its location on the target -- task #121"
+  echo "$BODY2_DE" | grep -qi 'Startseite' || fail "r3a2 DE homepage missing Startseite (per-item auto-translate surfaces it via post_translations regardless of whether the second menu is separately wired)"
+  # DUO-3233's sub_keys mechanism (task #121) now captures/applies
+  # nav_menus as a declared sub-key of the SAME polylang option, so
+  # Hauptmenu rendering here is the now-EXPECTED outcome, not a surprise --
+  # reasoned from the manifest declaration (manifests/polylang.json), not
+  # independently verified live end-to-end in this reconciliation pass
+  # (flagged in the close-gate ping). Reported either way, not hard-failed:
+  # a real behavior change here is exactly what this check exists to catch.
+  echo "$BODY2_DE" | grep -qi 'Hauptmenu' && echo "confirmed: Hauptmenu (the dedicated 2nd menu) IS used at its location on the target -- DUO-3233's nav_menus sub_key, task #121" || echo "note: Hauptmenu did NOT render (unexpected if DUO-3233's nav_menus sub_key is working as reasoned from the manifest -- re-check task #121)"
 fi
-pass "render checks complete: no host:port leaks either direction; per-item translation swap works via post_translations even though the dedicated 2nd menu isn't wired to its location"
+pass "render checks complete: no host:port leaks either direction; per-item translation swap works via post_translations regardless of the second menu's own wiring, reported above"
 
 say "runtime isolation: place a real anonymous order on r3a1 via the Store API, confirm absent on r3a2"
 wp_1 option update woocommerce_cod_settings --format=json '{"enabled":"yes","title":"Cash on delivery","description":"","instructions":"","enable_for_methods":[],"enable_for_virtual":"yes"}' >/dev/null 2>&1

@@ -10,17 +10,23 @@
 # journal on); this script boots, installs, and seeds them itself — it
 # never touches envs a/b/c/conf*/e*/fx*/g*/r1a*/r1c* or their site repos.
 #
-# See docs/grind/r1b-shop.md for the full narrative and findings. Short
-# version: variable products could not be captured AT ALL until _price was
+# See docs/grind/r1b-shop.md for the full narrative and findings (as
+# ORIGINALLY run — several engine gaps it documents have since closed; see
+# each section's own comments below for what's current). Short version:
+# variable products could not be captured AT ALL until _price was
 # reclassified 'derived' (WooCommerce writes it multi-row on a variable
 # parent — one row per distinct variation price — and the v0 engine hard-
 # refuses multi-row 'authored' meta); pa_* attribute taxonomies round-trip
 # their TERM data through the existing generic taxonomy machinery with zero
-# new engine code, but the taxonomy's own REGISTRATION (a custom-table row)
-# has no capture/apply path at all, so a fresh target environment needs the
-# global attribute pre-provisioned by hand before its relationships resolve;
-# shipping zones/tax rates are honestly marked typed-snapshot-intent-only —
-# no custom-table capture/apply path exists in this engine for ANY table.
+# new engine code, and the taxonomy's own REGISTRATION (a custom-table row)
+# now HAS a real capture/apply path too (task #75's typed-snapshot grammar)
+# — combined with task #92's taxonomy_patterns scope mechanism and its
+# object_type fallback (both Capture's and Apply's copies), a fresh target
+# environment needs ZERO manual pre-provisioning; shipping zones/tax rates
+# ALSO have a real typed-snapshot capture/apply path now (task #93) — this
+# script only ever seeded and exercised them at runtime on r1b1 (never
+# round-tripped them to r1b2), so the positive proof lives in task #93's own
+# regress_shipping_zones.sh, not here.
 #
 # Re-run safety: envs r1b1/r1b2 are never torn down (docker compose down/
 # clean is off-limits — other agents share this stack), so every run wipes
@@ -461,46 +467,60 @@ echo "$PLAN_TXT" | grep -q 'COLLISION' || fail "expected installer-created page/
 REV=$(git -C siterepo/r1b2 rev-parse HEAD)
 APPLY1_OUT=$($COMPOSE run --rm -T cli-r1b2 wp duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1)
 echo "$APPLY1_OUT"
+# Task #92 gave Apply::taxes_by_object_type() (agent/src/Apply.php) the same
+# pattern_object_type() fallback Capture's own copy already had: when
+# get_taxonomy() hasn't caught up yet within this SAME apply request (a
+# taxonomy_patterns-matched name landed by Snapshot's own phase-1 write,
+# same as Capture's timing hazard), the manifest's declared object_type
+# (manifests/woocommerce.json's taxonomy_patterns: [{"match":"^pa_",
+# "object_type":["product"]}]) is used instead -- this warning path can no
+# longer be reached for a declared pattern like pa_*, deterministically
+# (not order-dependent: the fallback is a static manifest lookup, not a
+# live query). Confirmed live on an independent minimal fixture (own pair,
+# destroyed after) before rewriting this assertion.
 echo "$APPLY1_OUT" | grep -q 'not registered on this environment' \
-  || fail "expected the pa_size/pa_color unregistered-taxonomy warning on this fresh target"
-pass "apply succeeded (canary clean) but warned that pa_color/pa_size aren't registered yet — relationships skipped for every post/term, exactly as Capture::taxes_by_object_type()'s own docblock anticipates"
+  && fail "unexpected unregistered-taxonomy warning for pa_size/pa_color -- task #92's object_type fallback (Apply.php, mirroring Capture's) should make this unreachable for a declared taxonomy_patterns match (got: $APPLY1_OUT)"
+pass "confirmed: NO unregistered-taxonomy warning on this fresh target -- task #92's object_type fallback closes it on the apply side too, not just capture's"
 
-say "confirm the precise blast radius: Duo Tee's own pa_color/pa_size term relationships are missing on r1b2 (attribute VALUES on variations are fine)"
+say "confirm the precise blast radius: Duo Tee's own pa_color/pa_size term relationships and is_purchasable on r1b2 (attribute VALUES on variations are fine either way)"
 TEE_B2=$(wp_r1b2 post list --post_type=product --name=duo-tee --field=ID)
 RELS=$(wp_r1b2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN (\"pa_size\",\"pa_color\")" --skip-column-names)
-[ "$RELS" = "0" ] || fail "expected zero pa_size/pa_color relationships before mitigation (got $RELS)"
+# NOT hard-asserted to a specific number, matching grind_r3a_multilingual.sh's
+# own established pattern for this exact question: Apply's taxesByObjectType()
+# is memoized on FIRST access (agent/src/Apply.php), lazily, not eagerly --
+# whether Snapshot's phase-1 typed-snapshot write of
+# woocommerce_attribute_taxonomies (task #75) lands BEFORE or AFTER that
+# first access, within the SAME apply run, is an entity-processing-order
+# question this script does not control. Confirmed live on an independent
+# fixture (relationships resolved immediately, 2/2, in that run) that this
+# CAN now resolve on the very first apply -- but that one run does not rule
+# out the order dependence r3a's own comment documents from direct repeat-run
+# observation, so this reports rather than forcing either outcome.
 V1_B2=$(wp_r1b2 post list --post_type=product_variation --name=duo-tee-small-red --field=ID)
 ATTR_VAL=$(wp_r1b2 post meta get "$V1_B2" attribute_pa_color)
 [ "$ATTR_VAL" = "red" ] || fail "variation attribute_pa_color did not round-trip (got $ATTR_VAL)"
 IS_PURCHASABLE_BEFORE=$(curl -s "$R1B2/wp-json/wc/store/v1/products/$TEE_B2" | jq -r '.is_purchasable')
-[ "$IS_PURCHASABLE_BEFORE" = "false" ] || fail "expected the parent to read is_purchasable=false before the attribute is pre-provisioned"
-pass "confirmed via the real Store API: parent's attributes=[] / is_purchasable=false, while the VARIATION's own postmeta (price, sku, attribute_pa_color=red) is already byte-correct — the gap is scoped exactly to the parent's taxonomy-term relationships, nothing else"
+# Also NOT hard-asserted: an independent live check found is_purchasable
+# can read false even with pa_size/pa_color relationships already fully
+# resolved (2/2) -- WC_Product_Variable::get_children() appears to have its
+# own separate caching behavior, not conclusively tied to the taxonomy-
+# relationship timing this section is actually about. Reported, not claimed
+# as proof of which cause is active this run.
+echo "pa_size/pa_color relationships on first apply: $RELS (informational -- see comment above); is_purchasable: $IS_PURCHASABLE_BEFORE (informational -- see comment above, not conclusively the same cause)"
+pass "variation's own postmeta (price, sku, attribute_pa_color=red) is already byte-correct regardless; relationship/purchasable state reported above, forced to the fully-resolved state below rather than assumed broken"
 
-# Pre-existing narrative staleness found while validating task #88, not
-# part of it, and deliberately NOT reworked here beyond this one unblock
-# (task #92 owns "pa_* zero-provisioning end-to-end" and its own
-# regress_pa_attributes.sh, gated to start AFTER #88): this comment and the
-# manual `wc product_attribute create` calls it used to justify predate
-# task #75's woocommerce_attribute_taxonomies typed-snapshot support. The
-# apply just above (adopting r1b2's own installer collisions) ALREADY
-# captured+applied r1b1's pa_size/pa_color woocommerce_attribute_taxonomies
-# ROWS via Snapshot.php — confirmed empirically: they exist on r1b2 and
-# get_taxonomy('pa_size'/'pa_color') both return true in a fresh process,
-# with zero manual steps. Manually re-creating the same slugs now fails
-# with WooCommerce's own "slug already in use" guard instead of doing
-# anything useful, so this asserts the auto-provisioned state directly.
-say "confirm pa_size/pa_color are ALREADY provisioned on r1b2 with zero manual steps (task #75's typed-snapshot apply, not the old manual pre-provisioning this section used to perform)"
+say "confirm pa_size/pa_color are registered on r1b2 with zero manual steps (task #75's typed-snapshot apply)"
 [ "$(wp_r1b2 eval 'echo get_taxonomy("pa_size") !== false ? "1" : "0";')" = "1" ] || fail "expected pa_size to already be registered on r1b2 (typed-snapshot apply should have created its woocommerce_attribute_taxonomies row)"
 [ "$(wp_r1b2 eval 'echo get_taxonomy("pa_color") !== false ? "1" : "0";')" = "1" ] || fail "expected pa_color to already be registered on r1b2 (typed-snapshot apply should have created its woocommerce_attribute_taxonomies row)"
-pass "pa_size/pa_color both registered on r1b2 already — task #75 closed the attribute-table half of the old manual-provisioning gap; the taxonomy-scope-list half (site.duo.json needing pa_* listed explicitly) is task #92's separate, tracked follow-up"
-say "self-heal test: does simply re-running apply now (no content change) restore the relationships?"
+pass "pa_size/pa_color both registered on r1b2 already — task #75 closed the attribute-table half; task #92's taxonomy_patterns closed the scope-list half, so this needs no site.duo.json entry either"
+say "self-heal test: does simply re-running apply now (no content change) change the relationship count either way?"
 REV2=$(git -C siterepo/r1b2 rev-parse HEAD)
 NOOP_APPLIED=$(wp_r1b2 duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --format=json | tail -1 | jq -r '.applied')
 RELS_AFTER_NOOP=$(wp_r1b2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN (\"pa_size\",\"pa_color\")" --skip-column-names)
-[ "$RELS_AFTER_NOOP" = "0" ] || fail "expected the self-heal test to still show 0 relationships (an 'unchanged' entity does not get relationships re-processed) — got $RELS_AFTER_NOOP; if this now passes, the engine changed behavior and the report needs updating"
-pass "confirmed: registering the taxonomy alone does NOT self-heal ($NOOP_APPLIED entities applied, relationships still 0) — an 'unchanged'-hash entity skips relationship writes entirely, by design"
+[ "$RELS_AFTER_NOOP" = "$RELS" ] || fail "expected the self-heal test to leave relationships unchanged from $RELS (an 'unchanged' entity does not get relationships re-processed) — got $RELS_AFTER_NOOP"
+pass "confirmed: a no-op re-apply never changes relationship state either way ($NOOP_APPLIED entities applied, relationships still $RELS_AFTER_NOOP) — an 'unchanged'-hash entity skips relationship writes entirely, by design, independent of whatever the starting count was"
 
-say "real fix: force a genuine content change on r1b1 so Duo Tee reprocesses; recapture, push, apply --force-theirs on r1b2"
+say "force a genuine content change on r1b1 so Duo Tee reprocesses; recapture, push, apply --force-theirs on r1b2 — must land on the FULLY resolved state regardless of where it started"
 wp_r1b1 post update "$TEE_ID" --post_excerpt="Our best-selling tee, now in two colors." >/dev/null
 wp_r1b1 duo capture --repo=/siterepo >/dev/null
 $GIT_1 add -A && $GIT_1 commit -qm "content: add Duo Tee short description" && $GIT_1 push -q origin main
@@ -508,9 +528,9 @@ git -C siterepo/r1b2 pull -q origin main
 REV3=$(git -C siterepo/r1b2 rev-parse HEAD)
 wp_r1b2 duo apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV3" >/dev/null
 RELS_FIXED=$(wp_r1b2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN (\"pa_size\",\"pa_color\")" --skip-column-names)
-[ "$RELS_FIXED" = "4" ] || fail "expected 4 pa_size/pa_color relationships after the real fix (got $RELS_FIXED)"
+[ "$RELS_FIXED" = "4" ] || fail "expected 4 pa_size/pa_color relationships after a genuine content change forces reprocessing (got $RELS_FIXED)"
 IS_PURCHASABLE_AFTER=$(curl -s "$R1B2/wp-json/wc/store/v1/products/$TEE_B2" | jq -r '.is_purchasable')
-pass "relationships restored (4 rows); parent is_purchasable now: $IS_PURCHASABLE_AFTER (informational — see report; checkout targets variations, not the parent)"
+pass "relationships fully resolved (4 rows) after a genuine content change, regardless of the first apply's own outcome; parent is_purchasable now: $IS_PURCHASABLE_AFTER (informational — see report; checkout targets variations, not the parent)"
 
 say "discovered along the way: _stock being runtime/excluded means a freshly-applied stock-managed variation has NO _stock row at all (not zero, ABSENT) — is_purchasable reads true regardless, but the Store API's own cart-add stock check treats the absence as zero and REFUSES the add. Confirmed by trying it broken-first, on purpose:"
 V1_STORE_BEFORE=$(curl -s "$R1B2/wp-json/wc/store/v1/products/$V1_B2")
