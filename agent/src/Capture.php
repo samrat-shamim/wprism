@@ -150,6 +150,48 @@ final class Capture {
                     . ' suspicious unrewritten ref(s) in captured state — run: wp duo lint --repo=' . $c->repo;
             }
 
+            if ($intoRepo) {
+                // Media blobs are copied here — BEFORE the compile gate and
+                // the state-tree swap below, not after (unlike before
+                // DUO-3236). They are content-addressed and idempotent
+                // (Publish.php's own class docblock: "unrelated to the
+                // state-tree swap"), so moving this earlier changes nothing
+                // about their own safety, but it is WHY the compile gate
+                // below can validate this run's own new media references at
+                // all: RepositoryCompiler resolves media against the real
+                // repo/media directory (RepositoryCompiler::compile_staged()'s
+                // docblock), and a reference to a blob this same run just
+                // discovered would otherwise still be missing from disk at
+                // gate time. A refused candidate can leave an orphan blob
+                // copied here with no (published) entity referencing it —
+                // already a normal, anticipated condition this system
+                // tolerates (RepositoryCompiler::catalog_media_directory()'s
+                // own "safe orphan blobs" docblock), not a new risk.
+                foreach ($build['media'] as $file => $src) {
+                    $dst = $c->repo . '/media/' . $file;
+                    if (!is_file($dst)) {
+                        Canon::write_file($dst, Canon::read_file($src));
+                    }
+                }
+                // DUO-3236: the staged candidate must itself compile before
+                // it is ever promoted to state/ — the same blocking
+                // diagnostics RepositoryCompiler::compile() already
+                // produces for an already-published tree, just fired one
+                // step earlier, before a bad tree can become the checked-in
+                // canonical state. Scoped to $intoRepo: a --out= capture
+                // never touches the checked-in state/ at all (explicitly
+                // non-authoritative — same carve-out as the ledger/code-
+                // version bookkeeping below), so there is no canonical
+                // state for an invalid --out= candidate to corrupt.
+                // RepositoryCompilationException propagates uncaught, same
+                // as every other loud-and-blocking gate in this method; the
+                // staging dir is simply abandoned in place — the next
+                // capture's own Publish::recover() discards it
+                // unconditionally (see that method's own docblock), and
+                // 'state/' is untouched since swap() below never runs.
+                RepositoryCompiler::compile_staged($staging, $c->repo, $c->policy);
+            }
+
             // The only step that ever touches 'state/': an atomic two-step
             // rename swap (agent/src/Publish.php). Before this line, a
             // crash changes nothing an outside reader (git, a human) can
@@ -158,12 +200,6 @@ final class Capture {
             Publish::swap($stateDir);
 
             if ($intoRepo) {
-                foreach ($build['media'] as $file => $src) {
-                    $dst = $c->repo . '/media/' . $file;
-                    if (!is_file($dst)) {
-                        Canon::write_file($dst, Canon::read_file($src));
-                    }
-                }
                 // Ledger/base hashes advance only AFTER the swap above
                 // succeeded — "in the same success protocol as tree
                 // publication" (the issue's own non-negotiable constraint):
