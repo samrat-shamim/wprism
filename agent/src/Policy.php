@@ -18,13 +18,17 @@ final class Policy {
     /**
      * Interpreter contract. An interpreter is a class with the required
      *   post_meta_rule(string $key, array $allMeta): ?array
-     * hook and may additionally define either of the optional hooks
+     * hook and may additionally define any of the optional hooks
      *   term_meta_rule(string $key, array $allMeta): ?array
      *   user_meta_rule(string $key, array $allMeta): ?array
+     *   option_rule(string $name, array $allOptions): ?array
      * Each returns a classification rule (same shape as the corresponding
      * static meta rule, optionally with 'cast') or null to defer. Manifests opt in via
      * {"interpreter": "<name>"} — for schema-driven plugins (ACF) whose meta
-     * semantics live in data, not in a static key list.
+     * semantics live in data, not in a static key list. option_rule() (DUO-3263)
+     * is consulted only for an option NAME already namespace-owned by some
+     * manifest's option_namespaces declaration — unlike the meta hooks, an
+     * interpreter has no implicit reach over every option in the table.
      *
      * Interpreter CODE is part of the manifest artifact, never the engine:
      * a declared name resolves to <manifests_dir>/interpreters/<name>.php,
@@ -925,6 +929,62 @@ final class Policy {
     }
 
     /**
+     * DUO-3263: a third optional interpreter hook, same contract shape as
+     * term/user above, for options whose NAME a manifest's option_namespaces
+     * claims but whose per-name classification can't be a static exact/
+     * pattern rule (ACF options-page fields: arbitrary field names, ref kind
+     * determined by a shadow-key-pointed schema, exactly like post/term meta
+     * — see manifests/interpreters/acf.php's option_rule()). $allOptions is
+     * the full option_name => raw option_value map (mirroring $allMeta's
+     * "owning scope, shadow keys and all" shape) — options have no single
+     * owning entity to scope the map to, so callers pass every option Duo
+     * can see (live wp_options during capture, the repository's own
+     * OptionState::records() during repository-side authorization/
+     * compilation — see Capture::all_options_map() and
+     * RepositoryAuthorization/RepositoryCompiler's own construction).
+     *
+     * Routes through option_rule_details_for_option() rather than the plain
+     * meta_rule_for_interpreter_hook() every other meta_rule_for_*() uses —
+     * caught live (regress_acf_term_options_fields.sh's first run):
+     * OptionState::assert_rule_autoload() requires every options rule to
+     * declare 'autoload' (or 'preserve'), and the static options path
+     * always gets that via with_option_autoload()'s manifest-level
+     * option_autoload default; an interpreter-returned rule bypassed it
+     * entirely. Only the details() path knows which manifest's interpreter
+     * answered, so autoload injection lives there (see its own docblock).
+     */
+    public function meta_rule_for_option(string $name, array $allOptions): ?array {
+        return $this->option_rule_details_for_option($name, $allOptions)['rule'];
+    }
+
+    /**
+     * Interpreter-aware sibling of owned_option_rule() (DUO-3263): same
+     * namespace-ownership gate and cross-manifest-ambiguity check, but
+     * consulting a declared interpreter's option_rule() before the static
+     * options rule. A separate method rather than changing owned_option_rule()
+     * itself — that accessor has callers uninterested in live/repository
+     * option context (mirrors post_meta_rule()/meta_rule_for_post() staying
+     * two separate methods rather than one changing shape underneath its
+     * existing callers).
+     */
+    public function owned_option_rule_via_interpreter(string $name, array $allOptions): ?array {
+        $owner = $this->option_namespace($name);
+        if ($owner === null) {
+            return null;
+        }
+        $details = $this->option_rule_details_for_option($name, $allOptions);
+        if ($details['rule'] !== null && $details['source'] !== 'site.duo.json'
+            && $details['source'] !== $owner['owner']
+            && !str_starts_with((string) $details['source'], $owner['owner'] . ' (interpreter')) {
+            throw new \RuntimeException(
+                "duo: option '$name' namespace is owned by '{$owner['owner']}' but its classification comes from "
+                . "'{$details['source']}' — cross-manifest ownership is ambiguous"
+            );
+        }
+        return $details['rule'];
+    }
+
+    /**
      * Backward-compatible facade kept for callers introduced by DUO-3262.
      * Authored user meta is representable now, so classification itself is
      * no longer a blocker; Capture performs the value-level PII/secret and
@@ -975,13 +1035,73 @@ final class Policy {
 
     /** @return array{rule:?array, source:?string} */
     public function meta_rule_details_for_post(string $key, array $allMeta): array {
+        return $this->rule_details_for_interpreter_hook(
+            'post_meta_rule',
+            $key,
+            $allMeta,
+            fn() => $this->post_meta_rule_details($key)
+        );
+    }
+
+    /**
+     * DUO-3263: option_rule() sibling of meta_rule_details_for_post() above,
+     * for the same "which interpreter/manifest actually decided this"
+     * provenance RepositoryAuthorization/RepositoryCompiler need (they
+     * report a mismatched source, not just a classification).
+     *
+     * @return array{rule:?array, source:?string}
+     */
+    public function option_rule_details_for_option(string $name, array $allOptions): array {
+        return $this->rule_details_for_interpreter_hook(
+            'option_rule',
+            $name,
+            $allOptions,
+            fn() => $this->option_rule_details($name)
+        );
+    }
+
+    /**
+     * Shared by meta_rule_details_for_post() (post_meta_rule is mandatory —
+     * every interpreter already satisfies method_exists() by the load-time
+     * check in interpreters(), so the guard below is a no-op there) and
+     * option_rule_details_for_option() (option_rule is optional, so the
+     * guard is load-bearing there, mirroring meta_rule_for_interpreter_hook()'s
+     * own method_exists() gate).
+     *
+     * The $hook === 'option_rule' branch below is the one hook-specific
+     * exception to this being a generic dispatcher: every STATIC options
+     * rule already gets the owning manifest's own option_autoload default
+     * injected (with_option_autoload(), called at every static rule()
+     * options lookup) — OptionState::assert_rule_autoload() hard-requires
+     * every options rule to declare 'autoload' (or 'preserve') before a row
+     * can be captured. An interpreter-returned options rule needs the exact
+     * same treatment or it can never pass that check (caught live:
+     * regress_acf_term_options_fields.sh's first run failed capture outright
+     * with "option '...' has autoload 'off' but policy declares NULL").
+     * term_meta/user_meta rules have no such concept, so this is scoped to
+     * the one hook name that does, not a general behavior change.
+     *
+     * @return array{rule:?array, source:?string}
+     */
+    private function rule_details_for_interpreter_hook(
+        string $hook,
+        string $key,
+        array $allMeta,
+        callable $staticDetails
+    ): array {
         foreach ($this->interpreters() as $name => $i) {
-            $rule = $i->post_meta_rule($key, $allMeta);
+            if (!method_exists($i, $hook)) {
+                continue;
+            }
+            $rule = $i->{$hook}($key, $allMeta);
             if ($rule === null) {
                 continue;
             }
             foreach ($this->manifests as $m) {
                 if (($m['interpreter'] ?? null) === $name) {
+                    if ($hook === 'option_rule') {
+                        $rule = self::with_option_autoload($rule, $m);
+                    }
                     return [
                         'rule' => $rule,
                         'source' => (string) ($m['name'] ?? '?') . " (interpreter $name)",
@@ -990,7 +1110,7 @@ final class Policy {
             }
             return ['rule' => $rule, 'source' => "interpreter $name"];
         }
-        return $this->post_meta_rule_details($key);
+        return $staticDetails();
     }
 
     /** @return array{rule:?array, source:?string} */

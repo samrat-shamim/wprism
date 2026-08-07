@@ -51,6 +51,37 @@ use Duo\Policy;
  */
 final class Acf {
     private const FIELD_KEY_PATTERN = '/^field_[A-Za-z0-9_]+$/';
+    /**
+     * DUO-3263: options-page field storage prefix, empirically confirmed
+     * (fresh ACF 6.8.7, free plugin — sandbox/tests/spike_e_acf.sh's sibling
+     * probe, see the DUO-3263 PR body for the exact session). ACF's
+     * "acf_add_options_page()" admin-UI registration function does NOT
+     * exist in the free plugin (grepped the installed plugin source: no
+     * options-page-functions file, only a PRO upsell preview view) — but
+     * the underlying value storage is NOT gated the same way:
+     * update_field($key, $value, 'option') (and the 'options' spelling,
+     * confirmed a synonym) persists with zero PRO code present, because
+     * ACF's core value API treats option/options as an ordinary object
+     * type independent of whether an admin page was ever registered (a
+     * real free-plugin pattern: acf_form() on a front-end page, a custom
+     * admin page, WP-CLI, or a snippet, wiring global site-settings values
+     * without paying for PRO's options-page UI convenience).
+     *
+     * Storage shape is a THIRD shape, matching neither post/term meta's
+     * bare shadow-key convention nor a single blob: individually-stored
+     * wp_options rows with a fixed 'options_'/'_options_' prefix —
+     * options_<fieldname> = value, _options_<fieldname> = shadow pointer to
+     * field_<key>, same shadow-pointer convention as post/term meta, just
+     * prefixed (ACF's own device for not colliding with an unrelated
+     * option that happens to share a bare field name, since wp_options is
+     * one flat global namespace unlike wp_postmeta/wp_termmeta which are
+     * already scoped per-object). Confirmed a ref-type (image) field
+     * stores the bare attachment id scalar — same no-op-cast shape
+     * documented below for image/file/post_object. Confirmed
+     * delete_field(..., 'option') removes both rows atomically (no
+     * orphaned shadow to find on a later scan).
+     */
+    private const OPTIONS_PREFIX = 'options_';
 
     /** @var array<string, array|null> field key -> unserialized post_content (null = no such field). */
     private array $fieldDefs = [];
@@ -188,6 +219,67 @@ final class Acf {
      *   front-matter meta).
      */
     public function post_meta_rule(string $key, array $allMeta): ?array {
+        return $this->shadow_keyed_rule($key, $allMeta);
+    }
+
+    /**
+     * DUO-3263: term-attached ACF fields use the exact same shadow-key
+     * convention against wp_termmeta that post_meta_rule() already resolves
+     * against wp_postmeta — ACF's field-type update_value()/get_value()
+     * methods are attachment-agnostic (they don't know or care whether the
+     * owning object is a post or a term), and Capture::term_meta_map()'s
+     * "first value per key" shape is byte-identical to post_meta_map()'s
+     * (both confirmed by reading Capture.php). Capture's term_meta call
+     * sites already dispatch through Policy::meta_rule_for_term() (DUO-3262),
+     * so this is pure reuse — zero new resolution logic.
+     */
+    public function term_meta_rule(string $key, array $allMeta): ?array {
+        return $this->shadow_keyed_rule($key, $allMeta);
+    }
+
+    /**
+     * DUO-3263: ACF options-page fields (manifests/interpreters/acf.php's
+     * own class docblock has the full empirical grounding for the
+     * 'options_'/'_options_' prefix convention this resolves against).
+     * $allOptions is Duo's own option_name => raw option_value map (live
+     * wp_options during capture, the repository's captured options document
+     * during repository-side authorization/compilation — see
+     * Policy::meta_rule_for_option()'s own docblock) — NOT ACF's internal
+     * store, so this never touches the database or acf_get_value() itself.
+     */
+    public function option_rule(string $name, array $allOptions): ?array {
+        if (str_starts_with($name, '_' . self::OPTIONS_PREFIX)) {
+            return $this->shadow_options_key_rule($name, $allOptions);
+        }
+        if (!str_starts_with($name, self::OPTIONS_PREFIX)) {
+            return null; // not an ACF options-page name at all -- defer
+        }
+        $pointer = $allOptions['_' . $name] ?? null;
+        if (!is_string($pointer) || !preg_match(self::FIELD_KEY_PATTERN, $pointer)) {
+            return null;
+        }
+        $def = $this->field_definition($pointer);
+        if ($def === null) {
+            // Field definition not in this DB/repository: never guess --
+            // defer to static rules, and from there to the loud unclassified
+            // gate, same posture as post_meta_rule()'s identical branch.
+            return null;
+        }
+        return $this->rule_for_type((string) ($def['type'] ?? ''), $def);
+    }
+
+    /** The field-key pointer meta itself ("_<key>" => "field_..."): a plain authored string. */
+    private function shadow_key_rule(string $key, array $allMeta): ?array {
+        $base = substr($key, 1);
+        $pointer = $allMeta[$key] ?? null;
+        if (array_key_exists($base, $allMeta) && is_string($pointer) && preg_match(self::FIELD_KEY_PATTERN, $pointer)) {
+            return ['class' => 'authored'];
+        }
+        return null;
+    }
+
+    /** Shared by post_meta_rule() and term_meta_rule() -- identical shadow-key convention, different owning table. */
+    private function shadow_keyed_rule(string $key, array $allMeta): ?array {
         if (str_starts_with($key, '_')) {
             return $this->shadow_key_rule($key, $allMeta);
         }
@@ -205,11 +297,11 @@ final class Acf {
         return $this->rule_for_type((string) ($def['type'] ?? ''), $def);
     }
 
-    /** The field-key pointer meta itself ("_<key>" => "field_..."): a plain authored string. */
-    private function shadow_key_rule(string $key, array $allMeta): ?array {
-        $base = substr($key, 1);
-        $pointer = $allMeta[$key] ?? null;
-        if (array_key_exists($base, $allMeta) && is_string($pointer) && preg_match(self::FIELD_KEY_PATTERN, $pointer)) {
+    /** The options-page field-key pointer ("_options_<name>" => "field_..."): a plain authored string, prefix sibling of shadow_key_rule(). */
+    private function shadow_options_key_rule(string $name, array $allOptions): ?array {
+        $base = substr($name, 1); // strip leading '_', leaving "options_<field>"
+        $pointer = $allOptions[$name] ?? null;
+        if (array_key_exists($base, $allOptions) && is_string($pointer) && preg_match(self::FIELD_KEY_PATTERN, $pointer)) {
             return ['class' => 'authored'];
         }
         return null;
