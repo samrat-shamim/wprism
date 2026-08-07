@@ -188,6 +188,17 @@ pair_compose() { # pair_compose <name> [overlay-file ...]
   PAIR_COMPOSE=(docker compose -p "duo-${name}" -f pair.yml)
   local f
   for f in "$@"; do PAIR_COMPOSE+=(-f "$f"); done
+  # DUO-3277: every PAIR_COMPOSE invocation needs DUO_AGENT_SRC/
+  # DUO_MANIFESTS_SRC in the environment now, not just `up` -- pair.yml
+  # references them unconditionally, so `stop`/`start`/`destroy` (which
+  # never went through cmd_up's own export) would otherwise hand compose
+  # an EMPTY bind-mount source (":/var/www/html/...:ro", invalid spec) the
+  # moment it re-parses pair.yml at all, which compose does for every
+  # subcommand regardless of whether it ends up creating anything.
+  # Exported HERE, the one place every subcommand already funnels through,
+  # rather than duplicated at each call site (caught live: the first
+  # version of this fix only set them in cmd_up and `stop` broke instantly).
+  export DUO_AGENT_SRC="$(canonical_root)/agent" DUO_MANIFESTS_SRC="$(canonical_root)/manifests"
 }
 
 prepare_siterepo_roots() { # prepare_siterepo_roots <name>
@@ -370,15 +381,12 @@ cmd_up() {
   [ "$http_mode" = 1 ] && overlays+=(pair.http.yml)
   [ "$journal" = 1 ] && overlays+=(pair.journal.yml)
   [ -n "$codebind" ] && overlays+=(pair.codebind.yml)
-  pair_compose "$name" "${overlays[@]}"
-  local canon
-  canon=$(canonical_root)
-  export DUO_PAIR="$name" DUO_PORT1="$port1" DUO_PORT2="$port2" DUO_CODEBIND_PLUGIN="$codebind" \
-         DUO_AGENT_SRC="${canon}/agent" DUO_MANIFESTS_SRC="${canon}/manifests"
+  pair_compose "$name" "${overlays[@]}"   # also exports DUO_AGENT_SRC/DUO_MANIFESTS_SRC, see its own comment
+  export DUO_PAIR="$name" DUO_PORT1="$port1" DUO_PORT2="$port2" DUO_CODEBIND_PLUGIN="$codebind"
 
   say "pair '$name': containers up"
   # DUO-3277: agent/manifests bind-mount sources always resolve against
-  # $canon (this repo's canonical checkout, computed above), never
+  # the canonical checkout (see pair_compose()/canonical_root()), never
   # wherever this script itself was invoked from -- if that resolved
   # differently than whatever config an EXISTING container for this pair
   # was created with (e.g. a pair `up`'d from a worktree before this fix,
@@ -387,8 +395,8 @@ cmd_up() {
   # that never move (the r3b recovery this issue's own filing already
   # documented empirically, now happening for the RIGHT reason instead of
   # by accident).
-  if [ "$canon" != "$(pwd)" ]; then
-    echo "  (bind-mount source: $canon -- this pair.sh copy is running from $(pwd))"
+  if [ "$DUO_AGENT_SRC" != "$(pwd)/agent" ]; then
+    echo "  (bind-mount source: $(dirname "$DUO_AGENT_SRC") -- this pair.sh copy is running from $(pwd))"
   fi
   "${PAIR_COMPOSE[@]}" up -d "${force_recreate[@]}"
 
