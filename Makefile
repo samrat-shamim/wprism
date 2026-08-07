@@ -8,7 +8,8 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
 	regress-snapshot-meta regress-ssh-adopt regress-tec-regen regress-user-meta \
-	regress-option-name-refs-wiring regress-offline-all regress-live-list
+	regress-option-name-refs-wiring regress-offline-all regress-live-list \
+	regress-coverage-offline regress-coverage
 
 up:
 	$(COMPOSE) up -d
@@ -300,6 +301,14 @@ code-half-unit: regress-repository-compiler regress-code-revision-enforcement re
 
 regress-repository-compiler:
 	bash sandbox/tests/regress_repository_compiler.sh
+
+regress-coverage-offline:
+	php sandbox/tests/regress_coverage_offline.php
+
+# Live: needs an already-up pair with WooCommerce active, e.g.
+#   DUO_PAIR=mypair make regress-coverage
+regress-coverage:
+	bash sandbox/tests/regress_coverage.sh
 
 regress-code-revision-enforcement:
 	php sandbox/tests/regress_code_revision_enforcement.php

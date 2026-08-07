@@ -45,6 +45,7 @@ require_once __DIR__ . '/src/Apply.php';
 require_once __DIR__ . '/src/Deploy.php';
 require_once __DIR__ . '/src/Journal.php';
 require_once __DIR__ . '/src/Pending.php';
+require_once __DIR__ . '/src/Coverage.php';
 require_once __DIR__ . '/src/Lint.php';
 
 // Provenance journal is opt-in: define('DUO_JOURNAL', true) in wp-config.php

@@ -859,6 +859,87 @@ final class Cli {
     }
 
     /**
+     * DUO-3290: names and counts what this site actually has versus what
+     * Duo can see (options, custom tables) — deliberately NOT the
+     * loud-and-blocking gate `pending` already is. Never throws on finding
+     * gaps, never affects capture/plan/apply, purely additive visibility.
+     * See Coverage.php's own class docblock for the full reasoning.
+     *
+     * ## OPTIONS
+     * --repo=<path>
+     * [--format=<format>] : Output format. Accepts json (machine-readable,
+     *                        versioned via the report's own top-level
+     *                        "format" field — this is the shape the H2
+     *                        adoption guide will cite verbatim, so treat it
+     *                        as contract-adjacent, not incidental).
+     */
+    public function coverage($args, $assoc) {
+        try {
+            $report = Coverage::report($assoc['repo'] ?? WP_CLI::error('--repo required'));
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($report, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+
+        $o = $report['options'];
+        WP_CLI::line('OPTIONS');
+        WP_CLI::line(sprintf(
+            '  total=%d  captured=%d  pending=%d  invisible=%d (transient=%d, other=%d)',
+            $o['total'], $o['captured'], $o['pending'], $o['invisible_total'],
+            $o['invisible_transient'], $o['invisible_other']
+        ));
+        if ($o['invisible_groups']) {
+            $groups = $o['invisible_groups'];
+            $large = count($groups) > Coverage::LARGE_LISTING_THRESHOLD;
+            if ($large) {
+                WP_CLI::warning(sprintf(
+                    '%d distinct invisible-option groups — showing the top %d by row count; the count above is exact regardless. Use --format=json for the full listing.',
+                    count($groups), Coverage::LARGE_LISTING_THRESHOLD
+                ));
+                $groups = array_slice($groups, 0, Coverage::LARGE_LISTING_THRESHOLD);
+            }
+            WP_CLI::line('  invisible groups (prefix, row count, probable owner):');
+            foreach ($groups as $g) {
+                WP_CLI::line(sprintf(
+                    '    %-30s %6d  %s',
+                    $g['prefix'], $g['count'], $g['probable_owner'] ?? '(unattributed)'
+                ));
+            }
+        }
+
+        $t = $report['tables'];
+        WP_CLI::line('');
+        WP_CLI::line('TABLES');
+        WP_CLI::line(sprintf(
+            '  live=%d  core=%d  declared=%d  undeclared=%d',
+            $t['live_total'], $t['core_total'], $t['declared_total'], $t['undeclared_total']
+        ));
+        if ($t['undeclared']) {
+            $undeclared = $t['undeclared'];
+            $large = count($undeclared) > Coverage::LARGE_LISTING_THRESHOLD;
+            if ($large) {
+                WP_CLI::warning(sprintf(
+                    '%d undeclared tables — showing the first %d; the count above is exact regardless. Use --format=json for the full listing.',
+                    count($undeclared), Coverage::LARGE_LISTING_THRESHOLD
+                ));
+                $undeclared = array_slice($undeclared, 0, Coverage::LARGE_LISTING_THRESHOLD);
+            }
+            WP_CLI::line('  undeclared tables (name, row count, probable owner):');
+            foreach ($undeclared as $u) {
+                WP_CLI::line(sprintf(
+                    '    %-40s %8d  %s',
+                    $u['table'], $u['row_count'], $u['probable_owner'] ?? '(unattributed)'
+                ));
+            }
+        }
+        WP_CLI::line('');
+        WP_CLI::success('coverage report complete — this never blocks capture/plan/apply; run `wp duo pending` for the loud, blocking queue.');
+    }
+
+    /**
      * Write policy classification rules — the `wp duo pending` -> `wp duo
      * classify` step of the core loop. Rules land in site.duo.json's policy
      * overrides (Policy::set_rule); this command does not itself capture.
