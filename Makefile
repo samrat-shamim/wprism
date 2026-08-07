@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge regress-capture-publish regress-code-drift regress-option-subkeys regress-fatal-mutations-unit regress-fatal-mutations
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge regress-capture-publish regress-code-drift regress-option-subkeys regress-fatal-mutations-unit regress-fatal-mutations
 
 up:
 	$(COMPOSE) up -d
@@ -130,12 +130,16 @@ regress-shipping-zones:
 # Gate is local evidence, not CI, per commit 1efb6df (the conformance CI
 # workflow is disabled by owner decision). See sandbox/tests/
 # certify_merge.sh's header for full scope: what's proven here vs.
-# explicitly deferred (add/add same-slug rejection is unblocked now that
-# DUO-3208 landed, but stays out of this fixture per the issue's own
-# routing to DUO-3223's matrix; the plugin-version-skew workflow is a
-# separate scenario, not attempted here).
+# explicitly routed elsewhere (add/add same-slug rejection is unblocked now
+# that DUO-3208 landed, but stays out of this fixture per the issue's own
+# routing to DUO-3223's matrix). A companion fixture certifies DESIGN.md
+# §3.4's code-first -> migrate -> re-capture -> merge-state ordering.
 certify-merge:
 	bash sandbox/tests/certify_merge.sh
+	bash sandbox/tests/certify_version_skew_merge.sh
+
+certify-version-skew-merge:
+	bash sandbox/tests/certify_version_skew_merge.sh
 
 # DUO-3213 (atomic capture publication): offline, no docker -- exercises
 # agent/src/Publish.php's capture lock, staging dir, atomic swap, and crash

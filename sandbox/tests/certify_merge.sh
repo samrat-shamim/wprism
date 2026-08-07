@@ -53,10 +53,10 @@
 #     THIS fixture — that placement call predates and is independent of
 #     DUO-3208's blocked status. Flagging as unblocked-and-ready for
 #     whoever picks up DUO-3223 (see PR).
-#   - the cross-branch plugin-version-skew workflow (DESIGN.md §3.4:
-#     "merge code first, run migrations, re-capture, then merge state"):
-#     a genuinely separate scenario (two DIFFERENT plugin versions across
-#     branches), not an extension of this flow — not attempted here.
+#   - the cross-branch plugin-version-skew workflow is a genuinely separate
+#     scenario (two DIFFERENT plugin versions across branches), so it lives
+#     in tests/certify_version_skew_merge.sh rather than distorting this
+#     fixture. `make certify-merge` runs both scripts as one local gate.
 #   - conflict-marker leakage into POST BODIES: DUO-3208 also shipped
 #     RepositoryCompiler's CONFLICT_RE scan
 #     ('/^(<{7}|={7}|>{7})(?: .*|)$/m'), which runs against every state
@@ -140,12 +140,12 @@ cat > siterepo/mergecert1/site.duo.json <<'EOF'
     "options": {},
     "post_meta": {},
     "post_types": ["post", "page", "attachment"],
-    "taxonomies": ["category"]
+    "taxonomies": ["category", "post_tag", "product_cat", "product_type"]
   },
   "spec_version": 1
 }
 EOF
-printf '.tmp*\n' > siterepo/mergecert1/.gitignore
+printf '.tmp*\nstate.capture.lock\n' > siterepo/mergecert1/.gitignore
 git -C siterepo/mergecert1 init -q -b main
 git -C siterepo/mergecert1 remote add origin ../origin-mergecert.git
 wp1 duo capture --repo=/siterepo
