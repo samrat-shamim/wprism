@@ -494,6 +494,32 @@ final class Policy {
     }
 
     /**
+     * `shortcode_attrs` (DUO-3259): the shortcode twin of `block_attrs()`
+     * above, same precedence (last pin wins per tag name, a structural
+     * fact about a shortcode's own attribute grammar, not a site-local
+     * policy choice — no site.duo.json override, mirroring block_attrs'
+     * own reasoning exactly), but a flatter rule shape: tagName => list of
+     * {path, kind, cast?} rules — no `type`, unlike block_attrs — a
+     * shortcode attribute value is always flat text in the source (never
+     * a native JSON array the way a block attr can be), so `cast: "csv"`
+     * alone signals "comma-joined id list" (WordPress's own convention
+     * for gallery's `ids`/`include`/`exclude` attributes, confirmed by
+     * reading gallery_shortcode() directly, not assumed); anything not
+     * csv-cast is a plain scalar id. `path` names a shortcode ATTRIBUTE
+     * (not a JSON path; shortcode attributes are already a flat key=value
+     * grammar, `shortcode_parse_atts()`'s own return shape).
+     */
+    public function shortcode_attr_rules(): array {
+        $out = [];
+        foreach ($this->manifests as $m) {
+            foreach ($m['shortcode_attrs'] ?? [] as $tag => $rules) {
+                $out[$tag] = $rules;
+            }
+        }
+        return $out;
+    }
+
+    /**
      * `taxonomies.<tax>.description_refs` (spec v0.8 / docs/frontier/
      * polylang.md's "typed serialized-description rewriting"): declares
      * that a taxonomy's term_taxonomy.description column holds PHP-

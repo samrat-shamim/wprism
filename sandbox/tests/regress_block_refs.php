@@ -174,6 +174,15 @@ require __DIR__ . '/../../agent/src/Lint.php';
 // Loading the class definition only; nothing here ever instantiates
 // Capture or calls any of its other (WordPress-dependent) methods.
 require __DIR__ . '/../../agent/src/Capture.php';
+// DUO-3259: Blocks.php's $rewriteString closure now unconditionally calls
+// Shortcodes::capture_rewrite_text()/apply_rewrite_text() too (the new
+// integration point) -- the class must be loadable wherever Blocks.php
+// is, exactly like Capture.php above. No support/wp-shortcode-stub.php
+// require needed here: this file's own $policy fixture declares no
+// shortcode_attrs at all, so Shortcodes' own early-exit (empty rules)
+// fires before get_shortcode_regex() is ever called -- see regress_
+// shortcode_refs.php for the harness that DOES exercise that path.
+require __DIR__ . '/../../agent/src/Shortcodes.php';
 
 use Duo\Canon;
 use Duo\Policy;
