@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge certify-adversarial-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-promotion-unit regress-promotion
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-promotion-unit regress-promotion
 
 up:
 	$(COMPOSE) up -d
@@ -151,6 +151,16 @@ certify-version-skew-merge:
 # See the script's own header for full detail.
 certify-adversarial-matrix:
 	bash sandbox/tests/certify_adversarial_matrix.sh
+
+# DUO-3223 slice 4 (--with-deletes scenarios): the three manifests with real
+# deletions/guards blocks on plugin-owned typed-snapshot tables, beyond
+# core's own (checks/core.sh). woocommerce's wc_order_product_lookup guard,
+# ninja-forms' three-guard shape (two cross-table + one postmeta) with the
+# cascade-vs-guard distinction proven live, and paid-memberships-pro's
+# empty-guards composite_ref table. See the script's own header for the
+# multiple failed designs it took to get the ninja-forms leg right.
+certify-deletion-matrix:
+	bash sandbox/tests/certify_deletion_matrix.sh
 
 # DUO-3213 (atomic capture publication): offline, no docker -- exercises
 # agent/src/Publish.php's capture lock, staging dir, atomic swap, and crash
