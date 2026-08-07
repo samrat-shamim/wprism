@@ -70,11 +70,43 @@ cat > "$HOST_REPO/site.duo.json" <<'EOF'
     "post_meta": {},
     "term_meta": {},
     "post_types": ["post", "attachment"],
-    "taxonomies": ["category", "post_tag"]
+    "taxonomies": ["category", "post_tag"],
+    "scope": {
+      "post_type": {
+        "page": {"class": "runtime"},
+        "product": {"class": "runtime"}
+      },
+      "taxonomy": {
+        "pa_color": {"class": "runtime"},
+        "pa_size": {"class": "runtime"},
+        "product_cat": {"class": "runtime"}
+      }
+    }
   }
 }
 EOF
-pass "scratch repo ready at $HOST_REPO (policy.post_types has no 'page' — any real page is, by construction, UNSCOPED not unclassified)"
+# scope_gaps() hardening (post-dates this fixture): ANY public post_type/
+# taxonomy with real rows now must be classified one way or the other --
+# in policy.post_types/taxonomies, or explicitly excluded via
+# scope.post_type/taxonomy.<name>.class -- not just types a ref happens to
+# point at. r1b1 is Grind R1-B's live WooCommerce shop (task #64+), so its
+# product/pa_color/pa_size/product_cat rows now trip this gate exactly
+# like 'page' does, BEFORE capture ever reaches the option-ref gate this
+# script means to exercise -- an unrelated shop-surface gap masking the
+# scope-gate test's own subject. 'page' ITSELF now needs its own explicit
+# "runtime" entry too: omission from policy.post_types alone satisfied the
+# OLD gate, but the new one treats undeclared-with-real-rows as its own
+# violation regardless of whether anything references that type. "runtime"
+# (not "authored") is deliberate for all five: Policy::post_types() only
+# merges a scope-classified type into "in scope" when class is exactly
+# authored (confirmed by reading it directly) -- so 'page' stays correctly
+# OUT of policy.post_types() for the ref-classification check below, and
+# a real page-referencing option ref still resolves as UNSCOPED, not
+# accidentally scoped-in by this fix. product/pa_*/product_cat need no
+# such care (nothing in this script ever references them), so the same
+# "runtime" shape is used uniformly rather than reasoning through a
+# second class per type.
+pass "scratch repo ready at $HOST_REPO (policy.post_types has no 'page' — any real page is, by construction, UNSCOPED not unclassified; r1b1's own shop surface explicitly excluded so its unrelated real rows can't trip the scope gate first)"
 
 say "(1) UNSCOPED: wp_page_for_privacy_policy -> a REAL page whose post_type isn't in policy scope"
 wp1 option update wp_page_for_privacy_policy "$PAGE_ID" >/dev/null
@@ -139,10 +171,27 @@ cat > "$HOST_REPO/site.duo.json" <<'EOF'
     "post_meta": {},
     "term_meta": {},
     "post_types": ["post", "page", "attachment"],
-    "taxonomies": ["category", "post_tag"]
+    "taxonomies": ["category", "post_tag"],
+    "scope": {
+      "post_type": {
+        "product": {"class": "runtime"}
+      },
+      "taxonomy": {
+        "pa_color": {"class": "runtime"},
+        "pa_size": {"class": "runtime"},
+        "product_cat": {"class": "runtime"}
+      }
+    }
   }
 }
 EOF
+# Same r1b1 shop-surface gap as the first heredoc above -- 'page' is
+# already IN policy.post_types here (this step's own subject is an
+# in-scope-but-unminted PAGE, not an out-of-scope one), so it needs no
+# separate scope entry, but product/pa_*/product_cat still do:
+# Capture::snapshot() -> build(false, ...) hits the SAME unconditional
+# scope_gaps() check (confirmed by reading both directly), so this
+# heredoc is exposed to the identical widening.
 wp1 option update wp_page_for_privacy_policy "$PAGE_ID" >/dev/null
 # $PAGE_ID has never been in scope in any earlier step above, so it has never
 # been minted a uuid — exactly the "in scope, not yet identified" case.
