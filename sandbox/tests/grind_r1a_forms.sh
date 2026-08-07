@@ -398,6 +398,12 @@ echo "$APPLY_OUT"
 echo "$APPLY_OUT" | grep -qi 'canary clean' || fail "apply canary not clean"
 pass "deploy + apply succeeded on r1a2 (canary clean)"
 
+say "DUO-3267/DUO-3282 rebuilder-fired probe -- immediately after apply, before any fetch. The rebuilder command itself is independently proven correct (team-lead ran it verbatim via the ordinary wp-cli shell path: count 0->1, zero error output) and the manifest declaration is independently proven to parse/aggregate correctly (offline Policy::rebuilders() check, no WordPress needed). The ONLY layer left unverified is whether Apply::rebuild()'s own WP_CLI::runcommand() launch actually invokes it during a real apply -- exactly where DUO-3282's stdout/stderr-swallowing gap hides evidence. A non-zero count here closes that question for good; zero is now unambiguous evidence of a runcommand launch-layer failure, not a render-mystery artifact -- the render mystery is independently resolved by the byte-truncation-window fix below, and a cold render with zero nf3_upgrades rows has already been proven to work correctly, so this probe is about the manifest declaration's own integrity, not the render."
+NF_UPGRADES_COUNT=$(wp_2 db query "SELECT COUNT(*) FROM wp_nf3_upgrades" --skip-column-names)
+echo "nf3_upgrades row count immediately post-apply: $NF_UPGRADES_COUNT"
+[ "${NF_UPGRADES_COUNT:-0}" -gt 0 ] 2>/dev/null || fail "rebuilder-fired probe: nf3_upgrades has ZERO rows immediately post-apply (got: '$NF_UPGRADES_COUNT') -- the command and the manifest declaration are both independently proven correct, so this is unambiguous evidence of a WP_CLI::runcommand() launch-layer failure inside Apply::rebuild() -- file as its own precisely-scoped engine bug (see DUO-3282), do not re-litigate the command or the manifest"
+pass "rebuilder-fired probe: nf3_upgrades has $NF_UPGRADES_COUNT row(s) immediately post-apply -- Apply's own WP_CLI::runcommand() launch DID invoke the declared rebuilder"
+
 say "byte-identical recapture across environments"
 wp_2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
 DIFF_OUT=$(diff -rq siterepo/r1a1/state siterepo/r1a2/.tmp-final || true)
