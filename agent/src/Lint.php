@@ -25,9 +25,9 @@ namespace Duo;
  * versions, ordering indexes). Every finding says so in its own "note" —
  * the caveat travels with the finding, never left implicit.
  *
- * Seven detection classes (five from wave 1, plus DUO-3259's shortcode pair
- * below — sub-key option refs and id-keyed arrays are task #11's wave 2,
- * deliberately not attempted here):
+ * Eight detection classes (five from wave 1, plus DUO-3259's shortcode pair
+ * and DUO-3260's url-query-ref class below — sub-key option refs and
+ * id-keyed arrays are task #11's wave 2, deliberately not attempted here):
  *
  *   bare_id — a numeric scalar / array element / CSV segment inside an
  *     authored post_meta or option value whose classification rule has NO
@@ -95,6 +95,19 @@ namespace Duo;
  *     shortcode tags this engine has actually declared shortcode_attrs
  *     for (see scan_shortcodes()'s own docblock for why an unbounded "any
  *     shortcode on the system" scan isn't attempted).
+ *
+ *   unrewritten_url_query_ref (DUO-3260) — a `?p=`/`?page_id=`/
+ *     `?attachment_id=` query-string parameter (WordPress's own internal-
+ *     link id scheme; NOT `?page=`, which is WordPress's own separate
+ *     pagination var) still holding a raw digit anywhere in captured
+ *     state. Unlike Tokens::tokenize_url_query_refs()'s own REWRITE
+ *     (deliberately {{home}}-anchored, for safety — never touch an
+ *     external URL's own unrelated `?p=`), this scan is NOT anchored: a
+ *     wide net with an honest caveat, this file's own established
+ *     philosophy throughout, since narrow precision is the rewrite
+ *     mechanism's job, not the detector's. Fires regardless of whether
+ *     the id currently resolves to a live entity, same posture as every
+ *     other unrewritten-ref finding.
  *
  * Finding shape (every class): {class, path, locator, value, matches?,
  * note}. `path` is state-relative (e.g. "posts/post/<uuid>--slug.md").
@@ -170,11 +183,14 @@ final class Lint {
             }
         }
 
-        // (b) escaped_home — recursively through meta values, and the raw body as one unit.
+        // (b) escaped_home / unrewritten_url_query_ref — recursively
+        // through meta values, and the raw body as one unit.
         self::walk_strings($meta, 'meta', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
+            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
         });
         self::flag_escaped_home($findings, $rel, 'body', $body, $home, $homeEscaped);
+        self::flag_unrewritten_url_query_ref($findings, $rel, 'body', $body);
 
         // (c) unregistered_block_attr / (e) shortcode findings — block/
         // shortcode content only (verbatim bodies, e.g. acf-field, aren't
@@ -502,8 +518,9 @@ final class Lint {
             return;
         }
 
-        // (b) escaped_home
+        // (b) escaped_home / unrewritten_url_query_ref
         self::flag_escaped_home($findings, $rel, 'description', $desc, $home, $homeEscaped);
+        self::flag_unrewritten_url_query_ref($findings, $rel, 'description', $desc);
 
         // (d) serialized_desc_ids — PHP-serialized data with NO declared
         // description_refs rewrite path (Polylang's post_translations/
@@ -573,9 +590,10 @@ final class Lint {
             }
         }
 
-        // (b) escaped_home
+        // (b) escaped_home / unrewritten_url_query_ref
         self::walk_strings($options, 'options', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
+            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
         });
     }
 
@@ -661,13 +679,15 @@ final class Lint {
             }
         }
 
-        // (b) escaped_home — columns and the attached-meta sidecar
+        // (b) escaped_home / unrewritten_url_query_ref — columns and the attached-meta sidecar
         $meta = (array) ($front['meta'] ?? []);
         self::walk_strings($columns, 'columns', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
+            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
         });
         self::walk_strings($meta, 'meta', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
+            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
         });
 
         // (c) the attached-meta sidecar's own id-shaped-key check
@@ -687,6 +707,49 @@ final class Lint {
             . "Elementor's _elementor_data corruption shape.",
             $home
         ));
+    }
+
+    /**
+     * DUO-3260: a `?p=`/`?page_id=`/`?attachment_id=` query-string
+     * parameter (WordPress's own internal-link id scheme, confirmed by
+     * reading wp-includes/canonical.php's redirect_canonical() directly —
+     * NOT `?page=`, WordPress's own separate pagination var) still
+     * holding a raw digit in captured state. Deliberately NOT anchored to
+     * this environment's {{home}}/home URL the way Tokens::tokenize_url_
+     * query_refs()'s own REWRITE is (that anchor exists there for
+     * SAFETY — never touch an external URL's own unrelated `?p=`) — this
+     * is a lint SIGNAL, not a rewrite, and this file's own established
+     * philosophy throughout (bare_id, escaped_home, every other class
+     * here) is a wide net with an honest caveat, not narrow precision;
+     * narrow precision is the rewrite mechanism's job. Fires regardless
+     * of whether the id currently resolves to a live entity, matching
+     * every other unrewritten-ref finding's own posture. A genuine false
+     * positive here (a third-party URL that happens to use the same
+     * common parameter name) is exactly the caveat the note states,
+     * mirroring bare_id's own "small ids coincide" framing — not
+     * something this method tries to rule out structurally.
+     */
+    private static function flag_unrewritten_url_query_ref(array &$findings, string $rel, string $locator, string $s): void {
+        if ($s === '' || (!str_contains($s, '?') && !str_contains($s, '&'))) {
+            return;
+        }
+        if (!preg_match_all('/[?&](p|page_id|attachment_id)=(\d+)/', $s, $matches, PREG_SET_ORDER)) {
+            return;
+        }
+        foreach ($matches as $i => $m) {
+            $id = (int) $m[2];
+            $hit = Pending::resolve_id($id);
+            $findings[] = self::finding('unrewritten_url_query_ref', $rel, $locator . "[url_query:$i]", $id, $hit, sprintf(
+                "a '%s=%d' query-string parameter is still a raw numeric id in captured state — WordPress's own "
+                . 'redirect_canonical() resolves this parameter to a real post regardless of post_type. This is '
+                . 'either a genuinely external URL that happens to share this common parameter name (small ids '
+                . 'coincide; this is a signal to investigate, not proof), a purely relative internal link '
+                . "(tokenize_text()'s {{home}}-anchored rewrite cannot reach a URL with no scheme/host at all — the "
+                . 'same pre-existing limitation plain permalink tokenization already has), or a declared rewrite '
+                . 'that silently did not run.',
+                $m[1], $id
+            ));
+        }
     }
 
     /**
