@@ -186,6 +186,72 @@ EOF
   pass "byte-identical recapture at acf $ACF_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
 done
 
+# Team-lead's own requirement: the loop above proves every IN-RANGE boundary
+# certifies — it does not by itself prove the pin is honest, i.e. that an
+# OUT-OF-range version is actually refused rather than silently accepted.
+# Both properties together are what "the matrix proves the pins honest, not
+# just the plugin functional" means. Deploy::code_mismatch()
+# (agent/src/Deploy.php) is the real enforcement: it reads the ACTUALLY-
+# installed plugin version via WordPress's own get_plugins(), compares it
+# against the manifest's declared version_range, and — triggered by both
+# `wp duo deploy` and `wp duo apply` — throws an 'outside_version_range'
+# finding naming the plugin, its installed version, and the declared range,
+# unless --force-code-mismatch is passed. This only needs `duo deploy`
+# (code-only reconciliation), not a full capture/apply round-trip — the
+# refusal fires before any target mutation is attempted.
+say "negative control: acf 5.12.6 (real wp.org release, genuinely below manifests/acf.json's own declared min 6.0.0) must be REFUSED, not silently accepted"
+reset_env wp1
+rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
+git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
+mkdir -p "siterepo/${PAIR}1"
+
+OUT_OF_RANGE_ARTIFACT=$(fetch_artifact advanced-custom-fields 5.12.6 cli1)
+wp1 plugin install "$OUT_OF_RANGE_ARTIFACT" --activate >/dev/null
+INSTALLED_OOR=$(wp1 plugin get advanced-custom-fields --field=version)
+[ "$INSTALLED_OOR" = "5.12.6" ] || fail "negative control: expected acf 5.12.6 installed, got $INSTALLED_OOR"
+
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "acf"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment", "acf-field-group", "acf-field"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 1
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: acf negative-control pin, out-of-range plugin installed"
+"${GIT1[@]}" push -qu origin main
+
+# `duo deploy` compiles the repository before it ever reaches code_mismatch()
+# and refuses loudly if state/ doesn't exist yet ([state_directory_missing])
+# — found live on this section's own first attempt. A real capture (harmless
+# with the out-of-range plugin installed: capture itself never checks
+# version_range, only deploy/apply do — confirmed by direct read of
+# Deploy::code_mismatch()'s own call sites) produces a valid state/ tree
+# cheaply, with zero ACF-specific content since nothing has been seeded.
+wp1 duo capture --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: empty state, acf 5.12.6 still installed"
+"${GIT1[@]}" push -q origin main
+
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse acf 5.12.6 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
+echo "$DEPLOY_OUT" | grep -q "outside_version_range\|outside the '.*' manifest's declared version_range" \
+  || fail "deploy refused, but not for the expected outside_version_range reason (got: $DEPLOY_OUT)"
+echo "$DEPLOY_OUT" | grep -q "advanced-custom-fields/acf.php" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
+echo "$DEPLOY_OUT" | grep -q "5.12.6" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
+pass "confirmed: acf 5.12.6 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
+
 say "cleanup"
 bash bin/pair.sh destroy "$PAIR"
 pass "destroyed vmatrix (every assertion above passed)"
