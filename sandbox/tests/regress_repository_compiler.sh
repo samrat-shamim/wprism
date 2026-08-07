@@ -155,6 +155,14 @@ function compile_repo(string $repo): CompiledRepository {
     return RepositoryCompiler::compile($repo, $policy);
 }
 
+// DUO-3287: the lenient counterpart — see RepositoryCompiler.php's own
+// $completenessOptional docblock. Same tree, same policy, only the
+// "every required option name needs some record" check differs.
+function compile_repo_for_diff(string $repo): CompiledRepository {
+    $policy = Policy::load($repo);
+    return RepositoryCompiler::compile_for_diff($repo, $policy);
+}
+
 function failure(string $repo): array {
     try { compile_repo($repo); }
     catch (RepositoryCompilationException $e) { return $e->payload(); }
@@ -380,6 +388,44 @@ $missingRows = array_values(array_filter(
 ));
 if (!$missingRows) fail('missing exact authored option record did not identify records.blogdescription');
 ok('removing an exact authored record is invalid, never implicit deletion intent');
+
+// DUO-3287: the SAME missing-record fixture, compiled via
+// compile_for_diff() instead of compile() -- must NOT raise
+// schema_content_mismatch for the missing name. This is the exact
+// distinction the fix draws: compile() (Apply/Deploy/Cli's verify
+// command/RepositoryAuthorization/IdentityBackup -- about to ACT on this
+// tree under the current policy) still refuses; compile_for_diff()
+// (Capture::run()'s previous-revision read, Capture::snapshot()'s
+// drift-check fallback -- reading a historical/comparison revision that
+// may predate a manifest being added to site.duo.json) does not. Live-
+// reproduced: `wp duo capture`/`wp duo plan` both refused with 13-17
+// schema_content_mismatch diagnostics the moment a manifest was added to
+// an already-captured site, deterministically, until this fix.
+$compiledLenient = compile_repo_for_diff($missingOption);
+$lenientHasMissingRecord = false;
+// compile_for_diff() throws nothing on success, so there is no diagnostics
+// payload to inspect the way failure()/needs() do above -- a clean, typed
+// CompiledRepository means the check passed. If it threw, this next line
+// never runs and the uncaught RepositoryCompilationException fails the
+// whole script exactly like any other unexpected exception here would.
+if (!($compiledLenient instanceof CompiledRepository)) {
+    fail('compile_for_diff() did not return a CompiledRepository for a tree missing only a required-record entry');
+}
+ok('compile_for_diff() tolerates a missing required-exact-option record (a revision captured under an older, narrower policy) -- exactly the DUO-3287 fix, and compile() above still refuses the identical tree, so the distinction is real, not a global weakening');
+
+// Genuine corruption must still refuse under compile_for_diff() too --
+// $completenessOptional narrows ONE specific check, not "anything goes."
+// Reuse the malformed-entity fixture from the schema-v2 term-file case
+// above's sibling pattern: corrupt the SAME options file's JSON itself.
+$corruptOptions = "$tmp/corrupt-options-lenient"; build_valid($corruptOptions);
+put("$corruptOptions/state/options/core.json", '{not valid json');
+try {
+    RepositoryCompiler::compile_for_diff($corruptOptions, Policy::load($corruptOptions));
+    fail('compile_for_diff() must still refuse a genuinely malformed options file');
+} catch (RepositoryCompilationException $e) {
+    needs($e->payload(), 'malformed_entity');
+}
+ok('compile_for_diff() still refuses genuine corruption (malformed JSON) -- the leniency is scoped to exactly one check, not a bypass of this class');
 
 $media = "$tmp/media"; $m = build_valid($media);
 $front = post_front(uuid(30), 'attachment', 'second-photo');
