@@ -1,5 +1,5 @@
 {
-  "spec_version": 1,
+  "spec_version": 2,
   "name": "elementor",
   "option_autoload": "preserve",
   "plugin": "elementor/elementor.php",

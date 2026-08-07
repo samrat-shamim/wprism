@@ -49,7 +49,7 @@ cp ../manifests/core.json "$R1/test-manifests/core.json"
 cat > "$R1/test-manifests/option-matrix.json" <<'JSON'
 {
   "name": "option-matrix",
-  "spec_version": 1,
+  "spec_version": 2,
   "option_autoload": "preserve",
   "option_namespaces": [{"match": "^duo_matrix_dynamic_"}],
   "option_patterns": [{"match": "^duo_matrix_dynamic_[0-9]+$", "class": "authored"}],
@@ -74,7 +74,7 @@ cat > "$R1/site.duo.json" <<'JSON'
     "post_types": ["post", "page", "attachment"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 JSON
 cp site-repo.gitignore.template "$R1/.gitignore"

@@ -23,7 +23,7 @@ cp ../manifests/core.json "$HOST_REPO/manifests/core.json"
 cat > "$HOST_REPO/manifests/discovery-fixture.json" <<'JSON'
 {
   "name": "discovery-fixture",
-  "spec_version": 1,
+  "spec_version": 2,
   "option_autoload": "preserve",
   "option_namespaces": [{"match": "^duo_discovery_"}],
   "option_patterns": [
@@ -85,7 +85,7 @@ cat > "$HOST_REPO/site.duo.json" <<'JSON'
       "taxonomy": {"post_tag": {"class": "runtime"}}
     }
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 JSON
 

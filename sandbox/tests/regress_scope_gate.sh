@@ -29,7 +29,7 @@ jq -n '{
     post_types: ["post", "page", "attachment"],
     taxonomies: ["category", "post_tag"]
   },
-  spec_version: 1
+  spec_version: 2
 }' > "$HOST_REPO/site.duo.json"
 
 cp tests/fixtures/scope_gate_register.php "$HOST_REPO/register.php"

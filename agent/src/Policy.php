@@ -921,7 +921,7 @@ final class Policy {
      * runtime/env/derived decisions explicitly keep a key target-local, and
      * interpreters can make those decisions from the owning user's complete
      * meta map. `authored`, however, cannot become an inert declaration —
-     * spec v1 deliberately has no user entity or user-meta sidecar. Capture
+     * spec v2 deliberately has no user entity or user-meta sidecar. Capture
      * asks this guard about every live user-meta key and folds any returned
      * reason into its ordinary aggregate loud gate, so the unsupported shape
      * refuses by name until DUO-3268 defines representation, identity,
@@ -930,7 +930,7 @@ final class Policy {
     public function user_meta_capture_blocker(string $key, array $allMeta): ?string {
         $rule = $this->meta_rule_for_user($key, $allMeta);
         if (($rule['class'] ?? '') === 'authored') {
-            return 'authored is unsupported by the v1 repository schema; capture is blocked pending DUO-3268';
+            return 'authored is unsupported by the v2 repository schema; capture is blocked pending DUO-3268';
         }
         return null;
     }
@@ -971,6 +971,29 @@ final class Policy {
             return ['rule' => $rule, 'source' => "interpreter $name"];
         }
         return $this->post_meta_rule_details($key);
+    }
+
+    /** @return array{rule:?array, source:?string} */
+    public function meta_rule_details_for_term(string $key, array $allMeta): array {
+        foreach ($this->interpreters() as $name => $i) {
+            if (!method_exists($i, 'term_meta_rule')) {
+                continue;
+            }
+            $rule = $i->term_meta_rule($key, $allMeta);
+            if ($rule === null) {
+                continue;
+            }
+            foreach ($this->manifests as $m) {
+                if (($m['interpreter'] ?? null) === $name) {
+                    return [
+                        'rule' => $rule,
+                        'source' => (string) ($m['name'] ?? '?') . " (interpreter $name)",
+                    ];
+                }
+            }
+            return ['rule' => $rule, 'source' => "interpreter $name"];
+        }
+        return $this->rule_details('term_meta', $key);
     }
 
     /**
@@ -1107,7 +1130,7 @@ final class Policy {
     /**
      * DUO-3234 — a post type's derived-table hard-dependency declaration, if
      * any: `{"regenerator": "<name>", "verify": {"table": "<t>", "column": "<c>"}}`.
-     * v1 scope, stated loudly: post_types{}-keyed only (a per-post-type
+     * v2 scope, stated loudly: post_types{}-keyed only (a per-post-type
      * property, matching the phase/fields precedents immediately above and
      * below — never a `tables{}` declaration, since the derived table itself
      * has no independent identity to declare; see agent/src/Snapshot.php's
@@ -1131,7 +1154,7 @@ final class Policy {
     }
 
     /**
-     * v1-supported post FIELD classification surface (task #88). A field
+     * v2-supported post FIELD classification surface (task #88). A field
      * name must appear here before ANY manifest may declare it under
      * `post_types.<type>.fields.<field>` — validate_field_classes() below
      * enforces this at load() time, loudly, rather than silently ignoring
@@ -1211,7 +1234,7 @@ final class Policy {
     }
 
     /**
-     * v1-supported MENU FIELD classification surface (DUO-3272) — same
+     * v2-supported MENU FIELD classification surface (DUO-3272) — same
      * purpose as DERIVABLE_FIELDS above (task #88), but for `menus/*.json`
      * entities: a field name must appear here before ANY manifest may
      * declare it under top-level `menu_fields.<field>` —
@@ -1289,7 +1312,7 @@ final class Policy {
      * field, or an unsupported class for a supported field, fails EVERY
      * command that loads this manifest (capture/plan/apply/lint/pending),
      * not just the specific post_type/field it misdeclares — task #88's
-     * "start v1 scope tight" instruction, enforced structurally rather than
+     * "start scope tight" instruction, enforced structurally rather than
      * left as a convention. Called from load() for every manifest, so a
      * bad declaration can never reach field_class()'s per-post lookup.
      */
@@ -1300,7 +1323,7 @@ final class Policy {
                 if (!in_array($field, self::DERIVABLE_FIELDS, true)) {
                     throw new \RuntimeException(
                         "duo: manifest '$name' declares post_types.$postType.fields.$field, but only "
-                        . implode(', ', self::DERIVABLE_FIELDS) . ' may be field-classified in v1 (task #88 '
+                        . implode(', ', self::DERIVABLE_FIELDS) . ' may be field-classified in v2 (task #88 '
                         . 'scoped this deliberately tight — see Policy::DERIVABLE_FIELDS\' docblock)'
                     );
                 }
@@ -1309,7 +1332,7 @@ final class Policy {
                     throw new \RuntimeException(
                         "duo: manifest '$name' declares post_types.$postType.fields.$field.class="
                         . var_export($class, true) . ' but only ' . implode(', ', self::FIELD_CLASSES)
-                        . ' is supported for post fields in v1'
+                        . ' is supported for post fields in v2'
                     );
                 }
             }
@@ -1338,7 +1361,7 @@ final class Policy {
             if (!in_array($field, self::MENU_DERIVABLE_FIELDS, true)) {
                 throw new \RuntimeException(
                     "duo: manifest '$name' declares menu_fields.$field, but only "
-                    . implode(', ', self::MENU_DERIVABLE_FIELDS) . ' may be field-classified in v1 (DUO-3272 '
+                    . implode(', ', self::MENU_DERIVABLE_FIELDS) . ' may be field-classified in v2 (DUO-3272 '
                     . 'scoped this deliberately tight, mirroring task #88 — see Policy::MENU_DERIVABLE_FIELDS\' docblock)'
                 );
             }
@@ -1347,7 +1370,7 @@ final class Policy {
                 throw new \RuntimeException(
                     "duo: manifest '$name' declares menu_fields.$field.class="
                     . var_export($class, true) . ' but only ' . implode(', ', self::MENU_FIELD_CLASSES)
-                    . ' is supported for menu fields in v1'
+                    . ' is supported for menu fields in v2'
                 );
             }
         }
@@ -1461,7 +1484,7 @@ final class Policy {
      * Deliberately narrow, matching env_options()'s own scope: only
      * top-level `options.<name>.class === "env"` rules. A `sub_keys`
      * entry's OWN class (DUO-3233's per-sub-key carve-out) is out of
-     * v1 scope for the identical reason post_meta/term_meta env values
+     * v2 scope for the identical reason post_meta/term_meta env values
      * are (see env_options()'s docblock) — no shipped manifest declares
      * one today (confirmed empirically, not assumed), so this is a named
      * scope cut, not an oversight.
@@ -1496,7 +1519,7 @@ final class Policy {
      * to write to any option name NOT in this map (never an arbitrary
      * option, only a manifest-declared env-classified one).
      *
-     * Scope: OPTIONS ONLY for v1, deliberately. post_meta/term_meta
+     * Scope: OPTIONS ONLY for v2, deliberately. post_meta/term_meta
      * classification can be interpreter-driven (Policy::meta_rule_for_post()
      * dispatches to schema-driven code reading a SPECIFIC post's whole
      * meta map — Policy.php's own interpreter contract docblock at the top
@@ -1537,7 +1560,7 @@ final class Policy {
      * Apply::build_plan() turns each entry into a plain plan warning.
      *
      * Deliberately narrow, matching the ruling's own scope: options only
-     * (mirrors env_options()'s identical "options only for v1" cut — no
+     * (mirrors env_options()'s identical "options only for v2" cut — no
      * shipped manifest reclassifies a core post_meta/term_meta/table key
      * today), and core-vs-PLUGIN-MANIFEST only — a site.duo.json override
      * of a core option is the operator's own explicit, already-visible
@@ -1842,7 +1865,7 @@ final class Policy {
      * precedence this issue's own non-negotiable constraint forbids
      * ("Manifest precedence cannot depend on load order").
      *
-     * v1 has NO composition/override escape hatch (no "supersedes" field
+     * v2 has NO composition/override escape hatch (no "supersedes" field
      * or similar): every manifest pinned by every real site in this
      * project models a DISTINCT plugin or theme today, so there is no
      * genuine case requiring two manifests to legitimately co-declare the
@@ -1874,7 +1897,7 @@ final class Policy {
                         throw new \RuntimeException(
                             "duo: manifests '{$prev['name']}' and '$name' both declare $idKey '$id' with "
                             . "different $rangeKey values (" . json_encode($prev['range']) . ' vs '
-                            . json_encode($range) . ') — conflicting ownership with no v1 composition rule; '
+                            . json_encode($range) . ') — conflicting ownership with no v2 composition rule; '
                             . 'pin only one, or narrow one range to a disjoint window'
                         );
                     }

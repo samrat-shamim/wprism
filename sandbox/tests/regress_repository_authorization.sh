@@ -31,7 +31,7 @@ jq -n '{
     post_types: ["post", "page", "attachment", "product"],
     taxonomies: ["category", "post_tag", "product_cat", "product_type"]
   },
-  spec_version: 1
+  spec_version: 2
 }' > "$HOST_REPO/site.duo.json"
 
 # active_plugins is intentionally valid managed state. The other four keys

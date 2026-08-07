@@ -212,7 +212,7 @@ cat > siterepo/g1/site.duo.json <<EOF
     "post_types": ["post", "page", "attachment"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 cp site-repo.gitignore.template siterepo/g1/.gitignore

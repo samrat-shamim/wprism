@@ -49,3 +49,15 @@ IFS='|' read -r _ VAR_COUNT VARIATION_TOTAL PURCHASABLE <<< "$API_OUT"
 [ "$PURCHASABLE" = "yes" ] || fail "conf2 has no purchasable variation at all (got: $API_OUT) -- _manage_stock/_stock_status/_regular_price did not round-trip correctly per variation"
 
 pass "conf2 resolves both attribute taxonomies + the variable product's variations via WooCommerce's own APIs, zero manual pre-provisioning, at least one variation purchasable"
+
+TERM_META_OUT=$($COMPOSE run --rm -T cli2 wp eval '
+$term = get_term_by("slug", "conformance-widgets", "product_cat");
+$id = $term ? (int) get_term_meta($term->term_id, "thumbnail_id", true) : 0;
+$attachment = $id ? get_post($id) : null;
+$file = $id ? get_attached_file($id) : "";
+echo ($term ? "term" : "missing-term") . "|$id|" . ($attachment ? $attachment->post_type : "missing") . "|" . (($file && is_file($file)) ? "file" : "missing-file");
+' 2>&1 | tail -1)
+echo "conf2 product-category thumbnail check: $TERM_META_OUT"
+echo "$TERM_META_OUT" | grep -Eq '^term\|[1-9][0-9]*\|attachment\|file$' \
+  || fail "conf2 product_cat thumbnail_id did not resolve to a local attachment with a real media file (got: $TERM_META_OUT)"
+pass "conf2 product_cat thumbnail_id resolves through termmeta to its own local attachment and media file"

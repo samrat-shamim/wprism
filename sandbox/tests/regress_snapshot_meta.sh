@@ -159,7 +159,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
     "post_types": [],
     "taxonomies": []
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
@@ -299,7 +299,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
       }
     }
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 wp1 duo capture --repo=/siterepo

@@ -209,7 +209,7 @@ cat > siterepo/r1a1/site.duo.json <<'EOF'
     "post_types": ["post", "page", "attachment", "wpcf7_contact_form"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 cp site-repo.gitignore.template siterepo/r1a1/.gitignore

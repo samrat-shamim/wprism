@@ -322,7 +322,7 @@ final class Apply {
         // an operator the truth about what a freshly-materialized
         // environment still needs, per manifest-declared class:"env"
         // options only — see Policy::env_options()'s own docblock for why
-        // meta/sub_keys env values are out of v1 scope). "Missing" means
+        // meta/sub_keys env values are out of v2 scope). "Missing" means
         // the option row is absent or an empty string on THIS environment
         // — a per-environment self-check, not a cross-environment diff
         // (env values are never captured, so the repo has no record of
@@ -1069,7 +1069,7 @@ final class Apply {
         // canonical reader used by plan/capture and prove that every entity
         // in the immutable compiled tree landed byte-semantically (same
         // type + canonical hash). Target-only entities are deliberately not
-        // failures: absence is not deletion authority in v1. When deletes
+        // failures: absence is not deletion authority in v2. When deletes
         // were explicitly requested, every compiled tombstone IS authority,
         // so its uuid must now be absent. Any mismatch throws before the
         // ledger transaction below, retaining apply_in_progress and every
@@ -1446,6 +1446,7 @@ final class Apply {
             'description' => $this->encode_description($front['taxonomy'], $front['description']),
             'parent' => $parentId,
         ], ['term_id' => $termId, 'taxonomy' => $front['taxonomy']], null, null, 'apply update term taxonomy');
+        $this->reconcile_authored_term_meta($termId, (array) ($front['meta'] ?? []));
         $this->reconcile_term_relationships($termId, $front['taxonomy'], (array) ($front['relationships'] ?? []));
     }
 
@@ -1564,7 +1565,7 @@ final class Apply {
             'post_mime_type' => $front['mime'] ?? '',
         ];
         // Post-FIELD classification (task #88): a field this post_type
-        // classifies 'derived' (v1 scope: product_variation's title —
+        // classifies 'derived' (v2 scope: product_variation's title —
         // WooCommerce's own hook-free self-heal, #72's root cause) is
         // dropped from this UPDATE entirely rather than overwritten with
         // the captured byte string, once the row already exists.
@@ -2189,6 +2190,46 @@ final class Apply {
         }
         foreach ($desired as $key => $val) {
             $this->upsert_meta($wpdb->postmeta, 'post_id', $id, $key, $val);
+        }
+    }
+
+    /**
+     * Termmeta counterpart of reconcile_authored_meta(). Only keys the
+     * current policy still classifies authored are deletion-owned; every
+     * undeclared/runtime/env/derived target row remains byte-untouched.
+     */
+    private function reconcile_authored_term_meta(int $termId, array $frontMeta): void {
+        global $wpdb;
+        $desired = [];
+        foreach ($frontMeta as $key => $value) {
+            $rule = $this->policy->meta_rule_for_term((string) $key, $frontMeta) ?? [];
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                $value = $this->tokens->struct_apply($value, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+                $value = $this->encode_structured($value, $rule);
+            } elseif (!empty($rule['ref'])) {
+                $value = $this->tokens->meta_tokens_to_value($value, $rule);
+            } elseif (is_string($value)) {
+                $value = $this->tokens->detokenize_text($value);
+            }
+            $desired[(string) $key] = maybe_serialize($value);
+        }
+
+        $envMeta = $wpdb->get_results($wpdb->prepare(
+            "SELECT meta_id, meta_key, meta_value FROM {$wpdb->termmeta} WHERE term_id = %d ORDER BY meta_id ASC",
+            $termId
+        ), ARRAY_A) ?: [];
+        $envFlat = [];
+        foreach ($envMeta as $row) {
+            $envFlat[$row['meta_key']] ??= $row['meta_value'];
+        }
+        foreach ($envMeta as $row) {
+            $rule = $this->policy->meta_rule_for_term($row['meta_key'], $envFlat);
+            if (($rule['class'] ?? '') === 'authored' && !array_key_exists($row['meta_key'], $desired)) {
+                Db::delete($wpdb->termmeta, ['meta_id' => $row['meta_id']], null, 'apply delete authored term meta');
+            }
+        }
+        foreach ($desired as $key => $value) {
+            $this->upsert_meta($wpdb->termmeta, 'term_id', $termId, $key, $value, 'apply authored term meta');
         }
     }
 

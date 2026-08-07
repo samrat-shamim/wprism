@@ -203,7 +203,7 @@ cat > siterepo/r1b1/site.duo.json <<'EOF'
     "post_types": ["post", "page", "attachment", "product", "shop_coupon"],
     "taxonomies": ["category", "post_tag", "product_cat", "product_tag", "product_type"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 cp site-repo.gitignore.template siterepo/r1b1/.gitignore

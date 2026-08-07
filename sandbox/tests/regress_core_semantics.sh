@@ -30,7 +30,7 @@ for side in 1 2; do
     "post_types": ["post", "page", "attachment"],
     "taxonomies": ["category", "post_tag", "duo_ordered"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 JSON
 done

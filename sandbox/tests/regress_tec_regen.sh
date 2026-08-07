@@ -161,7 +161,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
     "post_types": ["post", "page", "attachment", "tribe_events"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"

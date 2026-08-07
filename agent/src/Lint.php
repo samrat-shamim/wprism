@@ -482,6 +482,27 @@ final class Lint {
         $front = Canon::decode(Canon::read_file($stateDir . '/' . $rel));
         $desc = $front['description'] ?? '';
         $taxonomy = (string) ($front['taxonomy'] ?? '');
+        $meta = (array) ($front['meta'] ?? []);
+
+        foreach ($meta as $key => $value) {
+            $rule = $policy->meta_rule_for_term((string) $key, $meta);
+            if (isset($rule['ref']) || !empty($rule['lint_ok'])) {
+                continue;
+            }
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                self::scan_structured_bare_ids($value, $rel, 'meta.' . $key, $findings);
+                continue;
+            }
+            foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
+                $hit = Pending::resolve_id($id);
+                if ($hit !== null) {
+                    $findings[] = self::finding('bare_id', $rel, 'meta.' . $key . $locSuffix, $id, $hit, self::bare_id_note($hit));
+                }
+            }
+        }
+        self::walk_strings($meta, 'meta', function (string $path, string $value) use (&$findings, $rel, $home, $homeEscaped) {
+            self::flag_escaped_home($findings, $rel, $path, $value, $home, $homeEscaped);
+        });
 
         // A taxonomy declaring taxonomies.<tax>.description_refs already
         // has its description rewritten through Tokens::struct_capture()

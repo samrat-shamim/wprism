@@ -1,5 +1,5 @@
 {
-  "spec_version": 1,
+  "spec_version": 2,
   "name": "polylang",
   "option_autoload": "preserve",
   "plugin": "polylang/polylang.php",

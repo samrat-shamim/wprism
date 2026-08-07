@@ -77,7 +77,7 @@ if [ ! -d siterepo/a/.git ]; then
     "post_types": ["post", "page", "attachment"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
   cp site-repo.gitignore.template siterepo/a/.gitignore
