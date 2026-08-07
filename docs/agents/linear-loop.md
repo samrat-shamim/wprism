@@ -181,6 +181,11 @@ branch or edit files before this passes.
    affected manifest **before** opening the PR (PR CI runs the full
    9-manifest matrix as confirmation, not as your first test). Warnings are
    not green: human output, machine output, and exit status must agree.
+   `make regress-offline-all` green is part of this bar too (DUO-3285) —
+   the full offline (no-docker) suite corpus, cheap enough to run every
+   time; a change to `agent/src`/`Policy.php`/a manifest can break a
+   mechanism whose own proof exists but sits outside the specific
+   suite you happened to think to run by name.
 5. Out-of-scope discoveries: report on the issue (or file a new one), never
    fix silently.
 

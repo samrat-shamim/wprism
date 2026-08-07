@@ -12,14 +12,25 @@ on:
   workflow_dispatch:
 
 jobs:
-  code-half-unit:
+  # DUO-3285: was `code-half-unit` (12 suites, the code/state-boundary
+  # slice only). regress-offline-all is a strict superset -- its own first
+  # prerequisite IS code-half-unit -- so this job now also runs the 19
+  # other offline (no-docker) suites that existed but had never run in any
+  # bundle or CI check before this issue: 7 with a Makefile target nobody
+  # had wired into a bundle, 12 with no Makefile target at all. Renamed
+  # rather than kept as a second, redundant job (this repo has no GitHub
+  # branch-protection required-status-check binding to a job id to
+  # preserve -- verified, this repo's tier doesn't support that GitHub
+  # feature at all, so "required" here means "the CI workflow runs it,"
+  # not a hard merge-block).
+  regress-offline-all:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
-      - name: code/state boundary and promotion contracts
-        run: make code-half-unit
+      - name: full offline regress corpus (33 suites, no docker)
+        run: make regress-offline-all
 
   code-half-live-lock:
     runs-on: ubuntu-latest

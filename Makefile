@@ -1,6 +1,14 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff code-half-unit
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff code-half-unit \
+	regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy \
+	regress-env-options-policy regress-export-manifest-roundtrip regress-manifest-reclassification-policy \
+	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
+	regress-term-meta regress-url-query-refs regress-acf-term-options-fields regress-collision \
+	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
+	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
+	regress-snapshot-meta regress-ssh-adopt regress-tec-regen regress-user-meta \
+	regress-option-name-refs-wiring regress-offline-all regress-live-list
 
 up:
 	$(COMPOSE) up -d
@@ -342,6 +350,19 @@ regress-promotion:
 regress-capture-secret-scan:
 	bash sandbox/tests/regress_capture_secret_scan.sh
 
+# DUO-3285: closes a real aliveness gap this issue's own bundle uncovered.
+# Capture::build_options()'s option_name_refs (task #93) consumer loop
+# shipped a real defect (DUO-3286: undefined $liveOptionNames, a warning
+# not a fatal, so capture kept exiting 0 while silently skipping every
+# option_name_refs rule) that no offline suite would have caught -- proven
+# live by reverting the fix locally and watching regress-offline-all stay
+# green. See the script's own header for the full account, including its
+# own self-test (a synthetic corrupted copy must fail this check before
+# the real-file result is trusted, same discipline regress_capture_secret_
+# scan.sh already established).
+regress-option-name-refs-wiring:
+	bash sandbox/tests/regress_option_name_refs_wiring.sh
+
 # DUO-3214(b) / task #123: offline, no docker -- Canon::normalize()'s new
 # OrderPreserved-aware branch, which stops alphabetically resorting a meta
 # value a manifest rule declares "order_preserving": true (manifests/
@@ -364,3 +385,159 @@ regress-promotion-lock:
 # CAPTURE axis.
 regress-capture-concurrency:
 	bash sandbox/tests/regress_capture_concurrency.sh
+
+# DUO-3285: the 25 regress_*.{sh,php} scripts below existed in sandbox/tests/
+# with NO Makefile target at all before this issue -- unreachable via `make`,
+# discoverable only by grepping the directory listing by hand. Surfaced by
+# the same survey that built regress-offline-all/regress-live-list below:
+# every regress_* file was read (not name-guessed) to confirm it and
+# classify it offline vs live. Wired here on the same terms as every other
+# suite in this file, whether or not it ends up folded into a bundle.
+
+# --- offline (no docker/pair.sh -- pure PHP/file-I/O), now in regress-offline-all ---
+regress-block-refs:
+	bash sandbox/tests/regress_block_refs.sh
+
+regress-composite-ref:
+	bash sandbox/tests/regress_composite_ref.sh
+
+regress-doctor-env-values:
+	php sandbox/tests/regress_doctor_env_values.php
+
+regress-dynamic-options-policy:
+	bash sandbox/tests/regress_dynamic_options_policy.sh
+
+regress-env-options-policy:
+	bash sandbox/tests/regress_env_options_policy.sh
+
+regress-export-manifest-roundtrip:
+	bash sandbox/tests/regress_export_manifest_roundtrip.sh
+
+regress-manifest-reclassification-policy:
+	bash sandbox/tests/regress_manifest_reclassification_policy.sh
+
+regress-menu-field-reclassification-policy:
+	bash sandbox/tests/regress_menu_field_reclassification_policy.sh
+
+regress-regen-dependency-policy:
+	bash sandbox/tests/regress_regen_dependency_policy.sh
+
+regress-shortcode-refs:
+	bash sandbox/tests/regress_shortcode_refs.sh
+
+regress-term-meta:
+	php sandbox/tests/regress_term_meta.php
+
+regress-url-query-refs:
+	bash sandbox/tests/regress_url_query_refs.sh
+
+# --- live (docker/pair.sh-dependent), now in regress-live-list ---
+regress-acf-term-options-fields:
+	bash sandbox/tests/regress_acf_term_options_fields.sh
+
+regress-collision:
+	bash sandbox/tests/regress_collision.sh
+
+regress-entity-type-width:
+	bash sandbox/tests/regress_entity_type_width.sh
+
+regress-env-set:
+	bash sandbox/tests/regress_env_set.sh
+
+regress-option-ref-scope:
+	bash sandbox/tests/regress_option_ref_scope.sh
+
+regress-pmpro-composite-ref:
+	bash sandbox/tests/regress_pmpro_composite_ref.sh
+
+regress-repository-authorization:
+	bash sandbox/tests/regress_repository_authorization.sh
+
+regress-repository-compiler-integration:
+	bash sandbox/tests/regress_repository_compiler_integration.sh
+
+regress-scope-gate:
+	bash sandbox/tests/regress_scope_gate.sh
+
+regress-snapshot-meta:
+	bash sandbox/tests/regress_snapshot_meta.sh
+
+regress-ssh-adopt:
+	bash sandbox/tests/regress_ssh_adopt.sh
+
+regress-tec-regen:
+	bash sandbox/tests/regress_tec_regen.sh
+
+regress-user-meta:
+	bash sandbox/tests/regress_user_meta.sh
+
+# DUO-3285: one target bundling every offline (no-docker) regress suite --
+# cheap enough to run at every close-gate, wired into CI as a required check
+# (.github/workflows/conformance.yml). 33 suites: code-half-unit's own 12
+# (already bundled, referenced not repeated), 7 that had a Makefile target
+# but were in no bundle CI ever ran (regress-capture-publish through
+# regress-order-preserving below), the 12 newly-wired offline scripts,
+# regress-option-name-refs-wiring -- a genuinely NEW suite, not merely
+# newly-wired, written closing the real gap this bundle's own first live
+# run surfaced (see that suite's own header) -- and regress-natural-key-
+# rename, DUO-3237's own offline suite, landed on main concurrently with
+# this issue's own survey and folded in here rather than left as a 34th
+# orphan the moment this PR merges. Plain prerequisite list, same idiom
+# as code-half-unit itself -- make's default (non -j) prerequisite order
+# is the listed order, and it stops at the first failure, exactly the
+# fail-fast behavior a required CI gate wants (no point burning minutes
+# on suite 21 when suite 3 already broke). Live suites are deliberately
+# NOT here -- see regress-live-list.
+regress-offline-all: code-half-unit \
+	regress-capture-publish regress-adapter-contract regress-interpreter-policy \
+	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan \
+	regress-order-preserving \
+	regress-block-refs regress-composite-ref regress-doctor-env-values \
+	regress-dynamic-options-policy regress-env-options-policy regress-export-manifest-roundtrip \
+	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
+	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
+	regress-option-name-refs-wiring regress-natural-key-rename
+	@echo "regress-offline-all: 33 offline suites green"
+
+# DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
+# agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
+# own "1 docker core per RUNNING pair" discipline) -- enumerable instead, so
+# a claim touching a mechanism can find its own suite without grepping this
+# file by hand. Prints name + pair/environment requirement per suite; runs
+# nothing. grind-*/certify-* targets are a DIFFERENT, already-governed
+# category (grind-* are whole-scenario exercises with their own docs/grind/
+# reports; certify-* are explicitly excluded from CI by owner decision,
+# commit 1efb6df) and are intentionally not listed here.
+regress-live-list:
+	@echo "regress-* live suites (docker/pair.sh-dependent) -- run individually, own pair each:"
+	@echo ""
+	@echo "  regress-pa-attributes                     pair r3e"
+	@echo "  regress-shipping-zones                    pair r3e"
+	@echo "  regress-code-drift                        pair codedrift 8862/8863"
+	@echo "  regress-option-subkeys                    pair asub3233 8910/8911 (parameterized: PAIR/PORT1/PORT2)"
+	@echo "  regress-option-reconciliation             pair codexmac3211"
+	@echo "  regress-discovery-completeness            pair codexmac3205 8900/8901"
+	@echo "  regress-core-semantics                    pair codexmac3207 8900/8901"
+	@echo "  regress-attachment-portability            pair codexmac3265 8964/8965"
+	@echo "  regress-fatal-mutations                   pair codexmaca3206 9210/..."
+	@echo "  regress-adapter-theme-range               pair asub3222tr 8918/8919"
+	@echo "  regress-menu-item-meta-gate               pair asub3275 8954/8955"
+	@echo "  regress-widgets                           pair awid3278 8960/..."
+	@echo "  regress-promotion                         pair codexmaca3216 8920/... (also runs in CI as code-half-grind's sibling)"
+	@echo "  regress-promotion-lock                    pair codexmac3217 8900/... (runs in CI: code-half-live-lock)"
+	@echo "  regress-capture-concurrency               pair concurrency 8934/... (parameterized: CONCURRENCY_PORT1)"
+	@echo "  regress-acf-term-options-fields           pair asub3263 (parameterized: PAIR/PORT1/PORT2)"
+	@echo "  regress-collision                         legacy docker-compose.yml --profile fx"
+	@echo "  regress-entity-type-width                 pair amergety"
+	@echo "  regress-env-set                           pair asnapenvset"
+	@echo "  regress-option-ref-scope                  legacy docker-compose.yml --profile r1b"
+	@echo "  regress-pmpro-composite-ref               pair asnaprt"
+	@echo "  regress-repository-authorization          pair conf 8806/8807"
+	@echo "  regress-repository-compiler-integration   pair conf 8806/8807"
+	@echo "  regress-scope-gate                        pair codexmac3229 8900/8901"
+	@echo "  regress-snapshot-meta                     pair w1a"
+	@echo "  regress-ssh-adopt                         standalone SSH host, own docker image (NOT pair.sh) -- DUO-3257/DUO-3281"
+	@echo "  regress-tec-regen                         pair asnaptec"
+	@echo "  regress-user-meta                         pair umeta3268 9301/9302"
+	@echo ""
+	@echo "grind-*/certify-* targets are a separate, already-governed category -- not listed here (see this target's own comment in the Makefile)."

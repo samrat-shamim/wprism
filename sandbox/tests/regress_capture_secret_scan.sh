@@ -29,9 +29,10 @@
 # the rebase. This suite's own PHP harness did not and could not have
 # caught it (it never reads Capture.php's call sites at all). The check
 # below closes that specific gap: a plain grep-level scan of Capture.php's
-# source text itself, asserting each of guard_secret()'s three call sites
-# that should be unconditional (post_meta, and both authored-options loops)
-# has no is_string() gate in the two lines immediately before it, and that
+# source text itself, asserting each of guard_secret()'s unconditional call
+# sites (post_meta, both authored-options loops, and user_meta -- DUO-3268's
+# later addition, see DUO-3285's own note below for how this count itself
+# went stale) has no is_string() gate in the two lines immediately before it, and that
 # the one DELIBERATE exception (the sub_keys loop's hand-rolled is_string/
 # hard_match_deep split, documented in its own comment) still has both
 # halves of that split intact. It does not parse PHP or match brace
@@ -45,6 +46,18 @@
 # the site-count assertion) — all four confirmed to fail loudly, and the
 # known-good shape confirmed to pass, before this check was trusted for a
 # real run.
+#
+# DUO-3285: this suite's own count assertion (3 unconditional sites) went
+# silently stale exactly the way this file's own docblock warns about --
+# DUO-3268 ("add authored user meta sidecars") legitimately added a fourth
+# unconditional call site (build_user_meta_row()'s guard_secret('user_meta',
+# ...), Capture.php ~line 2165) months before this issue existed, and
+# nothing ever caught the assertion falling behind because this suite had
+# no Makefile target reachable from any bundle or CI check. First real
+# catch by DUO-3285's own regress-offline-all, discovered by running the
+# bundle for the first time, not by design -- corrected here (4, not 3;
+# the new site is genuinely unconditional and correct, this was always a
+# stale test assumption, never a Capture.php defect).
 #
 # Safe to run anywhere `php`/`bash`/`grep`/`sed` are on PATH; touches no
 # sandbox/siterepo state.
@@ -79,7 +92,7 @@ for entry in "${CALL_LINES[@]}"; do
     UNCONDITIONAL+=("$lineno")
   fi
 done
-[ "${#UNCONDITIONAL[@]}" -eq 3 ] || fail "expected exactly 3 unconditional guard_secret() call sites in Capture.php (post_meta, both authored-options loops), got ${#UNCONDITIONAL[@]}: ${UNCONDITIONAL[*]:-none} — a call site was added or removed; update this check deliberately if that's intended, don't just widen the count"
+[ "${#UNCONDITIONAL[@]}" -eq 4 ] || fail "expected exactly 4 unconditional guard_secret() call sites in Capture.php (post_meta/term_meta, user_meta, both authored-options loops), got ${#UNCONDITIONAL[@]}: ${UNCONDITIONAL[*]:-none} — a call site was added or removed; update this check deliberately if that's intended, don't just widen the count"
 [ "${#EXCEPTION[@]}" -eq 1 ] || fail "expected exactly 1 deliberate sub_keys-shaped exception, got ${#EXCEPTION[@]}: ${EXCEPTION[*]:-none}"
 for lineno in "${UNCONDITIONAL[@]}"; do
   start=$((lineno - 2))
@@ -89,7 +102,7 @@ for lineno in "${UNCONDITIONAL[@]}"; do
     && fail "guard_secret() call at Capture.php:$lineno appears gated by a nearby is_string() check -- this is the exact shape of the DUO-3211-rebase silent reversion (see this script's header); widened deep scanning would silently stop applying to array-shaped values again:
 $window"
 done
-pass "all 3 unconditional call sites (lines ${UNCONDITIONAL[*]}) have no nearby is_string() gate"
+pass "all 4 unconditional call sites (lines ${UNCONDITIONAL[*]}) have no nearby is_string() gate"
 exc_line="${EXCEPTION[0]}"
 prev_line=$(sed -n "$((exc_line - 1))p" "$CAPTURE_SRC")
 echo "$prev_line" | grep -q 'is_string(\$subVal)' \
