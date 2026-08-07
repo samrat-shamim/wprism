@@ -91,7 +91,9 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   `$assoc['json']`; see the comments in `agent/src/Cli.php`) and renders a
   human summary: counts per plan bucket (create/update/adopt/unchanged/
   drift/conflict/collision/delete/code_mismatch/code_drift/incomplete_apply/
-  regen_pending/env_missing), drift paths, blocked-delete reasons,
+  incomplete_lifecycle/regen_pending/env_missing), drift paths, blocked-delete
+  reasons, incomplete_lifecycle recovery receipts (an unresolved pre-hook
+  lifecycle boundary requiring restoration of the exact database checkpoint),
   code_mismatch and code_drift findings (the latter is an installed code
   version/provenance change after Duo's last trusted observation),
   regen_pending entries (a derived table with a hard per-entity
@@ -104,7 +106,10 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   Exit non-zero ("not safe to promote") if the plan contains any
   `conflict`, `collision`, `code_mismatch`, or `code_drift` entry, any
   blocked delete, any ordinary state drift, a retained `incomplete_apply`
-  marker, a `regen_pending` entry, or a **required** `env_missing` entry.
+  marker, an `incomplete_lifecycle` receipt, a `regen_pending` entry, or a
+  **required** `env_missing` entry. An `incomplete_lifecycle` receipt requires
+  restoring the exact pre-lifecycle database checkpoint; force flags cannot
+  bypass it.
   `duo apply` refuses code_drift unless explicitly passed
   `--force-code-drift`; ordinary state drift and regen_pending are two
   different cases apply itself does *not* refuse on (a drifted entity just

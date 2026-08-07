@@ -155,9 +155,10 @@ function compile_repo(string $repo): CompiledRepository {
     return RepositoryCompiler::compile($repo, $policy);
 }
 
-// DUO-3287: the lenient counterpart — see RepositoryCompiler.php's own
-// $completenessOptional docblock. Same tree, same policy, only the
-// "every required option name needs some record" check differs.
+// DUO-3287: the historical-comparison counterpart — see
+// RepositoryCompiler.php's $completenessOptional docblock. Same tree and
+// policy, but current-action-only completeness/lifecycle checks do not make
+// an older revision unreadable.
 function compile_repo_for_diff(string $repo): CompiledRepository {
     $policy = Policy::load($repo);
     return RepositoryCompiler::compile_for_diff($repo, $policy);
@@ -421,7 +422,7 @@ if (!($compiledLenient instanceof CompiledRepository)) {
 ok('compile_for_diff() tolerates a missing required-exact-option record (a revision captured under an older, narrower policy) -- exactly the DUO-3287 fix, and compile() above still refuses the identical tree, so the distinction is real, not a global weakening');
 
 // Genuine corruption must still refuse under compile_for_diff() too --
-// $completenessOptional narrows ONE specific check, not "anything goes."
+// comparison mode relaxes only current-action checks, not "anything goes."
 // Reuse the malformed-entity fixture from the schema-v2 term-file case
 // above's sibling pattern: corrupt the SAME options file's JSON itself.
 $corruptOptions = "$tmp/corrupt-options-lenient"; build_valid($corruptOptions);
@@ -432,7 +433,56 @@ try {
 } catch (RepositoryCompilationException $e) {
     needs($e->payload(), 'malformed_entity');
 }
-ok('compile_for_diff() still refuses genuine corruption (malformed JSON) -- the leniency is scoped to exactly one check, not a bypass of this class');
+ok('compile_for_diff() still refuses genuine corruption (malformed JSON) -- historical leniency is not a bypass of this class');
+
+// Code policy can be added after a repository already has state/. That
+// historical revision has no actionable lifecycle intent for the newly added
+// payload: two records below are explicitly absent and template predates the
+// managed lifecycle record altogether. compile_for_diff() is only reading it
+// for Capture's comparison/deletion basis, so it must still compile the code
+// descriptor but must not apply CodeStateContract's action-only bridge.
+$codeOptInHistory = "$tmp/code-policy-opt-in-history"; build_valid($codeOptInHistory);
+$codeOptInSitePath = "$codeOptInHistory/site.duo.json";
+$codeOptInSite = Canon::decode(file_get_contents($codeOptInSitePath));
+$codeOptInSite['code'] = ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'];
+put($codeOptInSitePath, Canon::encode($codeOptInSite));
+put(
+    "$codeOptInHistory/code/wp-content/plugins/example/example.php",
+    "<?php\n/*\nPlugin Name: Example\n*/\n"
+);
+put("$codeOptInHistory/code/wp-content/themes/example/style.css", "/*\nTheme Name: Example\n*/\n");
+$codeOptInOptionsPath = "$codeOptInHistory/state/options/core.json";
+$codeOptInOptions = Canon::decode(file_get_contents($codeOptInOptionsPath));
+unset($codeOptInOptions['records']['template']);
+put($codeOptInOptionsPath, Canon::encode($codeOptInOptions));
+$codeOptInHistorical = compile_repo_for_diff($codeOptInHistory);
+$codeOptInDescriptor = $codeOptInHistorical->code_descriptor();
+if (!is_array($codeOptInDescriptor) || !is_string($codeOptInDescriptor['code_revision'] ?? null)) {
+    fail('compile_for_diff() did not retain current code descriptor compilation for historical code-policy opt-in');
+}
+ok('compile_for_diff() reads a pre-code historical tree with absent/missing lifecycle records while still compiling the current code descriptor');
+
+// The same repository is not action-ready. Ordinary compile must retain the
+// cross-half refusal rather than inheriting comparison mode's historical
+// leniency.
+$p = failure($codeOptInHistory); needs($p, 'code_state_mismatch');
+ok('compile() still refuses the identical code-enabled historical tree until lifecycle records express explicit intent');
+
+// Capture validates a newly built candidate through compile_staged() before
+// publishing it. A staging directory containing the same ambiguous records
+// must remain strict too; otherwise Capture could publish an actionable state
+// tree which ordinary compile would reject.
+$codeOptInStaging = "$tmp/code-policy-opt-in-history.capture-staging";
+if (!rename("$codeOptInHistory/state", $codeOptInStaging)) {
+    fail('could not create isolated staged historical code-policy fixture');
+}
+try {
+    RepositoryCompiler::compile_staged($codeOptInStaging, $codeOptInHistory, Policy::load($codeOptInHistory));
+    fail('compile_staged() accepted ambiguous lifecycle records for a code-enabled candidate');
+} catch (RepositoryCompilationException $e) {
+    needs($e->payload(), 'code_state_mismatch');
+}
+ok('compile_staged() remains strict for a newly captured code-enabled candidate with absent/missing lifecycle records');
 
 $media = "$tmp/media"; $m = build_valid($media);
 $front = post_front(uuid(30), 'attachment', 'second-photo');
