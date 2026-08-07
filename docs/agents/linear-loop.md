@@ -288,6 +288,18 @@ debugging time. Follow them; extend this list when you pay for a new one.
   issue carried evidence-complete comments and an untouched description).
   At every partial-scope close/return: append `## Scope note` to the
   description itself stating delivered vs deferred, then comment.
+- **Host-side grep alternation is a GNU-ism.** In basic-regex mode,
+  GNU grep treats `\|` as alternation; macOS/BSD grep treats it as a
+  literal `|` — so `grep "a\|b"` searches for the literal string `a|b`
+  and silently never matches. Render checks, log assertions, and
+  anything else running on the HOST shell use BSD grep, while the same
+  pattern inside a Linux container works fine. Observed
+  live: a Ninja Forms render check failed against a healthy 134KB page
+  whose markup was present, costing a full diagnosis cycle. Host-side
+  greps needing alternation MUST use `grep -E "a|b"`. When a render
+  check fails, fetch the page yourself before believing it — and mind
+  redirects: `?page_id=N` 301s under pretty permalinks, so a bare curl
+  without `-L` sees an empty body.
 - **Bring up long-lived/shared pairs from `duo-wp-main`, never from a
   worktree.** `pair.sh up` pins the `../agent` and `../manifests`
   bind-mounts to whatever checkout it was invoked from; per-issue
