@@ -213,6 +213,13 @@ put(
     "$codeRepo/code/wp-content/plugins/example/example.php",
     "<?php\n/*\nPlugin Name: Example\n*/\n"
 );
+put("$codeRepo/code/wp-content/themes/example/style.css", "/*\nTheme Name: Example\n*/\n");
+$codeOptionsPath = "$codeRepo/state/options/core.json";
+$codeOptions = Canon::decode(file_get_contents($codeOptionsPath));
+$codeOptions['records']['active_plugins'] = OptionState::present(['example/example.php'], 'yes');
+$codeOptions['records']['template'] = OptionState::present('example', 'yes');
+$codeOptions['records']['stylesheet'] = OptionState::present('example', 'yes');
+put($codeOptionsPath, Canon::encode($codeOptions));
 $codePolicy = Policy::load($codeRepo);
 $codeArtifact = RepositoryCompiler::compile($codeRepo, $codePolicy);
 $oldPayload = $codeArtifact->export();

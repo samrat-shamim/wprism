@@ -9,12 +9,81 @@ namespace Duo\Orchestrator;
  * The agent owns all filesystem mutation and verification.  The host only
  * creates one immutable compiler artifact, decides whether that artifact
  * declares code materialization, and carries its expected outer hash, exact
- * artifact path, and one promotion owner through stage -> lifecycle deploy -> finalize. Keeping
+ * artifact path, and one promotion owner through stage -> lifecycle retire ->
+ * fresh-process activate -> finalize. Keeping
  * this boundary here is intentional: a Docker/SSH/local target can decide
  * how to materialize its code without the orchestration CLI learning its
  * filesystem layout or reimplementing any agent validation.
  */
 final class CodeDeploy {
+    /**
+     * Load only the out-of-band Duo agent for control-plane commands. A
+     * newly staged regular plugin, theme, or user MU plugin may fatal during
+     * WordPress bootstrap; compile/stage/finalize and exact lease cleanup
+     * must remain available so the next reviewed artifact can repair it.
+     *
+     * WP-CLI evaluates --exec before wp-config.php, so the bootstrap registers
+     * an after_wp_config_load hook instead of guessing the configured layout.
+     * That hook first proves the effective content/MU roots are standard, then
+     * shadows the MU root with a fresh nonexistent directory so user MU code
+     * is never included. DUO_CONTROL_WPMU_PLUGIN_DIR preserves the proven real
+     * materialization target for Code.php, and the protected agent is required
+     * explicitly from that standard installation path.
+     */
+    private const CONTROL_BOOTSTRAP = <<<'PHP'
+$duoWpRoot = (string) (\WP_CLI::get_runner()->config['path'] ?? '');
+if ($duoWpRoot === '') {
+    $duoWpRoot = (string) getcwd();
+}
+$duoResolvedRoot = realpath($duoWpRoot);
+if ($duoResolvedRoot === false) {
+    throw new \RuntimeException('duo: control-plane bootstrap could not resolve the WordPress root');
+}
+$duoWpRoot = rtrim($duoResolvedRoot, '/');
+$duoAgent = $duoWpRoot . '/wp-content/mu-plugins/duo/duo.php';
+if (defined('WPMU_PLUGIN_DIR')) {
+    throw new \RuntimeException('duo: control-plane bootstrap started with WPMU_PLUGIN_DIR already defined');
+}
+\WP_CLI::add_hook('after_wp_config_load', static function () use ($duoWpRoot, $duoAgent): void {
+    $duoNormalize = static function (string $path): string {
+        $resolved = realpath($path);
+        $path = $resolved === false ? $path : $resolved;
+        return rtrim(str_replace('\\', '/', $path), '/');
+    };
+    $duoStandardContent = $duoWpRoot . '/wp-content';
+    $duoConfiguredContent = defined('WP_CONTENT_DIR')
+        ? (string) constant('WP_CONTENT_DIR')
+        : $duoStandardContent;
+    $duoConfiguredMu = defined('WPMU_PLUGIN_DIR')
+        ? (string) constant('WPMU_PLUGIN_DIR')
+        : rtrim($duoConfiguredContent, '/\\') . '/mu-plugins';
+    $duoStandardMu = $duoStandardContent . '/mu-plugins';
+    if (defined('SUNRISE')) {
+        throw new \RuntimeException(
+            'duo: control-plane bootstrap cannot safely isolate a configured SUNRISE loader'
+        );
+    }
+    if ($duoNormalize($duoConfiguredContent) !== $duoNormalize($duoStandardContent)
+        || $duoNormalize($duoConfiguredMu) !== $duoNormalize($duoStandardMu)) {
+        throw new \RuntimeException(
+            "duo: control-plane bootstrap requires standard wp-content/mu-plugins; wp-config.php resolves '$duoConfiguredMu'"
+        );
+    }
+    if (defined('WPMU_PLUGIN_DIR')) {
+        throw new \RuntimeException(
+            'duo: control-plane bootstrap cannot safely isolate an explicit WPMU_PLUGIN_DIR; remove the redundant standard definition or use a supported target layout'
+        );
+    }
+    if (!is_file($duoAgent)) {
+        throw new \RuntimeException("duo: control-plane bootstrap could not find the protected agent at '$duoAgent'");
+    }
+    define('DUO_CONTROL_PLANE', true);
+    define('DUO_CONTROL_WPMU_PLUGIN_DIR', $duoStandardMu);
+    define('WPMU_PLUGIN_DIR', $duoWpRoot . '/wp-content/.duo-control-mu-' . bin2hex(random_bytes(16)));
+    require_once $duoAgent;
+});
+PHP;
+
     /**
      * Compile into a target-visible artifact and decode the agent's JSON
      * response.  `wp duo compile --format=json` is the sole source of truth
@@ -24,9 +93,9 @@ final class CodeDeploy {
      * @return array{exit:int, stdout:string, stderr:string, summary:?array}
      */
     public static function compile(Transport $transport, string $repo, string $artifact): array {
-        $result = $transport->captureWp([
+        $result = $transport->captureWp(self::controlArgs([
             'duo', 'compile', '--repo=' . $repo, '--out=' . $artifact, '--format=json',
-        ]);
+        ]));
         if ($result['exit'] !== 0) {
             return $result + ['summary' => null];
         }
@@ -66,10 +135,10 @@ final class CodeDeploy {
      * @return array<int,string>
      */
     public static function beginArgs(string $owner, string $artifactHash): array {
-        return [
+        return self::controlArgs([
             'duo', 'promotion-begin', '--promotion-owner=' . $owner,
             '--artifact-hash=' . $artifactHash,
-        ];
+        ]);
     }
 
     /**
@@ -79,18 +148,30 @@ final class CodeDeploy {
      * @return array<int,string>
      */
     public static function abortArgs(string $owner, string $artifactHash): array {
-        return [
+        return self::controlArgs([
             'duo', 'promotion-abort', '--promotion-owner=' . $owner,
             '--artifact-hash=' . $artifactHash,
-        ];
+        ]);
+    }
+
+    /**
+     * Recovery imports must remain reachable even when installed user code
+     * fatals during ordinary WordPress bootstrap. Reuse the isolated control
+     * bootstrap so the checkpoint restore cannot load plugins, themes, or the
+     * real user MU directory before replacing the database.
+     *
+     * @return array<int,string>
+     */
+    public static function recoveryDbImportArgs(string $checkpoint): array {
+        return self::controlArgs(['db', 'import', $checkpoint]);
     }
 
     /** @return array<int,string> */
     public static function stageArgs(string $repo, string $artifact, string $owner, string $artifactHash): array {
-        return [
+        return self::controlArgs([
             'duo', 'code-stage', '--repo=' . $repo, '--compiled=' . $artifact,
             '--promotion-owner=' . $owner, '--artifact-hash=' . $artifactHash,
-        ];
+        ]);
     }
 
     /** @return array<int,string> */
@@ -108,7 +189,7 @@ final class CodeDeploy {
         if ($hold) {
             $args[] = '--promotion-hold';
         }
-        return $args;
+        return self::controlArgs($args);
     }
 
     /** @return array<int,string> */
@@ -120,11 +201,16 @@ final class CodeDeploy {
         bool $hold,
         bool $materializingCode,
         bool $stateHandoff,
+        string $lifecyclePhase,
         array $extra = []
     ): array {
+        if (!in_array($lifecyclePhase, ['retire', 'activate'], true)) {
+            throw new \InvalidArgumentException("unsupported lifecycle phase '$lifecyclePhase'");
+        }
         $args = [
             'duo', 'deploy', '--repo=' . $repo, '--compiled=' . $artifact,
             '--promotion-owner=' . $owner, '--artifact-hash=' . $artifactHash,
+            '--lifecycle-phase=' . $lifecyclePhase,
         ];
         if ($hold) {
             $args[] = '--promotion-hold';
@@ -136,5 +222,15 @@ final class CodeDeploy {
             $args[] = '--state-handoff';
         }
         return array_merge($args, $extra);
+    }
+
+    /** @return array<int,string> */
+    public static function controlArgs(array $command): array {
+        $bootstrap = trim(str_replace(["\r", "\n"], ' ', self::CONTROL_BOOTSTRAP));
+        return array_merge([
+            '--exec=' . $bootstrap,
+            '--skip-plugins',
+            '--skip-themes',
+        ], $command);
     }
 }

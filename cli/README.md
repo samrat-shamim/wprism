@@ -166,8 +166,9 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   descriptor/revision; its `artifact_hash` binds both. When that descriptor is
   present, the host carries the one frozen artifact, its expected outer hash,
   and generated owner through
-  `wp duo code-stage` → `wp duo deploy --materializing-code` →
-  `wp duo code-finalize`. It does not interpret descriptor fields or mutate
+  `wp duo code-stage` → fresh-process lifecycle retirement → fresh-process
+  lifecycle activation → `wp duo code-finalize`. It does not interpret
+  descriptor fields or mutate
   files itself — those checks and mutations belong to the target agent. An
   artifact without a code descriptor retains the established lifecycle-only
   deploy path. Stop-on-first-failure and the target command's exit code apply
@@ -184,11 +185,12 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   `.duo/artifacts/`, acquires a target-DB lease bound to that artifact's outer
   `artifact_hash`, then exports the target database into `.duo/checkpoints/`.
   The same generated owner and artifact remain bound throughout. If the
-  artifact declares code, it runs `code-stage` → lifecycle `deploy`
-  (`--materializing-code --state-handoff`) → `code-finalize` before `apply`;
-  otherwise it
-  preserves the legacy deploy → apply path. The lifecycle deploy and
-  code-finalize retain the lease through state apply, which releases it only
+  artifact declares code, it runs `code-stage` → lifecycle retirement →
+  fresh-process lifecycle activation (`--materializing-code --state-handoff`)
+  → `code-finalize` before `apply`;
+  otherwise it runs lifecycle retirement → fresh-process activation → apply
+  without code materialization. The lifecycle phases and code-finalize retain
+  the lease through state apply, which releases it only
   after convergence metadata commits. A concurrent promotion is refused, while
   a crashed owner is recoverable after the bounded expiry. The first skeleton's
   lease row is a 300-second process-handoff window. Each live mutation process
@@ -201,6 +203,19 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   the lease fails closed before code/state mutation rather than reusing an
   unprotected snapshot. The host only sequences the separate halves; it neither interprets the opaque code
   descriptor nor treats `revision_hash` or `code_revision` as the lease key.
+  Each successful retire/activate process—including an explicit no-op—also
+  appends an ordered receipt to that exact owner/artifact session. Code-finalize
+  requires both receipts, so a caller cannot turn a merely staged payload into
+  a completed `code_revision` by skipping WordPress lifecycle.
+
+  Fatal-safe control commands (`compile`, `code-stage`, `code-finalize`, lease
+  begin/abort, and recovery import) register their isolated agent loader at
+  WP-CLI's `after_wp_config_load` boundary. They prove the effective content/MU
+  layout before hiding user MU code. The v0 control plane accepts only the
+  standard `wp-content/mu-plugins` layout with no explicit `WPMU_PLUGIN_DIR` and
+  no `SUNRISE`; those configurations fail during compile before checkpoint or
+  target mutation. Supporting Bedrock/custom content roots requires a future
+  explicit layout/agent-locator contract, not path guessing.
 
   Lifecycle APIs and authored options share the canonical `options/core`
   entity even though they have separate writers. When activation,
@@ -214,6 +229,19 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   equals the recorded post-hook hash. A later target edit invalidates the
   handoff and takes the ordinary conflict path; no force flag is implied.
 
+  The post-hook handoff is not the first receipt. Immediately before any
+  mutating lifecycle API, deploy durably records the entity, phase, and
+  canonical pre-hook hash in the exact `promotion_session`. Successful
+  retirement/activation consumes it atomically with the pending/final handoff.
+  An exception, fatal, timeout, or process loss leaves it unresolved because a
+  hook may already have committed authored state. Apply, lifecycle, code-stage,
+  and code-finalize refuse it, and `promotion-begin` will not let a different
+  owner/artifact overwrite the recovery identity—even on a first sync with no
+  `duo_state` base. `duo status` exposes this as non-zero
+  `INCOMPLETE_LIFECYCLE`. Only the exact original owner/artifact may re-begin
+  for the documented checkpoint import sequence; it cannot continue a
+  materializer, lifecycle, or apply phase while the receipt remains.
+
   It stops on the first non-zero phase and compensates with an exact,
   idempotent lease abort. A failed export is not presented as a usable
   checkpoint. Every successful checkpoint intentionally contains the temporary
@@ -222,7 +250,8 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   lock stored inside the imported database. Recovery first requires external
   maintenance/exclusion for every Duo writer, then four ordered commands:
   exact abort of the old owner/hash (idempotent), re-begin that owner/hash,
-  `wp db import <checkpoint>`, and a final abort of the row restored by the
+  a fatal-safe isolated `wp db import <checkpoint>` which skips plugins,
+  themes, and user MU code, and a final abort of the row restored by the
   import—even when import fails. The first abort refuses if a newer session
   superseded this checkpoint, instead of presenting an obsolete dump as a safe
   recovery source. After a code-enabled failure, first reconcile or

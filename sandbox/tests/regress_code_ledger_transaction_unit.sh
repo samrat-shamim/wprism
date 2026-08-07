@@ -57,6 +57,7 @@ $staged = [
     Code::CODE_STAGE_DESCRIPTOR_KEY => '{"staged":true}',
     Code::CODE_STAGE_ARTIFACT_KEY => str_repeat('b', 64),
     Code::CODE_STAGE_HISTORY_KEY => '[{"history":true}]',
+    Code::CODE_STAGE_CREATED_PATHS_KEY => '["mu-plugins/staged.php"]',
     Code::CODE_STAGE_REVISION_KEY => $revision,
     Code::CODE_DESCRIPTOR_KEY => '{"proof":"prior completed descriptor"}',
     Code::CODE_REVISION_KEY => str_repeat('c', 64),
@@ -74,7 +75,7 @@ $reset = static function () use ($staged): void {
     Db::$failCommit = false;
 };
 
-for ($failure = 1; $failure <= 6; $failure++) {
+for ($failure = 1; $failure <= 7; $failure++) {
     $reset();
     Ledger::$failAt = $failure;
     try {
@@ -110,6 +111,7 @@ foreach ([
     Code::CODE_STAGE_DESCRIPTOR_KEY,
     Code::CODE_STAGE_ARTIFACT_KEY,
     Code::CODE_STAGE_HISTORY_KEY,
+    Code::CODE_STAGE_CREATED_PATHS_KEY,
     Code::CODE_STAGE_REVISION_KEY,
 ] as $temporary) {
     if (array_key_exists($temporary, Ledger::$rows)) {

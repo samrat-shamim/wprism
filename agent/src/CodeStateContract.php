@@ -37,6 +37,7 @@ final class CodeStateContract {
 
     /** @param array<string,mixed> $requirements @param array<string,mixed> $descriptor */
     private static function validate_requirements(array $requirements, array $descriptor): void {
+        self::assert_explicit_lifecycle_intent($requirements);
         $availablePlugins = [];
         foreach ($descriptor['plugin_main_files'] ?? [] as $row) {
             if (is_array($row) && is_string($row['basename'] ?? null)) {
@@ -61,6 +62,62 @@ final class CodeStateContract {
                 );
             }
         }
+        if (isset($requirements['stylesheet'], $requirements['template'])) {
+            $stylesheet = $requirements['stylesheet'];
+            $template = $requirements['template'];
+            if (!array_key_exists('theme_templates', $descriptor)) {
+                if ($stylesheet !== $template) {
+                    throw new \RuntimeException(
+                        "duo: code-stage refused — canonical child stylesheet '$stylesheet' requires Template header "
+                        . "'$template', but this frozen legacy code descriptor has no theme_templates relation; recompile the artifact"
+                    );
+                }
+                return;
+            }
+            $declared = $descriptor['theme_templates'][$stylesheet] ?? null;
+            $expected = $stylesheet === $template ? null : $template;
+            if ($declared !== $expected) {
+                $actual = $declared === null
+                    ? 'no Template header'
+                    : "Template header '$declared'";
+                if ($expected === null) {
+                    throw new \RuntimeException(
+                        "duo: code-stage refused — canonical standalone stylesheet '$stylesheet' requires no Template header, "
+                        . "but code/wp-content/themes/$stylesheet/style.css declares $actual"
+                    );
+                }
+                throw new \RuntimeException(
+                    "duo: code-stage refused — canonical child stylesheet '$stylesheet' requires Template header "
+                    . "'$expected', but code/wp-content/themes/$stylesheet/style.css declares $actual"
+                );
+            }
+        }
+    }
+
+    /**
+     * A code descriptor has removal authority at finalize.  The compiler
+     * cannot inspect a target or its historical descriptors, so it must not
+     * treat an absent/deleted lifecycle record as an instruction to leave
+     * lifecycle alone: Deploy intentionally ignores those records.  Requiring
+     * all three present records makes plugin deactivation and theme switching
+     * explicit for every code-enabled transition, including one that removes
+     * the last currently described plugin or theme.
+     *
+     * @param array<string,mixed> $requirements
+     */
+    private static function assert_explicit_lifecycle_intent(array $requirements): void {
+        $states = $requirements['lifecycle_record_states'] ?? [];
+        foreach (['active_plugins', 'template', 'stylesheet'] as $name) {
+            $state = is_array($states) ? ($states[$name] ?? null) : null;
+            if ($state === 'present') {
+                continue;
+            }
+            $actual = $state === null ? 'missing' : "'$state'";
+            throw new \RuntimeException(
+                "duo: code-stage refused — canonical $name lifecycle record must be present in state/options/core.json; it is $actual. "
+                . 'Absent or deleted records do not express WordPress lifecycle intent, so code could be pruned without reconciliation.'
+            );
+        }
     }
 
     /**
@@ -76,31 +133,39 @@ final class CodeStateContract {
 
     /** @param array<string,mixed> $tree @return array<string,mixed> */
     private static function requirements_from_tree(array $tree): array {
+        $states = array_fill_keys(['active_plugins', 'template', 'stylesheet'], null);
         $optionsEntity = $tree['options/core']['data'] ?? null;
         if (!is_array($optionsEntity)) {
-            return [];
+            return ['lifecycle_record_states' => $states];
         }
-        $values = OptionState::values($optionsEntity);
-        $requirements = [];
-        if (array_key_exists('active_plugins', $values)) {
-            if (!is_array($values['active_plugins']) || !array_is_list($values['active_plugins'])) {
+        $records = OptionState::records($optionsEntity);
+        $requirements = ['lifecycle_record_states' => $states];
+        foreach (array_keys($states) as $name) {
+            if (array_key_exists($name, $records)) {
+                $requirements['lifecycle_record_states'][$name] = $records[$name]['state'];
+            }
+        }
+        if (($requirements['lifecycle_record_states']['active_plugins'] ?? null) === 'present') {
+            $activePlugins = $records['active_plugins']['value'];
+            if (!is_array($activePlugins) || !array_is_list($activePlugins)) {
                 throw new \RuntimeException('duo: code-stage refused — active_plugins must be a list');
             }
-            foreach ($values['active_plugins'] as $i => $plugin) {
+            foreach ($activePlugins as $i => $plugin) {
                 if (!is_string($plugin) || $plugin === '') {
                     throw new \RuntimeException("duo: code-stage refused — active_plugins[$i] must be a non-empty string");
                 }
             }
-            $requirements['active_plugins'] = $values['active_plugins'];
+            $requirements['active_plugins'] = $activePlugins;
         }
         foreach (['template', 'stylesheet'] as $slot) {
-            if (!array_key_exists($slot, $values)) {
+            if (($requirements['lifecycle_record_states'][$slot] ?? null) !== 'present') {
                 continue;
             }
-            if (!is_string($values[$slot]) || $values[$slot] === '') {
+            $value = $records[$slot]['value'];
+            if (!is_string($value) || $value === '') {
                 throw new \RuntimeException("duo: code-stage refused — canonical $slot must be a non-empty theme slug");
             }
-            $requirements[$slot] = $values[$slot];
+            $requirements[$slot] = $value;
         }
         return $requirements;
     }

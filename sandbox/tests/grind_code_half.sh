@@ -36,6 +36,7 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 
 cleanup() {
   local status=$?
+  local pair_containers pair_volumes pair_networks remaining_dbs
   trap - EXIT INT TERM
   set +e
   if [ "$PAIR_UP" = 1 ]; then
@@ -43,7 +44,27 @@ cleanup() {
     # descendants can therefore be host-undeletable after a failed run;
     # normalize only this disposable pair's bind mount before removing it.
     "${COMPOSE[@]}" run --rm -T -u root cli1 sh -c 'chmod -R ugo+rwX /siterepo' >/dev/null 2>&1 || true
-    bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1
+    if ! bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1; then
+      printf 'FAIL: clean-room pair destroy failed for %s\n' "$PAIR" >&2
+      status=1
+    fi
+    if ! pair_containers="$(docker ps -aq --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)" \
+      || ! pair_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)" \
+      || ! pair_networks="$(docker network ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)"; then
+      printf 'FAIL: clean-room cleanup could not verify Docker resource removal for %s\n' "$PAIR" >&2
+      status=1
+    elif [ -n "$pair_containers$pair_volumes$pair_networks" ]; then
+      printf 'FAIL: clean-room cleanup left Docker resources for project duo-%s behind\n' "$PAIR" >&2
+      status=1
+    fi
+    if ! remaining_dbs="$(docker exec -e MYSQL_PWD=root duo-shared-db mariadb -uroot -N -B --raw \
+      -e "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_${PAIR}1','wp_${PAIR}2')" 2>/dev/null)"; then
+      printf 'FAIL: clean-room cleanup could not verify database removal for %s\n' "$PAIR" >&2
+      status=1
+    elif [ -n "$remaining_dbs" ]; then
+      printf 'FAIL: clean-room cleanup left pair database(s) behind: %s\n' "$remaining_dbs" >&2
+      status=1
+    fi
   fi
   rm -rf -- "$SITE" "$OTHER_SITE"
   if [ -e "$SITE" ] || [ -e "$OTHER_SITE" ]; then
@@ -197,8 +218,10 @@ require sha256sum
 [ -f "$FIXTURE/v2/$PLUGIN_FILE" ] || fail "v2 fixture missing"
 
 say "clean room: pair.sh up without --codebind (headless, unique pair $PAIR)"
-bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless
+# Arm exact-pair cleanup before pair.sh can create a partial database,
+# repository root, volume, or compose project.
 PAIR_UP=1
+bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless
 
 say "repository source exists while the executable target plugin path is absent"
 mkdir -p "$SITE/code/wp-content/plugins/$PLUGIN_SLUG" \
@@ -261,7 +284,8 @@ assert_phase_order "$V1_OUT" \
   "promote phase: promotion-begin" \
   "promote phase: checkpoint" \
   "promote phase: code-stage" \
-  "promote phase: deploy" \
+  "promote phase: lifecycle-retire" \
+  "promote phase: lifecycle-activate" \
   "promote phase: code-finalize" \
   "promote phase: apply"
 target_wp plugin is-active "$PLUGIN_SLUG" >/dev/null || fail "v1 lifecycle did not activate the probe"
@@ -325,7 +349,8 @@ assert_phase_order "$V2_OUT" \
   "promote phase: promotion-begin" \
   "promote phase: checkpoint" \
   "promote phase: code-stage" \
-  "promote phase: deploy" \
+  "promote phase: lifecycle-retire" \
+  "promote phase: lifecycle-activate" \
   "promote phase: code-finalize" \
   "promote phase: apply"
 assert_eq "$(source_hash)" "$(target_hash)" "v2 materialized plugin bytes"
@@ -337,7 +362,7 @@ assert_eq 1 "$(db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE 
   "v2 migrated color column"
 V2_TRACE="$(db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'duo_code_half_probe_trace'")"
 grep -Fq 'migrate-v1-scalar:blue' <<<"$V2_TRACE" \
-  || fail "v2 did not observe and convert the v1 scalar during lifecycle deploy"
+  || fail "v2 did not observe and convert the v1 scalar during lifecycle activation"
 V2_REVISION="$(ledger_revision)"
 [[ "$V2_REVISION" =~ ^[0-9a-f]{64}$ && "$V2_REVISION" != "$V1_REVISION" ]] \
   || fail "v2 code_revision was not finalized as a new descriptor"
@@ -389,8 +414,8 @@ fi
 echo "$MATERIALIZE_OUT"
 grep -Fq "code-stage target path is not a regular file 'plugins/$PLUGIN_SLUG/$CONFLICT_FILE'" <<<"$MATERIALIZE_OUT" \
   || fail "materialization preflight did not name the late desired-path conflict"
-if grep -Fq 'promote phase: deploy' <<<"$MATERIALIZE_OUT"; then
-  fail "desired-path preflight allowed lifecycle deploy to run"
+if grep -Fq 'promote phase: lifecycle-' <<<"$MATERIALIZE_OUT"; then
+  fail "desired-path preflight allowed a lifecycle phase to run"
 fi
 assert_eq "$MATERIALIZE_TREE" "$(target_code_tree_hash)" "full target code tree after failed materialization preflight"
 assert_eq "$MATERIALIZE_REVISION" "$(ledger_revision)" "code_revision after failed materialization preflight"
@@ -416,7 +441,7 @@ assert_eq "$V2_STATE_REVISION" "$(jq -r '.revision_hash' "$TRACKED_ARTIFACT")" \
   "state revision across code-only addition"
 pass "the complete desired inventory was preflighted before any stage write; retry tracked the new file"
 
-say "changed obsolete tracked file is rejected before stage writes or lifecycle deploy"
+say "changed obsolete tracked file is rejected before stage writes or lifecycle"
 cp "$CONFLICT_SOURCE" "$SITE/.fixture-zz-conflict.php"
 rm -f -- "$CONFLICT_SOURCE"
 target_php "file_put_contents('$CONFLICT_TARGET', \"\\n// changed prior-owned byte: refuse prune\\n\", FILE_APPEND);"
@@ -431,8 +456,8 @@ grep -Fq 'promote phase: code-stage' <<<"$REMOVAL_OUT" \
   || fail "removal preflight did not reach code-stage"
 grep -Fq 'changed prior-owned file' <<<"$REMOVAL_OUT" \
   || fail "removal preflight did not refuse the changed obsolete tracked file"
-if grep -Fq 'promote phase: deploy' <<<"$REMOVAL_OUT"; then
-  fail "changed obsolete-file preflight allowed lifecycle deploy to run"
+if grep -Fq 'promote phase: lifecycle-' <<<"$REMOVAL_OUT"; then
+  fail "changed obsolete-file preflight allowed a lifecycle phase to run"
 fi
 assert_eq "$REMOVAL_TREE" "$(target_code_tree_hash)" "full target code tree after failed removal preflight"
 assert_eq "$REMOVAL_REVISION" "$(ledger_revision)" "code_revision after failed removal preflight"
@@ -493,7 +518,8 @@ assert_phase_order "$REMOVE_OUT" \
   "promote phase: promotion-begin" \
   "promote phase: checkpoint" \
   "promote phase: code-stage" \
-  "promote phase: deploy" \
+  "promote phase: lifecycle-retire" \
+  "promote phase: lifecycle-activate" \
   "promote phase: code-finalize" \
   "promote phase: apply"
 assert_eq absent "$(target_exists)" "target plugin main file after finalized removal"

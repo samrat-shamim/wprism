@@ -380,10 +380,11 @@ into an inert standard directory would be a false success. A payload managing
 only one root is not coupled to the unused roots' layout.
 
 Compilation inventories every payload file and SHA-256, plugin main-file
-basename, theme slug, and owned component root. The descriptor's revision is
-stored separately from the state/media `revision_hash`; the outer artifact hash
-binds both without turning them into one lifecycle. This makes the enforceable
-invariant:
+basename, theme slug and bounded child-theme `Template:` relation, and owned
+component root. The descriptor's revision is stored separately from the
+state/media `revision_hash`; the top-level `code` declaration is excluded from
+that state revision while the outer artifact hash still binds the full site
+policy and both halves. This makes the enforceable invariant:
 
 ```text
 canonical active plugin/theme ⊆ compiled payload ⊆ verified target payload
@@ -406,6 +407,44 @@ the halves: canonical `active_plugins`, `template`, and `stylesheet` express
 database-held intent which must be satisfiable by the code descriptor and then
 reconciled through WordPress's real activation/theme APIs. Promotion sequences
 that bridge, but each half retains its own revision and completion marker.
+For a code-enabled artifact, all three managed lifecycle records must be
+explicitly `present`: `active_plugins` (an empty list is valid deactivation
+intent), `template`, and `stylesheet`. Missing/`absent`/`deleted` records are
+ambiguous and compilation/stage refuses before target writes.
+
+The public host path is one lease-bound sequence with fresh WordPress processes:
+`code-stage → lifecycle-retire → lifecycle-activate → code-finalize → apply`.
+Retirement and activation each publish an ordered success receipt in the exact
+owner/artifact session, including when the phase is a verified no-op. Activation
+cannot start without retirement, and finalize cannot publish `code_revision`
+until both receipts exist; a staged descriptor alone is never completion proof.
+Plugin retirement follows the `Requires Plugins` graph in reverse topological
+order, not incidental `active_plugins` list order. Stage never removes
+completed plugin/theme code before lifecycle hooks. Its only pre-lifecycle
+recovery deletion is narrower: an exact user-MU file absent before Duo first
+staged it, never completed, unchanged since that staged receipt, and omitted
+from the reviewed retry. That provenance is atomically recorded with the
+staged descriptor; a staged hash alone grants no deletion authority.
+
+Before any lifecycle API that can mutate `options/core`, deploy writes a
+pre-hook attempt receipt into the exact owner/artifact promotion session. A
+successful phase consumes that receipt in the same session write that publishes
+its pending or completed state handoff. An exception/fatal deliberately leaves
+the receipt: WordPress hooks are not transactional and may have committed an
+authored option before failing. Apply, lifecycle, stage, finalize, and every
+different promotion owner/artifact refuse while it exists, including on first
+sync when no `duo_state` base exists. Plan/status renders the receipt as the
+non-forceable `incomplete_lifecycle` bucket. Recovery requires external writer
+exclusion, restoring code to the known pre-promotion revision, and the retained
+checkpoint's exact abort → original begin → isolated import → final abort
+sequence.
+
+Control-plane commands load only the protected Duo agent after `wp-config.php`
+has been read and before user MU/plugin/theme code. The v0 layout contract is
+the standard `wp-content/mu-plugins` tree without explicit `WPMU_PLUGIN_DIR` or
+`SUNRISE`; any configured variant refuses during compile before a checkpoint or
+target write. A future custom-layout transport must provide an explicit trusted
+agent/content-root mapping rather than weakening this proof with guessed paths.
 
 ### `envs` (optional)
 
@@ -529,9 +568,10 @@ Snapshot/rollback is the orchestrator's job in v0. The normal host path,
 `duo promote <env>`, compiles one immutable artifact, acquires a target lease
 bound to its outer `artifact_hash`, then exports the database to the target
 repo's gitignored `.duo/checkpoints/`. It then sequences code stage → lifecycle
-deploy → code finalize/verify → state apply against that same artifact.
-Repositories without the optional `code` contract retain the legacy lifecycle
-deploy → apply sequence after the checkpoint. A failed post-begin phase stops
+retirement → fresh-process lifecycle activation → code finalize/verify → state
+apply against that same artifact. Repositories without the optional `code`
+contract run retirement → fresh-process activation → apply after the
+checkpoint, without code materialization. A failed post-begin phase stops
 all later phases and performs an exact idempotent lease abort while preserving
 the original phase failure. Finalize publishes the completed code descriptor
 and `code_revision` while removing all temporary stage markers in one database
@@ -605,7 +645,8 @@ unrelated runtime traffic available; a global maintenance page is not implied.
 
 - `active_plugins`, `template`, `stylesheet` are **managed-class** core-manifest options: captured bespoke into `state/options/core.json` (plain portable strings — plugin file paths and theme slugs need no tokenization; their cross-environment stability *is* the invariant), and **excluded from apply's generic direct-SQL path** — a raw options UPDATE would skip activation/switch hooks while leaving WordPress believing the code is active.
 - **Host `duo deploy <env>`** compiles once, stages add/update files from the descriptor-bound payload, invokes agent `wp duo deploy` for real lifecycle hooks, then prunes only Duo-owned obsolete files/directories, proves the managed components contain exactly the descriptor's regular files and hashes, and records the completed code revision. Stage never claims completion; a failure before final verification leaves the prior completed revision truthful.
-- **Removal ordering is lifecycle-safe**: stage retains outgoing files, lifecycle deploy deactivates them while their hooks still exist, and only finalization prunes them. A canonical active plugin/theme absent from the new source descriptor is refused before stage mutates the target.
+- **Removal ordering is lifecycle-safe**: stage retains outgoing files, the retirement process deactivates them while their hooks still exist, activation runs in a fresh process, and only finalization prunes them. A canonical active plugin/theme absent from the new source descriptor is refused before stage mutates the target.
+- **Hook failure is recovery-safe**: a durable pre-hook receipt prevents state apply or a different promotion session from treating partially committed lifecycle effects as convergence. The exact retained checkpoint plus known pre-promotion code revision are the only recovery boundary; ordinary retry is intentionally refused.
 - **Plan's `code_mismatch` bucket**: `missing_in_code` (canonical wants an activation whose plugin is absent from the environment's code), `outside_version_range` (a pinned manifest declares `{"plugin": "<file>", "version_range": {"min", "max"}}` and the installed version falls outside), `code_revision_stale` (the compiled payload is not the last successfully verified materialization), and lifecycle mismatches (`inactive_in_environment`, `unexpected_active_plugin`, `active_plugin_order_mismatch`). Apply refuses every row. Lifecycle deploy owns activation/deactivation/theme reconciliation; only the orchestrated staged path may pass its expected temporary staleness through to final verification. `--force-code-mismatch` remains the report-not-hide escape hatch for ordinary direct calls.
 - During deploy's deliberately hook-firing window, a reporting-only observer records attempted `wp_mail` and outbound HTTP calls in `external_side_effects` and human warnings. It neither blocks those calls nor changes the apply canary's fixed meaning; apply still treats content hooks, mail, or HTTP as a hard failure.
 - **Plan's `code_drift` bucket** (DUO-3231): a narrower, separate question from `code_mismatch` above — not "is the installed version compatible with the manifest's declared range" but "did this exact plugin/theme's version change since Duo last observed this environment," the direct code-half analogue of state's own drift concept, catching the case a wide `version_range` can't (a wp-admin one-click update landing comfortably inside a pinned range is invisible to `code_mismatch`, yet is exactly the out-of-band mutation risk this bucket exists for). The baseline it compares against — one JSON blob under `duo_kv['code_versions']` — is written by `Deploy::record_code_versions()` at the end of every successful `duo deploy` **and** `duo capture` (either is a moment Duo legitimately observed the environment's code); no baseline yet for a given plugin means nothing to compare, not a false positive. Scoped to exactly the plugins/theme slots `code_mismatch` already scopes to (the target state's own `active_plugins`/`template`/`stylesheet`). Same blocking posture and escape hatch as `code_mismatch`: `deploy`/`apply` refuse while non-empty, `--force-code-drift` proceeds while still reporting every overridden finding (Architecture Rulings §1) — in JSON output always, and in ordinary human output too, seeded as `WP_CLI::warning()` lines precisely because reaching that code path at all means the flag was set.

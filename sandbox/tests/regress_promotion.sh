@@ -2,7 +2,8 @@
 # Live DUO-3216 regression: activation/deactivation/order are code_mismatch
 # gates for apply; deploy reconciles them through real WP lifecycle APIs;
 # deploy-only mail/HTTP observations are report-only; the host `duo promote`
-# product path retains a DB checkpoint and runs deploy before apply.
+# product path retains a DB checkpoint and runs fresh retirement/activation
+# processes before apply.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
@@ -23,9 +24,21 @@ wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 cleanup() {
+  local status=$?
+  trap - EXIT INT TERM
+  set +e
   rm -f "$ENVS"
+  # Capture/artifact descendants are created by container uid 33. Normalize
+  # only this disposable pair bind before pair.sh and the host remove it.
+  "${COMPOSE[@]}" run --rm -T -u root cli1 sh -c 'chmod -R ugo+rwX /siterepo' >/dev/null 2>&1 || true
+  "${COMPOSE[@]}" run --rm -T -u root cli2 sh -c 'chmod -R ugo+rwX /siterepo' >/dev/null 2>&1 || true
   bash sandbox/bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
-  rm -rf "$SITE1" "$SITE2"
+  rm -rf -- "$SITE1" "$SITE2"
+  if [ -e "$SITE1" ] || [ -e "$SITE2" ]; then
+    printf 'FAIL: promotion cleanup left %s or %s behind\n' "$SITE1" "$SITE2" >&2
+    status=1
+  fi
+  exit "$status"
 }
 trap cleanup EXIT
 
@@ -40,6 +53,9 @@ pass "probe plugin installed on both environments"
 
 rm -rf "$SITE1" "$SITE2"
 mkdir -p "$SITE1"
+# The host recreates this bind-mounted root after pair.sh's writable setup;
+# restore the same cross-uid contract before container uid 33 captures into it.
+chmod 0777 "$SITE1"
 cat > "$SITE1/site.duo.json" <<'EOF'
 {
   "manifests": ["core"],
@@ -85,15 +101,20 @@ fi
   || fail "apply ran the activation hook"
 pass "apply refuses before deploy and leaves lifecycle state untouched"
 
-DEPLOY="$(wp2 duo deploy --repo=/siterepo --format=json 2>/dev/null | tail -1)"
-printf '%s\n' "$DEPLOY" | jq -e --arg probe "$PROBE" '
-  (.code_mismatch == [])
-  and any(.reconciled_code_mismatch[]; .issue == "inactive_in_environment" and .plugin == $probe)
-  and any(.reconciled_code_mismatch[]; .issue == "unexpected_active_plugin" and .plugin == "akismet/akismet.php")
-  and any(.deactivated[]; . == "akismet/akismet.php")
-  and any(.external_side_effects[]; contains("wp_mail attempted: DUO promotion activation probe"))
-  and any(.external_side_effects[]; contains("http request attempted: https://duo-promotion-probe.invalid/activation"))
-' >/dev/null || fail "deploy did not reconcile activation and report both external side-effect attempts"
+DEPLOY="$($DUO --envs-file="$ENVS" deploy target 2>&1)" \
+  || fail "host lifecycle deploy failed: $DEPLOY"
+grep -Fq 'deploy phase: lifecycle-retire' <<<"$DEPLOY" \
+  || fail "host deploy did not enter its fresh retirement process"
+grep -Fq 'deploy phase: lifecycle-activate' <<<"$DEPLOY" \
+  || fail "host deploy did not enter its fresh activation process"
+grep -Fq 'deactivated: akismet/akismet.php' <<<"$DEPLOY" \
+  || fail "host deploy did not retire the unexpected plugin"
+grep -Fq "activated: $PROBE" <<<"$DEPLOY" \
+  || fail "host deploy did not activate the canonical probe"
+grep -Fq 'wp_mail attempted: DUO promotion activation probe' <<<"$DEPLOY" \
+  || fail "host deploy did not report the activation mail attempt"
+grep -Fq 'http request attempted: https://duo-promotion-probe.invalid/activation' <<<"$DEPLOY" \
+  || fail "host deploy did not report the activation HTTP attempt"
 [ "$(wp2 option get duo_promotion_probe_activated)" = yes ] \
   || fail "real activation hook did not complete"
 [ "$(wp2 option get active_plugins --format=json | jq -c .)" = '["hello.php","duo-promotion-probe/duo-promotion-probe.php"]' ] \
@@ -109,7 +130,7 @@ pass "same plugin set in the wrong load order is a blocking mismatch"
 
 PROMOTE="$($DUO --envs-file="$ENVS" promote target --adopt-by-slug=posts,terms,menus --default-author=admin 2>&1)" \
   || fail "host promote failed: $PROMOTE"
-printf '%s\n' "$PROMOTE" | grep -q 'promote complete: deploy -> apply' \
+grep -Fq 'promote complete: lifecycle-retire -> lifecycle-activate -> apply' <<<"$PROMOTE" \
   || fail "host promote did not report its complete phase trace"
 CHECKPOINT="$(printf '%s\n' "$PROMOTE" | sed -n 's/^database checkpoint: //p' | head -1)"
 [ -f "$SITE2/${CHECKPOINT#/siterepo/}" ] || fail "host-visible retained checkpoint is missing"

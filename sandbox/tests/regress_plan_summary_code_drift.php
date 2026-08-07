@@ -48,6 +48,24 @@ $clean = PlanSummary::render($empty + ['code_drift' => []]);
 $check($clean['ok'] === true, 'a clean plan must remain safe to promote');
 $check(str_contains($clean['lines'][0] ?? '', '0 code_drift'), 'clean summary must report zero code_drift');
 
+$incomplete = $empty;
+$incomplete['incomplete_lifecycle'] = [[
+    'owner' => 'first-sync-owner',
+    'artifact_hash' => str_repeat('b', 64),
+    'entity' => 'options/core',
+    'phase' => 'activate',
+    'before_hash' => str_repeat('c', 64),
+    'reason' => 'unresolved lifecycle hook attempt; restore the exact pre-lifecycle database checkpoint before retrying',
+]];
+$incompleteRendered = PlanSummary::render($incomplete);
+$incompleteLines = implode("\n", $incompleteRendered['lines']);
+$check($incompleteRendered['ok'] === false, 'incomplete_lifecycle alone must make status not safe to promote');
+$check(str_contains($incompleteRendered['lines'][0] ?? '', '1 incomplete_lifecycle'), 'summary must count incomplete_lifecycle');
+$check(str_contains($incompleteLines, 'INCOMPLETE_LIFECYCLE'), 'summary must render an incomplete lifecycle section');
+$check(str_contains($incompleteLines, 'activate options/core'), 'summary must identify the ambiguous phase/entity');
+$check(str_contains($incompleteLines, 'exact pre-lifecycle database checkpoint'), 'summary must direct exact checkpoint recovery');
+$check(str_contains($incompleteLines, 'force flags cannot bypass'), 'summary must state that lifecycle ambiguity is non-forceable');
+
 // code_revision_stale is deliberately a different code_mismatch member: it
 // remains visible and blocks status, but must direct the host deploy workflow
 // rather than advertising --force-code-mismatch as an escape hatch.
@@ -74,4 +92,4 @@ if ($failures) {
     exit(1);
 }
 
-echo "ok: PlanSummary counts, renders, blocks code_drift, and directs stale code to host deploy\n";
+echo "ok: PlanSummary blocks code drift, stale revisions, and incomplete lifecycle receipts\n";

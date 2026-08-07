@@ -291,6 +291,21 @@ final class RepositoryCompiler {
                     : 'active site policy is legacy/state-only but this artifact unexpectedly contains a code descriptor'
             );
         }
+        if ($artifactHasCode) {
+            if (!class_exists(CodeStateContract::class)) {
+                throw self::artifact_exception(
+                    'compiled_artifact_code_state_contract_unavailable', $path,
+                    'code/state bridge support is not loaded'
+                );
+            }
+            try {
+                CodeStateContract::validate($artifact, (array) $artifact->code_descriptor());
+            } catch (\Throwable $t) {
+                throw self::artifact_exception(
+                    'compiled_artifact_code_state_mismatch', $path, $t->getMessage()
+                );
+            }
+        }
         // Artifact consumers need the identical repository-derived schema
         // facts compilation used; never let a loaded artifact make ACF (or
         // a future interpreter) fall back to target-only rows during apply.
@@ -307,6 +322,21 @@ final class RepositoryCompiler {
 
     public static function site_hash(Policy $policy): string {
         return hash('sha256', Canon::encode($policy->site));
+    }
+
+    /**
+     * Identity of the site policy that can affect canonical state.
+     *
+     * The top-level code declaration selects the independent code payload
+     * compiler/materializer. The complete declaration remains bound by
+     * site_hash() and therefore by the outer compiled artifact, but it must
+     * not move revision_hash: enabling or disabling identical code bytes is
+     * not a canonical database-state change.
+     */
+    public static function state_site_hash(Policy $policy): string {
+        $site = $policy->site;
+        unset($site['code']);
+        return hash('sha256', Canon::encode($site));
     }
 
     /**
@@ -524,9 +554,13 @@ final class RepositoryCompiler {
         ksort($this->media, SORT_STRING);
         ksort($this->mediaCatalog, SORT_STRING);
         $siteHash = self::site_hash($this->policy);
+        $stateSiteHash = self::state_site_hash($this->policy);
         $manifestHash = self::manifest_hash($this->policy);
         $revisionInputs = [
-            'site_hash' => $siteHash,
+            // Keep the historical input key so state-only repositories retain
+            // their exact revision identity. Its value excludes only the
+            // separate top-level code declaration.
+            'site_hash' => $stateSiteHash,
             'manifest_hash' => $manifestHash,
             'sources' => $sourceRows,
             'media' => $this->mediaCatalog,
