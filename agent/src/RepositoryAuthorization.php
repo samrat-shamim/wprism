@@ -106,6 +106,19 @@ final class RepositoryAuthorization {
                 'data' => $front,
             ];
         }
+        foreach (glob($stateDir . '/sidebars/*.json') ?: [] as $f) {
+            $content = Canon::read_file($f);
+            $front = Canon::decode($content);
+            $rel = substr($f, strlen($stateDir) + 1);
+            $sidebar = SidebarState::sidebar_from_path($rel);
+            $out[SidebarState::key((string) $sidebar)] = [
+                'type' => SidebarState::ENTITY_TYPE,
+                'path' => $rel,
+                'hash' => hash('sha256', $content),
+                'content' => $content,
+                'data' => $front,
+            ];
+        }
         $optFile = $stateDir . '/options/core.json';
         if (is_file($optFile)) {
             $content = Canon::read_file($optFile);
@@ -140,6 +153,9 @@ final class RepositoryAuthorization {
                     break;
                 case 'menu':
                     self::authorize_menu($policy, (string) $uuid, $entity, $diagnostics);
+                    break;
+                case 'sidebar':
+                    self::authorize_sidebar($policy, (string) $uuid, $entity, $diagnostics);
                     break;
                 case 'options':
                     self::authorize_options($policy, (string) $uuid, $entity, $diagnostics);
@@ -265,6 +281,37 @@ final class RepositoryAuthorization {
                     self::finding(
                         $out, 'repository_field_not_authored', $path, $uuid,
                         "menu_item[$index]", (string) $key, $class, $details['source']
+                    );
+                }
+            }
+        }
+    }
+
+    private static function authorize_sidebar(Policy $policy, string $stateKey, array $entity, array &$out): void {
+        $front = $entity['data'] ?? Canon::decode($entity['content']);
+        $path = (string) $entity['path'];
+        self::unexpected_fields($front, ['widgets'], $path, $stateKey, 'sidebar_field', $out);
+        $declared = $policy->widget_types();
+        foreach ((array) ($front['widgets'] ?? []) as $i => $widget) {
+            $widget = (array) $widget;
+            self::unexpected_fields($widget, ['uuid', 'type', 'settings'], $path, $stateKey, "widget[$i]", $out);
+            $type = (string) ($widget['type'] ?? '');
+            if (!isset($declared[$type])) {
+                self::finding($out, 'repository_entity_out_of_scope', $path, $stateKey, "widget[$i]", 'type', 'unclassified', null);
+                continue;
+            }
+            foreach ((array) ($widget['settings'] ?? []) as $setting => $value) {
+                $rule = $declared[$type]['settings'][$setting] ?? null;
+                $class = is_array($rule) ? ($rule['class'] ?? 'unclassified') : 'unclassified';
+                if ($class !== 'authored') {
+                    self::finding(
+                        $out, 'repository_field_not_authored', $path, $stateKey,
+                        "widget[$i].settings", (string) $setting, $class, 'manifest widgets.' . $type
+                    );
+                } elseif (empty($rule['allow_secret']) && Secrets::hard_match_deep($value) !== null) {
+                    self::finding(
+                        $out, 'repository_widget_secret_not_allowed', $path, $stateKey,
+                        "widget[$i].settings", (string) $setting, 'secret', 'manifest widgets.' . $type
                     );
                 }
             }

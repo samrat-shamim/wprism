@@ -81,6 +81,43 @@ wp_conf1 option delete widget_regress_fake_type >/dev/null
 wp_conf1 duo capture --repo=/siterepo >/dev/null
 pass "unknown widget type: pending surfaces it by name, capture refuses until classified, clean once declared, and clean again once removed -- live-verified, not assumed"
 
+# DUO-3278: the core fixture's three declared widget kinds round-trip through
+# the sidebar wire format with ledger-only identity and target-local counters.
+SIDEBAR_FILE="$CONF_REPO1/state/sidebars/sidebar-1.json"
+[ -f "$SIDEBAR_FILE" ] || fail "canonical sidebar-1 file is missing"
+jq -e '
+  ([.widgets[].type] == ["block","text","nav_menu"])
+  and (.widgets | length == 3)
+  and ([.widgets[].settings | has("_duo_uuid")] | any | not)
+  and (.widgets[0].settings.content | contains("{{post:"))
+  and (.widgets[0].settings.content | contains("{{uploads}}"))
+  and (.widgets[1].settings.text | contains("{{home}}"))
+  and (.widgets[2].settings.nav_menu | startswith("{{term:"))
+' "$SIDEBAR_FILE" >/dev/null || fail "canonical block/text/nav-menu widget wire format is wrong"
+
+for TYPE in block text nav_menu; do
+  UUID=$(jq -r --arg type "$TYPE" '.widgets[] | select(.type == $type) | .uuid' "$SIDEBAR_FILE")
+  SOURCE_LOCAL=$(wp_conf1 eval "echo \\Duo\\Ledger::id_for('$UUID', 'widget_$TYPE');")
+  TARGET_LOCAL=$(wp_conf2 eval "echo \\Duo\\Ledger::id_for('$UUID', 'widget_$TYPE');")
+  [ -n "$SOURCE_LOCAL" ] && [ -n "$TARGET_LOCAL" ] \
+    || fail "widget_$TYPE identity is absent from one environment's ledger"
+  [ "$SOURCE_LOCAL" != "$TARGET_LOCAL" ] \
+    || fail "widget_$TYPE copied source counter $SOURCE_LOCAL instead of allocating target-locally"
+done
+TARGET_KEYS=$(wp_conf2 eval '$sidebars=get_option("sidebars_widgets"); echo implode(",", $sidebars["sidebar-1"]);')
+[[ "$TARGET_KEYS" != *-21* ]] || fail "colliding target widget defaults survived apply: $TARGET_KEYS"
+wp_conf2 eval '
+foreach (["block","text","nav_menu"] as $type) {
+  $stored=get_option("widget_".$type);
+  foreach ($stored as $settings) {
+    if (is_array($settings) && array_key_exists("_duo_uuid", $settings)) {
+      throw new RuntimeException("settings UUID leaked into widget_".$type);
+    }
+  }
+}
+' >/dev/null
+pass "block/text/nav-menu widgets use portable refs, ledger-only identity, free target counters, and replace target defaults"
+
 A=$(wp_conf1 post list --post_type=page --name=branch-a --field=ID | tr -d '[:space:]')
 B=$(wp_conf1 post list --post_type=page --name=branch-b --field=ID | tr -d '[:space:]')
 UA=$(wp_conf1 post meta get "$A" _duo_uuid | tr -d '[:space:]')

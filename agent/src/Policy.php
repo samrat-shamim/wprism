@@ -670,6 +670,18 @@ final class Policy {
         return $out;
     }
 
+    /** Closed widget type registry. Last pinned manifest wins per type. */
+    public function widget_types(): array {
+        $out = [];
+        foreach ($this->manifests as $manifest) {
+            foreach ((array) ($manifest['widgets'] ?? []) as $type => $rule) {
+                $out[(string) $type] = (array) $rule;
+            }
+        }
+        ksort($out, SORT_STRING);
+        return $out;
+    }
+
     /** blockName => list of {path, kind, type} rules, merged across manifests. */
     public function block_attr_rules(): array {
         $out = [];
@@ -1851,7 +1863,6 @@ final class Policy {
             }
         }
     }
-
     /** Validate the user-meta-only safety vocabulary at policy load time. */
     private static function validate_user_meta_rules(array $source, string $label): void {
         foreach ((array) ($source['user_meta'] ?? []) as $key => $rule) {

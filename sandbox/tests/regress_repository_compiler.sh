@@ -23,11 +23,14 @@ require_once "$root/agent/src/OptionState.php";
 require_once "$root/agent/src/UserMetaState.php";
 require_once "$root/agent/src/Secrets.php";
 require_once "$root/agent/src/PersonalData.php";
+require_once "$root/agent/src/Db.php";
 require_once "$root/agent/src/Policy.php";
+require_once "$root/agent/src/Ledger.php";
 require_once "$root/agent/src/Snapshot.php";
 require_once "$root/agent/src/Deletion.php";
 require_once "$root/agent/src/RepositoryAuthorization.php";
 require_once "$root/agent/src/RepositoryCompiler.php";
+require_once "$root/agent/src/SidebarState.php";
 
 // These are the first target-reading primitives Tokens would reach. A valid
 // or invalid compile touching either one is a test failure, proving the gate
@@ -79,6 +82,7 @@ function post_front(string $id, string $type, string $slug): array {
 
 function build_valid(string $repo, array $manifests = ['core']): array {
     $term = uuid(1); $page = uuid(2); $attachment = uuid(3); $menu = uuid(4); $item = uuid(5);
+    $blockWidget = uuid(6); $textWidget = uuid(7); $menuWidget = uuid(8);
     put("$repo/site.duo.json", Canon::encode([
         'manifests' => $manifests,
         'policy' => [
@@ -111,6 +115,19 @@ function build_valid(string $repo, array $manifests = ['core']): array {
         ]],
         'locations' => [], 'name' => 'Main', 'slug' => 'main', 'uuid' => $menu,
     ]));
+    put("$repo/state/sidebars/sidebar-1.json", Canon::encode([
+        'widgets' => [
+            ['uuid' => $blockWidget, 'type' => 'block', 'settings' => (object) [
+                'content' => '<!-- wp:paragraph --><p>Sidebar</p><!-- /wp:paragraph -->',
+            ]],
+            ['uuid' => $textWidget, 'type' => 'text', 'settings' => (object) [
+                'filter' => false, 'text' => 'Portable text', 'title' => 'About', 'visual' => true,
+            ]],
+            ['uuid' => $menuWidget, 'type' => 'nav_menu', 'settings' => (object) [
+                'nav_menu' => "{{term:$term}}", 'title' => 'Menu',
+            ]],
+        ],
+    ]));
     $optionRecords = [];
     foreach ([
         'active_plugins', 'blogdescription', 'blogname', 'default_category', 'page_for_posts',
@@ -126,7 +143,7 @@ function build_valid(string $repo, array $manifests = ['core']): array {
         'show_on_front' => OptionState::present('page', 'yes'),
     ]);
     put("$repo/state/options/core.json", Canon::encode(OptionState::document($optionRecords)));
-    return compact('term','page','attachment','menu','item','mediaHash');
+    return compact('term','page','attachment','menu','item','blockWidget','textWidget','menuWidget','mediaHash');
 }
 
 function compile_repo(string $repo): CompiledRepository {
@@ -152,6 +169,7 @@ function needs(array $payload, string $code): void {
 }
 
 $a = "$tmp/a"; $ids = build_valid($a);
+\Duo\SidebarState::assert_width_budget();
 $one = compile_repo($a);
 $two = compile_repo($a);
 if ($one->artifact_hash() !== $two->artifact_hash()) fail('same revision compiled to different artifact hashes');
@@ -159,7 +177,8 @@ $artifactPath = "$tmp/{$one->artifact_hash()}.json";
 $one->write($artifactPath);
 $read = RepositoryCompiler::read_artifact($artifactPath, Policy::load($a));
 if (Canon::encode($read->export()) !== Canon::encode($one->export())) fail('serialized artifact did not round-trip exactly');
-ok('valid revision compiles offline to one self-verifying content-addressed artifact');
+if (($one->tree()['sidebar/sidebar-1']['type'] ?? '') !== 'sidebar') fail('sidebar entity missing from compiled tree');
+ok('valid revision (including block/text/nav-menu widgets) compiles offline and id_kind width budget holds');
 
 $tampered = $one->export(); $tampered['revision_hash'] = str_repeat('0', 64);
 put("$tmp/tampered.json", Canon::encode($tampered));
@@ -275,6 +294,18 @@ $options = Canon::decode(file_get_contents($optionsPath)); $options['records']['
 put($optionsPath, Canon::encode($options));
 $p = failure($rawId); needs($p, 'nonportable_reference');
 ok('declared ref fields reject raw environment ids even when JSON is otherwise valid');
+
+$widgetRaw = "$tmp/widget-raw-id"; build_valid($widgetRaw);
+$sidebarPath = "$widgetRaw/state/sidebars/sidebar-1.json";
+$sidebar = Canon::decode(file_get_contents($sidebarPath));
+$sidebar['widgets'][2]['settings']['nav_menu'] = 2;
+put($sidebarPath, Canon::encode($sidebar));
+$p = failure($widgetRaw); needs($p, 'nonportable_reference');
+$sidebar['widgets'][2]['settings']['nav_menu'] = '{{term:' . uuid(1) . '}}';
+$sidebar['widgets'][1]['type'] = 'undeclared_widget';
+put($sidebarPath, Canon::encode($sidebar));
+$p = failure($widgetRaw); needs($p, 'schema_content_mismatch');
+ok('sidebar compiler rejects raw widget refs and undeclared widget types offline');
 
 $termRef = "$tmp/term-meta-ref"; $tr = build_valid($termRef);
 $sitePath = "$termRef/site.duo.json";

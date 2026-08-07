@@ -107,6 +107,51 @@ final class Apply {
             $envE = $env[$uuid] ?? null;
             $baseH = $base[$uuid]['content_hash'] ?? null;
             $row = ['uuid' => $uuid, 'type' => $e['type'], 'path' => $e['path']];
+            if ($e['type'] === SidebarState::ENTITY_TYPE && $envE !== null) {
+                $envFront = Canon::decode($envE['content']);
+                $hasUnmanaged = false;
+                foreach ((array) ($envFront['widgets'] ?? []) as $widget) {
+                    $hasUnmanaged = $hasUnmanaged || !empty($widget['settings']['_duo_unmanaged']);
+                }
+                $missingDesiredMap = false;
+                foreach ((array) ($e['data']['widgets'] ?? []) as $widget) {
+                    if (Ledger::id_for(
+                        (string) ($widget['uuid'] ?? ''),
+                        SidebarState::kind((string) ($widget['type'] ?? ''))
+                    ) === null) {
+                        $missingDesiredMap = true;
+                        break;
+                    }
+                }
+                // The sidebar's own base is the exact evidence this target
+                // previously knew these nested widget identities. Without
+                // that base this may be a first widget rollout over ordinary
+                // theme defaults, even on an otherwise long-managed site.
+                // With it, missing maps are restored-ledger-loss ambiguity.
+                if ($hasUnmanaged && $missingDesiredMap && $baseH !== null) {
+                    throw new \RuntimeException(
+                        "duo: widget identity history is missing for {$e['path']}; refusing to infer which live "
+                        . 'instance owns a canonical UUID. Restore identity-export before plan/apply.'
+                    );
+                }
+                $desiredWidgets = array_fill_keys(array_map(
+                    static fn(array $w): string => (string) ($w['uuid'] ?? ''),
+                    (array) ($e['data']['widgets'] ?? [])
+                ), true);
+                $widgetDeletes = [];
+                foreach ((array) ($envFront['widgets'] ?? []) as $widget) {
+                    if (!isset($desiredWidgets[(string) ($widget['uuid'] ?? '')])) {
+                        $widgetDeletes[] = [
+                            'uuid' => (string) ($widget['uuid'] ?? ''),
+                            'type' => (string) ($widget['type'] ?? ''),
+                            'unmanaged' => !empty($widget['settings']['_duo_unmanaged']),
+                        ];
+                    }
+                }
+                if ($widgetDeletes) {
+                    $row['widget_deletes'] = $widgetDeletes;
+                }
+            }
             if ($e['type'] === 'user-meta' && $envE === null) {
                 $login = (string) ($e['data']['login'] ?? '');
                 $row['login'] = $login;
@@ -390,6 +435,10 @@ final class Apply {
             $this->warnings[] = "reclassified: menu field '{$r['name']}' is core-classified "
                 . "'{$r['core_class']}' but '{$r['overridden_by']}' (pinned) reclassifies it "
                 . "'{$r['active_class']}' on this site — the plugin's declaration governs";
+        }
+        $inactiveWarning = SidebarState::inactive_warning();
+        if ($inactiveWarning !== null && !in_array($inactiveWarning, $this->warnings, true)) {
+            $this->warnings[] = $inactiveWarning;
         }
         return $plan;
     }
@@ -990,6 +1039,13 @@ final class Apply {
                 $this->adopt($r, $tree[$r['uuid']]);
             }
 
+            foreach ($work as $r) {
+                if (($tree[$r['uuid']]['type'] ?? '') === SidebarState::ENTITY_TYPE) {
+                    SidebarState::ensure_widgets($this->policy, $tree);
+                    break;
+                }
+            }
+
             // ---- phase 1: rows exist with placeholder refs ----
             foreach ($work as $r) {
                 $this->renew_promotion_lock('apply-phase-1');
@@ -1017,6 +1073,8 @@ final class Apply {
                 } elseif ($e['type'] === 'user-meta') {
                     // Users are target-local and are never created/adopted.
                     // Exact-login existence was proven during planning.
+                } elseif ($e['type'] === SidebarState::ENTITY_TYPE) {
+                    // Nested widget rows were allocated once above.
                 }
             }
 
@@ -1043,6 +1101,12 @@ final class Apply {
                     $this->apply_options($e['data'], !empty($opts['with_deletes']));
                 } elseif ($e['type'] === 'user-meta') {
                     $this->finalize_user_meta($e['data']);
+                } elseif ($e['type'] === SidebarState::ENTITY_TYPE) {
+                    $sidebar = SidebarState::sidebar_from_path((string) $e['path']);
+                    if ($sidebar === null) {
+                        throw new \RuntimeException("duo: invalid compiled sidebar path {$e['path']}");
+                    }
+                    SidebarState::finalize_sidebar($this->policy, $this->tokens, $e['data'], $sidebar, $tree);
                 }
             }
 

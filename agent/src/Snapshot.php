@@ -292,8 +292,8 @@ final class Snapshot {
     public const CLASS_ROW = 'authored_snapshot';
     public const CLASS_META = 'authored_snapshot_meta';
 
-    /** duo_map.id_kind is VARCHAR(16) — see this file's docblock. */
-    private const MAX_ID_KIND_LEN = 16;
+    /** duo_map.id_kind width — shared with Ledger's schema/migration. */
+    private const MAX_ID_KIND_LEN = Ledger::ID_KIND_WIDTH;
 
     /**
      * DUO-3246: duo_map.entity_type/duo_state.entity_type are VARCHAR(64)

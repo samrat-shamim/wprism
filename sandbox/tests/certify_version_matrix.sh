@@ -7,20 +7,21 @@
 # backed by real evidence at ITS OWN edges, not just the one version every
 # other fixture happens to exercise.
 #
-# First two real plugins: ACF and Contact Form 7, both with manifests declaring
-# [6.0.0, 7.0.0). ACF proved the artifact-sourcing mechanism itself; CF7 is
-# the first extension proving the matrix accepts a genuinely different plugin
-# content shape rather than merely replaying one ACF fixture. The other five
-# pinned manifests remain separately scope-accounted on DUO-3223.
+# First three real plugins: ACF, Contact Form 7, and Elementor. ACF proved the
+# artifact-sourcing mechanism itself; CF7 and Elementor prove the matrix
+# accepts genuinely different plugin content shapes rather than replaying one
+# ACF fixture. The other four pinned manifests remain separately
+# scope-accounted on DUO-3223.
 #
-# For EACH boundary version (ACF 6.0.0/6.8.7; CF7 6.0.1/6.1.6 — all real,
-# currently-existing wp.org releases, confirmed against the plugin-info API,
-# never invented): fresh state, install ONLY from a digest-verified artifact
-# (never a bare slug install that silently pulls current), seed real plugin
-# content through that plugin's own API, capture, round-trip deploy/apply, and
-# byte-identical recapture. A failure at either boundary is exactly what this
-# issue's own non-negotiable ("the harness installs exact artifacts; it never
-# pulls latest") exists to catch before a manifest's claimed range is trusted.
+# For EACH boundary version (ACF 6.0.0/6.8.7; CF7 6.0.1/6.1.6; Elementor
+# 4.0.0/4.2.2 — all real, currently-existing wp.org releases, confirmed
+# against the plugin-info API, never invented): fresh state, install ONLY from
+# a digest-verified artifact (never a bare slug install that silently pulls
+# current), seed real plugin content through that plugin's own API, capture,
+# round-trip deploy/apply, and byte-identical recapture. A failure at either
+# boundary is exactly what this issue's own non-negotiable ("the harness
+# installs exact artifacts; it never pulls latest") exists to catch before a
+# manifest's claimed range is trusted.
 #
 # Own dedicated pair (vmatrix1 :8870 / vmatrix2 :8871 by default; agents set
 # VMATRIX_PAIR and explicit ports), destroyed only after every assertion below
@@ -47,7 +48,9 @@ GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-vmatrix1 -c user.email=vmatrix
 . bin/fetch-artifact.sh
 
 say "boot pair $PAIR (${PAIR}1 :$PORT1 / ${PAIR}2 :$PORT2), idempotent"
-bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless
+# Elementor's contract includes real frontend and generated-CSS checks, so
+# this matrix must publish its already-reserved ports rather than run headless.
+bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2"
 pass "pair up"
 
 seed_acf_content() { # seed_acf_content <cli-fn>
@@ -124,6 +127,28 @@ PHPEOF
   echo "cf7 seed: $seed_out"
 }
 
+seed_elementor_content() {
+  # Reuse the standalone conformance fixture verbatim: it creates real media,
+  # saves a document through Elementor's own Document::save() pipeline, and
+  # renders it once so Elementor's lazy derived keys are exercised before
+  # capture. Keeping one fixture prevents the boundary matrix from drifting
+  # into a weaker hand-written approximation.
+  wp_conf1() { wp1 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local CONF1_PORT="$PORT1"
+  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  . conformance/seeds/elementor.sh
+  unset -f wp_conf1
+}
+
+check_elementor_content() {
+  wp_conf2() { wp2 "$@"; }
+  local CONF1_PORT="$PORT1"
+  local CONF2_PORT="$PORT2"
+  . conformance/checks/elementor.sh
+  unset -f wp_conf2
+}
+
 reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # core/theme installed and the site "installed" (unlike `pair.sh reset`,
   # which drops the database entirely and leaves the site UNINSTALLED until
@@ -135,7 +160,7 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   local cli="$1"
   "$cli" site empty --yes >/dev/null
   local plugin
-  for plugin in advanced-custom-fields contact-form-7; do
+  for plugin in advanced-custom-fields contact-form-7 elementor; do
     "$cli" plugin deactivate "$plugin" >/dev/null 2>&1 || true
     "$cli" plugin delete "$plugin" >/dev/null 2>&1 || true
   done
@@ -217,6 +242,76 @@ EOF
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at acf $ACF_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at acf $ACF_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
+done
+
+for ELEMENTOR_VERSION in 4.0.0 4.2.2; do
+  say "boundary: elementor $ELEMENTOR_VERSION"
+
+  reset_env wp1
+  reset_env wp2
+  rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
+  git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
+  mkdir -p "siterepo/${PAIR}1"
+
+  say "fetch + verify elementor $ELEMENTOR_VERSION (never a bare slug install — always a digest-checked artifact)"
+  ARTIFACT_1=$(fetch_artifact elementor "$ELEMENTOR_VERSION" cli1)
+  ARTIFACT_2=$(fetch_artifact elementor "$ELEMENTOR_VERSION" cli2)
+  pass "verified sha256-pinned artifact resolved for both sides: $ARTIFACT_1"
+
+  wp1 plugin install "$ARTIFACT_1" --activate >/dev/null
+  INSTALLED_1=$(wp1 plugin get elementor --field=version)
+  [ "$INSTALLED_1" = "$ELEMENTOR_VERSION" ] || fail "side 1 installed version mismatch: expected $ELEMENTOR_VERSION, got $INSTALLED_1"
+  pass "side 1: elementor $ELEMENTOR_VERSION installed from verified artifact, active"
+
+  cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
+{
+  "manifests": ["core", "elementor"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment", "elementor_library"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+  cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+  "${GIT1[@]}" init -q -b main
+  "${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "policy: elementor $ELEMENTOR_VERSION version-boundary certification"
+  "${GIT1[@]}" push -qu origin main
+
+  seed_elementor_content
+
+  wp1 duo capture --repo=/siterepo
+  pass "captured on side 1 (elementor $ELEMENTOR_VERSION)"
+
+  wp1 duo lint --repo=/siterepo
+  pass "lint: 0 findings"
+
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "capture: elementor $ELEMENTOR_VERSION content"
+  "${GIT1[@]}" push -q origin main
+
+  git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
+  wp2 plugin install "$ARTIFACT_2" >/dev/null
+  INSTALLED_2=$(wp2 plugin get elementor --field=version)
+  [ "$INSTALLED_2" = "$ELEMENTOR_VERSION" ] || fail "side 2 installed version mismatch: expected $ELEMENTOR_VERSION, got $INSTALLED_2"
+
+  wp2 duo deploy --repo=/siterepo
+  REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
+  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at elementor $ELEMENTOR_VERSION"
+  pass "deploy + apply succeeded on side 2 (elementor $ELEMENTOR_VERSION, canary clean)"
+
+  check_elementor_content
+
+  wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
+  DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
+  rm -rf "siterepo/${PAIR}2/.tmp-final"
+  [ -z "$DIFF_OUT" ] || fail "byte-identity broken at elementor $ELEMENTOR_VERSION: $DIFF_OUT"
+  pass "byte-identical recapture at elementor $ELEMENTOR_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
 done
 
 for CF7_VERSION in 6.0.1 6.1.6; do
@@ -347,7 +442,7 @@ DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse acf 5.12.6 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
-echo "$DEPLOY_OUT" | grep -q "outside_version_range\|outside the '.*' manifest's declared version_range" \
+echo "$DEPLOY_OUT" | grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" \
   || fail "deploy refused, but not for the expected outside_version_range reason (got: $DEPLOY_OUT)"
 echo "$DEPLOY_OUT" | grep -q "advanced-custom-fields/acf.php" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
 echo "$DEPLOY_OUT" | grep -q "5.12.6" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
@@ -394,12 +489,59 @@ DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse contact-form-7 5.9.8 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
-echo "$DEPLOY_OUT" | grep -q "outside_version_range\|outside the '.*' manifest's declared version_range" \
+echo "$DEPLOY_OUT" | grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" \
   || fail "deploy refused, but not for the expected outside_version_range reason (got: $DEPLOY_OUT)"
 echo "$DEPLOY_OUT" | grep -q "contact-form-7/wp-contact-form-7.php" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
 echo "$DEPLOY_OUT" | grep -q "5.9.8" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 echo "$DEPLOY_OUT"
 pass "confirmed: contact-form-7 5.9.8 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
+
+say "negative control: elementor 3.35.9 (real wp.org release, genuinely below manifests/elementor.json's own declared min 4.0.0) must be REFUSED, not silently accepted"
+reset_env wp1
+rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
+git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
+mkdir -p "siterepo/${PAIR}1"
+
+OUT_OF_RANGE_ARTIFACT=$(fetch_artifact elementor 3.35.9 cli1)
+wp1 plugin install "$OUT_OF_RANGE_ARTIFACT" --activate >/dev/null
+INSTALLED_OOR=$(wp1 plugin get elementor --field=version)
+[ "$INSTALLED_OOR" = "3.35.9" ] || fail "negative control: expected elementor 3.35.9 installed, got $INSTALLED_OOR"
+
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "elementor"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment", "elementor_library"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: elementor negative-control pin, out-of-range plugin installed"
+"${GIT1[@]}" push -qu origin main
+
+wp1 duo capture --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: empty state, elementor 3.35.9 still installed"
+"${GIT1[@]}" push -q origin main
+
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse elementor 3.35.9 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
+echo "$DEPLOY_OUT" | grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" \
+  || fail "deploy refused, but not for the expected outside_version_range reason (got: $DEPLOY_OUT)"
+echo "$DEPLOY_OUT" | grep -q "elementor/elementor.php" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
+echo "$DEPLOY_OUT" | grep -q "3.35.9" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
+echo "$DEPLOY_OUT"
+pass "confirmed: elementor 3.35.9 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
 
 say "cleanup"
 bash bin/pair.sh destroy "$PAIR"

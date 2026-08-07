@@ -46,11 +46,14 @@ require __DIR__ . '/../../agent/src/Capture.php';
 // by sandbox/tests/regress_repository_compiler.sh, whose dependency list
 // this mirrors exactly.
 require __DIR__ . '/../../agent/src/Uuid.php';
+require __DIR__ . '/../../agent/src/Db.php';
 require __DIR__ . '/../../agent/src/Policy.php';
+require __DIR__ . '/../../agent/src/Ledger.php';
 require __DIR__ . '/../../agent/src/Snapshot.php';
 require __DIR__ . '/../../agent/src/Deletion.php';
 require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
 require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
+require __DIR__ . '/../../agent/src/SidebarState.php';
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2); // agent/duo.php's own value; not required here to avoid its ABSPATH/WP_CLI bootstrap guard
 }
