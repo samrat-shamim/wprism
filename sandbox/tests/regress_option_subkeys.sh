@@ -25,14 +25,9 @@
 #       term ids resolve to the TARGET's own local ids (proven to differ
 #       from the source's).
 #   (3) the well-documented, architecture-level Polylang timing hazard
-#       (manifests/polylang.json's own note #18, task #121) is exercised,
-#       and CONFIRMED (DUO-3276 follow-up, live evidence posted to DUO-3280;
-#       3/3 deterministic reproductions on this pair) to already be resolved
-#       by the time apply_with_retry()'s own first successful call returns.
-#       PRECISE mechanism, traced against Polylang 3.8.6's real source (not
-#       re-guessed from the ORIGINAL note's higher-level framing) after
-#       team-lead flagged a competing hypothesis worth ruling out first --
-#       see src/translated-post.php: `PLL_Model::get_translated_object_types()`
+#       (manifests/polylang.json's own note, task #121) -- CLOSED (DUO-3280).
+#       PRECISE mechanism, traced against Polylang 3.8.6's real source: see
+#       src/translated-post.php: `PLL_Model::get_translated_object_types()`
 #       reads `$this->options['post_types']` (Polylang's OWN in-memory copy
 #       of the polylang option, snapshotted once per process, well before
 #       ANY of duo's apply code runs) through `PLL_Cache` (confirmed
@@ -46,36 +41,60 @@
 #       Polylang's model had already snapshotted -- unaffected by anything
 #       duo's OWN phase-2 entity-apply ordering does afterward (options
 #       before or after posts makes no difference: this snapshot predates
-#       duo's code entirely). RULED OUT, empirically, not assumed: (a)
-#       DUO-3272's polylang.json rebuilder -- read directly, it recomputes
-#       ONLY the theme_mods `nav_menu_locations` slot, nothing taxonomy- or
-#       post_types-related; (b) the `pll_languages_list` transient (team-lead's
-#       first suspect) -- this manifest's OWN pre-existing note #22 already
-#       recorded it "resilient to Duo's hook-free $wpdb writes (no
-#       rebuild/flush step needed after apply for THAT cache)" from an
-#       EARLIER task, re-confirmed live just now (`get_transient(
-#       'pll_languages_list') !== false` both before and after, unchanged
-#       shape) -- it caches the LANGUAGE list (en/de/...), a genuinely
-#       different concern from post_types-to-taxonomy registration. So: NOT
-#       "some cache got invalidated by a rebuilder or reconciliation pass" --
-#       apply_with_retry()'s retry heals this because DUO-3206's
-#       apply_in_progress marker forces a REAL re-apply (proven: both
-#       attempts report identical "update":16, i.e. attempt 2 genuinely
-#       REPROCESSES the same entities, not merely re-verifies), and that
-#       reprocessing runs in a fresh process whose OWN `init` -- and
-#       therefore OWN `PLL_Model` snapshot -- boots AFTER attempt 1's
-#       post_types write already committed. A bare fresh READ (no re-apply)
-#       would correctly see object_type resolved but would NOT retroactively
-#       create the missing relationship row -- something has to actually
-#       reprocess the post, which only a genuine retried APPLY does here.
-#       TEMPORARY, same as apply_with_retry() itself: once DUO-3280 lands an
-#       engine-level fix, whether this specific side effect survives depends
-#       on the fix's own shape (an always-fresh-process verification
-#       strategy would likely preserve it, since it doesn't change whether
-#       affected entities get reprocessed; an engine-internal re-verify
-#       that doesn't force reprocessing might not, which could resurrect
-#       the ORIGINAL single-apply characterization) --
-#       worth re-checking this section specifically when DUO-3280 ships.
+#       duo's code entirely), and unaffected by which PROCESS eventually
+#       re-verifies convergence (DUO-3220's fresh-subprocess verification
+#       was never the bug -- there is exactly one verify_convergence_local()
+#       call site in the whole engine, always reached via a spawned fresh
+#       process; that path was correct before this fix and unchanged by it).
+#       Two candidate mechanisms were RULED OUT, empirically, not assumed,
+#       before landing on the real one: (a) DUO-3272's polylang.json
+#       rebuilder -- read directly, it recomputes ONLY the theme_mods
+#       `nav_menu_locations` slot, nothing taxonomy- or post_types-related;
+#       (b) the `pll_languages_list` transient (team-lead's first suspect)
+#       -- this manifest's OWN pre-existing note already recorded it
+#       "resilient to Duo's hook-free $wpdb writes (no rebuild/flush step
+#       needed after apply for THAT cache)" from an earlier task,
+#       re-confirmed live -- it caches the LANGUAGE list (en/de/...), a
+#       genuinely different concern from post_types-to-taxonomy
+#       registration. A THIRD candidate -- a phase-ordering / ref-resolved-
+#       before-term-exists / warn-and-drop mechanism, which would have
+#       exonerated DUO-3220's convergence gate as catching a genuinely
+#       different pre-existing bug rather than a false failure -- was also
+#       ruled out by direct code trace: Apply::reconcile_relationships()'s
+#       ref-resolution loop HARD-THROWS (`?? throw new \RuntimeException`)
+#       on an unresolvable term ref, it does not warn-and-drop, and that
+#       throw was never observed; the actual mechanism is one level
+#       earlier -- taxes_for_post_type() (backing reconcile_relationships())
+#       returns an EMPTY list for a taxonomy whose object_type doesn't
+#       (yet) include the post's type, so reconcile_relationships() returns
+#       at its own top-of-function gate, before ever reaching ref
+#       resolution. The real fix: Apply's own taxes_by_object_type() now
+#       ALSO consults a manifest-declared, generic supplement (Policy::
+#       object_type_option_ref() -- "taxonomy X's object_type is
+#       additionally driven by option O's sub-key K"; the engine knows
+#       nothing about Polylang specifically). NOT via a live database
+#       read, on purpose -- an earlier version of this fix tried exactly
+#       that and reproduced the ORIGINAL failure live: phase-2's own
+#       stable sort finalizes a brand-new post of a newly-enabled type
+#       BEFORE the `polylang` option's own sub_keys merge in the SAME
+#       apply (both share one phase2_rank; a post's plan bucket --
+#       create -- sorts ahead of the option's -- update), so a live read
+#       at that exact moment still sees the pre-merge row. The fix
+#       instead reads THIS APPLY'S OWN COMPILED TREE (the value this
+#       exact run has already decided to write), which is provably
+#       equivalent to what ends up committed for any apply that succeeds
+#       (run() wraps everything in one transaction that only commits
+#       after convergence verification passes) -- see Apply::
+#       option_driven_object_type()'s own comment for the full argument.
+#       Proven below: a SINGLE, unretried `wp duo apply` (no more
+#       apply_with_retry() -- DUO-3276's stopgap wrapper, deleted now
+#       that this landed) writes the `language`/`post_translations`
+#       relationships correctly and passes post-apply convergence
+#       verification (DUO-3220) on the very first attempt. DUO-3220's own
+#       gate was never the bug: it TRUE-failed, immediately and loudly, on
+#       a genuinely incomplete apply that the pre-3220 world used to ship
+#       silently as easy-to-miss "drift" -- see manifests/polylang.json's
+#       own CLOSED note for the full account.
 #   (4) pll_get_post_language()/pll_get_post_translations() resolve
 #       correctly on the target for a Polylang-managed custom post type,
 #       using the target's OWN local ids.
@@ -142,60 +161,6 @@ wp2() { wp_env 2 "$@"; }
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
-
-# DUO-3276: retries `wp duo apply` a few times on the documented Polylang
-# 3.8.6 stale-in-process-state class (Apply.php's own verify_convergence()
-# docblock names this exact reproduced case: an in-process post-apply
-# recapture -- verify_convergence_local(), the path this repo hits -- can
-# see a stale in-memory Polylang model, producing a spurious canonical
-# hash mismatch on THIS SPECIFIC PROCESS's re-read; a fresh subsequent
-# apply/plan re-derives from the committed DB state and does not repeat
-# it, exactly the DUO-3206 apply_in_progress marker + automatic
-# retry-forcing mechanism regress_tec_regen.sh's own live-verified
-# pattern already exercises for a different trigger). Confirmed live,
-# not guessed: an apply that failed with "post-apply convergence
-# verification failed ... canonical hash mismatch" on this fixture's own
-# Polylang-translated project posts succeeded cleanly on a bare retry,
-# both attempts producing IDENTICAL "update":16/canary-clean output
-# otherwise -- no new content, nothing else different. Same retry-loop
-# shape as cli_smoke.sh's own "duo doctor" wait (this project's existing
-# precedent for "concurrent docker load is expected, retry briefly"),
-# not a new pattern invented here. Every OTHER failure mode still aborts
-# on the FIRST attempt via `return "$rc"` below -- this narrowly targets
-# the one named, engine-documented, proven-transient class.
-#
-# TEMPORARY: this wrapper is a fixture-side workaround, not a fix -- it is
-# REMOVABLE once DUO-3280 (the filed engine issue tracking
-# verify_convergence_local() false-failing the first apply for stale-runtime
-# adapters generally) lands. Once that engine fix ships, collapse this back
-# to a bare `$COMPOSE run --rm -T cli2 wp duo apply "$@"` and delete this
-# function.
-apply_with_retry() { # apply_with_retry <duo-apply-args...>
-  local out rc attempt
-  for attempt in 1 2 3; do
-    # `$?` immediately after a bare `if ...; then ...; fi` with NO else is
-    # the IF STATEMENT's own exit status (0 -- "completed without a shell
-    # error"), NOT the failed condition's -- a real bash gotcha, caught by
-    # this function's own offline unit test (scenario B: 3 genuine
-    # failures were silently reported as success before this fix, exactly
-    # the "silent failure masked as success" this project's own posture
-    # refuses to tolerate). Capturing rc explicitly inside `else` is what
-    # makes it correct.
-    if out=$($COMPOSE run --rm -T cli2 wp duo apply "$@" 2>&1); then
-      echo "$out"
-      return 0
-    else
-      rc=$?
-    fi
-    if [ "$attempt" -lt 3 ] && echo "$out" | grep -qE 'incomplete_apply|convergence verification failed'; then
-      echo "apply attempt $attempt hit the known-transient Polylang post-apply convergence staleness (Apply.php's own documented case); retrying..." >&2
-      sleep 2
-      continue
-    fi
-    echo "$out"
-    return "$rc"
-  done
-}
 
 command -v jq >/dev/null || fail "jq required"
 command -v python3 >/dev/null || fail "python3 required"
@@ -345,10 +310,15 @@ echo "side2 polylang option BEFORE apply (fresh activation defaults): $POLYLANG_
 echo "$POLYLANG_BEFORE" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(1 if d['post_types'] else 0)" \
   || fail "side2 should start with an EMPTY post_types (genuinely fresh, no manual config)"
 
-APPLY1=$(apply_with_retry --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV")
+APPLY1=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1) \
+  || { echo "$APPLY1"; fail "single-attempt apply did not pass convergence on the fresh Polylang target -- DUO-3280's fix (taxes_by_object_type()'s manifest-declared option supplement, see header note (3)) is expected to make this pass on the FIRST and ONLY attempt now, no retry"; }
 echo "$APPLY1"
 echo "$APPLY1" | grep -qiE '"canary":"clean"|canary clean' || fail "apply canary was not clean"
-pass "apply succeeded on a fresh target, canary clean"
+pass "single-attempt apply succeeded on a fresh target, canary clean -- no retry wrapper involved"
+
+say "DUO-3282: this apply's own polylang.json rebuilder (DUO-3272's nav_menu_locations eval) fired -- a DIFFERENT rebuilder than DUO-3267/grind_r1a_forms.sh's own nf3_upgrades probe, same new confirmation-line mechanism (Apply::rebuild()'s per-declaration 'rebuilder fired' warning)"
+echo "$APPLY1" | grep -q "rebuilder fired: " || fail "expected an unconditional 'rebuilder fired' confirmation line in apply's warnings (got no match in: $APPLY1)"
+pass "confirmed: Apply::rebuild()'s own WP_CLI::runcommand() launch reports back per-declaration, no more inferring it indirectly from a rebuilder's own side-effect table"
 
 say "(6) sub-key merge, re-asserted directly against the database: side2's OWN pre-existing polylang/wpseo bookkeeping survives untouched"
 POLYLANG_AFTER=$(wp2 option get polylang --format=json | tail -1)
@@ -388,10 +358,10 @@ print('wpseo merge OK:', d['disableadvanced_meta'], d['version'])
 " || fail "wpseo sub-key merge check failed"
 pass "wpseo.disableadvanced_meta merged correctly; version/first_activated_on (target's OWN) preserved -- second real-plugin proof of the same grammar"
 
-say "(3) the documented Polylang timing hazard (manifests/polylang.json note #18, task #121): PLL_Model::get_translated_object_types() (src/translated-post.php) snapshots \$this->options['post_types'] into PLL_Cache once per process, before ANY of duo's apply code runs -- so the process that FIRST writes post_types cannot see its own write for taxonomy-registration purposes. CONFIRMED BELOW already resolved by the time apply_with_retry() returns -- ruled out empirically, not assumed: NOT DUO-3272's rebuilder (touches only theme_mods nav_menu_locations), NOT the pll_languages_list transient (this manifest's own pre-existing note already found it hook-free-write-resilient; re-confirmed live). The real mechanism: DUO-3206's incomplete_apply marker forces a GENUINE re-apply on retry (both attempts report identical update:16 -- attempt 2 reprocesses, doesn't merely re-verify), and that reprocessing's own fresh process boots its PLL_Model AFTER attempt 1's post_types write already committed. See this file's header note (3) for the full trace -- evidence posted to DUO-3280"
+say "(3) the documented Polylang timing hazard (manifests/polylang.json's own CLOSED note, task #121/DUO-3280): taxes_by_object_type()'s manifest-declared option supplement (Policy::object_type_option_ref(), reading polylang.post_types from THIS apply's own compiled tree, not a live DB read -- see Apply::option_driven_object_type()'s comment for why) means the SAME single apply that first writes post_types now ALSO sees it for relationship-writing purposes -- no second process, no retry required. Checked below on the output of the single APPLY1 attempt above, not a subsequent process's read of it."
 OBJTYPE_B2=$(wp2 eval "\$t=get_taxonomy('language'); echo implode(',', (array) \$t->object_type);")
-echo "side2 language taxonomy object_type in a fresh process after apply #1 returns: $OBJTYPE_B2"
-echo "$OBJTYPE_B2" | grep -q "project" || fail "expected 'project' in language's object_type by the time apply_with_retry() returns (got: $OBJTYPE_B2) -- either the post_types write regressed, or this is running against a NON-retried single attempt where the original init-time freeze would legitimately still apply"
+echo "side2 language taxonomy object_type in a fresh process after the single apply attempt: $OBJTYPE_B2"
+echo "$OBJTYPE_B2" | grep -q "project" || fail "expected 'project' in language's object_type after the single apply attempt (got: $OBJTYPE_B2) -- the post_types write itself did not land"
 # DUO-3276 follow-up: was `sort -n | head -1`/`tail -1` -- lowest/highest
 # LOCAL id is NOT a safe EN/DE proxy (live-caught, acore3276 pair, 2026-08:
 # a second run assigned the German post the lower id, silently flipping
@@ -403,29 +373,36 @@ PROJ_DE_B2=$(wp2 post list --post_type=project --title="Duo Website Neugestaltun
 [ "$PROJ_EN_B2" != "" ] && [ "$PROJ_DE_B2" != "" ] && [ "$PROJ_EN_B2" != "$PROJ_DE_B2" ] \
   || fail "expected exactly one distinct target-local id per title (got EN=$PROJ_EN_B2 DE=$PROJ_DE_B2)"
 LANG_BEFORE_FIX=$(wp2 eval "var_export(pll_get_post_language($PROJ_EN_B2));")
-echo "pll_get_post_language immediately after apply_with_retry() returns: $LANG_BEFORE_FIX"
-# DUO-3276 follow-up (live-verified, evidence on DUO-3280): this USED to read
-# `false` here -- the suite's ORIGINAL characterization, written before
-# apply_with_retry() existed, when every attempt was its own unretried,
-# one-shot process. Confirmed live (acore3276 pair, 2026-08): under retry
-# semantics the relationship already resolves to 'en' at this exact point,
-# every run -- attempt 2's own fresh process sees attempt 1's committed
-# post_types write at ITS OWN init, and DUO-3206's incomplete_apply marker
-# forces the affected posts back into that fresh process's work set instead
-# of letting them fall out as already-unchanged. The underlying WordPress/
-# Polylang timing hazard itself is UNCHANGED (still real, still reproducible
-# on a genuinely unretried single apply) -- what changed is that this suite
-# no longer exercises an unretried apply, so it no longer observes the gap.
-[ "$LANG_BEFORE_FIX" = "'en'" ] || fail "expected pll_get_post_language already resolved to 'en' by the time apply_with_retry() returns (got: $LANG_BEFORE_FIX) -- see this step's comment: either the DUO-3206/retry side effect this now documents has changed, or DUO-3280's eventual fix already landed and changed the ground again (re-check this whole section against that issue)"
-pass "confirmed: apply_with_retry()'s own fresh-process retry already resolves the documented Polylang object_type-at-init gap as a side effect -- zero manual Settings replication, zero drift left for the checks below to find"
+echo "pll_get_post_language immediately after the SINGLE, unretried apply attempt: $LANG_BEFORE_FIX"
+# DUO-3280 (this fix): this used to read `false` here on an unretried
+# single attempt -- the suite's ORIGINAL characterization, and exactly the
+# failure DUO-3276's now-deleted apply_with_retry() wrapper papered over by
+# forcing a second, fresh-process attempt. taxes_by_object_type() now sees
+# 'project' as in scope for `language`/`post_translations` DURING attempt
+# 1's own single pass (via the option-driven supplement, not get_taxonomy()),
+# so reconcile_relationships() writes the term_relationships row on the
+# first and only attempt -- confirmed here by reading it back via
+# pll_get_post_language(), which hits the DB directly and would report the
+# same answer whether checked in-process or, as here, from a separate
+# `wp2 eval` process; a fresh process was never what made this pass.
+[ "$LANG_BEFORE_FIX" = "'en'" ] || fail "expected pll_get_post_language already resolved to 'en' after the single, unretried apply attempt (got: $LANG_BEFORE_FIX) -- DUO-3280's fix did not close the gap; re-check taxes_by_object_type()/object_type_option_ref()"
+pass "confirmed: the SINGLE, unretried apply attempt already resolved the documented Polylang object_type timing gap -- zero manual Settings replication, zero retry, zero drift left for the checks below to find"
 
-say "confirming the above leaves nothing to self-heal: a no-op re-apply -- ZERO content changes anywhere -- should show ZERO drift, not the 'drift (env ahead, untouched)' this suite originally documented here (that characterization described an UNRETRIED apply's own gap; see note (3) above for why this run's own apply_with_retry() already closed it before this point). Kept as a real assertion, not just a description, precisely because a regression back to the old behavior (e.g. DUO-3280 changing apply_with_retry()'s effective semantics) should fail loudly here, not slide by unnoticed."
+say "confirming the above leaves nothing to self-heal: a no-op re-apply -- ZERO content changes anywhere -- should show ZERO drift, not the 'drift (env ahead, untouched)' this suite originally documented here (that characterization described the pre-fix apply's own gap; see note (3) above for why the single apply above already closed it). Kept as a real assertion, not just a description, precisely because a regression back to the old behavior should fail loudly here, not slide by unnoticed."
 REV_NOOP=$(git -C siterepo/${PAIR}2 rev-parse HEAD)
-APPLY_NOOP=$(apply_with_retry --repo=/siterepo --default-author=admin --revision="$REV_NOOP")
+APPLY_NOOP=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --default-author=admin --revision="$REV_NOOP" 2>&1) \
+  || { echo "$APPLY_NOOP"; fail "single-attempt no-op re-apply failed"; }
 echo "$APPLY_NOOP"
 echo "$APPLY_NOOP" | grep -q '"drift":0' || fail "expected ZERO drift on a no-op re-apply -- the language relationship should already be fully resolved by this point (got: $APPLY_NOOP)"
-echo "$APPLY_NOOP" | grep -q '"unchanged":16' || fail "expected all 16 entities unchanged on a genuine no-op re-apply (got: $APPLY_NOOP)"
-pass "confirmed: no drift left to find -- the relationship was already fully resolved by apply_with_retry()'s own return, not merely by this no-op re-apply"
+# DUO-3280 follow-up: was 16 -- stale relative to DUO-3264 (#67, landed on
+# main after PR #61), which gave theme_mods_<stylesheet> its own tracked
+# dynamic_options entity; APPLY1's own plan (create:11 + update:2 + adopt:4)
+# now totals 17, all correctly unchanged here. Not a DUO-3280 regression --
+# every OTHER assertion in this run (byte-identical sub-key merge, drift:0,
+# canary clean) is unaffected; only this one entity-count literal needed to
+# catch up to what already landed on main independently.
+echo "$APPLY_NOOP" | grep -q '"unchanged":17' || fail "expected all 17 entities unchanged on a genuine no-op re-apply (got: $APPLY_NOOP)"
+pass "confirmed: no drift left to find -- the relationship was already fully resolved by the single apply attempt above, not by this no-op re-apply"
 
 say "a genuine content change on BOTH posts, + a SECOND, still fully automated apply -- zero manual Settings replication. Not fixing anything at this point (nothing is broken -- see above); this now proves the ORDINARY case: a real content update on a Polylang-translated post applies correctly and the already-resolved language relationship survives untouched, matching task #92's own established playbook for pa_* attribute relationships (a genuine content change is what forces Apply's plan to reprocess an entity at all -- 'unchanged' entities never are, regardless of what a sibling option write just changed)."
 wp1 post update "$PROJ_EN" --post_excerpt="A ground-up rebuild of the marketing site." >/dev/null
@@ -436,7 +413,8 @@ git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test
 git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test push -q origin main
 git -C siterepo/${PAIR}2 pull -q origin main
 REV2=$(git -C siterepo/${PAIR}2 rev-parse HEAD)
-APPLY2=$(apply_with_retry --repo=/siterepo --default-author=admin --force-theirs --revision="$REV2")
+APPLY2=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV2" 2>&1) \
+  || { echo "$APPLY2"; fail "single-attempt content-update apply failed"; }
 echo "$APPLY2"
 echo "$APPLY2" | grep -qiE '"canary":"clean"|canary clean' || fail "second apply canary was not clean"
 
