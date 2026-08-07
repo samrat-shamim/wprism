@@ -56,7 +56,17 @@ cleanup() {
   wp1 post delete "$PAGE_ID" --force >/dev/null 2>&1 || true
   wp1 option update wp_page_for_privacy_policy "$ORIG_PRIVACY" >/dev/null 2>&1 || true
   wp1 eval "update_option('sticky_posts', json_decode('$ORIG_STICKY', true) ?: []);" >/dev/null 2>&1 || true
-  rm -rf "$HOST_REPO"
+  # r1b1's own option/page state is ALWAYS restored above regardless of
+  # KEEP_SCRATCH -- this only ever skips the scratch TREE deletion, so a
+  # failed run's captured options/core.json survives for direct
+  # inspection instead of a diagnosis having to be reconstructed from
+  # warnings/log text alone (the exact gap that cost extra round trips
+  # diagnosing (1b) below the first time this script was reconciled).
+  if [ "${KEEP_SCRATCH:-0}" = "1" ]; then
+    echo "KEEP_SCRATCH=1: leaving $HOST_REPO on disk for inspection (remove by hand when done)"
+  else
+    rm -rf "$HOST_REPO"
+  fi
 }
 trap cleanup EXIT
 
@@ -126,9 +136,20 @@ say "(1b) same case, escape hatch: --force-unresolved-refs proceeds, drops it li
 OUT1B=$(wp1 duo capture --repo="$REPO" --out="$OUT" --force-unresolved-refs 2>&1)
 echo "$OUT1B"
 echo "$OUT1B" | grep -qi "success" || fail "expected --force-unresolved-refs to let capture succeed (got: $OUT1B)"
-jq -e '.records | has("wp_page_for_privacy_policy") | not' "$HOST_OUT/options/core.json" >/dev/null \
-  || fail "wp_page_for_privacy_policy should be absent from forced capture's output"
-pass "forced capture succeeded; option correctly dropped (never a raw env-local id in canonical state)"
+# NOT has()|not: wp_page_for_privacy_policy is policy-declared authored
+# (manifests/core.json), so Capture::build_options()'s own $required pass
+# (independent of any previous-document reconciliation -- confirmed by
+# reading it directly) ALWAYS gives it a record, even when its ref drops.
+# A scalar ref's option_ref_tokens() returns null on drop (unlike an
+# array ref, which always returns an array, even empty -- see (3b) below,
+# a REAL asymmetry, not a bug) -> capture_value()'s own included=false ->
+# the main present-record loop skips it -> the $required fallback writes
+# OptionState::absent(), exactly {"state":"absent"} (validate_record()
+# forbids any other key on an absent record, so this equality check IS
+# the "no raw id anywhere in the record" proof, not a separate check).
+jq -e '.records.wp_page_for_privacy_policy == {"state":"absent"}' "$HOST_OUT/options/core.json" >/dev/null \
+  || fail "wp_page_for_privacy_policy should be exactly {state:absent} (dropped, no raw id) in forced capture's output (got: $(jq -c '.records.wp_page_for_privacy_policy' "$HOST_OUT/options/core.json"))"
+pass "forced capture succeeded; option correctly recorded as absent (never a raw env-local id in canonical state)"
 
 say "(2) DANGLING (regression, must be UNCHANGED): wp_page_for_privacy_policy -> an id that exists NOWHERE"
 wp1 option update wp_page_for_privacy_policy 999999999 >/dev/null
@@ -136,8 +157,12 @@ OUT2=$(wp1 duo capture --repo="$REPO" --out="$OUT" 2>&1)
 echo "$OUT2"
 echo "$OUT2" | grep -qi "success" || fail "expected a genuinely dangling ref to still warn-and-drop, not abort (got: $OUT2)"
 echo "$OUT2" | grep -q "999999999" || fail "expected the ordinary dangling warning naming the id (got: $OUT2)"
-jq -e '.records | has("wp_page_for_privacy_policy") | not' "$HOST_OUT/options/core.json" >/dev/null \
-  || fail "wp_page_for_privacy_policy should be absent (dangling, dropped)"
+# Same record shape as (1b) above, same reason: a dropped scalar ref
+# always ends up {"state":"absent"} via the $required fallback, dangling
+# or unscoped-forced makes no difference to THIS shape (only to which
+# warning text fires, already checked above).
+jq -e '.records.wp_page_for_privacy_policy == {"state":"absent"}' "$HOST_OUT/options/core.json" >/dev/null \
+  || fail "wp_page_for_privacy_policy should be exactly {state:absent} (dangling, dropped) (got: $(jq -c '.records.wp_page_for_privacy_policy' "$HOST_OUT/options/core.json"))"
 pass "dangling reference still warns and drops silently, exit 0 — unaffected by this fix (spike A's id-0/deleted-target case stays honest)"
 
 say "(3) UNSCOPED, array ref: sticky_posts -> [that same real, out-of-scope page]"
@@ -157,6 +182,14 @@ wp1 eval "update_option('sticky_posts', [888888888]);" >/dev/null
 OUT3B=$(wp1 duo capture --repo="$REPO" --out="$OUT" 2>&1)
 echo "$OUT3B"
 echo "$OUT3B" | grep -qi "success" || fail "expected a dangling array element to still warn-and-drop (got: $OUT3B)"
+# Sweep note (unlike (1b)/(2) above, this one does NOT need the {state:
+# absent} fix): option_ref_tokens()'s array-ref branch (confirmed by
+# reading it directly) ALWAYS returns an array, even when every element
+# dropped -- an empty array is still `!== null`, so capture_value()'s
+# included stays true and the option stays a PRESENT record with an
+# empty value, never falling through to the $required absent() fallback
+# a scalar ref's null return does. A real, deliberate scalar/array
+# asymmetry, not a bug -- this assertion was already correct.
 jq -e '.records.sticky_posts.value == []' "$HOST_OUT/options/core.json" >/dev/null \
   || fail "sticky_posts should be an empty array (dangling element dropped, not the whole key)"
 pass "dangling array element still drops just that element and exits 0 — unaffected by this fix"
