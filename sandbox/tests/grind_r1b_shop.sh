@@ -363,19 +363,60 @@ PENDING_WOO=$(wp_r1b1 duo pending --repo=/siterepo --format=json | tail -1 | jq 
 [ "$PENDING_WOO" = "0" ] || fail "expected zero pending post_meta items for this round's keys (got $PENDING_WOO) — the manifest graduation should have closed all of them"
 pass "pending: zero outstanding gaps for any key this round introduced — manifests/woocommerce.json fully covers the shop"
 
-say "lint demonstration: deliberately drop _children's ref declaration, recapture, expect bare_id findings naming the real products; restore, recapture, expect clean"
+# This step originally ended at a lint-only demonstration: drop _children's
+# ref, recapture (bare ids land in state/ untokenized), lint flags them,
+# restore the declaration, recapture again, lint goes clean. DUO-3210 ("make
+# deletion explicit and drift-safe") gave Capture::run() a NEW precondition
+# that upgrades this from flagged to structurally unshippable — before
+# building anything, capture now compiles whatever is ALREADY on disk
+# (Capture.php: "Compiling before target reads also refuses to build new
+# state on top of an already-invalid repository revision"), to establish
+# the baseline DUO-3210's own deletion-tombstone comparison needs. Once the
+# declaration is restored below, that pre-check runs against the ON-DISK
+# tree still holding the previous (bad, ref-dropped) capture's raw ints —
+# and RepositoryCompiler::validate_declared_ref() now refuses THAT tree
+# outright: two blocking nonportable_reference diagnostics, capture aborts
+# before touching anything. Restoring the declaration alone is no longer
+# enough to recover: the tainted on-disk file has to be discarded first
+# (never committed to git at this point in the script, so there is nothing
+# to git-checkout back to) — recapture then rebuilds it fresh, straight
+# from live WordPress data via the SAME identity (_duo_uuid postmeta/the
+# ledger row are untouched by deleting just the file), tokenized correctly.
+say "lint demonstration: deliberately drop _children's ref declaration, recapture, expect bare_id findings naming the real products"
 jq '.policy.post_meta._children = {"class":"authored"}' siterepo/r1b1/site.duo.json > siterepo/r1b1/.tmp-site.json && mv siterepo/r1b1/.tmp-site.json siterepo/r1b1/site.duo.json
 wp_r1b1 duo capture --repo=/siterepo >/dev/null
 set +e
 LINT_BAD=$(wp_r1b1 duo lint --repo=/siterepo --format=json | tail -1)
 set -e
 echo "$LINT_BAD" | jq -e '[.[] | select(.locator | test("_children"))] | length == 2' >/dev/null || fail "expected 2 bare_id findings on _children (got: $LINT_BAD)"
-pass "lint caught the deliberately-dropped ref: 2 bare_id findings, correctly naming Duo Mug/Duo Sticker Pack by title"
+pass "lint caught the deliberately-dropped ref: 2 bare_id findings, correctly naming Duo Mug/Duo Sticker Pack by title (capture-side early-warning layer — capture itself still succeeds pre-compile, since the ACTIVE policy has no ref declared here to violate)"
+
+say "restore the ref declaration; recapture now hits DUO-3210's pre-build compile gate — assert the STRUCTURAL refusal (the compiler upgraded this class from flagged to unshippable), not a lint warning"
 jq 'del(.policy.post_meta._children)' siterepo/r1b1/site.duo.json > siterepo/r1b1/.tmp-site.json && mv siterepo/r1b1/.tmp-site.json siterepo/r1b1/site.duo.json
+if OUT_COMPILE=$(wp_r1b1 duo capture --repo=/siterepo 2>&1); then
+  echo "$OUT_COMPILE"
+  fail "capture succeeded despite the on-disk tree still holding raw (untokenized) _children ids under the now-restored ref declaration (expected DUO-3210's pre-build compile refusal)"
+fi
+echo "$OUT_COMPILE"
+grep -qF "repository compilation failed (2 blocking diagnostic(s)); no target contact or mutation attempted" <<<"$OUT_COMPILE" \
+  || fail "abort message does not name the compilation-failed gate with 2 diagnostics (got: $OUT_COMPILE)"
+# Diagnostic paths are relative to state/, not the repo root -- glob from
+# inside it so BUNDLEFILE matches the compiler's own path format exactly.
+BUNDLEFILE=$(cd siterepo/r1b1/state && ls posts/product/*duo-bundle*.md)
+grep -qF "[nonportable_reference] $BUNDLEFILE:meta._children[0] — declared post reference must be a canonical token, never a raw target id" <<<"$OUT_COMPILE" \
+  || fail "abort message does not name _children[0]'s exact diagnostic on the bundle file (got: $OUT_COMPILE)"
+grep -qF "[nonportable_reference] $BUNDLEFILE:meta._children[1] — declared post reference must be a canonical token, never a raw target id" <<<"$OUT_COMPILE" \
+  || fail "abort message does not name _children[1]'s exact diagnostic on the bundle file (got: $OUT_COMPILE)"
+pass "confirmed: DUO-3210's pre-build compile gate refuses to capture at all while the on-disk revision is structurally invalid under the now-restored declaration — naming both diagnostics by exact locator, no mutation attempted. Restoring the manifest declaration alone no longer self-heals a tainted revision; this IS the M2 promise (DUO-3208's compiler) reaching capture's own precondition, not just plan/apply"
+
+say "recover: discard the tainted (never-committed) file so the pre-build compile has nothing invalid left to refuse; recapture rebuilds it fresh from live data under the SAME identity"
+rm -f "siterepo/r1b1/state/$BUNDLEFILE"
 wp_r1b1 duo capture --repo=/siterepo >/dev/null
 LINT_OK=$(wp_r1b1 duo lint --repo=/siterepo --format=json | tail -1)
-[ "$(echo "$LINT_OK" | jq 'length')" = "0" ] || fail "lint not clean after restoring manifest coverage (got: $LINT_OK)"
-pass "lint clean again — manifests/woocommerce.json's declaration (not a site override) is what makes this pass by default now"
+[ "$(echo "$LINT_OK" | jq 'length')" = "0" ] || fail "lint not clean after recovering (got: $LINT_OK)"
+NEW_BUNDLEFILE=$(cd siterepo/r1b1/state && ls posts/product/*duo-bundle*.md)
+[ "$NEW_BUNDLEFILE" = "$BUNDLEFILE" ] || fail "bundle recaptured under a DIFFERENT uuid/filename after recovery — identity should have survived (was: $BUNDLEFILE, now: $NEW_BUNDLEFILE)"
+pass "lint clean again, bundle recaptured under its ORIGINAL uuid (identity untouched — only the file was discarded, not the ledger row or the live post's own _duo_uuid) — manifests/woocommerce.json's declaration (not a site override) is what makes this pass by default now"
 
 say "capture-twice determinism"
 wp_r1b1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
