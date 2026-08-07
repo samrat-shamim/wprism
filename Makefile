@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff code-half-unit
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff code-half-unit
 
 up:
 	$(COMPOSE) up -d
@@ -120,6 +120,9 @@ regress-pa-attributes:
 
 regress-shipping-zones:
 	bash sandbox/tests/regress_shipping_zones.sh
+
+regress-natural-key-rename:
+	php sandbox/tests/regress_natural_key_rename.php
 
 # Certify merge (DUO-3228): permanentizes spike_b_merge.sh's divergent-edit
 # + conflict + resolve + converge flow as a re-runnable LOCAL regression

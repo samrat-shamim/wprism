@@ -110,10 +110,14 @@ namespace Duo;
  *   `attribute_name`: verified in docs/grind/r1b-shop.md). A fresh row's
  *   uuid is DERIVED, not minted: `Uuid::v5(Uuid::NAMESPACE_DUO,
  *   "<table>:<natural key value>")` — the SAME (table, value) always
- *   produces the SAME uuid. This is deliberately stronger than mapped mode:
- *   a missing mapping can be deterministically reconstructed from the live
- *   natural key. Contradictory live mappings still block; ordinary
- *   Ledger::set() never deletes or rebinds identity implicitly.
+ *   produces the SAME uuid. This is BOOTSTRAP identity for a never-seen row;
+ *   after first capture, the existing ledger mapping is consulted first and
+ *   provides rename continuity. Consequently a mapped row whose natural key
+ *   changes keeps its uuid, even though UUIDv5 of the current key differs.
+ *   A fresh environment independently capturing that renamed row without
+ *   ledger/repository history derives from the new key instead; table adopt
+ *   is the reconciliation path. Contradictory mappings still block and
+ *   ordinary Ledger::set() never deletes or rebinds identity implicitly.
  * - `"identity": {"mode": "composite_ref", "columns": ["<col1>", "<col2>"]}`
  *   (DUO-3235, task #125) — for a PURE JOIN table: no surrogate `pk` column
  *   exists at all, and its real, live composite PRIMARY KEY is exactly the
@@ -182,27 +186,24 @@ namespace Duo;
  *   "Engine boundary"), not a hard restriction the grammar itself imposes
  *   on every future composite_ref table.
  *
- *   Mutation continuity (cross-ref DUO-3237, a natural_key rename hazard: a
- *   plain `name`-column edit on a WooCommerce attribute silently re-derives
- *   its uuid, since that mode's identity IS the label): composite_ref's two
- *   columns are ALWAYS refs, so their stability is entirely INHERITED from
- *   whatever identity mode the referenced table already uses, never re-
- *   derived from a label of composite_ref's own. This fixture's two ref
+ *   Mutation continuity (cross-ref DUO-3237): composite_ref's two columns
+ *   are ALWAYS refs, so their stability is entirely inherited from whatever
+ *   identity mode the referenced table already uses. A mapped natural_key
+ *   target keeps its ledger UUID across a key rename, so a composite_ref row
+ *   referencing it keeps the same derived tuple UUID too. This fixture's two ref
  *   targets — `pmpro_level` (mapped identity: a random v7, stored in
  *   duo_map, untouched by editing `name`) and `post` (the built-in
  *   `_duo_uuid` postmeta, untouched by editing title/slug) — are both
- *   immune to DUO-3237's specific hazard class; had a ref target instead
- *   used `natural_key` identity, a rename there would ripple transitively
- *   into this row's own derived uuid, exactly as it would for ANY other
- *   entity referencing that same natural_key row — composite_ref adds no
- *   NEW mutation surface, it only inherits what its ref targets already
- *   have. The DIFFERENT, ORDINARY-OPERATION question — an admin re-points a
+ *   likewise rename-stable. A fresh environment independently bootstrapping
+ *   an already-renamed natural_key target without its ledger/repository
+ *   history can derive a different target UUID and thus a different tuple;
+ *   that is the same documented bootstrap/continuity boundary, not a new
+ *   composite_ref mutation rule. The DIFFERENT, ORDINARY-OPERATION question — an admin re-points a
  *   restriction from one page to another — is empirically answered (not
  *   merely argued) by regress_pmpro_composite_ref.sh's step 8: delete-old-
  *   uuid + create-new-uuid + zero updates, live. This is the correct
- *   outcome, not DUO-3237's failure mode wearing a different hat: unlike
- *   `attribute_name` (a human-facing LABEL incidental to an attribute's
- *   "true" identity — renaming it is conceptually an edit), a join row's
+ *   outcome, not a rename-continuity failure: unlike an attribute key edit,
+ *   a join row's
  *   tuple IS its entire meaning — "level 2 restricts page 14" and "level 2
  *   restricts page 20" are two DIFFERENT facts, not one fact relabeled, so
  *   delete+create is the semantically correct shape, matching what hand-
@@ -1142,6 +1143,10 @@ final class Snapshot {
                 'table' => $table,
                 'uuid' => $uuid,
             ];
+            $identityNote = IdentityNotes::natural_key_continuity($uuid, $table, $decl, $columns);
+            if ($identityNote !== null && !in_array($identityNote, $tokens->notes, true)) {
+                $tokens->notes[] = $identityNote;
+            }
             $slug = self::slug_for($decl, $row, $localId);
             $entities[] = [
                 'uuid' => $uuid,

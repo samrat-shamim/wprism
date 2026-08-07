@@ -20,6 +20,8 @@ final class Tokens {
     private string $uploadsUrlEscaped;
     /** @var string[] capture-time warnings (unmapped ids etc.) */
     public array $warnings = [];
+    /** @var string[] capture-time informational observations */
+    public array $notes = [];
     /**
      * @var list<array{post:string,block:string,attr:string,kind:string,id:int,target_type:string}>
      * Block-ref violations of the SAME shape task #73 gives ref-typed

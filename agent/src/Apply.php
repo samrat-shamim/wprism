@@ -126,6 +126,13 @@ final class Apply {
                 $lifecycleTransition
             );
             $row = ['uuid' => $uuid, 'type' => $e['type'], 'path' => $e['path']];
+            $this->annotate_natural_key_continuity(
+                $row,
+                (string) $uuid,
+                (string) $e['type'],
+                $e['data'],
+                $envE
+            );
             if ($e['type'] === SidebarState::ENTITY_TYPE && $envE !== null) {
                 $envFront = Canon::decode($envE['content']);
                 $hasUnmanaged = false;
@@ -270,6 +277,7 @@ final class Apply {
                 'expected_hash' => $expected,
                 'receipt_hash' => $receipt,
             ];
+            $this->annotate_natural_key_continuity($row, (string) $uuid, $entityType, null, $envE);
             $deletionCaps[$uuid] = Deletion::capability($this->policy, $kind, $subtype);
 
             if ($envE === null) {
@@ -457,6 +465,44 @@ final class Apply {
             $this->warnings[] = $inactiveWarning;
         }
         return $plan;
+    }
+
+    /**
+     * Attach the DUO-3237 continuity observation to a plan row. A target
+     * mapping is required: on a fresh target the repository UUID may differ
+     * from UUIDv5(current key), but no retained local identity exists yet and
+     * adopt/collision handling remains the reconciliation path.
+     */
+    private function annotate_natural_key_continuity(
+        array &$row,
+        string $uuid,
+        string $table,
+        ?array $desired,
+        ?array $env
+    ): void {
+        $decl = $this->snapshotRowTables()[$table] ?? null;
+        if (!is_array($decl) || ($decl['identity']['mode'] ?? 'mapped') !== 'natural_key') {
+            return;
+        }
+        if (Ledger::id_for($uuid, (string) ($decl['id_kind'] ?? '')) === null) {
+            return;
+        }
+
+        $fronts = [];
+        if ($desired !== null) {
+            $fronts[] = $desired;
+        }
+        $content = $env['content'] ?? null;
+        if (is_string($content)) {
+            $fronts[] = Canon::decode($content);
+        }
+        foreach ($fronts as $front) {
+            $columns = is_array($front['columns'] ?? null) ? $front['columns'] : [];
+            $note = IdentityNotes::natural_key_continuity($uuid, $table, $decl, $columns);
+            if ($note !== null && !in_array($note, $row['annotations'] ?? [], true)) {
+                $row['annotations'][] = $note;
+            }
+        }
     }
 
     /**

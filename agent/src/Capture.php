@@ -132,7 +132,7 @@ final class Capture {
             // behind MUST happen before this run builds anything of its
             // own — see Publish::recover()'s docblock for why holding the
             // lock is what makes "leftover staging/backup dir" unambiguous.
-            $notes = Publish::recover($stateDir);
+            $recoveryWarnings = Publish::recover($stateDir);
             // The previous compiled revision is the only authority from
             // which a deletion intent can be created. A first capture has no
             // prior state and therefore cannot infer a deletion. Compiling
@@ -312,7 +312,8 @@ final class Capture {
         return [
             'counts' => $counts,
             'media' => count($build['media']),
-            'warnings' => array_merge($notes, $build['warnings']),
+            'notes' => $build['notes'],
+            'warnings' => array_merge($recoveryWarnings, $build['warnings']),
             'state_dir' => $stateDir,
         ];
     }
@@ -805,6 +806,7 @@ final class Capture {
     /** @return array{
      *   entities: array,
      *   media: array<string,array{path?:string,bytes?:string}>,
+     *   notes: string[],
      *   warnings: string[]
      * } */
     private function build(
@@ -1199,6 +1201,7 @@ final class Capture {
         return [
             'entities' => $entities,
             'media' => $media,
+            'notes' => $this->tokens->notes,
             'warnings' => array_merge($sidebarBuild['warnings'], $this->tokens->warnings),
         ];
     }

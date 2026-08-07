@@ -236,6 +236,9 @@ final class Cli {
             WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
             return;
         }
+        foreach ($summary['notes'] ?? [] as $note) {
+            WP_CLI::line('NOTE: ' . $note);
+        }
         foreach ($summary['warnings'] as $w) {
             WP_CLI::warning($w);
         }
@@ -340,6 +343,9 @@ final class Cli {
                     $line .= '  [BLOCKED: ' . $r['blocked'] . ']';
                 }
                 WP_CLI::line($line);
+                foreach ($r['annotations'] ?? [] as $annotation) {
+                    WP_CLI::line('  ' . $annotation);
+                }
                 foreach ($r['widget_deletes'] ?? [] as $widget) {
                     $origin = !empty($widget['unmanaged']) ? 'unmanaged target default' : 'mapped target widget';
                     WP_CLI::line(
