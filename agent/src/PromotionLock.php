@@ -121,6 +121,46 @@ final class PromotionLock {
         }
     }
 
+    /**
+     * Release after an apply failure without inheriting its transaction.
+     *
+     * A failed ROLLBACK can leave the authored transaction open on WordPress's
+     * global connection. Releasing through that connection would place the
+     * DELETE inside the doomed transaction, so PHP shutdown rolls the release
+     * back and strands a truthful retry behind the full lease TTL. Closing the
+     * connection first makes MariaDB roll back that transaction and its row
+     * locks; a fresh connection can then remove only this proven owner/artifact
+     * lease. The caller deliberately preserves the original apply exception if
+     * this best-effort cleanup also fails.
+     */
+    public static function release_after_failure(string $owner, string $artifactHash): void {
+        global $wpdb;
+        self::assert_identity($owner, $artifactHash);
+
+        // Most failures happen outside a transaction (preconditions,
+        // rebuilders, or probes). Keep their normal WordPress connection
+        // alive for shutdown hooks; only cross the independent cleanup
+        // boundary when MariaDB proves this process still owns a transaction.
+        $inTransaction = $wpdb->get_var('SELECT @@in_transaction');
+        if ($inTransaction !== null && (int) $inTransaction === 0) {
+            self::release($owner, $artifactHash);
+            return;
+        }
+
+        // Nothing after a failed apply may depend on this connection. Closing
+        // it is the only database-authoritative way to end an open transaction
+        // when the attempted ROLLBACK itself reported failure.
+        $wpdb->close();
+
+        // Reuse WordPress's host/socket parsing and error policy, but never
+        // let connection recovery bail out of PHP: the outer catch must retain
+        // the original apply failure as the primary operator-facing error.
+        if (!$wpdb->check_connection(false)) {
+            throw new \RuntimeException('duo: could not reconnect to release promotion lock after failure');
+        }
+        self::release($owner, $artifactHash);
+    }
+
     /** @return array<string,mixed>|null */
     public static function current(): ?array {
         $raw = Ledger::kv_get(self::KEY);

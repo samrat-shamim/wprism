@@ -163,10 +163,12 @@ edit_blogname "DUO 3206 rollback failure"
 expect_failure "apply update authored option,apply transaction rollback" "apply transaction rollback" \
   duo apply --repo=/siterepo --revision=bad-rollback
 [ "$(ledger_value applied_revision)" = baseline ] || fail "rollback failure advanced applied_revision"
-# The connection closes with the failed wp-cli process, causing MariaDB to
-# roll back the still-open transaction. Re-capture establishes the next case.
+[ "$(wp1 eval 'echo \Duo\PromotionLock::current() === null ? "none" : "held";' 2>/dev/null | tr -d '\r' | tail -1)" = none ] \
+  || fail "rollback failure stranded the promotion lock"
+# The failed process closed its transaction before independently releasing the
+# lease. Re-capture establishes the next case from a fresh process.
 reset_baseline
-pass "rollback boundary failure stayed fatal"
+pass "rollback boundary failure stayed fatal and released its lease"
 
 say "term recount failure occurs after commit but before convergence metadata"
 BASE_HASH=$(wp1 eval "echo \\Duo\\Ledger::state_hash('options/core') ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1)
@@ -231,6 +233,7 @@ cp "$REPO_ROOT/manifests/core.json" "$SITEREPO/test-manifests/core.json"
 cat > "$SITEREPO/test-manifests/duo-3206-fatal-rebuilder.json" <<'EOF'
 {
   "name": "duo-3206-fatal-rebuilder",
+  "spec_version": 1,
   "rebuilders": [{"command": "duo-3206-command-that-does-not-exist"}]
 }
 EOF

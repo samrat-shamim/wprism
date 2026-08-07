@@ -728,7 +728,7 @@ final class Apply {
             return $summary;
         } catch (\Throwable $t) {
             try {
-                PromotionLock::release($a->promotionOwner, $a->promotionArtifact);
+                PromotionLock::release_after_failure($a->promotionOwner, $a->promotionArtifact);
             } catch (\Throwable $_releaseFailure) {
                 // The original failure is the actionable cause. A lost lease
                 // is already fail-closed and expires without human cleanup.
