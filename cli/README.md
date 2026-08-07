@@ -11,7 +11,8 @@ exactly as before. `duo` only adds two things on top of the per-environment
 2. **Cross-environment ergonomics** — `duo envs`/`duo doctor`/`duo status`,
    which no single-environment `wp duo …` call can give you.
 3. **Truthful promotion sequencing** — `duo promote` compiles once, exports
-   a database checkpoint, then runs deploy → apply against the same artifact.
+   a database checkpoint, then runs deploy → apply against the same artifact
+   under one target-database promotion lease.
 
 `duo` is dependency-free PHP 8+: no composer, no vendored packages, no
 WordPress required on the machine that runs it. Requires only a `php`
@@ -97,14 +98,19 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   path. It compiles the repository once into `.duo/artifacts/`, exports the
   target database into `.duo/checkpoints/`, then runs `wp duo deploy` followed
   by `wp duo apply`, passing the same immutable `--compiled` artifact to both.
+  Both phases also receive one generated internal lease owner. Deploy retains
+  that target-DB lease for apply; apply releases it only after convergence
+  metadata commits. A concurrent promotion is refused, while a crashed owner is
+  recoverable after the bounded expiry. The internal lease flags cannot be
+  supplied by callers.
   It stops on the first non-zero phase and prints the retained checkpoint path
   plus an exact, transport-shaped `wp db import` command (local, Docker, or
   SSH). On success it retains the checkpoint and prints the phase trace.
 
   Apply flags are forwarded to apply; `--force-code-mismatch` and
   `--force-code-drift` are also forwarded to deploy. Callers cannot supply
-  `--compiled` because promotion owns that artifact boundary. Site repos must
-  ignore the operational directory:
+  `--compiled` or internal promotion-lease flags because promotion owns those
+  boundaries. Site repos must ignore the operational directory:
 
   ```gitignore
   .duo/

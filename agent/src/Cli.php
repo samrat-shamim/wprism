@@ -149,6 +149,7 @@ final class Cli {
      * [--force-unresolved-refs] : see `duo capture`'s option of the same name — plan's own drift
      *   detection captures the live environment too, so it hits the identical gate.
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
+     * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -158,6 +159,7 @@ final class Cli {
                 'adopt_by_slug' => $assoc['adopt-by-slug'] ?? '',
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
                 'compiled' => $assoc['compiled'] ?? '',
+                'promotion_owner' => $assoc['promotion-owner'] ?? '',
             ]);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc);
@@ -247,6 +249,7 @@ final class Cli {
      * [--default-author=<login>]
      * [--revision=<rev>]
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
+     * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -263,6 +266,7 @@ final class Cli {
                 'default_author' => $assoc['default-author'] ?? '',
                 'revision' => $assoc['revision'] ?? '',
                 'compiled' => $assoc['compiled'] ?? '',
+                'promotion_owner' => $assoc['promotion-owner'] ?? '',
             ]);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc);
@@ -308,6 +312,8 @@ final class Cli {
      * [--force-code-drift] : proceed despite code_drift findings (DUO-3231) — installed plugin/theme versions
      *   changed outside 'duo deploy'/'duo capture' since the last recorded baseline.
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
+     * [--promotion-owner=<token>] : Internal orchestrator lease token shared with apply.
+     * [--promotion-hold] : Internal orchestrator flag; retain the lease for the following apply phase.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -317,6 +323,8 @@ final class Cli {
                 'force_code_mismatch' => isset($assoc['force-code-mismatch']),
                 'force_code_drift' => isset($assoc['force-code-drift']),
                 'compiled' => $assoc['compiled'] ?? '',
+                'promotion_owner' => $assoc['promotion-owner'] ?? '',
+                'promotion_hold' => isset($assoc['promotion-hold']),
             ]);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc);

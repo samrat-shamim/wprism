@@ -28,6 +28,8 @@ final class Apply {
      *  needs "is this entity type a declared table" cheaply and repeatedly,
      *  same rationale as taxesByObjectType's own memoization. */
     private ?array $snapshotRowTablesCache = null;
+    private string $promotionOwner = '';
+    private string $promotionArtifact = '';
 
     private function __construct(string $repo, Policy $policy, CompiledRepository $compiled) {
         $this->repo = rtrim($repo, '/');
@@ -573,7 +575,33 @@ final class Apply {
         $a = new self($repo, $policy, $compiled);
         Ledger::ensure();
         Snapshot::repair_truncated_entity_types($policy); // DUO-3246
-        return $a->run($opts, $compiled);
+        $a->promotionOwner = PromotionLock::owner($opts);
+        $a->promotionArtifact = $compiled->artifact_hash();
+        PromotionLock::acquire($a->promotionOwner, $a->promotionArtifact, 'apply');
+        try {
+            // The artifact was first validated before target contact. Repeat
+            // that association under the lease so a concurrent checkout or
+            // manifest/site-policy edit cannot alter the meaning between
+            // preflight and mutation.
+            $lockedPolicy = Policy::load($repo);
+            $lockedCompiled = self::compiled($repo, $lockedPolicy, $opts);
+            if (!hash_equals($a->promotionArtifact, $lockedCompiled->artifact_hash())) {
+                throw new \RuntimeException('duo: compiled artifact changed before locked apply');
+            }
+            $summary = $a->run($opts, $compiled);
+            PromotionLock::heartbeat($a->promotionOwner, $a->promotionArtifact, 'complete');
+            PromotionLock::release($a->promotionOwner, $a->promotionArtifact);
+            $summary['promotion_lock'] = ['owner' => $a->promotionOwner, 'released' => true];
+            return $summary;
+        } catch (\Throwable $t) {
+            try {
+                PromotionLock::release($a->promotionOwner, $a->promotionArtifact);
+            } catch (\Throwable $_releaseFailure) {
+                // The original failure is the actionable cause. A lost lease
+                // is already fail-closed and expires without human cleanup.
+            }
+            throw $t;
+        }
     }
 
     private function run(array $opts, CompiledRepository $compiled): array {
@@ -709,6 +737,26 @@ final class Apply {
         usort($work, fn($x, $y) =>
             $this->phase2_rank($tree[$x['uuid']]) <=> $this->phase2_rank($tree[$y['uuid']]));
 
+        // Planning is intentionally read-only and can be expensive. The
+        // target-authoritative lease prevents another Duo writer from racing
+        // us, then this second plan proves that live authored/runtime changes,
+        // identity mappings, code state, manifest/schema assumptions, and
+        // delete guards did not change during the planning window. Force
+        // flags cannot bypass this stale-plan boundary.
+        $this->renew_promotion_lock('precondition-recheck');
+        if (getenv('DUO_TEST_MODE') === '1') {
+            $pauseMs = (int) (getenv('DUO_TEST_PROMOTION_PAUSE_MS') ?: 0);
+            if ($pauseMs > 0 && $pauseMs <= 10000) {
+                usleep($pauseMs * 1000);
+            }
+        }
+        $freshPlan = $this->build_plan($opts, $compiled);
+        if (!hash_equals($this->plan_precondition_hash($plan), $this->plan_precondition_hash($freshPlan))) {
+            throw new \RuntimeException(
+                'duo: promotion preconditions changed after planning; no target mutation attempted — recompile and retry'
+            );
+        }
+
         // Written before the first target mutation and cleared only after
         // required rebuilds succeed. It is failure state, never convergence
         // state: applied_revision and base hashes still advance afterward.
@@ -721,11 +769,13 @@ final class Apply {
             $transactionStarted = true;
             // ---- adopt: claim unmanaged env rows by writing identity ----
             foreach ($plan['adopt'] as $r) {
+                $this->renew_promotion_lock('apply-adopt');
                 $this->adopt($r, $tree[$r['uuid']]);
             }
 
             // ---- phase 1: rows exist with placeholder refs ----
             foreach ($work as $r) {
+                $this->renew_promotion_lock('apply-phase-1');
                 $e = $tree[$r['uuid']];
                 if (isset($this->snapshotRowTables()[$e['type']])) {
                     Snapshot::ensure_row($this->policy, $e);
@@ -759,6 +809,7 @@ final class Apply {
             usort($phase2, fn($x, $y) =>
                 $this->phase2_rank($tree[$x['uuid']]) <=> $this->phase2_rank($tree[$y['uuid']]));
             foreach ($phase2 as $r) {
+                $this->renew_promotion_lock('apply-phase-2');
                 $e = $tree[$r['uuid']];
                 if (isset($this->snapshotRowTables()[$e['type']])) {
                     Snapshot::finalize_row($this->policy, $this->tokens, $e);
@@ -775,7 +826,15 @@ final class Apply {
 
             // ---- explicit tombstone deletes (still flag-gated) ----
             if (!empty($opts['with_deletes'])) {
+                $deleteUuids = array_fill_keys(array_column($deleteWork, 'uuid'), true);
                 foreach ($deleteWork as $r) {
+                    $this->renew_promotion_lock('apply-delete');
+                    $this->recheck_delete_guards(
+                        $r,
+                        $deleteUuids,
+                        $compiled->deletions(),
+                        !empty($opts['force_delete_referenced'])
+                    );
                     $this->delete_entity($r['uuid'], $r['type']);
                 }
             }
@@ -802,6 +861,8 @@ final class Apply {
         }
         Canary::disarm();
 
+        $this->renew_promotion_lock('apply-rebuild');
+
         // Required derived-state rebuilds happen after authored mutations
         // commit (their WP-CLI subprocesses need to observe those writes) but
         // before ANY convergence metadata advances. A failure therefore
@@ -823,6 +884,7 @@ final class Apply {
         // the next run replays required finalization/rebuild work.
         $ledgerTransactionStarted = false;
         try {
+            $this->renew_promotion_lock('apply-ledger');
             Db::start('ledger transaction start');
             $ledgerTransactionStarted = true;
             Ledger::kv_delete('apply_in_progress');
@@ -869,6 +931,57 @@ final class Apply {
             'warnings' => array_merge($this->warnings, $this->tokens->warnings),
             'canary' => 'clean',
         ];
+    }
+
+    /** Hash only facts which authorize target mutation; output/report buckets are excluded. */
+    private function plan_precondition_hash(array $plan): string {
+        $keys = [
+            'create', 'update', 'unchanged', 'drift', 'conflict', 'adopt',
+            'collision', 'delete', 'delete_conflict', 'deleted',
+            'code_mismatch', 'code_drift', 'incomplete_apply', 'regen_pending',
+        ];
+        $basis = [];
+        foreach ($keys as $key) {
+            $basis[$key] = $plan[$key] ?? [];
+        }
+        return hash('sha256', Canon::encode($basis));
+    }
+
+    private function renew_promotion_lock(string $phase): void {
+        PromotionLock::heartbeat($this->promotionOwner, $this->promotionArtifact, $phase);
+    }
+
+    private function recheck_delete_guards(
+        array $row,
+        array $deleteUuids,
+        array $deletions,
+        bool $forced
+    ): void {
+        $capability = Deletion::capability(
+            $this->policy,
+            (string) $row['deletion_kind'],
+            (string) $row['deletion_type']
+        );
+        $blocks = [];
+        foreach ($capability['guards'] ?? [] as $guard) {
+            $result = $this->count_guard_refs($guard, (string) $row['uuid'], $deleteUuids, $deletions);
+            if ($result['error'] !== null) {
+                $blocks[] = $result['error'];
+            } elseif ($result['count'] > 0) {
+                $blocks[] = ($guard['reason'] ?? "referenced by {$guard['table']}.{$guard['column']}")
+                    . " — {$result['count']} row(s)";
+            }
+        }
+        if (!$blocks) {
+            return;
+        }
+        $reason = implode('; ', $blocks);
+        if (!$forced) {
+            throw new \RuntimeException(
+                "duo: delete guard changed before mutation for {$row['type']} {$row['uuid']}: $reason"
+            );
+        }
+        $this->warnings[] = "FORCED delete after final guard recheck {$row['type']} {$row['uuid']} ($reason)";
     }
 
     // ------------------------------------------------------- entity plumbing

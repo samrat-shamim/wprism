@@ -20,6 +20,7 @@ require_once __DIR__ . '/src/Db.php';
 require_once __DIR__ . '/src/Secrets.php';
 require_once __DIR__ . '/src/Policy.php';
 require_once __DIR__ . '/src/Ledger.php';
+require_once __DIR__ . '/src/PromotionLock.php';
 require_once __DIR__ . '/src/Identity.php';
 require_once __DIR__ . '/src/IdentityBackup.php';
 require_once __DIR__ . '/src/Deletion.php';

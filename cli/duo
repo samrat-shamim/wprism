@@ -76,10 +76,12 @@ Verbs:
                           --default-author=admin, --with-deletes) are forwarded
                           verbatim. Output streams live; exit code is the agent's.
   promote <env> [...]     Compile once, export a database checkpoint, then run
-                          deploy -> apply against that immutable artifact. Stops
-                          at the first failed phase and prints the exact database
-                          restore command. Apply flags are forwarded verbatim;
-                          deploy receives the shared code/compiled flags only.
+                          deploy -> apply against that immutable artifact and one
+                          target-DB lease. Stops at the first failed phase and
+                          prints the exact database restore command. Apply flags
+                          are forwarded verbatim; deploy receives the shared
+                          code/compiled flags only. Internal lease flags are owned
+                          by promote and rejected from caller input.
   pending <env>           List the review queue (`wp duo pending --format=json`)
                           as a table: section:key, proposal, evidence, ref-hint,
                           and a prominent SECRET flag where present. Exit 0 with
@@ -269,14 +271,16 @@ function cmd_passthrough(Transport $t, string $verb, array $extra): int {
  */
 function cmd_promote(Transport $t, array $extra): int {
     foreach ($extra as $arg) {
-        if ($arg === '--compiled' || str_starts_with($arg, '--compiled=')) {
-            fwrite(STDERR, "duo: promote owns --compiled so deploy and apply cannot diverge; remove '$arg'\n");
+        if ($arg === '--compiled' || str_starts_with($arg, '--compiled=')
+            || $arg === '--promotion-owner' || str_starts_with($arg, '--promotion-owner=')
+            || $arg === '--promotion-hold') {
+            fwrite(STDERR, "duo: promote owns its compiled artifact and target lease flags; remove '$arg'\n");
             return 1;
         }
     }
 
     $repo = rtrim($t->repoPath(), '/');
-    $runId = gmdate('Ymd-His') . '-' . bin2hex(random_bytes(4));
+    $runId = gmdate('Ymd-His') . '-' . bin2hex(random_bytes(16));
     $duoDir = $repo . '/.duo';
     $artifact = "$duoDir/artifacts/promote-$runId.json";
     $checkpoint = "$duoDir/checkpoints/promote-$runId.sql";
@@ -304,6 +308,12 @@ function cmd_promote(Transport $t, array $extra): int {
         }
         return $compile['exit'] !== 0 ? $compile['exit'] : 1;
     }
+    $compiledSummary = json_decode(trim($compile['stdout']), true);
+    $artifactHash = is_array($compiledSummary) ? (string) ($compiledSummary['artifact_hash'] ?? '') : '';
+    if (!preg_match('/^[a-f0-9]{64}$/', $artifactHash)) {
+        fwrite(STDERR, "duo: promote: compile returned no valid artifact hash; no checkpoint or target mutation occurred\n");
+        return 1;
+    }
 
     echo "promote phase: checkpoint\n";
     $export = $t->captureWp(['db', 'export', $checkpoint, '--porcelain']);
@@ -318,6 +328,7 @@ function cmd_promote(Transport $t, array $extra): int {
     echo "database checkpoint: $checkpoint\n";
 
     $compiledFlag = '--compiled=' . $artifact;
+    $promotionOwnerFlag = '--promotion-owner=' . $runId;
     $deployExtra = array_values(array_filter($extra, static function (string $arg): bool {
         return $arg === '--force-code-mismatch'
             || $arg === '--force-code-drift'
@@ -327,7 +338,7 @@ function cmd_promote(Transport $t, array $extra): int {
 
     echo "promote phase: deploy\n";
     $deploy = $t->streamWp(array_merge(
-        ['duo', 'deploy', '--repo=' . $repo, $compiledFlag],
+        ['duo', 'deploy', '--repo=' . $repo, $compiledFlag, $promotionOwnerFlag, '--promotion-hold'],
         $deployExtra
     ));
     if ($deploy !== 0) {
@@ -336,7 +347,7 @@ function cmd_promote(Transport $t, array $extra): int {
 
     echo "promote phase: apply\n";
     $apply = $t->streamWp(array_merge(
-        ['duo', 'apply', '--repo=' . $repo, $compiledFlag],
+        ['duo', 'apply', '--repo=' . $repo, $compiledFlag, $promotionOwnerFlag],
         $extra
     ));
     if ($apply !== 0) {
