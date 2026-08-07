@@ -1,6 +1,20 @@
 # The Code Half (`code/`) — Design Proposal
 
-*Proposal — 2026-08-05. Status: draft, decision-ready for review. Owner: code-design (Task #18).*
+*Proposal — 2026-08-05. Status: design exploration; the implementation ruling below is authoritative for the first functional skeleton. Owner: code-design (Task #18).*
+
+> **Implementation ruling (2026-08-07).** Duo's first complete code-half
+> transport is an opt-in, descriptor-hashed `code/wp-content` payload of
+> vendored plugins, themes, and user mu-plugins. It stages additions and
+> updates, runs lifecycle reconciliation while outgoing code still exists,
+> then prunes only previously Duo-owned paths and records the revision after
+> target hash verification. This works for public, premium, private, and
+> in-house code without a package-registry dependency. The full-webroot,
+> Composer, SSH release-directory, and agent-self-delivery design explored
+> below remains the next layer, not behavior the current skeleton claims.
+> Code and state retain independent descriptors, revisions, ledgers, and
+> mutation engines; the combined promotion artifact only binds and sequences
+> them. `active_plugins`/`template`/`stylesheet` are the one explicit lifecycle
+> bridge between database intent and executable files.
 
 DESIGN.md §6 disposes of the entire code half in one line: **"Bedrock/Composer: solved the code half; adopt it, focus on the data half."** That line is correct as far as it goes and wrong as a spec — "adopt Bedrock" is not a layout, a deploy story, or an answer to how code-half facts (which plugin is active, which theme is active) interact with the state half's classification machinery. This document is the implementable version of that line: a concrete `code/` layout for both dependency-management modes, deploy semantics per transport, a concrete design for the cross-partition invariant DESIGN.md §3.4 names but never specifies (`active_plugins ⊆ plugins in code/`), a worked plugin-upgrade example, a sandbox spike outline, the minimal engine touchpoints, and an honest risk register.
 
@@ -262,7 +276,7 @@ Both checks run inside the existing `Apply::build_plan()` — the same method th
 
 1. **Directory/file existence** (`missing_in_code`): for every entry in the target `active_plugins` list, confirm the plugin's main file exists under the environment's actual plugin directory (WordPress's own plugin-validation primitives — the same ones `activate_plugin()` itself uses internally — are the right tool here, not a hand-rolled `file_exists()`, since they correctly handle both `slug/slug.php` and legacy single-file `slug.php` plugins). For `template`/`stylesheet`, confirm **both** theme directories exist — a child theme's `switch_theme()` needs its parent (`template`) present too, an easy detail to miss.
 2. **Version-range compatibility** (`outside_version_range`): where the active plugin's manifest declares a `version_range` (§4.3), compare the *actually-installed* version (read via WordPress's own plugin-header parser, not `composer.lock` — this makes the check identical for composer-managed and vendored plugins, since vendored plugins have no lockfile at all) against the range.
-3. **Materialization staleness** (`code_revision_stale`): compare the repo's current `code/composer.lock` content-hash (or `code/`'s own git tree hash) against `duo_kv['code_revision']`, the marker `duo deploy` wrote on last successful materialization (§2.2). A mismatch means the repo has code changes this environment hasn't received yet — the direct code-half analogue of state's existing "drift" concept, kept as a **separate** bucket/issue rather than overloading the existing `drift` bucket, because the two mean different things (state drift = *the environment changed unexpectedly*; code staleness = *the repo moved and the environment hasn't caught up yet*, an expected, resolvable-by-running-deploy condition, not env-side surprise).
+3. **Materialization staleness** (`code_revision_stale`): compare the immutable compiled artifact's opaque code-descriptor revision against `duo_kv['code_revision']`, the marker written only after code-stage, lifecycle reconciliation, target verification, and code-finalize (§2.2). A mismatch means this artifact's code payload has not reached this environment. It is kept as a **separate** issue rather than overloading ordinary state `drift`: state drift means *the environment changed unexpectedly*; code staleness means the artifact's required code half has not completed its verified materialization sequence.
 
 ### 3.3 Failure modes and wording
 
@@ -302,7 +316,14 @@ this by itself — but if this removal was intentional, deactivate it
 it wasn't, add it back to active_plugins.
 ```
 
-**Blocking posture**, matching the two existing precedents in `Apply.php` exactly (conflicts hard-block unless `--force-theirs`; guarded deletes hard-block unless `--force-delete-referenced`): `code_mismatch` entries involving a **currently-active** plugin (`missing_in_code` or `outside_version_range`) hard-block `duo apply` by default; `--force-code-mismatch` overrides, matching the naming convention. `code_revision_stale` alone (code moved, but what's currently deployed is still internally consistent) is a **warning**, not a block — the environment isn't broken, it's just behind, and blocking every `apply` on every environment being perfectly up-to-the-minute would be exactly the kind of friction that makes teams route around a safety check rather than heed it.
+**Blocking posture.** Lifecycle compatibility rows (`missing_in_code`,
+`outside_version_range`, and the activation/theme reconciliation rows) retain
+the explicit `--force-code-mismatch` escape hatch. `code_revision_stale` is
+different: it is the code-before-state ordering witness for a code-enabled
+artifact, so `duo apply` always refuses it. The only recovery is the host
+`duo deploy <env>` workflow, which stages, reconciles, verifies, and finalizes
+the exact descriptor. Neither `--force-code-mismatch` nor
+`--force-code-drift` may cross this boundary.
 
 ### 3.4 What `apply` does vs. what `deploy` does — and why the split exists
 
@@ -562,6 +583,30 @@ Ordered roughly by severity, matching DESIGN.md's own "loud, blocking, scoped gu
 
 ## Phase 1: implemented (2026-08-06)
 
-§3's invariant, `wp duo deploy`, and §4's `version_range` mechanics shipped (tasks #32/#39/#40; spec v0.9 section "Code-half facts & deploy"): managed-class capture of `active_plugins`/`template`/`stylesheet`, the plan `code_mismatch` bucket (`missing_in_code`, `outside_version_range`; `code_revision_stale` deferred with the transports), deploy's hook-firing reconciliation outside the canary, refusal semantics with `--force-code-mismatch` reporting-not-hiding. Proven end-to-end by `sandbox/tests/spike_g_code.sh`: environments bind their plugin tree from their own site-repo checkout's `code/`, activation travels through canonical state, removing code while still active refuses loudly until reconciled, and version bumps outside a pinned range surface at plan time.
+§3's legacy lifecycle invariant, `wp duo deploy`, and §4's `version_range`
+mechanics shipped (tasks #32/#39/#40; spec v0.9 section "Code-half facts &
+deploy"): managed-class capture of `active_plugins`/`template`/`stylesheet`,
+the plan `code_mismatch` bucket, deploy's hook-firing reconciliation outside
+the canary, and forceable lifecycle compatibility reporting. The 2026-08-07
+first functional skeleton extends that with a descriptor-hashed code payload:
+`code_revision_stale` is now a non-forceable ordering gate until host
+stage → lifecycle → finalize completes. `sandbox/tests/spike_g_code.sh`
+remains evidence for the earlier bind-mounted lifecycle leg, not proof of
+the new materializer path.
+
+The skeleton's promotion boundary is deliberately split as well: only
+`promotion-begin` may create/recover the bounded cross-process owner/artifact
+row, while stage, lifecycle, finalize, and apply must continue that exact live
+session and carry the host-observed outer artifact hash. Each mutation process
+holds a connection-scoped database advisory fence across long hooks and
+filesystem walks. Manual checkpoint import still requires external maintenance
+exclusion because importing the database can replace any lock row stored in it.
+Finalize's completed descriptor/revision and all temporary stage-marker deletes
+form one database transaction, leaving the complete staged record retryable if
+any statement or commit fails rather than exposing a partially-cleared ledger.
+The fresh-process canonical convergence verifier likewise receives temporary
+snapshots of the locked in-memory policy and compiled artifact, hash-validates
+their association, and never reopens a checkout that may move after locked
+preflight.
 
 Two operational findings from the spike worth carrying forward: (1) docker nested bind mounts pin their source directory at container-create time (`rprivate`) — author `code/` before creating the long-lived containers, and `--force-recreate` them after any rm-and-recreate of the mount source; in-place content changes propagate live. (2) Recovering from "code removed while still active" cannot use `wp plugin deactivate`/wp-admin (both validate the plugin on disk) — reconcile via canonical from an environment that still has the code, or direct `active_plugins` option surgery as last resort.

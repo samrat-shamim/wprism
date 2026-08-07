@@ -107,7 +107,12 @@ COMPOSE="docker compose -p duo-${CONF_PAIR} -f pair.yml -f pair.http.yml"
 wp_env() { # wp_env <conf1|conf2> <wp args...>
   local env="$1"; shift
   local side="${env#conf}"   # conf1 -> 1, conf2 -> 2 (pair.sh's generic side numbering)
-  $COMPOSE run --rm -T "cli${side}" wp "$@"
+  # The disposable site repo is jointly managed by host-side Git and the
+  # container's uid-33 wp-cli process. Give files created by conformance wp
+  # commands a cooperative umask so the host can diff/remove capture output
+  # on native Linux bind mounts. This wraps only the test harness; Duo's
+  # production process umask and permission policy remain untouched.
+  $COMPOSE run --rm -T "cli${side}" sh -c 'umask 000; exec wp "$@"' sh "$@"
 }
 wp_conf1() { wp_env conf1 "$@"; }
 wp_conf2() { wp_env conf2 "$@"; }

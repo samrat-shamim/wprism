@@ -72,14 +72,10 @@ Site-repo layout (full contract in [spec/repo-format.md](spec/repo-format.md)):
 
 ```
 site.duo.json                # policy: classifications, env defs, manifest pins
-code/
-  composer.json              # core + public plugins via composer where possible
-  wp-content/plugins/        # vendored (premium/unknown — and "free but not wp.org":
-                             #   plugins self-distributed outside the registry, e.g.
-                             #   Paid Memberships Pro post-2024; pin the upstream
-                             #   release-tag URL in provenance, grind round 3)
+code/                        # optional v0 code half: exact vendored bytes
+  wp-content/plugins/
   wp-content/themes/
-  wp-content/mu-plugins/duo/ # the capture agent itself
+  wp-content/mu-plugins/     # site-owned mu-plugins; Duo's agent is out-of-band
 state/
   options/<group>.json
   posts/<type>/<uuid>--<slug>.md    # canonical-JSON front matter + raw block-HTML body
@@ -95,9 +91,31 @@ The per-env ledger (applied revision, typed uuid↔id map, drift hashes) lives i
 
 The repo is the declarative source of truth for the branchable partition; environments are materializations.
 
+The code and state halves are separate engines with one deliberately narrow
+lifecycle bridge:
+
+```text
+code/  -> Code descriptor -> stage / verify / finalize -> code_revision
+                              |
+                              +-- active_plugins / template / stylesheet
+                              |
+state/ -> State artifact  -> plan / canary / apply      -> applied revision
+
+               artifact_hash binds both revisions for promotion ordering
+```
+
+`Code.php` inventories and mutates executable files; it never parses or applies
+canonical entities. `Apply.php` plans and mutates canonical database state; it
+never copies, deletes, or claims code paths. `CodeStateContract.php` is the sole
+cross-half validator: it proves that the three database-held lifecycle
+identities can be satisfied by the opaque code descriptor. Each half keeps its
+own revision and completion marker. The outer compiled artifact binds them so a
+promotion cannot mix code from one revision with state from another.
+
 - **`duo capture`** — ledger-vs-DB diff is the ground truth for *what* changed; the provenance journal explains *why* (classification proposals). Reviewed entries become canonical files/commits. "git add -p for the database." *As built (DUO-3213):* every read runs inside one InnoDB `START TRANSACTION WITH CONSISTENT SNAPSHOT` (refused loudly upfront on any non-InnoDB table in scope — MyISAM has no MVCC to back the guarantee) with a bounded retry on deadlock/lock-wait-timeout; the candidate tree is built and validated in a staging directory and published only via an atomic two-step rename swap (`agent/src/Publish.php`) — the previous tree is never touched until the swap succeeds, a crash/disk-full/kill at any earlier point leaves it completely intact, and a per-destination capture lock serializes concurrent publishers (fails cleanly, non-blocking). Ledger hash advancement moves to strictly after the swap.
+- **`duo deploy`** — compiles one immutable artifact, copies descriptor-verified additions/updates from the opt-in `code/wp-content` payload, runs plugin/theme lifecycle reconciliation while outgoing code still exists, then prunes only Duo-owned obsolete component paths and records `code_revision` after target-byte verification. The completed descriptor/revision and removal of every temporary stage marker publish in one database transaction, so an interrupted handoff remains exactly retryable. This first transport intentionally owns neither WordPress core nor the agent executing it; Composer/full-webroot builders can be added later by emitting the same descriptor contract.
 - **`duo apply`** — three-way against the env's ledger → **terraform-style plan preview** (creates/updates/deletes + drift + unclassified warnings) → DB snapshot backup → **two-phase apply as the engine default** (insert rows with placeholder refs, then a resolve/fixup pass — post_parent chains, menu-item parents, reusable-block nesting form graphs with possible cycles) via direct low-level writes (no WP hooks ⇒ no emails/webhooks re-fire) → **rebuild pass**: core rebuilders (taxonomy counts through each registered taxonomy's count callback, future-post cron, comment recounts, lookup regeneration, rewrite rules, object cache flush, attachment metadata after both creates and updates) + per-plugin **rebuilders declared in manifests** (Yoast indexables, Woo `product_meta_lookup`, Elementor CSS) — because the hooks we skip are also what maintain derived state → ledger update.
-- **Concurrency**: apply races live traffic (a stock decrement mid-apply). *As built (DUO-3217 minimal slice):* a target-DB lease serializes Duo promotions across the separate deploy/apply processes, renews at mutation phases, fails closed on loss, and permits bounded stale-owner recovery; apply re-plans under the lease immediately before writes and re-runs reverse-reference guards at each delete. Public reads and unrelated runtime writes remain available. A broader traffic-pausing mu-plugin write gate and long-running lease service remain production-promotion work rather than being implied by this scoped gate.
+- **Concurrency**: apply races live traffic (a stock decrement mid-apply). *As built (DUO-3217/code-half skeleton):* a bounded target-DB row serializes handoff across deploy/apply processes, a durable latest-session identity plus strict continuation prevents an obsolete checkpoint from creating a fresh row or advertising stale recovery, and a per-process database advisory fence covers long hooks/filesystem walks even when the row TTL passes mid-call. Apply re-plans under that fence immediately before writes and re-runs reverse-reference guards at each delete. Public reads and unrelated runtime writes remain available. A broader traffic-pausing mu-plugin write gate remains production-promotion work rather than being implied by this scoped gate.
 - **Guards**: referential check before deletes (product referenced by this env's orders ⇒ warn/block, configurable); cross-partition invariant (`active_plugins` ⊆ plugins in `code/`); drift detection with capture-first workflow.
 - **Branch** = git branch + an environment materialized from it. Default feature-env workflow (Pantheon's content-freeze exists for a reason): **materialize fresh from a prod snapshot + apply the branch delta**, branch TTLs, drift report as CI status, prod-content-is-truth as default conflict bias for runtime-adjacent disputes.
 - **Merge** = git merge of canonical text — entity-level three-way; deterministic formatting keeps most merges clean; genuine editorial conflicts surface exactly like code conflicts. (v2: field-aware merge drivers for ordered structures like menus.) Plugin version skew across branches: merge **code first**, run migrations, re-capture, then merge state (capture records plugin versions; apply warns on mismatch).
@@ -105,11 +123,11 @@ The repo is the declarative source of truth for the branchable partition; enviro
 ## 4. Architecture components
 
 1. **Repo format spec** ([spec/repo-format.md](spec/repo-format.md)) — the versioned contract; the most important artifact.
-2. **`duo` CLI** — git orchestration, canonicalization, plan/apply; talks to envs via wp-cli/SSH/HTTP bridge. *(v0: thin shell orchestration in the sandbox; standalone CLI deferred.)*
+2. **`duo` CLI** — host-agnostic orchestration for capture, plan, code deploy, state apply, and composed promotion over local, Docker, and SSH transports. Git remains the branch/merge layer.
 3. **mu-plugin capture agent** ([agent/](agent/)) — (table,key)-granular write journaling with hook-stack provenance, ledger tables, apply executor + write-gate, hook-fire canary; transparent to plugins. Journal runs as learning mode that decays to sampling once classifications stabilize (the wpdb `query` filter is noisy: it fires on reads and can't see `insert_id`/rollbacks — hence ledger-diff as ground truth). Fallback checksum-scan reconciler for direct-mysqli writers.
 4. **Manifest registry** ([manifests/](manifests/)) — core rules + top-plugin manifests, versioned, pinned to plugin version ranges, with a CI conformance harness against real plugin releases. Draft-manifest generator fed by the provenance/review pipeline.
 5. **Merge layer** — git-native first; custom merge drivers later.
-6. **Env orchestration** — none owned in v1 (host-agnostic); [sandbox/](sandbox/) docker-compose envs for development and testing only.
+6. **Env orchestration** — Duo owns sequencing, immutable artifacts, and target leases, not infrastructure provisioning. [sandbox/](sandbox/) Docker environments are development/test fixtures only.
 
 **v0 implementation decisions** (deferred at planning, decided at scaffold):
 
@@ -129,7 +147,7 @@ The repo is the declarative source of truth for the branchable partition; enviro
 - **VersionPress** (git-tracked DB, VPIDs; archived 2020 — "a great proof-of-concept" needing "several person-years"): the mechanics work; per-plugin definitions + maintenance killed it. Its planned community-definitions repo never materialized — so "community manifests" must be *review* of auto-generated drafts, not authorship, and the manifest treadmill is a budgeted permanent cost for top-N plugins.
 - **Mergebot** (Delicious Brains; shut down 2018): built exactly this manifest layer (public `mergebot-schemas` + a schema-generator) and still couldn't meet its own quality bar — hence the scoped-guarantee posture and CI conformance harness.
 - **Pantheon / WP Engine multidev**: branch environments exist; DB is clone-only, "code up, content down," content freeze during long branches. The merge path is exactly the market gap — and their content-freeze discipline informs our default branch workflow.
-- **Bedrock/Composer**: solved the code half; adopt it, focus on the data half.
+- **Bedrock/Composer**: strong dependency/build inputs for one deployment mode, but not by themselves a target materialization, ownership, lifecycle-ordering, or premium/private-code contract. Duo can consume a future Composer build through the same opaque descriptor boundary without coupling the state engine to Bedrock.
 - **WXR / wp-cli search-replace**: lossy exactly where v0 aims (serialized meta, menu assignments) — validates the uuid + structure-aware-rewriter + tokenization bet; menus stay in v0 as the canary.
 - **ACF local JSON, GF form export**: the ecosystem accepts config-as-files.
 

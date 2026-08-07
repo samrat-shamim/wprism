@@ -13,12 +13,14 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 
-php -d display_errors=1 -- "$ROOT" <<'PHP'
+php -d display_errors=1 /dev/stdin "$ROOT" <<'PHP'
 <?php
 $root = $argv[1];
 define('DUO_SPEC_VERSION', 2);
 require_once "$root/agent/src/Uuid.php";
 require_once "$root/agent/src/Canon.php";
+require_once "$root/agent/src/Code.php";
+require_once "$root/agent/src/CodeStateContract.php";
 require_once "$root/agent/src/OptionState.php";
 require_once "$root/agent/src/UserMetaState.php";
 require_once "$root/agent/src/Secrets.php";
@@ -31,6 +33,7 @@ require_once "$root/agent/src/Deletion.php";
 require_once "$root/agent/src/RepositoryAuthorization.php";
 require_once "$root/agent/src/RepositoryCompiler.php";
 require_once "$root/agent/src/SidebarState.php";
+require_once "$root/agent/src/Capture.php";
 
 // These are the first target-reading primitives Tokens would reach. A valid
 // or invalid compile touching either one is a test failure, proving the gate
@@ -41,6 +44,7 @@ function wp_upload_dir(...$args) { throw new RuntimeException('TARGET CONTACT: w
 use Duo\Canon;
 use Duo\OptionState;
 use Duo\CompiledRepository;
+use Duo\Capture;
 use Duo\Policy;
 use Duo\RepositoryCompilationException;
 use Duo\RepositoryCompiler;
@@ -192,6 +196,29 @@ try { RepositoryCompiler::read_artifact($artifactPath, Policy::load($a)); fail('
 catch (RepositoryCompilationException $e) { needs($e->payload(), 'compiled_artifact_policy_mismatch'); }
 put("$a/site.duo.json", $siteBytes);
 ok('artifact tampering and active-policy mismatch fail with structured compiler diagnostics');
+
+$codeRepo = "$tmp/code-enabled"; build_valid($codeRepo);
+$codeSite = Canon::decode(file_get_contents("$codeRepo/site.duo.json"));
+$codeSite['code'] = ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'];
+put("$codeRepo/site.duo.json", Canon::encode($codeSite));
+put(
+    "$codeRepo/code/wp-content/plugins/example/example.php",
+    "<?php\n/*\nPlugin Name: Example\n*/\n"
+);
+$codePolicy = Policy::load($codeRepo);
+$codeArtifact = RepositoryCompiler::compile($codeRepo, $codePolicy);
+$oldPayload = $codeArtifact->export();
+unset($oldPayload['artifact_hash'], $oldPayload['code']);
+$descriptorless = CompiledRepository::create($oldPayload);
+$descriptorlessPath = "$tmp/descriptorless-code-policy.json";
+$descriptorless->write($descriptorlessPath);
+try {
+    RepositoryCompiler::read_artifact($descriptorlessPath, Policy::load($codeRepo));
+    fail('descriptorless artifact was accepted under a code-enabled policy');
+} catch (RepositoryCompilationException $e) {
+    needs($e->payload(), 'compiled_artifact_code_mismatch');
+}
+ok('code-enabled policy rejects a self-verifying pre-code artifact before target contact');
 
 $b = "$tmp/b"; build_valid($b);
 if (compile_repo($b)->artifact_hash() !== $one->artifact_hash()) fail('identical inputs at another absolute path changed the artifact');
@@ -394,14 +421,43 @@ ok('pinned ACF interpreter rejects field-schema/content mismatch without plugin 
 $mutable = "$tmp/mutable"; $m = build_valid($mutable);
 $compiled = compile_repo($mutable);
 $path = "$tmp/frozen.json"; $compiled->write($path);
+$policySnapshot = Policy::load($mutable)->export_snapshot();
+$siteBytes = file_get_contents("$mutable/site.duo.json");
+file_put_contents("$mutable/site.duo.json", "{invalid after policy freeze\n");
+$snapshotPolicy = Policy::from_snapshot($policySnapshot);
+$snapshotArtifact = RepositoryCompiler::read_artifact($path, $snapshotPolicy);
+if ($snapshotArtifact->artifact_hash() !== $compiled->artifact_hash()) {
+    fail('frozen policy snapshot did not reconstruct the compiled artifact association');
+}
+try {
+    Policy::load($mutable);
+    fail('invalid mutable site policy was accepted after policy freeze');
+} catch (RuntimeException $e) {
+    if (!str_contains($e->getMessage(), 'invalid JSON')) throw $e;
+}
+file_put_contents("$mutable/site.duo.json", $siteBytes);
+$tamperedPolicySnapshot = $policySnapshot;
+$tamperedPolicySnapshot['site']['policy']['options']['blogname']['class'] = 'runtime';
+try {
+    RepositoryCompiler::read_artifact($path, Policy::from_snapshot($tamperedPolicySnapshot));
+    fail('tampered frozen policy snapshot was accepted for the compiled artifact');
+} catch (RepositoryCompilationException $e) {
+    needs($e->payload(), 'compiled_artifact_policy_mismatch');
+}
 $pagePath = "$mutable/state/posts/page/{$m['page']}--about.md";
 file_put_contents($pagePath, file_get_contents($pagePath) . "<<<<<<< mutation after compile\n");
 file_put_contents("$mutable/media/{$m['mediaHash']}.txt", "mutated media\n");
 $frozen = RepositoryCompiler::read_artifact($path, Policy::load($mutable));
 if ($frozen->artifact_hash() !== $compiled->artifact_hash()) fail('loading compiled input reread mutable state files');
 if ($frozen->media_content("{$m['mediaHash']}.txt") !== "duo-compiler-media\n") fail('compiled input reread mutable media');
+$snapshotOptions = new ReflectionMethod(Capture::class, 'repository_options');
+$snapshotOptions->setAccessible(true);
+$frozenOptions = $snapshotOptions->invoke(null, $mutable, Policy::load($mutable), $frozen);
+if (!is_array($frozenOptions) || (OptionState::values($frozenOptions)['blogname'] ?? null) !== 'Duo') {
+    fail('apply snapshot option preflight reopened mutable state instead of using its compiled artifact');
+}
 needs(failure($mutable), 'conflict_marker');
-ok('compiled input is immutable: later state/media edits affect recompilation, never the artifact consumer');
+ok('compiled input and policy are immutable: later repo edits never change apply/snapshot consumers');
 
 $userMeta = "$tmp/user-meta"; build_valid($userMeta);
 $sitePath = "$userMeta/site.duo.json";

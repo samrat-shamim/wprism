@@ -132,6 +132,21 @@ pair_compose() { # pair_compose <name> [overlay-file ...]
   for f in "$@"; do PAIR_COMPOSE+=(-f "$f"); done
 }
 
+prepare_siterepo_roots() { # prepare_siterepo_roots <name>
+  local name="$1"
+  mkdir -p "siterepo/${name}1" "siterepo/${name}2"
+
+  # These are disposable sandbox bind-mount roots, shared by two different
+  # users: the host process creates/commits the repository, while wp-cli runs
+  # as uid 33 and creates capture locks plus atomic staging directories at the
+  # repository root. Linux CI preserves host ownership on bind mounts (unlike
+  # some desktop Docker filesystems), so mkdir's ordinary 0755 would leave a
+  # fresh checkout host-only and every capture would fail before it
+  # could acquire state.capture.lock. Keep this deliberately scoped to the two
+  # throwaway sandbox roots; it is not a production permission recommendation.
+  chmod 0777 "siterepo/${name}1" "siterepo/${name}2"
+}
+
 live_pairs() { # live_pairs — one live pair name per line
   # Filtered by ConfigFiles (must include this sandbox's pair.yml), not by
   # project-name pattern: the legacy sandbox/docker-compose.yml's own
@@ -280,7 +295,7 @@ cmd_up() {
   pass "wp_${name}1, wp_${name}2 exist"
 
   say "pair '$name': site-repo directories"
-  mkdir -p "siterepo/${name}1" "siterepo/${name}2"
+  prepare_siterepo_roots "$name"
   local force_recreate=()
   if [ -n "$codebind" ]; then
     # Bootstrap-order requirement inherited from spike G (see
@@ -353,7 +368,7 @@ cmd_reset() {
   drop_pair_dbs "$name"
   create_pair_dbs "$name"
   rm -rf "siterepo/${name}1" "siterepo/${name}2" "siterepo/origin-${name}.git"
-  mkdir -p "siterepo/${name}1" "siterepo/${name}2"
+  prepare_siterepo_roots "$name"
   pass "wp_${name}1/wp_${name}2 dropped + recreated empty; siterepo/${name}{1,2} and origin-${name}.git wiped + recreated"
   echo "  reset covers: both databases (DROP/CREATE) and the site-repo directories"
   echo "  (siterepo/${name}{1,2}, origin-${name}.git). It does NOT touch the wp1/wp2"
