@@ -96,6 +96,10 @@ final class FakeWpdb {
     /** @var array<string, array{columns: array<string,string>, rows: array<int, array<string,mixed>>}> unprefixed table => shape */
     public $tables = [];
 
+    public function get_charset_collate(): string {
+        return 'DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci';
+    }
+
     public function prepare($query, ...$args) {
         if (count($args) === 1 && is_array($args[0])) {
             $args = $args[0];
@@ -105,6 +109,9 @@ final class FakeWpdb {
 
     public function get_var($prepared) {
         [$sql, $args] = $this->unwrap($prepared);
+        if (str_contains($sql, 'INFORMATION_SCHEMA.COLUMNS') && str_contains($sql, 'CHARACTER_MAXIMUM_LENGTH')) {
+            return 64; // Ledger::ensure() just created its current-width schema.
+        }
         if (str_contains($sql, 'SHOW TABLES LIKE')) {
             $prefixed = (string) $args[0];
             $unprefixed = str_starts_with($prefixed, $this->prefix) ? substr($prefixed, strlen($this->prefix)) : $prefixed;
@@ -571,7 +578,10 @@ check(count($wpdb->tables['pmpro_memberships_pages']['rows']) === 1, 'C3: re-fin
 // tuple and delete exactly that row on THIS environment.
 Snapshot::delete_row($policyC, $capturedEntity['uuid'], 'pmpro_memberships_pages');
 check(count($wpdb->tables['pmpro_memberships_pages']['rows']) === 0, 'C4: delete_row() removed the row (resolved via the packed local_id, unpacked back to membership_id=77/page_id=88)');
-check(Ledger::id_for($capturedEntity['uuid'], 'pmpro_restrict') === null, 'C4: delete_row() also forgot the ledger entry (Ledger::forget())');
+check(
+    Ledger::id_for($capturedEntity['uuid'], 'pmpro_restrict') === $packedAfterFinalize,
+    'C4: delete_row() retains the ledger entry until Apply post-rebuild bookkeeping commits convergence metadata'
+);
 
 // ======================================================================
 // GROUP D — pack_composite_id() budget (exercised end-to-end: this file's
