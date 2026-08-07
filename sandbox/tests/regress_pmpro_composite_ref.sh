@@ -25,6 +25,16 @@
 # bucket, only create/delete" plan-bucket claim Snapshot.php's own docblock
 # defers to this file for.
 #
+# Also proves filename-determinism across environments (added after PR #13/
+# DUO-3239 found and fixed a real bug this file's own original methodology
+# structurally could not see: the composite_ref slug used to be built from
+# THIS environment's own local ids, which are never portable — every
+# cross-environment recapture produced a spurious filename divergence,
+# caught only by conformance/run.sh's directory-tree `diff -r`, since this
+# file's own recapture check diffs two already-known file PATHS by content,
+# never a directory listing). See step (5)'s own comment for the pinned
+# invariant.
+#
 # Self-contained: uses sandbox/bin/pair.sh (docs/sandbox.md), its own
 # scratch pair (created and destroyed by this script, never touching any
 # other agent's live pair). Ports 8932/8933 (PORT_BASE 8930 was assigned
@@ -178,6 +188,16 @@ git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
 # currently-out-of-scope target, not dangling data). Identical mitigation to
 # sandbox/tests/regress_snapshot_meta.sh's own site policy for the same
 # reason; this test isn't about core's category/post scoping at all.
+#
+# "post"/"category" added to post_types/taxonomies (this test originally
+# shipped without them): DUO-3229's fail-closed unscoped-entity-type gate
+# landed after this fixture was first written — WordPress's own default
+# "Hello World" post and "Uncategorized" category are capturable entities
+# on every fresh install, and DUO-3229 correctly refuses to leave them
+# silently out of policy scope. Reconfirmed live against a much-advanced
+# main (through DUO-3216/#22) that this is still required, not a stale
+# assumption. Same mitigation already applied to
+# sandbox/tests/regress_tec_regen.sh for the identical reason.
 cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
 {
   "manifests": ["core", "paid-memberships-pro"],
@@ -190,8 +210,8 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
       "wp_page_for_privacy_policy": {"class": "env"}
     },
     "post_meta": {},
-    "post_types": ["page"],
-    "taxonomies": []
+    "post_types": ["page", "post"],
+    "taxonomies": ["category"]
   },
   "spec_version": 1
 }
@@ -261,6 +281,24 @@ diff -u "$PAGES_FILE" "$PAGES_FILE_2" >/dev/null || fail "pmpro_memberships_page
 RECAPTURED_UUID=$(jq -r '.uuid' "$PAGES_FILE_2")
 [ "$RECAPTURED_UUID" = "$CAPTURED_UUID" ] || fail "recaptured uuid ($RECAPTURED_UUID) differs from the original ($CAPTURED_UUID) — the SAME two referenced entities must derive the SAME uuid regardless of environment"
 pass "byte-identical recapture, including the SAME uuid derived independently on side 2 from ITS OWN local ids — proves the uuid-over-referenced-tuple design, not just asserted"
+
+# FILENAME-DETERMINISM PROOF (PR #13/DUO-3239 finding, amerge): this test's
+# own file DISCOVERY (the `ls .../*.json` glob two lines above) finds
+# "whatever file is there" and was therefore structurally blind to a
+# spurious cross-environment FILENAME divergence — content-only `diff -u`
+# against two already-known paths can never notice the paths themselves
+# differ. That's exactly how a real bug shipped silently in DUO-3235's
+# original composite_ref slug (built from THIS environment's own local
+# ids, which are never portable and differ by construction on every
+# cross-environment round-trip) and went uncaught here, only surfacing
+# later via conformance/run.sh's directory-tree `diff -r`. Pin the
+# invariant directly, in THIS file, so it can never silently regress here
+# again: side 1's and side 2's own captured filenames for the SAME
+# composite_ref entity must be byte-identical, not merely their contents.
+BASENAME_1=$(basename "$PAGES_FILE")
+BASENAME_2=$(basename "$PAGES_FILE_2")
+[ "$BASENAME_1" = "$BASENAME_2" ] || fail "cross-environment FILENAME divergence for the same composite_ref entity: side 1 captured '$BASENAME_1', recaptured side 2 produced '$BASENAME_2' — the slug is not portable (regression of the DUO-3239/PR #13 fix: capture_composite_table()'s slug must derive from the referenced entities' own portable uuids, never this environment's local ids)"
+pass "filename-determinism confirmed: side 1 and recaptured side 2 produced the IDENTICAL filename ($BASENAME_1) for the same composite_ref entity, despite genuinely different local ids underneath — a directory listing, not just file content, is now provably portable"
 
 say "(6) wp duo lint — hard gate, zero findings expected"
 LINT_OUT=$(wp2 duo lint --repo=/siterepo 2>&1)
