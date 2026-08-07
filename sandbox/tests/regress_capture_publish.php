@@ -21,6 +21,14 @@
  * filesystem guarantee: a crash/disk-full/kill at any point before the
  * final swap must never touch the previously-published tree.
  *
+ * DUO-3236 addendum (P8 below): agent/src/RepositoryCompiler.php's own
+ * docblock confirms it too is target-DB-free, so the new staged-candidate
+ * compile gate Capture::run() now performs before Publish::swap() is
+ * provable here as well — no docker, no WordPress bootstrap needed for it
+ * either. Dependency list mirrors sandbox/tests/regress_repository_compiler.sh
+ * exactly (that file already established this exact offline-testability
+ * precedent for RepositoryCompiler on its own).
+ *
  * Exit 0 and "ALL PASSED" on success; any failed check prints "FAIL: ..."
  * and the script exits 1.
  */
@@ -30,9 +38,29 @@ require __DIR__ . '/../../agent/src/OptionState.php';
 require __DIR__ . '/../../agent/src/Publish.php';
 require __DIR__ . '/../../agent/src/TransientDbException.php';
 require __DIR__ . '/../../agent/src/Capture.php';
+// DUO-3236 (P8 below): RepositoryCompiler::compile_staged() is the new gate
+// Capture.php now runs against the staged candidate before Publish::swap().
+// Confirmed target-DB-free (agent/src/RepositoryCompiler.php's own
+// docblock: "no $wpdb, no get_plugins()/wp_get_theme() calls anywhere in
+// this compiler") — same offline-testability precedent already established
+// by sandbox/tests/regress_repository_compiler.sh, whose dependency list
+// this mirrors exactly.
+require __DIR__ . '/../../agent/src/Uuid.php';
+require __DIR__ . '/../../agent/src/Policy.php';
+require __DIR__ . '/../../agent/src/Snapshot.php';
+require __DIR__ . '/../../agent/src/Deletion.php';
+require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
+require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
+if (!defined('DUO_SPEC_VERSION')) {
+    define('DUO_SPEC_VERSION', 1); // agent/duo.php's own value; not required here to avoid its ABSPATH/WP_CLI bootstrap guard
+}
 
 use Duo\Canon;
+use Duo\OptionState;
+use Duo\Policy;
 use Duo\Publish;
+use Duo\RepositoryCompilationException;
+use Duo\RepositoryCompiler;
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -77,6 +105,52 @@ function read_tree(string $dir): array {
     }
     ksort($out);
     return $out;
+}
+
+/** @return array minimal valid front-matter for a "core"-manifest post entity */
+function p8_post_front(string $id, string $type, string $slug): array {
+    return [
+        'author' => 'user:admin', 'comment_status' => 'open',
+        'date' => '2026-08-07 00:00:00', 'date_gmt' => '2026-08-07 00:00:00',
+        'excerpt' => '', 'menu_order' => 0, 'meta' => (object) [],
+        'modified_gmt' => '2026-08-07 00:00:00', 'parent' => null,
+        'ping_status' => 'closed', 'slug' => $slug, 'status' => 'publish',
+        'terms' => (object) [], 'title' => ucfirst(str_replace('-', ' ', $slug)),
+        'type' => $type, 'uuid' => $id,
+    ];
+}
+
+/**
+ * The "core" manifest's exact authored/managed-classed option names (see
+ * manifests/core.json) — env/runtime/derived-classed options are excluded,
+ * same as regress_repository_compiler.sh's own build_valid() helper, whose
+ * shape this mirrors deliberately (a compiled artifact requires every
+ * DECLARED authored/managed option to have an explicit record, present or
+ * absent — never silently missing).
+ */
+function p8_options_document(): array {
+    $records = [];
+    foreach ([
+        'active_plugins', 'blogdescription', 'blogname', 'default_category', 'page_for_posts',
+        'page_on_front', 'posts_per_page', 'show_on_front', 'sticky_posts', 'stylesheet',
+        'template', 'wp_page_for_privacy_policy',
+    ] as $name) {
+        $records[$name] = OptionState::absent();
+    }
+    $records['blogname'] = OptionState::present('Duo P8', 'yes');
+    return OptionState::document($records);
+}
+
+function p8_site_json(): string {
+    return Canon::encode([
+        'manifests' => ['core'],
+        'policy' => [
+            'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [],
+            'post_types' => ['post', 'page', 'attachment'],
+            'taxonomies' => ['category', 'post_tag'],
+        ],
+        'spec_version' => 1,
+    ]);
 }
 
 // ======================================================================
@@ -439,6 +513,127 @@ echo "\n== P7: Capture::check_transient_db_error() (Reflection, stub \$wpdb) ==\
     check(
         $threw instanceof \RuntimeException && !($threw instanceof \Duo\TransientDbException),
         'P7d: a DIFFERENT SQL error -> plain RuntimeException, NOT retried (a real error must never be silently retried into a false green)'
+    );
+}
+
+// ======================================================================
+// P8 — DUO-3236: RepositoryCompiler::compile_staged() gates a staged
+// candidate before Publish::swap() ever runs. This exercises the actual
+// sequence agent/src/Capture.php's run() now performs around its own
+// write_entities() -> [media copy] -> compile_staged() -> swap() steps
+// (P1-P6 above cover Publish.php's primitives in isolation; this covers
+// the new integration between them).
+// ======================================================================
+echo "\n== P8: staged-candidate compile gate (DUO-3236) ==\n";
+{
+    // ---- P8a: a VALID candidate, including a brand-new media reference,
+    // passes the gate and swap() promotes it normally -- proving the
+    // "copy media BEFORE the gate" reordering actually works, not merely
+    // that a gate exists at all.
+    $root = fresh_root('p8_valid');
+    $repo = "$root/repo";
+    mkdir($repo, 0777, true);
+    Canon::write_file("$repo/site.duo.json", p8_site_json());
+    $stateDir = "$repo/state";
+    $pageId = '00000000-0000-4000-9000-000000000001';
+    $staging = Publish::stage_dir($stateDir);
+    Publish::write_entities($staging, [
+        ['path' => 'options/core.json', 'content' => Canon::encode(p8_options_document())],
+        [
+            'path' => "posts/page/$pageId--home.md",
+            'content' => Canon::post_file(p8_post_front($pageId, 'page', 'home'), '<!-- wp:paragraph --><p>Home</p><!-- /wp:paragraph -->'),
+        ],
+    ]);
+    // Simulate Capture::run()'s own DUO-3236 ordering: the media blob this
+    // run discovered is copied to the REAL media/ root BEFORE the gate
+    // runs (agent/src/Capture.php's relocated foreach), never staged
+    // itself (Publish.php's own class docblock).
+    $mediaBytes = "p8 media\n";
+    $mediaHash = hash('sha256', $mediaBytes);
+    mkdir("$repo/media", 0777, true);
+    Canon::write_file("$repo/media/$mediaHash.txt", $mediaBytes);
+
+    $policy = Policy::load($repo);
+    $compiled = RepositoryCompiler::compile_staged($staging, $repo, $policy);
+    check($compiled instanceof \Duo\CompiledRepository, 'P8a: a valid staged candidate (with its media already copied) compiles cleanly through the new gate');
+    Publish::swap($stateDir);
+    check(
+        read_tree($stateDir) === [
+            'options/core.json' => Canon::encode(p8_options_document()),
+            "posts/page/$pageId--home.md" => Canon::post_file(p8_post_front($pageId, 'page', 'home'), '<!-- wp:paragraph --><p>Home</p><!-- /wp:paragraph -->'),
+        ],
+        'P8a: the gated candidate was promoted to state/ byte-for-byte'
+    );
+    check(!is_dir($staging), 'P8a: staging name is gone after a successful gate + swap');
+
+    // ---- P8b: an INVALID candidate (two posts sharing one uuid) is
+    // refused by the gate; swap() is never reached (matching Capture.php's
+    // real control flow, where the thrown exception propagates before
+    // that line executes); the tree published by P8a is untouched.
+    $publishedBefore = read_tree($stateDir);
+    $staging2 = Publish::stage_dir($stateDir);
+    $dupId = '00000000-0000-4000-9000-000000000002';
+    Publish::write_entities($staging2, [
+        ['path' => 'options/core.json', 'content' => Canon::encode(p8_options_document())],
+        ['path' => "posts/page/$dupId--one.md", 'content' => Canon::post_file(p8_post_front($dupId, 'page', 'one'), 'first')],
+        ['path' => "posts/page/$dupId--two.md", 'content' => Canon::post_file(p8_post_front($dupId, 'page', 'two'), 'second')],
+    ]);
+    $threwP8b = null;
+    try {
+        RepositoryCompiler::compile_staged($staging2, $repo, $policy);
+    } catch (\Throwable $t) {
+        $threwP8b = $t;
+    }
+    check($threwP8b instanceof RepositoryCompilationException, 'P8b: a structurally-invalid staged candidate (duplicate uuid) is refused by the gate');
+    check(
+        $threwP8b instanceof RepositoryCompilationException
+            && in_array('duplicate_uuid', array_column($threwP8b->diagnostics, 'code'), true),
+        'P8b: the refusal names the actual compiler diagnostic (duplicate_uuid), not a generic error'
+    );
+    // Never reached in the real Capture::run() path once the gate throws --
+    // deliberately NOT calling Publish::swap($stateDir) here, matching
+    // that control flow exactly, rather than proving something this test
+    // itself chose not to attempt.
+    check(read_tree($stateDir) === $publishedBefore, 'P8b: the PREVIOUSLY published tree (from P8a) is byte-for-byte untouched by the refused candidate');
+    check(is_dir($staging2), 'P8b: the invalid staging dir is left in place for the next run\'s Publish::recover() to discard (same as every other loud-and-blocking gate in Capture::run())');
+
+    // ---- P8c: THE regression this issue exists to prevent. A candidate
+    // that is otherwise perfectly valid, but whose referenced media blob
+    // has NOT yet been copied to the real media/ root, is refused --
+    // proving why Capture.php's own copy-media-BEFORE-the-gate reordering
+    // (P8a's setup) is load-bearing, not cosmetic: getting that ordering
+    // backwards (media copied only AFTER a successful gate+swap, which is
+    // what agent/src/Capture.php did before DUO-3236) would make EVERY
+    // capture containing a brand-new media reference fail this gate
+    // spuriously, every time.
+    $root2 = fresh_root('p8_missing_media');
+    $repo2 = "$root2/repo";
+    mkdir($repo2, 0777, true);
+    Canon::write_file("$repo2/site.duo.json", p8_site_json());
+    $attachId = '00000000-0000-4000-9000-000000000003';
+    $newMediaBytes = "never copied\n";
+    $newMediaHash = hash('sha256', $newMediaBytes);
+    $staging3 = Publish::stage_dir("$repo2/state");
+    $attachFront = p8_post_front($attachId, 'attachment', 'photo')
+        + ['alt' => 'Photo', 'file' => 'photo.txt', 'media' => "$newMediaHash.txt", 'mime' => 'text/plain'];
+    Publish::write_entities($staging3, [
+        ['path' => 'options/core.json', 'content' => Canon::encode(p8_options_document())],
+        ['path' => "posts/attachment/$attachId--photo.md", 'content' => Canon::post_file($attachFront, '')],
+    ]);
+    // Deliberately NOT copying $newMediaHash.txt to $repo2/media -- this is
+    // the exact bug shape the pre-DUO-3236 ordering would have hit for any
+    // real capture with new media, reproduced here on purpose.
+    check(!is_file("$repo2/media/$newMediaHash.txt"), 'P8c precondition: the referenced media blob genuinely does not exist in the real media root yet');
+    $threwP8c = null;
+    try {
+        RepositoryCompiler::compile_staged($staging3, $repo2, Policy::load($repo2));
+    } catch (\Throwable $t) {
+        $threwP8c = $t;
+    }
+    check(
+        $threwP8c instanceof RepositoryCompilationException
+            && in_array('missing_media_blob', array_column($threwP8c->diagnostics, 'code'), true),
+        'P8c: an otherwise-valid candidate whose media was not yet copied to the real root fails with missing_media_blob -- exactly the failure mode Capture.php\'s media-before-gate reordering exists to avoid for a normal capture'
     );
 }
 

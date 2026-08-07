@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # Regression — DUO-3208: canonical state is an offline-compiled program, not
 # a mutable bag of files trusted independently by plan/apply.
+#
+# DUO-3236 addendum (bottom of the inline PHP below): RepositoryCompiler::
+# compile_staged() lets a caller validate an arbitrary stateDir against an
+# independently-specified media root — the new entry point Capture.php uses
+# to gate a staged candidate (state.capture-staging) before it is ever
+# promoted to state/, resolving its media references against the real
+# repo/media directory (Publish.php never stages media at all — see its own
+# docblock). compile() itself is unchanged: it is just this method's
+# $stateDir=$repo/state, $mediaRoot=$repo special case.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 
@@ -316,6 +325,30 @@ if ($frozen->artifact_hash() !== $compiled->artifact_hash()) fail('loading compi
 if ($frozen->media_content("{$m['mediaHash']}.txt") !== "duo-compiler-media\n") fail('compiled input reread mutable media');
 needs(failure($mutable), 'conflict_marker');
 ok('compiled input is immutable: later state/media edits affect recompilation, never the artifact consumer');
+
+$ctrl = "$tmp/decouple-control"; build_valid($ctrl);
+$viaCompile = compile_repo($ctrl);
+
+$moved = "$tmp/decouple-moved"; build_valid($moved);
+$elsewhere = "$tmp/decouple-elsewhere-state"; // deliberately NOT a sibling of $moved at all
+rename("$moved/state", $elsewhere);
+$viaStaged = RepositoryCompiler::compile_staged($elsewhere, $moved, Policy::load($moved));
+if ($viaStaged->artifact_hash() !== $viaCompile->artifact_hash()) {
+    fail('compile_staged() with a decoupled stateDir produced a different artifact than compile() on the equivalent co-located tree');
+}
+ok('DUO-3236: compile_staged() validates an arbitrary stateDir against an independently-specified media root, producing the identical artifact to the ordinary co-located compile()');
+
+$missingBlob = "$tmp/decouple-missing-media"; $mb = build_valid($missingBlob);
+$elsewhere2 = "$tmp/decouple-missing-media-state";
+rename("$missingBlob/state", $elsewhere2);
+unlink("$missingBlob/media/{$mb['mediaHash']}.txt");
+try {
+    RepositoryCompiler::compile_staged($elsewhere2, $missingBlob, Policy::load($missingBlob));
+    fail('compile_staged() accepted a candidate whose media blob is missing from the separate media root');
+} catch (RepositoryCompilationException $e) {
+    needs($e->payload(), 'missing_media_blob');
+}
+ok('DUO-3236: compile_staged() still enforces media presence against the independently-specified root — decoupling stateDir never accidentally skips media validation');
 
 fwrite(STDOUT, "ok: DUO-3208 regression: offline typed IR + stable batched semantic diagnostics + content-addressed immutable apply input\n");
 PHP

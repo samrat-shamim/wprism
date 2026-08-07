@@ -165,14 +165,37 @@ final class RepositoryCompiler {
     /** @var array<string,string> every content-addressed blob in media/, including safe orphans */
     private array $mediaCatalog = [];
 
-    private function __construct(string $repo, Policy $policy) {
-        $this->repo = rtrim($repo, '/');
-        $this->stateDir = $this->repo . '/state';
+    private function __construct(string $stateDir, string $mediaRoot, Policy $policy) {
+        $this->stateDir = rtrim($stateDir, '/');
+        $this->repo = rtrim($mediaRoot, '/'); // media/ root only — see compile_staged()'s docblock for why this can differ from stateDir's own parent
         $this->policy = $policy;
     }
 
     public static function compile(string $repo, Policy $policy): CompiledRepository {
-        $c = new self($repo, $policy);
+        $repo = rtrim($repo, '/');
+        return self::compile_staged($repo . '/state', $repo, $policy);
+    }
+
+    /**
+     * DUO-3236: validate an arbitrary staged tree — e.g. Publish's
+     * state.capture-staging, before it is ever promoted to state/ — against
+     * the repository's REAL media/ directory. This is not a compromise:
+     * Publish.php's own class docblock is explicit that media writes are
+     * never staged at all — they land in the real repo/media immediately,
+     * content-addressed and idempotent, independent of the state-tree swap
+     * — so a staged state/ candidate's media references were always meant
+     * to resolve against the real media/ directory, exactly like an
+     * already-published tree's do. No restructuring of Publish.php's
+     * staging layout is needed to make this correct.
+     *
+     * compile() above is just this method's $stateDir=$repo/state,
+     * $mediaRoot=$repo special case, kept behaviorally identical for every
+     * existing caller (Apply.php, Cli.php, Deploy.php,
+     * RepositoryAuthorization.php, IdentityBackup.php, Capture.php's own
+     * previous-revision read) — none of them change.
+     */
+    public static function compile_staged(string $stateDir, string $mediaRoot, Policy $policy): CompiledRepository {
+        $c = new self($stateDir, $mediaRoot, $policy);
         return $c->run();
     }
 
