@@ -26,5 +26,19 @@
       "url": "https://downloads.wordpress.org/plugin/contact-form-7.6.1.6.zip",
       "sha256": "e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e"
     }
+  },
+  "elementor": {
+    "3.35.9": {
+      "url": "https://downloads.wordpress.org/plugin/elementor.3.35.9.zip",
+      "sha256": "90a41a7b76980e611619ff19daf4e89dc170c7608da18fcb8bb1fed266eb40cc"
+    },
+    "4.0.0": {
+      "url": "https://downloads.wordpress.org/plugin/elementor.4.0.0.zip",
+      "sha256": "75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2"
+    },
+    "4.2.2": {
+      "url": "https://downloads.wordpress.org/plugin/elementor.4.2.2.zip",
+      "sha256": "4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db"
+    }
   }
 }
