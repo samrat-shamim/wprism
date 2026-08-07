@@ -63,6 +63,13 @@ final class Capture {
         $this->repo = rtrim($repo, '/');
         $this->policy = $policy;
         $this->tokens = new Tokens();
+        // DUO-3260: Tokens::tokenize_text()'s own unscoped-ref check needs
+        // a Policy to judge scope against, but is called from too many
+        // sites to thread one through as a per-call parameter (see
+        // Tokens::$policy's own docblock for why that's a real safety
+        // concern, not just style) — set once, here, guaranteed to exist
+        // for every tokenize_text() call this Capture instance ever makes.
+        $this->tokens->policy = $policy;
     }
 
     /**
@@ -682,6 +689,14 @@ final class Capture {
         // constructor) already guarantees this starts empty.
         $this->tokens->unscopedBlockRefs = [];
         $this->tokens->unscopedShortcodeRefs = [];
+        $this->tokens->unscopedUrlQueryRefs = [];
+        // DUO-3260: tokenize_text()'s own unscoped check reads $this->
+        // tokens->forceUnresolvedRefs directly (see that property's own
+        // docblock for why it's stored on the instance rather than
+        // threaded through tokenize_text()'s many call sites) — set once
+        // per build, mirroring $this->tokens->policy's own constructor-
+        // time assignment.
+        $this->tokens->forceUnresolvedRefs = $forceUnresolvedRefs;
         $entities = [];
         $media = [];
 
@@ -994,6 +1009,42 @@ final class Capture {
                 . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
                 . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
                 . "Add the missing post type/taxonomy to policy scope above and re-run capture, or pass "
+                . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
+            );
+        }
+
+        // URL-query-refs' own unscoped gate (DUO-3260, task #73's mirror a
+        // third time — for `?p=`/`?page_id=`/`?attachment_id=` refs,
+        // funneled through Tokens::queue_unscoped_url_query_ref()): the id
+        // names a REAL row whose post_type simply isn't in policy scope,
+        // as opposed to a dangling reference or a real row of an in-scope
+        // type simply not minted on this build yet — both of those are
+        // handled by Tokens.php's ordinary warn-and-drop, never reaching
+        // this list. Same posture as every gate above: a policy edit can
+        // actually fix this, so it aborts by default instead of silently
+        // vanishing from captured state. Always kind=post (the only kind
+        // this mechanism's three query parameters ever resolve to — see
+        // Tokens::tokenize_url_query_refs()'s own docblock), so unlike the
+        // option/block/shortcode gates above, no term/taxonomy branch is
+        // needed here. `context` may be '' (empty) — tokenize_text() is
+        // called from too many places to guarantee a meaningful label at
+        // every one (see Tokens::$unscopedUrlQueryRefs's own docblock);
+        // the message degrades gracefully rather than printing a
+        // misleading empty prefix.
+        if ($this->tokens->unscopedUrlQueryRefs) {
+            $lines = [];
+            foreach ($this->tokens->unscopedUrlQueryRefs as $r) {
+                $where = $r['context'] !== '' ? "{$r['context']}: " : '';
+                $lines[] = "{$where}url query ref '{$r['param']}' references post id {$r['id']}, which is a real "
+                    . "'{$r['target_type']}' — but '{$r['target_type']}' is not in policy.post_types, so its "
+                    . "identity was never tracked and the reference cannot resolve";
+            }
+            throw new \RuntimeException(
+                "duo: unresolvable url-query-typed reference(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
+                . implode("\n  - ", $lines)
+                . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
+                . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
+                . "Add the missing post type to policy scope above and re-run capture, or pass "
                 . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
             );
         }

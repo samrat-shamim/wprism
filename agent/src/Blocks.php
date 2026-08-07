@@ -245,7 +245,15 @@ final class Blocks {
             // a correctness requirement.
             if ($capture) {
                 $s = Shortcodes::capture_rewrite_text($s, $policy, $tokens, $forceUnresolvedRefs, $postLabel);
-                return $tokens->tokenize_text($s);
+                // DUO-3260: $postLabel already in scope for Shortcodes'
+                // own call above -- passed through as tokenize_text()'s
+                // own optional $contextLabel too, so a url-query-ref
+                // violation from THIS call site names its post, the same
+                // way block/shortcode violations already do (best-effort
+                // only; most of this codebase's other tokenize_text()
+                // call sites have no equally cheap label -- see Tokens::
+                // $unscopedUrlQueryRefs's own docblock).
+                return $tokens->tokenize_text($s, $postLabel);
             }
             $s = $tokens->detokenize_text($s);
             return Shortcodes::apply_rewrite_text($s, $policy, $tokens);
