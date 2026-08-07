@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Live regression — DUO-3206. Exercises deterministic failures at every
+# Live regression — DUO-3206 + DUO-3220. Exercises deterministic failures at every
 # product mutation class and apply boundary, then proves that required
-# rebuild failures leave applied_revision/base state unadvanced and retry.
+# rebuild and post-apply verification failures leave applied_revision/base
+# state unadvanced and retry.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
@@ -252,6 +253,51 @@ jq '.manifests = ["core"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.
 mv "$SITEREPO/site.duo.json.tmp" "$SITEREPO/site.duo.json"
 reset_baseline
 pass "required manifest rebuilder failure stayed fatal and unapplied"
+
+say "successful rebuilder that corrupts authored state is caught by post-apply recapture"
+cat > "$SITEREPO/test-manifests/duo-3220-corrupting-rebuilder.json" <<'EOF'
+{
+  "name": "duo-3220-corrupting-rebuilder",
+  "rebuilders": [{"command": "option update blogname duo-3220-corrupted-after-apply"}],
+  "spec_version": 1
+}
+EOF
+jq '.manifests = ["core", "duo-3220-corrupting-rebuilder"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"
+mv "$SITEREPO/site.duo.json.tmp" "$SITEREPO/site.duo.json"
+edit_blogname "DUO 3220 expected authored state"
+BASE_HASH=$(wp1 eval "echo \\Duo\\Ledger::state_hash('options/core') ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1)
+if OUT=$(wp1_test_manifests duo apply --repo=/siterepo --revision=bad-post-apply-verification 2>&1); then
+  echo "$OUT"
+  fail "authored corruption after a successful rebuilder unexpectedly passed verification"
+fi
+echo "$OUT"
+echo "$OUT" | grep -Fq "post-apply convergence verification failed" \
+  || fail "verification failure did not name the post-apply gate"
+echo "$OUT" | grep -Fq "options/core" \
+  || fail "verification failure did not identify the divergent canonical entity"
+[ "$(wp1 option get blogname | tr -d '\r')" = duo-3220-corrupted-after-apply ] \
+  || fail "corrupting rebuilder did not execute successfully before verification"
+[ "$(ledger_value applied_revision)" = baseline ] || fail "verification failure advanced applied_revision"
+[ "$(wp1 eval "echo \\Duo\\Ledger::state_hash('options/core') ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1)" = "$BASE_HASH" ] \
+  || fail "verification failure advanced the canonical base hash"
+[ "$(ledger_value apply_in_progress)" = 1 ] || fail "verification failure did not retain retry marker"
+jq '.manifests = ["core"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"
+mv "$SITEREPO/site.duo.json.tmp" "$SITEREPO/site.duo.json"
+wp1 option update blogname "$ORIGINAL_BLOGNAME" >/dev/null
+wp1 duo capture --repo=/siterepo >/dev/null
+wp1 eval "\\Duo\\Ledger::kv_delete('apply_in_progress'); \\Duo\\Ledger::kv_set('applied_revision', 'baseline');" >/dev/null
+edit_blogname "DUO 3220 verified recovery"
+VERIFY_JSON=$(wp1 duo apply --repo=/siterepo --revision=verification-recovered --format=json 2>/dev/null | tail -1)
+echo "$VERIFY_JSON" | jq -e \
+  '.verification.verifier == "canonical-recapture/v1"
+   and .verification.result == "pass"
+   and .verification.live_entities > 0
+   and .verification.deletions == 0' >/dev/null \
+  || fail "successful retry did not report canonical recapture evidence: $VERIFY_JSON"
+[ "$(ledger_value applied_revision)" = verification-recovered ] || fail "verified retry did not advance revision"
+[ "$(ledger_value apply_in_progress)" = NULL ] || fail "verified retry did not clear marker"
+reset_baseline
+pass "post-apply recapture blocked a false-green ledger advance and a clean retry verified"
 
 say "attachment metadata failure is retained and retried on the same canonical attachment"
 printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=' \
