@@ -96,4 +96,37 @@ wp_conf1 wc product_variation create "$VPID" \
   --attributes="[{\"id\":$SIZE_ATTR_ID,\"option\":\"Large\"},{\"id\":$COLOR_ATTR_ID,\"option\":\"Blue\"}]" \
   --regular_price=12.99 --sku=CONF-VAR-L-BLUE --manage_stock=true --stock_quantity=8 --user=admin --porcelain >/dev/null
 
-echo "woocommerce seed: category=$CAT_ID thumbnail=$THUMB_ID product=$PID coupon=$COUPON_ID variable_product=$VPID (attrs size=$SIZE_ATTR_ID color=$COLOR_ATTR_ID)"
+wp_conf1 option update woocommerce_calc_taxes yes >/dev/null
+ZONE_ID=$(wp_conf1 wc shipping_zone create --name='Conformance United States' --order=1 --user=admin --porcelain)
+wp_conf1 eval "\$z = new WC_Shipping_Zone($ZONE_ID); \$z->add_location('US', 'country'); \$z->save();" >/dev/null
+FLAT_INSTANCE=$(wp_conf1 wc shipping_zone_method create "$ZONE_ID" --method_id=flat_rate --enabled=true --order=1 --user=admin --porcelain)
+FREE_INSTANCE=$(wp_conf1 wc shipping_zone_method create "$ZONE_ID" --method_id=free_shipping --enabled=true --order=2 --user=admin --porcelain)
+wp_conf1 eval "
+\$flat = WC_Shipping_Zones::get_shipping_method($FLAT_INSTANCE);
+\$flat->instance_settings['title'] = 'Conformance Flat Rate';
+\$flat->instance_settings['cost'] = '5.99';
+\$flat->instance_settings['tax_status'] = 'taxable';
+update_option(\$flat->get_instance_option_key(), \$flat->instance_settings);
+\$free = WC_Shipping_Zones::get_shipping_method($FREE_INSTANCE);
+\$free->instance_settings['title'] = 'Conformance Free Shipping';
+\$free->instance_settings['requires'] = 'min_amount';
+\$free->instance_settings['min_amount'] = '50.00';
+update_option(\$free->get_instance_option_key(), \$free->instance_settings);
+" >/dev/null
+TAX_ID=$(wp_conf1 wc tax create --country=US --state=CA --rate=7.2500 \
+  --name='Conformance CA Sales Tax' --priority=1 --shipping=true --order=1 \
+  --class=standard --porcelain --user=admin)
+
+# HPOS orders are runtime by contract. A source-only order must therefore
+# stay source-only after promotion; the target hook creates its own distinct
+# runtime order so the check can prove apply preserves target runtime too.
+SOURCE_ORDER_ID=$(wp_conf1 eval "
+\$order = wc_create_order();
+\$order->set_billing_email('source-runtime@example.test');
+\$order->add_product(wc_get_product($PID), 1);
+\$order->calculate_totals();
+\$order->save();
+echo \$order->get_id();
+")
+
+echo "woocommerce seed: category=$CAT_ID thumbnail=$THUMB_ID product=$PID coupon=$COUPON_ID variable_product=$VPID (attrs size=$SIZE_ATTR_ID color=$COLOR_ATTR_ID) zone=$ZONE_ID methods=$FLAT_INSTANCE,$FREE_INSTANCE tax=$TAX_ID source_runtime_order=$SOURCE_ORDER_ID"

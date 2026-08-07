@@ -7,14 +7,15 @@
 # backed by real evidence at ITS OWN edges, not just the one version every
 # other fixture happens to exercise.
 #
-# First five real plugins: ACF, Contact Form 7, Elementor, Ninja Forms, and
-# Polylang. ACF proved the artifact-sourcing mechanism itself; the others prove the matrix
+# First six real plugins: ACF, Contact Form 7, Elementor, Ninja Forms,
+# Polylang, and WooCommerce. ACF proved the artifact-sourcing mechanism itself; the others prove the matrix
 # accepts genuinely different plugin content shapes rather than replaying one
-# ACF fixture. The other two pinned manifests remain separately
+# ACF fixture. The remaining pinned manifest stays separately
 # scope-accounted on DUO-3223.
 #
 # For EACH boundary version (ACF 6.0.0/6.8.7; CF7 6.0.1/6.1.6; Elementor
-# 4.0.0/4.2.2; Ninja Forms 3.4.34.2/3.14.11; Polylang 3.5/3.8.6 — all real
+# 4.0.0/4.2.2; Ninja Forms 3.4.34.2/3.14.11; Polylang 3.5/3.8.6;
+# WooCommerce 11.0.0 (the only stable in-range 11.x release) — all real
 # wp.org releases, confirmed against the plugin-info API, never invented): fresh state, install ONLY from
 # a digest-verified artifact (never a bare slug install that silently pulls
 # current), seed real plugin content through that plugin's own API, capture,
@@ -220,6 +221,37 @@ check_polylang_content() {
   unset -f wp_conf1 wp_conf2
 }
 
+seed_woocommerce_content() {
+  # Reuse the standalone WooCommerce fixture: products, coupon, media,
+  # global attributes, shipping methods, tax, and a source-only HPOS order.
+  wp_conf1() { wp1 "$@"; }
+  wp_env() {
+    local env="$1"; shift
+    case "$env" in
+      conf1) wp1 "$@" ;;
+      conf2) wp2 "$@" ;;
+      *) fail "unknown WooCommerce seed environment: $env" ;;
+    esac
+  }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  . conformance/seeds/woocommerce.sh
+  unset -f wp_conf1 wp_env
+}
+
+postdeploy_woocommerce_content() {
+  wp_conf2() { wp2 "$@"; }
+  . conformance/postdeploy/woocommerce.sh
+  unset -f wp_conf2
+}
+
+check_woocommerce_content() {
+  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  local CONF1_PORT="$PORT1"
+  local CONF2_PORT="$PORT2"
+  . conformance/checks/woocommerce.sh
+}
+
 reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # core/theme installed and the site "installed" (unlike `pair.sh reset`,
   # which drops the database entirely and leaves the site UNINSTALLED until
@@ -231,7 +263,7 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   local cli="$1"
   "$cli" site empty --yes >/dev/null
   local plugin
-  for plugin in advanced-custom-fields contact-form-7 elementor ninja-forms polylang; do
+  for plugin in advanced-custom-fields contact-form-7 elementor ninja-forms polylang woocommerce; do
     "$cli" plugin deactivate "$plugin" >/dev/null 2>&1 || true
     "$cli" plugin delete "$plugin" >/dev/null 2>&1 || true
   done
@@ -259,6 +291,20 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
          OR option_name LIKE '%pll_languages_list%'
          OR option_name LIKE '%pll_activation_redirect%';
   " >/dev/null
+  # WooCommerce intentionally preserves its schema and setup/runtime options
+  # on ordinary plugin deletion. A boundary case must exercise the selected
+  # release's own installer, not inherit the preceding release's tables.
+  "$cli" eval '
+    global $wpdb;
+    foreach (["wc\\_%", "woocommerce\\_%", "actionscheduler\\_%"] as $suffix) {
+      $like = $wpdb->prefix . $suffix;
+      foreach ($wpdb->get_col($wpdb->prepare("SHOW TABLES LIKE %s", $like)) as $table) {
+        $safe = str_replace("`", "``", $table);
+        $wpdb->query("DROP TABLE IF EXISTS `{$safe}`");
+      }
+    }
+    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\''woocommerce_%'\'' OR option_name LIKE '\''wc_%'\'' OR option_name LIKE '\''_transient_wc_%'\'' OR option_name LIKE '\''_site_transient_wc_%'\'' OR option_name LIKE '\''action_scheduler_%'\'' OR option_name IN ('\''schema-ActionScheduler_StoreSchema'\'', '\''schema-ActionScheduler_LoggerSchema'\'')");
+  ' >/dev/null
   "$cli" db query "TRUNCATE TABLE wp_duo_map" >/dev/null 2>&1 || true
   "$cli" db query "TRUNCATE TABLE wp_duo_state" >/dev/null 2>&1 || true
   "$cli" db query "TRUNCATE TABLE wp_duo_kv" >/dev/null 2>&1 || true
@@ -614,6 +660,79 @@ EOF
   pass "byte-identical recapture at polylang $POLYLANG_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
 done
 
+# WooCommerce 11.0.0 is currently both the declared minimum and the newest
+# stable release below 12.0.0. Certify it once: repeating the same artifact
+# under two labels would add runtime without adding evidence.
+for WOO_VERSION in 11.0.0; do
+  say "boundary: woocommerce $WOO_VERSION (only stable in-range release; min == max-practical)"
+
+  reset_env wp1
+  reset_env wp2
+  rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
+  git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
+  mkdir -p "siterepo/${PAIR}1"
+
+  say "fetch + verify woocommerce $WOO_VERSION (never a bare slug install — always a digest-checked artifact)"
+  ARTIFACT_1=$(fetch_artifact woocommerce "$WOO_VERSION" cli1)
+  ARTIFACT_2=$(fetch_artifact woocommerce "$WOO_VERSION" cli2)
+  pass "verified sha256-pinned artifact resolved for both sides: $ARTIFACT_1"
+
+  wp1 plugin install "$ARTIFACT_1" --activate >/dev/null
+  INSTALLED_1=$(wp1 plugin get woocommerce --field=version)
+  [ "$INSTALLED_1" = "$WOO_VERSION" ] || fail "side 1 installed version mismatch: expected $WOO_VERSION, got $INSTALLED_1"
+  wp1 wc hpos enable >/dev/null
+  pass "side 1: woocommerce $WOO_VERSION installed from verified artifact, active, HPOS enabled"
+
+  cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
+{
+  "manifests": ["core", "woocommerce"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon"],
+    "taxonomies": ["category", "post_tag", "product_cat", "product_type"]
+  },
+  "spec_version": 2
+}
+EOF
+  cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+  "${GIT1[@]}" init -q -b main
+  "${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "policy: woocommerce $WOO_VERSION version-boundary certification"
+  "${GIT1[@]}" push -qu origin main
+
+  seed_woocommerce_content
+  wp1 duo capture --repo=/siterepo
+  pass "captured on side 1 (woocommerce $WOO_VERSION)"
+  wp1 duo lint --repo=/siterepo
+  pass "lint: 0 findings"
+
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "capture: woocommerce $WOO_VERSION content"
+  "${GIT1[@]}" push -q origin main
+
+  git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
+  wp2 plugin install "$ARTIFACT_2" >/dev/null
+  INSTALLED_2=$(wp2 plugin get woocommerce --field=version)
+  [ "$INSTALLED_2" = "$WOO_VERSION" ] || fail "side 2 installed version mismatch: expected $WOO_VERSION, got $INSTALLED_2"
+
+  wp2 duo deploy --repo=/siterepo
+  postdeploy_woocommerce_content
+  REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
+  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at woocommerce $WOO_VERSION"
+  pass "deploy + apply succeeded on side 2 (woocommerce $WOO_VERSION, HPOS, canary clean)"
+
+  check_woocommerce_content
+
+  wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
+  DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
+  rm -rf "siterepo/${PAIR}2/.tmp-final"
+  [ -z "$DIFF_OUT" ] || fail "byte-identity broken at woocommerce $WOO_VERSION: $DIFF_OUT"
+  pass "byte-identical recapture at woocommerce $WOO_VERSION — the only currently available in-range boundary is proven without duplicate execution"
+done
+
 # Team-lead's own requirement: the loop above proves every IN-RANGE boundary
 # certifies — it does not by itself prove the pin is honest, i.e. that an
 # OUT-OF-range version is actually refused rather than silently accepted.
@@ -884,6 +1003,62 @@ grep -q "polylang/polylang.php" <<<"$DEPLOY_OUT" || fail "refusal did not name t
 grep -q "3.4.5" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: polylang 3.4.5 (real, installed, genuinely below the corrected 3.5 min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
+
+say "negative control: woocommerce 10.9.4 (real wp.org release, closest stable below manifests/woocommerce.json's min 11.0.0) must be REFUSED, not silently accepted"
+reset_env wp1
+rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
+git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
+mkdir -p "siterepo/${PAIR}1"
+
+# Build a valid, representative WooCommerce state tree with the admitted
+# 11.0.0 artifact, then swap only the installed code to 10.9.4. This keeps
+# the negative control focused on Deploy::code_mismatch(), not installer
+# or old-schema behavior outside the manifest's claim.
+IN_RANGE_ARTIFACT=$(fetch_artifact woocommerce 11.0.0 cli1)
+wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
+wp1 wc hpos enable >/dev/null
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "woocommerce"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon"],
+    "taxonomies": ["category", "post_tag", "product_cat", "product_type"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: woocommerce negative-control pin"
+"${GIT1[@]}" push -qu origin main
+seed_woocommerce_content
+wp1 duo capture --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: valid WooCommerce state for negative control"
+"${GIT1[@]}" push -q origin main
+
+wp1 plugin deactivate woocommerce >/dev/null
+wp1 plugin delete woocommerce >/dev/null
+OUT_OF_RANGE_ARTIFACT=$(fetch_artifact woocommerce 10.9.4 cli1)
+wp1 plugin install "$OUT_OF_RANGE_ARTIFACT" >/dev/null
+INSTALLED_OOR=$(wp1 plugin get woocommerce --field=version)
+[ "$INSTALLED_OOR" = "10.9.4" ] || fail "negative control: expected woocommerce 10.9.4 installed, got $INSTALLED_OOR"
+
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse woocommerce 10.9.4 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
+  || fail "deploy refused, but not for the expected outside_version_range reason (got: $DEPLOY_OUT)"
+grep -q "woocommerce/woocommerce.php" <<<"$DEPLOY_OUT" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
+grep -q "10.9.4" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
+printf '%s\n' "$DEPLOY_OUT"
+pass "confirmed: woocommerce 10.9.4 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative"
 
 say "cleanup"
 bash bin/pair.sh destroy "$PAIR"
