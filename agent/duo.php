@@ -14,6 +14,7 @@ define('DUO_SPEC_VERSION', 1);
 
 require_once __DIR__ . '/src/Uuid.php';
 require_once __DIR__ . '/src/Canon.php';
+require_once __DIR__ . '/src/OptionState.php';
 require_once __DIR__ . '/src/Db.php';
 require_once __DIR__ . '/src/Secrets.php';
 require_once __DIR__ . '/src/Policy.php';

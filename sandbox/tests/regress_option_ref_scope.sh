@@ -93,7 +93,7 @@ say "(1b) same case, escape hatch: --force-unresolved-refs proceeds, drops it li
 OUT1B=$(wp1 duo capture --repo="$REPO" --out="$OUT" --force-unresolved-refs 2>&1)
 echo "$OUT1B"
 echo "$OUT1B" | grep -qi "success" || fail "expected --force-unresolved-refs to let capture succeed (got: $OUT1B)"
-jq -e 'has("wp_page_for_privacy_policy") | not' "$HOST_OUT/options/core.json" >/dev/null \
+jq -e '.records | has("wp_page_for_privacy_policy") | not' "$HOST_OUT/options/core.json" >/dev/null \
   || fail "wp_page_for_privacy_policy should be absent from forced capture's output"
 pass "forced capture succeeded; option correctly dropped (never a raw env-local id in canonical state)"
 
@@ -103,7 +103,7 @@ OUT2=$(wp1 duo capture --repo="$REPO" --out="$OUT" 2>&1)
 echo "$OUT2"
 echo "$OUT2" | grep -qi "success" || fail "expected a genuinely dangling ref to still warn-and-drop, not abort (got: $OUT2)"
 echo "$OUT2" | grep -q "999999999" || fail "expected the ordinary dangling warning naming the id (got: $OUT2)"
-jq -e 'has("wp_page_for_privacy_policy") | not' "$HOST_OUT/options/core.json" >/dev/null \
+jq -e '.records | has("wp_page_for_privacy_policy") | not' "$HOST_OUT/options/core.json" >/dev/null \
   || fail "wp_page_for_privacy_policy should be absent (dangling, dropped)"
 pass "dangling reference still warns and drops silently, exit 0 — unaffected by this fix (spike A's id-0/deleted-target case stays honest)"
 
@@ -124,7 +124,7 @@ wp1 eval "update_option('sticky_posts', [888888888]);" >/dev/null
 OUT3B=$(wp1 duo capture --repo="$REPO" --out="$OUT" 2>&1)
 echo "$OUT3B"
 echo "$OUT3B" | grep -qi "success" || fail "expected a dangling array element to still warn-and-drop (got: $OUT3B)"
-jq -e '.sticky_posts == []' "$HOST_OUT/options/core.json" >/dev/null \
+jq -e '.records.sticky_posts.value == []' "$HOST_OUT/options/core.json" >/dev/null \
   || fail "sticky_posts should be an empty array (dangling element dropped, not the whole key)"
 pass "dangling array element still drops just that element and exits 0 — unaffected by this fix"
 

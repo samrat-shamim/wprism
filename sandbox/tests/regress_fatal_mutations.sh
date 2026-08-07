@@ -46,7 +46,7 @@ reset_baseline() {
   wp1 eval "\\Duo\\Ledger::kv_delete('apply_in_progress'); \\Duo\\Ledger::kv_set('applied_revision', 'baseline');" >/dev/null
 }
 edit_blogname() {
-  jq --arg v "$1" '.blogname = $v' "$SITEREPO/state/options/core.json" > "$SITEREPO/state/options/core.json.tmp"
+  jq --arg v "$1" '.records.blogname.value = $v' "$SITEREPO/state/options/core.json" > "$SITEREPO/state/options/core.json.tmp"
   mv "$SITEREPO/state/options/core.json.tmp" "$SITEREPO/state/options/core.json"
 }
 

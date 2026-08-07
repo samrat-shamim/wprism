@@ -219,19 +219,19 @@ OUT1F=$(wp_r1c1 duo capture --repo=/siterepo --force-unresolved-refs 2>&1)
 echo "$OUT1F"
 grep -qi 'elementor_active_kit.*unmanaged post id\|unmanaged post id.*elementor_active_kit' <<<"$OUT1F" \
   || fail "expected the old-style warning naming elementor_active_kit's unmanaged post id under --force-unresolved-refs (got: $OUT1F)"
-if jq -e 'has("elementor_active_kit")' siterepo/r1c1/state/options/core.json >/dev/null 2>&1; then
+if jq -e '.records | has("elementor_active_kit")' siterepo/r1c1/state/options/core.json >/dev/null 2>&1; then
   fail "elementor_active_kit unexpectedly present in captured state despite the unmapped-ref warning"
 fi
-jq -e '.active_plugins | index("duo-agency-cpt/duo-agency-cpt.php") == null' siterepo/r1c1/state/options/core.json >/dev/null \
-  || fail "r1c1's baseline active_plugins already includes duo-agency-cpt (got: $(jq -c .active_plugins siterepo/r1c1/state/options/core.json))"
+jq -e '.records.active_plugins.value | index("duo-agency-cpt/duo-agency-cpt.php") == null' siterepo/r1c1/state/options/core.json >/dev/null \
+  || fail "r1c1's baseline active_plugins already includes duo-agency-cpt (got: $(jq -c .records.active_plugins.value siterepo/r1c1/state/options/core.json))"
 pass "baseline captured under the escape hatch: warning fired, elementor_active_kit dropped from state (old behavior, now an explicit opt-in), duo-agency-cpt correctly absent from active_plugins"
 
 say "(1) fix: scope 'elementor_library' into policy.post_types, re-capture"
 jq '.policy.post_types += ["elementor_library"]' siterepo/r1c1/site.duo.json > siterepo/r1c1/.tmp-site.json
 mv siterepo/r1c1/.tmp-site.json siterepo/r1c1/site.duo.json
 wp_r1c1 duo capture --repo=/siterepo
-jq -e '.elementor_active_kit | test("^\\{\\{post:")' siterepo/r1c1/state/options/core.json >/dev/null \
-  || fail "elementor_active_kit is not a post token after scoping elementor_library (got: $(jq -c .elementor_active_kit siterepo/r1c1/state/options/core.json))"
+jq -e '.records.elementor_active_kit.value | test("^\\{\\{post:")' siterepo/r1c1/state/options/core.json >/dev/null \
+  || fail "elementor_active_kit is not a post token after scoping elementor_library (got: $(jq -c .records.elementor_active_kit.value siterepo/r1c1/state/options/core.json))"
 pass "elementor_active_kit now correctly tokenized once its target post type is in scope"
 $GIT_1 add -A
 $GIT_1 commit -qm "capture: baseline + scope elementor_library (fixes the elementor_active_kit silent-drop finding)"
@@ -244,7 +244,7 @@ wp_r1c1 plugin activate duo-agency-cpt
 wp_r1c1 plugin list --status=active --field=name | grep -qx duo-agency-cpt || fail "duo-agency-cpt did not actually activate on r1c1"
 wp_r1c1 rewrite flush
 wp_r1c1 duo capture --repo=/siterepo
-jq -e '.active_plugins | any(. == "duo-agency-cpt/duo-agency-cpt.php")' siterepo/r1c1/state/options/core.json >/dev/null \
+jq -e '.records.active_plugins.value | any(. == "duo-agency-cpt/duo-agency-cpt.php")' siterepo/r1c1/state/options/core.json >/dev/null \
   || fail "r1c1's captured active_plugins does not include duo-agency-cpt after activating"
 $GIT_1 add -A
 $GIT_1 commit -qm "capture: activate duo-agency-cpt on r1c1"

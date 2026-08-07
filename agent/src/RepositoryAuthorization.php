@@ -243,12 +243,41 @@ final class RepositoryAuthorization {
     }
 
     private static function authorize_options(Policy $policy, string $uuid, array $entity, array &$out): void {
-        $options = $entity['data'] ?? Canon::decode($entity['content']);
-        foreach ($options as $name => $value) {
+        $document = $entity['data'] ?? Canon::decode($entity['content']);
+        foreach (OptionState::records($document) as $name => $record) {
             $details = str_contains((string) $name, '{{')
                 ? $policy->canonical_option_name_ref_details((string) $name)
                 : $policy->option_rule_details((string) $name);
             $rule = $details['rule'] ?? [];
+            $class = $rule['class'] ?? 'unclassified';
+            if ($record['state'] === 'deleted') {
+                if ($class !== 'authored' || !empty($rule['sub_keys'])) {
+                    self::finding(
+                        $out, 'repository_option_delete_not_authored', $entity['path'], $uuid,
+                        'option_tombstone', (string) $name, $class, $details['source']
+                    );
+                }
+                continue;
+            }
+            if ($record['state'] === 'absent') {
+                $managed = $class === 'managed' && in_array($name, self::MANAGED_OPTIONS, true);
+                if ($class !== 'authored' && !$managed && empty($rule['sub_keys'])) {
+                    self::finding(
+                        $out, 'repository_option_absence_not_authored', $entity['path'], $uuid,
+                        'option_absence', (string) $name, $class, $details['source']
+                    );
+                }
+                continue;
+            }
+            $value = $record['value'];
+            try {
+                OptionState::assert_rule_autoload($rule, (string) $record['autoload'], "repository option '$name'");
+            } catch (\Throwable $t) {
+                self::finding(
+                    $out, 'repository_option_autoload_not_authorized', $entity['path'], $uuid,
+                    'option_autoload', (string) $name, (string) $record['autoload'], $details['source']
+                );
+            }
             if (!empty($rule['sub_keys'])) {
                 // DUO-3233: this option's OWN top-level class is legitimately
                 // something other than 'authored' (Polylang's `polylang`/
@@ -265,7 +294,6 @@ final class RepositoryAuthorization {
                 );
                 continue;
             }
-            $class = $rule['class'] ?? 'unclassified';
             $managed = $class === 'managed' && in_array($name, self::MANAGED_OPTIONS, true);
             if ($class !== 'authored' && !$managed) {
                 self::finding($out, 'repository_field_not_authored', $entity['path'], $uuid, 'option', (string) $name, $class, $details['source']);

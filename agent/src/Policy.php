@@ -53,6 +53,7 @@ final class Policy {
             }
             $p->site = Canon::decode(Canon::read_file($siteFile));
             self::validate_scope_classes($p->site, 'site.duo.json', true);
+            self::validate_option_storage($p->site['policy'] ?? [], 'site.duo.json');
         }
         $names = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
         $dir = self::manifests_dir();
@@ -66,6 +67,7 @@ final class Policy {
             self::validate_regen_dependencies($manifest);
             self::validate_scope_classes($manifest, "manifest '$name'", false);
             self::validate_sub_keys($manifest);
+            self::validate_option_storage($manifest, "manifest '$name'");
             self::validate_adapter_contract($manifest);
             self::validate_discovery_contract($manifest);
             $p->manifests[] = $manifest;
@@ -113,12 +115,19 @@ final class Policy {
     private function rule_details(string $section, string $name): array {
         $sitePolicy = $this->site['policy'][$section][$name] ?? null;
         if ($sitePolicy !== null) {
-            return ['rule' => $sitePolicy, 'source' => 'site.duo.json'];
+            return [
+                'rule' => $section === 'options'
+                    ? self::with_option_autoload($sitePolicy, $this->site['policy'] ?? [])
+                    : $sitePolicy,
+                'source' => 'site.duo.json',
+            ];
         }
         foreach ($this->manifests as $m) {
             if (isset($m[$section][$name])) {
                 return [
-                    'rule' => $m[$section][$name],
+                    'rule' => $section === 'options'
+                        ? self::with_option_autoload($m[$section][$name], $m)
+                        : $m[$section][$name],
                     'source' => (string) ($m['name'] ?? '?'),
                 ];
             }
@@ -129,7 +138,9 @@ final class Policy {
                 foreach ($m[$patternKey] ?? [] as $pat) {
                     if (preg_match('/' . $pat['match'] . '/', $name)) {
                         return [
-                            'rule' => array_diff_key($pat, ['match' => true]),
+                            'rule' => $section === 'options'
+                                ? self::with_option_autoload(array_diff_key($pat, ['match' => true]), $m)
+                                : array_diff_key($pat, ['match' => true]),
                             'source' => (string) ($m['name'] ?? '?'),
                         ];
                     }
@@ -247,13 +258,13 @@ final class Policy {
         foreach ($this->manifests as $m) {
             foreach ($m['options'] ?? [] as $name => $r) {
                 if (($r['class'] ?? '') === 'authored') {
-                    $out[$name] = $r;
+                    $out[$name] = self::with_option_autoload($r, $m);
                 }
             }
         }
         foreach ($this->site['policy']['options'] ?? [] as $name => $r) {
             if (($r['class'] ?? '') === 'authored') {
-                $out[$name] = $r;
+                $out[$name] = self::with_option_autoload($r, $this->site['policy'] ?? []);
             } else {
                 unset($out[$name]);
             }
@@ -296,13 +307,13 @@ final class Policy {
         foreach ($this->manifests as $m) {
             foreach ($m['options'] ?? [] as $name => $r) {
                 if (!empty($r['sub_keys'])) {
-                    $out[$name] = $r;
+                    $out[$name] = self::with_option_autoload($r, $m);
                 }
             }
         }
         foreach ($this->site['policy']['options'] ?? [] as $name => $r) {
             if (!empty($r['sub_keys'])) {
-                $out[$name] = $r;
+                $out[$name] = self::with_option_autoload($r, $this->site['policy'] ?? []);
             } else {
                 unset($out[$name]);
             }
@@ -577,7 +588,7 @@ final class Policy {
         $out = [];
         foreach ($this->manifests as $m) {
             foreach ($m['option_name_refs'] ?? [] as $rule) {
-                $out[] = $rule;
+                $out[] = self::with_option_autoload($rule, $m);
             }
         }
         return $out;
@@ -603,7 +614,7 @@ final class Policy {
                 if (($rule['id_kind'] ?? '') === $m[1]
                     && preg_match('/' . $rule['match'] . '/', $representative)) {
                     return [
-                        'rule' => $rule,
+                        'rule' => self::with_option_autoload($rule, $manifest),
                         'source' => (string) ($manifest['name'] ?? '?'),
                     ];
                 }
@@ -1192,6 +1203,59 @@ final class Policy {
                 }
             }
         }
+    }
+
+    /**
+     * A portable authored option must say how its wp_options row is stored.
+     * `preserve` authorizes capture of the source row's exact autoload flag;
+     * a concrete value is a stronger adapter contract and capture refuses a
+     * source row that disagrees. Omitting this declaration is never allowed:
+     * insertion would otherwise fall back to WordPress/version-local policy.
+     */
+    private static function validate_option_storage(array $source, string $label): void {
+        $default = $source['option_autoload'] ?? null;
+        $check = static function (array $rule, string $where) use ($label, $default): void {
+            $hasAuthoredSubKey = false;
+            foreach ((array) ($rule['sub_keys'] ?? []) as $subRule) {
+                if (($subRule['class'] ?? null) === 'authored') {
+                    $hasAuthoredSubKey = true;
+                    break;
+                }
+            }
+            if (!in_array($rule['class'] ?? null, ['authored', 'managed'], true) && !$hasAuthoredSubKey) {
+                return;
+            }
+            $autoload = $rule['autoload'] ?? $default;
+            if ($autoload !== 'preserve' && !in_array($autoload, OptionState::AUTOLOAD_VALUES, true)) {
+                throw new \RuntimeException(
+                    "duo: $label $where needs autoload=preserve or an explicit supported autoload value "
+                    . '(' . implode('|', OptionState::AUTOLOAD_VALUES) . '); insertion may never guess'
+                );
+            }
+        };
+        foreach ((array) ($source['options'] ?? []) as $name => $rule) {
+            if (is_array($rule)) {
+                $check($rule, "options.$name");
+            }
+        }
+        foreach ((array) ($source['option_patterns'] ?? []) as $i => $rule) {
+            if (is_array($rule)) {
+                $check($rule, "option_patterns[$i]");
+            }
+        }
+        foreach ((array) ($source['option_name_refs'] ?? []) as $i => $rule) {
+            if (is_array($rule)) {
+                $check($rule, "option_name_refs[$i]");
+            }
+        }
+    }
+
+    /** Apply a source-level default without mutating the loaded artifact. */
+    private static function with_option_autoload(array $rule, array $source): array {
+        if (!array_key_exists('autoload', $rule) && array_key_exists('option_autoload', $source)) {
+            $rule['autoload'] = $source['option_autoload'];
+        }
+        return $rule;
     }
 
     /**

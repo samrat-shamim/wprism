@@ -456,8 +456,25 @@ final class RepositoryCompiler {
             return null;
         }
         if ($kind === 'options') {
-            if ($data !== [] && array_is_list($data)) {
-                $this->add('schema_content_mismatch', $path, '', 'options/core.json must be an object map');
+            try {
+                $records = OptionState::records($data);
+            } catch (\Throwable $t) {
+                $this->add('schema_content_mismatch', $path, '', $t->getMessage());
+                return null;
+            }
+            $required = array_fill_keys(array_keys($this->policy->authored_options()), true);
+            $required += array_fill_keys(array_keys($this->policy->sub_keyed_options()), true);
+            foreach (['active_plugins', 'template', 'stylesheet'] as $managedOption) {
+                if (($this->policy->option_rule($managedOption)['class'] ?? null) === 'managed') {
+                    $required[$managedOption] = true;
+                }
+            }
+            foreach (array_diff_key($required, $records) as $name => $_) {
+                $this->add(
+                    'schema_content_mismatch', $path, 'records.' . $name,
+                    "authored exact option '$name' needs an explicit absent, present, or deleted record; "
+                    . 'removing a record is not deletion intent'
+                );
             }
             return [
                 'type' => 'options', 'path' => $path,
@@ -892,7 +909,11 @@ final class RepositoryCompiler {
                     }
                 }
             } elseif ($entity['type'] === 'options') {
-                foreach ($d as $name => $value) {
+                foreach (OptionState::records($d) as $name => $record) {
+                    if ($record['state'] !== 'present') {
+                        continue;
+                    }
+                    $value = $record['value'];
                     $details = str_contains((string) $name, '{{')
                         ? $this->policy->canonical_option_name_ref_details((string) $name)
                         : $this->policy->option_rule_details((string) $name);

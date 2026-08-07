@@ -426,7 +426,7 @@ final class Lint {
     // ------------------------------------------------------------ options
 
     private static function scan_options_file(string $stateDir, string $rel, Policy $policy, string $home, string $homeEscaped, array &$findings): void {
-        $options = (array) Canon::decode(Canon::read_file($stateDir . '/' . $rel));
+        $options = OptionState::values((array) Canon::decode(Canon::read_file($stateDir . '/' . $rel)));
 
         // (a) bare_id
         foreach ($options as $key => $value) {

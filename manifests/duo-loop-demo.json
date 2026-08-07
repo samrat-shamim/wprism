@@ -1,6 +1,7 @@
 {
     "spec_version": 1,
     "name": "duo-loop-demo",
+    "option_autoload": "preserve",
     "options": {
         "duo_loop_api_key": {
             "class": "env"

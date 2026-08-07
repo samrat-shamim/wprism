@@ -179,22 +179,42 @@ Removing a live entity file is never deletion authority. During capture, if an e
 }
 ```
 
-`kind` is `post`, `term`, `menu`, or `table`; `type` is the exact post type, taxonomy, `nav_menu`, or custom-table name. Capture preserves a still-absent tombstone byte-for-byte. Reappearance removes it. Options and individual menu items are not independently tombstoned.
+`kind` is `post`, `term`, `menu`, or `table`; `type` is the exact post type, taxonomy, `nav_menu`, or custom-table name. Capture preserves a still-absent tombstone byte-for-byte. Reappearance removes it. Individual menu items are not independently tombstoned. Authored options use their own name-keyed record/tombstone grammar below because they have no UUID identity.
 
 The offline compiler rejects malformed tombstones, live+tombstone identity collisions, unsupported entity types, and any surviving canonical reference to a deleted UUID. A tombstone is accepted only when a pinned adapter declares the exact selector in its top-level `deletions` map, including all cascade effects and runtime reverse-reference guards. Refusal is correct when no adapter owns the destructive semantics.
 
 ### Options — `state/options/core.json`
 
-Flat map, only keys classified authored. v0 whitelist (the pinned 8): `blogname`, `blogdescription`, `show_on_front`, `page_on_front`, `page_for_posts`, `sticky_posts`, `default_category`, plus `posts_per_page`. Ref-typed values are tokenized per the core manifest:
+Versioned option-record document. Every exact option classified authored (plus the three managed code-half options) has a record, so deleting a JSON key is invalid rather than ambiguous. Dynamic families have records for discovered canonical names only. A record has exactly one of three states:
+
+- `absent`: no portable value and no deletion intent; apply leaves a target row untouched.
+- `present`: carries the lossless canonical `value` and the row's exact `autoload` storage flag.
+- `deleted`: durable destructive intent carrying the sha256 `expected_hash` of the prior `present` record.
 
 ```json
 {
-  "blogname": "Duo Demo",
-  "default_category": "{{term:0198b0aa-...}}",
-  "page_on_front": "{{post:0198b0c0-...}}",
-  "show_on_front": "page",
-  "sticky_posts": ["{{post:0198b0c7-...}}"]
+  "format": "duo-options/v1",
+  "records": {
+    "blogdescription": {"state": "present", "autoload": "yes", "value": ""},
+    "blogname": {"state": "present", "autoload": "yes", "value": "Duo Demo"},
+    "default_category": {"state": "present", "autoload": "auto", "value": "{{term:0198b0aa-...}}"},
+    "page_for_posts": {"state": "absent"},
+    "retired_authored_option": {
+      "state": "deleted",
+      "expected_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  }
 }
+```
+
+`null`, `false`, `""`, empty containers, and serialized structures are ordinary `present.value` values and never deletion signals. Capture converts a prior `present` record to `deleted` only after observing that exact authored row absent; it preserves a still-absent deletion record byte-for-byte, while reappearance replaces it with `present`. Apply requires `--with-deletes`, checks the tombstone's expected record hash during planning, and treats post-base edits or recreation as conflicts. Removing a required exact-name record fails compilation with its `records.<name>` location.
+
+Every manifest surface that can author a whole option row (`options`, an authored `option_patterns`/`option_name_refs`, or a rule with authored `sub_keys`) must declare autoload storage semantics. A rule may give an exact supported value, or the manifest/site policy may declare `option_autoload: "preserve"` to authorize capture and replay of the source row's exact value. Missing declarations block policy load; create and update both write the canonical flag, never a WordPress/version-local default.
+
+Ref-typed values inside `present.value` are tokenized per the core manifest. The core exact set includes `blogname`, `blogdescription`, `show_on_front`, `page_on_front`, `page_for_posts`, `sticky_posts`, `default_category`, `posts_per_page`, and `wp_page_for_privacy_policy`:
+
+```json
+{"state": "present", "autoload": "yes", "value": ["{{post:0198b0c7-...}}"]}
 ```
 
 Exact option rules remain sufficient for fixed names. A plugin with dynamic or evolving names declares discovery ownership separately with top-level `"option_namespaces": [{"match": "^plugin_prefix_"}]`. Capture enumerates every live `wp_options.option_name` in that namespace on every run, independent of the provenance journal. Each match must resolve through the owning manifest's exact `options` rule, one of its `option_patterns`, or an explicit site override; otherwise it is pending and capture blocks. An authored `option_patterns` rule therefore captures a dynamic family, while runtime/derived/env families are enumerated and deliberately excluded. Overlapping namespace claims and cross-manifest classifications refuse rather than depending on pin order. Names outside all declared namespaces are not guessed to belong to a plugin.

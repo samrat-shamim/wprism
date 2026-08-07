@@ -590,7 +590,7 @@ final class Deploy {
 
     /**
      * Pulls active_plugins/template/stylesheet out of an already-decoded
-     * options/core.json map. Shared with Apply::build_plan(), which already
+     * options/core.json record document. Shared with Apply::build_plan(), which already
      * has the target tree's options entity decoded (from load_tree()) and
      * would otherwise have to duplicate this same key-extraction — one
      * implementation read from two different starting points (a file path
@@ -601,6 +601,7 @@ final class Deploy {
      * @return array{active_plugins?: string[], template?: string, stylesheet?: string}
      */
     public static function extract_desired(array $options): array {
+        $options = OptionState::values($options);
         $out = [];
         if (array_key_exists('active_plugins', $options)) {
             $out['active_plugins'] = array_values(array_map('strval', (array) $options['active_plugins']));

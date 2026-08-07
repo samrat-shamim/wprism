@@ -26,6 +26,7 @@
  */
 
 require __DIR__ . '/../../agent/src/Canon.php';
+require __DIR__ . '/../../agent/src/OptionState.php';
 require __DIR__ . '/../../agent/src/Publish.php';
 require __DIR__ . '/../../agent/src/TransientDbException.php';
 require __DIR__ . '/../../agent/src/Capture.php';

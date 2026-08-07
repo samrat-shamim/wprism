@@ -102,6 +102,32 @@ final class Apply {
             $envE = $env[$uuid] ?? null;
             $baseH = $base[$uuid]['content_hash'] ?? null;
             $row = ['uuid' => $uuid, 'type' => $e['type'], 'path' => $e['path']];
+            if ($uuid === 'options/core' && $envE !== null) {
+                $desiredRecords = OptionState::records($e['data']);
+                $envDocument = Canon::decode($envE['content']);
+                $envRecords = OptionState::records($envDocument);
+                $pendingDeletes = [];
+                $deleteConflicts = [];
+                foreach ($desiredRecords as $name => $record) {
+                    if ($record['state'] !== 'deleted' || !isset($envRecords[$name])
+                        || $envRecords[$name]['state'] !== 'present') {
+                        continue;
+                    }
+                    $pendingDeletes[] = (string) $name;
+                    if (!hash_equals($record['expected_hash'], OptionState::record_hash($envRecords[$name]))) {
+                        $deleteConflicts[] = "$name changed after the deletion base";
+                    } elseif ($baseH !== null && hash_equals($fileH, $baseH)) {
+                        $deleteConflicts[] = "$name was recreated after its deletion intent was applied";
+                    }
+                }
+                if ($pendingDeletes) {
+                    $row['option_deletes'] = $pendingDeletes;
+                }
+                if ($deleteConflicts) {
+                    $plan['conflict'][] = $row + ['reason' => implode('; ', $deleteConflicts)];
+                    continue;
+                }
+            }
             if ($envE !== null) {
                 if ($fileH === $envE['hash']) {
                     $plan['unchanged'][] = $row;
@@ -584,6 +610,20 @@ final class Apply {
             $this->warnings[] = "FORCED deletion conflict {$r['uuid']} ({$r['reason']})";
         }
 
+        $pendingOptionDeletes = [];
+        foreach (array_merge($plan['create'], $plan['update'], $plan['conflict']) as $r) {
+            foreach ($r['option_deletes'] ?? [] as $name) {
+                $pendingOptionDeletes[] = $name;
+            }
+        }
+        if ($pendingOptionDeletes && empty($opts['with_deletes'])) {
+            sort($pendingOptionDeletes, SORT_STRING);
+            throw new \RuntimeException(
+                "duo: authored option deletion intent requires --with-deletes; no target mutation attempted:\n  - "
+                . implode("\n  - ", array_unique($pendingOptionDeletes))
+            );
+        }
+
         // docs/proposals/code-half.md §3.3's blocking posture: a code_mismatch
         // row only ever exists for an entry the TARGET state declares active
         // (Deploy::code_mismatch() is scoped that way by construction), so
@@ -729,7 +769,7 @@ final class Apply {
                 } elseif ($e['type'] === 'menu') {
                     $this->finalize_menu($e['data']);
                 } elseif ($e['type'] === 'options') {
-                    $this->apply_options($e['data']);
+                    $this->apply_options($e['data'], !empty($opts['with_deletes']));
                 }
             }
 
@@ -1385,11 +1425,32 @@ final class Apply {
             $locs[$loc] = $menuTermId;
         }
         $mods['nav_menu_locations'] = $locs;
-        $this->upsert_option($name, serialize($mods));
+        // theme_mods is a WordPress-owned helper row, not authored canonical
+        // option state. WordPress itself creates this family autoloaded; keep
+        // that bespoke contract explicit instead of borrowing authored-row
+        // policy from state/options/core.json.
+        $this->upsert_option($name, serialize($mods), 'yes');
     }
 
-    private function apply_options(array $options): void {
-        foreach ($options as $name => $v) {
+    private function apply_options(array $document, bool $withDeletes): void {
+        foreach (OptionState::records($document) as $name => $record) {
+            if ($record['state'] === 'absent') {
+                continue; // explicit no-value/no-delete intent; target row is untouched
+            }
+            [$realName, $rule] = $this->option_apply_target((string) $name);
+            if ($record['state'] === 'deleted') {
+                if (!$withDeletes) {
+                    throw new \RuntimeException("duo: internal invariant: option tombstone '$name' reached apply without --with-deletes");
+                }
+                global $wpdb;
+                Db::delete($wpdb->options, ['option_name' => $realName], null, 'apply delete authored option');
+                wp_cache_delete($realName, 'options');
+                wp_cache_delete('alloptions', 'options');
+                continue;
+            }
+            $v = $record['value'];
+            $autoload = (string) $record['autoload'];
+            OptionState::assert_rule_autoload($rule, $autoload, "repository option '$name'");
             // option_name_refs (task #93) — MUST run before the ordinary
             // option_rule($name) lookup below, unconditionally: a token-
             // form key like "woocommerce_flat_rate_{{wc_zone_method:...}}
@@ -1401,24 +1462,10 @@ final class Apply {
             // target's own options table. Detecting and detokenizing first
             // is what this task's own design review specifically flagged.
             if (str_contains($name, '{{')) {
-                if (!preg_match('/\{\{([a-z][a-z0-9_]*):([0-9a-f-]{36})\}\}/', $name, $tm)) {
-                    throw new \RuntimeException("duo: option key '$name' contains '{{' but is not a well-formed ref token");
-                }
-                $realId = $this->tokens->token_to_id($tm[0]);
-                $realName = str_replace($tm[0], (string) $realId, $name);
-                $rule = $this->policy->match_option_name_ref($realName);
-                if ($rule === null) {
-                    throw new \RuntimeException(
-                        "duo: captured option key '$name' looks token-form (option_name_refs) but matches no "
-                        . "declared option_name_refs pattern once detokenized to '$realName' — manifest unpinned "
-                        . 'or stale?'
-                    );
-                }
                 $vv = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-                $this->upsert_option($realName, maybe_serialize($vv));
+                $this->upsert_option($realName, $this->option_wire_value($vv), $autoload);
                 continue;
             }
-            $rule = $this->policy->option_rule($name) ?? [];
             if (($rule['class'] ?? '') === 'managed') {
                 // active_plugins/template/stylesheet (docs/proposals/code-half.md
                 // §3.1): writing these via raw $wpdb would make WordPress believe
@@ -1433,11 +1480,35 @@ final class Apply {
                 // DUO-3233: SUB-KEY-LEVEL merge into the live blob, never a
                 // whole-value replace — see apply_option_sub_keys()'s own
                 // docblock for the full rationale.
-                $this->apply_option_sub_keys($name, $v, $rule['sub_keys']);
+                $this->apply_option_sub_keys($name, $v, $rule['sub_keys'], $autoload);
                 continue;
             }
-            $this->upsert_option($name, maybe_serialize($this->apply_value($name, $v, $rule)));
+            $this->upsert_option(
+                $name,
+                $this->option_wire_value($this->apply_value($name, $v, $rule)),
+                $autoload
+            );
         }
+    }
+
+    /** @return array{0:string,1:array} canonical name -> target-local name + owning rule */
+    private function option_apply_target(string $name): array {
+        if (!str_contains($name, '{{')) {
+            return [$name, $this->policy->option_rule($name) ?? []];
+        }
+        if (!preg_match('/\{\{([a-z][a-z0-9_]*):([0-9a-f-]{36})\}\}/', $name, $tm)) {
+            throw new \RuntimeException("duo: option key '$name' contains '{{' but is not a well-formed ref token");
+        }
+        $realId = $this->tokens->token_to_id($tm[0]);
+        $realName = str_replace($tm[0], (string) $realId, $name);
+        $rule = $this->policy->match_option_name_ref($realName);
+        if ($rule === null) {
+            throw new \RuntimeException(
+                "duo: captured option key '$name' looks token-form but matches no option_name_refs rule "
+                . "after detokenizing to '$realName'"
+            );
+        }
+        return [$realName, $rule];
     }
 
     /**
@@ -1489,17 +1560,13 @@ final class Apply {
      * merged option ends up containing ONLY the declared sub-keys, which is
      * observable (warned) rather than silently incomplete.
      *
-     * Deletion: matches ordinary whole-option apply's existing, DOCUMENTED
-     * limitation (DUO-3211, open at the time of writing — its own review
-     * comment is what asked for sub_keys to compose with its eventual
-     * tombstone/deletion semantics "without another format change"): a
-     * captured sub-key is upserted; a sub-key that disappears from the repo
-     * is never removed from the live blob by this path. Not a regression —
-     * whole-option apply has never had delete semantics either — and not
-     * attempted here, deliberately, so as not to invent option-deletion
-     * semantics ahead of DUO-3211's own design work.
+     * Deletion remains ownership-exact: DUO-3211's whole-row `deleted`
+     * record is authorized only for a whole authored option, never for this
+     * mixed-ownership shape. An absent sub-key therefore remains untouched;
+     * deleting it would require a future sub-key tombstone grammar rather
+     * than broadening this merge into ownership it does not have.
      */
-    private function apply_option_sub_keys(string $name, $captured, array $subKeys): void {
+    private function apply_option_sub_keys(string $name, $captured, array $subKeys, string $autoload): void {
         global $wpdb;
         if (!is_array($captured)) {
             throw new \RuntimeException(
@@ -1539,7 +1606,7 @@ final class Apply {
             }
             $live[(string) $subKey] = $this->apply_value("$name.$subKey", $subVal, $subRule);
         }
-        $this->upsert_option($name, maybe_serialize($live));
+        $this->upsert_option($name, $this->option_wire_value($live), $autoload);
     }
 
     /**
@@ -1572,18 +1639,44 @@ final class Apply {
         return $encoded;
     }
 
-    private function upsert_option(string $name, string $value): void {
+    private function upsert_option(string $name, string $value, string $autoload): void {
         global $wpdb;
         $exists = $wpdb->get_var($wpdb->prepare(
             "SELECT option_id FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
         ));
         if ($exists) {
-            Db::update($wpdb->options, ['option_value' => $value], ['option_name' => $name], null, null, 'apply update authored option');
+            Db::update(
+                $wpdb->options,
+                ['option_value' => $value, 'autoload' => $autoload],
+                ['option_name' => $name],
+                null,
+                null,
+                'apply update authored option'
+            );
         } else {
-            Db::insert($wpdb->options, ['option_name' => $name, 'option_value' => $value, 'autoload' => 'yes'], null, 'apply insert authored option');
+            Db::insert(
+                $wpdb->options,
+                ['option_name' => $name, 'option_value' => $value, 'autoload' => $autoload],
+                null,
+                'apply insert authored option'
+            );
         }
         wp_cache_delete($name, 'options');
         wp_cache_delete('alloptions', 'options');
+    }
+
+    /**
+     * WordPress's maybe_serialize() deliberately leaves scalar null/false
+     * alone, after which wpdb coerces both to an empty SQL string. That is
+     * lossy for a canonical format which explicitly distinguishes null,
+     * false, and "". Serialize those two scalar types explicitly; retain
+     * WordPress's ordinary encoding for arrays/objects and string scalars.
+     */
+    private function option_wire_value($value): string {
+        if ($value === null || is_bool($value)) {
+            return serialize($value);
+        }
+        return (string) maybe_serialize($value);
     }
 
     /** $value null writes a real SQL NULL — byte-faithful to plugins that store

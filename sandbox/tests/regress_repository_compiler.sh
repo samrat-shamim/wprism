@@ -10,6 +10,7 @@ $root = $argv[1];
 define('DUO_SPEC_VERSION', 1);
 require_once "$root/agent/src/Uuid.php";
 require_once "$root/agent/src/Canon.php";
+require_once "$root/agent/src/OptionState.php";
 require_once "$root/agent/src/Policy.php";
 require_once "$root/agent/src/Snapshot.php";
 require_once "$root/agent/src/Deletion.php";
@@ -23,6 +24,7 @@ function get_option($name) { throw new RuntimeException("TARGET CONTACT: get_opt
 function wp_upload_dir(...$args) { throw new RuntimeException('TARGET CONTACT: wp_upload_dir'); }
 
 use Duo\Canon;
+use Duo\OptionState;
 use Duo\CompiledRepository;
 use Duo\Policy;
 use Duo\RepositoryCompilationException;
@@ -95,10 +97,21 @@ function build_valid(string $repo, array $manifests = ['core']): array {
         ]],
         'locations' => [], 'name' => 'Main', 'slug' => 'main', 'uuid' => $menu,
     ]));
-    put("$repo/state/options/core.json", Canon::encode([
-        'blogname' => 'Duo', 'default_category' => "{{term:$term}}", 'page_on_front' => "{{post:$page}}",
-        'show_on_front' => 'page',
-    ]));
+    $optionRecords = [];
+    foreach ([
+        'active_plugins', 'blogdescription', 'blogname', 'default_category', 'page_for_posts',
+        'page_on_front', 'posts_per_page', 'show_on_front', 'sticky_posts', 'stylesheet',
+        'template', 'wp_page_for_privacy_policy',
+    ] as $name) {
+        $optionRecords[$name] = OptionState::absent();
+    }
+    $optionRecords = array_replace($optionRecords, [
+        'blogname' => OptionState::present('Duo', 'yes'),
+        'default_category' => OptionState::present("{{term:$term}}", 'yes'),
+        'page_on_front' => OptionState::present("{{post:$page}}", 'yes'),
+        'show_on_front' => OptionState::present('page', 'yes'),
+    ]);
+    put("$repo/state/options/core.json", Canon::encode(OptionState::document($optionRecords)));
     return compact('term','page','attachment','menu','item','mediaHash');
 }
 
@@ -238,10 +251,22 @@ ok('closed but cyclic parent graphs are rejected as semantically impossible');
 
 $rawId = "$tmp/raw-id"; build_valid($rawId);
 $optionsPath = "$rawId/state/options/core.json";
-$options = Canon::decode(file_get_contents($optionsPath)); $options['default_category'] = 1;
+$options = Canon::decode(file_get_contents($optionsPath)); $options['records']['default_category']['value'] = 1;
 put($optionsPath, Canon::encode($options));
 $p = failure($rawId); needs($p, 'nonportable_reference');
 ok('declared ref fields reject raw environment ids even when JSON is otherwise valid');
+
+$missingOption = "$tmp/missing-option-record"; build_valid($missingOption);
+$optionsPath = "$missingOption/state/options/core.json";
+$options = Canon::decode(file_get_contents($optionsPath));
+unset($options['records']['blogdescription']);
+put($optionsPath, Canon::encode($options));
+$p = failure($missingOption); needs($p, 'schema_content_mismatch');
+$missingRows = array_values(array_filter(
+    $p['diagnostics'], fn($d) => ($d['locator'] ?? '') === 'records.blogdescription'
+));
+if (!$missingRows) fail('missing exact authored option record did not identify records.blogdescription');
+ok('removing an exact authored record is invalid, never implicit deletion intent');
 
 $media = "$tmp/media"; $m = build_valid($media);
 $front = post_front(uuid(30), 'attachment', 'second-photo');

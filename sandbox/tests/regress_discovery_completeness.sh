@@ -23,6 +23,8 @@ cp ../manifests/core.json "$HOST_REPO/manifests/core.json"
 cat > "$HOST_REPO/manifests/discovery-fixture.json" <<'JSON'
 {
   "name": "discovery-fixture",
+  "spec_version": 1,
+  "option_autoload": "preserve",
   "option_namespaces": [{"match": "^duo_discovery_"}],
   "option_patterns": [
     {"match": "^duo_discovery_dynamic_[0-9]+$", "class": "authored"},
@@ -164,8 +166,8 @@ wp1 duo classify --repo="$REPO" \
   --set='options:duo_discovery_unknown=runtime;term_meta:duo_discovery_unknown_term=runtime;term_meta:duo_discovery_authored_term=runtime' >/dev/null
 
 wp1 duo capture --repo="$REPO" >/dev/null
-jq -e '.duo_discovery_dynamic_17 == "captured-before-observation"
-  and has("duo_discovery_unknown") == false' "$HOST_REPO/state/options/core.json" >/dev/null \
+jq -e '.records.duo_discovery_dynamic_17.value == "captured-before-observation"
+  and (.records | has("duo_discovery_unknown") == false)' "$HOST_REPO/state/options/core.json" >/dev/null \
   || fail "dynamic option family was not enumerated/captured correctly"
 pass "authored dynamic option families are captured by declarative enumeration, not exact names"
 
