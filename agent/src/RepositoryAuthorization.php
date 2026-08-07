@@ -273,10 +273,17 @@ final class RepositoryAuthorization {
 
     private static function authorize_options(Policy $policy, string $uuid, array $entity, array &$out): void {
         $document = $entity['data'] ?? Canon::decode($entity['content']);
+        // DUO-3263: re-derivation is about this one immutable revision (same
+        // "authorization is about one immutable revision" principle
+        // manifests/interpreters/acf.php's own prime_repository() docblock
+        // documents) — the sibling-lookup context (ACF's shadow pointer) an
+        // interpreter's option_rule() needs comes from this SAME document's
+        // own present values, never a live target.
+        $allOptions = OptionState::values($document);
         foreach (OptionState::records($document) as $name => $record) {
             $details = str_contains((string) $name, '{{')
                 ? $policy->canonical_option_name_ref_details((string) $name)
-                : $policy->option_rule_details((string) $name);
+                : $policy->option_rule_details_for_option((string) $name, $allOptions);
             $rule = $details['rule'] ?? [];
             $class = $rule['class'] ?? 'unclassified';
             if ($record['state'] === 'deleted') {

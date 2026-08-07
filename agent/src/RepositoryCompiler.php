@@ -1007,6 +1007,12 @@ final class RepositoryCompiler {
                     }
                 }
             } elseif ($entity['type'] === 'options') {
+                // DUO-3263: an interpreter-classified option's ref kind (ACF's
+                // options-page fields) needs the same document-sourced
+                // sibling map meta_rule_for_post() above already gets from
+                // $meta — options have no single owning entity, so this is
+                // every present value in this SAME document, built once.
+                $allOptions = OptionState::values($d);
                 foreach (OptionState::records($d) as $name => $record) {
                     if ($record['state'] !== 'present') {
                         continue;
@@ -1014,7 +1020,7 @@ final class RepositoryCompiler {
                     $value = $record['value'];
                     $details = str_contains((string) $name, '{{')
                         ? $this->policy->canonical_option_name_ref_details((string) $name)
-                        : $this->policy->option_rule_details((string) $name);
+                        : $this->policy->option_rule_details_for_option((string) $name, $allOptions);
                     $rule = $details['rule'] ?? [];
                     if (!empty($rule['ref'])) {
                         $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'options.' . $name);

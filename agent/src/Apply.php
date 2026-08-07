@@ -1938,11 +1938,16 @@ final class Apply {
     }
 
     private function apply_options(array $document, bool $withDeletes): void {
+        // DUO-3263: an interpreter-classified option (ACF's options-page
+        // fields) needs the same document-sourced sibling map (the shadow
+        // pointer) RepositoryAuthorization/RepositoryCompiler already build
+        // from this same document — built once, reused per name below.
+        $allOptions = OptionState::values($document);
         foreach (OptionState::records($document) as $name => $record) {
             if ($record['state'] === 'absent') {
                 continue; // explicit no-value/no-delete intent; target row is untouched
             }
-            [$realName, $rule] = $this->option_apply_target((string) $name);
+            [$realName, $rule] = $this->option_apply_target((string) $name, $allOptions);
             if ($record['state'] === 'deleted') {
                 if (!$withDeletes) {
                     throw new \RuntimeException("duo: internal invariant: option tombstone '$name' reached apply without --with-deletes");
@@ -1997,9 +2002,16 @@ final class Apply {
     }
 
     /** @return array{0:string,1:array} canonical name -> target-local name + owning rule */
-    private function option_apply_target(string $name): array {
+    private function option_apply_target(string $name, array $allOptions): array {
         if (!str_contains($name, '{{')) {
-            return [$name, $this->policy->option_rule($name) ?? []];
+            // DUO-3263: interpreter-aware, not the plain static option_rule()
+            // — an ACF options-page field (options_<name>/_options_<name>)
+            // has no exact/pattern policy entry at all; only
+            // meta_rule_for_option() consults the owning manifest's
+            // interpreter. Caught live: the plain static lookup silently
+            // returned [] here, and assert_rule_autoload() below correctly
+            // refused to guess rather than writing an unclassified row.
+            return [$name, $this->policy->meta_rule_for_option($name, $allOptions) ?? []];
         }
         if (!preg_match('/\{\{([a-z][a-z0-9_]*):([0-9a-f-]{36})\}\}/', $name, $tm)) {
             throw new \RuntimeException("duo: option key '$name' contains '{{' but is not a well-formed ref token");

@@ -134,8 +134,27 @@ final class Capture {
             // prior state and therefore cannot infer a deletion. Compiling
             // before target reads also refuses to build new state on top of
             // an already-invalid repository revision.
+            //
+            // DUO-3263: a FRESH Policy::load(), never the shared $policy
+            // build() below will use. RepositoryCompiler::compile() primes
+            // every schema-driven interpreter from THIS tree via
+            // prime_interpreters_from_repository() (manifests/interpreters/
+            // acf.php's own field_definition() docblock: "authorization is
+            // about one immutable revision," so once primed it never falls
+            // back to a live DB query again for that interpreter instance).
+            // Interpreter instances are cached per-Policy-object and $policy
+            // is otherwise reused for the whole rest of this method — sharing
+            // it here would permanently lock every interpreter into
+            // repository-only mode using the PREVIOUS revision's content,
+            // before build() below has captured anything new at all. Caught
+            // live: a second capture that introduces a brand-new ACF field
+            // (term- or options-page-attached) the previous revision had
+            // never seen came back unclassified, even though the exact same
+            // field classified correctly on this repo's first-ever capture —
+            // proof the previous revision's own priming was leaking forward
+            // into the new one's classification instead of a fresh lookup.
             $previous = is_dir($c->repo . '/state')
-                ? RepositoryCompiler::compile($c->repo, $policy)
+                ? RepositoryCompiler::compile($c->repo, Policy::load($repo))
                 : null;
             $previousOptions = $previous?->tree()['options/core']['data'] ?? null;
             $previousUserLogins = [];
@@ -309,7 +328,14 @@ final class Capture {
         Snapshot::prune_dead_map($policy);
         $c = new self($repo, $policy);
         self::verify_engine_support($policy);
-        $repository = RepositoryCompiler::compile($repo, $policy);
+        // DUO-3263: fresh Policy::load(), same reasoning as run()'s own
+        // identical fix a few methods up — compiling the repository here
+        // must not permanently prime the SAME $policy object's interpreter
+        // instances that $c->build() below (line ~346) still needs live-DB
+        // fallback from, or a brand-new schema-driven field the repository
+        // hasn't seen yet reads as unclassified even though the live
+        // environment has it.
+        $repository = RepositoryCompiler::compile($repo, Policy::load($repo));
         $repositoryOptions = $repository->tree()['options/core']['data'] ?? null;
         $repositoryUserLogins = [];
         foreach ($repository->tree() as $entity) {
@@ -392,10 +418,17 @@ final class Capture {
             "SELECT option_name, option_value FROM {$wpdb->options} ORDER BY option_name ASC",
             ARRAY_A
         ) ?: [];
+        // DUO-3263: same option_name=>value map an interpreter's option_rule()
+        // needs (a shadow-key lookup, exactly like post/term meta) — built
+        // once from the rows already fetched above, not a second query.
+        $allOptionValues = [];
+        foreach ($optionRows as $row) {
+            $allOptionValues[(string) $row['option_name']] = (string) $row['option_value'];
+        }
         foreach ($optionRows as $row) {
             $key = (string) $row['option_name'];
             $owner = $c->policy->option_namespace($key);
-            if ($owner === null || $c->policy->owned_option_rule($key) !== null
+            if ($owner === null || $c->policy->owned_option_rule_via_interpreter($key, $allOptionValues) !== null
                 || $c->policy->match_option_name_ref($key) !== null) {
                 continue;
             }
@@ -2089,13 +2122,13 @@ final class Capture {
         // classification are separate declarations: a claimed name with no
         // exact/pattern rule is queued as unknown; an authored pattern is a
         // real dynamic-family capture rule, not merely a lookup fallback.
-        $liveOptionNames = $this->option_name_scan();
-        foreach ($liveOptionNames as $name) {
+        $allOptionValues = $this->all_options_map();
+        foreach (array_keys($allOptionValues) as $name) {
             $owner = $this->policy->option_namespace($name);
             if ($owner === null) {
                 continue;
             }
-            $rule = $this->policy->owned_option_rule($name);
+            $rule = $this->policy->owned_option_rule_via_interpreter($name, $allOptionValues);
             if (isset($processed[$name]) || $this->policy->match_option_name_ref($name) !== null) {
                 continue;
             }
@@ -2340,6 +2373,15 @@ final class Capture {
             OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$managedOption'");
             $out[$managedOption] = OptionState::present($v, $row['autoload']);
         }
+        // DUO-3263: an interpreter-classified option's shadow pointer is
+        // atomically removed alongside its value (empirically confirmed for
+        // ACF: delete_field() leaves no orphaned _options_<name> row), so
+        // the live map above can no longer answer "was this authored" for
+        // a name that just went missing. The PREVIOUS capture's own
+        // document still carries it (the shadow key is its own captured
+        // 'present' record, same as the value) — built lazily, only if a
+        // non-ref-token name actually needs it below.
+        $previousOptionValues = null;
         foreach ($previousDocument === null ? [] : OptionState::records($previousDocument) as $name => $record) {
             if (isset($out[$name]) || isset($liveCanonicalNames[$name])) {
                 continue; // still live (possibly omitted because a ref dropped) or replaced by a present record
@@ -2350,7 +2392,10 @@ final class Capture {
             }
             $details = str_contains((string) $name, '{{')
                 ? $this->policy->canonical_option_name_ref_details((string) $name)
-                : $this->policy->option_rule_details((string) $name);
+                : $this->policy->option_rule_details_for_option(
+                    (string) $name,
+                    $previousOptionValues ??= OptionState::values($previousDocument)
+                );
             $rule = $details['rule'] ?? [];
             if ($record['state'] === 'present'
                 && ($rule['class'] ?? null) === 'authored' && empty($rule['sub_keys'])) {
@@ -2386,16 +2431,23 @@ final class Capture {
         return ['option_value' => (string) $row['option_value'], 'autoload' => (string) $row['autoload']];
     }
 
-    /** All live option NAMES (not values) — the candidate set
-     *  option_name_refs patterns test against (task #93). One full scan
-     *  per capture, not per-pattern/per-option: cheap (option_name is
-     *  indexed, and this reads only that one column), and Policy::rule()'s
-     *  existing pattern-fallback loop already sets the precedent of
-     *  testing a candidate against every declared pattern in PHP rather
-     *  than pushing regex evaluation into SQL. */
-    private function option_name_scan(): array {
+    /** All live options as a name => raw value map — the candidate set
+     *  option_name_refs patterns test against (task #93), and (DUO-3263)
+     *  the sibling-lookup context a namespace-owned option's interpreter
+     *  hook needs (a shadow-key pointer, exactly like post/term meta's
+     *  $allMeta). One full scan per capture, not per-pattern/per-option:
+     *  cheap (option_name is indexed), and Policy::rule()'s existing
+     *  pattern-fallback loop already sets the precedent of testing a
+     *  candidate against every declared pattern in PHP rather than pushing
+     *  regex evaluation into SQL. */
+    private function all_options_map(): array {
         global $wpdb;
-        return $wpdb->get_col("SELECT option_name FROM {$wpdb->options}") ?: [];
+        $rows = $wpdb->get_results("SELECT option_name, option_value FROM {$wpdb->options}", ARRAY_A) ?: [];
+        $out = [];
+        foreach ($rows as $row) {
+            $out[(string) $row['option_name']] = (string) $row['option_value'];
+        }
+        return $out;
     }
 
     /**
