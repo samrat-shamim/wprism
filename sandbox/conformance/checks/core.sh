@@ -47,8 +47,39 @@ pass "theme_mods_twentytwentyone (residue: a previously-active, now-inactive the
 
 PENDING2=$(wp_conf2 duo pending --repo=/siterepo --format=json)
 [ "$PENDING2" = "[]" ] \
-  || fail "wp duo pending on conf2 is no longer empty -- sidebars_widgets/widget_* must remain exactly as silent as the pre-existing baseline (DUO-3264 ruling requirement): $PENDING2"
-pass "wp duo pending remains empty post-apply -- sidebars_widgets/widget_* loud-gate baseline is completely unaffected by dynamic_options (DUO-3264 ruling requirement)"
+  || fail "wp duo pending on conf2 is no longer empty -- the ~18 core widget_<type> names + sidebars_widgets must stay silent-by-declaration (explicitly classified runtime), not become newly unclassified: $PENDING2"
+pass "wp duo pending remains empty post-apply for every CORE-registered widget option -- silent-by-declaration (explicitly classified runtime, DUO-3264 corrected-baseline ruling), not silent-by-omission (the original ruling's premise, empirically found false and superseded)"
+
+# DUO-3264 corrected-baseline ruling (superseding the split ruling's own
+# original premise that these were already loud): declaring the
+# ^sidebars_widgets$/^widget_ namespaces and classifying only the ~18
+# CORE-registered names runtime, by exact name (never a ^widget_ PATTERN
+# classification, which would blindly swallow a third party's own widget
+# type into the same silent bucket), buys a real guarantee for free --
+# live-verified here, not assumed: a widget type this manifest never named
+# still lands in-namespace with no classification, which turns into
+# unclassified -> loud pending -> capture-blocking, the correct posture
+# for authored content this pass never evaluated.
+say "(DUO-3264) live probe: an unknown, non-core widget type gates loudly, then classifies clean once declared"
+wp_conf1 option update widget_regress_fake_type '{"2":{"title":"Regress Fake"}}' --format=json >/dev/null
+
+FAKE_PENDING=$(wp_conf1 duo pending --repo=/siterepo --format=json)
+echo "$FAKE_PENDING" | jq -e 'any(.section == "options" and .key == "widget_regress_fake_type")' >/dev/null \
+  || fail "unknown widget_regress_fake_type did not surface in wp duo pending: $FAKE_PENDING"
+
+FAKE_RC=0
+FAKE_CAPTURE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || FAKE_RC=$?
+[ "$FAKE_RC" -ne 0 ] && echo "$FAKE_CAPTURE_OUT" | grep -q "options:widget_regress_fake_type" \
+  || fail "capture did not loudly refuse the unknown widget type by name: $FAKE_CAPTURE_OUT"
+
+cp "$CONF_REPO1/site.duo.json" "$CONF_REPO1/.tmp-site-backup.json"
+jq '.policy.options.widget_regress_fake_type = {"class": "runtime"}' "$CONF_REPO1/site.duo.json" > "$CONF_REPO1/.tmp-site-new.json"
+mv "$CONF_REPO1/.tmp-site-new.json" "$CONF_REPO1/site.duo.json"
+wp_conf1 duo capture --repo=/siterepo >/dev/null || fail "capture still refused widget_regress_fake_type after a site-policy override classified it runtime"
+mv "$CONF_REPO1/.tmp-site-backup.json" "$CONF_REPO1/site.duo.json"
+wp_conf1 option delete widget_regress_fake_type >/dev/null
+wp_conf1 duo capture --repo=/siterepo >/dev/null
+pass "unknown widget type: pending surfaces it by name, capture refuses until classified, clean once declared, and clean again once removed -- live-verified, not assumed"
 
 A=$(wp_conf1 post list --post_type=page --name=branch-a --field=ID | tr -d '[:space:]')
 B=$(wp_conf1 post list --post_type=page --name=branch-b --field=ID | tr -d '[:space:]')
