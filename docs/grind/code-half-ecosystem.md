@@ -50,8 +50,10 @@ ordinary bootstrap they are meant to exercise.
 
 1. Lifecycle removal/addition now spans fresh processes, preventing outgoing
    PHP symbols from colliding with replacement code.
-2. Retirement uses a reverse-topological dependency graph rather than reversing
-   an incidental option list. Cycles fail closed.
+2. Activation uses a provider-first topological dependency graph and retirement
+   uses its dependent-first reverse. The resulting lifecycle order is
+   independent of the authored/native `active_plugins` option order; cycles
+   fail closed.
 3. Retire→activate state handoff is pending-only, survives an exact crash retry
    without losing its original comparison base, and becomes Apply-visible only
    after activation starts from the exact retirement hash.

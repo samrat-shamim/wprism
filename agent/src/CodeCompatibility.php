@@ -235,8 +235,10 @@ final class CodeCompatibility {
 
     /**
      * Validate the desired active set against Requires Plugins headers.
-     * Provider closure and provider-before-dependent order are canonical state
-     * requirements; this method never silently rewrites active_plugins.
+     * Provider closure is a canonical state requirement, while the order of
+     * active_plugins remains authored/native WordPress state. Lifecycle code
+     * performs provider-first activation separately before restoring that
+     * exact desired order.
      *
      * @param array<string,array{basename:string,path:string,sha256:string}> $plugins
      * @param list<string> $activePlugins
@@ -297,7 +299,6 @@ final class CodeCompatibility {
         }
 
         $reportedMissing = [];
-        $reportedOrder = [];
         foreach (array_keys($positions) as $basename) {
             if (!isset($requires[$basename])) {
                 continue;
@@ -310,7 +311,6 @@ final class CodeCompatibility {
                 $paths,
                 [],
                 $reportedMissing,
-                $reportedOrder,
                 $diagnostics
             );
         }
@@ -321,7 +321,6 @@ final class CodeCompatibility {
      * @param array<string,string> $paths
      * @param list<string> $stack
      * @param array<string,bool> $reportedMissing
-     * @param array<string,bool> $reportedOrder
      * @param list<array<string,mixed>> $diagnostics
      */
     private static function check_active_dependencies(
@@ -332,7 +331,6 @@ final class CodeCompatibility {
         array $paths,
         array $stack,
         array &$reportedMissing,
-        array &$reportedOrder,
         array &$diagnostics
     ): void {
         if (in_array($basename, $stack, true)) {
@@ -368,16 +366,6 @@ final class CodeCompatibility {
                 }
                 continue;
             }
-            if ($positions[$provider] >= $positions[$basename] && !isset($reportedOrder[$key])) {
-                $reportedOrder[$key] = true;
-                self::diagnostic(
-                    $diagnostics,
-                    'code_plugin_dependency_order',
-                    $paths[$basename] ?? ('plugins/' . $basename),
-                    'active_plugins',
-                    "provider '$provider' for active plugin '$basename' must appear earlier in canonical active_plugins"
-                );
-            }
             self::check_active_dependencies(
                 $provider,
                 $requires,
@@ -386,7 +374,6 @@ final class CodeCompatibility {
                 $paths,
                 $stack,
                 $reportedMissing,
-                $reportedOrder,
                 $diagnostics
             );
         }

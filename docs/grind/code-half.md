@@ -85,11 +85,12 @@ The first live runs found three product-path gaps:
    lease, before the first target rename. The descriptor schema and code
    revision remain byte-only inventories; target-installed compatibility stays
    Deploy's independent `code_mismatch` proof.
-5. `Requires Plugins` was previously used only to order the exact retirement
-   set. The source compatibility bridge now rejects duplicate slugs, cycles,
-   missing/inactive providers, and provider-after-dependent canonical order
-   before code materialization. Canonical `active_plugins` is never silently
-   reordered.
+5. `Requires Plugins` is a dependency-closure contract, not an
+   `active_plugins` load-order contract. The source compatibility bridge now
+   rejects duplicate slugs, cycles, and missing/inactive providers before code
+   materialization. Deploy activates providers before dependents and then
+   restores the exact authored/native `active_plugins` order; canonical state
+   is never silently reordered.
 
 A lifecycle API can commit an option and then throw before deploy reaches its
 post-hook snapshot. Deploy therefore also publishes a pre-hook attempt receipt

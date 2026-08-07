@@ -724,7 +724,15 @@ final class Deploy {
             }
 
             if ($lifecyclePhase !== 'retire') {
-                foreach ($toActivate as $plugin) {
+                // WordPress's Requires Plugins header is a dependency graph,
+                // not a promise that active_plugins happens to be ordered.
+                // Activate providers first so a clean target can satisfy the
+                // native requirement check even when the desired state is the
+                // alphabetical/native order produced by activate_plugin().
+                // The exact authored order is restored below after all
+                // membership changes have succeeded.
+                $activationOrder = self::dependency_ordered_activations($toActivate);
+                foreach ($activationOrder as $plugin) {
                     PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-activate');
                     if (in_array($plugin, $missingPlugins, true)) {
                         $warnings[] = "skipped activating '$plugin' (missing_in_code, --force-code-mismatch was set)";
@@ -1065,19 +1073,20 @@ final class Deploy {
     }
 
     /**
-     * Read WordPress's bounded Requires Plugins headers and produce a reverse
-     * dependency order for the exact removal set.
+     * Read WordPress's bounded Requires Plugins headers for an exact lifecycle
+     * set. A provider outside the set is already active (or otherwise not part
+     * of this transition), so it does not need a lifecycle edge here.
      *
-     * @param list<string> $plugins active plugin basenames being retired
-     * @return list<string>
+     * @param list<string> $plugins plugin basenames in the transition set
+     * @return array<string,list<string>> plugin => providers in this set
      */
-    private static function dependency_ordered_deactivations(array $plugins): array {
+    private static function plugin_dependency_requirements(array $plugins): array {
         $bySlug = [];
         foreach ($plugins as $plugin) {
             $slug = self::plugin_dependency_slug($plugin);
             if (isset($bySlug[$slug]) && $bySlug[$slug] !== $plugin) {
                 throw new \RuntimeException(
-                    "duo: cannot prove plugin dependency teardown because '$slug' identifies both "
+                    "duo: cannot prove plugin dependency lifecycle because '$slug' identifies both "
                     . "'{$bySlug[$slug]}' and '$plugin'"
                 );
             }
@@ -1089,9 +1098,9 @@ final class Deploy {
             $requirements[$plugin] = [];
             $path = rtrim(WP_PLUGIN_DIR, '/') . '/' . $plugin;
             if (!is_file($path)) {
-                // A missing active plugin has no executable teardown hook or
-                // readable declaration. Other retiring plugins can still name
-                // its slug, which is enough to order them before this record.
+                // A missing lifecycle plugin has no executable hook or readable
+                // declaration. Other plugins can still name its slug, which is
+                // enough to order the transition around this record.
                 continue;
             }
             $data = get_plugin_data($path, false, false);
@@ -1106,7 +1115,30 @@ final class Deploy {
             }
             $requirements[$plugin] = array_values(array_unique($requirements[$plugin]));
         }
-        return self::order_deactivations($plugins, $requirements);
+        return $requirements;
+    }
+
+    /**
+     * Read Requires Plugins and produce a provider-first order for additions.
+     * WordPress validates a plugin's requirements at activation time, so this
+     * order is independent of the desired active_plugins storage order.
+     *
+     * @param list<string> $plugins active plugin basenames being activated
+     * @return list<string>
+     */
+    private static function dependency_ordered_activations(array $plugins): array {
+        return self::order_activations($plugins, self::plugin_dependency_requirements($plugins));
+    }
+
+    /**
+     * Read WordPress's bounded Requires Plugins headers and produce a reverse
+     * dependency order for the exact removal set.
+     *
+     * @param list<string> $plugins active plugin basenames being retired
+     * @return list<string>
+     */
+    private static function dependency_ordered_deactivations(array $plugins): array {
+        return self::order_deactivations($plugins, self::plugin_dependency_requirements($plugins));
     }
 
     /** WordPress core's plugin-file -> dependency-slug mapping. */
@@ -1158,6 +1190,54 @@ final class Deploy {
             unset($nodes[$next]);
             foreach (array_keys($edges[$next]) as $provider) {
                 $indegree[$provider]--;
+            }
+        }
+        return $ordered;
+    }
+
+    /**
+     * Stable topological sort with provider -> dependent edges. Independent
+     * nodes retain their desired-list order; callers may write that desired
+     * list back after activation to preserve authored/native state exactly.
+     *
+     * @param list<string> $plugins
+     * @param array<string,list<string>> $requirements plugin => providers
+     * @return list<string>
+     */
+    private static function order_activations(array $plugins, array $requirements): array {
+        $nodes = array_fill_keys($plugins, true);
+        $indegree = array_fill_keys($plugins, 0);
+        $edges = array_fill_keys($plugins, []);
+        foreach ($plugins as $plugin) {
+            foreach ($requirements[$plugin] ?? [] as $provider) {
+                if (!isset($nodes[$provider]) || isset($edges[$provider][$plugin])) {
+                    continue;
+                }
+                $edges[$provider][$plugin] = true;
+                $indegree[$plugin]++;
+            }
+        }
+
+        $ordered = [];
+        while (count($ordered) < count($plugins)) {
+            $next = null;
+            foreach ($plugins as $candidate) {
+                if (isset($nodes[$candidate]) && $indegree[$candidate] === 0) {
+                    $next = $candidate;
+                    break;
+                }
+            }
+            if ($next === null) {
+                $cycle = array_keys($nodes);
+                sort($cycle, SORT_STRING);
+                throw new \RuntimeException(
+                    'duo: plugin dependency cycle prevents safe activation: ' . implode(', ', $cycle)
+                );
+            }
+            $ordered[] = $next;
+            unset($nodes[$next]);
+            foreach (array_keys($edges[$next]) as $dependent) {
+                $indegree[$dependent]--;
             }
         }
         return $ordered;
