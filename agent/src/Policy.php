@@ -421,7 +421,7 @@ final class Policy {
      * taxonomies() below, a structurally different shape by necessity, not
      * an inconsistency with the existing mechanism.
      *
-     * @return array<int, array{match:string, object_type:string[]}>
+     * @return array<int, array{match:string, object_type:string[], update_count_callback:?string}>
      */
     public function taxonomy_pattern_rules(): array {
         $out = [];
@@ -430,6 +430,9 @@ final class Policy {
                 $out[] = [
                     'match' => (string) $pat['match'],
                     'object_type' => array_values((array) ($pat['object_type'] ?? [])),
+                    'update_count_callback' => isset($pat['update_count_callback'])
+                        ? (string) $pat['update_count_callback']
+                        : null,
                 ];
             }
         }
@@ -456,6 +459,21 @@ final class Policy {
         foreach ($this->taxonomy_pattern_rules() as $pat) {
             if (preg_match('/' . $pat['match'] . '/', $tax)) {
                 return $pat['object_type'];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Registered taxonomy state can lag a taxonomy_patterns-backed table
+     * write until the next request. A version-pinned manifest may declare
+     * the plugin's real count callback so Apply can honor the identical
+     * contract during that one timing window instead of guessing a COUNT.
+     */
+    public function pattern_update_count_callback(string $tax): ?string {
+        foreach ($this->taxonomy_pattern_rules() as $pat) {
+            if (preg_match('/' . $pat['match'] . '/', $tax)) {
+                return $pat['update_count_callback'];
             }
         }
         return null;

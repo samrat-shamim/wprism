@@ -73,6 +73,7 @@ Front matter (canonical JSON between `---` fences) + raw body:
     "_thumbnail_id": "{{post:0198b0e2-...}}",
     "_wp_page_template": "default"
   },
+  "modified": "2026-08-05 16:00:00",
   "modified_gmt": "2026-08-05 10:00:00",
   "parent": "{{post:0198b0d1-...}}",
   "ping_status": "closed",
@@ -80,6 +81,11 @@ Front matter (canonical JSON between `---` fences) + raw body:
   "status": "publish",
   "terms": {
     "category": ["0198b0aa-..."]
+  },
+  "term_orders": {
+    "category": {
+      "0198b0aa-...": 0
+    }
   },
   "title": "About",
   "type": "page",
@@ -93,9 +99,11 @@ Front matter (canonical JSON between `---` fences) + raw body:
 
 - The body is `post_content` after capture rewriting — byte-faithful otherwise. It merges in git as plain lines.
 - `meta` contains only keys classified **authored** by manifests/policy. Derived/runtime keys (`_edit_lock`, `_wp_attachment_metadata`, …) are excluded per the core manifest. **Unclassified keys abort capture loudly** (the loud-and-blocking gate); the error names the key and the policy file to amend.
-- `terms` maps taxonomy → ordered list of term uuids.
-- Excluded fields: `guid` (env-derived), `comment_count`/`post_password`-empty-noise (derived/default), revisions and auto-drafts (never captured).
-- **Attachments** add: `"file": "<upload-relative/path.ext>"` (typically `Y/M/name.ext`, but normalized upload-root paths such as plugin placeholders are valid), `"media": "<sha256>.<ext>"` (binary in `media/`), `"mime": "image/jpeg"`, `"alt": "…"` (from `_wp_attachment_image_alt`). Body = attachment description; the uniform `excerpt` field carries the caption. `_wp_attachment_metadata` is derived: regenerated on apply.
+- `date`/`modified` are site-local WordPress timestamps; `date_gmt`/`modified_gmt` are their UTC partners. Capture and apply preserve both columns explicitly rather than deriving one from the other.
+- `terms` maps taxonomy → canonical term-uuid list. `term_orders` records the WordPress `term_relationships.term_order` integer for each relationship; omitted entries read as zero for compatibility with earlier spec-v1 trees.
+- Excluded fields: `guid` (env-derived), `comment_count` (derived), revisions and auto-drafts (never captured). An empty `post_password` is default noise; a non-empty password is authored secret material and capture refuses the post before publishing a candidate tree because spec v1 has no portable secret representation for it.
+- **Attachments** add: `"file": "<upload-relative/path.ext>"` (typically `Y/M/name.ext`, but normalized upload-root paths such as plugin placeholders are valid), `"media": "<sha256>.<ext>"` (binary in `media/`), `"mime": "image/jpeg"`, `"alt": "…"` (from `_wp_attachment_image_alt`). Body = attachment description; the uniform `excerpt` field carries the caption. `_wp_attachment_metadata` is derived: regenerated after every applied attachment create or update, including retry/adoption paths.
+- A post with `status: "future"` is materialized with a `publish_future_post` single event at its exact `date_gmt` UTC instant. Apply replaces any stale event for the post and verifies the new schedule.
 
 ### Terms — `state/terms/<taxonomy>/<uuid>--<slug>.json`
 
@@ -122,6 +130,7 @@ A menu file owns the `nav_menu` term **and** its `nav_menu_item` posts (they nev
     {
       "attr_title": "",
       "classes": [],
+      "description": "Shown by themes that render menu descriptions.",
       "object": "page",
       "parent": null,
       "position": 1,
@@ -150,7 +159,7 @@ A menu file owns the `nav_menu` term **and** its `nav_menu_item` posts (they nev
 ```
 
 - `type` ∈ `post_type` | `taxonomy` | `custom` (WP's polymorphic `_menu_item_type`); `ref` is typed accordingly (`{{post:…}}`, `{{term:…}}`, or a tokenized URL).
-- `parent` is a menu-item uuid (self-referential); apply is two-phase (create items, then resolve parents).
+- `parent` is a menu-item uuid (self-referential); apply is two-phase (create items, then resolve parents). `description` is the tokenized `nav_menu_item.post_content`; older files that omit it materialize an empty description.
 - `locations` records this menu's slots in the active theme's `theme_mods` (`nav_menu_locations`) — the one theme-mod key the core manifest classifies authored in v0.
 - Apply reconciles the menu fully: env items of this menu whose uuid is absent from the file are removed (menu-scoped ownership).
 
@@ -191,6 +200,8 @@ Flat map, only keys classified authored. v0 whitelist (the pinned 8): `blogname`
 Exact option rules remain sufficient for fixed names. A plugin with dynamic or evolving names declares discovery ownership separately with top-level `"option_namespaces": [{"match": "^plugin_prefix_"}]`. Capture enumerates every live `wp_options.option_name` in that namespace on every run, independent of the provenance journal. Each match must resolve through the owning manifest's exact `options` rule, one of its `option_patterns`, or an explicit site override; otherwise it is pending and capture blocks. An authored `option_patterns` rule therefore captures a dynamic family, while runtime/derived/env families are enumerated and deliberately excluded. Overlapping namespace claims and cross-manifest classifications refuse rather than depending on pin order. Names outside all declared namespaces are not guessed to belong to a plugin.
 
 Term-meta is enumerated for every in-scope term. The spec-v1 term file has no `meta` field, so both an unclassified key and a key classified `authored` block capture: the former needs a decision, while the latter names an unsupported representation rather than accepting an inert classification. Explicit `runtime`/`derived`/`env` (or managed) rules are the only non-blocking dispositions until a term-meta state format exists.
+
+A manifest `taxonomy_patterns` entry may declare both `object_type` and `update_count_callback`. These are the version-pinned registration contract for a dynamic taxonomy that a typed-snapshot table creates after WordPress's `init` hook has already run. Apply uses the live registered taxonomy whenever it exists; only in that same-request timing gap may it construct the equivalent taxonomy contract from the manifest and invoke the declared callback. A missing or non-callable contract refuses recount instead of falling back to a generic SQL count.
 
 ### Custom tables — `state/tables/<table>/<uuid>--<slug>.json` (spec v0.10)
 

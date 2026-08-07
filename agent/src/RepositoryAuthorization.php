@@ -42,8 +42,8 @@ final class RepositoryAuthorizationException extends \RuntimeException {
 final class RepositoryAuthorization {
     private const POST_FIELDS = [
         'uuid', 'type', 'slug', 'title', 'status', 'date', 'date_gmt',
-        'modified_gmt', 'author', 'parent', 'menu_order', 'comment_status',
-        'ping_status', 'excerpt', 'meta', 'terms',
+        'modified', 'modified_gmt', 'author', 'parent', 'menu_order', 'comment_status',
+        'ping_status', 'excerpt', 'meta', 'terms', 'term_orders',
     ];
     private const ATTACHMENT_FIELDS = ['file', 'media', 'mime', 'alt'];
     private const TERM_FIELDS = [
@@ -52,7 +52,7 @@ final class RepositoryAuthorization {
     private const MENU_FIELDS = ['uuid', 'name', 'slug', 'locations', 'items'];
     private const MENU_ITEM_FIELDS = [
         'uuid', 'type', 'object', 'ref', 'parent', 'position', 'title',
-        'attr_title', 'target', 'classes', 'xfn',
+        'description', 'attr_title', 'target', 'classes', 'xfn',
     ];
     private const TABLE_FIELDS = ['columns', 'meta', 'table', 'uuid'];
     private const MANAGED_OPTIONS = ['active_plugins', 'template', 'stylesheet'];
@@ -176,7 +176,7 @@ final class RepositoryAuthorization {
             self::finding($out, 'repository_field_not_authored', $path, $uuid, 'post_type', 'type', $typeClass, $typeDetails['source']);
         }
 
-        foreach (['title', 'slug', 'status', 'date', 'date_gmt', 'modified_gmt', 'author', 'parent',
+        foreach (['title', 'slug', 'status', 'date', 'date_gmt', 'modified', 'modified_gmt', 'author', 'parent',
             'menu_order', 'comment_status', 'ping_status', 'excerpt'] as $field) {
             if (!array_key_exists($field, $front)) {
                 continue;
@@ -198,6 +198,9 @@ final class RepositoryAuthorization {
         }
         foreach ((array) ($front['terms'] ?? []) as $taxonomy => $_) {
             self::authorize_taxonomy($policy, (string) $taxonomy, $path, $uuid, 'post_terms', $out);
+        }
+        foreach ((array) ($front['term_orders'] ?? []) as $taxonomy => $_) {
+            self::authorize_taxonomy($policy, (string) $taxonomy, $path, $uuid, 'post_term_orders', $out);
         }
 
         if ($postType === 'attachment') {

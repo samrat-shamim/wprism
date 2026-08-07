@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge certify-adversarial-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge certify-adversarial-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics
 
 up:
 	$(COMPOSE) up -d
@@ -183,6 +183,9 @@ regress-option-subkeys:
 
 regress-discovery-completeness:
 	bash sandbox/tests/regress_discovery_completeness.sh
+
+regress-core-semantics:
+	bash sandbox/tests/regress_core_semantics.sh
 
 # DUO-3206: offline wpdb return semantics plus a live, isolated failure-
 # injection matrix for insert/update/delete/transactions/rebuilders/ledger.

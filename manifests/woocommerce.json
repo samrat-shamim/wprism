@@ -22,7 +22,7 @@
     }
   ],
   "taxonomy_patterns": [
-    {"match": "^pa_", "object_type": ["product"]}
+    {"match": "^pa_", "object_type": ["product"], "update_count_callback": "_update_post_term_count"}
   ],
   "notes": {
     "_low_stock_amount": "Per-product low-stock threshold override reads like a runtime signal (it's stock-adjacent) but it's a merchant-set policy value, not something WooCommerce derives or recomputes — classified authored deliberately rather than lumped in with _stock/_stock_status.",

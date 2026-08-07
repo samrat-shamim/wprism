@@ -669,14 +669,12 @@ final class Apply {
         usort($work, fn($x, $y) =>
             $this->phase2_rank($tree[$x['uuid']]) <=> $this->phase2_rank($tree[$y['uuid']]));
 
-        $retryingIncompleteApply = Ledger::kv_get('apply_in_progress') !== null;
-
         // Written before the first target mutation and cleared only after
         // required rebuilds succeed. It is failure state, never convergence
         // state: applied_revision and base hashes still advance afterward.
         Ledger::kv_set('apply_in_progress', '1');
         Canary::arm();
-        $newAttachmentIds = [];
+        $attachmentIds = [];
         $transactionStarted = false;
         try {
             Db::start('apply transaction start');
@@ -702,9 +700,12 @@ final class Apply {
                     ], 'menu');
                 } elseif ($e['type'] === 'post') {
                     $front = $e['data'];
-                    $isNew = $this->ensure_post_row($front);
-                    if (($isNew || $retryingIncompleteApply) && $front['type'] === 'attachment') {
-                        $newAttachmentIds[] = Ledger::id_for($front['uuid'], Ledger::KIND_POST);
+                    $this->ensure_post_row($front);
+                    if ($front['type'] === 'attachment') {
+                        // Metadata derives from bytes, so updates/adoptions
+                        // need the same rebuild as creates. Retry also lands
+                        // here because incomplete work is replayed.
+                        $attachmentIds[] = Ledger::id_for($front['uuid'], Ledger::KIND_POST);
                     }
                 }
             }
@@ -773,7 +774,7 @@ final class Apply {
         // tables are excluded from the hash basis) can't carry this signal.
         $didMutate = count($work) > 0
             || (!empty($opts['with_deletes']) && count($deleteWork) > 0);
-        $this->rebuild($newAttachmentIds, $didMutate, $work, $tree);
+        $this->rebuild($attachmentIds, $didMutate, $work, $tree);
 
         // ---- ledger bookkeeping (one atomic convergence boundary) ----
         // The retry marker, every base hash, deletes, and applied revision
@@ -907,7 +908,7 @@ final class Apply {
             'post_name' => $front['slug'],
             'to_ping' => '',
             'pinged' => '',
-            'post_modified' => $front['modified_gmt'],
+            'post_modified' => $front['modified'] ?? $front['modified_gmt'],
             'post_modified_gmt' => $front['modified_gmt'],
             'post_content_filtered' => '',
             'post_parent' => 0,
@@ -1047,7 +1048,7 @@ final class Apply {
             'comment_status' => $front['comment_status'],
             'ping_status' => $front['ping_status'],
             'post_name' => $front['slug'],
-            'post_modified' => $front['modified_gmt'],
+            'post_modified' => $front['modified'] ?? $front['modified_gmt'],
             'post_modified_gmt' => $front['modified_gmt'],
             'post_parent' => $parentId,
             'menu_order' => (int) ($front['menu_order'] ?? 0),
@@ -1118,7 +1119,12 @@ final class Apply {
 
         // term relationships for owned taxonomies
         if ($front['type'] !== 'attachment') {
-            $this->reconcile_relationships($id, $front['type'], (array) ($front['terms'] ?? []));
+            $this->reconcile_relationships(
+                $id,
+                $front['type'],
+                (array) ($front['terms'] ?? []),
+                (array) ($front['term_orders'] ?? [])
+            );
         }
 
         // attachment binary + managed meta
@@ -1127,7 +1133,12 @@ final class Apply {
         }
     }
 
-    private function reconcile_relationships(int $postId, string $postType, array $termsField): void {
+    private function reconcile_relationships(
+        int $postId,
+        string $postType,
+        array $termsField,
+        array $termOrders = []
+    ): void {
         global $wpdb;
         $taxes = $this->taxes_for_post_type($postType);
         if (!$taxes) {
@@ -1144,26 +1155,39 @@ final class Apply {
             foreach ((array) $uuids as $u) {
                 $tt = Ledger::id_for($u, Ledger::KIND_TT)
                     ?? throw new \RuntimeException("duo: post $postId references unresolvable term $u ($tax)");
-                $desiredTt[$tt] = true;
+                $desiredTt[$tt] = (int) (($termOrders[$tax] ?? [])[$u] ?? 0);
             }
         }
         $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
-        $current = $wpdb->get_col($wpdb->prepare(
-            "SELECT tr.term_taxonomy_id FROM {$wpdb->term_relationships} tr
+        $currentRows = $wpdb->get_results($wpdb->prepare(
+            "SELECT tr.term_taxonomy_id, tr.term_order FROM {$wpdb->term_relationships} tr
              JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
              WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
             $postId
-        )) ?: [];
-        foreach ($current as $tt) {
+        ), ARRAY_A) ?: [];
+        $current = [];
+        foreach ($currentRows as $row) {
+            $current[(int) $row['term_taxonomy_id']] = (int) $row['term_order'];
+        }
+        foreach (array_keys($current) as $tt) {
             if (!isset($desiredTt[(int) $tt])) {
                 Db::delete($wpdb->term_relationships, ['object_id' => $postId, 'term_taxonomy_id' => (int) $tt], null, 'apply delete post relationship');
             }
         }
-        foreach (array_keys($desiredTt) as $tt) {
-            if (!in_array((string) $tt, array_map('strval', $current), true)) {
+        foreach ($desiredTt as $tt => $order) {
+            if (!array_key_exists($tt, $current)) {
                 Db::insert($wpdb->term_relationships, [
-                    'object_id' => $postId, 'term_taxonomy_id' => $tt, 'term_order' => 0,
+                    'object_id' => $postId, 'term_taxonomy_id' => $tt, 'term_order' => $order,
                 ], null, 'apply insert post relationship');
+            } elseif ($current[$tt] !== $order) {
+                Db::update(
+                    $wpdb->term_relationships,
+                    ['term_order' => $order],
+                    ['object_id' => $postId, 'term_taxonomy_id' => $tt],
+                    null,
+                    null,
+                    'apply update post relationship order'
+                );
             }
         }
     }
@@ -1265,7 +1289,8 @@ final class Apply {
             if ($id === null) {
                 Db::insert($wpdb->posts, [
                     'post_author' => 0, 'post_date' => '1970-01-01 00:00:00', 'post_date_gmt' => '1970-01-01 00:00:00',
-                    'post_content' => '', 'post_title' => $item['title'], 'post_excerpt' => $item['attr_title'] ?? '',
+                    'post_content' => $this->tokens->detokenize_text((string) ($item['description'] ?? '')),
+                    'post_title' => $item['title'], 'post_excerpt' => $item['attr_title'] ?? '',
                     'post_status' => 'publish', 'comment_status' => 'closed', 'ping_status' => 'closed',
                     'post_password' => '', 'post_name' => $iu, 'to_ping' => '', 'pinged' => '',
                     'post_modified' => '1970-01-01 00:00:00', 'post_modified_gmt' => '1970-01-01 00:00:00',
@@ -1289,6 +1314,7 @@ final class Apply {
             $id = $idByUuid[$item['uuid']];
             Db::update($wpdb->posts, [
                 'post_title' => $item['title'],
+                'post_content' => $this->tokens->detokenize_text((string) ($item['description'] ?? '')),
                 'post_excerpt' => (string) ($item['attr_title'] ?? ''),
                 'menu_order' => (int) $item['position'],
                 'post_status' => 'publish',
@@ -1839,7 +1865,7 @@ final class Apply {
      *   keyed by uuid — needed to resolve a $work entry's post_type
      *   ($tree[$uuid]['data']['type']).
      */
-    private function rebuild(array $newAttachmentIds, bool $didWork, array $work = [], array $tree = []): void {
+    private function rebuild(array $attachmentIds, bool $didWork, array $work = [], array $tree = []): void {
         global $wpdb;
 
         // DUO-3234: derived tables with a hard per-entity query-availability
@@ -1852,20 +1878,80 @@ final class Apply {
         // docblock for why $didWork/an empty $work cannot gate this step).
         $this->regen_dependencies($work, $tree);
 
-        // term recounts (published posts), incl. nav_menu
+        // Future-post cron is derived operational state. Raw SQL deliberately
+        // bypasses wp_transition_post_status(), so reproduce only its narrow
+        // scheduling semantic after the authored transaction commits.
+        foreach ($work as $entry) {
+            $entity = $tree[$entry['uuid']] ?? null;
+            if (($entity['type'] ?? '') !== 'post') {
+                continue;
+            }
+            $front = $entity['data'];
+            $postId = Ledger::id_for($entry['uuid'], Ledger::KIND_POST);
+            if ($postId === null) {
+                continue;
+            }
+            $cleared = wp_clear_scheduled_hook('publish_future_post', [$postId]);
+            if ($cleared === false) {
+                throw new \RuntimeException("duo: failed to clear prior publication schedule for post $postId");
+            }
+            if (($front['status'] ?? '') !== 'future') {
+                continue;
+            }
+            $timestamp = strtotime((string) $front['date_gmt'] . ' UTC');
+            if ($timestamp === false || !wp_schedule_single_event($timestamp, 'publish_future_post', [$postId])) {
+                throw new \RuntimeException("duo: failed to schedule future post $postId at {$front['date_gmt']} UTC");
+            }
+            if (wp_next_scheduled('publish_future_post', [$postId]) !== $timestamp) {
+                throw new \RuntimeException("duo: future-post schedule verification failed for post $postId");
+            }
+        }
+
+        // Use WordPress's registered taxonomy callback contract rather than
+        // a post-only COUNT query. Hierarchical taxonomies, attachment
+        // taxonomies, and custom update_count_callback implementations may
+        // define different published/attached semantics.
         $taxes = array_merge($this->policy->taxonomies(), ['nav_menu']);
-        $in = "'" . implode("','", array_map('esc_sql', array_unique($taxes))) . "'";
-        Db::query(
-            "UPDATE {$wpdb->term_taxonomy} tt SET count = (
-                SELECT COUNT(*) FROM {$wpdb->term_relationships} tr
-                JOIN {$wpdb->posts} p ON p.ID = tr.object_id
-                WHERE tr.term_taxonomy_id = tt.term_taxonomy_id AND p.post_status = 'publish'
-             ) WHERE tt.taxonomy IN ($in)",
-            'rebuild term counts'
-        );
+        Db::checkpoint('rebuild term counts');
+        foreach (array_unique($taxes) as $taxonomy) {
+            $termTaxonomyIds = $wpdb->get_col($wpdb->prepare(
+                "SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE taxonomy = %s",
+                $taxonomy
+            )) ?: [];
+            if (!$termTaxonomyIds) {
+                continue;
+            }
+            $termTaxonomyIds = array_map('intval', $termTaxonomyIds);
+            if (taxonomy_exists($taxonomy)) {
+                if (wp_update_term_count_now($termTaxonomyIds, $taxonomy) === false) {
+                    throw new \RuntimeException("duo: registered recount callback failed for taxonomy '$taxonomy'");
+                }
+                continue;
+            }
+
+            // A taxonomy_patterns-backed definition can be landed by a
+            // typed-snapshot table in this same request, after plugins ran
+            // their init registration. The version-pinned manifest carries
+            // the plugin's callback and object types for exactly this gap.
+            $callback = $this->policy->pattern_update_count_callback($taxonomy);
+            $objectTypes = $this->policy->pattern_object_type($taxonomy);
+            if ($callback === null || $objectTypes === null || !is_callable($callback)) {
+                throw new \RuntimeException(
+                    "duo: required taxonomy '$taxonomy' is not registered during recount and has no callable manifest count contract"
+                );
+            }
+            $taxonomyObject = new \WP_Taxonomy($taxonomy, $objectTypes, [
+                'update_count_callback' => $callback,
+            ]);
+            try {
+                call_user_func($callback, $termTaxonomyIds, $taxonomyObject);
+            } catch (\Throwable $t) {
+                throw new \RuntimeException("duo: manifest recount callback failed for taxonomy '$taxonomy'", 0, $t);
+            }
+        }
 
         // attachment metadata (thumbnails etc.) — derived, regenerated
-        foreach (array_filter($newAttachmentIds) as $id) {
+        foreach (array_filter($attachmentIds) as $id) {
             Db::checkpoint('rebuild attachment metadata');
             try {
                 if (!function_exists('wp_generate_attachment_metadata')) {
