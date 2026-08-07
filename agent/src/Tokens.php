@@ -94,10 +94,36 @@ final class Tokens {
      * check at whichever call site omitted it; a required instance
      * property set exactly once cannot be silently forgotten the same
      * way. Nullable only so a Tokens instance can theoretically exist
-     * before Capture finishes constructing it; tokenize_text() itself
-     * treats null as "no unscoped check possible here" rather than
-     * fatal, since this class has legitimate non-Capture callers
-     * (Apply.php) that have no reason to ever populate it.
+     * before Capture finishes constructing it — or, per Apply.php's own
+     * instance (constructed at Apply.php:38, never given a Policy),
+     * exist for its ENTIRE life without ever needing one. That claim is
+     * traced exhaustively, not assumed: every one of Apply's 20+
+     * `$this->tokens->...` call sites is apply-direction
+     * (detokenize_text/token_to_id/struct_apply/tokens_to_value/
+     * meta_tokens_to_value) or a read-only accessor (home/warnings/
+     * defaultUserId); struct_apply() itself only ever calls
+     * tokenize_leaves($value, false) — detokenize; and Apply's one call
+     * into Blocks::apply_rewrite() pins $capture=false at that call site
+     * (threaded unchanged through every recursive walk()), which is the
+     * same flag that gates tokenize_text() vs. detokenize_text() inside
+     * $rewriteString AND the same flag Shortcodes::capture_rewrite_text()
+     * vs. apply_rewrite_text() is chosen on — so tokenize_text() is
+     * structurally unreachable through Apply's Tokens instance on every
+     * path (full call-site enumeration in the DUO-3260 PR body).
+     * Because that is a proof about the CURRENT call graph and not a
+     * language-level guarantee against a future caller constructing its
+     * own Tokens for capture-direction work and forgetting this, null is
+     * NOT silently tolerated at the point where it would actually matter:
+     * queue_unscoped_url_query_ref() below throws rather than skipping
+     * the classification it can't perform without a Policy. (A blanket
+     * guard at the top of tokenize_text() itself was considered and
+     * rejected — most call sites use it only for the home/uploads
+     * substitution and have no reason to ever populate $policy; two
+     * already-shipped suites, regress_block_refs.php and
+     * regress_shortcode_refs.php, construct bare Tokens instances with
+     * no $policy for exactly that reason, and both call tokenize_text()
+     * legitimately. The guard is scoped to the one mechanism that
+     * actually consumes $policy, not the shared entry point.)
      */
     public ?Policy $policy = null;
     /** DUO-3260: mirrors $policy above — set once per build (Capture::
@@ -222,15 +248,42 @@ final class Tokens {
      * delegates the whole three-way decision to Capture::classify_
      * unscoped_ref() directly (the extraction DUO-3259 added specifically
      * so a third caller wouldn't need a third hand-copy) rather than
-     * re-deriving it. $this->policy being null is a deliberate no-op, not
-     * an error: this class has non-Capture callers (Apply.php's own
-     * detokenize-only usage) with no reason to ever populate it, and a
-     * missing policy simply means "this call site can't judge scope,"
-     * never "assume it's fine."
+     * re-deriving it. Called from tokenize_url_query_refs() for EVERY id
+     * that id_to_token() fails to resolve, before classification —
+     * dangling vs. unscoped is exactly what $policy is needed to tell
+     * apart, so both sub-cases hit the guard below identically when
+     * $policy is unset. $this->policy being null used to be a deliberate
+     * no-op ("this call site can't judge scope, never assume it's fine");
+     * it is now a throw for the identical reason $policy's own docblock
+     * gives — see it for the full call-graph proof that no CURRENT
+     * caller can ever trigger this.
      */
     private function queue_unscoped_url_query_ref(string $contextLabel, string $param, int $id): void {
         if ($this->policy === null) {
-            return;
+            // Was a silent `return` (no unscoped-classification possible
+            // without a Policy). Changed to a throw: silently skipping the
+            // task #73 loud-and-blocking gate at exactly the point that
+            // gate is supposed to fire is the precise defect class
+            // $policy's own docblock explains this instance-property
+            // design exists to prevent — an unconfigured instance must
+            // fail loudly and immediately the first time it actually
+            // needs the check, not degrade into a quiet no-op that only
+            // a byte-for-byte capture diff would ever reveal. Every
+            // CURRENT capture-direction caller sets $policy unconditionally
+            // (Capture's own constructor requires a non-nullable Policy
+            // parameter, so every Capture-owned Tokens instance has one
+            // from the moment it exists); this only fires for a future
+            // caller that constructs its own Tokens for capture-direction
+            // work and forgets.
+            throw new \RuntimeException(
+                "duo: tokenize_text() found an unmapped url-query ref ('$param=$id') that needs the "
+                . 'dangling-vs-unscoped triage (task #73\'s loud-and-blocking gate), but this Tokens '
+                . "instance's \$policy was never set, so the triage cannot run. Refusing rather than "
+                . 'silently treating it as dangling: set Tokens::$policy (and $forceUnresolvedRefs) before '
+                . 'calling tokenize_text() on any content that may carry a query-string reference — every '
+                . "Capture-owned Tokens instance already does this unconditionally in Capture's own "
+                . 'constructor.'
+            );
         }
         $targetType = Capture::classify_unscoped_ref($id, 'post', $this->forceUnresolvedRefs, $this->policy);
         if ($targetType === null) {

@@ -334,6 +334,72 @@ $tokens = fresh_tokens($policy);
 $q13out = $tokens->tokenize_text('http://example.test/?foo=' . UNMAPPED_ID);
 check($q13out === '{{home}}/?foo=' . UNMAPPED_ID, "Q13: an undeclared query param ('foo') is never touched, even {{home}}-anchored (got: $q13out)");
 
+// Q14-Q17 -- the throw-guard (PR #53 review: Tokens::$policy/
+// $forceUnresolvedRefs as instance properties only prevents "silently
+// forgot to configure this" if an unconfigured instance FAILS LOUDLY the
+// moment it would need $policy, not just "happens not to be hit today".
+// A bare `new Tokens()` (no ->policy set, no ->forceUnresolvedRefs set --
+// exactly the shape of a hypothetical future capture-direction caller
+// that forgets, the same shape Apply.php's own instance has, though the
+// Apply.php trace proved it never reaches tokenize_text() at all) stands
+// in for that caller here.
+$bareTokens = new Tokens();
+check($bareTokens->policy === null, 'Q14 setup: sanity -- a bare `new Tokens()` really has $policy === null');
+
+// Q14 -- an id that resolves cleanly (MAPPED_ID) never needs
+// classification, so the guard must NOT fire even on a totally
+// unconfigured instance: tokenize_text() staying usable for its
+// home/uploads-substitution role (and this mechanism's own happy path)
+// on instances that never touch Policy is the entire reason the guard is
+// scoped to queue_unscoped_url_query_ref() and not tokenize_text()
+// itself (see Tokens::$policy's own docblock for the two already-shipped
+// suites -- regress_block_refs.php, regress_shortcode_refs.php -- that
+// depend on exactly this).
+$q14out = $bareTokens->tokenize_text('http://example.test/?p=' . MAPPED_ID);
+check($q14out === '{{home}}/?p={{post:' . MAPPED_UUID . '}}',
+    "Q14: a MAPPED ref on an unconfigured (\$policy===null) instance resolves normally, no throw (got: $q14out)");
+
+// Q15 -- plain content with no query-ref pattern at all must never touch
+// the guard either (proves the shared tokenize_text() entry point stays
+// open for its home/uploads role regardless of $policy).
+$q15out = $bareTokens->tokenize_text('Just some ordinary text, no query string here at all.');
+check($q15out === 'Just some ordinary text, no query string here at all.',
+    'Q15: plain non-URL text on an unconfigured instance passes through untouched, no throw');
+
+// Q16 -- an UNSCOPED id (a real row of an out-of-scope type) on an
+// unconfigured instance: id_to_token() fails to resolve it exactly like
+// Q5's already-configured case, but this time there is no Policy to run
+// the dangling-vs-unscoped classification at all -- must throw rather
+// than silently guessing "dangling" (silently dropping a reference to a
+// real, out-of-scope row is precisely the task #73 defect class this
+// mechanism exists to prevent).
+$q16threw = null;
+try {
+    $bareTokens->tokenize_text('http://example.test/?p=' . UNSCOPED_ID);
+} catch (\RuntimeException $e) {
+    $q16threw = $e;
+}
+check($q16threw !== null, 'Q16: an unresolved ref needing classification on an unconfigured instance throws');
+check($q16threw !== null && str_contains($q16threw->getMessage(), 'policy'),
+    'Q16: the thrown message names the missing $policy as the cause (got: '
+    . ($q16threw !== null ? $q16threw->getMessage() : '(no exception)') . ')');
+
+// Q17 -- Q16's twin for the OTHER sub-case: a genuinely DANGLING id (no
+// real row anywhere, UNMAPPED_ID) on an unconfigured instance ALSO
+// throws. This is deliberate, not overreach: classify_unscoped_ref()
+// itself is what tells dangling apart from unscoped, and it needs
+// $policy to do that -- an unconfigured instance can't safely assume
+// "unresolved must mean dangling" any more than it can assume "must mean
+// unscoped", so BOTH sub-cases of "unresolved, no way to classify" must
+// refuse identically.
+$q17threw = null;
+try {
+    $bareTokens->tokenize_text('http://example.test/?p=' . UNMAPPED_ID);
+} catch (\RuntimeException $e) {
+    $q17threw = $e;
+}
+check($q17threw !== null, 'Q17: a genuinely dangling ref on an unconfigured instance ALSO throws (not just the unscoped sub-case)');
+
 // ======================================================================
 // PART 2 — Lint.php: unrewritten_url_query_ref
 // ======================================================================
