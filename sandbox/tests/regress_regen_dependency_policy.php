@@ -69,6 +69,15 @@ require __DIR__ . '/../../agent/src/Policy.php';
 
 use Duo\Policy;
 
+// DUO-3247: spec_version is now mandatory at Policy::load() — this file
+// never requires agent/duo.php, so DUO_SPEC_VERSION would otherwise be
+// undefined here (same fallback-define regress_adapter_contract.php uses).
+// Every fixture below must declare it just to get PAST that gate and reach
+// the regen_dependency checks this file actually exists to test.
+if (!defined('DUO_SPEC_VERSION')) {
+    define('DUO_SPEC_VERSION', 0);
+}
+
 $failures = 0;
 function check(bool $cond, string $msg): void {
     global $failures;
@@ -104,6 +113,7 @@ echo "\n== regen_dependency() lookup ==\n";
 
 write_manifest($fixtureDir, 'a', [
     'name' => 'a',
+    'spec_version' => DUO_SPEC_VERSION,
     'post_types' => [
         'widget' => [
             'regen_dependency' => [
@@ -125,18 +135,21 @@ echo "\n== validate_regen_dependencies() — load-time shape checking ==\n";
 
 write_manifest($fixtureDir, 'b', [
     'name' => 'b',
+    'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['verify' => ['table' => 't', 'column' => 'c']]]], // missing regenerator
 ]);
 check_throws(fn() => Policy::load(null, ['b']), "needs a non-empty string 'regenerator'", 'missing regenerator key refuses at load()');
 
 write_manifest($fixtureDir, 'c', [
     'name' => 'c',
+    'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'x', 'verify' => ['table' => 't']]]], // missing column
 ]);
 check_throws(fn() => Policy::load(null, ['c']), 'verify: {table:', 'missing verify.column refuses at load()');
 
 write_manifest($fixtureDir, 'd', [
     'name' => 'd',
+    'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => '', 'verify' => ['table' => 't', 'column' => 'c']]]], // empty regenerator
 ]);
 check_throws(fn() => Policy::load(null, ['d']), "needs a non-empty string 'regenerator'", 'empty-string regenerator refuses at load()');
@@ -144,6 +157,7 @@ check_throws(fn() => Policy::load(null, ['d']), "needs a non-empty string 'regen
 // A well-formed declaration must load cleanly (no false-positive refusal).
 write_manifest($fixtureDir, 'e', [
     'name' => 'e',
+    'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'fake-regen', 'verify' => ['table' => 't', 'column' => 'c']]]],
 ]);
 try {
@@ -165,6 +179,7 @@ check(\Duo\Regenerators\FakeRegen::$calls === [42], 'the loaded instance is genu
 
 write_manifest($fixtureDir, 'f', [
     'name' => 'f',
+    'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'two-word_name', 'verify' => ['table' => 't', 'column' => 'c']]]],
 ]);
 $policy2 = Policy::load(null, ['f']);
@@ -174,6 +189,7 @@ check(isset($regens2['two-word_name']) && get_class($regens2['two-word_name']) =
 
 write_manifest($fixtureDir, 'g', [
     'name' => 'g',
+    'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'does-not-exist', 'verify' => ['table' => 't', 'column' => 'c']]]],
 ]);
 $policy3 = Policy::load(null, ['g']);
@@ -184,6 +200,7 @@ check_throws(fn() => $policy3->regenerators(), 'but ' . $fixtureDir . '/regenera
 file_put_contents($fixtureDir . '/regenerators/broken.php', "<?php\nnamespace Duo\\Regenerators;\nfinal class Broken {}\n");
 write_manifest($fixtureDir, 'h', [
     'name' => 'h',
+    'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'broken', 'verify' => ['table' => 't', 'column' => 'c']]]],
 ]);
 $policy4 = Policy::load(null, ['h']);

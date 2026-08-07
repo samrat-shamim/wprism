@@ -1190,38 +1190,33 @@ final class Policy {
      * of a silent no-op that would otherwise surface (if at all) only much
      * later, at deploy time.
      *
-     * spec_version has ONE asymmetric rule, not simple presence/absence:
-     * ABSENT is lenient (no shipped manifest declares it yet, and
-     * DUO_SPEC_VERSION has had exactly one value in this project's history
-     * — an absence can't be "wrong" when there is nothing else it could
-     * have meant). DECLARED-AND-WRONG is never lenient — a manifest that
-     * names a spec_version this engine doesn't recognize is making an
-     * active, checkable claim, and silently accepting it would be exactly
-     * the "unsupported behavior hidden behind a broad compatibility claim"
-     * DESIGN.md's vision invariant forbids. This asymmetry is deliberate,
-     * not a placeholder: it stays true even after DUO_SPEC_VERSION's first
-     * real bump, and BECOMES MANDATORY (see the TODO below) the moment a
-     * second historical value exists to be silently wrong about — a
-     * decision pre-committed at DUO-3222's own design review, not left for
-     * that bump to re-litigate.
-     *
-     * TODO(spec_version-mandatory): the commit that changes
-     * DUO_SPEC_VERSION's value must also flip spec_version from optional
-     * to required in this validator — that bump's own checklist item, not
-     * a future debate. See spec/repo-format.md's adapter-contract section
-     * (once ratified) for the matching prose commitment.
+     * spec_version is MANDATORY (DUO-3247): every manifest must declare it,
+     * and it must equal DUO_SPEC_VERSION exactly — absent and
+     * declared-and-wrong are now the same failure. This was not always the
+     * rule: DUO-3222's original validator treated ABSENT as lenient, because
+     * no shipped manifest declared it yet and DUO_SPEC_VERSION had exactly
+     * one historical value (an absence can't be "wrong" when there is
+     * nothing else it could have meant). DUO-3222's own design review
+     * pre-committed, in writing, to flipping that leniency the moment
+     * DUO_SPEC_VERSION got a second historical value — "that bump's own
+     * checklist item, not a future debate." DUO-3210 performed that bump
+     * (0→1) while this validator's PR was still open, so the two landed on
+     * `main` separately; DUO-3247 is the follow-up that actions the
+     * pre-committed flip. A manifest making no checkable claim about spec
+     * compatibility is exactly the "unsupported behavior hidden behind a
+     * broad compatibility claim" DESIGN.md's vision invariant forbids, same
+     * as an active wrong claim — so both throw through the same site below.
      */
     private static function validate_adapter_contract(array $manifest): void {
         $name = (string) ($manifest['name'] ?? '?');
         $spec = $manifest['spec_version'] ?? null;
-        if ($spec !== null) {
-            $supported = defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 0;
-            if (!is_int($spec) || $spec !== $supported) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' declares spec_version " . var_export($spec, true)
-                    . " but this engine supports spec_version $supported — pin a compatible manifest or update it"
-                );
-            }
+        $supported = defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 0;
+        if (!is_int($spec) || $spec !== $supported) {
+            $declared = $spec === null ? 'no spec_version' : ('spec_version ' . var_export($spec, true));
+            throw new \RuntimeException(
+                "duo: manifest '$name' declares $declared"
+                . " but this engine requires spec_version $supported — pin a compatible manifest or update it"
+            );
         }
         foreach ([['plugin', 'version_range'], ['theme', 'theme_version_range']] as [$idKey, $rangeKey]) {
             $id = $manifest[$idKey] ?? null;

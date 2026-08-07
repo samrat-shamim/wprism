@@ -2,6 +2,7 @@
   "deletions": {
     "table:pmpro_memberships_pages": {"cascades": [], "guards": []}
   },
+  "spec_version": 1,
   "name": "paid-memberships-pro",
   "notes": [
     "Grind R3-B (task #91). PLUGIN-SOURCING FINDING, worth recording since it changes the task brief's own premise: Paid Memberships Pro was PERMANENTLY removed from the wp.org plugin directory on 2024-10-17 (author's own request; they now self-host distribution after a dispute with Automattic/Matt Mullenweg over control of the wp.org listing) — `wp plugin install paid-memberships-pro` fails with 'closed'. Still genuinely free/GPLv2 and officially maintained at github.com/strangerstudios/paid-memberships-pro; this manifest and its grind fixture were built against the official release tag 3.8.3, installed via `wp plugin install https://github.com/strangerstudios/paid-memberships-pro/archive/refs/tags/3.8.3.zip --activate` (wp-cli auto-detects the GitHub source and renames the extracted folder to the clean `paid-memberships-pro` slug). A real-world consequence worth flagging for DESIGN.md's own code-half story: PMPro is now a 'free but not wp.org' plugin, a middle case between the wp.org-composer path and the fully premium/vendored `code/wp-content/plugins/` path DESIGN.md section 3's site-repo layout already anticipates for exactly this kind of plugin.",
