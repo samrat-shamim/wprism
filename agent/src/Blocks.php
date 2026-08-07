@@ -26,28 +26,54 @@ namespace Duo;
  *   carry no inner content at all), so this is the only way a URL-shaped
  *   attribute gets rebound across environments.
  *
- * A "kind"/"kind_from" ref's id_to_token() failing (unmapped or dangling —
- * no ledger row for that id) drops the value, matching options'/meta's
- * dangling-reference semantics (spec/repo-format.md): a scalar ref drops
+ * A "kind"/"kind_from" ref's id_to_token() failing is either DANGLING (no
+ * ledger row for that id at all — deleted target, or never existed) or
+ * UNSCOPED (a real row exists, but its post_type/taxonomy was never added
+ * to policy scope, so it was never minted a uuid) — task #73's own
+ * distinction for options, ported here in full (DUO-3212): dangling gets
+ * the uniform drop-with-warning treatment matching options'/meta's
+ * dangling-reference semantics (spec/repo-format.md) — a scalar ref drops
  * the whole attribute key, an int[] ref drops just that element, both with
- * a warning naming the block/attribute/id. A raw env-local id must never
- * survive into canonical state — Lint::scan_blocks()'s unrewritten_
- * registered_ref finding is what catches it if it ever does. This is the
- * uniform dangling-style treatment only; block refs don't yet get the
- * unscoped-vs-dangling loud-abort triage Capture.php gives options/post_meta
- * (task #73) — that upgrade is wave-2 Capture.php work.
+ * a warning naming the block/attribute/id. Unscoped queues onto
+ * Tokens::$unscopedBlockRefs instead, for Capture::build()'s own batched
+ * loud-and-blocking gate (mirroring task #73's option-ref gate exactly) —
+ * a real row of an in-scope type simply not minted YET on this build is
+ * neither dangling nor unscoped and still falls through to the ordinary
+ * drop (the same false-positive guard task #73's own mechanism needs: see
+ * Capture::queue_or_warn_unscoped()'s docblock for why a fresh target's
+ * own not-yet-minted default_category-shaped case must never abort). A raw
+ * env-local id must never survive into canonical state either way —
+ * Lint::scan_blocks()'s unrewritten_registered_ref finding is what catches
+ * it if it ever does.
  */
 final class Blocks {
     /** Blocks whose inner HTML may carry wp-image-<id> classes. */
     private const IMAGE_CLASS_BLOCKS = ['core/image', 'core/gallery', 'core/media-text', 'core/cover'];
 
-    public static function capture_rewrite(string $content, Policy $policy, Tokens $tokens): string {
+    /**
+     * @param string $postLabel human-readable identifying string for the
+     *   post this content belongs to (e.g. "page 'about-us'"), named in any
+     *   unscoped-ref violation queued during this call — Blocks.php itself
+     *   only ever sees a content string, never the post row, so this is the
+     *   one piece of context the caller (Capture::build_post()) must supply
+     *   for the batched abort message to be as actionable as options' own.
+     */
+    public static function capture_rewrite(
+        string $content,
+        Policy $policy,
+        Tokens $tokens,
+        bool $forceUnresolvedRefs = false,
+        string $postLabel = ''
+    ): string {
         if ($content === '') {
             return '';
         }
         $blocks = parse_blocks($content);
         $rules = $policy->block_attr_rules();
-        $blocks = array_map(fn($b) => self::walk($b, $rules, $tokens, true), $blocks);
+        $blocks = array_map(
+            fn($b) => self::walk($b, $rules, $tokens, true, $policy, $forceUnresolvedRefs, $postLabel),
+            $blocks
+        );
         return serialize_blocks($blocks);
     }
 
@@ -57,11 +83,19 @@ final class Blocks {
         }
         $blocks = parse_blocks($content);
         $rules = $policy->block_attr_rules();
-        $blocks = array_map(fn($b) => self::walk($b, $rules, $tokens, false), $blocks);
+        $blocks = array_map(fn($b) => self::walk($b, $rules, $tokens, false, $policy, false, ''), $blocks);
         return serialize_blocks($blocks);
     }
 
-    private static function walk(array $block, array $rules, Tokens $tokens, bool $capture): array {
+    private static function walk(
+        array $block,
+        array $rules,
+        Tokens $tokens,
+        bool $capture,
+        Policy $policy,
+        bool $forceUnresolvedRefs,
+        string $postLabel
+    ): array {
         $name = $block['blockName'];
         foreach ($rules[$name] ?? [] as $rule) {
             $path = $rule['path'];
@@ -98,11 +132,13 @@ final class Blocks {
                 // previous `?? (int) $id` here kept the raw id instead of
                 // dropping it — the exact gap Lint::scan_blocks()'s new
                 // unrewritten_registered_ref finding now catches when it
-                // already happened. This does NOT attempt the unscoped-vs-
-                // dangling loud-abort triage Capture.php does for options/
-                // post_meta (task #73) — every unmapped block ref gets the
-                // uniform dangling-style drop; giving block refs the same
-                // unscoped upgrade is wave-2 Capture.php work.
+                // already happened. DUO-3212: the unmapped id is ALSO
+                // triaged into dangling vs. unscoped (self::queue_unscoped()
+                // below, mirroring Capture::queue_or_warn_unscoped() for
+                // options exactly) — the drop-with-warning below happens
+                // either way (an unscoped ref is still dropped from THIS
+                // candidate value; the abort, if any, is a later batched
+                // gate in Capture::build(), the same posture options use).
                 if ($isArray) {
                     $kept = [];
                     foreach ((array) $v as $i => $id) {
@@ -110,6 +146,10 @@ final class Blocks {
                         if ($tok === null) {
                             $tokens->warnings[] = "block '$name' attribute '$path" . "[$i]': unmapped $kind id "
                                 . (int) $id . ' dropped (dangling reference)';
+                            self::queue_unscoped(
+                                $tokens, $policy, $forceUnresolvedRefs, $postLabel,
+                                $name, "$path" . "[$i]", $kind, (int) $id
+                            );
                             continue;
                         }
                         $kept[] = $tok;
@@ -120,6 +160,10 @@ final class Blocks {
                     if ($tok === null) {
                         $tokens->warnings[] = "block '$name' attribute '$path': unmapped $kind id " . (int) $v
                             . ' dropped (dangling reference)';
+                        self::queue_unscoped(
+                            $tokens, $policy, $forceUnresolvedRefs, $postLabel,
+                            $name, $path, $kind, (int) $v
+                        );
                         unset($block['attrs'][$path]);
                     } else {
                         $block['attrs'][$path] = $tok;
@@ -140,15 +184,44 @@ final class Blocks {
         }
 
         $rewriteImageClass = in_array($name, self::IMAGE_CLASS_BLOCKS, true);
-        $rewriteString = function (?string $s) use ($tokens, $capture, $rewriteImageClass): ?string {
+        $rewriteString = function (?string $s) use (
+            $tokens, $capture, $rewriteImageClass, $policy, $forceUnresolvedRefs, $postLabel, $name
+        ): ?string {
             if ($s === null || $s === '') {
                 return $s;
             }
             if ($rewriteImageClass) {
                 if ($capture) {
-                    $s = preg_replace_callback('/wp-image-(\d+)/', function ($m) use ($tokens) {
-                        $tok = $tokens->id_to_token((int) $m[1], 'post');
-                        return $tok !== null ? 'wp-image-' . $tok : $m[0];
+                    // DUO-3212: this used to fail OPEN on an unmapped id —
+                    // $m[0] (the raw "wp-image-999" text) returned unchanged,
+                    // leaking the raw env-local id into canonical state
+                    // (harness case B4) — the one place in this class that
+                    // didn't already match attrs.id's own drop-with-warning
+                    // treatment two mechanisms up, despite reading the SAME
+                    // ledger entry via the SAME id_to_token() call. Capture
+                    // group 1 is whatever whitespace precedes the token (or
+                    // '' at the start of a class list); on drop, both the
+                    // token AND its own leading separator are removed
+                    // together, so "foo wp-image-999 bar" -> "foo bar" (the
+                    // separator AFTER "wp-image-999" already there before
+                    // bar is left untouched) rather than leaving a double
+                    // space or an orphaned separator behind.
+                    $s = preg_replace_callback('/(\s*)wp-image-(\d+)/', function ($m) use (
+                        $tokens, $policy, $forceUnresolvedRefs, $postLabel, $name
+                    ) {
+                        $ws = $m[1];
+                        $id = (int) $m[2];
+                        $tok = $tokens->id_to_token($id, 'post');
+                        if ($tok !== null) {
+                            return $ws . 'wp-image-' . $tok;
+                        }
+                        $tokens->warnings[] = "block '$name' wp-image-$id class: unmapped post id $id "
+                            . 'dropped (dangling reference)';
+                        self::queue_unscoped(
+                            $tokens, $policy, $forceUnresolvedRefs, $postLabel,
+                            $name, 'wp-image-class', 'post', $id
+                        );
+                        return ''; // drop the class AND its own leading separator together
                     }, $s);
                 } else {
                     $s = preg_replace_callback('/wp-image-(\{\{post:[0-9a-f-]{36}\}\})/', function ($m) use ($tokens) {
@@ -165,16 +238,78 @@ final class Blocks {
                 $block['innerContent']
             );
         }
-        if (!empty($block['innerHTML'])) {
-            $block['innerHTML'] = $rewriteString($block['innerHTML']);
-        }
+        // DUO-3212: deliberately NOT also rewriting $block['innerHTML'] here
+        // (the previous code did). serialize_block() (parse_blocks()'s own
+        // counterpart, verified by reading it directly) exclusively walks
+        // innerContent to reconstruct output — innerHTML is WordPress's own
+        // parser-convention duplicate, populated at parse time for API
+        // completeness, never read by anything downstream of this method
+        // (grepped agent/src/ — zero readers). For a block with no nested
+        // innerBlocks, innerContent is exactly [innerHTML] (identical
+        // string, confirmed against the block-parser stub's own parse
+        // loop), so rewriting both was always redundant work on the same
+        // input — harmless while $rewriteString was a pure substitution,
+        // but once the wp-image-N branch gained side effects (a warning +
+        // an unscoped-ref queue push), redundant execution became a real
+        // double-fire bug: caught by this task's own new B4/B10 checks
+        // asserting on warning/queue COUNTS, not just final values, before
+        // it shipped.
         if (!empty($block['innerBlocks'])) {
             $block['innerBlocks'] = array_map(
-                fn($b) => self::walk($b, $rules, $tokens, $capture),
+                fn($b) => self::walk($b, $rules, $tokens, $capture, $policy, $forceUnresolvedRefs, $postLabel),
                 $block['innerBlocks']
             );
         }
         return $block;
+    }
+
+    /**
+     * DUO-3212 (task #73's own unscoped-vs-dangling triage, ported): queues
+     * an UNSCOPED violation onto $tokens->unscopedBlockRefs for Capture::
+     * build()'s batched abort, or no-ops for any of the three reasons
+     * Capture::queue_or_warn_unscoped() no-ops for options (see that
+     * method's own docblock for the full reasoning, reproduced exactly
+     * here): the target is genuinely DANGLING (Capture::ref_target_type()
+     * found no real row at all), the target's type IS in policy scope but
+     * this build simply hasn't minted it a uuid yet (a MINTING question,
+     * not a POLICY question — checking id_to_token() alone can never tell
+     * the two apart), or $force ($forceUnresolvedRefs / --force-unresolved-
+     * refs) explicitly asked for the old best-effort drop regardless. Does
+     * NOT itself perform the drop — every caller already does that
+     * unconditionally, the same way option_ref_tokens() does; this only
+     * decides whether the drop ALSO counts as a reportable scope gap.
+     */
+    private static function queue_unscoped(
+        Tokens $tokens,
+        Policy $policy,
+        bool $force,
+        string $postLabel,
+        string $block,
+        string $attr,
+        string $kind,
+        int $id
+    ): void {
+        if ($force) {
+            return;
+        }
+        $targetType = Capture::ref_target_type($id, $kind);
+        if ($targetType === null) {
+            return; // dangling — the caller's own warn-and-drop already handled it
+        }
+        $inPolicyScope = $kind === 'term'
+            ? in_array($targetType, $policy->taxonomies(), true)
+            : in_array($targetType, $policy->post_types(), true);
+        if ($inPolicyScope) {
+            return; // real row, correctly scoped, just not minted on THIS build yet
+        }
+        $tokens->unscopedBlockRefs[] = [
+            'post' => $postLabel,
+            'block' => $block,
+            'attr' => $attr,
+            'kind' => $kind,
+            'id' => $id,
+            'target_type' => $targetType,
+        ];
     }
 
     /**
