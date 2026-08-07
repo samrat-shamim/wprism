@@ -12,10 +12,12 @@ namespace Duo;
  *
  * Only the three WordPress content component roots are payload-owned.  The
  * compiler inventories their regular files and the stage/finalize commands
- * use that immutable inventory as their source of truth.  In particular,
- * stage never deletes old files: lifecycle hooks are allowed to run between
- * stage and finalize, and finalize is the only operation which removes a
- * path previously recorded as Duo-owned.
+ * use that immutable inventory as their source of truth. Stage never removes
+ * completed code: lifecycle hooks run between stage and finalize, and
+ * finalize removes prior owned paths. The sole earlier recovery exception is
+ * an unchanged abandoned staged-only MU file with an atomic created-path
+ * receipt; user MU code has no WordPress activation/deactivation lifecycle and
+ * can otherwise make the normal lifecycle process impossible to bootstrap.
  */
 final class CodeCompilationException extends \RuntimeException {
     /** @var list<array{severity:string,code:string,path:string,locator:string,message:string}> */
@@ -58,6 +60,8 @@ final class Code {
     public const CODE_STAGE_ARTIFACT_KEY = 'code_stage_artifact';
     /** Canonical list of prior staged descriptors retained for recovery. */
     public const CODE_STAGE_HISTORY_KEY = 'code_stage_history';
+    /** Canonical paths proven absent before Duo first staged them. */
+    public const CODE_STAGE_CREATED_PATHS_KEY = 'code_stage_created_paths';
 
     /** @var list<string> */
     private const ROOTS = ['mu-plugins', 'plugins', 'themes'];
@@ -96,6 +100,8 @@ final class Code {
         $pluginMainFiles = [];
         $ownedRoots = [];
         $themeSlugs = [];
+        /** @var array<string,?string> $themeTemplates theme slug => bounded Template header */
+        $themeTemplates = [];
         if (is_dir($source) && !is_link($source)) {
             $children = @scandir($source);
             if ($children === false) {
@@ -164,12 +170,20 @@ final class Code {
                         $ownedRoots[] = $componentRelative;
                         if ($child === 'themes') {
                             $style = $componentAbsolute . '/style.css';
+                            $template = null;
                             if (is_link($style) || !is_file($style)) {
                                 self::diagnostic($diagnostics, 'invalid_theme', $componentRelative, 'style.css', 'each theme must contain a regular style.css with a Theme Name header');
-                            } elseif (self::header_value($style, 'Theme Name') === null) {
-                                self::diagnostic($diagnostics, 'invalid_theme', $componentRelative, 'style.css', 'style.css must contain a non-empty Theme Name header in its first 8KB');
+                            } else {
+                                if (self::header_value($style, 'Theme Name') === null) {
+                                    self::diagnostic($diagnostics, 'invalid_theme', $componentRelative, 'style.css', 'style.css must contain a non-empty Theme Name header in its first 8KB');
+                                }
+                                $template = self::header_value($style, 'Template');
+                                if ($template !== null && !self::safe_component($template)) {
+                                    self::diagnostic($diagnostics, 'invalid_theme', $componentRelative, 'style.css', 'Template header must name one safe theme directory slug in its first 8KB');
+                                }
                             }
                             $themeSlugs[] = $component;
+                            $themeTemplates[$component] = $template;
                         }
                         try {
                             self::walk_component($source, $child, $componentAbsolute, $files, $pluginMainFiles, $diagnostics);
@@ -189,6 +203,7 @@ final class Code {
         usort($pluginMainFiles, static fn(array $a, array $b): int => $a['basename'] <=> $b['basename']);
         sort($ownedRoots, SORT_STRING);
         sort($themeSlugs, SORT_STRING);
+        ksort($themeTemplates, SORT_STRING);
 
         $base = [
             'format' => self::DESCRIPTOR_FORMAT,
@@ -198,6 +213,7 @@ final class Code {
             'files' => $files,
             'plugin_main_files' => $pluginMainFiles,
             'theme_slugs' => $themeSlugs,
+            'theme_templates' => $themeTemplates,
         ];
         $base['code_revision'] = self::revision_for($base);
         self::assert_descriptor($base);
@@ -221,10 +237,16 @@ final class Code {
 
     /** Validate a descriptor loaded from a compiled artifact or ledger. */
     public static function assert_descriptor(array $descriptor): void {
-        $required = ['code_revision', 'files', 'format', 'layout', 'owned_roots', 'plugin_main_files', 'source', 'theme_slugs'];
+        // The first released duo-code/v1 descriptor had no theme_templates
+        // field. Stored completed/staged/history descriptors are deletion
+        // authority, so retain that exact, self-verifying legacy shape while
+        // requiring every newly compiled descriptor to carry the relation.
+        $legacyRequired = ['code_revision', 'files', 'format', 'layout', 'owned_roots', 'plugin_main_files', 'source', 'theme_slugs'];
+        $currentRequired = [...$legacyRequired, 'theme_templates'];
         $keys = array_keys($descriptor);
         sort($keys, SORT_STRING);
-        $expected = $required;
+        $hasThemeTemplates = array_key_exists('theme_templates', $descriptor);
+        $expected = $hasThemeTemplates ? $currentRequired : $legacyRequired;
         sort($expected, SORT_STRING);
         if ($keys !== $expected
             || $descriptor['format'] !== self::DESCRIPTOR_FORMAT
@@ -234,6 +256,7 @@ final class Code {
             || !is_array($descriptor['files']) || !array_is_list($descriptor['files'])
             || !is_array($descriptor['plugin_main_files']) || !array_is_list($descriptor['plugin_main_files'])
             || !is_array($descriptor['theme_slugs']) || !array_is_list($descriptor['theme_slugs'])
+            || ($hasThemeTemplates && !is_array($descriptor['theme_templates']))
             || !preg_match('/^[0-9a-f]{64}$/', (string) $descriptor['code_revision'])) {
             throw new \RuntimeException('duo: compiled code descriptor has an unsupported or malformed shape');
         }
@@ -338,6 +361,18 @@ final class Code {
         if ($descriptor['theme_slugs'] !== $ownedThemes) {
             throw new \RuntimeException('duo: compiled code descriptor theme ownership is inconsistent');
         }
+        if ($hasThemeTemplates) {
+            $themeTemplates = $descriptor['theme_templates'];
+            if (array_keys($themeTemplates) !== $descriptor['theme_slugs']) {
+                throw new \RuntimeException('duo: compiled code descriptor theme_templates must map every theme slug in deterministic order');
+            }
+            foreach ($themeTemplates as $slug => $template) {
+                if (!is_string($slug) || !self::safe_component($slug)
+                    || ($template !== null && (!is_string($template) || !self::safe_component($template)))) {
+                    throw new \RuntimeException("duo: compiled code descriptor theme_templates['$slug'] is malformed");
+                }
+            }
+        }
         $copy = $descriptor;
         $revision = (string) $copy['code_revision'];
         unset($copy['code_revision']);
@@ -355,7 +390,7 @@ final class Code {
     }
 
     /**
-     * Authorization gate for lifecycle deploy. Call only after Deploy has
+     * Authorization gate for a lifecycle phase. Call only after Deploy has
      * acquired the promotion lock for the compiled artifact: this proves the
      * stage marker, staged descriptor, staged artifact identity, and every
      * staged target hash still describe exactly that locked artifact.
@@ -380,6 +415,7 @@ final class Code {
         if ($staged === null) {
             throw new \RuntimeException('duo: materializing-code refused — no staged code descriptor exists');
         }
+        self::stored_stage_created_paths($staged);
         self::stored_stage_history();
         self::verify_payload($staged);
     }
@@ -420,7 +456,13 @@ final class Code {
         if (Canon::encode($stored) !== Canon::encode($expected)) {
             return 'the stored completed code descriptor does not match this compiled artifact';
         }
-        foreach ([self::CODE_STAGE_REVISION_KEY, self::CODE_STAGE_DESCRIPTOR_KEY, self::CODE_STAGE_ARTIFACT_KEY, self::CODE_STAGE_HISTORY_KEY] as $key) {
+        foreach ([
+            self::CODE_STAGE_REVISION_KEY,
+            self::CODE_STAGE_DESCRIPTOR_KEY,
+            self::CODE_STAGE_ARTIFACT_KEY,
+            self::CODE_STAGE_HISTORY_KEY,
+            self::CODE_STAGE_CREATED_PATHS_KEY,
+        ] as $key) {
             if (($pending = Ledger::kv_get($key)) !== null && $pending !== '') {
                 return "temporary code-stage metadata '$key' remains after finalize";
             }
@@ -438,9 +480,10 @@ final class Code {
     }
 
     /**
-     * Stage all desired files with per-file temp+rename atomicity. No old
-     * files are deleted. The promotion lease intentionally remains held for
-     * code-finalize (and, optionally, the subsequent state apply).
+     * Stage all desired files with per-file temp+rename atomicity. Completed
+     * code is never removed; the bounded staged-only MU recovery documented
+     * above may remove one prior abandoned path. The promotion lease remains
+     * held for code-finalize (and, optionally, subsequent state apply).
      */
     public static function stage(string $repo, CompiledRepository $compiled, array $opts = []): array {
         $descriptor = $compiled->code_descriptor();
@@ -463,11 +506,13 @@ final class Code {
         // lock without releasing the live session it failed to continue.
         PromotionLock::acquire($owner, $artifact, 'code-stage', null, true);
         try {
+            PromotionLock::assert_no_lifecycle_attempt($owner, $artifact, 'code-stage');
             $stageRevision = Ledger::kv_get(self::CODE_STAGE_REVISION_KEY);
             if ($stageRevision !== null && !preg_match('/^[0-9a-f]{64}$/', $stageRevision)) {
                 throw new \RuntimeException('duo: malformed code_stage_revision; refusing recovery guesswork');
             }
             $staged = self::stored_stage_descriptor($stageRevision, null);
+            $stagedCreatedPaths = self::stored_stage_created_paths($staged);
             $history = self::stored_stage_history();
             if ($staged !== null && $staged['code_revision'] !== $descriptor['code_revision']) {
                 $history[$staged['code_revision']] = $staged;
@@ -479,7 +524,14 @@ final class Code {
             self::assert_source_matches($repo, $descriptor);
             CodeStateContract::validate($compiled, $descriptor);
             $previous = self::stored_descriptor();
-            self::materialize_payload($repo, $descriptor, $previous, $staged, $history);
+            $materialized = self::materialize_payload(
+                $repo,
+                $descriptor,
+                $previous,
+                $staged,
+                $history,
+                $stagedCreatedPaths
+            );
             self::assert_source_matches($repo, $descriptor);
             // A descriptor becomes deletion authority only after its entire
             // payload has materialized successfully. Persisting an attempted
@@ -490,19 +542,19 @@ final class Code {
             // cleanup, but they can never grant Duo root-wide ownership.
             $history[$descriptor['code_revision']] = $descriptor;
             ksort($history, SORT_STRING);
-            Ledger::kv_set(self::CODE_STAGE_HISTORY_KEY, Canon::encode(array_values($history)));
-            // Temporary descriptor/artifact come before the stage revision:
-            // lifecycle deploy trusts the revision key only after all other
-            // metadata and target hashes are durable.
-            Ledger::kv_set(self::CODE_STAGE_DESCRIPTOR_KEY, Canon::encode($descriptor));
-            Ledger::kv_set(self::CODE_STAGE_ARTIFACT_KEY, $artifact);
-            Ledger::kv_set(self::CODE_STAGE_REVISION_KEY, $descriptor['code_revision']);
+            self::publish_stage_descriptor(
+                $history,
+                $descriptor,
+                $artifact,
+                $materialized['created_paths']
+            );
             PromotionLock::heartbeat($owner, $artifact, 'code-staged');
             return [
                 'enabled' => true,
                 'staged' => true,
                 'code_revision' => $descriptor['code_revision'],
                 'files' => count($descriptor['files']),
+                'abandoned_stage_removed' => $materialized['abandoned_stage_removed'],
                 'promotion_lock' => ['owner' => $owner, 'held_for_finalize' => true],
             ];
         } catch (\Throwable $t) {
@@ -547,6 +599,8 @@ final class Code {
         $artifact = $compiled->artifact_hash();
         PromotionLock::acquire($owner, $artifact, 'code-finalize', null, true);
         try {
+            PromotionLock::assert_no_lifecycle_attempt($owner, $artifact, 'code-finalize');
+            PromotionLock::assert_lifecycle_complete($owner, $artifact);
             // Finalize consumes the frozen compiled descriptor and the
             // already-staged target. The checkout may legitimately move
             // between stage and finalize; reopening mutable source here
@@ -594,6 +648,53 @@ final class Code {
     }
 
     /**
+     * Publish the complete staged receipt only after materialization succeeds.
+     *
+     * The history entry is deletion authority, so it must become durable with
+     * the staged descriptor, compiled artifact, and revision as one receipt.
+     * After a confirmed rollback, no attempted descriptor can survive as
+     * ownership evidence for a later prune; any already-written payload bytes
+     * remain conservative/manual-cleanup territory until a successful retry.
+     *
+     * @param array<string,array<string,mixed>> $history
+     * @param array<string,mixed> $descriptor
+     * @param list<string> $createdPaths
+     */
+    private static function publish_stage_descriptor(
+        array $history,
+        array $descriptor,
+        string $artifact,
+        array $createdPaths
+    ): void {
+        $transactionStarted = false;
+        try {
+            Db::start('code stage ledger transaction start');
+            $transactionStarted = true;
+            Ledger::kv_set(self::CODE_STAGE_HISTORY_KEY, Canon::encode(array_values($history)));
+            Ledger::kv_set(self::CODE_STAGE_DESCRIPTOR_KEY, Canon::encode($descriptor));
+            Ledger::kv_set(self::CODE_STAGE_ARTIFACT_KEY, $artifact);
+            Ledger::kv_set(self::CODE_STAGE_CREATED_PATHS_KEY, Canon::encode($createdPaths));
+            Ledger::kv_set(self::CODE_STAGE_REVISION_KEY, $descriptor['code_revision']);
+            Db::commit('code stage ledger transaction commit');
+            $transactionStarted = false;
+        } catch (\Throwable $t) {
+            if ($transactionStarted) {
+                try {
+                    Db::rollback('code stage ledger transaction rollback');
+                } catch (\Throwable $rollback) {
+                    throw new \RuntimeException(
+                        'duo: code stage ledger transaction failed and rollback could not be confirmed: '
+                        . $rollback->getMessage(),
+                        0,
+                        $t
+                    );
+                }
+            }
+            throw $t;
+        }
+    }
+
+    /**
      * Move the code ledger from staged to completed as one retryable
      * convergence boundary. A process/database failure may leave either side
      * of this transition, but never code_stage_revision without its staged
@@ -608,6 +709,7 @@ final class Code {
             Ledger::kv_delete(self::CODE_STAGE_DESCRIPTOR_KEY);
             Ledger::kv_delete(self::CODE_STAGE_ARTIFACT_KEY);
             Ledger::kv_delete(self::CODE_STAGE_HISTORY_KEY);
+            Ledger::kv_delete(self::CODE_STAGE_CREATED_PATHS_KEY);
             Ledger::kv_delete(self::CODE_STAGE_REVISION_KEY);
             Ledger::kv_set(self::CODE_REVISION_KEY, $descriptor['code_revision']);
             Db::commit('code ledger transaction commit');
@@ -731,6 +833,47 @@ final class Code {
         return $history;
     }
 
+    /**
+     * Read the staged provenance receipt used only by abandoned-MU recovery.
+     * A legacy receipt without this key remains valid for finalize, but grants
+     * no authority for early recovery deletion.
+     *
+     * @return list<string>
+     */
+    private static function stored_stage_created_paths(?array $staged): array {
+        $raw = Ledger::kv_get(self::CODE_STAGE_CREATED_PATHS_KEY);
+        if ($raw === null || $raw === '') {
+            return [];
+        }
+        try {
+            $paths = Canon::decode($raw);
+        } catch (\Throwable $t) {
+            throw new \RuntimeException('duo: staged created-path receipt is not valid canonical JSON', 0, $t);
+        }
+        if ($staged === null || !is_array($paths) || !array_is_list($paths)
+            || Canon::encode($paths) !== $raw) {
+            throw new \RuntimeException('duo: staged created-path receipt is malformed or has no staged descriptor');
+        }
+        $stagedPaths = [];
+        foreach ($staged['files'] as $row) {
+            $stagedPaths[(string) $row['path']] = true;
+        }
+        $seen = [];
+        foreach ($paths as $i => $path) {
+            if (!is_string($path) || !self::safe_relative($path)
+                || !isset($stagedPaths[$path]) || isset($seen[$path])) {
+                throw new \RuntimeException("duo: staged created-path receipt[$i] is not a unique staged file");
+            }
+            $seen[$path] = true;
+        }
+        $expected = $paths;
+        sort($expected, SORT_STRING);
+        if ($paths !== $expected) {
+            throw new \RuntimeException('duo: staged created-path receipt is not deterministically sorted');
+        }
+        return $paths;
+    }
+
     private static function assert_source_matches(string $repo, array $expected): void {
         $actual = self::descriptor_from_source(rtrim($repo, '/') . '/' . self::SOURCE);
         if (!hash_equals((string) $expected['code_revision'], (string) $actual['code_revision'])
@@ -796,17 +939,149 @@ final class Code {
      * conflict from leaving earlier files on the new revision.
      *
      * @param array<string,array<string,mixed>> $history
+     * @param list<string> $stagedCreatedPaths
+     * @return array{abandoned_stage_removed:list<string>,created_paths:list<string>}
      */
     private static function materialize_payload(
         string $repo,
         array $descriptor,
         ?array $previous,
         ?array $staged,
-        array $history
-    ): void {
+        array $history,
+        array $stagedCreatedPaths
+    ): array {
         self::assert_payload_targets($descriptor);
         self::assert_removal_safe($previous, $staged, $history, $descriptor);
+        $createdPaths = self::created_paths_for_stage(
+            $descriptor,
+            $previous,
+            $stagedCreatedPaths
+        );
+        $abandonedStageRemoved = self::remove_abandoned_staged_mu_files(
+            $previous,
+            $staged,
+            $descriptor,
+            $stagedCreatedPaths
+        );
         self::write_payload($repo, $descriptor);
+        return [
+            'abandoned_stage_removed' => $abandonedStageRemoved,
+            'created_paths' => $createdPaths,
+        ];
+    }
+
+    /**
+     * Preserve proof that a staged-only path was originally absent. This is
+     * intentionally separate from descriptor ownership: adopting/overwriting
+     * an existing target is allowed, but a failed promotion may not later use
+     * its staged hash to erase that pre-existing path during early recovery.
+     *
+     * @param list<string> $stagedCreatedPaths
+     * @return list<string>
+     */
+    private static function created_paths_for_stage(
+        array $current,
+        ?array $previous,
+        array $stagedCreatedPaths
+    ): array {
+        $completedPaths = [];
+        foreach ($previous['files'] ?? [] as $row) {
+            $completedPaths[(string) $row['path']] = true;
+        }
+        $createdBefore = array_fill_keys($stagedCreatedPaths, true);
+        $created = [];
+        foreach ($current['files'] as $row) {
+            $relative = (string) $row['path'];
+            $absolute = self::safe_join(WP_CONTENT_DIR, $relative);
+            if (!file_exists($absolute)
+                || (isset($createdBefore[$relative]) && !isset($completedPaths[$relative]))) {
+                $created[] = $relative;
+            }
+        }
+        sort($created, SORT_STRING);
+        return $created;
+    }
+
+    /**
+     * Recover from a fully staged user MU payload which made ordinary
+     * WordPress bootstrap fatal before lifecycle/finalize could run.
+     *
+     * Only an exact file introduced by the immediately preceding staged
+     * descriptor, never present in completed code, and now absent from the
+     * reviewed descriptor is eligible. Restrict this early cleanup to
+     * mu-plugins: regular plugins and themes may have become lifecycle-active
+     * during a partially failed run and must remain executable until the
+     * fresh retirement/switch process. MU plugins have no WordPress
+     * activation/deactivation API, while leaving a rejected top-level MU file
+     * in place can prevent every normal lifecycle command from booting.
+     *
+     * Complete desired/removal preflight runs before this method. Recheck the
+     * exact staged hash immediately before each unlink; a changed or replaced
+     * target remains operator-owned ambiguity and fails closed.
+     *
+     * @return list<string>
+     */
+    private static function remove_abandoned_staged_mu_files(
+        ?array $previous,
+        ?array $staged,
+        array $current,
+        array $stagedCreatedPaths
+    ): array {
+        if ($staged === null) {
+            return [];
+        }
+        $completedPaths = [];
+        foreach ($previous['files'] ?? [] as $row) {
+            $completedPaths[(string) $row['path']] = true;
+        }
+        $currentPaths = [];
+        foreach ($current['files'] as $row) {
+            $currentPaths[(string) $row['path']] = true;
+        }
+        $createdPaths = array_fill_keys($stagedCreatedPaths, true);
+        $candidates = [];
+        foreach ($staged['files'] as $row) {
+            $relative = (string) $row['path'];
+            if (!str_starts_with($relative, 'mu-plugins/')
+                || isset($completedPaths[$relative])
+                || isset($currentPaths[$relative])
+                || !isset($createdPaths[$relative])) {
+                continue;
+            }
+            self::assert_no_symlinked_target_path($relative, true, 'code-stage recovery');
+            $absolute = self::safe_join(WP_CONTENT_DIR, $relative);
+            if (!file_exists($absolute)) {
+                continue;
+            }
+            if (is_link($absolute) || !is_file($absolute)
+                || !hash_equals((string) $row['sha256'], (string) hash_file('sha256', $absolute))) {
+                throw new \RuntimeException(
+                    "duo: code-stage recovery refuses changed abandoned staged MU file '$relative'"
+                );
+            }
+            $candidates[] = $row;
+        }
+
+        $removed = [];
+        foreach ($candidates as $row) {
+            $relative = (string) $row['path'];
+            self::assert_no_symlinked_target_path($relative, true, 'code-stage recovery');
+            $absolute = self::safe_join(WP_CONTENT_DIR, $relative);
+            if (!is_file($absolute) || is_link($absolute)
+                || !hash_equals((string) $row['sha256'], (string) hash_file('sha256', $absolute))) {
+                throw new \RuntimeException(
+                    "duo: code-stage recovery lost exact ownership of abandoned staged MU file '$relative'"
+                );
+            }
+            if (!@unlink($absolute) || file_exists($absolute)) {
+                throw new \RuntimeException(
+                    "duo: code-stage recovery could not remove abandoned staged MU file '$relative'"
+                );
+            }
+            $removed[] = $relative;
+        }
+        sort($removed, SORT_STRING);
+        return $removed;
     }
 
     /** Validate the complete desired path inventory without creating it. */
@@ -1373,6 +1648,17 @@ final class Code {
                 continue;
             }
             $actual = constant($constant);
+            if ($constant === 'WPMU_PLUGIN_DIR'
+                && defined('DUO_CONTROL_PLANE') && DUO_CONTROL_PLANE === true) {
+                if (!defined('DUO_CONTROL_WPMU_PLUGIN_DIR')
+                    || !is_string(DUO_CONTROL_WPMU_PLUGIN_DIR)
+                    || DUO_CONTROL_WPMU_PLUGIN_DIR === '') {
+                    throw new \RuntimeException(
+                        'duo: control-plane bootstrap did not preserve the real mu-plugins materialization root'
+                    );
+                }
+                $actual = DUO_CONTROL_WPMU_PLUGIN_DIR;
+            }
             if (!is_string($actual) || !self::same_target_path($actual, $content . '/' . $relative)) {
                 throw new \RuntimeException(
                     "duo: code materialization requires standard $relative root '$content/$relative'; "

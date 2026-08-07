@@ -3,7 +3,8 @@
 #
 # The fake wp binary records every target-side command so this proves the
 # contract without Docker or WordPress: a legacy compiled artifact preserves
-# the original compile -> checkpoint -> deploy -> apply path, while a
+# the lifecycle-only compile -> checkpoint -> retire -> activate -> apply path,
+# while a
 # code-enabled artifact inserts code-stage and code-finalize around the
 # lifecycle window. Every phase receives one frozen artifact and owner; every
 # failure stops later phases and retains the exact database restore advice.
@@ -29,7 +30,12 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$FAKE_WP_LOG"
 args=("$@")
 pos=0
-if [[ "${args[0]:-}" == --path=* ]]; then pos=1; fi
+while true; do
+  case "${args[$pos]:-}" in
+    --path=*|--exec=*|--skip-plugins|--skip-themes) pos=$((pos + 1)) ;;
+    *) break ;;
+  esac
+done
 first="${args[$pos]:-}"
 second="${args[$((pos + 1))]:-}"
 
@@ -60,6 +66,10 @@ if [ "$first" = duo ] && [ "$second" = promotion-begin ]; then
     printf "Error: duo: promotion lock held by 'other-owner' in phase 'apply'\n" >&2
     exit 4
   fi
+  if [ "${FAKE_BEGIN_FAIL:-0}" = 3 ]; then
+    printf '%s\n' 'Error: duo: unresolved lifecycle attempt blocks a new promotion session; restore the exact pre-lifecycle database checkpoint' >&2
+    exit 4
+  fi
   [ "${FAKE_BEGIN_FAIL:-0}" = 2 ] && exit 4
   printf 'promotion-begin ok\n'
   exit 0
@@ -86,7 +96,8 @@ if [ "$first" = duo ] && [ "$second" = code-stage ]; then
 fi
 
 if [ "$first" = duo ] && [ "$second" = deploy ]; then
-  [ "${FAKE_DEPLOY_FAIL:-0}" = 0 ] || exit 7
+  if [[ "$*" == *"--lifecycle-phase=retire"* && "${FAKE_RETIRE_FAIL:-0}" != 0 ]]; then exit 7; fi
+  if [[ "$*" == *"--lifecycle-phase=activate"* && "${FAKE_ACTIVATE_FAIL:-0}" != 0 ]]; then exit 13; fi
   printf 'deploy ok\n'
   exit 0
 fi
@@ -117,6 +128,24 @@ call_artifact() { grep -o -- '--compiled=[^ ]*' <<<"$1"; }
 call_owner() { grep -o -- '--promotion-owner=[^ ]*' <<<"$1"; }
 call_hash() { grep -o -- '--artifact-hash=[^ ]*' <<<"$1"; }
 has() { grep -q -- "$2" <<<"$1"; }
+assert_control_call() {
+  local call="$1" label="$2"
+  [[ "$call" == *"--exec="* \
+    && "$call" == *"DUO_CONTROL_PLANE"* \
+    && "$call" == *"DUO_CONTROL_WPMU_PLUGIN_DIR"* \
+    && "$call" == *"after_wp_config_load"* \
+    && "$call" == *"SUNRISE"* \
+    && "$call" == *"--skip-plugins"* \
+    && "$call" == *"--skip-themes"* ]] \
+    || fail "$label did not use the isolated Duo control-plane bootstrap"
+}
+assert_runtime_call() {
+  local call="$1" label="$2"
+  [[ "$call" != *"--exec="* \
+    && "$call" != *"--skip-plugins"* \
+    && "$call" != *"--skip-themes"* ]] \
+    || fail "$label incorrectly skipped the WordPress runtime it must reconcile"
+}
 assert_same_artifact_and_owner() {
   local first="$1"; shift
   local artifact owner call
@@ -133,6 +162,8 @@ assert_begin_and_abort() {
   local begin="$1" abort="$2" phase
   [[ "$begin" == *"duo promotion-begin"* ]] || fail "promotion-begin was not invoked"
   [[ "$abort" == *"duo promotion-abort"* ]] || fail "promotion-abort was not invoked"
+  assert_control_call "$begin" "promotion-begin"
+  assert_control_call "$abort" "promotion-abort"
   [ "$(call_hash "$begin")" = "--artifact-hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ] \
     || fail "promotion-begin did not bind the compiled outer artifact hash"
   [ "$(call_owner "$begin")" = "$(call_owner "$abort")" ] \
@@ -162,7 +193,7 @@ assert_checkpoint() {
     || fail "checkpoint was not isolated below the target operational directory"
 }
 assert_code_recovery_guidance() {
-  local out="$1"
+  local out="$1" import_step
   has "$out" 'code may be staged or partially finalized' \
     || fail "code-enabled failure did not warn that code must be recovered first"
   has "$out" 'first reconcile or restore code to a known pre-promotion revision' \
@@ -177,6 +208,12 @@ assert_code_recovery_guidance() {
     || fail "code-enabled failure omitted recovery lease begin"
   has "$out" '3\..*db.*import' \
     || fail "code-enabled failure omitted database import in recovery order"
+  import_step="$(sed -n 's/^  3\. //p' <<<"$out")"
+  [[ "$import_step" == *"--exec="* \
+    && "$import_step" == *"DUO_CONTROL_PLANE"* \
+    && "$import_step" == *"--skip-plugins"* \
+    && "$import_step" == *"--skip-themes"* ]] \
+    || fail "checkpoint import recovery did not use the isolated fatal-safe bootstrap"
   has "$out" '4\..*duo.*promotion-abort.*--artifact-hash=' \
     || fail "code-enabled failure omitted post-import lease abort"
   has "$out" 'run step 4 even if the database import fails' \
@@ -200,29 +237,39 @@ run_promote() {
 run_promote 0 env
 [ "$CODE" -eq 0 ] || fail "legacy promote exited non-zero: $OUT"
 mapfile -t CALLS < "$LOG"
-[ "${#CALLS[@]}" -eq 5 ] || fail "legacy path expected five wp calls, got ${#CALLS[@]}"
+[ "${#CALLS[@]}" -eq 6 ] || fail "legacy path expected six wp calls, got ${#CALLS[@]}"
 [[ "${CALLS[0]}" == *"duo compile"* ]] || fail "legacy phase 1 was not compile"
 [[ "${CALLS[1]}" == *"duo promotion-begin"* ]] || fail "legacy phase 2 did not acquire checkpoint lease"
 [[ "${CALLS[2]}" == *"db export"* ]] || fail "legacy phase 3 was not checkpoint"
-[[ "${CALLS[3]}" == *"duo deploy"* ]] || fail "legacy phase 4 was not lifecycle deploy"
-[[ "${CALLS[4]}" == *"duo apply"* ]] || fail "legacy phase 5 was not apply"
-[[ "${CALLS[3]}" != *"code-stage"* && "${CALLS[3]}" != *"--materializing-code"* ]] \
-  || fail "legacy lifecycle deploy was incorrectly marked materializing-code"
-assert_begin_matches_mutations "${CALLS[1]}" "${CALLS[3]}" "${CALLS[4]}"
-assert_same_artifact_and_owner "${CALLS[3]}" "${CALLS[4]}"
-[[ "${CALLS[3]}" == *"--promotion-hold"* && "${CALLS[3]}" == *"--state-handoff"* ]] \
-  || fail "legacy deploy did not retain lease with explicit state handoff"
-[[ "${CALLS[3]}" == *"--force-unresolved-refs"* && "${CALLS[4]}" == *"--force-unresolved-refs"* ]] \
+[[ "${CALLS[3]}" == *"duo deploy"*"--lifecycle-phase=retire"* ]] || fail "legacy phase 4 was not lifecycle retirement"
+[[ "${CALLS[4]}" == *"duo deploy"*"--lifecycle-phase=activate"* ]] || fail "legacy phase 5 was not lifecycle activation"
+[[ "${CALLS[5]}" == *"duo apply"* ]] || fail "legacy phase 6 was not apply"
+assert_control_call "${CALLS[0]}" "legacy compile"
+assert_control_call "${CALLS[1]}" "legacy promotion-begin"
+assert_runtime_call "${CALLS[2]}" "legacy checkpoint"
+assert_runtime_call "${CALLS[3]}" "legacy retirement"
+assert_runtime_call "${CALLS[4]}" "legacy activation"
+assert_runtime_call "${CALLS[5]}" "legacy apply"
+[[ "${CALLS[3]}" != *"code-stage"* && "${CALLS[3]}" != *"--materializing-code"* \
+  && "${CALLS[4]}" != *"--materializing-code"* ]] \
+  || fail "legacy lifecycle phases were incorrectly marked materializing-code"
+assert_begin_matches_mutations "${CALLS[1]}" "${CALLS[3]}" "${CALLS[4]}" "${CALLS[5]}"
+assert_same_artifact_and_owner "${CALLS[3]}" "${CALLS[4]}" "${CALLS[5]}"
+[[ "${CALLS[3]}" == *"--promotion-hold"* && "${CALLS[3]}" == *"--state-handoff"* \
+  && "${CALLS[4]}" == *"--promotion-hold"* && "${CALLS[4]}" == *"--state-handoff"* ]] \
+  || fail "legacy lifecycle phases did not retain lease with explicit state handoff"
+[[ "${CALLS[3]}" == *"--force-unresolved-refs"* && "${CALLS[4]}" == *"--force-unresolved-refs"* \
+  && "${CALLS[5]}" == *"--force-unresolved-refs"* ]] \
   || fail "legacy lifecycle/apply did not share unresolved-ref snapshot policy"
-[[ "${CALLS[4]}" != *"--promotion-hold"* ]] || fail "legacy apply was told to retain completed lease"
-[[ "${CALLS[4]}" != *"--state-handoff"* ]] || fail "legacy apply received deploy-only state handoff"
+[[ "${CALLS[5]}" != *"--promotion-hold"* ]] || fail "legacy apply was told to retain completed lease"
+[[ "${CALLS[5]}" != *"--state-handoff"* ]] || fail "legacy apply received deploy-only state handoff"
 assert_checkpoint "$OUT"
-has "$OUT" 'promote complete: deploy -> apply' \
+has "$OUT" 'promote complete: lifecycle-retire -> lifecycle-activate -> apply' \
   || fail "legacy promote success line changed"
 if has "${CALLS[*]}" 'promotion-abort'; then
   fail "successful legacy promotion invoked compensating abort"
 fi
-pass "legacy artifact acquires lease -> checkpoint -> deploy -> apply"
+pass "legacy artifact acquires lease -> checkpoint -> retire -> activate -> apply"
 
 # Code-enabled artifacts add exactly two agent phases, all tied to the same
 # frozen artifact and owner. The lifecycle flag is intentionally scoped only
@@ -230,33 +277,44 @@ pass "legacy artifact acquires lease -> checkpoint -> deploy -> apply"
 run_promote 1 env
 [ "$CODE" -eq 0 ] || fail "code-enabled promote exited non-zero: $OUT"
 mapfile -t CALLS < "$LOG"
-[ "${#CALLS[@]}" -eq 7 ] || fail "code-enabled path expected seven wp calls, got ${#CALLS[@]}"
+[ "${#CALLS[@]}" -eq 8 ] || fail "code-enabled path expected eight wp calls, got ${#CALLS[@]}"
 [[ "${CALLS[0]}" == *"duo compile"* ]] || fail "code path phase 1 was not compile"
 [[ "${CALLS[1]}" == *"duo promotion-begin"* ]] || fail "code path phase 2 did not acquire checkpoint lease"
 [[ "${CALLS[2]}" == *"db export"* ]] || fail "code path phase 3 was not checkpoint"
 [[ "${CALLS[3]}" == *"duo code-stage"* ]] || fail "code path phase 4 was not code-stage"
-[[ "${CALLS[4]}" == *"duo deploy"* ]] || fail "code path phase 5 was not lifecycle deploy"
-[[ "${CALLS[5]}" == *"duo code-finalize"* ]] || fail "code path phase 6 was not code-finalize"
-[[ "${CALLS[6]}" == *"duo apply"* ]] || fail "code path phase 7 was not apply"
-assert_begin_matches_mutations "${CALLS[1]}" "${CALLS[3]}" "${CALLS[4]}" "${CALLS[5]}" "${CALLS[6]}"
-assert_same_artifact_and_owner "${CALLS[3]}" "${CALLS[4]}" "${CALLS[5]}" "${CALLS[6]}"
+[[ "${CALLS[4]}" == *"duo deploy"*"--lifecycle-phase=retire"* ]] || fail "code path phase 5 was not lifecycle retirement"
+[[ "${CALLS[5]}" == *"duo deploy"*"--lifecycle-phase=activate"* ]] || fail "code path phase 6 was not lifecycle activation"
+[[ "${CALLS[6]}" == *"duo code-finalize"* ]] || fail "code path phase 7 was not code-finalize"
+[[ "${CALLS[7]}" == *"duo apply"* ]] || fail "code path phase 8 was not apply"
+assert_control_call "${CALLS[0]}" "code compile"
+assert_control_call "${CALLS[1]}" "code promotion-begin"
+assert_runtime_call "${CALLS[2]}" "code checkpoint"
+assert_control_call "${CALLS[3]}" "code stage"
+assert_runtime_call "${CALLS[4]}" "code retirement"
+assert_runtime_call "${CALLS[5]}" "code activation"
+assert_control_call "${CALLS[6]}" "code finalize"
+assert_runtime_call "${CALLS[7]}" "code apply"
+assert_begin_matches_mutations "${CALLS[1]}" "${CALLS[3]}" "${CALLS[4]}" "${CALLS[5]}" "${CALLS[6]}" "${CALLS[7]}"
+assert_same_artifact_and_owner "${CALLS[3]}" "${CALLS[4]}" "${CALLS[5]}" "${CALLS[6]}" "${CALLS[7]}"
 [[ "${CALLS[3]}" != *"--promotion-hold"* && "${CALLS[3]}" != *"--materializing-code"* ]] \
   || fail "code-stage received lifecycle-only flags"
-[[ "${CALLS[4]}" == *"--promotion-hold"* && "${CALLS[4]}" == *"--materializing-code"* && "${CALLS[4]}" == *"--state-handoff"* ]] \
-  || fail "code lifecycle deploy did not retain lease and mark materialization/state handoff"
-[[ "${CALLS[4]}" == *"--force-unresolved-refs"* && "${CALLS[6]}" == *"--force-unresolved-refs"* ]] \
+[[ "${CALLS[4]}" == *"--promotion-hold"* && "${CALLS[4]}" == *"--materializing-code"* && "${CALLS[4]}" == *"--state-handoff"* \
+  && "${CALLS[5]}" == *"--promotion-hold"* && "${CALLS[5]}" == *"--materializing-code"* && "${CALLS[5]}" == *"--state-handoff"* ]] \
+  || fail "code lifecycle phases did not retain lease and mark materialization/state handoff"
+[[ "${CALLS[4]}" == *"--force-unresolved-refs"* && "${CALLS[5]}" == *"--force-unresolved-refs"* \
+  && "${CALLS[7]}" == *"--force-unresolved-refs"* ]] \
   || fail "code lifecycle/apply did not share unresolved-ref snapshot policy"
-[[ "${CALLS[5]}" == *"--promotion-hold"* && "${CALLS[5]}" != *"--materializing-code"* ]] \
+[[ "${CALLS[6]}" == *"--promotion-hold"* && "${CALLS[6]}" != *"--materializing-code"* ]] \
   || fail "code-finalize did not retain lease cleanly for apply"
-[[ "${CALLS[6]}" != *"--promotion-hold"* && "${CALLS[6]}" != *"--materializing-code"* && "${CALLS[6]}" != *"--state-handoff"* ]] \
+[[ "${CALLS[7]}" != *"--promotion-hold"* && "${CALLS[7]}" != *"--materializing-code"* && "${CALLS[7]}" != *"--state-handoff"* ]] \
   || fail "apply received code/lifecycle-only flags"
 assert_checkpoint "$OUT"
-has "$OUT" 'promote complete: code-stage -> deploy -> code-finalize -> apply' \
+has "$OUT" 'promote complete: code-stage -> lifecycle-retire -> lifecycle-activate -> code-finalize -> apply' \
   || fail "code-enabled promote success line missing complete phase trace"
 if has "${CALLS[*]}" 'promotion-abort'; then
   fail "successful code promotion invoked compensating abort"
 fi
-pass "code artifact sequences begin -> checkpoint -> stage -> lifecycle -> finalize -> apply"
+pass "code artifact sequences begin -> checkpoint -> stage -> retire -> activate -> finalize -> apply"
 
 # A stage failure is after the checkpoint but before every later mutation.
 run_promote 1 env FAKE_STAGE_FAIL=1
@@ -270,24 +328,34 @@ has "$OUT" 'code-stage failed.*later phases were not run' \
 assert_code_recovery_guidance "$OUT"
 pass "code-stage failure aborts the checkpoint lease and gives ordered code recovery"
 
-# Lifecycle failure after a successful stage must never finalize or apply.
-run_promote 1 env FAKE_DEPLOY_FAIL=1
-[ "$CODE" -eq 7 ] || fail "lifecycle deploy failure exit was not propagated (got $CODE)"
+# Retirement failure after a successful stage must never activate/finalize/apply.
+run_promote 1 env FAKE_RETIRE_FAIL=1
+[ "$CODE" -eq 7 ] || fail "lifecycle retirement failure exit was not propagated (got $CODE)"
 mapfile -t CALLS < "$LOG"
-[ "${#CALLS[@]}" -eq 6 ] || fail "finalize/apply or abort boundary were wrong after lifecycle failure"
-[[ "${CALLS[4]}" == *"duo deploy"* ]] || fail "fifth call was not failed lifecycle deploy"
+[ "${#CALLS[@]}" -eq 6 ] || fail "activation/finalize/apply or abort boundary were wrong after retirement failure"
+[[ "${CALLS[4]}" == *"--lifecycle-phase=retire"* ]] || fail "fifth call was not failed lifecycle retirement"
 assert_begin_and_abort "${CALLS[1]}" "${CALLS[5]}"
 assert_code_recovery_guidance "$OUT"
-pass "lifecycle failure stops finalize/apply and aborts the checkpoint lease"
+pass "lifecycle retirement failure stops activation/finalize/apply and aborts the checkpoint lease"
+
+# Activation runs in a fresh process. Its failure is still before finalize/apply.
+run_promote 1 env FAKE_ACTIVATE_FAIL=1
+[ "$CODE" -eq 13 ] || fail "lifecycle activation failure exit was not propagated (got $CODE)"
+mapfile -t CALLS < "$LOG"
+[ "${#CALLS[@]}" -eq 7 ] || fail "finalize/apply or abort boundary were wrong after activation failure"
+[[ "${CALLS[5]}" == *"--lifecycle-phase=activate"* ]] || fail "sixth call was not failed lifecycle activation"
+assert_begin_and_abort "${CALLS[1]}" "${CALLS[6]}"
+assert_code_recovery_guidance "$OUT"
+pass "lifecycle activation failure stops finalize/apply and aborts the checkpoint lease"
 
 # Finalization is still before apply. A failure cannot be reported as a
 # completed promotion simply because lifecycle activation already succeeded.
 run_promote 1 env FAKE_FINALIZE_FAIL=1
 [ "$CODE" -eq 9 ] || fail "code-finalize failure exit was not propagated (got $CODE)"
 mapfile -t CALLS < "$LOG"
-[ "${#CALLS[@]}" -eq 7 ] || fail "apply or abort boundary were wrong after code-finalize failure"
-[[ "${CALLS[5]}" == *"duo code-finalize"* ]] || fail "sixth call was not failed code-finalize"
-assert_begin_and_abort "${CALLS[1]}" "${CALLS[6]}"
+[ "${#CALLS[@]}" -eq 8 ] || fail "apply or abort boundary were wrong after code-finalize failure"
+[[ "${CALLS[6]}" == *"duo code-finalize"* ]] || fail "seventh call was not failed code-finalize"
+assert_begin_and_abort "${CALLS[1]}" "${CALLS[7]}"
 has "$OUT" 'code-finalize failed.*later phases were not run' \
   || fail "code-finalize failure did not name its stop boundary"
 assert_code_recovery_guidance "$OUT"
@@ -299,9 +367,9 @@ pass "code-finalize failure stops apply and aborts the checkpoint lease"
 run_promote 1 env FAKE_APPLY_FAIL=1
 [ "$CODE" -eq 10 ] || fail "apply failure exit was not propagated (got $CODE)"
 mapfile -t CALLS < "$LOG"
-[ "${#CALLS[@]}" -eq 8 ] || fail "unexpected calls around failed apply"
-[[ "${CALLS[6]}" == *"duo apply"* ]] || fail "seventh call was not failed apply"
-assert_begin_and_abort "${CALLS[1]}" "${CALLS[7]}"
+[ "${#CALLS[@]}" -eq 9 ] || fail "unexpected calls around failed apply"
+[[ "${CALLS[7]}" == *"duo apply"* ]] || fail "eighth call was not failed apply"
+assert_begin_and_abort "${CALLS[1]}" "${CALLS[8]}"
 assert_code_recovery_guidance "$OUT"
 pass "code-enabled apply failure aborts the lease and requires ordered code recovery"
 
@@ -310,8 +378,8 @@ pass "code-enabled apply failure aborts the lease and requires ordered code reco
 run_promote 0 env FAKE_APPLY_FAIL=1
 [ "$CODE" -eq 10 ] || fail "legacy apply failure exit was not propagated (got $CODE)"
 mapfile -t CALLS < "$LOG"
-[ "${#CALLS[@]}" -eq 6 ] || fail "legacy apply failure did not run compensating abort"
-assert_begin_and_abort "${CALLS[1]}" "${CALLS[5]}"
+[ "${#CALLS[@]}" -eq 7 ] || fail "legacy apply failure did not run compensating abort"
+assert_begin_and_abort "${CALLS[1]}" "${CALLS[6]}"
 has "$OUT" 'checkpoint contains its temporary promotion lease row' \
   || fail "legacy apply failure omitted checkpoint lease recovery explanation"
 has "$OUT" 'external maintenance/exclusion' \
@@ -341,6 +409,22 @@ if has "${CALLS[*]}" 'promotion-abort'; then
   fail "begin refusal attempted an abort"
 fi
 pass "promotion-begin refusal stops before checkpoint without touching another lease"
+
+# An ambiguous failed hook is another definite protected-session refusal. The
+# new owner must not compensate with its own abort, overwrite the original
+# recovery identity, create a checkpoint, or reach code/lifecycle/apply.
+run_promote 1 env FAKE_BEGIN_FAIL=3
+[ "$CODE" -eq 4 ] || fail "lifecycle-attempt begin refusal exit was not propagated (got $CODE)"
+mapfile -t CALLS < "$LOG"
+[ "${#CALLS[@]}" -eq 2 ] || fail "lifecycle-attempt refusal ran checkpoint, cleanup, or later phases"
+[[ "${CALLS[0]}" == *"duo compile"* && "${CALLS[1]}" == *"duo promotion-begin"* ]] \
+  || fail "lifecycle-attempt refusal did not stop at begin"
+if has "${CALLS[*]}" 'promotion-abort'; then
+  fail "lifecycle-attempt refusal attempted a new-owner abort"
+fi
+has "$OUT" 'target reported a definite protected session; no cleanup was attempted' \
+  || fail "lifecycle-attempt refusal was mislabeled as an uncertain begin"
+pass "unresolved lifecycle attempt preserves the original recovery session before checkpoint"
 
 # A nonzero transport result without a definite competing-lock response may
 # arrive after the agent committed begin. Exact abort cannot remove another
@@ -401,7 +485,7 @@ pass "compile failure occurs before checkpoint and all code/state mutation"
 # No caller may smuggle the host-selected repo, artifact/hash, stage, or lease
 # boundary into promote. In particular, a second --repo would otherwise be
 # appended after the host's own --repo on apply and win wp-cli's assoc parsing.
-for internal in --repo=/tmp/forged --compiled=/tmp/forged.json --artifact-hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --promotion-owner=intruder --promotion-hold --materializing-code --state-handoff; do
+for internal in --repo=/tmp/forged --compiled=/tmp/forged.json --artifact-hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --promotion-owner=intruder --promotion-hold --materializing-code --state-handoff --lifecycle-phase=activate; do
   : > "$LOG"
   if FAKE_CODE_ENABLED=1 "$DUO" --envs-file="$ENVS" promote unit "$internal" >/dev/null 2>&1; then
     fail "promote accepted caller-owned internal flag $internal"

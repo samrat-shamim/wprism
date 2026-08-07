@@ -32,7 +32,11 @@ final class Ledger {
 }
 final class PromotionLock {
     public static bool $reject = true;
+    public static bool $unresolved = false;
+    public static bool $lifecycleComplete = false;
     public static int $acquires = 0;
+    public static int $attemptChecks = 0;
+    public static int $lifecycleCompleteChecks = 0;
     public static int $releases = 0;
     public static array $lastAcquire = [];
     public static function acquire(string $owner, string $artifact, string $phase, ?int $ttl, bool $continuation): array {
@@ -42,6 +46,20 @@ final class PromotionLock {
             throw new \RuntimeException('test: begun owner/artifact session was superseded');
         }
         return ['owner' => $owner, 'artifact_hash' => $artifact, 'phase' => $phase];
+    }
+    public static function assert_no_lifecycle_attempt(string $owner, string $artifact, string $context): void {
+        self::$attemptChecks++;
+        if (self::$unresolved) {
+            throw new \RuntimeException("duo: $context refused — unresolved lifecycle attempt activate");
+        }
+    }
+    public static function assert_lifecycle_complete(string $owner, string $artifact): void {
+        self::$lifecycleCompleteChecks++;
+        if (!self::$lifecycleComplete) {
+            throw new \RuntimeException(
+                'duo: code-finalize refused — this promotion session has not completed lifecycle retirement and fresh-process activation in order'
+            );
+        }
     }
     public static function heartbeat(string $owner, string $artifact, string $phase): void {}
     public static function release(string $owner, string $artifact): void { self::$releases++; }
@@ -93,7 +111,70 @@ if (PromotionLock::$releases !== 0) {
     throw new \RuntimeException('FAIL: mismatched code-stage released the live prior artifact');
 }
 
-echo "ok: code-stage rejects artifact rotation without releasing the live promotion\n";
+// Exact owner/artifact reacquisition exists only for checkpoint recovery. It
+// must not let either materializer phase cross the retained hook receipt.
+PromotionLock::$reject = false;
+PromotionLock::$unresolved = true;
+$ledgerBeforeAttempt = Ledger::$rows;
+$stageAttemptFailure = null;
+try {
+    Code::stage($repo, $compiled, [
+        'artifact_hash' => $artifact,
+        'promotion_owner' => 'unresolved-stage-owner',
+    ]);
+} catch (\Throwable $e) {
+    $stageAttemptFailure = $e->getMessage();
+}
+if ($stageAttemptFailure === null || !str_contains($stageAttemptFailure, 'unresolved lifecycle attempt')) {
+    throw new \RuntimeException('FAIL: code-stage crossed an unresolved lifecycle receipt');
+}
+if (Ledger::$rows !== $ledgerBeforeAttempt || file_exists($target . '/plugins/example/example.php')) {
+    throw new \RuntimeException('FAIL: refused code-stage mutated its ledger or target payload');
+}
+
+Ledger::$rows = [Code::CODE_STAGE_REVISION_KEY => $descriptor['code_revision']];
+$ledgerBeforeFinalizeAttempt = Ledger::$rows;
+$finalizeAttemptFailure = null;
+try {
+    Code::finalize($repo, $compiled, [
+        'artifact_hash' => $artifact,
+        'promotion_owner' => 'unresolved-finalize-owner',
+    ]);
+} catch (\Throwable $e) {
+    $finalizeAttemptFailure = $e->getMessage();
+}
+if ($finalizeAttemptFailure === null || !str_contains($finalizeAttemptFailure, 'unresolved lifecycle attempt')) {
+    throw new \RuntimeException('FAIL: code-finalize crossed an unresolved lifecycle receipt');
+}
+if (Ledger::$rows !== $ledgerBeforeFinalizeAttempt || file_exists($target . '/plugins/example/example.php')) {
+    throw new \RuntimeException('FAIL: refused code-finalize mutated its ledger or target payload');
+}
+if (PromotionLock::$attemptChecks !== 2) {
+    throw new \RuntimeException('FAIL: materializer phases did not check the lifecycle receipt exactly once each');
+}
+
+PromotionLock::$unresolved = false;
+$ledgerBeforeUnsequencedFinalize = Ledger::$rows;
+$unsequencedFinalizeFailure = null;
+try {
+    Code::finalize($repo, $compiled, [
+        'artifact_hash' => $artifact,
+        'promotion_owner' => 'unsequenced-finalize-owner',
+    ]);
+} catch (\Throwable $e) {
+    $unsequencedFinalizeFailure = $e->getMessage();
+}
+if ($unsequencedFinalizeFailure === null || !str_contains($unsequencedFinalizeFailure, 'has not completed lifecycle retirement')) {
+    throw new \RuntimeException('FAIL: code-finalize accepted stage without ordered lifecycle receipts');
+}
+if (Ledger::$rows !== $ledgerBeforeUnsequencedFinalize || file_exists($target . '/plugins/example/example.php')) {
+    throw new \RuntimeException('FAIL: unsequenced code-finalize mutated its ledger or target payload');
+}
+if (PromotionLock::$lifecycleCompleteChecks !== 1) {
+    throw new \RuntimeException('FAIL: code-finalize did not require one positive lifecycle completion proof');
+}
+
+echo "ok: stage/finalize reject wrong sessions, unresolved hooks, and missing lifecycle proof\n";
 
 // A descriptor that fails the whole-target preflight has written no bytes and
 // must not become future deletion authority. In particular, merely declaring
@@ -120,6 +201,7 @@ file_put_contents($target . '/plugins/z-conflict/z.php/keep.txt', 'operator dire
 
 Ledger::$rows = [];
 PromotionLock::$reject = false;
+PromotionLock::$unresolved = false;
 $candidate = Code::descriptor_from_source($repo . '/code/wp-content');
 $candidateCompiled = new CompiledRepository($candidate, $artifact);
 $preflightFailure = null;

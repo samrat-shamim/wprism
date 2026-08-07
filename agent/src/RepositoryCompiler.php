@@ -194,14 +194,21 @@ final class RepositoryCompiler {
     // coverage later, the entire premise of DUO-3257) impossible — verified
     // live: every required-option-missing name across 13-17 diagnostics
     // was a genuinely NEW authored-exact option the previous revision had
-    // never seen, not a hole in an already-known one. $completenessOptional
-    // narrows the fix to exactly that one check (the "every required name
-    // needs some record" gate in parse_entity()'s options branch) — every
-    // OTHER validation in this class (malformed JSON, invalid record
-    // shapes, illegitimate tombstones, conflict markers, identity
-    // uniqueness, media integrity, everything else) stays fully active
-    // regardless, so a genuinely corrupted historical revision is still
-    // caught exactly as before.
+    // never seen, not a hole in an already-known one. That can include the
+    // code declaration itself: a historical state-only revision necessarily
+    // has no explicit lifecycle intent for the current code payload. A
+    // descriptor needs that intent only when an artifact can be staged,
+    // finalized, or applied; a comparison artifact never gets that authority.
+    //
+    // $completenessOptional therefore narrows historical comparison mode to
+    // two current-action checks: the "every required name needs some record"
+    // gate in parse_entity()'s options branch, and the CodeStateContract
+    // lifecycle bridge below. It does NOT skip Code::compile() itself, so
+    // current code config/source/descriptor validation, malformed JSON,
+    // invalid record shapes, illegitimate tombstones, conflict markers,
+    // identity uniqueness, media integrity, and every other historical
+    // validation stay fully active. A genuinely corrupted historical
+    // revision is still caught exactly as before.
     private bool $completenessOptional;
     /** @var array<int,array<string,mixed>> */
     private array $diagnostics = [];
@@ -291,6 +298,21 @@ final class RepositoryCompiler {
                     : 'active site policy is legacy/state-only but this artifact unexpectedly contains a code descriptor'
             );
         }
+        if ($artifactHasCode) {
+            if (!class_exists(CodeStateContract::class)) {
+                throw self::artifact_exception(
+                    'compiled_artifact_code_state_contract_unavailable', $path,
+                    'code/state bridge support is not loaded'
+                );
+            }
+            try {
+                CodeStateContract::validate($artifact, (array) $artifact->code_descriptor());
+            } catch (\Throwable $t) {
+                throw self::artifact_exception(
+                    'compiled_artifact_code_state_mismatch', $path, $t->getMessage()
+                );
+            }
+        }
         // Artifact consumers need the identical repository-derived schema
         // facts compilation used; never let a loaded artifact make ACF (or
         // a future interpreter) fall back to target-only rows during apply.
@@ -307,6 +329,21 @@ final class RepositoryCompiler {
 
     public static function site_hash(Policy $policy): string {
         return hash('sha256', Canon::encode($policy->site));
+    }
+
+    /**
+     * Identity of the site policy that can affect canonical state.
+     *
+     * The top-level code declaration selects the independent code payload
+     * compiler/materializer. The complete declaration remains bound by
+     * site_hash() and therefore by the outer compiled artifact, but it must
+     * not move revision_hash: enabling or disabling identical code bytes is
+     * not a canonical database-state change.
+     */
+    public static function state_site_hash(Policy $policy): string {
+        $site = $policy->site;
+        unset($site['code']);
+        return hash('sha256', Canon::encode($site));
     }
 
     /**
@@ -494,7 +531,12 @@ final class RepositoryCompiler {
         $this->validate_natural_identities($tree);
         $this->validate_graph($tree);
         $this->validate_portable_shapes($tree);
-        if ($codeDescriptor !== null) {
+        // A comparison revision may predate code opt-in. Keep compiling and
+        // validating the current descriptor above, but do not require this
+        // non-action artifact to express the lifecycle intent needed to
+        // authorize stage/finalize/apply. compile() and compile_staged()
+        // remain strict because they construct actionable artifacts.
+        if ($codeDescriptor !== null && !$this->completenessOptional) {
             if (!class_exists(CodeStateContract::class)) {
                 $this->add('code_state_contract_unavailable', 'code', '', 'code/state bridge support is not loaded');
             } else {
@@ -524,9 +566,13 @@ final class RepositoryCompiler {
         ksort($this->media, SORT_STRING);
         ksort($this->mediaCatalog, SORT_STRING);
         $siteHash = self::site_hash($this->policy);
+        $stateSiteHash = self::state_site_hash($this->policy);
         $manifestHash = self::manifest_hash($this->policy);
         $revisionInputs = [
-            'site_hash' => $siteHash,
+            // Keep the historical input key so state-only repositories retain
+            // their exact revision identity. Its value excludes only the
+            // separate top-level code declaration.
+            'site_hash' => $stateSiteHash,
             'manifest_hash' => $manifestHash,
             'sources' => $sourceRows,
             'media' => $this->mediaCatalog,

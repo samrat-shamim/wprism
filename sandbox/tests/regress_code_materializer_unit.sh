@@ -50,6 +50,13 @@ register_shutdown_function(static function () use ($tmp, $target): void {
 
 $prior = descriptor_materializer($tmp . '/a', 'old', 'v1');
 $current = descriptor_materializer($tmp . '/b', 'new', 'v2');
+// A target promoted before theme_templates existed retains this exact v1
+// descriptor in completed/history. A newly compiled descriptor must still be
+// able to use that bounded old ownership to prune only old/ during finalize.
+$legacyPrior = $prior;
+unset($legacyPrior['theme_templates'], $legacyPrior['code_revision']);
+$legacyPrior['code_revision'] = Code::revision_for($legacyPrior);
+Code::assert_descriptor($legacyPrior);
 
 // Simulate a failed stage that introduced old/ and left partial files, then
 // a repaired stage whose desired payload is only new/.  History retains the
@@ -62,7 +69,7 @@ put_materializer($target . '/plugins/sibling/keep.php', 'unmanaged sibling');
 
 $method = new ReflectionMethod(Code::class, 'remove_old_owned_files');
 $method->setAccessible(true);
-$removed = $method->invoke(null, null, $current, [$prior], $current);
+$removed = $method->invoke(null, null, $current, [$legacyPrior], $current);
 
 foreach (['plugins/old/old.php', 'plugins/old/orphan.php', 'plugins/new/orphan.php'] as $path) {
     if (file_exists($target . '/' . $path)) { fail_materializer("failed-stage extra survived: $path"); }
@@ -129,7 +136,7 @@ put_materializer($target . '/plugins/payload/zz-conflict.php/keep.txt', 'operato
 $materialize = new ReflectionMethod(Code::class, 'materialize_payload');
 $materialize->setAccessible(true);
 try {
-    $materialize->invoke(null, $payloadRepo, $payloadCurrent, $payloadPrior, null, []);
+    $materialize->invoke(null, $payloadRepo, $payloadCurrent, $payloadPrior, null, [], []);
     fail_materializer('late payload type conflict was accepted');
 } catch (Throwable $e) {
     if (!str_contains($e->getMessage(), "target path is not a regular file 'plugins/payload/zz-conflict.php'")) {
@@ -164,6 +171,92 @@ if (file_get_contents($target . '/plugins/preflight/preflight.php') !== $ownedMa
     fail_materializer('removal preflight deleted an earlier owned file');
 }
 
+// A fully staged top-level user MU plugin can fatal before lifecycle/finalize
+// boots. A reviewed retry may remove that exact abandoned staged-only byte so
+// WordPress can start again. Completed code and staged-only regular plugins
+// remain executable for the fresh lifecycle retirement boundary.
+$recoveryPreviousSource = $tmp . '/recovery-previous';
+$recoveryStagedSource = $tmp . '/recovery-staged';
+$recoveryCurrentSource = $tmp . '/recovery-current';
+put_materializer(
+    $recoveryPreviousSource . '/plugins/completed/completed.php',
+    "<?php\n/*\nPlugin Name: completed\n*/\ncompleted"
+);
+put_materializer(
+    $recoveryStagedSource . '/plugins/completed/completed.php',
+    "<?php\n/*\nPlugin Name: completed\n*/\ncompleted"
+);
+put_materializer(
+    $recoveryStagedSource . '/plugins/staged-regular/staged-regular.php',
+    "<?php\n/*\nPlugin Name: staged-regular\n*/\nstaged"
+);
+put_materializer(
+    $recoveryStagedSource . '/mu-plugins/fatal-user.php',
+    "<?php\nthrow new RuntimeException('staged fatal');\n"
+);
+put_materializer(
+    $recoveryCurrentSource . '/plugins/current/current.php',
+    "<?php\n/*\nPlugin Name: current\n*/\ncurrent"
+);
+$recoveryPrevious = Code::descriptor_from_source($recoveryPreviousSource);
+$recoveryStaged = Code::descriptor_from_source($recoveryStagedSource);
+$recoveryCurrent = Code::descriptor_from_source($recoveryCurrentSource);
+foreach ($recoveryStaged['files'] as $row) {
+    put_materializer(
+        $target . '/' . $row['path'],
+        file_get_contents($recoveryStagedSource . '/' . $row['path'])
+    );
+}
+$recoverAbandoned = new ReflectionMethod(Code::class, 'remove_abandoned_staged_mu_files');
+$recoverAbandoned->setAccessible(true);
+$unproven = $recoverAbandoned->invoke(
+    null,
+    $recoveryPrevious,
+    $recoveryStaged,
+    $recoveryCurrent,
+    []
+);
+if ($unproven !== [] || !is_file($target . '/mu-plugins/fatal-user.php')) {
+    fail_materializer('staged hash alone granted deletion authority over a pre-existing MU path');
+}
+$recovered = $recoverAbandoned->invoke(
+    null,
+    $recoveryPrevious,
+    $recoveryStaged,
+    $recoveryCurrent,
+    ['mu-plugins/fatal-user.php']
+);
+if ($recovered !== ['mu-plugins/fatal-user.php']) {
+    fail_materializer('abandoned MU recovery returned the wrong exact inventory: ' . json_encode($recovered));
+}
+if (file_exists($target . '/mu-plugins/fatal-user.php')) {
+    fail_materializer('exact abandoned staged-only MU file survived recovery');
+}
+foreach (['plugins/completed/completed.php', 'plugins/staged-regular/staged-regular.php'] as $path) {
+    if (!is_file($target . '/' . $path)) {
+        fail_materializer("abandoned MU recovery crossed the lifecycle boundary at $path");
+    }
+}
+
+put_materializer($target . '/mu-plugins/fatal-user.php', "<?php\n// operator changed\n");
+try {
+    $recoverAbandoned->invoke(
+        null,
+        $recoveryPrevious,
+        $recoveryStaged,
+        $recoveryCurrent,
+        ['mu-plugins/fatal-user.php']
+    );
+    fail_materializer('changed abandoned staged MU file was removed');
+} catch (Throwable $e) {
+    if (!str_contains($e->getMessage(), "refuses changed abandoned staged MU file 'mu-plugins/fatal-user.php'")) {
+        fail_materializer('changed abandoned MU refusal was unclear: ' . $e->getMessage());
+    }
+}
+if (file_get_contents($target . '/mu-plugins/fatal-user.php') !== "<?php\n// operator changed\n") {
+    fail_materializer('changed abandoned staged MU file was mutated');
+}
+
 // Custom WP_PLUGIN_DIR would make the standard payload inert; fail before a
 // stage can mutate anything.
 $layout = new ReflectionMethod(Code::class, 'assert_target_layout');
@@ -178,5 +271,5 @@ try {
 }
 $layout->invoke(null, ['owned_roots' => ['mu-plugins/bootstrap.php']]);
 
-echo "ok: materialization preflights known conflicts before mutation, prunes recorded roots, preserves siblings/type replacements, and rejects custom roots\n";
+echo "ok: materialization preflights conflicts, prunes recorded roots, preserves siblings, and limits staged-MU recovery to created-path provenance\n";
 PHP

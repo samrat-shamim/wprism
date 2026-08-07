@@ -321,7 +321,8 @@ it wasn't, add it back to active_plugins.
 the explicit `--force-code-mismatch` escape hatch. `code_revision_stale` is
 different: it is the code-before-state ordering witness for a code-enabled
 artifact, so `duo apply` always refuses it. The only recovery is the host
-`duo deploy <env>` workflow, which stages, reconciles, verifies, and finalizes
+`duo deploy <env>` workflow, which stages, retires and activates in separate
+fresh WordPress processes, verifies, and finalizes
 the exact descriptor. Neither `--force-code-mismatch` nor
 `--force-code-drift` may cross this boundary.
 
@@ -334,20 +335,36 @@ duo deploy <env>              duo apply <env>
 ─────────────────────    →    ────────────────────────
 1. materialize code/          (existing, unchanged)
    (composer/rsync, §2)       three-way plan → canary
-2. reconcile active_plugins/  armed → hook-free direct
-   template/stylesheet         SQL for posts/terms/
-   via activate_plugin()/      menus/remaining options
-   deactivate_plugins()/       → rebuild pass → canary
-   switch_theme() — hooks      disarmed
+2. retire outgoing plugins    armed → hook-free direct
+   in reverse dependency      SQL for posts/terms/
+   order in one process       menus/remaining options
+3. start a fresh process      → rebuild pass → canary
+   and reconcile additions,   disarmed
+   active_plugins order,
+   template/stylesheet via
+   activate_plugin()/
+   deactivate_plugins()/
+   switch_theme() — hooks
    FIRE deliberately here.
    NOT canary-armed.
-3. plugin/theme migrations
+4. plugin/theme migrations
    run as a side effect of
-   step 2 (§4) — Duo does
+   steps 2–3 (§4) — Duo does
    not drive these directly.
 ```
 
 `duo apply`'s canary (`agent/src/Canary.php`) keeps meaning exactly what it means today — zero content-CRUD hooks, zero mail, zero HTTP during the state-materialization window (§6 makes this a hard constraint, not just a description). `duo deploy` is a separate window where hooks are not just tolerated but required, and it never touches posts/terms/menus/content options. A distinct reporting-only observer records deploy-window mail/HTTP attempts without blocking them or weakening apply's hard canary. Running deploy before apply (enforced by lifecycle rows in §3.2's `code_mismatch` block, and composed by host-level `duo promote`) is what makes DESIGN.md's "merge code first, run migrations, then merge state" ordering happen at the tooling level rather than being a discipline operators have to remember unassisted.
+
+That separation also needs a boundary before the hook, not only after it. A
+WordPress activation/deactivation/theme hook can commit an authored option and
+then throw. Deploy therefore records a durable pre-hook attempt in the exact
+promotion session before entering each mutating lifecycle phase. Success
+consumes it atomically with the canonical handoff. Failure leaves it unresolved,
+blocking every materializer/lifecycle/apply continuation and every different
+owner/artifact until the retained pre-lifecycle checkpoint and known
+pre-promotion code revision are restored. Plan/status exposes the receipt as a
+non-forceable `incomplete_lifecycle` finding. This remains mandatory on a first
+sync where no three-way base exists.
 
 On DESIGN.md §4's *"Env orchestration — none owned in v1 (host-agnostic)"*: `duo deploy` doesn't contradict this. It materializes files onto (and reconciles plugin state within) an environment the operator has already provisioned and pointed a webserver at — precisely parallel to how `duo apply` already materializes rows into a database the operator already provisioned. Neither verb creates infrastructure, manages DNS/TLS, or owns webserver config; both assume an already-running target. Same non-goal boundary as today, extended to cover code the same way it already covers state.
 
@@ -601,6 +618,15 @@ session and carry the host-observed outer artifact hash. Each mutation process
 holds a connection-scoped database advisory fence across long hooks and
 filesystem walks. Manual checkpoint import still requires external maintenance
 exclusion because importing the database can replace any lock row stored in it.
+The two fresh lifecycle processes publish ordered positive phase receipts—even
+for no-op phases—and code-finalize requires both. Absence of an unresolved hook
+attempt is therefore not mistaken for proof that lifecycle was ever run.
+Each mutating lifecycle phase first stores a pre-hook ambiguity receipt in that
+same exact session. A different begin cannot overwrite it; only the original
+owner/artifact can temporarily reacquire for the documented checkpoint import,
+and stage/finalize/lifecycle/apply remain blocked until that import restores the
+pre-hook row. Status remains non-zero with an `INCOMPLETE_LIFECYCLE` section
+throughout that interval.
 Finalize's completed descriptor/revision and all temporary stage-marker deletes
 form one database transaction, leaving the complete staged record retryable if
 any statement or commit fails rather than exposing a partially-cleared ledger.
@@ -608,5 +634,12 @@ The fresh-process canonical convergence verifier likewise receives temporary
 snapshots of the locked in-memory policy and compiled artifact, hash-validates
 their association, and never reopens a checkout that may move after locked
 preflight.
+
+The fatal-safe host control bootstrap is registered at WP-CLI's
+`after_wp_config_load` boundary. The current v0 implementation proves and
+requires the standard content/MU paths and refuses explicit `WPMU_PLUGIN_DIR`
+or `SUNRISE` before compiler/target mutation. Supporting custom WordPress or
+Bedrock layouts remains an explicit agent-locator/layout-contract milestone;
+it must not be implemented by guessing around configured bootstrap code.
 
 Two operational findings from the spike worth carrying forward: (1) docker nested bind mounts pin their source directory at container-create time (`rprivate`) — author `code/` before creating the long-lived containers, and `--force-recreate` them after any rm-and-recreate of the mount source; in-place content changes propagate live. (2) Recovering from "code removed while still active" cannot use `wp plugin deactivate`/wp-admin (both validate the plugin on disk) — reconcile via canonical from an environment that still has the code, or direct `active_plugins` option surgery as last resort.

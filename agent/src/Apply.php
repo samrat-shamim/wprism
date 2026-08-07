@@ -113,6 +113,7 @@ final class Apply {
             'conflict' => [], 'adopt' => [], 'collision' => [], 'delete' => [],
             'delete_conflict' => [], 'deleted' => [],
             'code_mismatch' => [], 'code_drift' => [], 'incomplete_apply' => [],
+            'incomplete_lifecycle' => [],
             'missing_user' => [], 'skipped_user_meta' => [],
         ];
         $collisionCache = [];
@@ -356,6 +357,18 @@ final class Apply {
         // see Deploy::code_drift()'s own docblock for why it's a distinct
         // question (out-of-band version change vs. compatibility range).
         $plan['code_drift'] = Deploy::code_drift($this->policy, $desired);
+
+        // A failed hook can commit canonical option writes before WordPress
+        // reports failure. Its pre-hook receipt survives lease cleanup and is
+        // intentionally non-forceable, so a read-only plan/status must expose
+        // the recovery requirement even when no promotion continuation is
+        // currently active.
+        $incompleteLifecycle = PromotionLock::incomplete_lifecycle();
+        if ($incompleteLifecycle !== null) {
+            $plan['incomplete_lifecycle'][] = $incompleteLifecycle + [
+                'reason' => 'unresolved lifecycle hook attempt; restore the exact pre-lifecycle database checkpoint before retrying',
+            ];
+        }
 
         // A prior apply that committed authored rows but failed a required
         // rebuild deliberately left this marker. The live canonical hash can
@@ -898,6 +911,11 @@ final class Apply {
             if (!hash_equals($promotionArtifact, $lockedCompiled->artifact_hash())) {
                 throw new \RuntimeException('duo: compiled artifact changed before locked apply');
             }
+            PromotionLock::assert_no_lifecycle_attempt(
+                $promotionOwner,
+                $promotionArtifact,
+                'apply'
+            );
             $a = new self($repo, $lockedPolicy, $lockedCompiled);
             $a->promotionOwner = $promotionOwner;
             $a->promotionArtifact = $promotionArtifact;

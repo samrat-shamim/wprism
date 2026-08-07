@@ -56,6 +56,26 @@ final class PromotionLock {
             $ttl = self::ttl($ttl);
             $now = time();
             $before = self::current();
+            $preserveRecoverySession = false;
+            if (!$requireExisting) {
+                $existingSession = self::current_session();
+                $attempt = self::session_lifecycle_attempt($existingSession);
+                if ($attempt !== null) {
+                    if (!is_array($existingSession)
+                        || !hash_equals($owner, (string) ($existingSession['owner'] ?? ''))
+                        || !hash_equals($artifactHash, (string) ($existingSession['artifact_hash'] ?? ''))) {
+                        throw new \RuntimeException(
+                            'duo: unresolved lifecycle attempt blocks a new promotion session; restore the exact pre-lifecycle database checkpoint using its original owner/artifact recovery commands'
+                        );
+                    }
+                    // The exact original owner/artifact may reacquire only so
+                    // the documented checkpoint-import sequence can run. Do
+                    // not erase or rewrite the ambiguity receipt here; every
+                    // lifecycle/apply continuation remains blocked until the
+                    // database import restores the pre-hook session row.
+                    $preserveRecoverySession = true;
+                }
+            }
             if ($requireExisting) {
                 $session = self::current_session();
                 if ($session === null
@@ -130,7 +150,7 @@ final class PromotionLock {
                 && (string) ($before['owner'] ?? '') !== $owner;
             self::$leaseSessionOwner = $owner;
             self::$leaseSessionArtifact = $artifactHash;
-            if (!$requireExisting) {
+            if (!$requireExisting && !$preserveRecoverySession) {
                 Ledger::kv_set(self::SESSION_KEY, wp_json_encode([
                     'owner' => $owner,
                     'artifact_hash' => $artifactHash,
@@ -214,12 +234,341 @@ final class PromotionLock {
             || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))) {
             throw new \RuntimeException('duo: lifecycle state transition lost its promotion session');
         }
+        $session = self::consume_lifecycle_attempt(
+            $session,
+            $entity,
+            ['all', 'activate'],
+            $beforeHash,
+            !hash_equals($beforeHash, $afterHash)
+        );
         $session['state_transition'] = [
             'entity' => $entity,
             'before_hash' => $beforeHash,
             'after_hash' => $afterHash,
         ];
         Ledger::kv_set(self::SESSION_KEY, wp_json_encode($session));
+    }
+
+    /**
+     * Begin a state handoff which spans more than one fresh WordPress
+     * process.  Retirement hooks run with the outgoing plugins loaded;
+     * replacement activation must run in a later process where those PHP
+     * symbols are gone.  Apply must not see an authorization witness between
+     * those phases, so the first leg is persisted under a distinct pending
+     * key inside the exact promotion session.
+     */
+    public static function begin_state_transition(
+        string $owner,
+        string $artifactHash,
+        string $entity,
+        string $beforeHash,
+        string $afterHash
+    ): void {
+        self::assert_identity($owner, $artifactHash);
+        self::assert_state_transition($entity, $beforeHash, $afterHash);
+        $session = self::transition_session($owner, $artifactHash);
+        $pending = $session['pending_state_transition'] ?? null;
+        if ($pending !== null) {
+            if (!is_array($pending)) {
+                throw new \RuntimeException('duo: malformed pending lifecycle state transition');
+            }
+            self::assert_state_transition(
+                (string) ($pending['entity'] ?? ''),
+                (string) ($pending['before_hash'] ?? ''),
+                (string) ($pending['after_hash'] ?? '')
+            );
+            if (hash_equals($entity, (string) $pending['entity'])
+                && hash_equals($beforeHash, (string) $pending['before_hash'])
+                && hash_equals($afterHash, (string) $pending['after_hash'])) {
+                // A process may die after retirement published its receipt but
+                // before the host launches activation. Replaying the exact
+                // retire leg is a successful no-op; never rewrite H0->H1 as
+                // the retry process's already-retired H1->H1 snapshot.
+                return;
+            }
+            throw new \RuntimeException(
+                'duo: lifecycle retirement already has a different pending state transition; refusing replacement'
+            );
+        }
+        $session = self::consume_lifecycle_attempt(
+            $session,
+            $entity,
+            ['retire'],
+            $beforeHash,
+            !hash_equals($beforeHash, $afterHash)
+        );
+        $session['pending_state_transition'] = [
+            'entity' => $entity,
+            'before_hash' => $beforeHash,
+            'after_hash' => $afterHash,
+        ];
+        unset($session['state_transition']);
+        Ledger::kv_set(self::SESSION_KEY, wp_json_encode($session));
+    }
+
+    /**
+     * Complete a cross-process state handoff.  The activation process must
+     * start from the exact hash retirement published; otherwise a bootstrap
+     * hook or external edit occurred between phases and the entity-wide
+     * comparison witness is refused.
+     */
+    public static function complete_state_transition(
+        string $owner,
+        string $artifactHash,
+        string $entity,
+        string $beforeHash,
+        string $afterHash
+    ): void {
+        self::assert_identity($owner, $artifactHash);
+        self::assert_state_transition($entity, $beforeHash, $afterHash);
+        $session = self::transition_session($owner, $artifactHash);
+        $pending = $session['pending_state_transition'] ?? null;
+        if (!is_array($pending)) {
+            throw new \RuntimeException(
+                'duo: lifecycle activation has no pending retirement state transition'
+            );
+        }
+        self::assert_state_transition(
+            (string) ($pending['entity'] ?? ''),
+            (string) ($pending['before_hash'] ?? ''),
+            (string) ($pending['after_hash'] ?? '')
+        );
+        if (!hash_equals($entity, (string) $pending['entity'])
+            || !hash_equals($beforeHash, (string) $pending['after_hash'])) {
+            throw new \RuntimeException(
+                'duo: lifecycle state changed between retirement and activation; refusing three-way bypass'
+            );
+        }
+        $session = self::consume_lifecycle_attempt(
+            $session,
+            $entity,
+            ['activate'],
+            $beforeHash,
+            !hash_equals($beforeHash, $afterHash)
+        );
+        $session['state_transition'] = [
+            'entity' => $entity,
+            'before_hash' => (string) $pending['before_hash'],
+            'after_hash' => $afterHash,
+        ];
+        unset($session['pending_state_transition']);
+        Ledger::kv_set(self::SESSION_KEY, wp_json_encode($session));
+    }
+
+    /**
+     * Persist the pre-hook boundary before any lifecycle API can mutate the
+     * shared options/core entity. An exception, fatal, timeout, or process
+     * loss deliberately leaves this row inside promotion_session. A different
+     * promotion owner may not replace it; only the exact original checkpoint
+     * (which predates this write) clears the ambiguity safely.
+     */
+    public static function begin_lifecycle_attempt(
+        string $owner,
+        string $artifactHash,
+        string $entity,
+        string $phase,
+        string $beforeHash
+    ): void {
+        self::assert_identity($owner, $artifactHash);
+        self::assert_state_transition($entity, $beforeHash, $beforeHash);
+        if (!in_array($phase, ['all', 'retire', 'activate'], true)) {
+            throw new \RuntimeException("duo: unsupported lifecycle attempt phase '$phase'");
+        }
+        $session = self::transition_session($owner, $artifactHash);
+        if (self::session_lifecycle_attempt($session) !== null) {
+            throw new \RuntimeException(
+                'duo: unresolved lifecycle attempt must be recovered before another hook window can start'
+            );
+        }
+        $session['lifecycle_attempt'] = [
+            'entity' => $entity,
+            'phase' => $phase,
+            'before_hash' => $beforeHash,
+        ];
+        Ledger::kv_set(self::SESSION_KEY, wp_json_encode($session));
+    }
+
+    /** Clear a successful non-handoff deploy attempt in the same session row. */
+    public static function complete_lifecycle_attempt(
+        string $owner,
+        string $artifactHash,
+        string $entity,
+        string $phase,
+        string $beforeHash,
+        string $afterHash
+    ): void {
+        self::assert_identity($owner, $artifactHash);
+        self::assert_state_transition($entity, $beforeHash, $afterHash);
+        $session = self::transition_session($owner, $artifactHash);
+        $session = self::consume_lifecycle_attempt(
+            $session,
+            $entity,
+            [$phase],
+            $beforeHash,
+            true
+        );
+        Ledger::kv_set(self::SESSION_KEY, wp_json_encode($session));
+    }
+
+    /** Apply and lifecycle continuations may never cross an ambiguous hook. */
+    public static function assert_no_lifecycle_attempt(
+        string $owner,
+        string $artifactHash,
+        string $context
+    ): void {
+        self::assert_identity($owner, $artifactHash);
+        $session = self::transition_session($owner, $artifactHash);
+        $attempt = self::session_lifecycle_attempt($session);
+        if ($attempt === null) {
+            return;
+        }
+        throw new \RuntimeException(
+            "duo: $context refused — unresolved lifecycle attempt {$attempt['phase']} for {$attempt['entity']} "
+            . "started at {$attempt['before_hash']}; restore the exact pre-lifecycle database checkpoint before retrying"
+        );
+    }
+
+    /**
+     * Read-only status surface for an ambiguous hook window. Unlike a live
+     * lease, this receipt deliberately survives abort and expiry; operators
+     * must therefore see it even when no continuation owner is available.
+     *
+     * @return array{owner:string,artifact_hash:string,entity:string,phase:string,before_hash:string}|null
+     */
+    public static function incomplete_lifecycle(): ?array {
+        $session = self::current_session();
+        $attempt = self::session_lifecycle_attempt($session);
+        if ($attempt === null || $session === null) {
+            return null;
+        }
+        $owner = (string) $session['owner'];
+        $artifact = (string) $session['artifact_hash'];
+        self::assert_identity($owner, $artifact);
+        return [
+            'owner' => $owner,
+            'artifact_hash' => $artifact,
+            'entity' => $attempt['entity'],
+            'phase' => $attempt['phase'],
+            'before_hash' => $attempt['before_hash'],
+        ];
+    }
+
+    /**
+     * Prove the host is entering the ordered fresh-process lifecycle sequence.
+     * A completed phase may be replayed idempotently after transport loss, but
+     * activation may never run before this exact session completed retirement.
+     */
+    public static function assert_lifecycle_phase_start(
+        string $owner,
+        string $artifactHash,
+        string $phase
+    ): void {
+        self::assert_identity($owner, $artifactHash);
+        if (!in_array($phase, ['retire', 'activate'], true)) {
+            throw new \RuntimeException("duo: unsupported ordered lifecycle phase '$phase'");
+        }
+        $session = self::transition_session($owner, $artifactHash);
+        $completed = self::session_lifecycle_phases($session);
+        if ($phase === 'retire' && ($completed === [] || $completed === ['retire'])) {
+            return;
+        }
+        if ($phase === 'activate'
+            && ($completed === ['retire'] || $completed === ['retire', 'activate'])) {
+            return;
+        }
+        throw new \RuntimeException(
+            "duo: lifecycle phase '$phase' is out of order for this promotion session; "
+            . 'run host retirement then fresh-process activation'
+        );
+    }
+
+    /** Record one successful phase, including a verified no-op phase. */
+    public static function complete_lifecycle_phase(
+        string $owner,
+        string $artifactHash,
+        string $phase
+    ): void {
+        self::assert_lifecycle_phase_start($owner, $artifactHash, $phase);
+        $session = self::transition_session($owner, $artifactHash);
+        if (self::session_lifecycle_attempt($session) !== null) {
+            throw new \RuntimeException(
+                "duo: lifecycle phase '$phase' cannot complete with an unresolved hook attempt"
+            );
+        }
+        $completed = self::session_lifecycle_phases($session);
+        if (($phase === 'retire' && $completed === ['retire'])
+            || ($phase === 'activate' && $completed === ['retire', 'activate'])) {
+            return;
+        }
+        $session['lifecycle_phases'] = $phase === 'retire'
+            ? ['retire']
+            : ['retire', 'activate'];
+        Ledger::kv_set(self::SESSION_KEY, wp_json_encode($session));
+    }
+
+    /** Code completion requires both successful fresh-process lifecycle legs. */
+    public static function assert_lifecycle_complete(string $owner, string $artifactHash): void {
+        self::assert_identity($owner, $artifactHash);
+        $session = self::transition_session($owner, $artifactHash);
+        if (self::session_lifecycle_phases($session) !== ['retire', 'activate']) {
+            throw new \RuntimeException(
+                'duo: code-finalize refused — this promotion session has not completed lifecycle retirement '
+                . 'and fresh-process activation in order'
+            );
+        }
+    }
+
+    public static function has_pending_state_transition(
+        string $owner,
+        string $artifactHash,
+        string $entity
+    ): bool {
+        self::assert_identity($owner, $artifactHash);
+        $session = self::current_session();
+        if ($session === null
+            || !hash_equals($owner, (string) ($session['owner'] ?? ''))
+            || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))) {
+            return false;
+        }
+        $pending = $session['pending_state_transition'] ?? null;
+        if ($pending === null) {
+            return false;
+        }
+        if (!is_array($pending)) {
+            throw new \RuntimeException('duo: malformed pending lifecycle state transition');
+        }
+        self::assert_state_transition(
+            (string) ($pending['entity'] ?? ''),
+            (string) ($pending['before_hash'] ?? ''),
+            (string) ($pending['after_hash'] ?? '')
+        );
+        return hash_equals($entity, (string) $pending['entity']);
+    }
+
+    /**
+     * Check the inter-process boundary before activation fires any hooks.
+     * Returns false when retirement did not open a handoff (for example an
+     * activation-only change discovered in this process).
+     */
+    public static function assert_pending_state_transition_start(
+        string $owner,
+        string $artifactHash,
+        string $entity,
+        string $currentHash
+    ): bool {
+        self::assert_state_transition($entity, $currentHash, $currentHash);
+        if (!self::has_pending_state_transition($owner, $artifactHash, $entity)) {
+            return false;
+        }
+        $session = self::current_session();
+        $pending = is_array($session) ? ($session['pending_state_transition'] ?? null) : null;
+        if (!is_array($pending)
+            || !hash_equals($currentHash, (string) ($pending['after_hash'] ?? ''))) {
+            throw new \RuntimeException(
+                'duo: lifecycle state changed between retirement and activation; activation was not attempted'
+            );
+        }
+        return true;
     }
 
     /** @return array{entity:string,before_hash:string,after_hash:string}|null */
@@ -434,6 +783,95 @@ final class PromotionLock {
             || !preg_match('/^[a-f0-9]{64}$/', $afterHash)) {
             throw new \RuntimeException('duo: malformed lifecycle state transition; refusing three-way bypass');
         }
+    }
+
+    /** @return array<string,mixed> */
+    private static function transition_session(string $owner, string $artifactHash): array {
+        $current = self::current();
+        $session = self::current_session();
+        if ($current === null || $session === null
+            || !hash_equals($owner, (string) ($current['owner'] ?? ''))
+            || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))
+            || !hash_equals($owner, (string) ($session['owner'] ?? ''))
+            || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))) {
+            throw new \RuntimeException('duo: lifecycle state transition lost its promotion session');
+        }
+        return $session;
+    }
+
+    /**
+     * @param array<string,mixed>|null $session
+     * @return array{entity:string,phase:string,before_hash:string}|null
+     */
+    private static function session_lifecycle_attempt(?array $session): ?array {
+        if ($session === null || !array_key_exists('lifecycle_attempt', $session)) {
+            return null;
+        }
+        $attempt = $session['lifecycle_attempt'];
+        if (!is_array($attempt)) {
+            throw new \RuntimeException('duo: malformed unresolved lifecycle attempt');
+        }
+        $keys = array_keys($attempt);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['before_hash', 'entity', 'phase']
+            || ($attempt['entity'] ?? null) !== 'options/core'
+            || !is_string($attempt['phase'] ?? null)
+            || !in_array($attempt['phase'], ['all', 'retire', 'activate'], true)
+            || !is_string($attempt['before_hash'] ?? null)
+            || !preg_match('/^[a-f0-9]{64}$/', $attempt['before_hash'])) {
+            throw new \RuntimeException('duo: malformed unresolved lifecycle attempt');
+        }
+        return [
+            'entity' => $attempt['entity'],
+            'phase' => $attempt['phase'],
+            'before_hash' => $attempt['before_hash'],
+        ];
+    }
+
+    /** @param array<string,mixed>|null $session @return list<string> */
+    private static function session_lifecycle_phases(?array $session): array {
+        if ($session === null || !array_key_exists('lifecycle_phases', $session)) {
+            return [];
+        }
+        $phases = $session['lifecycle_phases'];
+        if (!is_array($phases) || !array_is_list($phases)
+            || ($phases !== ['retire'] && $phases !== ['retire', 'activate'])) {
+            throw new \RuntimeException('duo: malformed completed lifecycle phase receipt');
+        }
+        return $phases;
+    }
+
+    /**
+     * Remove a matching attempt from the same atomic promotion_session write
+     * which publishes its successful pending/final transition.
+     *
+     * @param array<string,mixed> $session
+     * @param list<string> $phases
+     * @return array<string,mixed>
+     */
+    private static function consume_lifecycle_attempt(
+        array $session,
+        string $entity,
+        array $phases,
+        string $beforeHash,
+        bool $required = false
+    ): array {
+        $attempt = self::session_lifecycle_attempt($session);
+        if ($attempt === null) {
+            if ($required) {
+                throw new \RuntimeException('duo: successful lifecycle phase has no matching pre-hook attempt receipt');
+            }
+            return $session;
+        }
+        if (!hash_equals($entity, $attempt['entity'])
+            || !in_array($attempt['phase'], $phases, true)
+            || !hash_equals($beforeHash, $attempt['before_hash'])) {
+            throw new \RuntimeException(
+                'duo: lifecycle attempt boundary changed before its successful receipt could be published'
+            );
+        }
+        unset($session['lifecycle_attempt']);
+        return $session;
     }
 
     /** One live PHP mutation process fences long hooks/filesystem walks. */

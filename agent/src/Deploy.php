@@ -450,6 +450,7 @@ final class Deploy {
         $expectedArtifact = (string) ($opts['artifact_hash'] ?? '');
         self::assert_materializing_continuation($opts, $continuation);
         self::assert_state_handoff_continuation($opts, $continuation);
+        $lifecyclePhase = self::lifecycle_phase($opts, $continuation);
         if (($continuation && $expectedArtifact === '')
             || ($expectedArtifact !== ''
                 && (!preg_match('/^[0-9a-f]{64}$/', $expectedArtifact)
@@ -464,6 +465,18 @@ final class Deploy {
                 : RepositoryCompiler::compile($repo, $lockedPolicy);
             if (!hash_equals($promotionArtifact, $lockedCompiled->artifact_hash())) {
                 throw new \RuntimeException('duo: compiled artifact changed before locked deploy');
+            }
+            PromotionLock::assert_no_lifecycle_attempt(
+                $promotionOwner,
+                $promotionArtifact,
+                'lifecycle'
+            );
+            if ($lifecyclePhase !== 'all') {
+                PromotionLock::assert_lifecycle_phase_start(
+                    $promotionOwner,
+                    $promotionArtifact,
+                    $lifecyclePhase
+                );
             }
             // The promotion lock and locked-artifact revalidation are the
             // boundary at which a staged code payload may authorize this
@@ -536,7 +549,7 @@ final class Deploy {
         }
 
         self::require_plugin_admin_functions();
-        // Architecture Rulings §1 (report-not-hide): lifecycle deploy runs
+        // Architecture Rulings §1 (report-not-hide): each lifecycle phase runs
         // in the narrow interval after code-stage and before code-finalize,
         // so the stale descriptor finding remains visible in both JSON and
         // human output. A version delta caused by that same verified staging
@@ -600,37 +613,115 @@ final class Deploy {
             $mismatch, fn($r) => $r['kind'] === 'theme' && $r['issue'] === 'missing_in_code'
         );
 
-        // Lifecycle APIs mutate managed records inside the same canonical
-        // options/core entity as ordinary authored options. When another
-        // authored record changes in this revision, apply must distinguish
-        // expected hook-first progress from a genuine target-side edit. Take
-        // the exact canonical hash immediately around a real lifecycle
-        // mutation and bind that handoff to this promotion session.
-        $desiredActiveBefore = $desired['active_plugins'] ?? null;
-        $lifecycleWillMutate = ($desiredActiveBefore !== null
-                && self::current_active_plugins() !== $desiredActiveBefore)
-            || (($desired['stylesheet'] ?? null) !== null
-                && (get_option('stylesheet') !== $desired['stylesheet']
-                    || (($desired['template'] ?? null) !== null
-                        && get_option('template') !== $desired['template'])));
+        $desiredActive = $desired['active_plugins'] ?? null;
+        $currentActive = self::current_active_plugins();
+        $toActivate = $desiredActive === null
+            ? []
+            : array_values(array_diff($desiredActive, $currentActive));
+        $toDeactivate = $desiredActive === null
+            ? []
+            : array_values(array_diff($currentActive, $desiredActive));
+        $desiredStylesheet = $desired['stylesheet'] ?? null;
+        $desiredTemplate = $desired['template'] ?? null;
+        $stylesheetMismatch = $desiredStylesheet !== null
+            && get_option('stylesheet') !== $desiredStylesheet;
+        $templateMismatch = $desiredStylesheet !== null
+            && $desiredTemplate !== null
+            && get_option('template') !== $desiredTemplate;
+
+        if ($lifecyclePhase === 'activate' && $toDeactivate) {
+            throw new \RuntimeException(
+                'duo: lifecycle activation refused — retirement phase did not remove: '
+                . implode(', ', $toDeactivate)
+            );
+        }
+        if ($lifecyclePhase === 'all' && $toActivate && $toDeactivate) {
+            throw new \RuntimeException(
+                'duo: replacing active plugin identities requires fresh retire and activate processes; '
+                . "run the host 'duo deploy <env>' or 'duo promote <env>' workflow"
+            );
+        }
+
+        $overallWillMutate = (bool) ($toActivate || $toDeactivate
+            || $stylesheetMismatch || $templateMismatch
+            || ($desiredActive !== null && $currentActive !== $desiredActive));
+        $phaseWillMutate = match ($lifecyclePhase) {
+            'retire' => (bool) $toDeactivate,
+            'activate' => (bool) ($toActivate || $stylesheetMismatch || $templateMismatch
+                || ($desiredActive !== null && $currentActive !== $desiredActive)),
+            default => $overallWillMutate,
+        };
+        $pendingHandoff = !empty($opts['state_handoff'])
+            && $lifecyclePhase === 'activate'
+            && PromotionLock::has_pending_state_transition(
+                $promotionOwner,
+                $promotionArtifact,
+                'options/core'
+            );
+        $pendingRetireHandoff = !empty($opts['state_handoff'])
+            && $lifecyclePhase === 'retire'
+            && PromotionLock::has_pending_state_transition(
+                $promotionOwner,
+                $promotionArtifact,
+                'options/core'
+            );
+        $needsHandoffSnapshot = $phaseWillMutate || (!empty($opts['state_handoff']) && match ($lifecyclePhase) {
+            // A retry after a crash still needs a live-hash check against the
+            // receipt's post-retirement hash, even when the first leg already
+            // removed every plugin that this process would otherwise retire.
+            'retire' => $overallWillMutate || $pendingRetireHandoff,
+            'activate' => $phaseWillMutate || $pendingHandoff,
+            default => $phaseWillMutate,
+        });
         $lifecycleBeforeSnapshot = null;
-        if (!empty($opts['state_handoff']) && $lifecycleWillMutate) {
+        if ($needsHandoffSnapshot) {
             $lifecycleBeforeSnapshot = self::options_snapshot(
                 $repo,
                 $lockedPolicy,
                 $lockedCompiled,
                 !empty($opts['force_unresolved_refs'])
             );
+            if (($lifecyclePhase === 'retire' && $pendingRetireHandoff)
+                || ($lifecyclePhase === 'activate' && $pendingHandoff)) {
+                PromotionLock::assert_pending_state_transition_start(
+                    $promotionOwner,
+                    $promotionArtifact,
+                    'options/core',
+                    $lifecycleBeforeSnapshot['hash']
+                );
+            }
+            if ($phaseWillMutate) {
+                PromotionLock::begin_lifecycle_attempt(
+                    $promotionOwner,
+                    $promotionArtifact,
+                    'options/core',
+                    $lifecyclePhase,
+                    $lifecycleBeforeSnapshot['hash']
+                );
+            }
         }
 
         Canary::begin_external_observation();
         try {
-            $desiredActive = $desired['active_plugins'] ?? null;
-            if ($desiredActive !== null) {
-                $current = self::current_active_plugins();
-                $toActivate = array_values(array_diff($desiredActive, $current));
-                $toDeactivate = array_values(array_diff($current, $desiredActive));
+            if ($lifecyclePhase !== 'activate' && $toDeactivate) {
+                PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-retire');
+                // WordPress's Requires Plugins header is a dependency graph,
+                // not a promise that active_plugins happens to be ordered.
+                // Retire dependents before their providers even when an
+                // operator or old WordPress version stored a different list
+                // order. Independent plugins retain the historical reverse-
+                // load-order behavior.
+                $deactivated = self::dependency_ordered_deactivations($toDeactivate);
+                deactivate_plugins($deactivated);
+                $afterRetire = self::current_active_plugins();
+                foreach ($deactivated as $plugin) {
+                    if (in_array($plugin, $afterRetire, true)) {
+                        throw new \RuntimeException("duo: plugin deactivation did not persist for '$plugin'");
+                    }
+                }
+            }
 
+            if ($lifecyclePhase !== 'retire') {
                 foreach ($toActivate as $plugin) {
                     PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-activate');
                     if (in_array($plugin, $missingPlugins, true)) {
@@ -643,29 +734,13 @@ final class Deploy {
                     }
                     $activated[] = $plugin;
                 }
-                if ($toDeactivate) {
-                    PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-deactivate');
-                    // Symmetric with activation, matching §3.3's own failure-mode
-                    // wording for the inverse case ("this environment will do so
-                    // automatically on the next 'duo deploy'") — deactivation is
-                    // not deferred to a human step in this proposal, apply's
-                    // own hook-free posture just means IT can never be the one
-                    // to do it. Hooks fire deliberately here too.
-                    deactivate_plugins($toDeactivate);
-                    $deactivated = $toDeactivate;
-                }
                 $after = self::current_active_plugins();
                 foreach ($toActivate as $plugin) {
                     if (!in_array($plugin, $missingPlugins, true) && !in_array($plugin, $after, true)) {
                         throw new \RuntimeException("duo: plugin activation did not persist for '$plugin'");
                     }
                 }
-                foreach ($toDeactivate as $plugin) {
-                    if (in_array($plugin, $after, true)) {
-                        throw new \RuntimeException("duo: plugin deactivation did not persist for '$plugin'");
-                    }
-                }
-                if (!$missingPlugins && $after !== $desiredActive) {
+                if ($desiredActive !== null && !$missingPlugins && $after !== $desiredActive) {
                     PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-plugin-order');
                     // WordPress exposes no lifecycle API for load-order changes.
                     // Membership has already been reconciled through activate/
@@ -678,33 +753,26 @@ final class Deploy {
                     }
                     $orderCorrected = true;
                 }
-            }
 
-            $desiredStylesheet = $desired['stylesheet'] ?? null;
-            $desiredTemplate = $desired['template'] ?? null;
-            $stylesheetMismatch = $desiredStylesheet !== null
-                && get_option('stylesheet') !== $desiredStylesheet;
-            $templateMismatch = $desiredStylesheet !== null
-                && $desiredTemplate !== null
-                && get_option('template') !== $desiredTemplate;
-            if ($desiredStylesheet !== null && ($stylesheetMismatch || $templateMismatch)) {
-                PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-theme');
-                if ($themeMissing) {
-                    $warnings[] = "skipped theme switch to '$desiredStylesheet' (missing_in_code, --force-code-mismatch was set)";
-                } else {
-                    switch_theme($desiredStylesheet); // hooks fire deliberately (switch_theme/after_switch_theme)
-                    $themeSwitched = $desiredStylesheet;
-                    if (get_option('stylesheet') !== $desiredStylesheet) {
-                        throw new \RuntimeException("duo: theme switch did not persist for '$desiredStylesheet'");
-                    }
-                    if ($desiredTemplate !== null && get_option('template') !== $desiredTemplate) {
-                        $actualTemplate = (string) get_option('template');
-                        throw new \RuntimeException(
-                            "duo: canonical template '$desiredTemplate' cannot be realized by stylesheet "
-                            . "'$desiredStylesheet': WordPress resolved '$actualTemplate'. Check this theme's Template "
-                            . 'header and state/options/core.json; refusing to write template directly because that would '
-                            . 'bypass WordPress theme lifecycle.'
-                        );
+                if ($desiredStylesheet !== null && ($stylesheetMismatch || $templateMismatch)) {
+                    PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-theme');
+                    if ($themeMissing) {
+                        $warnings[] = "skipped theme switch to '$desiredStylesheet' (missing_in_code, --force-code-mismatch was set)";
+                    } else {
+                        switch_theme($desiredStylesheet); // hooks fire deliberately (switch_theme/after_switch_theme)
+                        $themeSwitched = $desiredStylesheet;
+                        if (get_option('stylesheet') !== $desiredStylesheet) {
+                            throw new \RuntimeException("duo: theme switch did not persist for '$desiredStylesheet'");
+                        }
+                        if ($desiredTemplate !== null && get_option('template') !== $desiredTemplate) {
+                            $actualTemplate = (string) get_option('template');
+                            throw new \RuntimeException(
+                                "duo: canonical template '$desiredTemplate' cannot be realized by stylesheet "
+                                . "'$desiredStylesheet': WordPress resolved '$actualTemplate'. Check this theme's Template "
+                                . 'header and state/options/core.json; refusing to write template directly because that would '
+                                . 'bypass WordPress theme lifecycle.'
+                            );
+                        }
                     }
                 }
             }
@@ -739,13 +807,47 @@ final class Deploy {
                     . '. Capture/reconcile those changes before retrying; state apply was not run.'
                 );
             }
-            PromotionLock::record_state_transition(
-                $promotionOwner,
-                $promotionArtifact,
-                'options/core',
-                $lifecycleBeforeSnapshot['hash'],
-                $lifecycleAfterSnapshot['hash']
-            );
+            if (!empty($opts['state_handoff'])) {
+                if ($lifecyclePhase === 'retire' && !$pendingRetireHandoff) {
+                    PromotionLock::begin_state_transition(
+                        $promotionOwner,
+                        $promotionArtifact,
+                        'options/core',
+                        $lifecycleBeforeSnapshot['hash'],
+                        $lifecycleAfterSnapshot['hash']
+                    );
+                } elseif ($lifecyclePhase === 'retire' && $pendingRetireHandoff) {
+                    // The exact pending H0->H1 receipt was already published by
+                    // the crashed retire process. Keep it pending for activation;
+                    // recording this retry's H1->H1 snapshot would authorize
+                    // Apply against the wrong pre-retire base.
+                } elseif ($lifecyclePhase === 'activate' && $pendingHandoff) {
+                    PromotionLock::complete_state_transition(
+                        $promotionOwner,
+                        $promotionArtifact,
+                        'options/core',
+                        $lifecycleBeforeSnapshot['hash'],
+                        $lifecycleAfterSnapshot['hash']
+                    );
+                } else {
+                    PromotionLock::record_state_transition(
+                        $promotionOwner,
+                        $promotionArtifact,
+                        'options/core',
+                        $lifecycleBeforeSnapshot['hash'],
+                        $lifecycleAfterSnapshot['hash']
+                    );
+                }
+            } else {
+                PromotionLock::complete_lifecycle_attempt(
+                    $promotionOwner,
+                    $promotionArtifact,
+                    'options/core',
+                    $lifecyclePhase,
+                    $lifecycleBeforeSnapshot['hash'],
+                    $lifecycleAfterSnapshot['hash']
+                );
+            }
         }
 
         // Re-baseline unconditionally: whatever's active NOW (post-
@@ -762,7 +864,15 @@ final class Deploy {
             self::code_mismatch($policy, $desired),
             self::code_revision_mismatch($lockedCompiled)
         );
+        if ($lifecyclePhase !== 'all') {
+            PromotionLock::complete_lifecycle_phase(
+                $promotionOwner,
+                $promotionArtifact,
+                $lifecyclePhase
+            );
+        }
         $summary = [
+            'lifecycle_phase' => $lifecyclePhase,
             'artifact' => [
                 'hash' => $compiled->artifact_hash(),
                 'revision' => $compiled->revision_hash(),
@@ -834,6 +944,26 @@ final class Deploy {
                 'duo: --state-handoff is valid only inside a retained host promotion continuation'
             );
         }
+    }
+
+    private static function lifecycle_phase(array $opts, bool $continuation): string {
+        $phase = (string) ($opts['lifecycle_phase'] ?? 'all');
+        if (!in_array($phase, ['all', 'retire', 'activate'], true)) {
+            throw new \RuntimeException(
+                "duo: unsupported lifecycle phase '$phase' (expected retire or activate)"
+            );
+        }
+        if ($phase !== 'all' && !$continuation) {
+            throw new \RuntimeException(
+                'duo: phased lifecycle commands are valid only inside a host promotion continuation'
+            );
+        }
+        if ($phase === 'retire' && empty($opts['promotion_hold'])) {
+            throw new \RuntimeException(
+                'duo: lifecycle retirement must retain the lease for fresh-process activation'
+            );
+        }
+        return $phase;
     }
 
     /**
@@ -930,6 +1060,110 @@ final class Deploy {
             $unexpected[] = (string) $name;
         }
         return $unexpected;
+    }
+
+    /**
+     * Read WordPress's bounded Requires Plugins headers and produce a reverse
+     * dependency order for the exact removal set.
+     *
+     * @param list<string> $plugins active plugin basenames being retired
+     * @return list<string>
+     */
+    private static function dependency_ordered_deactivations(array $plugins): array {
+        $bySlug = [];
+        foreach ($plugins as $plugin) {
+            $slug = self::plugin_dependency_slug($plugin);
+            if (isset($bySlug[$slug]) && $bySlug[$slug] !== $plugin) {
+                throw new \RuntimeException(
+                    "duo: cannot prove plugin dependency teardown because '$slug' identifies both "
+                    . "'{$bySlug[$slug]}' and '$plugin'"
+                );
+            }
+            $bySlug[$slug] = $plugin;
+        }
+
+        $requirements = [];
+        foreach ($plugins as $plugin) {
+            $requirements[$plugin] = [];
+            $path = rtrim(WP_PLUGIN_DIR, '/') . '/' . $plugin;
+            if (!is_file($path)) {
+                // A missing active plugin has no executable teardown hook or
+                // readable declaration. Other retiring plugins can still name
+                // its slug, which is enough to order them before this record.
+                continue;
+            }
+            $data = get_plugin_data($path, false, false);
+            $raw = trim((string) ($data['RequiresPlugins'] ?? ''));
+            if ($raw === '') {
+                continue;
+            }
+            foreach (preg_split('/\s*,\s*/', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $requiredSlug) {
+                if (isset($bySlug[$requiredSlug])) {
+                    $requirements[$plugin][] = $bySlug[$requiredSlug];
+                }
+            }
+            $requirements[$plugin] = array_values(array_unique($requirements[$plugin]));
+        }
+        return self::order_deactivations($plugins, $requirements);
+    }
+
+    /** WordPress core's plugin-file -> dependency-slug mapping. */
+    private static function plugin_dependency_slug(string $plugin): string {
+        if ($plugin === 'hello.php') {
+            return 'hello-dolly';
+        }
+        return str_contains($plugin, '/')
+            ? dirname($plugin)
+            : (string) preg_replace('/\.php$/', '', $plugin);
+    }
+
+    /**
+     * Stable topological sort with dependent -> provider edges. When two
+     * nodes are independent, use reverse active order as the deterministic
+     * lifecycle-compatible tie break.
+     *
+     * @param list<string> $plugins
+     * @param array<string,list<string>> $requirements plugin => providers
+     * @return list<string>
+     */
+    private static function order_deactivations(array $plugins, array $requirements): array {
+        $nodes = array_fill_keys($plugins, true);
+        $indegree = array_fill_keys($plugins, 0);
+        $edges = array_fill_keys($plugins, []);
+        foreach ($plugins as $plugin) {
+            foreach ($requirements[$plugin] ?? [] as $provider) {
+                if (!isset($nodes[$provider]) || isset($edges[$plugin][$provider])) {
+                    continue;
+                }
+                $edges[$plugin][$provider] = true;
+                $indegree[$provider]++;
+            }
+        }
+
+        $priority = array_reverse($plugins);
+        $ordered = [];
+        while (count($ordered) < count($plugins)) {
+            $next = null;
+            foreach ($priority as $candidate) {
+                if (isset($nodes[$candidate]) && $indegree[$candidate] === 0) {
+                    $next = $candidate;
+                    break;
+                }
+            }
+            if ($next === null) {
+                $cycle = array_keys($nodes);
+                sort($cycle, SORT_STRING);
+                throw new \RuntimeException(
+                    'duo: plugin dependency cycle prevents safe teardown: ' . implode(', ', $cycle)
+                );
+            }
+            $ordered[] = $next;
+            unset($nodes[$next]);
+            foreach (array_keys($edges[$next]) as $provider) {
+                $indegree[$provider]--;
+            }
+        }
+        return $ordered;
     }
 
     /** @return string[] */

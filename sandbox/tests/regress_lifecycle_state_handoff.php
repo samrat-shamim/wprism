@@ -1,6 +1,7 @@
 <?php
 /**
- * Offline safety contract for deploy -> apply's options/core hash handoff.
+ * Offline safety contract for lifecycle retire/activate -> apply's
+ * options/core hash handoff.
  * The live grind proves the happy path with real hooks and a tombstone; this
  * pins the critical negative rule: any post-deploy target edit invalidates
  * the handoff and restores ordinary three-way comparison.

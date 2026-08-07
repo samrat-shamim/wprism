@@ -1,0 +1,9 @@
+{
+  "name": "duo-code-half-ecosystem",
+  "option_autoload": "preserve",
+  "options": {
+    "duo_ecosystem_mu_boots": {"class": "runtime"},
+    "duo_ecosystem_trace": {"class": "runtime"}
+  },
+  "spec_version": 2
+}

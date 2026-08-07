@@ -116,8 +116,9 @@ final class Cli {
     }
 
     /**
-     * Add/update the immutable code half in WP_CONTENT_DIR. This is the
-     * deletion-free stage before lifecycle deploy; it never removes old files.
+     * Add/update the immutable code half in WP_CONTENT_DIR. Before lifecycle,
+     * it never removes completed code; it may remove only an exact abandoned
+     * staged-only MU file so a reviewed retry can recover WordPress bootstrap.
      *
      * ## OPTIONS
      * --repo=<path> : Site repo root (contains site.duo.json).
@@ -153,14 +154,17 @@ final class Cli {
             WP_CLI::success('code materialization is disabled for this legacy repository');
             return;
         }
+        $recovered = count((array) ($summary['abandoned_stage_removed'] ?? []));
         WP_CLI::success(sprintf(
-            'staged code revision %s (%d file(s)); promotion lease retained for finalize',
-            $summary['code_revision'], $summary['files']
+            'staged code revision %s (%d file(s)%s); promotion lease retained for finalize',
+            $summary['code_revision'],
+            $summary['files'],
+            $recovered > 0 ? ", recovered $recovered abandoned staged MU file(s)" : ''
         ));
     }
 
     /**
-     * Finalize code after lifecycle deploy, pruning only owned component
+     * Finalize code after lifecycle retirement/activation, pruning only owned component
      * roots and recording the completed code descriptor. Use
      * --promotion-hold when the following state apply must keep the lease.
      *
@@ -384,6 +388,13 @@ final class Cli {
         foreach ($plan['incomplete_apply'] ?? [] as $r) {
             WP_CLI::line('INCOMPLETE_APPLY ' . $r['reason']);
         }
+        foreach ($plan['incomplete_lifecycle'] ?? [] as $r) {
+            WP_CLI::line(
+                'INCOMPLETE_LIFECYCLE ' . ($r['phase'] ?? '?') . ' ' . ($r['entity'] ?? '?')
+                . ' at ' . ($r['before_hash'] ?? '?')
+            );
+            WP_CLI::line('  ' . ($r['reason'] ?? 'exact checkpoint recovery required'));
+        }
         foreach ($plan['missing_user'] ?? [] as $r) {
             WP_CLI::line("MISSING_USER {$r['path']} (exact login '{$r['login']}')");
         }
@@ -417,6 +428,7 @@ final class Cli {
         $counts .= ', ' . count($plan['code_mismatch'] ?? []) . ' code_mismatch';
         $counts .= ', ' . count($plan['code_drift'] ?? []) . ' code_drift';
         $counts .= ', ' . count($plan['incomplete_apply'] ?? []) . ' incomplete_apply';
+        $counts .= ', ' . count($plan['incomplete_lifecycle'] ?? []) . ' incomplete_lifecycle';
         $counts .= ', ' . count($plan['regen_pending'] ?? []) . ' regen_pending';
         $counts .= ', ' . count($plan['env_missing'] ?? []) . ' env_missing';
         $counts .= ', ' . count($plan['missing_user'] ?? []) . ' missing_user';
@@ -672,6 +684,7 @@ final class Cli {
      * [--materializing-code] : Internal orchestrator flag; prove code-stage completed for this artifact.
      * [--promotion-hold] : Internal orchestrator flag; retain the lease for the following apply phase.
      * [--state-handoff] : Internal promote-only flag; bind lifecycle pre/post state hashes for apply.
+     * [--lifecycle-phase=<phase>] : Internal host phase. Accepts retire or activate.
      * [--force-unresolved-refs] : Promotion passthrough for lifecycle handoff snapshots.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
@@ -687,6 +700,7 @@ final class Cli {
                 'materializing_code' => isset($assoc['materializing-code']),
                 'promotion_hold' => isset($assoc['promotion-hold']),
                 'state_handoff' => isset($assoc['state-handoff']),
+                'lifecycle_phase' => $assoc['lifecycle-phase'] ?? 'all',
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
             ]);
         } catch (\Throwable $t) {

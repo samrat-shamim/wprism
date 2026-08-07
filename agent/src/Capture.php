@@ -139,7 +139,7 @@ final class Capture {
             // before target reads also still refuses to build new state on
             // top of a genuinely corrupted repository revision (malformed
             // JSON, invalid record shapes, illegitimate tombstones — every
-            // check in RepositoryCompiler except one).
+            // ordinary historical-integrity check in RepositoryCompiler).
             //
             // DUO-3287: compile_for_diff(), not compile() — this revision
             // was captured under whatever policy was active AT THAT TIME,
@@ -152,8 +152,10 @@ final class Capture {
             // required-option-missing diagnostic this produced (13-17 of
             // them, reproduced deterministically) was a genuinely NEW
             // authored-exact option the previous revision had never even
-            // been asked to know about. compile_for_diff() skips only that
-            // one completeness check; RepositoryCompiler.php's own
+            // been asked to know about. It also skips the current-action
+            // code/lifecycle bridge when this history predates code opt-in;
+            // Code::compile() and every ordinary historical integrity check
+            // stay active. RepositoryCompiler.php's own
             // $completenessOptional docblock has the full reasoning.
             //
             // DUO-3263: a FRESH Policy::load(), never the shared $policy

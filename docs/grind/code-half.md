@@ -24,8 +24,9 @@ The probe has a tiny but order-sensitive upgrade:
   before migration.
 - The canonical v2 options tree declares that same object.  A successful
   promotion therefore proves the public host ordering is `compile →
-  promotion-begin/checkpoint → code-stage → lifecycle deploy/migration →
-  code-finalize → apply`, not a raw state apply before code migration.
+  promotion-begin/checkpoint → code-stage → lifecycle-retire → fresh-process
+  lifecycle-activate/migration → code-finalize → apply`, not a raw state apply
+  before code migration.
 
 The script also asserts byte-level code-drift detection and healing; a late
 desired file-versus-directory conflict and a changed obsolete tracked file
@@ -78,6 +79,19 @@ The first live runs found three product-path gaps:
    environment hash still equals the recorded post-hook hash; a later edit
    fails closed through the normal conflict path.
 
+A lifecycle API can commit an option and then throw before deploy reaches its
+post-hook snapshot. Deploy therefore also publishes a pre-hook attempt receipt
+inside the exact promotion session before every mutating lifecycle window. A
+failed window leaves that receipt durable: apply and any different promotion
+owner/artifact refuse until the retained pre-lifecycle checkpoint and known
+pre-promotion code revision are restored. The first-sync proof—where no state
+base exists at all—lives in
+[`code-half-first-sync.md`](code-half-first-sync.md).
+
+The inverse proof is positive rather than inferred: the exact promotion session
+records successful retire and activate phases in order, including no-ops, and
+code-finalize refuses to mint the completed code revision without both.
+
 The database promotion lease serializes Duo writers, not arbitrary processes
 with direct filesystem access. This v0 materializer therefore requires
 operational exclusion of non-Duo writers from `WP_CONTENT_DIR` during
@@ -89,3 +103,6 @@ The accepted clean-room run finishes with a real v2 deactivation hook count of
 one, removal of the authored option through a `--with-deletes` tombstone,
 pruning of only the previously owned plugin component, preservation of the
 unmanaged sibling, byte-identical recapture, and a zero-finding host status.
+
+The broader plugin/MU/theme/dependency/recovery matrix lives in
+[`code-half-ecosystem.md`](code-half-ecosystem.md).

@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff code-half-unit \
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half grind-code-half-ecosystem grind-code-half-first-sync pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order code-half-unit \
 	regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy \
 	regress-env-options-policy regress-export-manifest-roundtrip regress-manifest-reclassification-policy \
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
@@ -287,7 +287,7 @@ regress-widgets:
 	bash sandbox/tests/regress_widgets.sh
 
 # DUO-3216: offline host-orchestrator state-machine contract — one compiled
-# artifact, pre-checkpoint lease, deploy -> apply ordering, stop-on-first-
+# artifact, pre-checkpoint lease, retire -> activate -> apply ordering, stop-on-first-
 # failure, exact cleanup, and serialized transport-shaped restore instructions.
 regress-promotion-unit:
 	bash sandbox/tests/regress_promotion_unit.sh
@@ -297,7 +297,7 @@ regress-promotion-unit:
 # detection, and both public host orchestration paths. Keep this separate
 # from the Docker/live promotion regression below so it is cheap to run while
 # iterating on the safety gates.
-code-half-unit: regress-repository-compiler regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-promotion-unit regress-lifecycle-state-handoff
+code-half-unit: regress-repository-compiler regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-promotion-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order
 
 regress-repository-compiler:
 	bash sandbox/tests/regress_repository_compiler.sh
@@ -325,6 +325,9 @@ regress-code-completed-unit:
 regress-code-stage-lock-unit:
 	bash sandbox/tests/regress_code_stage_lock_unit.sh
 
+regress-code-stage-transaction-unit:
+	bash sandbox/tests/regress_code_stage_transaction_unit.sh
+
 regress-code-ledger-transaction-unit:
 	bash sandbox/tests/regress_code_ledger_transaction_unit.sh
 
@@ -340,12 +343,33 @@ regress-code-deploy-unit:
 regress-lifecycle-state-handoff:
 	php sandbox/tests/regress_lifecycle_state_handoff.php
 
+regress-lifecycle-phase-handoff-unit:
+	php sandbox/tests/regress_lifecycle_phase_handoff_unit.php
+
+regress-plugin-dependency-order:
+	php sandbox/tests/regress_plugin_dependency_order.php
+
 # Clean-room code-half grind: no code bind mount. Public promotion must
 # materialize, migrate, heal drift, fail atomically, deactivate before prune,
 # preserve unrelated components, and converge both independent revision
 # receipts. See docs/grind/code-half.md.
 grind-code-half:
 	bash sandbox/tests/grind_code_half.sh
+
+# Ecosystem-grade extension: dependency-aware retirement, same-symbol
+# replacement in fresh processes, single-file plugins, user MU code, child
+# themes, controlled hook failure plus exact checkpoint recovery, bounded
+# fatal-MU recovery, and exact return to the original code/state/artifact
+# identities.
+grind-code-half-ecosystem:
+	bash sandbox/tests/grind_code_half_ecosystem.sh
+
+# First-ever sync safety: a hook writes authored state and then throws before
+# plugin membership persists. A durable pre-hook receipt must block a different
+# artifact/owner until exact code + checkpoint recovery, after which the fixed
+# artifact may establish the first three-way base.
+grind-code-half-first-sync:
+	bash sandbox/tests/grind_first_sync_hook_recovery.sh
 
 # DUO-3216: live activation/deactivation/order gate, deploy-window mail/HTTP
 # observations, and the composed host promote path with a retained DB dump.

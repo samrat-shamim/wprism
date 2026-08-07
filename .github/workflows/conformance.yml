@@ -50,6 +50,24 @@ jobs:
       - name: clean-room code materialization and state handoff
         run: make grind-code-half
 
+  code-half-ecosystem-grind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: advanced WordPress code ecosystem and recovery
+        run: make grind-code-half-ecosystem
+
+  code-half-first-sync-hook-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: failed lifecycle hook and exact first-sync recovery
+        run: make grind-code-half-first-sync
+
   conformance:
     runs-on: ubuntu-latest
     timeout-minutes: 20

@@ -26,6 +26,9 @@ namespace Duo\Orchestrator;
  *     attaches this to the returned array — see its own comment).
  *   - incomplete_apply: a retained apply marker means authored writes may
  *     have committed but required rebuild/convergence work did not.
+ *   - incomplete_lifecycle: a durable pre-hook receipt means a lifecycle API
+ *     may have committed canonical state before throwing. It is non-forceable
+ *     and requires the exact pre-lifecycle checkpoint recovery sequence.
  *   - regen_pending (DUO-3234's Apply::build_plan(), design review addition
  *     1): a derived table with a hard per-entity availability dependency
  *     (e.g. TEC's tec_occurrences) whose verification failed on a PRIOR
@@ -70,6 +73,7 @@ final class PlanSummary {
         ));
         $codeDrift = $plan['code_drift'] ?? [];
         $incompleteApply = $plan['incomplete_apply'] ?? [];
+        $incompleteLifecycle = $plan['incomplete_lifecycle'] ?? [];
         $regenPending = $plan['regen_pending'] ?? [];
         $envMissing = $plan['env_missing'] ?? [];
         $missingUser = $plan['missing_user'] ?? [];
@@ -79,6 +83,7 @@ final class PlanSummary {
         $summary .= ', ' . count($codeMismatch) . ' code_mismatch';
         $summary .= ', ' . count($codeDrift) . ' code_drift';
         $summary .= ', ' . count($incompleteApply) . ' incomplete_apply';
+        $summary .= ', ' . count($incompleteLifecycle) . ' incomplete_lifecycle';
         $summary .= ', ' . count($regenPending) . ' regen_pending';
         $summary .= ', ' . count($envMissing) . ' env_missing';
         $summary .= ', ' . count($missingUser) . ' missing_user';
@@ -186,6 +191,16 @@ final class PlanSummary {
             }
         }
 
+        if ($incompleteLifecycle) {
+            $lines[] = 'INCOMPLETE_LIFECYCLE (a hook window failed after its durable pre-hook boundary):';
+            foreach ($incompleteLifecycle as $r) {
+                $lines[] = '  - ' . ($r['phase'] ?? '?') . ' ' . ($r['entity'] ?? '?')
+                    . ' at ' . ($r['before_hash'] ?? '?') . ': '
+                    . ($r['reason'] ?? 'exact checkpoint recovery required');
+            }
+            $lines[] = 'lifecycle state is ambiguous — restore the exact pre-lifecycle database checkpoint; force flags cannot bypass this receipt';
+        }
+
         if ($regenPending) {
             $lines[] = 'REGEN_PENDING (a derived-table verification failed on a prior apply and has not yet resolved):';
             foreach ($regenPending as $r) {
@@ -243,6 +258,9 @@ final class PlanSummary {
         //   - incomplete_apply: a previous apply already failed after or
         //                     during mutation/rebuild; status must remain
         //                     non-zero until the retry clears its marker.
+        //   - incomplete_lifecycle: a hook may have committed canonical state
+        //                     before failure. Only exact checkpoint recovery
+        //                     clears its durable, non-forceable receipt.
         //   - regen_pending : a derived table with a hard per-entity
         //                     availability dependency (DUO-3234, e.g. TEC's
         //                     tec_occurrences) failed its post-apply
@@ -302,6 +320,7 @@ final class PlanSummary {
             && count($codeMismatch) === 0
             && count($codeDrift) === 0
             && !$incompleteApply
+            && !$incompleteLifecycle
             && !$regenPending
             && !$envMissingRequired
             && !$missingUser
