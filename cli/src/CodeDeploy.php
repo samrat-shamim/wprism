@@ -119,6 +119,7 @@ final class CodeDeploy {
         string $artifactHash,
         bool $hold,
         bool $materializingCode,
+        bool $stateHandoff,
         array $extra = []
     ): array {
         $args = [
@@ -130,6 +131,9 @@ final class CodeDeploy {
         }
         if ($materializingCode) {
             $args[] = '--materializing-code';
+        }
+        if ($stateHandoff) {
+            $args[] = '--state-handoff';
         }
         return array_merge($args, $extra);
     }

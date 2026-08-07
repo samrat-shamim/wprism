@@ -30,6 +30,15 @@ jobs:
       - name: live promotion lease, fencing, and frozen-input races
         run: make regress-promotion-lock
 
+  code-half-grind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: clean-room code materialization and state handoff
+        run: make grind-code-half
+
   conformance:
     runs-on: ubuntu-latest
     timeout-minutes: 20

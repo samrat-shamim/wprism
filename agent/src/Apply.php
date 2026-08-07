@@ -98,6 +98,15 @@ final class Apply {
         );
         $base = Ledger::all_state();
         $adopt = array_fill_keys(array_filter(explode(',', $opts['adopt_by_slug'] ?? '')), true);
+        $lifecycleTransition = null;
+        $promotionOwner = (string) ($opts['promotion_owner'] ?? '');
+        if ($promotionOwner !== '') {
+            $lifecycleTransition = PromotionLock::state_transition(
+                $promotionOwner,
+                $compiled->artifact_hash(),
+                'options/core'
+            );
+        }
 
         $plan = [
             'create' => [], 'update' => [], 'unchanged' => [], 'drift' => [],
@@ -111,6 +120,11 @@ final class Apply {
             $fileH = $e['hash'];
             $envE = $env[$uuid] ?? null;
             $baseH = $base[$uuid]['content_hash'] ?? null;
+            $comparisonEnvH = self::lifecycle_comparison_hash(
+                (string) $uuid,
+                $envE['hash'] ?? null,
+                $lifecycleTransition
+            );
             $row = ['uuid' => $uuid, 'type' => $e['type'], 'path' => $e['path']];
             if ($e['type'] === SidebarState::ENTITY_TYPE && $envE !== null) {
                 $envFront = Canon::decode($envE['content']);
@@ -202,7 +216,7 @@ final class Apply {
             if ($envE !== null) {
                 if ($fileH === $envE['hash']) {
                     $plan['unchanged'][] = $row;
-                } elseif ($baseH === null || $envE['hash'] === $baseH) {
+                } elseif ($baseH === null || $comparisonEnvH === $baseH) {
                     $plan['update'][] = $row + ['first_sync' => $baseH === null];
                 } elseif ($fileH === $baseH) {
                     $plan['drift'][] = $row;
@@ -443,6 +457,27 @@ final class Apply {
             $this->warnings[] = $inactiveWarning;
         }
         return $plan;
+    }
+
+    /**
+     * Deploy already changed lifecycle-managed records through WordPress
+     * APIs. Compare three-way history against the exact pre-hook snapshot
+     * only while the current canonical entity still equals deploy's recorded
+     * post-hook snapshot; any later or unrelated target edit falls back to
+     * the ordinary conflict path.
+     *
+     * @param array{entity:string,before_hash:string,after_hash:string}|null $transition
+     */
+    private static function lifecycle_comparison_hash(
+        string $uuid,
+        ?string $environmentHash,
+        ?array $transition
+    ): ?string {
+        if ($uuid === 'options/core' && $environmentHash !== null && $transition !== null
+            && hash_equals((string) $transition['after_hash'], $environmentHash)) {
+            return (string) $transition['before_hash'];
+        }
+        return $environmentHash;
     }
 
     /**

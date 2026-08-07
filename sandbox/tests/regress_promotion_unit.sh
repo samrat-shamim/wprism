@@ -34,7 +34,11 @@ first="${args[$pos]:-}"
 second="${args[$((pos + 1))]:-}"
 
 if [ "$first" = duo ] && [ "$second" = compile ]; then
-  [ "${FAKE_COMPILE_FAIL:-0}" = 0 ] || exit 6
+  if [ "${FAKE_COMPILE_FAIL:-0}" != 0 ]; then
+    printf '%s\n' 'structured compiler diagnostic from stdout'
+    printf '%s\n' 'transport lifecycle noise from stderr' >&2
+    exit 6
+  fi
   artifact_hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   if [ "${FAKE_CODE_ENABLED:-0}" = 1 ]; then
     summary='{"artifact_hash":"'"$artifact_hash"'","code":{"code_revision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","format":1,"layout":"wp-content"}}'
@@ -184,7 +188,7 @@ assert_code_recovery_guidance() {
 run_promote() {
   local code="$1"; shift
   : > "$LOG"
-  if OUT="$(FAKE_CODE_ENABLED="$code" "$@" "$DUO" --envs-file="$ENVS" promote unit --default-author=admin 2>&1)"; then
+  if OUT="$(FAKE_CODE_ENABLED="$code" "$@" "$DUO" --envs-file="$ENVS" promote unit --default-author=admin --force-unresolved-refs 2>&1)"; then
     CODE=0
   else
     CODE=$?
@@ -206,8 +210,12 @@ mapfile -t CALLS < "$LOG"
   || fail "legacy lifecycle deploy was incorrectly marked materializing-code"
 assert_begin_matches_mutations "${CALLS[1]}" "${CALLS[3]}" "${CALLS[4]}"
 assert_same_artifact_and_owner "${CALLS[3]}" "${CALLS[4]}"
-[[ "${CALLS[3]}" == *"--promotion-hold"* ]] || fail "legacy deploy did not retain lease for apply"
+[[ "${CALLS[3]}" == *"--promotion-hold"* && "${CALLS[3]}" == *"--state-handoff"* ]] \
+  || fail "legacy deploy did not retain lease with explicit state handoff"
+[[ "${CALLS[3]}" == *"--force-unresolved-refs"* && "${CALLS[4]}" == *"--force-unresolved-refs"* ]] \
+  || fail "legacy lifecycle/apply did not share unresolved-ref snapshot policy"
 [[ "${CALLS[4]}" != *"--promotion-hold"* ]] || fail "legacy apply was told to retain completed lease"
+[[ "${CALLS[4]}" != *"--state-handoff"* ]] || fail "legacy apply received deploy-only state handoff"
 assert_checkpoint "$OUT"
 has "$OUT" 'promote complete: deploy -> apply' \
   || fail "legacy promote success line changed"
@@ -234,11 +242,13 @@ assert_begin_matches_mutations "${CALLS[1]}" "${CALLS[3]}" "${CALLS[4]}" "${CALL
 assert_same_artifact_and_owner "${CALLS[3]}" "${CALLS[4]}" "${CALLS[5]}" "${CALLS[6]}"
 [[ "${CALLS[3]}" != *"--promotion-hold"* && "${CALLS[3]}" != *"--materializing-code"* ]] \
   || fail "code-stage received lifecycle-only flags"
-[[ "${CALLS[4]}" == *"--promotion-hold"* && "${CALLS[4]}" == *"--materializing-code"* ]] \
-  || fail "code lifecycle deploy did not retain lease and mark materialization"
+[[ "${CALLS[4]}" == *"--promotion-hold"* && "${CALLS[4]}" == *"--materializing-code"* && "${CALLS[4]}" == *"--state-handoff"* ]] \
+  || fail "code lifecycle deploy did not retain lease and mark materialization/state handoff"
+[[ "${CALLS[4]}" == *"--force-unresolved-refs"* && "${CALLS[6]}" == *"--force-unresolved-refs"* ]] \
+  || fail "code lifecycle/apply did not share unresolved-ref snapshot policy"
 [[ "${CALLS[5]}" == *"--promotion-hold"* && "${CALLS[5]}" != *"--materializing-code"* ]] \
   || fail "code-finalize did not retain lease cleanly for apply"
-[[ "${CALLS[6]}" != *"--promotion-hold"* && "${CALLS[6]}" != *"--materializing-code"* ]] \
+[[ "${CALLS[6]}" != *"--promotion-hold"* && "${CALLS[6]}" != *"--materializing-code"* && "${CALLS[6]}" != *"--state-handoff"* ]] \
   || fail "apply received code/lifecycle-only flags"
 assert_checkpoint "$OUT"
 has "$OUT" 'promote complete: code-stage -> deploy -> code-finalize -> apply' \
@@ -382,12 +392,16 @@ run_promote 1 env FAKE_COMPILE_FAIL=1
 [ "$(wc -l < "$LOG" | tr -d ' ')" -eq 1 ] || fail "checkpoint/stage/deploy ran after compile failure"
 has "$OUT" 'no checkpoint or target mutation occurred' \
   || fail "compile failure boundary was not reported"
+has "$OUT" 'transport lifecycle noise from stderr' \
+  || fail "compile failure lost the transport stderr stream"
+has "$OUT" 'structured compiler diagnostic from stdout' \
+  || fail "compile failure lost the agent stdout diagnostic behind transport stderr noise"
 pass "compile failure occurs before checkpoint and all code/state mutation"
 
 # No caller may smuggle the host-selected repo, artifact/hash, stage, or lease
 # boundary into promote. In particular, a second --repo would otherwise be
 # appended after the host's own --repo on apply and win wp-cli's assoc parsing.
-for internal in --repo=/tmp/forged --compiled=/tmp/forged.json --artifact-hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --promotion-owner=intruder --promotion-hold --materializing-code; do
+for internal in --repo=/tmp/forged --compiled=/tmp/forged.json --artifact-hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --promotion-owner=intruder --promotion-hold --materializing-code --state-handoff; do
   : > "$LOG"
   if FAKE_CODE_ENABLED=1 "$DUO" --envs-file="$ENVS" promote unit "$internal" >/dev/null 2>&1; then
     fail "promote accepted caller-owned internal flag $internal"

@@ -164,6 +164,10 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   to every phase. A `code_revision_stale` finding is recovered only by this
   host workflow; force flags may override explicit lifecycle compatibility or
   drift findings, never the verified code-before-state ordering witness.
+  The target database lease serializes Duo writers only. Operators must exclude
+  package managers, self-updaters, and other direct `WP_CONTENT_DIR` writers
+  during stage/finalize; stable symlinks are refused, but this v0 PHP
+  materializer is not an adversarial filesystem-race sandbox.
 
 - **`duo promote <env> [apply flags...]`** — the normal fail-closed
   code-and-state promotion path. It compiles the repository once into
@@ -171,7 +175,8 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   `artifact_hash`, then exports the target database into `.duo/checkpoints/`.
   The same generated owner and artifact remain bound throughout. If the
   artifact declares code, it runs `code-stage` → lifecycle `deploy`
-  (`--materializing-code`) → `code-finalize` before `apply`; otherwise it
+  (`--materializing-code --state-handoff`) → `code-finalize` before `apply`;
+  otherwise it
   preserves the legacy deploy → apply path. The lifecycle deploy and
   code-finalize retain the lease through state apply, which releases it only
   after convergence metadata commits. A concurrent promotion is refused, while
@@ -186,6 +191,18 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   the lease fails closed before code/state mutation rather than reusing an
   unprotected snapshot. The host only sequences the separate halves; it neither interprets the opaque code
   descriptor nor treats `revision_hash` or `code_revision` as the lease key.
+
+  Lifecycle APIs and authored options share the canonical `options/core`
+  entity even though they have separate writers. When activation,
+  deactivation, or a theme switch actually runs, deploy records that entity's
+  canonical hash immediately before and after the hook window inside the
+  exact owner/artifact session. Before recording that handoff, deploy verifies
+  each changed canonical record is lifecycle-managed or already exactly equals
+  this artifact's non-`absent` desired record; an unrelated authored hook
+  mutation stops the promotion before state apply. Apply compares three-way
+  history against the pre-hook hash only if its fresh live snapshot still
+  equals the recorded post-hook hash. A later target edit invalidates the
+  handoff and takes the ordinary conflict path; no force flag is implied.
 
   It stops on the first non-zero phase and compensates with an exact,
   idempotent lease abort. A failed export is not presented as a usable
@@ -203,11 +220,12 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   not a complete code-and-state rollback. On success it retains the checkpoint
   and prints the phase trace.
 
-  Apply flags are forwarded to apply; `--force-code-mismatch` and
-  `--force-code-drift` are also forwarded to deploy. Callers cannot supply
+  Apply flags are forwarded to apply; `--force-code-mismatch`,
+  `--force-code-drift`, and `--force-unresolved-refs` are also forwarded to
+  deploy. Callers cannot supply
   `--repo`, `--compiled`, `--artifact-hash`, `--promotion-owner`,
-  `--promotion-hold`, or `--materializing-code`, because the host owns those
-  boundaries. The force
+  `--promotion-hold`, `--materializing-code`, or `--state-handoff`, because the
+  host owns those boundaries. The force
   flags never bypass `code_revision_stale`; promotion resolves it by running
   the code phases before state apply. Site repos must ignore the operational
   directory:
