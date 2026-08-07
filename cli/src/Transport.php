@@ -81,7 +81,7 @@ abstract class Transport {
     }
 
     /** @return array{exit:int, stdout:string, stderr:string} */
-    private static function runCapturing(string $fullCommand): array {
+    protected static function runCapturing(string $fullCommand): array {
         $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
         $proc = proc_open($fullCommand, $descriptors, $pipes);
         if (!is_resource($proc)) {

@@ -27,6 +27,7 @@ binary and, per environment, whatever the transport itself needs (`ssh`,
 ```
 duo envs
 duo doctor <env>
+duo adopt  <env>
 duo status <env>
 duo capture <env> [extra wp-cli flags...]
 duo plan    <env> [extra wp-cli flags...]
@@ -74,6 +75,15 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   advisory/informational on this particular run (always 9; 6 whenever
   `DISALLOW_FILE_MODS` is genuinely unset; 5 only in the no-git case)
   passes.
+
+- **`duo adopt <env>`** — installs or updates this checkout's complete Duo
+  agent and manifest library on a pre-existing SSH target, creates a minimal
+  core-only `site.duo.json` only when that file is absent, verifies
+  the exact installed agent version and policy load in fresh wp-cli processes,
+  then runs `duo doctor`. Existing site policy is retained. The target needs
+  no Git and the install does not rely on `DUO_MANIFESTS_DIR` surviving into
+  an SSH login. See the operator procedure and safety/update contract in
+  [docs/adoption.md](../docs/adoption.md).
 
 - **`duo status <env>`** — runs `wp duo plan --repo=<repo_path>
   --format=json` (note: `--format=json`, not `--json` — wp-cli's dispatcher
@@ -354,10 +364,15 @@ Per-transport required keys:
 |---|---|---|
 | `local` | `wp_path`, `repo_path` | — |
 | `docker` | `compose_file`, `service`, `repo_path` | `profile` |
-| `ssh` | `host`, `wp_path`, `repo_path` | — |
+| `ssh` | `host`, `wp_path`, `repo_path` | `ssh_config` |
 
 A missing required key is a loud, specific error naming the environment,
 the key, and the transport — never a guess.
+
+`ssh_config`, when present, is passed to both `ssh -F` and `scp -F` and may be
+relative to the registry file that defined the environment. This is the
+single place to configure a non-default port, identity, proxy jump, and
+host-key policy without embedding shell options in `host`.
 
 ### Where the registry comes from
 

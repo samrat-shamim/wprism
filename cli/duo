@@ -18,6 +18,7 @@ require __DIR__ . '/src/Transport.php';
 require __DIR__ . '/src/LocalTransport.php';
 require __DIR__ . '/src/DockerTransport.php';
 require __DIR__ . '/src/SshTransport.php';
+require __DIR__ . '/src/Adopt.php';
 require __DIR__ . '/src/Doctor.php';
 require __DIR__ . '/src/CodeDeploy.php';
 require __DIR__ . '/src/PlanSummary.php';
@@ -25,6 +26,7 @@ require __DIR__ . '/src/Pending.php';
 require __DIR__ . '/src/Triage.php';
 
 use Duo\Orchestrator\Doctor;
+use Duo\Orchestrator\Adopt;
 use Duo\Orchestrator\CodeDeploy;
 use Duo\Orchestrator\Pending;
 use Duo\Orchestrator\PlanSummary;
@@ -42,6 +44,7 @@ over local/docker/ssh transports and adds cross-environment ergonomics.
 Usage:
   duo envs
   duo doctor <env>
+  duo adopt  <env>
   duo status <env>
   duo capture <env> [extra wp-cli flags...]
   duo plan    <env> [extra wp-cli flags...]
@@ -59,6 +62,11 @@ Verbs:
   doctor <env>            Check transport reachability, WordPress install, the
                           duo agent, and repo_path/site.duo.json. Non-zero exit
                           on any failing check.
+  adopt <env>             Bootstrap this checkout's agent + manifests and a
+                          seed site repo onto an SSH-only WordPress host, then
+                          verify the exact agent version, policy load, and
+                          doctor checks. Idempotent; existing site.duo.json is
+                          retained. SSH transport only.
   status <env>            Run `wp duo plan --format=json` and print counts per
                           plan bucket (incl. deletion conflicts,
                           code_mismatch, and code_drift), drift paths,
@@ -194,7 +202,7 @@ function main(array $argv): int {
     }
 
     $verb = array_shift($rest);
-    $verbsNeedingEnv = ['doctor', 'status', 'capture', 'plan', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify'];
+    $verbsNeedingEnv = ['doctor', 'adopt', 'status', 'capture', 'plan', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify'];
 
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
@@ -216,6 +224,7 @@ function main(array $argv): int {
 
     return match ($verb) {
         'doctor' => cmd_doctor($transport),
+        'adopt' => cmd_adopt($transport, $extra),
         'status' => cmd_status($transport),
         'capture', 'plan', 'apply', 'env-set' => cmd_passthrough($transport, $verb, $extra),
         'deploy' => cmd_deploy($transport, $extra),
@@ -260,6 +269,30 @@ function cmd_doctor(Transport $t): int {
         echo $line . "\n";
     }
     return $result['ok'] ? 0 : 1;
+}
+
+function cmd_adopt(Transport $t, array $extra): int {
+    if ($extra !== []) {
+        fwrite(STDERR, "duo: adopt accepts no extra arguments\n");
+        return 1;
+    }
+    if (!$t instanceof \Duo\Orchestrator\SshTransport) {
+        fwrite(STDERR, "duo: adopt requires an ssh transport; local/docker environments already have a direct delivery path\n");
+        return 1;
+    }
+
+    echo "adopt phase: preflight + staged install\n";
+    $result = Adopt::install($t, dirname(__DIR__));
+    if ($result['exit'] !== 0) {
+        fwrite(STDERR, "duo: adopt failed during {$result['phase']}\n");
+        print_transport_detail($result);
+        return $result['exit'];
+    }
+
+    $repoAction = $result['repo_created'] ? 'created seed site.duo.json' : 'retained existing site.duo.json';
+    echo "adopt: installed agent {$result['version']} + manifest library; $repoAction\n";
+    echo "adopt phase: doctor\n";
+    return cmd_doctor($t);
 }
 
 function cmd_status(Transport $t): int {
