@@ -18,6 +18,12 @@ final class CompiledRepository {
     }
 
     public static function create(array $payload): self {
+        if (array_key_exists('code', $payload)) {
+            if (!is_array($payload['code'])) {
+                throw new \RuntimeException('duo: compiled code descriptor must be an object');
+            }
+            Code::assert_descriptor($payload['code']);
+        }
         $payload['format'] = self::FORMAT;
         $payload['artifact_hash'] = self::content_hash($payload);
         return new self($payload);
@@ -34,6 +40,12 @@ final class CompiledRepository {
         }
         if (!isset($artifact['tree']) || !is_array($artifact['tree'])) {
             throw new \RuntimeException('duo: compiled artifact has no typed tree');
+        }
+        if (array_key_exists('code', $artifact)) {
+            if (!is_array($artifact['code'])) {
+                throw new \RuntimeException('duo: compiled artifact code descriptor is malformed');
+            }
+            Code::assert_descriptor($artifact['code']);
         }
         return new self($artifact);
     }
@@ -58,6 +70,17 @@ final class CompiledRepository {
 
     public function revision_hash(): string {
         return $this->artifact['revision_hash'];
+    }
+
+    /** @return ?array<string,mixed> */
+    public function code_descriptor(): ?array {
+        $descriptor = $this->artifact['code'] ?? null;
+        return is_array($descriptor) ? $descriptor : null;
+    }
+
+    public function code_revision(): ?string {
+        $descriptor = $this->code_descriptor();
+        return $descriptor === null ? null : (string) ($descriptor['code_revision'] ?? '');
     }
 
     public function manifest_hash(): string {
@@ -217,6 +240,16 @@ final class RepositoryCompiler {
                 'compiled manifest/interpreter set does not match active pins'
             );
         }
+        $policyHasCode = $policy->code_config() !== null;
+        $artifactHasCode = $artifact->code_descriptor() !== null;
+        if ($policyHasCode !== $artifactHasCode) {
+            throw self::artifact_exception(
+                'compiled_artifact_code_mismatch', $path,
+                $policyHasCode
+                    ? 'active site policy enables code materialization but this artifact has no code descriptor'
+                    : 'active site policy is legacy/state-only but this artifact unexpectedly contains a code descriptor'
+            );
+        }
         // Artifact consumers need the identical repository-derived schema
         // facts compilation used; never let a loaded artifact make ACF (or
         // a future interpreter) fall back to target-only rows during apply.
@@ -298,6 +331,22 @@ final class RepositoryCompiler {
 
     private function run(): CompiledRepository {
         SidebarState::assert_policy($this->policy);
+        $codeDescriptor = null;
+        $codeConfig = $this->policy->code_config();
+        try {
+            if ($codeConfig !== null) {
+                if (!class_exists(Code::class)) {
+                    throw new \RuntimeException('code payload support is not loaded');
+                }
+                $codeDescriptor = Code::compile($this->repo, $codeConfig);
+            }
+        } catch (CodeCompilationException $e) {
+            foreach ($e->diagnostics as $diagnostic) {
+                $this->diagnostics[] = $diagnostic;
+            }
+        } catch (\Throwable $t) {
+            $this->add('code_payload_invalid', 'code', '', $t->getMessage());
+        }
         if (!is_dir($this->stateDir)) {
             $this->add('state_directory_missing', 'state', '', 'repository has no state/ directory');
             $this->fail();
@@ -404,6 +453,17 @@ final class RepositoryCompiler {
         $this->validate_natural_identities($tree);
         $this->validate_graph($tree);
         $this->validate_portable_shapes($tree);
+        if ($codeDescriptor !== null) {
+            if (!class_exists(CodeStateContract::class)) {
+                $this->add('code_state_contract_unavailable', 'code', '', 'code/state bridge support is not loaded');
+            } else {
+                try {
+                    CodeStateContract::validate_tree($tree, $codeDescriptor);
+                } catch (\Throwable $t) {
+                    $this->add('code_state_mismatch', 'state/options/core.json', '', $t->getMessage());
+                }
+            }
+        }
 
         // Adapter code is the already-ratified interpreter trust boundary:
         // it ships and hashes with a pinned manifest, never plugin runtime.
@@ -424,13 +484,14 @@ final class RepositoryCompiler {
         ksort($this->mediaCatalog, SORT_STRING);
         $siteHash = self::site_hash($this->policy);
         $manifestHash = self::manifest_hash($this->policy);
-        $revision = hash('sha256', Canon::encode([
+        $revisionInputs = [
             'site_hash' => $siteHash,
             'manifest_hash' => $manifestHash,
             'sources' => $sourceRows,
             'media' => $this->mediaCatalog,
-        ]));
-        return CompiledRepository::create([
+        ];
+        $revision = hash('sha256', Canon::encode($revisionInputs));
+        $payload = [
             'compiler_version' => 1,
             'spec_version' => $supported,
             'site_hash' => $siteHash,
@@ -448,7 +509,11 @@ final class RepositoryCompiler {
             'media' => $this->media,
             'tree' => $tree,
             'deletions' => $this->deletions,
-        ]);
+        ];
+        if ($codeDescriptor !== null) {
+            $payload['code'] = $codeDescriptor;
+        }
+        return CompiledRepository::create($payload);
     }
 
     /** @return array<string,string> state-relative path => absolute path */

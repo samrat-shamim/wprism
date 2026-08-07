@@ -8,10 +8,11 @@ A **site repo** is a git repository holding the branchable partition of one Word
 
 ```
 site.duo.json                # spec_version, manifest pins, site policy
-code/                        # the code half (Bedrock-style; out of scope for the spikes)
-  wp-content/plugins/
-  wp-content/themes/
-  wp-content/mu-plugins/duo/ # the agent
+code/
+  wp-content/                # optional v0 code payload; exact vendored bytes
+    plugins/
+    themes/
+    mu-plugins/              # user mu-plugins only; Duo's agent is out-of-band in v0
 state/                       # canonical authored state (this spec's core)
   options/core.json
   posts/<post_type>/<uuid>--<slug>.md
@@ -315,6 +316,11 @@ Import verifies the artifact integrity hash, repository and manifest association
 
 ```json
 {
+  "code": {
+    "format": 1,
+    "layout": "wp-content",
+    "source": "code/wp-content"
+  },
   "manifests": [
     "core",
     {
@@ -334,6 +340,70 @@ Import verifies the artifact integrity hash, repository and manifest association
 `policy` holds site-local classification overrides (same shape as manifest rules); it wins over manifests. `manifests` pins which registry manifests apply (agent looks them up in its manifest dir). A pin may remain the historical name string or use `{"name":"…","digest":"<sha256>"}`. The object form is optional and content-addressed: load computes the same per-manifest digest recorded in compiled artifacts' `resolved_adapters` (including a declared interpreter's name and bytes) and refuses a mismatch before any policy consumer or target contact, naming the manifest plus expected and actual digests. `{"name":"core"}` without `digest` is also equivalent to the legacy string form; adding this mechanism does not force existing repositories to migrate.
 
 `wp duo manifest-pin --name=<name>` validates the installed manifest and prints the exact canonical `{name,digest}` object for copy/paste into this array. It deliberately does not load `site.duo.json`, so a stale pin cannot prevent calculating a reviewed replacement after an intentional manifest update. Updating the pin is an explicit review act; it is never automatic.
+
+### `code` (optional)
+
+The first materialized code contract is deliberately narrow and explicit:
+
+```json
+{
+  "code": {
+    "format": 1,
+    "layout": "wp-content",
+    "source": "code/wp-content"
+  }
+}
+```
+
+When present, `code/wp-content/plugins/`, `themes/`, and user-owned
+`mu-plugins/` are a versioned payload of exact vendored bytes. Public,
+premium, private, and in-house extensions all have the same transport shape;
+whether their database state is supported remains the separate manifest
+contract. Symlinks and paths outside those three roots are refused. The Duo
+agent's own `mu-plugins/duo/` directory and `duo-loader.php` are protected and
+remain out-of-band for this first version, so a deployment cannot replace the
+agent executing it.
+
+The payload does not own WordPress core, `wp-config.php`, uploads, caches,
+drop-ins, language packs, or unrelated `wp-content` directories. Finalization
+may remove only paths recorded as Duo-owned by an earlier successful code
+deployment (and obsolete files inside a component the new payload explicitly
+owns); unrelated target files are never swept by a global `--delete`.
+
+Format 1 maps those three roots to the standard `WP_CONTENT_DIR/plugins`,
+`WP_CONTENT_DIR/themes`, and `WP_CONTENT_DIR/mu-plugins` locations. If a payload
+actually manages a root that WordPress has redirected elsewhere (for example a
+custom `WP_PLUGIN_DIR`), materialization refuses before writing; copying files
+into an inert standard directory would be a false success. A payload managing
+only one root is not coupled to the unused roots' layout.
+
+Compilation inventories every payload file and SHA-256, plugin main-file
+basename, theme slug, and owned component root. The descriptor's revision is
+stored separately from the state/media `revision_hash`; the outer artifact hash
+binds both without turning them into one lifecycle. This makes the enforceable
+invariant:
+
+```text
+canonical active plugin/theme ⊆ compiled payload ⊆ verified target payload
+```
+
+The completed marker is not trusted by itself. Plan/apply revalidate its stored
+descriptor and the managed target bytes (including unexpected regular files
+inside an owned component); a same-version PHP edit is therefore stale code,
+not a clean environment. Recovery is the host `duo deploy <env>` path. Generic
+force flags cannot authorize state apply while this descriptor proof is stale.
+
+Composer resolution, full-webroot/core ownership, controller-built SSH
+artifacts, and atomic release-directory swaps are later build/deployment modes
+that must emit this same descriptor contract; they are not implied by format 1.
+
+The separation is structural, not merely naming. Code scanning and filesystem
+mutation never parse or apply canonical entities. State planning and apply never
+copy, delete, or claim executable files. One narrow lifecycle contract bridges
+the halves: canonical `active_plugins`, `template`, and `stylesheet` express
+database-held intent which must be satisfiable by the code descriptor and then
+reconciled through WordPress's real activation/theme APIs. Promotion sequences
+that bridge, but each half retains its own revision and completion marker.
 
 ### `envs` (optional)
 
@@ -413,11 +483,18 @@ The orchestrator surfaces this loop as `duo pending <env>` and `duo classify <en
 
 ## Offline repository compilation (spec v0.13)
 
-`wp duo compile --repo=<p> [--out=<artifact.json>]` is the semantic merge gate. It reads one complete repository revision without constructing target-bound tokenizers or consulting the target database, parses every canonical entity into typed data (post metadata plus a distinct raw body), and emits `duo-compiled-repository/v1`. The artifact embeds referenced media bytes, active site-policy and pinned-manifest/interpreter hashes, an exact source-revision hash, and its own SHA-256 content address. Loading an emitted artifact verifies those hashes; a current policy/manifest mismatch refuses it.
+`wp duo compile --repo=<p> [--out=<artifact.json>]` is the semantic merge gate. It reads one complete repository revision without constructing target-bound tokenizers or consulting the target database, parses every canonical entity into typed data (post metadata plus a distinct raw body), and emits `duo-compiled-repository/v1`. The artifact embeds referenced media bytes, active site-policy and pinned-manifest/interpreter hashes, an exact state/media `revision_hash`, the optional independent code-payload descriptor/`code_revision`, and its own SHA-256 content address over both halves. Loading an emitted artifact verifies those hashes; a current policy/manifest mismatch refuses it, as does descriptor absence/presence that disagrees with the active policy's code declaration. Code stage re-hashes the source payload before and during target writes, so changing `code/` after compilation fails rather than mixing revisions. Every host phase also supplies the outer hash it observed at compile time. Lifecycle deploy and finalization then consume only that frozen descriptor and verified staged target; they do not reopen mutable source.
 
 Compilation batches stable blocking diagnostics for malformed or unknown entity kinds, invalid/duplicate UUIDs, duplicate natural identities (`post_type + slug + parent`, `taxonomy + slug`, or a declared table natural key), malformed/unsupported tombstones, live+tombstone collisions, conflict markers, graph references whose target is explicitly deleted or has the wrong kind, unsafe/duplicate attachment paths, missing or mis-hashed media, schema/content mismatches, and pinned adapter constraints. ACF's schema/value checks use the same manifest-shipped interpreter trust boundary as classification—never the installed plugin. The DUO-3203 policy-authorization pass is the final compiler layer and preserves its existing structured failure contract.
 
 Plan, apply, and deploy construct or load this artifact before target contact and accept only the `CompiledRepository` type internally—never a raw tree array. `--compiled=<artifact.json>` reuses a previously emitted artifact. All phases consume its decoded data/body/media payload and never reopen mutable `state/` or `media/` files after compilation; a failed compilation therefore creates no ledger and performs no target read, lifecycle call, rebuild, filesystem materialization, or database write.
+
+Apply's mandatory fresh-process post-mutation verifier receives private
+temporary snapshots of that exact in-memory artifact and its already-validated
+`Policy`; it does not reload `site.duo.json`, manifests, `state/`, or `media/`
+from the checkout. The child revalidates the policy shape and artifact
+site/manifest hashes, requires the parent's exact outer artifact hash, and
+removes both handoff files after the child exits.
 
 ## Apply semantics (v1)
 
@@ -447,19 +524,44 @@ a structured `incomplete_apply` condition, so `duo status` remains non-zero
 until that retry succeeds and clears it.
 
 Snapshot/rollback is the orchestrator's job in v0. The normal host path,
-`duo promote <env>`, compiles one immutable artifact, exports the database to
-the target repo's gitignored `.duo/checkpoints/`, then sequences deploy → apply
-against that same artifact. A failed phase stops all later phases and prints the
-checkpoint plus the exact transport-shaped `wp db import` recovery command.
+`duo promote <env>`, compiles one immutable artifact, acquires a target lease
+bound to its outer `artifact_hash`, then exports the database to the target
+repo's gitignored `.duo/checkpoints/`. It then sequences code stage → lifecycle
+deploy → code finalize/verify → state apply against that same artifact.
+Repositories without the optional `code` contract retain the legacy lifecycle
+deploy → apply sequence after the checkpoint. A failed post-begin phase stops
+all later phases and performs an exact idempotent lease abort while preserving
+the original phase failure. Finalize publishes the completed code descriptor
+and `code_revision` while removing all temporary stage markers in one database
+transaction; statement/commit failure rolls the entire ledger transition back
+to its retryable staged form.
+
+The checkpoint necessarily contains the temporary `duo_kv.promotion_lock` row,
+because it is taken under that lease. Since importing the database can replace
+that same row, it cannot provide its own uninterrupted exclusion. A later
+restore first requires external maintenance/exclusion for every Duo writer,
+then uses this exact row-repair order: idempotently abort the old owner/hash,
+begin that owner/hash again, import the checkpoint, then idempotently abort the
+row restored by the import (the final abort is required even if import fails).
+For a code-enabled failure, restore/reconcile code to its known
+pre-promotion revision before that sequence; database import alone is never a
+complete code-and-state rollback. A failed export is not a checkpoint and gets
+no import instruction.
 
 Deploy and apply also share one target-authoritative lease in the target
 database. The `duo_kv.promotion_lock` record names a random orchestrator owner,
-the compiled artifact hash, current phase, and bounded expiry. Acquisition is
-one conditional upsert with owner readback: concurrent Duo writers fail before
-mutation, the same owner may hand the lease from deploy to apply, and a crashed
-owner is recoverable only after expiry. Every mutating phase renews and verifies
-ownership; loss or expiry fails closed. Direct `wp duo deploy` and `wp duo
-apply` calls acquire their own single-phase lease too.
+the compiled artifact hash, current phase, and bounded expiry. Only
+`promotion-begin` may create or recover it and records the latest begun
+owner/artifact session durably; explicit later phases are strict continuations
+of both that session and its exact still-live row, so an absent row never
+authorizes—or advertises recovery for—an obsolete checkpoint. Each live mutation process additionally
+holds a connection-scoped database advisory fence. That fence covers unbounded
+plugin/theme hooks and filesystem work: a second process cannot recover an
+expired row while the original is still running, and the continuously fenced
+owner renews when control returns. A crashed process drops the advisory fence
+automatically and its row becomes recoverable by a different owner after
+expiry. Direct `wp duo deploy` and `wp duo apply` calls acquire their own
+single-phase row plus process fence too.
 
 Under that lease, apply computes the live plan a second time immediately before
 the first write and hashes only mutation-authorizing facts: live entity state,
@@ -470,11 +572,12 @@ are then queried once more immediately before each DELETE inside the mutation
 transaction. This gate serializes Duo writers while leaving public reads and
 unrelated runtime traffic available; a global maintenance page is not implied.
 
-## Code-half facts & deploy (spec v0.9 — docs/proposals/code-half.md phase 1)
+## Code-half facts & deploy (v0 payload skeleton)
 
 - `active_plugins`, `template`, `stylesheet` are **managed-class** core-manifest options: captured bespoke into `state/options/core.json` (plain portable strings — plugin file paths and theme slugs need no tokenization; their cross-environment stability *is* the invariant), and **excluded from apply's generic direct-SQL path** — a raw options UPDATE would skip activation/switch hooks while leaving WordPress believing the code is active.
-- **`wp duo deploy --repo=<p>`** is the one sanctioned side-effect step: it reconciles activation state to canonical via real `activate_plugin()`/`switch_theme()` calls, deliberately outside the canary window, and is idempotent. Ordering: deploy code → migrations fire via activation → then `apply` state.
-- **Plan's `code_mismatch` bucket**: `missing_in_code` (canonical wants an activation whose plugin is absent from the environment's code), `outside_version_range` (a pinned manifest declares `{"plugin": "<file>", "version_range": {"min", "max"}}` and the installed version falls outside), and lifecycle mismatches (`inactive_in_environment`, `unexpected_active_plugin`, `active_plugin_order_mismatch`). Apply refuses every row. Deploy refuses missing/incompatible code but owns reconciliation of lifecycle rows through real activation/deactivation/theme APIs plus an exact, verified `active_plugins` ordering write. `--force-code-mismatch` remains the report-not-hide escape hatch for missing/incompatible code. `code_revision_stale` is phase 2 (requires a materialization transport).
+- **Host `duo deploy <env>`** compiles once, stages add/update files from the descriptor-bound payload, invokes agent `wp duo deploy` for real lifecycle hooks, then prunes only Duo-owned obsolete files/directories, proves the managed components contain exactly the descriptor's regular files and hashes, and records the completed code revision. Stage never claims completion; a failure before final verification leaves the prior completed revision truthful.
+- **Removal ordering is lifecycle-safe**: stage retains outgoing files, lifecycle deploy deactivates them while their hooks still exist, and only finalization prunes them. A canonical active plugin/theme absent from the new source descriptor is refused before stage mutates the target.
+- **Plan's `code_mismatch` bucket**: `missing_in_code` (canonical wants an activation whose plugin is absent from the environment's code), `outside_version_range` (a pinned manifest declares `{"plugin": "<file>", "version_range": {"min", "max"}}` and the installed version falls outside), `code_revision_stale` (the compiled payload is not the last successfully verified materialization), and lifecycle mismatches (`inactive_in_environment`, `unexpected_active_plugin`, `active_plugin_order_mismatch`). Apply refuses every row. Lifecycle deploy owns activation/deactivation/theme reconciliation; only the orchestrated staged path may pass its expected temporary staleness through to final verification. `--force-code-mismatch` remains the report-not-hide escape hatch for ordinary direct calls.
 - During deploy's deliberately hook-firing window, a reporting-only observer records attempted `wp_mail` and outbound HTTP calls in `external_side_effects` and human warnings. It neither blocks those calls nor changes the apply canary's fixed meaning; apply still treats content hooks, mail, or HTTP as a hard failure.
 - **Plan's `code_drift` bucket** (DUO-3231): a narrower, separate question from `code_mismatch` above — not "is the installed version compatible with the manifest's declared range" but "did this exact plugin/theme's version change since Duo last observed this environment," the direct code-half analogue of state's own drift concept, catching the case a wide `version_range` can't (a wp-admin one-click update landing comfortably inside a pinned range is invisible to `code_mismatch`, yet is exactly the out-of-band mutation risk this bucket exists for). The baseline it compares against — one JSON blob under `duo_kv['code_versions']` — is written by `Deploy::record_code_versions()` at the end of every successful `duo deploy` **and** `duo capture` (either is a moment Duo legitimately observed the environment's code); no baseline yet for a given plugin means nothing to compare, not a false positive. Scoped to exactly the plugins/theme slots `code_mismatch` already scopes to (the target state's own `active_plugins`/`template`/`stylesheet`). Same blocking posture and escape hatch as `code_mismatch`: `deploy`/`apply` refuse while non-empty, `--force-code-drift` proceeds while still reporting every overridden finding (Architecture Rulings §1) — in JSON output always, and in ordinary human output too, seeded as `WP_CLI::warning()` lines precisely because reaching that code path at all means the flag was set.
 - **`wp duo doctor` DISALLOW_FILE_MODS check** (DUO-3231, `cli/src/Doctor.php`): advisory-only (never fails `doctor`'s own exit code) — reports when a target's `wp-config.php` does not `define('DISALLOW_FILE_MODS', true)`, the source-closing complement to `code_drift`'s after-the-fact detection (docs/proposals/code-half.md risk register #1).

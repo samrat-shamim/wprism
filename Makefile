@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit code-half-unit
 
 up:
 	$(COMPOSE) up -d
@@ -272,10 +272,47 @@ regress-widgets:
 	bash sandbox/tests/regress_widgets.sh
 
 # DUO-3216: offline host-orchestrator state-machine contract — one compiled
-# artifact, durable pre-mutation DB checkpoint, deploy -> apply ordering,
-# stop-on-first-failure, and exact transport-shaped restore instructions.
+# artifact, pre-checkpoint lease, deploy -> apply ordering, stop-on-first-
+# failure, exact cleanup, and serialized transport-shaped restore instructions.
 regress-promotion-unit:
 	bash sandbox/tests/regress_promotion_unit.sh
+
+# First functional code-half's fast, offline boundary suite: descriptor
+# revision enforcement, truthful status rendering, template reconciliation
+# detection, and both public host orchestration paths. Keep this separate
+# from the Docker/live promotion regression below so it is cheap to run while
+# iterating on the safety gates.
+code-half-unit: regress-repository-compiler regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-promotion-unit
+
+regress-repository-compiler:
+	bash sandbox/tests/regress_repository_compiler.sh
+
+regress-code-revision-enforcement:
+	php sandbox/tests/regress_code_revision_enforcement.php
+
+regress-code-descriptor-unit:
+	bash sandbox/tests/regress_code_descriptor_unit.sh
+
+regress-code-materializer-unit:
+	bash sandbox/tests/regress_code_materializer_unit.sh
+
+regress-code-completed-unit:
+	bash sandbox/tests/regress_code_completed_unit.sh
+
+regress-code-stage-lock-unit:
+	bash sandbox/tests/regress_code_stage_lock_unit.sh
+
+regress-code-ledger-transaction-unit:
+	bash sandbox/tests/regress_code_ledger_transaction_unit.sh
+
+regress-plan-summary-code-drift:
+	php sandbox/tests/regress_plan_summary_code_drift.php
+
+regress-template-mismatch:
+	php sandbox/tests/regress_template_mismatch.php
+
+regress-code-deploy-unit:
+	bash sandbox/tests/regress_code_deploy_unit.sh
 
 # DUO-3216: live activation/deactivation/order gate, deploy-window mail/HTTP
 # observations, and the composed host promote path with a retained DB dump.

@@ -15,7 +15,13 @@ namespace Duo\Orchestrator;
  *   - code_mismatch (agent/src/Deploy.php::code_mismatch(), docs/proposals/
  *     code-half.md §3.2): a DIFFERENT row shape —
  *     {issue,kind,plugin|theme,message,...}, no uuid/path — so label()
- *     below does not apply to it.
+ *     below does not apply to it. `code_revision_stale` is the one
+ *     non-forceable member: it names an unfinalized code payload and must
+ *     direct the operator to the host `duo deploy <env>` workflow.
+ *   - code_drift (agent/src/Deploy.php::code_drift()): a similarly shaped
+ *     plugin/theme finding, but it means an otherwise-compatible installed
+ *     version changed after Duo's last trusted observation. Apply refuses it
+ *     unless explicitly forced, so status must count, render, and block it.
  *   - warnings: a plain list<string> (only Apply::plan()'s entry point
  *     attaches this to the returned array — see its own comment).
  *   - incomplete_apply: a retained apply marker means authored writes may
@@ -48,6 +54,15 @@ final class PlanSummary {
             $counts[$k] = count($plan[$k] ?? []);
         }
         $codeMismatch = $plan['code_mismatch'] ?? [];
+        $codeRevisionStale = array_values(array_filter(
+            $codeMismatch,
+            static fn(array $r): bool => ($r['issue'] ?? null) === 'code_revision_stale'
+        ));
+        $forceableCodeMismatch = array_values(array_filter(
+            $codeMismatch,
+            static fn(array $r): bool => ($r['issue'] ?? null) !== 'code_revision_stale'
+        ));
+        $codeDrift = $plan['code_drift'] ?? [];
         $incompleteApply = $plan['incomplete_apply'] ?? [];
         $regenPending = $plan['regen_pending'] ?? [];
         $envMissing = $plan['env_missing'] ?? [];
@@ -56,6 +71,7 @@ final class PlanSummary {
         $envMissingRequired = array_values(array_filter($envMissing, fn($r) => !empty($r['required'])));
         $summary = 'plan: ' . implode(', ', array_map(fn($k) => "{$counts[$k]} $k", self::BUCKETS));
         $summary .= ', ' . count($codeMismatch) . ' code_mismatch';
+        $summary .= ', ' . count($codeDrift) . ' code_drift';
         $summary .= ', ' . count($incompleteApply) . ' incomplete_apply';
         $summary .= ', ' . count($regenPending) . ' regen_pending';
         $summary .= ', ' . count($envMissing) . ' env_missing';
@@ -116,14 +132,34 @@ final class PlanSummary {
             }
         }
 
-        if ($codeMismatch) {
+        if ($codeRevisionStale) {
+            $lines[] = 'CODE_REVISION_STALE (the compiled code payload is not verified and finalized on this environment):';
+            foreach ($codeRevisionStale as $r) {
+                $revision = (string) ($r['expected_revision'] ?? '?');
+                $lines[] = '  - expected code revision ' . $revision . ': '
+                    . ($r['message'] ?? 'run the host duo deploy workflow');
+            }
+            $lines[] = 'code revision is stale — run `duo deploy <env>`; this ordering invariant cannot be bypassed by force flags';
+        }
+
+        if ($forceableCodeMismatch) {
             $lines[] = "CODE_MISMATCH (this environment's installed code does not match what the target state declares active):";
-            foreach ($codeMismatch as $r) {
+            foreach ($forceableCodeMismatch as $r) {
                 $what = $r['plugin'] ?? $r['theme'] ?? '?';
                 $lines[] = '  - ' . strtoupper((string) ($r['issue'] ?? '?')) . ' ' . $what . ': ' . ($r['message'] ?? '');
             }
             // Verbatim match of agent/src/Cli.php's plan() warning.
             $lines[] = 'code_mismatch findings — duo apply will refuse until resolved (or run with --force-code-mismatch)';
+        }
+
+        if ($codeDrift) {
+            $lines[] = 'CODE_DRIFT (managed code changed outside Duo since its last trusted observation):';
+            foreach ($codeDrift as $r) {
+                $what = $r['plugin'] ?? $r['theme'] ?? '?';
+                $lines[] = '  - ' . strtoupper((string) ($r['issue'] ?? 'code_drift')) . ' ' . $what
+                    . ': ' . ($r['message'] ?? 'installed code differs from the recorded baseline');
+            }
+            $lines[] = 'code_drift findings — duo apply will refuse until resolved (or run with --force-code-drift)';
         }
 
         foreach ($plan['warnings'] ?? [] as $w) {
@@ -179,9 +215,18 @@ final class PlanSummary {
         // readiness probe, not merely an apply-will-refuse predictor:
         //   - conflict      : apply refuses without --force-theirs.
         //   - collision     : apply refuses without --adopt-by-slug=....
-        //   - code_mismatch : apply refuses without --force-code-mismatch
-        //                     (Apply::run(); Deploy::run() has the same
-        //                     refuse-precondition for `duo deploy`).
+        //   - code_revision_stale: apply always refuses this ordering
+        //                     invariant until the host `duo deploy <env>`
+        //                     flow verifies/finalizes the descriptor; it is
+        //                     deliberately not forceable.
+        //   - code_mismatch : remaining lifecycle compatibility rows refuse
+        //                     without --force-code-mismatch (Apply::run();
+        //                     Deploy::run() has the same refuse-precondition
+        //                     for `duo deploy`).
+        //   - code_drift    : apply refuses without --force-code-drift;
+        //                     unlike ordinary content drift, this is a
+        //                     version/provenance precondition for state
+        //                     writes and must not be omitted from status.
         //   - incomplete_apply: a previous apply already failed after or
         //                     during mutation/rebuild; status must remain
         //                     non-zero until the retry clears its marker.
@@ -242,6 +287,7 @@ final class PlanSummary {
             && $counts['delete_conflict'] === 0
             && $counts['collision'] === 0
             && count($codeMismatch) === 0
+            && count($codeDrift) === 0
             && !$incompleteApply
             && !$regenPending
             && !$envMissingRequired
