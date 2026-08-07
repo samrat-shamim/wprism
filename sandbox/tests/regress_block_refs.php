@@ -100,6 +100,27 @@ final class FakeWpdb {
             [$kind, $localId] = $args;
             return $this->identity[$kind][(int) $localId] ?? null;
         }
+        // DUO-3212: Capture::ref_target_type()'s two scalar lookups (real
+        // row's own type, independent of whether it's minted a uuid) —
+        // reuses the SAME $postsById/$termsById fixtures get_row() above
+        // already has, since both are answering the same underlying
+        // question ("does a real row exist, and what type is it") via a
+        // different SQL shape.
+        if (str_contains($sql, 'SELECT post_type FROM') && str_contains($sql, $this->posts)) {
+            $id = (int) $args[0];
+            $row = $this->postsById[$id] ?? null;
+            if ($row === null) {
+                return null;
+            }
+            if (($row['post_type'] ?? '') === 'revision' || ($row['post_status'] ?? 'publish') === 'auto-draft') {
+                return null; // matches ref_target_type()'s own exclusion exactly
+            }
+            return $row['post_type'];
+        }
+        if (str_contains($sql, 'SELECT taxonomy FROM') && str_contains($sql, $this->term_taxonomy)) {
+            $id = (int) $args[0];
+            return $this->termsById[$id]['taxonomy'] ?? null;
+        }
         throw new \RuntimeException("FakeWpdb::get_var: unrecognized query shape: $sql");
     }
 
@@ -147,6 +168,12 @@ require __DIR__ . '/../../agent/src/Pending.php';
 require __DIR__ . '/../../agent/src/Tokens.php';
 require __DIR__ . '/../../agent/src/Blocks.php';
 require __DIR__ . '/../../agent/src/Lint.php';
+// DUO-3212: Blocks::queue_unscoped() calls Capture::ref_target_type()
+// directly (public static, zero instance dependency — see its own
+// docblock) rather than duplicating the query shapes it encapsulates.
+// Loading the class definition only; nothing here ever instantiates
+// Capture or calls any of its other (WordPress-dependent) methods.
+require __DIR__ . '/../../agent/src/Capture.php';
 
 use Duo\Canon;
 use Duo\Policy;
@@ -156,7 +183,9 @@ use Duo\Lint;
 
 const MAPPED_UUID = '01980000-0001-7000-8000-000000000001';
 const MAPPED_ID = 501;
-const UNMAPPED_ID = 999; // never in $wpdb->identity -> id_to_token() returns null
+const UNMAPPED_ID = 999; // never in $wpdb->identity, never in $wpdb->postsById -> genuinely DANGLING
+const UNSCOPED_ID = 888; // never in $wpdb->identity, but a REAL row of an out-of-scope type -> UNSCOPED
+const UNMINTED_ID = 444; // never in $wpdb->identity, but a REAL row of an IN-scope type -> neither (false-positive guard)
 
 $wpdb->identity['post'] = [MAPPED_ID => MAPPED_UUID];
 // A real, resolvable post for the UNREGISTERED-attr regression case (L4) —
@@ -164,6 +193,18 @@ $wpdb->identity['post'] = [MAPPED_ID => MAPPED_UUID];
 // does NOT resolve) so both branches of "fires regardless of whether the
 // id resolves" get exercised across the two new/changed classes.
 $wpdb->postsById[777] = ['post_type' => 'post', 'post_title' => 'Some Real Post'];
+// DUO-3212: a real row of a type this fixture's bare `new Policy()` does
+// NOT have in scope (post_types() falls back to its default ['post',
+// 'page', 'attachment'] with no site.duo.json override here) — the exact
+// UNSCOPED shape Capture::ref_target_type()'s own docblock uses as its
+// worked example ("elementor_active_kit when elementor_library isn't in
+// policy.post_types"), reused verbatim rather than inventing a new one.
+$wpdb->postsById[UNSCOPED_ID] = ['post_type' => 'elementor_library', 'post_title' => 'A Real Elementor Template'];
+// A real row of an IN-scope type ('page', already in the default list)
+// that simply hasn't been minted a uuid on THIS build — task #73's own
+// critical false-positive guard (Capture::queue_or_warn_unscoped()'s
+// docblock), ported: must be treated identically to dangling, never queued.
+$wpdb->postsById[UNMINTED_ID] = ['post_type' => 'page', 'post_title' => 'A Real But Unminted Page'];
 
 $policy = new Policy();
 $policy->manifests = [[
@@ -238,10 +279,10 @@ check(str_contains($w, 'core/gallery') && str_contains($w, 'ids') && str_contain
 // wp-image-N innerHTML class rewrite half-applied? The two mechanisms are
 // independent (attrs.id via the block_attrs rule loop; wp-image-N via its
 // own regex + its own id_to_token() call on the class's digits) -- confirm
-// they don't interfere with each other's control flow, and DOCUMENT
-// (out-of-scope, not this defect's fix) that the class-rewrite's own
-// unmapped handling still fails-open (leaves the raw digits) rather than
-// dropping the way the attribute now does.
+// they don't interfere with each other's control flow. DUO-3212 closed the
+// asymmetry this case used to document: the class rewrite now drops on
+// unmapped too, matching attrs.id exactly (previously it fail-OPEN, leaking
+// the raw digits unchanged into canonical state).
 $b4in = '<!-- wp:image {"id":999} -->' . "\n"
     . '<figure class="wp-block-image"><img src="http://example.test/wp-content/uploads/dog.jpg" class="wp-image-999" alt=""/></figure>' . "\n"
     . '<!-- /wp:image -->';
@@ -249,8 +290,87 @@ $tokens->warnings = [];
 $b4out = Blocks::capture_rewrite($b4in, $policy, $tokens);
 $b4blocks = parse_blocks($b4out);
 check(!array_key_exists('id', $b4blocks[0]['attrs']), 'B4: attrs.id dropped for the unmapped core/image (same as B2)');
-check(str_contains($b4blocks[0]['innerHTML'], 'wp-image-999'), 'B4: wp-image-999 class in innerHTML is UNCHANGED (class-rewrite fails open on unmapped -- pre-existing, separate from this fix, noted not fixed)');
+check(!str_contains($b4blocks[0]['innerHTML'], 'wp-image-999'), 'B4: wp-image-999 class in innerHTML is now DROPPED, not left unchanged (DUO-3212 closes the fail-open)');
 check(!str_contains($b4blocks[0]['innerHTML'], 'wp-image-{{'), 'B4: class was definitely not (even partially) tokenized');
+check(str_contains($b4blocks[0]['innerHTML'], 'class=""'), 'B4: class attribute is empty, not malformed, once its sole class is dropped (got: ' . $b4blocks[0]['innerHTML'] . ')');
+$w = implode(' | ', $tokens->warnings);
+check(str_contains($w, 'wp-image-999') && str_contains($w, 'core/image'), "B4: a warning names the dropped wp-image-999 class and its block (got: $w)");
+check($tokens->unscopedBlockRefs === [], 'B4: id 999 is genuinely dangling (no row anywhere) -- neither drop queues an unscoped violation (got: ' . json_encode($tokens->unscopedBlockRefs) . ')');
+
+// B7 — UNSCOPED scalar ref: id_to_token() fails the SAME way a dangling
+// ref does (attrs.id still drops, uniform treatment, matching task #73's
+// own posture for options exactly), but because the id names a REAL row
+// of an out-of-scope type (elementor_library), it ALSO queues onto
+// Tokens::$unscopedBlockRefs for Capture::build()'s batched abort --
+// Blocks.php itself never throws; queuing is as far as this layer goes.
+$tokens->warnings = [];
+$tokens->unscopedBlockRefs = [];
+$b7in = '<!-- wp:image {"id":' . UNSCOPED_ID . '} --><figure class="wp-block-image"></figure><!-- /wp:image -->';
+$b7out = Blocks::capture_rewrite($b7in, $policy, $tokens, false, "page 'about-us'");
+$b7blocks = parse_blocks($b7out);
+check(!array_key_exists('id', $b7blocks[0]['attrs']), 'B7: attrs.id still dropped for the unscoped ref (uniform drop, same as dangling)');
+$w = implode(' | ', $tokens->warnings);
+check(str_contains($w, (string) UNSCOPED_ID) && str_contains($w, 'core/image'), "B7: the uniform dangling-style warning still fires too (got: $w)");
+check(count($tokens->unscopedBlockRefs) === 1, 'B7: exactly one unscoped violation queued (got: ' . json_encode($tokens->unscopedBlockRefs) . ')');
+$r7 = $tokens->unscopedBlockRefs[0] ?? [];
+check(($r7['post'] ?? null) === "page 'about-us'", 'B7: violation names the post via the postLabel Capture::build_post() would pass (got: ' . json_encode($r7) . ')');
+check(($r7['block'] ?? null) === 'core/image', 'B7: violation names the block');
+check(($r7['attr'] ?? null) === 'id', 'B7: violation names the attribute path');
+check(($r7['kind'] ?? null) === 'post', 'B7: violation names the ref kind');
+check(($r7['id'] ?? null) === UNSCOPED_ID, 'B7: violation names the raw id');
+check(($r7['target_type'] ?? null) === 'elementor_library', 'B7: violation names the real target type Capture::ref_target_type() found');
+
+// B8 — --force-unresolved-refs bypasses the QUEUE, not the drop: matching
+// Capture::queue_or_warn_unscoped()'s own $force short-circuit exactly.
+$tokens->warnings = [];
+$tokens->unscopedBlockRefs = [];
+$b8out = Blocks::capture_rewrite($b7in, $policy, $tokens, true, "page 'about-us'");
+$b8blocks = parse_blocks($b8out);
+check(!array_key_exists('id', $b8blocks[0]['attrs']), 'B8: attrs.id is STILL dropped under --force-unresolved-refs (force changes reporting, not the drop)');
+check($tokens->unscopedBlockRefs === [], 'B8: --force-unresolved-refs suppresses the unscoped queue entirely (got: ' . json_encode($tokens->unscopedBlockRefs) . ')');
+
+// B9 — the critical false-positive guard (task #73's own, ported): a REAL
+// row of an IN-scope type ('page') that simply has no ledger uuid minted
+// on THIS build must be treated identically to dangling, never queued --
+// this is the exact fresh-target-environment shape (every entity is
+// "unmapped" before its own first capture) that would otherwise hard-
+// abort capture on an ordinary, correctly-configured site.
+$tokens->warnings = [];
+$tokens->unscopedBlockRefs = [];
+$b9in = '<!-- wp:image {"id":' . UNMINTED_ID . '} --><figure class="wp-block-image"></figure><!-- /wp:image -->';
+$b9out = Blocks::capture_rewrite($b9in, $policy, $tokens);
+$b9blocks = parse_blocks($b9out);
+check(!array_key_exists('id', $b9blocks[0]['attrs']), 'B9: attrs.id dropped for the in-scope-but-unminted ref (uniform drop)');
+check($tokens->unscopedBlockRefs === [], 'B9: in-scope-but-unminted NEVER queues as unscoped -- the false-positive guard (got: ' . json_encode($tokens->unscopedBlockRefs) . ')');
+
+// B10 — wp-image-N participates in the SAME triage as attrs.id (closing
+// the asymmetry B4 used to document all the way, not just the drop half).
+$tokens->warnings = [];
+$tokens->unscopedBlockRefs = [];
+$b10in = '<!-- wp:image {} -->' . "\n"
+    . '<figure class="wp-block-image"><img src="http://example.test/wp-content/uploads/x.jpg" class="wp-image-' . UNSCOPED_ID . '" alt=""/></figure>' . "\n"
+    . '<!-- /wp:image -->';
+$b10out = Blocks::capture_rewrite($b10in, $policy, $tokens, false, "post 'hello-world'");
+$b10blocks = parse_blocks($b10out);
+check(!str_contains($b10blocks[0]['innerHTML'], (string) UNSCOPED_ID), "B10: wp-image-" . UNSCOPED_ID . " class dropped for the unscoped ref");
+check(count($tokens->unscopedBlockRefs) === 1, 'B10: wp-image-N class ALSO queues an unscoped violation (got: ' . json_encode($tokens->unscopedBlockRefs) . ')');
+$r10 = $tokens->unscopedBlockRefs[0] ?? [];
+check(($r10['attr'] ?? null) === 'wp-image-class', 'B10: violation identifies the wp-image-class mechanism specifically, distinct from attrs.id (got: ' . json_encode($r10) . ')');
+check(($r10['target_type'] ?? null) === 'elementor_library', 'B10: violation names the real target type');
+
+// B11 — array-ref parity: an unscoped id inside an int[] ref (core/gallery)
+// gets the SAME triage as a scalar ref, at the specific array index --
+// task #73's own "scalar and array refs must not diverge in severity"
+// acceptance criterion, ported.
+$tokens->warnings = [];
+$tokens->unscopedBlockRefs = [];
+$b11in = '<!-- wp:gallery {"ids":[501,' . UNSCOPED_ID . ']} --><figure class="wp-block-gallery"></figure><!-- /wp:gallery -->';
+$b11out = Blocks::capture_rewrite($b11in, $policy, $tokens);
+$b11blocks = parse_blocks($b11out);
+check(($b11blocks[0]['attrs']['ids'] ?? null) === ['{{post:' . MAPPED_UUID . '}}'], 'B11: gallery ids -- mapped element kept, unscoped element dropped (same shape as B3)');
+check(count($tokens->unscopedBlockRefs) === 1, 'B11: exactly one unscoped violation queued for the array element (got: ' . json_encode($tokens->unscopedBlockRefs) . ')');
+$r11 = $tokens->unscopedBlockRefs[0] ?? [];
+check(($r11['attr'] ?? null) === 'ids[1]', 'B11: violation locates the SPECIFIC array index, matching Lint::scan_blocks()\'s own locator precision (got: ' . json_encode($r11) . ')');
 
 // B5 — apply-side tolerance: detokenizing content whose ref attr was
 // dropped at capture must not throw, and the attribute stays absent

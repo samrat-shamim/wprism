@@ -583,6 +583,13 @@ final class Capture {
         $this->unclassified = [];
         $this->unscopedRefs = [];
         $this->unscopedOptionNameRefs = [];
+        // Blocks.php has no persistent instance state of its own (see its
+        // docblock), so its own unscoped-violation queue lives on $this->
+        // tokens (Tokens::$unscopedBlockRefs) instead of a Capture-level
+        // array — reset here anyway, defensively matching the other two
+        // resets above, even though a fresh Tokens instance per build (see
+        // the constructor) already guarantees this starts empty.
+        $this->tokens->unscopedBlockRefs = [];
         $entities = [];
         $media = [];
 
@@ -706,7 +713,7 @@ final class Capture {
             if ($uuid === null) {
                 continue;
             }
-            [$front, $body, $mediaRef] = $this->build_post($p, $uuid);
+            [$front, $body, $mediaRef] = $this->build_post($p, $uuid, $forceUnresolvedRefs);
             if ($mediaRef !== null) {
                 $media[$mediaRef[0]] = $mediaRef[1];
             }
@@ -807,6 +814,37 @@ final class Capture {
                 . "\nThis differs from a dangling reference (no such row anywhere — dropped with a warning, "
                 . "unchanged): the row genuinely exists right now, so this is a manifest/table-pinning gap, not "
                 . "permanent data loss.\nPin the owning table as authored_snapshot and re-run capture, or pass "
+                . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
+            );
+        }
+
+        // Block refs' own unscoped gate (DUO-3212, task #73's mirror for
+        // "kind"/"kind_from" block_attrs refs and the wp-image-N class
+        // rewrite — both funnel through Blocks::queue_unscoped()): the id
+        // names a REAL row whose post_type/taxonomy simply isn't in policy
+        // scope, as opposed to a dangling reference (deleted target) or a
+        // real row of an in-scope type simply not minted on this build yet
+        // — both of those are handled by Blocks::walk()'s ordinary warn-
+        // and-drop, never reaching this list. Same posture as the two
+        // option gates above: a policy edit can actually fix this, so it
+        // aborts by default instead of silently vanishing from captured
+        // state. Accumulates across every post in this build (Tokens::
+        // $unscopedBlockRefs, not a per-post-reset array) the same way
+        // $this->unscopedRefs accumulates across every option above.
+        if ($this->tokens->unscopedBlockRefs) {
+            $lines = [];
+            foreach ($this->tokens->unscopedBlockRefs as $r) {
+                $scopeKey = $r['kind'] === 'term' ? 'policy.taxonomies' : 'policy.post_types';
+                $lines[] = "{$r['post']} block '{$r['block']}' attribute '{$r['attr']}' references {$r['kind']} id "
+                    . "{$r['id']}, which is a real '{$r['target_type']}' — but '{$r['target_type']}' is not in "
+                    . "$scopeKey, so its identity was never tracked and the reference cannot resolve";
+            }
+            throw new \RuntimeException(
+                "duo: unresolvable ref-typed block attribute(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
+                . implode("\n  - ", $lines)
+                . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
+                . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
+                . "Add the missing post type/taxonomy to policy scope above and re-run capture, or pass "
                 . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
             );
         }
@@ -1135,7 +1173,7 @@ final class Capture {
     }
 
     /** @return array{0: array, 1: string, 2: ?array{0:string,1:string}} [front, body, mediaRef] */
-    private function build_post(object $p, string $uuid): array {
+    private function build_post(object $p, string $uuid, bool $forceUnresolvedRefs = false): array {
         global $wpdb;
         $id = (int) $p->ID;
         $isAttachment = ($p->post_type === 'attachment');
@@ -1312,7 +1350,13 @@ final class Capture {
                     "verbatim body of {$p->post_type} '{$p->post_name}' contains this environment's home URL — it will NOT be re-bound on apply";
             }
         } else {
-            $body = Blocks::capture_rewrite((string) $p->post_content, $this->policy, $this->tokens);
+            $body = Blocks::capture_rewrite(
+                (string) $p->post_content,
+                $this->policy,
+                $this->tokens,
+                $forceUnresolvedRefs,
+                "{$p->post_type} '{$p->post_name}'"
+            );
         }
         return [$front, $body, $mediaRef];
     }
@@ -1998,7 +2042,7 @@ final class Capture {
         if ($force) {
             return false;
         }
-        $targetType = $this->ref_target_type($id, $kind);
+        $targetType = self::ref_target_type($id, $kind);
         if ($targetType === null) {
             return false; // dangling — caller's normal warn-and-drop handles it
         }
@@ -2030,8 +2074,14 @@ final class Capture {
      * is ever a valid policy.post_types scope target, so reporting either
      * as "just add this to policy.post_types" would be actionable-sounding
      * but wrong advice — closer to dangling than unscoped.
+     *
+     * public static (DUO-3212): has no instance dependency at all (only
+     * global $wpdb and its own two parameters) — Blocks.php's own unscoped-
+     * vs-dangling triage for block_attrs refs calls this directly rather
+     * than duplicating the query shapes (and their documented revision/
+     * auto-draft exclusion) a second time.
      */
-    private function ref_target_type(int $id, string $kind): ?string {
+    public static function ref_target_type(int $id, string $kind): ?string {
         global $wpdb;
         if ($id <= 0) {
             return null;

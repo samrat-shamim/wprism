@@ -1529,9 +1529,15 @@ final class Snapshot {
                     $out[$key] = null;
                     continue;
                 }
-                $tok = $tokens->id_to_token($n, $rule['ref']); // warns internally if unmapped
+                $tok = $tokens->id_to_token($n, $rule['ref']);
                 if ($tok === null) {
-                    continue; // OPTIONAL value ref: drop-with-warning, not a row-level throw
+                    // DUO-3212: id_to_token() no longer warns internally (see
+                    // its own docblock) -- this was this call site's ONLY
+                    // warning coverage, so it's now explicit here.
+                    // OPTIONAL value ref: drop-with-warning, not a row-level throw.
+                    $tokens->warnings[] = "table '$metaTable' key '$key' (parent $ownerLocalId): unmapped "
+                        . "{$rule['ref']} id $n dropped (dangling reference)";
+                    continue;
                 }
                 $out[$key] = $tok;
             } elseif (is_string($v)) {
