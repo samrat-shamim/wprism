@@ -333,7 +333,43 @@ HOST_BAD_REPO=siterepo/asub32332/.tmp-duo3233-badsubkey
 rm -rf "$HOST_BAD_REPO"
 mkdir -p "$HOST_BAD_REPO/state/options"
 cp siterepo/asub32332/site.duo.json "$HOST_BAD_REPO/site.duo.json"
-jq -n '{format:"duo-options/v1",records:{polylang:{state:"present",autoload:"yes",value:{post_types:["project"],sync:["taxonomies"]}}}}' > "$HOST_BAD_REPO/state/options/core.json"
+# DUO-3276: was `jq -n` building a single-record file from scratch (only
+# polylang's own record, nothing else) -- that shape predates DUO-3211's
+# absent-record contract becoming mandatory for every authored-exact
+# option (RepositoryCompiler.php:506-519: $required is EVERY authored_
+# options()/sub_keyed_options() name plus the three managed options,
+# and array_diff_key($required, $records) queues a schema_content_
+# mismatch, `records.<name>` needing "an explicit absent, present, or
+# deleted record", for each one missing -- confirmed by reading the
+# check directly, not assumed). A single-record fixture is missing
+# every OTHER required option (active_plugins/blogdescription/blogname/
+# page_for_posts/page_on_front/posts_per_page/show_on_front/
+# sticky_posts/stylesheet/template/wp_page_for_privacy_policy, plus
+# wpseo's own four here since this test also loads yoast) --
+# RepositoryCompiler::run()'s own diagnostics gate (`if ($this->
+# diagnostics) fail()`) throws on THAT batch before RepositoryAuthorization
+# ::assert_tree() -- where the smuggled-sub-key check this step actually
+# means to exercise lives -- ever runs at all. Confirmed offline against
+# the real, unmodified engine classes (RepositoryCompiler/
+# RepositoryAuthorization/Policy/OptionState, no WordPress dependency):
+# a fabricated single-record fixture reproduces the exact reported
+# symptom byte-for-byte; the SAME fixture with every required option
+# given an explicit record instead correctly reaches assert_tree() and
+# throws `[repository_field_not_authored] ... field=polylang.sync
+# classification=unclassified declared_by=polylang` -- matching this
+# step's own existing assertion (`polylang.sync\|option_sub_key`)
+# unchanged below.
+#
+# Fix: base the smuggled-key fixture on the REAL, already-captured
+# state/options/core.json this pair produced (every required option
+# already has a correct record, from the actual capture pipeline --
+# `git -C siterepo/asub32332 pull` a few lines above this step is the
+# last write to this file, and nothing between there and here touches
+# it again) and inject ONLY the undeclared 'sync' key into polylang's
+# own value, rather than hand-reconstructing every option's record --
+# robust against this option set changing later, unlike a hardcoded
+# snapshot would be.
+jq '.records.polylang.value.sync = ["taxonomies"]' siterepo/asub32332/state/options/core.json > "$HOST_BAD_REPO/state/options/core.json"
 set +e
 BAD_OUT=$($COMPOSE run --rm -T cli2 wp duo apply --repo="$BAD_REPO" --format=json 2>&1)
 BAD_RC=$?
