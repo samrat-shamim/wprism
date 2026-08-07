@@ -181,6 +181,12 @@ final class Cli {
                     $line .= '  [BLOCKED: ' . $r['blocked'] . ']';
                 }
                 WP_CLI::line($line);
+                foreach ($r['widget_deletes'] ?? [] as $widget) {
+                    $origin = !empty($widget['unmanaged']) ? 'unmanaged target default' : 'mapped target widget';
+                    WP_CLI::line(
+                        "  WIDGET_DELETE {$widget['type']} {$widget['uuid']} ($origin; absent from declared sidebar file)"
+                    );
+                }
             }
         }
         // code_mismatch (docs/proposals/code-half.md §3.2): a different row

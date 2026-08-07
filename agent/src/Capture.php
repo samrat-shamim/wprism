@@ -6,8 +6,10 @@ namespace Duo;
  *
  * Read-only on content except for identity minting (_duo_uuid meta + ledger
  * rows). Unclassified meta keys on in-scope entities abort loudly — the
- * loud-and-blocking gate. Entities without a uuid are unmanaged and invisible
- * (snapshot mode never mints, so a fresh environment snapshots as empty).
+ * loud-and-blocking gate. Ordinary entities without a uuid are unmanaged and
+ * invisible. Sidebar snapshots are the deliberate exception: unmapped live
+ * defaults receive non-durable deterministic markers so their scoped removal
+ * is plan-visible, while snapshot mode still never mints ledger identity.
  *
  * DUO-3213 — publication is atomic and DB-consistent, not clear-then-write-
  * in-place: every read build() performs, plus the identity-minting writes
@@ -85,7 +87,9 @@ final class Capture {
         Ledger::prune_dead_map();
         $policy = Policy::load($repo);
         $observedDeletedTables = Snapshot::observed_deleted_mapped_uuids($policy);
+        $observedDeletedWidgets = SidebarState::observed_deleted_mapped_uuids($policy);
         Snapshot::prune_dead_map($policy); // declared-table id_kinds get the same dead-map hygiene as post/term/tt
+        SidebarState::prune_dead_map($policy);
         $c = new self($repo, $policy);
 
         $intoRepo = ($outDir === null);
@@ -171,10 +175,11 @@ final class Capture {
             // WordPress write collides with one of THIS build's own writes.
             $build = self::run_in_consistent_snapshot(function () use (
                 $c, $policy, $repo, $forceUnresolvedRefs, $observedDeletedTables, $previousOptions,
-                $previousUserLogins
+                $previousUserLogins, $observedDeletedWidgets
             ): array {
                 Identity::assert_embedded_unique();
                 Snapshot::assert_mapped_history_present($policy, $repo, $observedDeletedTables);
+                SidebarState::assert_mapped_history_present($repo, $observedDeletedWidgets);
                 $candidate = $c->build(true, $forceUnresolvedRefs, $previousOptions, $previousUserLogins);
                 Identity::assert_entities_unique($candidate['entities']);
                 return $candidate;
@@ -299,7 +304,7 @@ final class Capture {
             Publish::unlock($lock);
         }
 
-        $counts = ['post' => 0, 'term' => 0, 'menu' => 0, 'options' => 0, 'deletion' => 0];
+        $counts = ['post' => 0, 'term' => 0, 'menu' => 0, 'sidebar' => 0, 'options' => 0, 'deletion' => 0];
         foreach ($build['entities'] as $e) {
             $counts[$e['type']] = ($counts[$e['type']] ?? 0) + 1;
         }
@@ -326,6 +331,7 @@ final class Capture {
         Ledger::prune_dead_map();
         $policy = Policy::load($repo);
         Snapshot::prune_dead_map($policy);
+        SidebarState::prune_dead_map($policy);
         $c = new self($repo, $policy);
         self::verify_engine_support($policy);
         // DUO-3263: fresh Policy::load(), same reasoning as run()'s own
@@ -442,6 +448,36 @@ final class Capture {
             ];
         }
 
+        $widgetTypes = $c->policy->widget_types();
+        $widgets = [];
+        foreach ($optionRows as $row) {
+            $name = (string) $row['option_name'];
+            if (!str_starts_with($name, 'widget_')) {
+                continue;
+            }
+            $type = substr($name, 7);
+            $raw = (string) $row['option_value'];
+            $value = is_serialized($raw) ? @unserialize(trim($raw), ['allowed_classes' => false]) : $raw;
+            if (!is_array($value)) {
+                $widgets[$type] = [
+                    'entities' => 1, 'value_shapes' => [get_debug_type($value)],
+                    'reason' => "widget option '$name' is not a multi-instance array",
+                ];
+                continue;
+            }
+            $instances = array_filter(
+                $value,
+                static fn($settings, $key): bool => (string) $key !== '_multiwidget',
+                ARRAY_FILTER_USE_BOTH
+            );
+            if ($instances && !isset($widgetTypes[$type])) {
+                $widgets[$type] = [
+                    'entities' => count($instances), 'value_shapes' => ['multi-instance array'],
+                    'reason' => 'live widget instances exist but no pinned manifest declares this widget type',
+                ];
+            }
+        }
+
         $postMeta = [];
         foreach ($c->scope_posts() as $p) {
             $flatMeta = $c->post_meta_map((int) $p->ID);
@@ -525,6 +561,7 @@ final class Capture {
         return [
             'scope' => $scope,
             'options' => $options,
+            'widgets' => $widgets,
             'post_meta' => array_map(
                 fn($ev) => ['entities' => $ev['entities'], 'post_types' => array_keys($ev['post_types'] ?? [])],
                 $postMeta
@@ -815,6 +852,12 @@ final class Capture {
         $tableEntities = Snapshot::capture($this->policy, $this->tokens, $mint);
         self::check_transient_db_error('Snapshot::capture()'); // DUO-3213 checkpoint — see its docblock
 
+        // Widget block content uses the same block-ref grammar as posts, so
+        // capture it only after core and typed-table identities are complete.
+        $sidebarBuild = SidebarState::capture(
+            $this->policy, $this->tokens, $mint, $forceUnresolvedRefs
+        );
+
         // ---- term files ----
         foreach ($terms as $t) {
             $uuid = $termUuids[(int) $t->term_id] ?? null;
@@ -896,6 +939,10 @@ final class Capture {
                 'path' => "menus/{$menu['slug']}.json",
                 'content' => Canon::encode($menu['front']),
             ];
+        }
+
+        foreach ($sidebarBuild['entities'] as $sidebarEntity) {
+            $entities[] = $sidebarEntity;
         }
 
         // ---- options file ----
@@ -1082,7 +1129,11 @@ final class Capture {
             );
         }
 
-        return ['entities' => $entities, 'media' => $media, 'warnings' => $this->tokens->warnings];
+        return [
+            'entities' => $entities,
+            'media' => $media,
+            'warnings' => array_merge($sidebarBuild['warnings'], $this->tokens->warnings),
+        ];
     }
 
     private function scope_posts(): array {

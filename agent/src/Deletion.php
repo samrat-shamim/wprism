@@ -99,7 +99,9 @@ final class Deletion {
             // authority. Users are target-local and have no portable
             // lifecycle; an empty retained sidecar expresses owned-key
             // removal while removing the file leaves target metadata alone.
-            if ($uuid === 'options/core' || ($entity['type'] ?? '') === 'user-meta' || isset($live[$uuid])) {
+            if ($uuid === 'options/core'
+                || in_array(($entity['type'] ?? ''), ['user-meta', SidebarState::ENTITY_TYPE], true)
+                || isset($live[$uuid])) {
                 continue;
             }
             $desc = self::descriptor($entity);

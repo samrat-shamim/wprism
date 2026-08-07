@@ -63,6 +63,17 @@ final class PlanSummary {
         $summary .= ', ' . count($skippedUserMeta) . ' skipped_user_meta';
         $lines[] = $summary;
 
+        foreach (self::BUCKETS as $bucket) {
+            foreach ($plan[$bucket] ?? [] as $row) {
+                foreach ($row['widget_deletes'] ?? [] as $widget) {
+                    $origin = !empty($widget['unmanaged']) ? 'unmanaged target default' : 'mapped target widget';
+                    $lines[] = 'WIDGET_DELETE ' . self::label($row) . ': '
+                        . ($widget['type'] ?? '?') . ' ' . ($widget['uuid'] ?? '?')
+                        . " ($origin; absent from declared sidebar file)";
+                }
+            }
+        }
+
         if (!empty($plan['drift'])) {
             $lines[] = 'drift (environment changed since last capture/apply — capture first):';
             foreach ($plan['drift'] as $r) {

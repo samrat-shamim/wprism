@@ -49,6 +49,9 @@ final class Pending {
             $items[] = self::make_item('options', $key, $ev, $journalOptions[$key] ?? null);
             unset($journalOptions[$key]);
         }
+        foreach ($gate['widgets'] ?? [] as $key => $ev) {
+            $items[] = self::make_item('widgets', $key, $ev, null);
+        }
         foreach ($gate['post_meta'] as $key => $ev) {
             $items[] = self::make_item('post_meta', $key, $ev, $journalPostMeta[$key] ?? null);
         }

@@ -138,6 +138,11 @@ final class Lint {
         foreach (self::glob_rel($stateDir, 'menus/*.json') as $rel) {
             self::scan_menu_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
         }
+        foreach (self::glob_rel($stateDir, 'sidebars/*.json') as $rel) {
+            self::scan_sidebar_file(
+                $stateDir, $rel, $policy, $blockRules, $home, $homeEscaped, $findings
+            );
+        }
         if (is_file($stateDir . '/options/core.json')) {
             self::scan_options_file($stateDir, 'options/core.json', $policy, $home, $homeEscaped, $findings);
         }
@@ -185,6 +190,45 @@ final class Lint {
         ): void {
             self::flag_escaped_home($findings, $rel, $path, $value, $home, $homeEscaped);
         });
+    }
+
+    // ------------------------------------------------------------ menus
+
+    private static function scan_sidebar_file(
+        string $stateDir,
+        string $rel,
+        Policy $policy,
+        array $blockRules,
+        string $home,
+        string $homeEscaped,
+        array &$findings
+    ): void {
+        $front = Canon::decode(Canon::read_file($stateDir . '/' . $rel));
+        $declared = $policy->widget_types();
+        foreach ((array) ($front['widgets'] ?? []) as $i => $widget) {
+            $type = (string) ($widget['type'] ?? '');
+            $settings = (array) ($widget['settings'] ?? []);
+            foreach ($settings as $key => $value) {
+                $rule = (array) (($declared[$type]['settings'] ?? [])[$key] ?? []);
+                $locator = "widgets[$i].settings.$key";
+                if (($rule['codec'] ?? '') === 'blocks' && is_string($value)) {
+                    self::scan_blocks(parse_blocks($value), $blockRules, $rel, $home, $findings);
+                } elseif (($rule['ref'] ?? '') === 'term') {
+                    foreach (Pending::numeric_candidates($value) as [$id, $suffix]) {
+                        $findings[] = self::finding(
+                            'unrewritten_registered_ref', $rel, $locator . $suffix, $id,
+                            Pending::resolve_id($id),
+                            "widget '$type' setting '$key' is a declared term ref but remains numeric"
+                        );
+                    }
+                }
+                self::walk_strings($value, $locator, function (string $path, string $text) use (
+                    &$findings, $rel, $home, $homeEscaped
+                ): void {
+                    self::flag_escaped_home($findings, $rel, $path, $text, $home, $homeEscaped);
+                });
+            }
+        }
     }
 
     // ------------------------------------------------------------ menus

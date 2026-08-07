@@ -297,6 +297,7 @@ final class RepositoryCompiler {
     }
 
     private function run(): CompiledRepository {
+        SidebarState::assert_policy($this->policy);
         if (!is_dir($this->stateDir)) {
             $this->add('state_directory_missing', 'state', '', 'repository has no state/ directory');
             $this->fail();
@@ -354,6 +355,20 @@ final class RepositoryCompiler {
                     );
                 } else {
                     $tree[$stateKey] = $entity;
+                }
+                continue;
+            }
+            if ($entity['type'] === SidebarState::ENTITY_TYPE) {
+                $sidebar = SidebarState::sidebar_from_path($path);
+                $stateKey = SidebarState::key((string) $sidebar);
+                $tree[$stateKey] = $entity;
+                foreach ((array) ($entity['data']['widgets'] ?? []) as $i => $widget) {
+                    $widgetUuid = (string) ($widget['uuid'] ?? '');
+                    if (!preg_match(self::UUID_RE, $widgetUuid)) {
+                        $this->add('invalid_uuid', $path, "widgets[$i].uuid", "'$widgetUuid' is not a lowercase RFC UUID");
+                    } else {
+                        $this->register_identity($widgetUuid, 'widget', $path . "#widgets[$i]");
+                    }
                 }
                 continue;
             }
@@ -466,6 +481,8 @@ final class RepositoryCompiler {
             $kind = 'term';
         } elseif (preg_match('#^menus/([^/]+)\.json$#', $path, $m)) {
             $kind = 'menu';
+        } elseif (preg_match('#^sidebars/([^/]+)\.json$#', $path, $m)) {
+            $kind = SidebarState::ENTITY_TYPE;
         } elseif ($path === 'options/core.json') {
             $kind = 'options';
         } elseif (preg_match('#^user-meta/([0-9a-f]{64})\.json$#', $path, $m)) {
@@ -476,7 +493,7 @@ final class RepositoryCompiler {
         if ($kind === null) {
             $this->add(
                 'invalid_entity_kind', $path, '',
-                'path does not name a supported post/term/menu/options/user-meta/table entity'
+                'path does not name a supported post/term/menu/sidebar/options/user-meta/table entity'
             );
             return null;
         }
@@ -540,6 +557,15 @@ final class RepositoryCompiler {
             }
             return [
                 'type' => 'user-meta', 'path' => $path,
+                'hash' => hash('sha256', $content), 'source_hash' => hash('sha256', $content),
+                'data' => $data,
+            ];
+        }
+
+        if ($kind === SidebarState::ENTITY_TYPE) {
+            $this->validate_schema($kind, $path, $data, null);
+            return [
+                'type' => SidebarState::ENTITY_TYPE, 'path' => $path,
                 'hash' => hash('sha256', $content), 'source_hash' => hash('sha256', $content),
                 'data' => $data,
             ];
@@ -684,6 +710,7 @@ final class RepositoryCompiler {
                 ? ['uuid','name','slug','items']
                 : ['uuid','name','slug','locations','items'],
             'user-meta' => ['login','meta'],
+            'sidebar' => ['widgets'],
             'table' => ['uuid','table','columns','meta'],
             default => [],
         };
@@ -765,6 +792,38 @@ final class RepositoryCompiler {
                 }
                 if (isset($item['parent']) && $item['parent'] !== null && !is_string($item['parent'])) {
                     $this->add('schema_content_mismatch', $path, "items[$i].parent", 'menu-item parent must be null or a UUID string');
+                }
+            }
+        }
+        if ($kind === SidebarState::ENTITY_TYPE) {
+            $unknown = array_values(array_diff(array_keys($data), ['widgets']));
+            if ($unknown) {
+                sort($unknown, SORT_STRING);
+                $this->add('schema_content_mismatch', $path, '', 'unknown sidebar field(s): ' . implode(', ', $unknown));
+            }
+            if (!isset($data['widgets']) || !is_array($data['widgets']) || !array_is_list($data['widgets'])) {
+                $this->add('schema_content_mismatch', $path, 'widgets', 'widgets must be an ordered list');
+            }
+            $declared = $this->policy->widget_types();
+            foreach ((array) ($data['widgets'] ?? []) as $i => $widget) {
+                if (!is_array($widget)
+                    || array_diff(array_keys($widget), ['uuid', 'type', 'settings'])
+                    || array_diff(['uuid', 'type', 'settings'], array_keys($widget))) {
+                    $this->add('schema_content_mismatch', $path, "widgets[$i]", 'widget must contain exactly uuid, type, settings');
+                    continue;
+                }
+                $type = (string) ($widget['type'] ?? '');
+                if (!isset($declared[$type])) {
+                    $this->add('schema_content_mismatch', $path, "widgets[$i].type", "widget type '$type' is not manifest-declared");
+                }
+                if (!is_array($widget['settings'] ?? null)) {
+                    $this->add('schema_content_mismatch', $path, "widgets[$i].settings", 'widget settings must be an object');
+                    continue;
+                }
+                $unknownSettings = array_diff(array_keys($widget['settings']), array_keys((array) ($declared[$type]['settings'] ?? [])));
+                if ($unknownSettings) {
+                    sort($unknownSettings, SORT_STRING);
+                    $this->add('schema_content_mismatch', $path, "widgets[$i].settings", 'undeclared setting(s): ' . implode(', ', $unknownSettings));
                 }
             }
         }
@@ -905,6 +964,9 @@ final class RepositoryCompiler {
         foreach (Snapshot::row_tables($this->policy) as $table => $decl) {
             $kindTypes[(string) $decl['id_kind']] = [$table];
         }
+        foreach ($this->policy->widget_types() as $type => $_decl) {
+            $kindTypes[SidebarState::kind((string) $type)] = ['widget'];
+        }
         $parentGraph = [];
         $parentLocations = [];
         foreach ($tree as $uuid => $entity) {
@@ -1032,6 +1094,28 @@ final class RepositoryCompiler {
                     $rule = $this->policy->meta_rule_for_user((string) $key, $meta) ?? [];
                     if (!empty($rule['ref'])) {
                         $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'meta.' . $key);
+                    }
+                }
+            } elseif ($entity['type'] === SidebarState::ENTITY_TYPE) {
+                $declaredWidgets = $this->policy->widget_types();
+                foreach ((array) ($d['widgets'] ?? []) as $i => $widget) {
+                    $type = (string) ($widget['type'] ?? '');
+                    foreach ((array) ($widget['settings'] ?? []) as $setting => $value) {
+                        $rule = (array) (($declaredWidgets[$type]['settings'] ?? [])[$setting] ?? []);
+                        if (!empty($rule['ref'])) {
+                            $this->validate_declared_ref(
+                                $value,
+                                (string) $rule['ref'],
+                                $path,
+                                "widgets[$i].settings.$setting"
+                            );
+                        }
+                        if (($rule['codec'] ?? '') === 'blocks' && !is_string($value)) {
+                            $this->add(
+                                'schema_content_mismatch', $path, "widgets[$i].settings.$setting",
+                                'block-content widget setting must be a string'
+                            );
+                        }
                     }
                 }
             } elseif (isset($rows[$entity['type']])) {
