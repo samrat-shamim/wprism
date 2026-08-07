@@ -68,5 +68,15 @@
       "url": "https://downloads.wordpress.org/plugin/polylang.3.8.6.zip",
       "sha256": "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa"
     }
+  },
+  "woocommerce": {
+    "10.9.4": {
+      "url": "https://downloads.wordpress.org/plugin/woocommerce.10.9.4.zip",
+      "sha256": "6e58fc3ba9b18d1c9aee6b0227d3c3c09e4fe2c1332823bd2e0ac54ffcff64a9"
+    },
+    "11.0.0": {
+      "url": "https://downloads.wordpress.org/plugin/woocommerce.11.0.0.zip",
+      "sha256": "ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666"
+    }
   }
 }
