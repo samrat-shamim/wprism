@@ -314,7 +314,140 @@ final class Apply {
             $this->warnings[] = "regen_pending: post $uuid (type '$postType') has a regeneration "
                 . 'retry pending from a prior failed verify';
         }
+
+        // DUO-3232: env-bound value provisioning checklist. Read-only, like
+        // regen_pending above — no write here, ever (env values are
+        // deliberately excluded from Capture/Apply's ordinary content
+        // pipeline; this bucket exists purely so a plain `duo plan` tells
+        // an operator the truth about what a freshly-materialized
+        // environment still needs, per manifest-declared class:"env"
+        // options only — see Policy::env_options()'s own docblock for why
+        // meta/sub_keys env values are out of v1 scope). "Missing" means
+        // the option row is absent or an empty string on THIS environment
+        // — a per-environment self-check, not a cross-environment diff
+        // (env values are never captured, so the repo has no record of
+        // what any other environment had; an operator wanting an actual
+        // source-vs-target checklist gets one by running `duo plan`
+        // against both named environments and diffing the two
+        // env_missing lists client-side — see cli/README.md).
+        global $wpdb;
+        $plan['env_missing'] = [];
+        foreach ($this->policy->env_options() as $name => $rule) {
+            $value = $wpdb->get_var($wpdb->prepare(
+                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
+            ));
+            if ($value !== null && $value !== '') {
+                continue;
+            }
+            $required = (bool) ($rule['required'] ?? false);
+            $plan['env_missing'][] = ['name' => $name, 'required' => $required];
+            if ($required) {
+                $this->warnings[] = "env_missing: option '$name' is required and not yet provisioned on "
+                    . "this environment — see 'wp duo env-set --name=$name --stdin'";
+            }
+        }
         return $plan;
+    }
+
+    /**
+     * Write a single manifest-declared `class: "env"` option value directly
+     * into wp_options — `wp duo env-set`'s implementation. Deliberately NOT
+     * part of the ordinary authored capture/apply pipeline: env values are
+     * never captured (Policy::env_options()'s own docblock), so there is no
+     * canonical record to reconcile against here, no ledger/token rewriting
+     * involved, and no plan/apply transaction wrapping it — this is a
+     * direct, human-operator-initiated write, closer in shape (and
+     * precedent) to Deploy.php's own standalone
+     * update_option('active_plugins', ...) call than to this class's own
+     * batch upsert_option()/Db:: pipeline (which exists for a transactional,
+     * many-row, retry-classified apply — a genuinely different problem than
+     * one operator setting one value once).
+     *
+     * Refuses, loudly, before writing anything:
+     *   - a name not declared `class: "env"` anywhere in the loaded policy
+     *     (Policy::env_options()) — env-set can never create an arbitrary
+     *     option out of thin air, only provision one the manifest already
+     *     named.
+     *   - a name whose rule declares `sub_keys` — those are whole-option env
+     *     blobs (Yoast's `wpseo`, Polylang's `polylang`) that mix a
+     *     serialized ARRAY with named authored carve-outs; env-set only
+     *     ever writes a plain scalar string, and overwriting a structured
+     *     blob with one would corrupt every sub-key, including the
+     *     authored carve-outs capture/apply already round-trip correctly.
+     *     Every sub_keys-bearing env option shipped today is required:false
+     *     (self-populated by its owning plugin) precisely because it was
+     *     never meant to be hand-provisioned this way.
+     *   - an empty string — build_plan()'s env_missing bucket (above)
+     *     treats an empty value as equivalent to absent, so accepting one
+     *     here would let env-set report success while `duo plan`
+     *     immediately calls the same option still missing.
+     *
+     * Autoload is resolved the same way Policy::env_options() resolves
+     * every other option rule (manifest/site option_autoload default,
+     * with_option_autoload()) — but 'preserve' means something different
+     * here than it does for a captured, authored value: there is no
+     * captured source row to preserve FROM, only whatever is already live
+     * on THIS target. update_option()'s own native $autoload=null contract
+     * already means exactly that (keep the existing row's autoload if
+     * updating; apply WordPress's own 6.6+ 'auto' heuristic if inserting
+     * fresh), so 'preserve'/unset both map to null here rather than Duo
+     * re-inventing that decision.
+     *
+     * update_option()'s own return value cannot distinguish "write failed"
+     * from "the value was already exactly this" — both return false. Rather
+     * than guess which, this re-reads the live value after the call and
+     * compares it to what was intended: the only postcondition that
+     * actually matters is "the option now holds $value", regardless of
+     * which internal WordPress branch produced it.
+     *
+     * @return array{name:string, previously_set:bool}
+     */
+    public static function set_env_option(string $repo, string $name, string $value): array {
+        $policy = Policy::load($repo);
+        $envOptions = $policy->env_options();
+        if (!isset($envOptions[$name])) {
+            throw new \RuntimeException(
+                "duo: env-set: '$name' is not declared class=\"env\" in any loaded manifest or "
+                . 'site.duo.json — env-set only provisions a value the policy already named (see '
+                . '`wp duo plan` for the current env_missing checklist)'
+            );
+        }
+        $rule = $envOptions[$name];
+        if (!empty($rule['sub_keys'])) {
+            throw new \RuntimeException(
+                "duo: env-set: '$name' declares sub_keys — it is a structured, plugin-managed option "
+                . "blob, not a plain scalar value env-set can safely overwrite (the plugin populates it "
+                . "itself; see this manifest's own notes for '$name')"
+            );
+        }
+        if ($value === '') {
+            throw new \RuntimeException(
+                "duo: env-set: refusing to set '$name' to an empty string — that would still read as "
+                . "env_missing on the next 'duo plan' (missing means absent OR empty), so it can never "
+                . 'satisfy provisioning'
+            );
+        }
+
+        global $wpdb;
+        $existing = $wpdb->get_var($wpdb->prepare(
+            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
+        ));
+        $previouslySet = $existing !== null && $existing !== '';
+
+        $autoload = $rule['autoload'] ?? null;
+        if ($autoload === 'preserve') {
+            $autoload = null;
+        }
+        update_option($name, $value, $autoload);
+
+        $confirm = $wpdb->get_var($wpdb->prepare(
+            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
+        ));
+        if ($confirm !== $value) {
+            throw new \RuntimeException("duo: env-set: wrote '$name' but the stored value does not match afterward");
+        }
+
+        return ['name' => $name, 'previously_set' => $previouslySet];
     }
 
     /**

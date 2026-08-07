@@ -51,6 +51,68 @@ final class Doctor {
             $checks[] = self::check("repo path has site.duo.json ($repo)", false, 'skipped: transport unreachable');
         }
 
+        // DUO-3232: .duo-env-values.json is this environment's own optional,
+        // gitignored scratch file for values provisioned via `wp duo
+        // env-set` (see sandbox/site-repo.gitignore.template and
+        // cli/README.md) — a secrets-bearing file living right next to
+        // site.duo.json inside the repo checkout. When it CAN be checked,
+        // this is BLOCKING, not advisory: a tracked secrets file isn't a
+        // hardening gap to note for later, it is already-committed (and
+        // possibly already-pushed) secret material the moment `git
+        // ls-files` shows it tracked. `git ls-files --error-unmatch`
+        // deliberately covers both "never existed" and "exists but
+        // untracked" with the same non-zero exit — this check only cares
+        // about the one bad case, tracked, never about whether the file
+        // exists at all (most environments will have no such file, which
+        // is a perfectly ordinary pass).
+        //
+        // "When it CAN be checked" is doing real work above, not hedging:
+        // verified live against this project's OWN sandbox images
+        // (wordpress:cli-php8.3) that they ship with NO git binary at all
+        // — a target environment materializing `wp duo` commands has no
+        // structural reason to need one (the agent itself never shells out
+        // to git; only an operator's own machine or CI runner does). A
+        // naive "git ls-files || echo untracked" would silently read
+        // "command not found" as "untracked" — a false PASS on a target
+        // that was never actually checked, exactly the failure mode this
+        // whole file exists to avoid elsewhere (see the file's own
+        // docblock). So this checks for git's presence FIRST and reports
+        // "could not verify" honestly (advisory, not a false clean bill of
+        // health) rather than silently trusting an absent tool.
+        if ($reachable && $repoOk) {
+            $repoEsc = escapeshellarg($repo);
+            $script = "cd $repoEsc && "
+                . '{ command -v git >/dev/null 2>&1 || { echo duo-nogit; exit 0; }; } && '
+                . 'git ls-files --error-unmatch .duo-env-values.json >/dev/null 2>&1 '
+                . '&& echo duo-tracked || echo duo-untracked';
+            $r = $t->captureRaw($script);
+            $out = trim($r['stdout']);
+            if ($out === 'duo-nogit') {
+                $checks[] = self::check(
+                    '.duo-env-values.json not git-tracked', false,
+                    'could not verify — this environment has no git binary, so tracked-status cannot be '
+                        . 'checked from inside it. Verify manually (from a machine with a checkout of this '
+                        . "repo): git -C <checkout> ls-files --error-unmatch .duo-env-values.json (should "
+                        . 'exit non-zero, meaning untracked/absent).',
+                    true
+                );
+            } else {
+                $tracked = $out === 'duo-tracked';
+                $detail = $tracked
+                    ? '.duo-env-values.json is committed to this repo. It exists to hold provisioned secret '
+                        . 'values and must never be tracked. Run `git rm --cached .duo-env-values.json`, add it '
+                        . 'to .gitignore if missing, commit that removal, and rotate any value it may have held '
+                        . '— removing it from the working tree alone does not remove it from git history.'
+                    : '';
+                $checks[] = self::check('.duo-env-values.json not git-tracked', !$tracked, $detail);
+            }
+        } else {
+            $checks[] = self::check(
+                '.duo-env-values.json not git-tracked', false,
+                $reachable ? 'skipped: repo path unavailable' : 'skipped: transport unreachable'
+            );
+        }
+
         // DUO-3231 (docs/proposals/code-half.md risk register #1):
         // DISALLOW_FILE_MODS closes wp-admin's file-mod UI at the source —
         // the recommended mitigation for silent code drift, alongside (not

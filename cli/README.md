@@ -28,6 +28,7 @@ duo status <env>
 duo capture <env> [extra wp-cli flags...]
 duo plan    <env> [extra wp-cli flags...]
 duo apply   <env> [extra wp-cli flags...]
+duo env-set <env> --name=<name> (--value=<value> | --stdin)
 duo promote <env> [extra apply flags...]
 duo pending <env>
 duo classify <env> [--accept-proposals]
@@ -42,15 +43,33 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   those print as an inline `ERROR: …` row instead of failing the whole
   listing), exit 1 if no `envs` were found anywhere.
 
-- **`duo doctor <env>`** — four gated checks, each skipped (reported as a
+- **`duo doctor <env>`** — gated checks, each skipped (reported as a
   failure) once an earlier one fails, since a broken transport makes every
   later check meaningless noise:
   1. transport reachable (`echo` round-trips through the transport)
   2. WordPress installed (`wp core is-installed`)
   3. the duo agent is present (`wp eval` checks `class_exists('\Duo\Capture')`)
   4. `repo_path` exists and contains `site.duo.json`
+  5. `.duo-env-values.json` (DUO-3232's optional per-environment secrets
+     scratch file — see "Env-bound value provisioning" below) is not
+     git-tracked. **Advisory, not blocking, when this environment has no
+     `git` binary to check with** — verified live that this project's own
+     sandbox images (`wordpress:cli-php8.3`) genuinely don't ship one, so
+     this degrades to "could not verify" (a WARN naming exactly that)
+     rather than a silent, wrong PASS; when git *is* available, a tracked
+     file is a real, blocking failure, same severity as checks 1-4.
+  6. `DISALLOW_FILE_MODS` is set (advisory — DUO-3231, closes the wp-admin
+     file-mod UI that can silently drift installed code out from under git)
+  7. installed PHP version is inside `docs/compatibility-baseline.json`'s
+     declared range (DUO-3222)
+  8. installed database engine/version is inside the same baseline
+  9. installed WordPress core version (informational only — reported, never
+     enforced; see the baseline file's own note on why)
 
-  Exit 0 only if all four pass.
+  Exit 0 only if every check above except the ones that were actually
+  advisory/informational on this particular run (always 9; 6 whenever
+  `DISALLOW_FILE_MODS` is genuinely unset; 5 only in the no-git case)
+  passes.
 
 - **`duo status <env>`** — runs `wp duo plan --repo=<repo_path>
   --format=json` (note: `--format=json`, not `--json` — wp-cli's dispatcher
@@ -58,26 +77,35 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   `$assoc['json']`; see the comments in `agent/src/Cli.php`) and renders a
   human summary: counts per plan bucket (create/update/adopt/unchanged/
   drift/conflict/collision/delete/code_mismatch/incomplete_apply/
-  regen_pending), drift paths, blocked-delete reasons, code_mismatch
-  findings (agent/src/Deploy.php's missing_in_code/outside_version_range
-  checks — docs/proposals/code-half.md §3.2), regen_pending entries (a
-  derived table with a hard per-entity availability dependency — DUO-3234,
-  e.g. TEC's tec_occurrences — whose post-apply verification failed and
-  hasn't yet resolved), and any plan-level warnings.
+  regen_pending/env_missing), drift paths, blocked-delete reasons,
+  code_mismatch findings (agent/src/Deploy.php's missing_in_code/
+  outside_version_range checks — docs/proposals/code-half.md §3.2),
+  regen_pending entries (a derived table with a hard per-entity
+  availability dependency — DUO-3234, e.g. TEC's tec_occurrences — whose
+  post-apply verification failed and hasn't yet resolved), env_missing
+  entries (a manifest-declared `class: "env"` option unset on this
+  environment — DUO-3232, see "Env-bound value provisioning" below), and
+  any plan-level warnings.
 
   Exit non-zero ("not safe to promote") if the plan contains any
   `conflict`, `collision`, or `code_mismatch` entry, any blocked delete,
-  any drift, a retained `incomplete_apply` marker, or a `regen_pending`
-  entry — drift and regen_pending are the two cases `duo apply` itself
-  does *not* refuse on (a drifted entity just folds into `update` once the
-  repo side changes too, or stays `drift` otherwise; a regen_pending
-  marker is what makes the *next* apply retry, not something the apply
-  that set it refuses on), but `duo status` still reports both as not
-  clean, since status answers "safe to promote?", not just "will apply
+  any drift, a retained `incomplete_apply` marker, a `regen_pending`
+  entry, or a **required** `env_missing` entry — drift and regen_pending
+  are two cases `duo apply` itself does *not* refuse on (a drifted entity
+  just folds into `update` once the repo side changes too, or stays
+  `drift` otherwise; a regen_pending marker is what makes the *next* apply
+  retry, not something the apply that set it refuses on), and env_missing
+  is a third: apply never refuses on it at all (env values are never
+  captured/applied — there is nothing for apply's own preconditions to
+  check), but `duo status` still reports a required-and-missing entry as
+  not clean, since status answers "safe to promote?", not just "will apply
   refuse?" — capture first for drift, retry for regen_pending (automatic
-  on the next `duo apply`). Also non-zero if the underlying `wp duo plan`
-  call itself failed or returned unparseable JSON. Plain warnings are
-  rendered but never flip this by themselves — see the decision-matrix
+  on the next `duo apply`), `duo env-set` for env_missing. An *optional*
+  (`required: false`) env_missing entry is still listed for visibility but
+  never flips this by itself — it's plugin-internal bookkeeping the
+  plugin populates on its own. Also non-zero if the underlying `wp duo
+  plan` call itself failed or returned unparseable JSON. Plain warnings
+  are rendered but never flip this by themselves — see the decision-matrix
   comment in `cli/src/PlanSummary.php::render()`.
 
   `duo status` parses and reformats; it does not print the raw JSON. Use
@@ -93,6 +121,19 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
 
   stdout/stderr stream live (not buffered/reformatted) and the exit code is
   exactly the agent's exit code.
+
+- **`duo env-set <env> --name=<name> (--value=<value> | --stdin)`** — pure
+  passthrough to `wp duo env-set --repo=<repo_path> --name=<name> …`, same
+  live-streaming/exit-code contract as capture/plan/apply above. This is
+  the one passthrough verb where that matters for more than consistency:
+  `--stdin` reads the value from STDIN with the terminal's echo disabled,
+  and passthrough's use of `passthru()` (rather than the captured-output
+  `proc_open` doctor/status use) is exactly what lets STDIN reach the
+  agent process interactively through any of the three transports. Named
+  `--stdin`, not `--prompt` — wp-cli reserves `--prompt` globally for its
+  own generic per-parameter prompting and consumes it before any command
+  ever sees it, confirmed live rather than assumed. See "Env-bound value
+  provisioning" below for what this command is for.
 
 - **`duo promote <env> [apply flags...]`** — the normal fail-closed promotion
   path. It compiles the repository once into `.duo/artifacts/`, exports the
@@ -300,13 +341,112 @@ stderr, and merging the streams would corrupt the JSON `duo status` parses).
   (the remote command is assembled with each part escaped, then the whole
   thing is escaped again as the single argument to `ssh`)
 
-Raw (non-`wp`) commands, used only by `doctor`'s reachability and repo-path
-checks, follow the same shape but run through `bash -c '<script>'` for
+Raw (non-`wp`) commands, used only by `doctor`'s reachability, repo-path,
+and `.duo-env-values.json` git-tracked checks, follow the same shape but run through `bash -c '<script>'` for
 `docker` (so shell operators like `&&`/`[ -d … ]` work — `docker compose
 run`'s trailing arguments are otherwise passed as the container's argv
 directly, not interpreted by a shell) and directly for `local`/`ssh` (PHP's
 `proc_open`/`passthru` already invoke `/bin/sh -c` for string commands, and
 `ssh` already hands its command argument to the remote login shell).
+
+## Env-bound value provisioning
+
+DUO-3232. A manifest can classify an option `class: "env"` — a value that
+is genuinely per-environment (a payment gateway API key, `siteurl`, an
+`admin_email`) and must therefore **never** be captured or applied like an
+ordinary authored value; doing so would let one environment's value
+silently overwrite another's the next time someone runs `duo apply`. Every
+`class: "env"` rule also carries a mandatory boolean `required`
+(`Policy::validate_env_options()` refuses to load a manifest that omits
+it): `true` means an operator must hand-provision this value on every
+fresh environment (a genuine secret or site-identity value with no sane
+default); `false` means it's plugin-internal bookkeeping that
+self-populates the first time its owning plugin runs (a version marker, a
+one-shot install-state flag) and is not worth checklisting — see any
+shipped manifest's own `options` section for real examples of both.
+
+Because env values are never captured, there is no repo-side record of
+what any environment's values *should* be — only whether THIS
+environment currently has *something* non-empty in each declared slot:
+
+- **`duo plan` / `duo status`** surface an `env_missing` bucket: every
+  declared `class: "env"` option whose live value is absent or an empty
+  string on this environment, each tagged with its `required` flag. A
+  *required* miss makes `duo status` exit non-zero ("not safe to
+  promote"); an *optional* miss is listed for visibility only. This is a
+  per-environment self-check, not a cross-environment diff — to compare
+  what two environments actually have, run `duo plan <env>
+  --format=json` against both and diff the two `env_missing` lists
+  yourself.
+- **`duo env-set <env> --name=<name> (--value=<value> | --stdin)`**
+  provisions one value directly, bypassing capture/apply entirely
+  (`Apply::set_env_option()`). It refuses any `--name` the loaded policy
+  didn't declare `class: "env"`, refuses an option that declares
+  `sub_keys` (a structured, plugin-managed blob — Yoast's `wpseo`,
+  Polylang's `polylang` — that a bare string write would corrupt; every
+  such option shipped today is `required: false` for exactly this
+  reason), and refuses an empty value (which `env_missing` would
+  immediately re-flag as still-missing). `--stdin` reads the value from
+  STDIN with terminal echo disabled and is never printed back or logged
+  (not `--prompt` — see the passthrough section above for why that name
+  was unavailable); its own "value for '&lt;name&gt;': " prompt writes to
+  STDERR, never STDOUT, so `--stdin --format=json` is still safe to pipe
+  into a JSON parser. `--value` is scriptable but — like any other flag —
+  lands in shell history and process listings, so prefer `--stdin` for
+  anything actually secret when running interactively.
+
+### `.duo-env-values.json` (optional, gitignored, not yet auto-consumed)
+
+An operator provisioning several `class: "env"` options by hand may want
+somewhere to keep track of what they set, without ever committing it. The
+name `.duo-env-values.json` is reserved for exactly that: a flat
+`{"option_name": "value", ...}` scratch file living next to
+`site.duo.json` inside **one environment's own checkout** (not on the
+orchestrator host — contrast `.duo-envs.json` above, which is
+machine-local to wherever you *run* `duo` from and covers every
+environment at once; this file, if it exists, lives on the target itself
+and covers only that one environment). It ships in
+`sandbox/site-repo.gitignore.template` (every managed site repo's own
+`.gitignore`) and is checked by `duo doctor <env>`'s git-tracked hygiene
+check (a tracked secrets file is a blocking failure, not an advisory
+one). That check runs *inside* the target environment, so it needs a
+`git` binary there to inspect tracked status with — most environments
+materializing `wp duo` commands have no structural reason to carry one
+(the agent itself never shells out to git), and this project's own
+sandbox images verifiably don't, so the check degrades to an honest
+advisory "could not verify" in that case rather than a false-clean PASS
+— see `cli/src/Doctor.php`.
+
+**Nothing in this codebase reads this file yet.** No `env-set` variant
+loads it, and `agent/src/Secrets.php`'s own scanning never inspects it
+either — that class exists to catch a secret-SHAPED value being captured
+under the wrong classification from a *live WordPress environment*, and
+this file is orchestrator/operator-side, never captured, so it was never
+in scope for that scanner to begin with (documented explicitly in
+`agent/src/Secrets.php`'s own docblock, not left as an implicit gap). The
+reserved name and gitignore/doctor protection exist now, ahead of any
+consumer, so that protection is already in place the day a batch-loader
+(most naturally `wp duo env-set --from-file=.duo-env-values.json`,
+agent-side, reading the file that's already sitting next to
+`site.duo.json` on the same checkout — never an orchestrator-side loop
+over remote single-sets) is added as a later, separately-scoped
+convenience.
+
+### Scope: options only, v1
+
+`class: "env"` classification, `env_missing`, and `env-set` all operate on
+**options only** in this first pass — never `post_meta`/`term_meta`, and
+never a `sub_keys` carve-out's individual keys (those remain classified
+independently under their own `class`, unaffected by their parent
+option's `env` classification). `Policy::env_options()`'s own docblock
+has the full reasoning: unlike options, meta classification is
+interpreter-driven per post (`Policy::meta_rule_for_post()`), so "every
+env-classified meta key across the whole install" has no well-defined,
+enumerable answer the way a manifest's flat `options` map does. Every
+real `class: "env"` value across every shipped manifest today is an
+option — verified empirically, not assumed. A genuine need for
+env-classified meta, if one ever surfaces, is separate, scoped follow-up
+work, not something this pass tries to solve speculatively.
 
 ## Proposed spec addition
 
@@ -328,3 +468,47 @@ section):
 > same-named entries whole. `envs` is orchestrator convenience, not part of
 > the branchable state contract — the agent's `wp duo …` commands
 > (`spec/repo-format.md`'s actual subject) never read it.
+
+A second suggestion, for wherever `spec/repo-format.md` documents a
+manifest's `options` section and its `class` values (`authored`,
+`runtime`, `derived`, `env`, `managed`) — unlike `envs` above, this one
+*is* part of the branchable-state contract the agent itself interprets
+(`agent/src/Policy.php`, `agent/src/Apply.php`), not orchestrator-only:
+
+> #### `class: "env"` options (DUO-3232)
+>
+> An option classified `"env"` is genuinely per-environment — a payment
+> gateway API key, `siteurl`, an `admin_email` — and is therefore excluded
+> from capture and apply entirely, the same way `"runtime"` is, but for
+> the opposite reason (`"runtime"` is excluded because it's disposable and
+> not worth versioning; `"env"` is excluded because versioning it and
+> replaying it onto another environment would be actively wrong). Every
+> `"env"` rule **must** declare an explicit boolean `required` — there is
+> no default, and a manifest omitting it fails to load
+> (`Policy::validate_env_options()`): `true` means an operator must
+> hand-provision a value on every fresh environment before it can be
+> considered fully promoted; `false` means the value is plugin-internal
+> bookkeeping that self-populates and is not worth an operator's
+> attention. `wp duo plan`/`wp duo status` surface every currently-unset
+> `"env"` option as an `env_missing` entry tagged with its `required`
+> flag; `wp duo env-set` is the only sanctioned way to write one, and
+> refuses any option name not declared `"env"` by the loaded policy.
+>
+> **Scope note, stated loudly rather than left implicit**: `"env"`
+> classification applies to whole `options` entries only in this first
+> pass. It does not extend to `post_meta`/`term_meta` (no enumerable,
+> manifest-declared list of those exists the way a flat `options` map
+> does — see `Policy::env_options()`'s own docblock), and a `sub_keys`
+> carve-out's individual keys remain governed by their own `class`
+> regardless of their parent option's `env` classification (Yoast's
+> `wpseo.disableadvanced_meta` stays `"authored"` even though `wpseo`
+> itself is `"env"`). Extending `"env"` to either is unscoped future work,
+> not assumed or partially implemented here.
+
+**Pre-existing text this makes stale, flagged for whoever applies the
+above** (not touched directly — same reason as everything else on this
+page): the "Manifests (registry format)" section's own example manifest
+currently shows `"home": {"class": "env"}` and `"siteurl": {"class":
+"env"}` with no `required` key. Both need `"required": true` added (the
+real `manifests/core.json` this example is modeled on already has it) or
+the example will no longer load under `validate_env_options()`.

@@ -209,6 +209,16 @@ final class Cli {
         foreach ($plan['regen_pending'] ?? [] as $r) {
             WP_CLI::line('REGEN_PENDING ' . ($r['path'] ?? ($r['type'] . ' ' . $r['uuid'])) . " (post type '{$r['post_type']}')");
         }
+        // env_missing (DUO-3232): a manifest-declared `class: "env"` option
+        // unset on this environment — see Apply::build_plan()'s own
+        // docblock. No uuid/path (row shape is {name,required}), so this
+        // does not fit the $kinds loop above. Mirrored in
+        // cli/src/PlanSummary.php's render() so `duo status` and a plain
+        // `wp duo plan` never give an operator different advice.
+        foreach ($plan['env_missing'] ?? [] as $r) {
+            $flag = !empty($r['required']) ? 'required' : 'optional';
+            WP_CLI::line('ENV_MISSING ' . ($r['name'] ?? '?') . " ($flag)");
+        }
         foreach ($plan['warnings'] ?? [] as $w) {
             WP_CLI::warning($w);
         }
@@ -217,6 +227,7 @@ final class Cli {
         $counts .= ', ' . count($plan['code_drift'] ?? []) . ' code_drift';
         $counts .= ', ' . count($plan['incomplete_apply'] ?? []) . ' incomplete_apply';
         $counts .= ', ' . count($plan['regen_pending'] ?? []) . ' regen_pending';
+        $counts .= ', ' . count($plan['env_missing'] ?? []) . ' env_missing';
         WP_CLI::success("plan: $counts");
         if ($plan['drift']) {
             WP_CLI::warning('environment drift detected — capture-first workflow recommended');
@@ -230,6 +241,109 @@ final class Cli {
         if (!empty($plan['regen_pending'])) {
             WP_CLI::warning('regen_pending markers outstanding — the next duo apply will retry them automatically');
         }
+        $envMissingRequired = array_filter($plan['env_missing'] ?? [], fn($r) => !empty($r['required']));
+        if ($envMissingRequired) {
+            WP_CLI::warning('required env value(s) missing — provision with `wp duo env-set --name=<name> --value=<value>` (or --stdin) before promoting');
+        }
+    }
+
+    /**
+     * Provision one manifest-declared `class: "env"` option value directly
+     * into this environment — DUO-3232. Deliberately outside the ordinary
+     * capture/apply pipeline: env values are never captured, so there is no
+     * repo-side record for this command to reconcile against, only a
+     * direct write, gated by Apply::set_env_option() to option names the
+     * loaded policy actually declared `class: "env"` (never an arbitrary
+     * option). See `wp duo plan`'s env_missing bucket for the current
+     * per-environment checklist this command exists to satisfy.
+     *
+     * ## OPTIONS
+     * --repo=<path>
+     * --name=<name>       : Must be declared class="env" in a loaded manifest or site.duo.json.
+     * [--value=<value>]   : Plain value — scriptable/CI use. Mutually exclusive with --stdin. A
+     *   value passed this way lands in shell history/process listings on most systems; prefer
+     *   --stdin for anything genuinely secret when run interactively.
+     * [--stdin]           : Read the value interactively from STDIN with terminal echo disabled
+     *   (`stty -echo`, restored afterward) — never printed back. Mutually exclusive with --value.
+     *   Deliberately NOT named --prompt: wp-cli itself reserves that flag globally (it triggers
+     *   wp-cli's own generic per-parameter prompting and is consumed before any command ever sees
+     *   it in $assoc — confirmed live, not assumed; an isset($assoc['prompt']) check is silently
+     *   always false), so this command needs its own, non-colliding name. The "value for '<name>':
+     *   " prompt itself writes to STDERR, never STDOUT (found live: printing it to STDOUT
+     *   interleaved with --format=json's own output and broke every caller parsing stdout as
+     *   JSON) — safe to pipe `wp duo env-set ... --stdin --format=json` and parse stdout as pure
+     *   JSON even while a prompt is also being shown.
+     * [--json]            : JSON output (wp-cli rewrites this to --format=json). The value is
+     *   never included in the response, only in this command's own request.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand env-set
+     */
+    public function env_set($args, $assoc) {
+        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
+        $name = $assoc['name'] ?? WP_CLI::error('--name required');
+        $hasValue = array_key_exists('value', $assoc);
+        $hasStdin = isset($assoc['stdin']);
+        if ($hasValue && $hasStdin) {
+            WP_CLI::error('pass exactly one of --value or --stdin, not both');
+        }
+        if (!$hasValue && !$hasStdin) {
+            WP_CLI::error('one of --value=<value> or --stdin is required');
+        }
+        $value = $hasStdin ? self::read_masked_value("value for '$name': ") : (string) $assoc['value'];
+        try {
+            $result = Apply::set_env_option($repo, (string) $name, $value);
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($result, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        WP_CLI::success(sprintf(
+            "%s '%s' (%s)",
+            $result['previously_set'] ? 'updated' : 'set',
+            $result['name'],
+            $result['previously_set'] ? 'replaced an existing value' : 'was previously unset'
+        ));
+    }
+
+    /**
+     * Read one line from STDIN with the terminal's echo disabled, so a
+     * secret value never appears on-screen or in scrollback — the standard
+     * portable technique (`stty -echo` around the read, unconditionally
+     * restored via try/finally even if the read itself throws). A best
+     * effort only: stty silently no-ops when STDIN isn't a real terminal
+     * (piped/redirected input, common under CI), which is the correct
+     * fallback, not a failure — there is no terminal echo to suppress in
+     * that case, and env-set has no way to distinguish "a human is
+     * watching" from "a script is feeding stdin" other than this.
+     *
+     * The prompt and the trailing newline both go straight to STDERR
+     * (fwrite, deliberately bypassing WP_CLI::out()/::line(), which write
+     * STDOUT) — found live, not assumed: with WP_CLI::out() here,
+     * `--stdin --format=json` interleaved the prompt text ahead of the
+     * JSON on stdout, breaking every caller that parses stdout as JSON
+     * (this command's own regress_env_set.sh included). A prompt is UI
+     * chrome for whichever human is at the keyboard, never response data;
+     * it must stay off stdout regardless of --format, the same convention
+     * curl/ssh use for their own interactive password prompts.
+     */
+    private static function read_masked_value(string $prompt): string {
+        fwrite(STDERR, $prompt);
+        $isPosix = stripos(PHP_OS, 'WIN') === false && function_exists('shell_exec');
+        if ($isPosix) {
+            shell_exec('stty -echo 2>/dev/null');
+        }
+        try {
+            $line = fgets(STDIN);
+        } finally {
+            if ($isPosix) {
+                shell_exec('stty echo 2>/dev/null');
+            }
+        }
+        fwrite(STDERR, "\n"); // the operator's Enter produced no visible newline while echo was off
+        return $line === false ? '' : trim($line);
     }
 
     /**

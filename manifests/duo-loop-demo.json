@@ -4,7 +4,8 @@
     "option_autoload": "preserve",
     "options": {
         "duo_loop_api_key": {
-            "class": "env"
+            "class": "env",
+            "required": true
         },
         "duo_loop_color": {
             "class": "authored"

@@ -8,7 +8,7 @@
     "DUO-3222 (version-pinned adapter compatibility contract): plugin/version_range verified live (not guessed) — advanced-custom-fields/acf.php, ACF 6.8.7 installed fresh from wp.org this session. Range is deliberately scoped to the CURRENT major version line only (6.x, [6.0.0, 7.0.0)) — this issue's own non-goal is 'does not certify individual plugins,' so widening the range to also cover past major versions (5.x) is DUO-3224's ratification job against real evidence, not invented here without it."
   ],
   "options": {
-    "acf_first_activated_version": {"class": "env"},
+    "acf_first_activated_version": {"class": "env", "required": false},
     "acf_site_health": {"class": "runtime"}
   },
   "post_types": {

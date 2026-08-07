@@ -44,6 +44,7 @@ Usage:
   duo capture <env> [extra wp-cli flags...]
   duo plan    <env> [extra wp-cli flags...]
   duo apply   <env> [extra wp-cli flags...]
+  duo env-set <env> --name=<name> (--value=<value> | --stdin)
   duo promote <env> [extra apply flags...]
   duo pending <env>
   duo classify <env> [--accept-proposals]
@@ -62,7 +63,8 @@ Verbs:
                           plan-level warnings. Non-zero exit ("not safe to
                           promote") if the plan has any conflict, deletion
                           conflict, collision, code_mismatch, blocked delete,
-                          or drift (drift is
+                          a required env_missing entry (env-set --name=<name>
+                          --stdin to provision it), or drift (drift is
                           the one case `duo apply` itself does not refuse
                           on, but status still reports as not clean — see
                           cli/src/PlanSummary.php's decision-matrix
@@ -75,6 +77,16 @@ Verbs:
                           Extra flags (e.g. --adopt-by-slug=terms
                           --default-author=admin, --with-deletes) are forwarded
                           verbatim. Output streams live; exit code is the agent's.
+  env-set <env>           `wp duo env-set --repo=<repo_path> --name=<name>
+    --name=<name>         (--value=<value> | --stdin)`. Provisions one
+    (--value=<v>|--stdin)   manifest-declared class="env" option on <env> —
+                          see `duo status`'s env_missing checklist for what
+                          still needs a value. --stdin reads from STDIN with
+                          echo disabled and is never logged (deliberately
+                          not named --prompt, which wp-cli reserves as its
+                          own global flag); --value is scriptable but lands
+                          in shell history like any other flag. Refuses any
+                          name not declared class="env" by the loaded policy.
   promote <env> [...]     Compile once, export a database checkpoint, then run
                           deploy -> apply against that immutable artifact and one
                           target-DB lease. Stops at the first failed phase and
@@ -166,7 +178,7 @@ function main(array $argv): int {
     }
 
     $verb = array_shift($rest);
-    $verbsNeedingEnv = ['doctor', 'status', 'capture', 'plan', 'apply', 'promote', 'pending', 'classify'];
+    $verbsNeedingEnv = ['doctor', 'status', 'capture', 'plan', 'apply', 'env-set', 'promote', 'pending', 'classify'];
 
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
@@ -189,7 +201,7 @@ function main(array $argv): int {
     return match ($verb) {
         'doctor' => cmd_doctor($transport),
         'status' => cmd_status($transport),
-        'capture', 'plan', 'apply' => cmd_passthrough($transport, $verb, $extra),
+        'capture', 'plan', 'apply', 'env-set' => cmd_passthrough($transport, $verb, $extra),
         'promote' => cmd_promote($transport, $extra),
         'pending' => cmd_pending($transport, $extra),
         'classify' => cmd_classify($transport, $extra),

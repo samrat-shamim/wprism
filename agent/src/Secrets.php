@@ -12,6 +12,19 @@ namespace Duo;
  *   - suspicious(): key-name-plus-shape heuristic. A weak signal only — never
  *     blocks anything by itself; it exists purely to put a flag on `wp duo
  *     pending` items so a human looks twice.
+ *
+ * Scope boundary (DUO-3232, stated explicitly rather than left an implicit
+ * gap): this class only ever scans values Capture pulls OUT of a live
+ * WordPress environment on their way INTO the repo — it has no call site
+ * anywhere that reads `.duo-env-values.json` (the optional, gitignored,
+ * per-environment scratch file `wp duo env-set` operators may keep next to
+ * site.duo.json — see cli/README.md's "Env-bound value provisioning") and
+ * never will, by construction: that file is orchestrator/operator-side and
+ * is never captured, so a value living in it is never on a path this class
+ * inspects. Its secrecy is guarded by a different, complementary mechanism
+ * entirely — cli/src/Doctor.php's git-tracked hygiene check plus
+ * sandbox/site-repo.gitignore.template — not by this scanner declining to
+ * flag it.
  */
 final class Secrets {
     /** Values larger than this are never scanned (cheap-scan requirement;

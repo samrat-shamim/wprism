@@ -3,7 +3,8 @@
     "name": "duo-agency-cpt",
     "options": {
         "duo_agency_client_api_key": {
-            "class": "env"
+            "class": "env",
+            "required": true
         }
     },
     "post_meta": {

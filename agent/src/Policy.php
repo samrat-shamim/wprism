@@ -54,6 +54,7 @@ final class Policy {
             $p->site = Canon::decode(Canon::read_file($siteFile));
             self::validate_scope_classes($p->site, 'site.duo.json', true);
             self::validate_option_storage($p->site['policy'] ?? [], 'site.duo.json');
+            self::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
         }
         $names = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
         $dir = self::manifests_dir();
@@ -65,6 +66,7 @@ final class Policy {
             $manifest = Canon::decode(Canon::read_file($file));
             self::validate_field_classes($manifest);
             self::validate_regen_dependencies($manifest);
+            self::validate_env_options($manifest, "manifest '$name'");
             self::validate_scope_classes($manifest, "manifest '$name'", false);
             self::validate_sub_keys($manifest);
             self::validate_option_storage($manifest, "manifest '$name'");
@@ -1132,6 +1134,88 @@ final class Policy {
                 );
             }
         }
+    }
+
+    /**
+     * Validate every top-level `options.<name>` rule classified `env` at
+     * load time (DUO-3232): `required` (bool) is MANDATORY, no silent
+     * default either way — same posture DUO-3229 already established for
+     * post_type/taxonomy scope ("every entity gets an audited decision,
+     * neither noisy-by-default nor silent-by-default"), applied here to
+     * env rules. A manifest declaring `class: "env"` with no `required`
+     * key refuses to load, naming the exact manifest and key, so every
+     * env-classified option is a deliberate author decision (worth
+     * checklisting via env_options()/env_missing, or plugin-internal
+     * bookkeeping that self-populates and isn't) rather than an implicit
+     * one a future maintainer has to reverse-engineer from silence.
+     *
+     * Deliberately narrow, matching env_options()'s own scope: only
+     * top-level `options.<name>.class === "env"` rules. A `sub_keys`
+     * entry's OWN class (DUO-3233's per-sub-key carve-out) is out of
+     * v1 scope for the identical reason post_meta/term_meta env values
+     * are (see env_options()'s docblock) — no shipped manifest declares
+     * one today (confirmed empirically, not assumed), so this is a named
+     * scope cut, not an oversight.
+     */
+    private static function validate_env_options(array $source, string $label): void {
+        foreach ((array) ($source['options'] ?? []) as $name => $rule) {
+            if (!is_array($rule) || ($rule['class'] ?? '') !== 'env') {
+                continue;
+            }
+            if (!array_key_exists('required', $rule) || !is_bool($rule['required'])) {
+                throw new \RuntimeException(
+                    "duo: $label options.$name.class=\"env\" needs an explicit boolean 'required' "
+                    . '(true: an operator must provision this value on a fresh environment — a genuine '
+                    . 'secret or site-identity value; false: plugin-internal bookkeeping that '
+                    . 'self-populates and is not worth checklisting) — no silent default either way'
+                );
+            }
+        }
+    }
+
+    /**
+     * Option names classified `env`, keyed by name, value = the full rule
+     * (including the mandatory `required` flag validate_env_options()
+     * already guaranteed is present and boolean). Sibling enumerator to
+     * authored_options() above, same merge precedence (site policy
+     * replaces a manifest's whole rule wholesale, never a deep merge).
+     *
+     * DUO-3232: the enumeration half of "env-bound value provisioning" —
+     * feeds Apply::build_plan()'s env_missing bucket (which entity of
+     * this list actually looks unset on THIS environment) and, indirectly
+     * via `wp duo env-set`'s own lookup, the write-time guard that refuses
+     * to write to any option name NOT in this map (never an arbitrary
+     * option, only a manifest-declared env-classified one).
+     *
+     * Scope: OPTIONS ONLY for v1, deliberately. post_meta/term_meta
+     * classification can be interpreter-driven (Policy::meta_rule_for_post()
+     * dispatches to schema-driven code reading a SPECIFIC post's whole
+     * meta map — Policy.php's own interpreter contract docblock at the top
+     * of this file), so "enumerate every env-classified meta key globally"
+     * has no well-defined answer without live per-post data a fresh target
+     * doesn't have yet. Every real env-classified value across every
+     * shipped manifest today is an option (verified empirically, not
+     * assumed) — a genuine env-classified meta key, if one ever surfaces,
+     * is a separate, scoped follow-up, not solved speculatively here.
+     */
+    public function env_options(): array {
+        $out = [];
+        foreach ($this->manifests as $m) {
+            foreach ($m['options'] ?? [] as $name => $r) {
+                if (($r['class'] ?? '') === 'env') {
+                    $out[$name] = self::with_option_autoload($r, $m);
+                }
+            }
+        }
+        foreach ($this->site['policy']['options'] ?? [] as $name => $r) {
+            if (($r['class'] ?? '') === 'env') {
+                $out[$name] = self::with_option_autoload($r, $this->site['policy'] ?? []);
+            } else {
+                unset($out[$name]);
+            }
+        }
+        ksort($out, SORT_STRING);
+        return $out;
     }
 
     /** Validate whole-entity scope dispositions at policy load time. Site
