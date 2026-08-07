@@ -1359,6 +1359,27 @@ final class Capture {
                     . " belong to, so its relationships are skipped for every post and term";
                 continue;
             }
+            // DUO-3280: deliberately NOT extended with Apply's own
+            // object_type_from_option supplement (Policy::
+            // object_type_option_ref()). That fix reads Apply's compiled
+            // TREE (the apply's own not-yet-committed desired state,
+            // safe only because run() wraps it all in one transaction —
+            // see Apply::option_driven_object_type()'s own comment for
+            // why a live DB read is UNSAFE there: phase-2's stable sort
+            // can finalize a brand-new post before the declaring option's
+            // own sub_keys merge in the SAME apply). Capture has no
+            // compiled tree at all — it only ever reads the LIVE
+            // environment, and only ever runs as its OWN fresh process
+            // (an ordinary `wp duo capture`, or the always-spawned `wp
+            // duo verify-canonical` subprocess — Apply::
+            // verify_convergence()'s one call site) — so get_taxonomy()
+            // here has already re-booted against whatever the option's
+            // committed value was at THAT process's own `init`, by the
+            // time this ever runs. A same-request race with a sub_keys
+            // option write is structurally impossible here; adding a
+            // live-DB version of the supplement would not fix anything
+            // real and would falsely suggest this method has the same
+            // hazard Apply's does.
             foreach ($objectTypes as $objectType) {
                 if ($objectType === 'term') {
                     $termObject[] = $tax;

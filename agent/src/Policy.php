@@ -89,6 +89,7 @@ final class Policy {
             self::validate_user_meta_rules($manifest, "manifest '$name'");
             self::validate_scope_classes($manifest, "manifest '$name'", false);
             self::validate_sub_keys($manifest);
+            self::validate_object_type_option_refs($manifest);
             self::validate_dynamic_options($manifest);
             self::validate_option_storage($manifest, "manifest '$name'");
             self::validate_adapter_contract($manifest);
@@ -157,6 +158,7 @@ final class Policy {
             self::validate_user_meta_rules($manifest, "frozen manifest '$name'");
             self::validate_scope_classes($manifest, "frozen manifest '$name'", false);
             self::validate_sub_keys($manifest);
+            self::validate_object_type_option_refs($manifest);
             self::validate_option_storage($manifest, "frozen manifest '$name'");
             self::validate_adapter_contract($manifest);
             self::validate_discovery_contract($manifest);
@@ -849,6 +851,51 @@ final class Policy {
         foreach ($this->manifests as $m) {
             if (isset($m['taxonomies'][$tax]['description_refs'])) {
                 return $m['taxonomies'][$tax]['description_refs'];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * `taxonomies.<tax>.object_type_from_option` (DUO-3280): declares that
+     * $tax's registered object_type is additionally, DYNAMICALLY driven by
+     * a sub_keys-declared option's own named sub-key (Polylang: `language`/
+     * `post_translations` additionally cover whatever post types the
+     * `polylang` option's own `post_types` sub-key currently names — see
+     * polylang.json's own note). Pure declaration data — WHICH option,
+     * WHICH sub-key — never a live value; this class stays WordPress-free
+     * by design, the identical "class holds the declaration, caller does
+     * the live read" split dynamic_options() above already uses. Apply's
+     * own taxes_by_object_type() consults this, then resolves it against
+     * the CURRENT apply's own compiled tree (see Apply::
+     * option_driven_object_type()'s own comment for why the compiled
+     * tree, not a live database read, is the correct — and safer —
+     * source: phase-2's own stable-sort ordering can finalize a brand-new
+     * post before the declaring option's sub_keys merge in the SAME
+     * apply, so "the committed row" is not yet a fixed point at the
+     * moment a live read would happen). The declared sub-key is assumed
+     * to hold plain, non-ref-typed values (post-type/taxonomy slugs are
+     * inherently portable, unlike ids) — validate_object_type_option_refs()
+     * enforces that at load time.
+     *
+     * Deliberately a DIFFERENT primitive than taxonomy_pattern_rules()
+     * (task #92), not a mode of it: that mechanism answers "is $tax
+     * registered at ALL this request" (a yes/no gate for a taxonomy
+     * get_taxonomy() cannot find yet); this answers "what ELSE does an
+     * already-found taxonomy's object_type cover" — additive, never a
+     * substitute registration source, and consulted regardless of whether
+     * get_taxonomy() succeeded or the pattern fallback did.
+     *
+     * Same first-manifest-wins, exact-name lookup as
+     * description_refs_for_taxonomy() immediately above.
+     *
+     * @return ?array{option:string, sub_key:string}
+     */
+    public function object_type_option_ref(string $tax): ?array {
+        foreach ($this->manifests as $m) {
+            $decl = $m['taxonomies'][$tax]['object_type_from_option'] ?? null;
+            if ($decl !== null) {
+                return ['option' => (string) $decl['option'], 'sub_key' => (string) $decl['sub_key']];
             }
         }
         return null;
@@ -2208,6 +2255,70 @@ final class Policy {
                     throw new \RuntimeException(
                         "duo: manifest '$name' declares options.$optName.sub_keys.$subKey with an invalid or "
                         . 'missing class (expected one of ' . implode('|', self::CLASSES) . ')'
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * Loud, load-time guard for object_type_option_ref()'s manifest input
+     * (DUO-3280) — same posture as validate_sub_keys() immediately above: a
+     * malformed declaration must fail every command that loads this
+     * manifest, not surface as a confusing null-vs-array shape error deep
+     * inside Apply/Capture's taxes_by_object_type(). Two invariants:
+     *   - object_type_from_option, when present, is an object naming a
+     *     non-empty string `option` and a non-empty string `sub_key`;
+     *   - when the SAME manifest also declares options.<option>.sub_keys
+     *     (as polylang.json does for `polylang`), `sub_key` must actually
+     *     be one of its named keys — catches a typo'd cross-reference
+     *     between the two declarations at load time rather than a silent
+     *     always-empty supplement at apply time. Only checked when both
+     *     declarations live in the same manifest file; a declaration
+     *     pointing at an option some OTHER manifest or site policy owns is
+     *     not flagged (no reasonable single-manifest validator can see
+     *     across manifests, matching validate_sub_keys()'s own scope);
+     *   - that named sub-key rule declares no json_refs/key_refs.
+     *     Apply::option_driven_object_type() deliberately reads the
+     *     compiled tree's raw captured value with no ref-resolution step
+     *     (object types are plugin/taxonomy-registration slugs, never
+     *     environment-local ids — there is no plausible ref-typed use of
+     *     this primitive) — a manifest declaring one anyway would silently
+     *     get UNRESOLVED token strings (e.g. "{{term:<uuid>}}") fed
+     *     straight into object_type, a confusing failure far from its
+     *     cause; refusing it at load time is cheaper than debugging that.
+     */
+    private static function validate_object_type_option_refs(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        foreach ($manifest['taxonomies'] ?? [] as $tax => $rule) {
+            $decl = $rule['object_type_from_option'] ?? null;
+            if ($decl === null) {
+                continue;
+            }
+            if (!is_array($decl)
+                || !is_string($decl['option'] ?? null) || $decl['option'] === ''
+                || !is_string($decl['sub_key'] ?? null) || $decl['sub_key'] === '') {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares taxonomies.$tax.object_type_from_option without both a "
+                    . 'non-empty string `option` and `sub_key`'
+                );
+            }
+            $ownSubKeys = $manifest['options'][$decl['option']]['sub_keys'] ?? null;
+            if ($ownSubKeys !== null) {
+                $subRule = $ownSubKeys[$decl['sub_key']] ?? null;
+                if ($subRule === null) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' declares taxonomies.$tax.object_type_from_option.sub_key="
+                        . var_export($decl['sub_key'], true) . " but options.{$decl['option']}.sub_keys never "
+                        . 'declares that key'
+                    );
+                }
+                if (!empty($subRule['json_refs']) || !empty($subRule['key_refs'])) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' declares taxonomies.$tax.object_type_from_option pointing at "
+                        . "options.{$decl['option']}.sub_keys.{$decl['sub_key']}, but that sub-key declares "
+                        . 'json_refs/key_refs — object_type_from_option only supports plain, non-ref-typed '
+                        . 'sub-key values (post-type/taxonomy slugs, never ids)'
                     );
                 }
             }

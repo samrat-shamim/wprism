@@ -1951,6 +1951,31 @@ final class Apply {
                         . " belong to, so its relationships are skipped for every post and term on apply";
                     continue;
                 }
+                // DUO-3280: a DIFFERENT timing gap than task #92's, for a
+                // taxonomy get_taxonomy() DOES find registered —
+                // register_taxonomy() fixes its object_type array once,
+                // for the entire process, at `init`, which already ran
+                // before THIS SAME request's own sub_keys option merge
+                // (Polylang: `polylang.post_types` names which extra post
+                // types `language`/`post_translations` additionally cover
+                // — manifests/polylang.json's own "PHP-process-boundary
+                // timing nuance" note). A manifest-declared
+                // object_type_from_option (Policy::object_type_option_ref())
+                // supplies exactly those extra object types, sourced from
+                // THIS apply's own compiled tree (see
+                // option_driven_object_type() below for why the compiled
+                // tree, not a live $wpdb read) — immune to the
+                // frozen-registry staleness because it never consults
+                // get_taxonomy()'s in-memory snapshot at all. The
+                // cross-process shadow of this same frozen-registry family
+                // is #61's PLL_Cache trace (get_translated_object_types(),
+                // healed only by a fresh process). Purely additive, never
+                // a replacement: $tax may legitimately have a non-empty
+                // base object_type with zero option-driven entries.
+                $objectTypes = array_values(array_unique(array_merge(
+                    $objectTypes,
+                    $this->option_driven_object_type($tax)
+                )));
                 foreach ($objectTypes as $objectType) {
                     if ($objectType === 'term') {
                         $termObject[] = $tax;
@@ -1962,6 +1987,75 @@ final class Apply {
             $this->taxesByObjectType = ['by_post_type' => $byPostType, 'term_object' => $termObject];
         }
         return $this->taxesByObjectType;
+    }
+
+    /**
+     * DUO-3280: the live half of Policy::object_type_option_ref()'s
+     * declaration — resolves to a plain list of extra object types.
+     *
+     * Reads THIS APPLY'S OWN COMPILED TREE (the options/core entity's
+     * captured value for the declared sub-key), never a live $wpdb SELECT
+     * of the option's current row. That looks like it contradicts "read
+     * the committed value, not any snapshot" — it doesn't, once phase-2
+     * ordering is accounted for: 'options' and an ordinary post/term share
+     * the SAME phase2_rank() (1), and $work's pre-sort order concatenates
+     * plan['create'] before plan['update'] (usort() is stable on PHP 8,
+     * task #10) — so on a fresh target, brand-new posts of a
+     * newly-enabled type are ALWAYS finalized before the `polylang`
+     * option's own sub_keys merge (always plan['update'], since the
+     * option row already exists). A live DB read at that moment would
+     * see the OLD, pre-merge row — proven live, not assumed: the first
+     * version of this method read $wpdb directly and reproduced this
+     * exact failure on a genuinely fresh target. Reordering phase2_rank()
+     * itself was considered and rejected: `nav_menus` (a DIFFERENT
+     * sub-key of this SAME option) is json_refs-typed against menu TERMS,
+     * which must exist before ITS OWN ref resolution runs, so promoting
+     * `polylang` broadly to 'early' would trade this bug for a menu-ref
+     * resolution failure instead.
+     *
+     * The compiled tree's own desired value is the correct source
+     * instead: `run()` wraps ALL of phase 1 and phase 2 in one DB
+     * transaction (Db::start(), see run()'s own doc comment) that only
+     * commits after post-apply convergence verification succeeds — so
+     * for any apply that ultimately succeeds, "what the compiled tree
+     * says this sub-key will hold" and "what ends up committed" are the
+     * SAME value by construction (apply_option_sub_keys()'s own merge
+     * loop assigns the captured value for a declared authored sub-key
+     * verbatim, modulo apply_value()'s ref/structure decoding — a no-op
+     * here, since object-type-driving sub-keys are plain post-type slug
+     * lists, never ref-typed; validate_object_type_option_refs() enforces
+     * that at load time). For an apply that FAILS, the transaction rolls
+     * back entirely, taking this relationship write back with it — there
+     * is no scenario where this reads a value that never actually lands.
+     * This is a strictly SAFER source than a live read: it cannot observe
+     * a partially-applied intermediate state at all, by construction,
+     * regardless of any future change to phase-2 ordering.
+     *
+     * @return string[]
+     */
+    private function option_driven_object_type(string $tax): array {
+        $ref = $this->policy->object_type_option_ref($tax);
+        if ($ref === null) {
+            return [];
+        }
+        $optionsEntity = $this->compiled->tree()['options/core'] ?? null;
+        if (!is_array($optionsEntity) || !is_array($optionsEntity['data'] ?? null)) {
+            return [];
+        }
+        try {
+            $records = OptionState::records($optionsEntity['data']);
+        } catch (\Throwable $t) {
+            return [];
+        }
+        $record = $records[$ref['option']] ?? null;
+        if (($record['state'] ?? '') !== 'present' || !is_array($record['value'] ?? null)) {
+            return [];
+        }
+        $subVal = $record['value'][$ref['sub_key']] ?? null;
+        if (!is_array($subVal)) {
+            return [];
+        }
+        return array_values(array_filter(array_map('strval', $subVal)));
     }
 
     private function taxes_for_post_type(string $postType): array {
@@ -3096,8 +3190,32 @@ final class Apply {
                 try {
                     $res = \WP_CLI::runcommand($cmd, ['launch' => true, 'return' => 'all', 'exit_error' => false]);
                     if ((int) $res->return_code !== 0) {
-                        throw new \RuntimeException("duo: required manifest rebuilder '$cmd' exited {$res->return_code}");
+                        // DUO-3282: the launch layer (a genuinely separate
+                        // process boundary from the rest of apply — see
+                        // 'launch' => true above) can fail for reasons a
+                        // bare exit code doesn't explain on its own (a
+                        // fatal in the eval'd command, a missing wp-cli
+                        // sub-command). Surfacing stdout/stderr here is the
+                        // difference between a one-line "exited 255" a
+                        // human has to go reproduce by hand, and the actual
+                        // error message that already existed and was being
+                        // silently discarded.
+                        $out = trim((string) ($res->stdout ?? ''));
+                        $err = trim((string) ($res->stderr ?? ''));
+                        throw new \RuntimeException(
+                            "duo: required manifest rebuilder '$cmd' exited {$res->return_code}"
+                            . ($out !== '' ? "\nstdout: $out" : '')
+                            . ($err !== '' ? "\nstderr: $err" : '')
+                        );
                     }
+                    // DUO-3282: unconditional per-declaration confirmation
+                    // that Apply's own WP_CLI::runcommand() launch actually
+                    // invoked this rebuilder — the layer that was
+                    // previously unverifiable from outside (a caller could
+                    // only ever infer it indirectly, e.g. by querying a
+                    // rebuilder's own side-effect table after the fact, as
+                    // DUO-3267's grind script did before this fix existed).
+                    $this->warnings[] = "rebuilder fired: '$cmd' (exit 0)";
                 } catch (\Throwable $t) {
                     if (str_starts_with($t->getMessage(), 'duo: required manifest rebuilder')) {
                         throw $t;
