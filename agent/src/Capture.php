@@ -472,30 +472,32 @@ final class Capture {
         }
 
         // DUO-3278's own widget-type registry (block/nav_menu/text at
-        // shipping time) plus DUO-3264's cross-PR layering ruling, recorded
-        // here because reading this loop alone would make its own
-        // information-only posture look like an oversight: this
+        // shipping time), and DUO-3264's own corrected understanding of
+        // this section's role — recorded with the correction included,
+        // not just the final answer, because the walk-back is itself the
+        // useful record for the next reader of this loop. This
         // $gate['widgets'] section is a DIAGNOSTIC ENRICHMENT, deliberately
         // never blocking on its own (nothing below merges it into
-        // Capture::$unclassified — confirmed by grep, not assumed). The
-        // universal BLOCKING net for every undeclared widget_<type>/
-        // sidebars_widgets name already lives one layer down, in
-        // build_options()'s own option_namespaces-driven unclassified
-        // check (core.json declares ^sidebars_widgets$/^widget_ as owned
-        // namespaces; any name in that family with neither a widgets{}
-        // entry here NOR an explicit options.<name> classification hits
-        // that check and refuses `wp duo capture` outright). The two PRs
-        // shipped within hours of each other and needed this cross-
-        // awareness to both work correctly: without core.json's own
-        // per-name `runtime` classification for widget_block/nav_menu/text
-        // (the types THIS registry declares), the namespace check above
-        // would see DUO-3278's own real widget content as in-namespace-
-        // but-unclassified and refuse capture on every site using it —
-        // neither author would have caught that alone. So: this section
-        // stays purely informational by design (which sidebar, which
-        // instance) precisely because a stricter, capture-blocking gate
-        // for the identical gap already exists elsewhere — it does not
-        // need to duplicate that enforcement, only enrich it.
+        // Capture::$unclassified — confirmed by grep, not assumed).
+        // DUO-3264 first assumed (and shipped, briefly) a SECOND net one
+        // layer down — a core.json option_namespaces declaration for
+        // ^sidebars_widgets$/^widget_ plus per-name `runtime`
+        // classifications — believing THAT was the universal blocking net
+        // this section stayed informational alongside. Wrong, caught live
+        // by that same declaration's own conformance sweep: the REAL,
+        // sufficient, already-shipped blocking net is SidebarState::
+        // capture()'s own load_widget_options() (this class, private
+        // method) — an unconditional guard that refuses any widget_<type>
+        // row with real instances and an undeclared type, running BEFORE
+        // build_options() even executes in build()'s own call order. The
+        // option_namespaces declaration was therefore provably unreachable
+        // dead weight for this family and has been reverted (see
+        // manifests/core.json's own note at dynamic_options for the full
+        // evolution) — this diagnostic section needed no companion net; it
+        // already had one, one file over, the whole time. It stays
+        // informational because SidebarState's own guard already enforces;
+        // this only adds per-sidebar/per-instance detail a bare exception
+        // message can't carry.
         $widgetTypes = $c->policy->widget_types();
         $widgets = [];
         foreach ($optionRows as $row) {
@@ -2232,30 +2234,7 @@ final class Capture {
                 continue;
             }
             if ($rule === null) {
-                // DUO-3264 (corrected-baseline ruling): a widget-shaped name
-                // is the one namespace-owned case common enough to deserve
-                // its own remediation text — both real fixes named inline,
-                // not just "go classify it" (team-lead's own requirement:
-                // this refusal must read as widgets-aware, not generic).
-                // Layering note (also DUO-3264, ruled alongside DUO-3278):
-                // this options-level namespace gate is the universal
-                // blocking net for every undeclared widget_<type>/
-                // sidebars_widgets name; DUO-3278's own gate_scan()
-                // 'widgets' section is an enriched, informational-only
-                // DIAGNOSTIC on top (which sidebar, which instance) that
-                // deliberately never blocks — the options net already does,
-                // so it doesn't need to.
-                $widgetHint = '';
-                if ($name === 'sidebars_widgets' || str_starts_with($name, 'widget_')) {
-                    $type = str_starts_with($name, 'widget_') ? substr($name, 7) : null;
-                    $widgetHint = $type !== null
-                        ? " -- widget content: either declare it a deliberate exclusion (wp duo classify --set 'options:$name=runtime') "
-                            . "or, if this widget type's own settings should be portable, add \"$type\" to a pinned manifest's widgets{} "
-                            . "grammar (see manifests/core.json's widgets.block/nav_menu/text for the shape)"
-                        : " -- sidebar/widget structure: either declare it a deliberate exclusion (wp duo classify --set 'options:$name=runtime') "
-                            . 'or confirm every widget instance it references uses a type declared in a pinned manifest\'s widgets{} grammar';
-                }
-                $this->unclassified[] = "options:$name (owner candidate {$owner['owner']}; namespace matched without a classification)$widgetHint";
+                $this->unclassified[] = "options:$name (owner candidate {$owner['owner']}; namespace matched without a classification)";
                 continue;
             }
             $processed[$name] = true;

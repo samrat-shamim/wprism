@@ -47,45 +47,62 @@ pass "theme_mods_twentytwentyone (residue: a previously-active, now-inactive the
 
 PENDING2=$(wp_conf2 duo pending --repo=/siterepo --format=json)
 [ "$PENDING2" = "[]" ] \
-  || fail "wp duo pending on conf2 is no longer empty -- the ~18 core widget_<type> names + sidebars_widgets must stay silent-by-declaration (explicitly classified runtime), not become newly unclassified: $PENDING2"
-pass "wp duo pending remains empty post-apply for every CORE-registered widget option -- silent-by-declaration (explicitly classified runtime, DUO-3264 corrected-baseline ruling), not silent-by-omission (the original ruling's premise, empirically found false and superseded)"
+  || fail "wp duo pending on conf2 is no longer empty: $PENDING2"
+pass "wp duo pending remains empty post-apply -- empty, auto-registered widget_<type> rows (every core type not covered by widgets{}) stay unscanned by design (contentless scaffolding, never captured before this issue, not captured now); DUO-3278's own declared block/nav_menu/text content applied cleanly"
 
-# DUO-3264 corrected-baseline ruling (superseding the split ruling's own
-# original premise that these were already loud): declaring the
-# ^sidebars_widgets$/^widget_ namespaces and classifying only the ~18
-# CORE-registered names runtime, by exact name (never a ^widget_ PATTERN
-# classification, which would blindly swallow a third party's own widget
-# type into the same silent bucket), buys a real guarantee for free --
-# live-verified here, not assumed: a widget type this manifest never named
-# still lands in-namespace with no classification, which turns into
-# unclassified -> loud pending -> capture-blocking, the correct posture
-# for authored content this pass never evaluated.
-say "(DUO-3264) live probe: an unknown, non-core widget type gates loudly, then classifies clean once declared"
+# DUO-3264 <-> DUO-3278 cross-PR finding, full evolution (see manifests/
+# core.json's own note at dynamic_options for the complete walk-back):
+# DUO-3264 first shipped its OWN blocking net here (core.json
+# option_namespaces for ^sidebars_widgets$/^widget_, ~18 per-name `runtime`
+# classifications) believing gate_scan()'s widgets section was informational
+# only. Reverted: SidebarState::capture()'s own load_widget_options() ALREADY
+# has an unconditional, independent, EARLIER-firing guard for the identical
+# condition (any widget_<type> row with real instances and an undeclared
+# type refuses capture) -- proven live, this exact probe's own captured
+# error was SidebarState's message, not the (also shipped, at the time)
+# options-layer one, because SidebarState::capture() always runs before
+# build_options() in build()'s own call order. The options-layer net was
+# therefore provably unreachable dead weight for this family and is gone.
+# What's tested below is what remains true: SidebarState's own guard is
+# sufficient on its own, AND (a second, separate finding, also DUO-3264)
+# its FIRST shipped message advertised a remedy that didn't work --
+# "classify options:widget_<type>=runtime" did nothing, since the guard
+# only ever consulted widgets{}, never options.* classification. Fixed at
+# the source (SidebarState::load_widget_options() now also treats an
+# explicit runtime/env options classification as first-class
+# acknowledgment, same tier as a widgets{} entry) rather than dropping the
+# remedy from the message -- both are asserted below, live, not assumed.
+say "(DUO-3264 <-> DUO-3278) live probe: an unknown, non-core widget type gates loudly (SidebarState's own guard), names a remedy that actually works, then classifies clean"
 wp_conf1 option update widget_regress_fake_type '{"2":{"title":"Regress Fake"}}' --format=json >/dev/null
 
 FAKE_PENDING=$(wp_conf1 duo pending --repo=/siterepo --format=json)
-echo "$FAKE_PENDING" | jq -e 'any(.section == "options" and .key == "widget_regress_fake_type")' >/dev/null \
-  || fail "unknown widget_regress_fake_type did not surface in wp duo pending: $FAKE_PENDING"
+echo "$FAKE_PENDING" | jq -e 'any(.section == "widgets" and .key == "regress_fake_type")' >/dev/null \
+  || fail "unknown widget type regress_fake_type did not surface in wp duo pending's own widgets section (DUO-3278's gate_scan() diagnostic): $FAKE_PENDING"
 
 FAKE_RC=0
 FAKE_CAPTURE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || FAKE_RC=$?
-[ "$FAKE_RC" -ne 0 ] && echo "$FAKE_CAPTURE_OUT" | grep -q "options:widget_regress_fake_type" \
-  || fail "capture did not loudly refuse the unknown widget type by name: $FAKE_CAPTURE_OUT"
+[ "$FAKE_RC" -ne 0 ] && echo "$FAKE_CAPTURE_OUT" | grep -q "widget option 'widget_regress_fake_type' contains instances but type 'regress_fake_type' is undeclared" \
+  || fail "capture did not loudly refuse the unknown widget type via SidebarState's own guard: $FAKE_CAPTURE_OUT"
 # team-lead's own requirement: this refusal must read as widgets-aware, not
 # a generic "go classify it" -- both real remedies named inline.
-echo "$FAKE_CAPTURE_OUT" | grep -q "widget content: either declare it a deliberate exclusion" \
-  || fail "refusal did not name the widget-specific remedy (deliberate exclusion): $FAKE_CAPTURE_OUT"
 echo "$FAKE_CAPTURE_OUT" | grep -q "add \"regress_fake_type\" to a pinned manifest's widgets{} grammar" \
-  || fail "refusal did not name the second widget-specific remedy (extend widgets{} grammar), or misidentified the type: $FAKE_CAPTURE_OUT"
+  || fail "refusal did not name the first remedy (extend widgets{} grammar), or misidentified the type: $FAKE_CAPTURE_OUT"
+echo "$FAKE_CAPTURE_OUT" | grep -q "declare it a deliberate exclusion (wp duo classify --set 'options:widget_regress_fake_type=runtime')" \
+  || fail "refusal did not name the second remedy (deliberate exclusion): $FAKE_CAPTURE_OUT"
 
+# The substantive gate: does the second remedy the message names ACTUALLY
+# work? (Team-lead's own requirement, after the first shipped version of
+# this message was proven to advertise a dead remedy.) Classify via site
+# policy exactly as the message instructs, then confirm capture proceeds.
 cp "$CONF_REPO1/site.duo.json" "$CONF_REPO1/.tmp-site-backup.json"
 jq '.policy.options.widget_regress_fake_type = {"class": "runtime"}' "$CONF_REPO1/site.duo.json" > "$CONF_REPO1/.tmp-site-new.json"
 mv "$CONF_REPO1/.tmp-site-new.json" "$CONF_REPO1/site.duo.json"
-wp_conf1 duo capture --repo=/siterepo >/dev/null || fail "capture still refused widget_regress_fake_type after a site-policy override classified it runtime"
+wp_conf1 duo capture --repo=/siterepo >/dev/null \
+  || fail "capture still refused widget_regress_fake_type after following the message's own stated remedy (site policy classified it runtime) -- the escape hatch does not function"
 mv "$CONF_REPO1/.tmp-site-backup.json" "$CONF_REPO1/site.duo.json"
 wp_conf1 option delete widget_regress_fake_type >/dev/null
 wp_conf1 duo capture --repo=/siterepo >/dev/null
-pass "unknown widget type: pending surfaces it by name, capture refuses naming BOTH remedies (deliberate exclusion or extend widgets{}), clean once declared, and clean again once removed -- live-verified, not assumed"
+pass "unknown widget type: SidebarState's own guard refuses naming BOTH remedies, the deliberate-exclusion remedy it names actually works (verified, not assumed -- the operator-path-dishonesty class this project refuses to ship), clean again once the fake type is fully removed"
 
 # DUO-3278: the core fixture's three declared widget kinds round-trip through
 # the sidebar wire format with ledger-only identity and target-local counters.
