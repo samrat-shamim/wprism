@@ -254,8 +254,27 @@ say "deliberately exercise task #73's unscoped-ref gate: retype the checkout pag
 # restoring it afterward) neutralizes this without assuming confirmation
 # is the only child — any post PMPro (or a future seed change) nests under
 # checkout gets the same treatment.
+#
+# Trap, not just a happy-path restore (team-lead's own requirement): r3b
+# persists by this file's own "never torn down" convention — every other
+# agent's run reuses whatever this environment is left in. A fail()
+# between the retype above and the restore below calls `exit 1` directly
+# (bypassing the rest of this script, restore included), which would leave
+# the checkout page permanently mistyped and orphan-parented for every
+# future run on this shared pair, not just this one. The EXIT trap fires
+# on ANY exit path — fail()'s explicit exit, an unexpected command failure
+# under set -e, or a signal — restoring both the type and every child's
+# parent before the shell actually terminates. Disarmed (not left to
+# double-fire) once the normal path reaches its own explicit restore below.
 CHECKOUT_ID=$(wp1 option get pmpro_checkout_page_id)
 CHECKOUT_CHILDREN=$(wp1 db query "SELECT ID FROM wp_posts WHERE post_parent=$CHECKOUT_ID" --skip-column-names)
+restore_checkout() {
+  wp1 db query "UPDATE wp_posts SET post_type='page' WHERE ID=$CHECKOUT_ID" >/dev/null 2>&1 || true
+  for cid in $CHECKOUT_CHILDREN; do
+    wp1 db query "UPDATE wp_posts SET post_parent=$CHECKOUT_ID WHERE ID=$cid" >/dev/null 2>&1 || true
+  done
+}
+trap restore_checkout EXIT
 wp1 db query "DELETE FROM wp_duo_map WHERE id_kind='post' AND local_id=$CHECKOUT_ID"
 wp1 db query "UPDATE wp_posts SET post_parent=0 WHERE post_parent=$CHECKOUT_ID"
 wp1 db query "UPDATE wp_posts SET post_type='duo_test_unscoped' WHERE ID=$CHECKOUT_ID"
@@ -267,10 +286,8 @@ set -e
 echo "$GATE_OUT" | grep -q "unresolvable ref-typed option(s) point at real, out-of-scope entities" || fail "wrong error (got: $GATE_OUT)"
 echo "$GATE_OUT" | grep -q "pmpro_checkout_page_id" || fail "gate did not name the option"
 pass "loud-and-blocking gate fired correctly, naming the option, the raw id, and the real target type"
-wp1 db query "UPDATE wp_posts SET post_type='page' WHERE ID=$CHECKOUT_ID"
-for cid in $CHECKOUT_CHILDREN; do
-  wp1 db query "UPDATE wp_posts SET post_parent=$CHECKOUT_ID WHERE ID=$cid"
-done
+trap - EXIT
+restore_checkout
 wp1 duo capture --repo=/siterepo
 pass "scope fixed, recapture succeeds cleanly"
 
