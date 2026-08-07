@@ -199,6 +199,22 @@ pass "both envs installed (WP+ACF+Elementor active); duo-agency-cpt present in c
 # ============================================================ baseline + the elementor_active_kit footgun
 
 say "(1) INTERPLAY FINDING (behavior updated by task #73): elementor_active_kit is classified authored+ref:post by manifests/elementor.json, but 'elementor_library' is not yet in THIS site's policy.post_types — and the kit post is REAL, so this is a scope gap, not a dangling ref. This grind originally found a silent warn-and-drop here (docs/grind/r1c-agency.md's engine-gap writeup, escalated as task #73); capture must now ABORT loudly instead"
+
+# DUO-3229 (fail closed on unscoped entity types) postdates this fixture and
+# added its OWN, coarser, unconditional gate (Capture::build()'s scope_gaps()
+# check, evaluated before EITHER capture attempt below can reach the option-
+# ref-specific logic this section actually means to exercise — confirmed by
+# reading build()'s own control flow, --force-unresolved-refs has no effect
+# on it either, it only reaches the later option_ref_tokens() path): with
+# 'elementor_library' entirely unscoped AND holding a real capturable kit
+# post, THAT gate fires first, naming the type, not the option — starving
+# both capture attempts below of the specific message they check for
+# (caught live, DUO-3274's sweep). scope:post_type:X=runtime is exactly the
+# escape hatch that gate's own message names; it does not add elementor_library
+# to policy.post_types, so the option-ref gate below still correctly sees it
+# as unscoped once the type-level gate is satisfied — confirmed live before
+# touching either assertion below, both fire exactly as originally written.
+wp_r1c1 duo classify --repo=/siterepo --set='scope:post_type:elementor_library=runtime' >/dev/null
 if OUT1=$(wp_r1c1 duo capture --repo=/siterepo 2>&1); then
   echo "$OUT1"
   fail "capture succeeded despite elementor_active_kit pointing at a real, out-of-scope elementor_library post (expected task #73's loud-and-blocking gate)"
@@ -219,15 +235,37 @@ OUT1F=$(wp_r1c1 duo capture --repo=/siterepo --force-unresolved-refs 2>&1)
 echo "$OUT1F"
 grep -qi 'elementor_active_kit.*unmanaged post id\|unmanaged post id.*elementor_active_kit' <<<"$OUT1F" \
   || fail "expected the old-style warning naming elementor_active_kit's unmanaged post id under --force-unresolved-refs (got: $OUT1F)"
-if jq -e '.records | has("elementor_active_kit")' siterepo/r1c1/state/options/core.json >/dev/null 2>&1; then
-  fail "elementor_active_kit unexpectedly present in captured state despite the unmapped-ref warning"
-fi
+# DUO-3211 (exact-reconciliation contract, landed after this assertion was
+# first written): a policy-required authored option that gets dropped is no
+# longer OMITTED from .records — every name in Policy::authored_options()
+# gets an explicit record every capture, so a drop now means an explicit
+# {"state":"absent"} entry, not a missing key. Confirmed live in isolation
+# (a minimal authored+ref:post fixture mirroring elementor_active_kit
+# exactly, DUO-3274's sweep) before touching this assertion: has() was
+# TRUE and the record was {"state":"absent"}, not FALSE/missing as this
+# check originally expected — the option genuinely used to vanish
+# (task #73 era), and DUO-3211 is what changed "dropped" to mean "recorded
+# absent" instead of "not recorded at all". Flipped, not deleted: the
+# option's exclusion is still the thing under test, just represented the
+# current way.
+jq -e '.records.elementor_active_kit.state == "absent"' siterepo/r1c1/state/options/core.json >/dev/null 2>&1 \
+  || fail "elementor_active_kit should carry an explicit state:absent record post-DUO-3211, not be silently omitted from .records (got: $(jq -c '.records.elementor_active_kit // "MISSING"' siterepo/r1c1/state/options/core.json))"
 jq -e '.records.active_plugins.value | index("duo-agency-cpt/duo-agency-cpt.php") == null' siterepo/r1c1/state/options/core.json >/dev/null \
   || fail "r1c1's baseline active_plugins already includes duo-agency-cpt (got: $(jq -c .records.active_plugins.value siterepo/r1c1/state/options/core.json))"
-pass "baseline captured under the escape hatch: warning fired, elementor_active_kit dropped from state (old behavior, now an explicit opt-in), duo-agency-cpt correctly absent from active_plugins"
+pass "baseline captured under the escape hatch: warning fired, elementor_active_kit correctly recorded as an explicit state:absent (DUO-3211's exact-reconciliation contract — dropped means recorded absent, not silently omitted), duo-agency-cpt correctly absent from active_plugins"
 
 say "(1) fix: scope 'elementor_library' into policy.post_types, re-capture"
-jq '.policy.post_types += ["elementor_library"]' siterepo/r1c1/site.duo.json > siterepo/r1c1/.tmp-site.json
+# The scope:post_type:elementor_library=runtime classification added above
+# (to satisfy DUO-3229's gate for the FIRST capture attempt) must come back
+# out here: promoting the type to policy.post_types while that declaration
+# still says "runtime" is a real, live-caught contradiction — the previous
+# capture wrote classification=runtime into the committed state file, and
+# Capture::run()'s own pre-build repository-authorization step (which
+# compiles+authorizes on-disk state against CURRENT policy before build()
+# runs) correctly refuses the mismatch: [repository_field_not_authored].
+# Not a bug to route around — the fixture's job now is "become authored",
+# so its own temporary runtime carve-out must be retracted in the same step.
+jq '.policy.post_types += ["elementor_library"] | del(.policy.scope.post_type.elementor_library)' siterepo/r1c1/site.duo.json > siterepo/r1c1/.tmp-site.json
 mv siterepo/r1c1/.tmp-site.json siterepo/r1c1/site.duo.json
 wp_r1c1 duo capture --repo=/siterepo
 jq -e '.records.elementor_active_kit.value | test("^\\{\\{post:")' siterepo/r1c1/state/options/core.json >/dev/null \
@@ -252,10 +290,35 @@ git -C siterepo/r1c1 push -q origin main
 git -C siterepo/r1c2 pull -q origin main
 pass "r1c1 activated duo-agency-cpt for real; capture recorded it; r1c2 pulled the pending activation"
 
-say "(2) on r1c2: plan shows pending activation, code_mismatch EMPTY (code already arrived via git); deploy activates for real"
+say "(2) on r1c2: plan shows pending activation as the ONLY code_mismatch finding (code already arrived via git, so no missing_in_code/code_drift — just inactive_in_environment); deploy activates for real"
+# DUO-3216 (compose truthful promotion path, aa9b36a) folded "code present,
+# not yet active" into code_mismatch itself as its own issue type
+# (inactive_in_environment) — this section originally expected an empty
+# code_mismatch for exactly this state, written before that reshaping and
+# never updated (grind_r1c_agency.sh cites no DUO-3216 anywhere, unlike its
+# r1b/r3a siblings — caught live via a full end-to-end run, DUO-3274's
+# sweep). Two shapes exist on main for DUO-3216-era breakage (owner ruling):
+# reorder to deploy-before-plan (grind_r1b_shop.sh's PR #14,
+# grind_r3b_events.sh's DUO-3250/#37 — docs/proposals/code-half.md §3.4's
+# deploy-before-apply contract), or flip the assertion to expect the
+# inactive_in_environment finding when the section's own point IS that
+# pending state. This section is the second kind: DUO-3250's own commit
+# message explicitly checked grind_r1c_agency.sh and concluded "needs no
+# change... its own scenario's plugin activation asymmetry already required
+# deploy-first" — i.e. this plan-before-deploy ordering is deliberate, not
+# an oversight, matching this section's own `say` text ("plan shows pending
+# activation... deploy activates for real"). Reordering would defeat the
+# point; the fix is the shape below — assert the SHAPE of the one expected
+# finding instead of an empty array, which also catches a real regression
+# (an unexpected SECOND finding, or the wrong plugin/issue) that an
+# empty-array check never could.
 PLAN_JSON=$(wp_r1c2 duo plan --repo=/siterepo --format=json | tail -1)
-echo "$PLAN_JSON" | jq -e '.code_mismatch == []' >/dev/null \
-  || fail "r1c2's plan shows code_mismatch even though duo-agency-cpt's code is present via the bind mount (got: $(echo "$PLAN_JSON" | jq -c .code_mismatch))"
+echo "$PLAN_JSON" | jq -e '.code_mismatch | length == 1' >/dev/null \
+  || fail "r1c2's plan does not show exactly one code_mismatch finding (got: $(echo "$PLAN_JSON" | jq -c .code_mismatch))"
+echo "$PLAN_JSON" | jq -e '.code_mismatch[0].issue == "inactive_in_environment" and .code_mismatch[0].kind == "plugin" and .code_mismatch[0].plugin == "duo-agency-cpt/duo-agency-cpt.php"' >/dev/null \
+  || fail "r1c2's single code_mismatch finding is not the expected inactive_in_environment/duo-agency-cpt shape (got: $(echo "$PLAN_JSON" | jq -c .code_mismatch))"
+echo "$PLAN_JSON" | jq -e '.code_mismatch[0].message | contains("Run") and contains("deploy") and contains("before apply")' >/dev/null \
+  || fail "inactive_in_environment message lost its deploy-before-apply guidance (got: $(echo "$PLAN_JSON" | jq -c .code_mismatch))"
 DEPLOY_JSON=$(wp_r1c2 duo deploy --repo=/siterepo --format=json | tail -1)
 echo "$DEPLOY_JSON" | jq -e '.activated | any(. == "duo-agency-cpt/duo-agency-cpt.php")' >/dev/null \
   || fail "deploy's summary does not list duo-agency-cpt as activated (got: $DEPLOY_JSON)"
@@ -541,7 +604,24 @@ pass "classify refused authored on the hard secret: $(tail -1 <<<"$OUT")"
 say "(4) classify: the real decisions (one call, semicolon-joined, equals-form — wp-cli's two documented traps)"
 wp_r1c1 duo classify --repo=/siterepo \
   --set='post_meta:_duo_project_internal_notes=authored;post_meta:_duo_project_views=runtime;options:duo_agency_client_api_key=env'
-pass "classified: _duo_project_internal_notes=authored, _duo_project_views=runtime, duo_agency_client_api_key=env"
+# DUO-3232 (env-bound value provisioning, bb5e23b, #34) made 'required' a
+# mandatory explicit boolean on every class:"env" rule at
+# Policy::validate_env_options() — no silent default either way. classify's
+# own --set spec has no `required=` attribute (confirmed by reading
+# Cli::parse_and_write_classify_spec(): only ref=/cast= are recognized,
+# anything else throws "unknown option"), so this has to be a direct
+# site.duo.json edit, same as every other fixture DUO-3269/DUO-3232's own
+# sweep already touched (regress_pmpro_composite_ref.sh,
+# regress_discovery_completeness.sh, regress_snapshot_meta.sh,
+# regress_tec_regen.sh — all required:false). Matching that precedent:
+# duo_agency_client_api_key is a fixture value with a harmless default
+# (this section builds it, never expects an operator to provision it), and
+# required:true would force an env-set provisioning step on r1c2 mid-round-
+# trip, changing what section (2)'s cross-environment exercise actually
+# tests — required:false is the fixture-appropriate choice, not a shortcut.
+jq '.policy.options.duo_agency_client_api_key.required = false' siterepo/r1c1/site.duo.json > siterepo/r1c1/.tmp-site.json
+mv siterepo/r1c1/.tmp-site.json siterepo/r1c1/site.duo.json
+pass "classified: _duo_project_internal_notes=authored, _duo_project_views=runtime, duo_agency_client_api_key=env,required:false"
 
 say "(4) capture succeeds now that every in-scope key is classified"
 wp_r1c1 duo capture --repo=/siterepo

@@ -1,10 +1,9 @@
 {
-    "spec_version": 2,
     "name": "duo-agency-cpt",
     "options": {
         "duo_agency_client_api_key": {
             "class": "env",
-            "required": true
+            "required": false
         }
     },
     "post_meta": {
@@ -15,5 +14,7 @@
             "class": "runtime"
         }
     },
-    "term_meta": {}
+    "spec_version": 2,
+    "term_meta": {},
+    "user_meta": {}
 }
