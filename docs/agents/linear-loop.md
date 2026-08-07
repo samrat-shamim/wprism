@@ -288,3 +288,13 @@ debugging time. Follow them; extend this list when you pay for a new one.
   issue carried evidence-complete comments and an untouched description).
   At every partial-scope close/return: append `## Scope note` to the
   description itself stating delivered vs deferred, then comment.
+- **Bring up long-lived/shared pairs from `duo-wp-main`, never from a
+  worktree.** `pair.sh up` pins the `../agent` and `../manifests`
+  bind-mounts to whatever checkout it was invoked from; per-issue
+  worktrees always get cleaned up at close, leaving the pair's containers
+  with dead mounts that break the NEXT `pair.sh start` (observed live
+  twice on r3b — the failure is silent until someone starts the pair days
+  later). Throwaway per-issue pairs may come up from a worktree only if
+  the same session destroys them before the worktree goes. Tooling
+  hardening tracked as a Backlog issue (canonicalize or refuse
+  worktree-relative `up` for persistent pairs).
