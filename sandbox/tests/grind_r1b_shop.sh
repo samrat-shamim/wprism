@@ -10,17 +10,23 @@
 # journal on); this script boots, installs, and seeds them itself — it
 # never touches envs a/b/c/conf*/e*/fx*/g*/r1a*/r1c* or their site repos.
 #
-# See docs/grind/r1b-shop.md for the full narrative and findings. Short
-# version: variable products could not be captured AT ALL until _price was
+# See docs/grind/r1b-shop.md for the full narrative and findings (as
+# ORIGINALLY run — several engine gaps it documents have since closed; see
+# each section's own comments below for what's current). Short version:
+# variable products could not be captured AT ALL until _price was
 # reclassified 'derived' (WooCommerce writes it multi-row on a variable
 # parent — one row per distinct variation price — and the v0 engine hard-
 # refuses multi-row 'authored' meta); pa_* attribute taxonomies round-trip
 # their TERM data through the existing generic taxonomy machinery with zero
-# new engine code, but the taxonomy's own REGISTRATION (a custom-table row)
-# has no capture/apply path at all, so a fresh target environment needs the
-# global attribute pre-provisioned by hand before its relationships resolve;
-# shipping zones/tax rates are honestly marked typed-snapshot-intent-only —
-# no custom-table capture/apply path exists in this engine for ANY table.
+# new engine code, and the taxonomy's own REGISTRATION (a custom-table row)
+# now HAS a real capture/apply path too (task #75's typed-snapshot grammar)
+# — combined with task #92's taxonomy_patterns scope mechanism and its
+# object_type fallback (both Capture's and Apply's copies), a fresh target
+# environment needs ZERO manual pre-provisioning; shipping zones/tax rates
+# ALSO have a real typed-snapshot capture/apply path now (task #93) — this
+# script only ever seeded and exercised them at runtime on r1b1 (never
+# round-tripped them to r1b2), so the positive proof lives in task #93's own
+# regress_shipping_zones.sh, not here.
 #
 # Re-run safety: envs r1b1/r1b2 are never torn down (docker compose down/
 # clean is off-limits — other agents share this stack), so every run wipes
@@ -303,17 +309,50 @@ pass "COD payment gateway available"
 # fiction: capture succeeds immediately once product_variation/pa_* are
 # in the site's OWN scope lists, because the classification itself already
 # lives in manifests/woocommerce.json, not in this site's policy overrides.
-# What IS still real and reproducible on every run: post-type/taxonomy SCOPE
-# is a site-policy list with no manifest-level default, so a site that
-# forgets to add product_variation/pa_size/pa_color simply gets those
-# entities silently excluded — no gate, no warning, exactly the asymmetry
-# with post_meta/options (which DO abort loudly on an unclassified key)
-# that this round's report calls out.
-say "capture with product_variation/pa_* deliberately OUT of the site's OWN scope lists — confirm the SILENT exclusion (no gate, no warning; contrast the loud post_meta gate this round hit historically)"
-wp_r1b1 duo capture --repo=/siterepo
-[ ! -d siterepo/r1b1/state/posts/product_variation ] || fail "expected product_variation posts to be silently excluded (no scope entry yet)"
-[ ! -d siterepo/r1b1/state/terms/pa_size ] || fail "expected pa_size terms to be silently excluded (no scope entry yet)"
-pass "confirmed: capture succeeds with ZERO warning while silently dropping product_variation posts and pa_size/pa_color terms entirely — post-type/taxonomy scope has no gate at all, unlike post_meta/options"
+# What WAS still real and reproducible on every run, at the time this grind
+# was first written: post-type/taxonomy SCOPE was a site-policy list with no
+# manifest-level default and no gate at all, so a site that forgot to add
+# product_variation/pa_size/pa_color simply got those entities silently
+# excluded — the asymmetry with post_meta/options (which DID already abort
+# loudly on an unclassified key) that this round's report called out.
+# DUO-3229 (merged after this grind's own escalation, closing that exact
+# asymmetry) since gave post-type/taxonomy scope the SAME loud-and-blocking
+# posture post_meta/options always had — Capture::scope_gaps() now refuses
+# the whole capture the moment ANY registered/adapter-declared post type or
+# taxonomy with capturable rows sits outside policy scope. Re-enacted below
+# the same way task #73's own posture upgrade is re-enacted in
+# grind_r1c_agency.sh's step (1): assert the loud abort by name, then
+# proceed to the fix this script already performs.
+#
+# pa_size/pa_color do NOT join product_variation in the abort, and this is
+# itself worth proving, not just working around: Policy::taxonomies() (the
+# "already scoped" set scope_gaps() checks candidates against) expands
+# task #92's taxonomy_patterns against the LIVE database before the gate
+# ever runs — manifests/woocommerce.json's `^pa_` pattern matches both, so
+# they're already in scope BY DECLARATION even though this site's own
+# site.duo.json never lists them by name. product_variation has no such
+# pattern (post types aren't pattern-scoped, only taxonomies are), so it's
+# the only real gap. The positive assertion below (pa_size/pa_color absent
+# from the abort) is what proves #92's pattern mechanism and #3229's gate
+# compose correctly, rather than merely asserting around it.
+say "capture with product_variation deliberately OUT of the site's OWN scope lists (pa_size/pa_color are already in scope via manifests/woocommerce.json's taxonomy_patterns, unaffected by this) — this round's OWN original finding was silent exclusion (no gate, no warning); DUO-3229's whole-entity scope gate (merged after this grind was first written) now aborts loudly instead, the same posture upgrade task #73 got for unscoped refs"
+if OUT_SCOPE=$(wp_r1b1 duo capture --repo=/siterepo 2>&1); then
+  echo "$OUT_SCOPE"
+  fail "capture succeeded despite product_variation being absent from policy scope (expected DUO-3229's loud-and-blocking gate)"
+fi
+echo "$OUT_SCOPE"
+grep -q "post_type 'product_variation' has 4 capturable entities but is absent from policy.post_types" <<<"$OUT_SCOPE" \
+  || fail "abort message does not name product_variation and its entity count (got: $OUT_SCOPE)"
+grep -q "wp duo classify --repo=/siterepo --set='scope:<kind>:<name>=<class>'" <<<"$OUT_SCOPE" \
+  || fail "abort message does not name the scope-classify remedy (got: $OUT_SCOPE)"
+if grep -q "taxonomy 'pa_size'" <<<"$OUT_SCOPE"; then
+  fail "pa_size unexpectedly appears in the scope-gap abort -- it should already be in scope via manifests/woocommerce.json's taxonomy_patterns (^pa_), independent of site.duo.json's own taxonomies list (got: $OUT_SCOPE)"
+fi
+if grep -q "taxonomy 'pa_color'" <<<"$OUT_SCOPE"; then
+  fail "pa_color unexpectedly appears in the scope-gap abort -- it should already be in scope via manifests/woocommerce.json's taxonomy_patterns (^pa_), independent of site.duo.json's own taxonomies list (got: $OUT_SCOPE)"
+fi
+[ ! -d siterepo/r1b1/state/posts/product_variation ] || fail "aborted capture must not have written any product_variation state"
+pass "confirmed: capture ABORTS loudly, naming ONLY product_variation (its exact entity count and the scope-classify remedy) and writing nothing -- pa_size/pa_color are conspicuously ABSENT from the same abort, proving task #92's taxonomy_patterns already satisfies DUO-3229's gate for them without any site.duo.json entry; this grind's own original silent-exclusion finding (no gate, no warning) is DUO-3229's loud-and-blocking gate now, closing the asymmetry with post_meta/options"
 
 say "add product_variation + pa_color/pa_size to this site's OWN scope lists; recapture"
 jq '.policy.post_types += ["product_variation"] | .policy.taxonomies += ["pa_color", "pa_size"]' siterepo/r1b1/site.duo.json > siterepo/r1b1/.tmp-site.json && mv siterepo/r1b1/.tmp-site.json siterepo/r1b1/site.duo.json
@@ -330,19 +369,60 @@ PENDING_WOO=$(wp_r1b1 duo pending --repo=/siterepo --format=json | tail -1 | jq 
 [ "$PENDING_WOO" = "0" ] || fail "expected zero pending post_meta items for this round's keys (got $PENDING_WOO) — the manifest graduation should have closed all of them"
 pass "pending: zero outstanding gaps for any key this round introduced — manifests/woocommerce.json fully covers the shop"
 
-say "lint demonstration: deliberately drop _children's ref declaration, recapture, expect bare_id findings naming the real products; restore, recapture, expect clean"
+# This step originally ended at a lint-only demonstration: drop _children's
+# ref, recapture (bare ids land in state/ untokenized), lint flags them,
+# restore the declaration, recapture again, lint goes clean. DUO-3210 ("make
+# deletion explicit and drift-safe") gave Capture::run() a NEW precondition
+# that upgrades this from flagged to structurally unshippable — before
+# building anything, capture now compiles whatever is ALREADY on disk
+# (Capture.php: "Compiling before target reads also refuses to build new
+# state on top of an already-invalid repository revision"), to establish
+# the baseline DUO-3210's own deletion-tombstone comparison needs. Once the
+# declaration is restored below, that pre-check runs against the ON-DISK
+# tree still holding the previous (bad, ref-dropped) capture's raw ints —
+# and RepositoryCompiler::validate_declared_ref() now refuses THAT tree
+# outright: two blocking nonportable_reference diagnostics, capture aborts
+# before touching anything. Restoring the declaration alone is no longer
+# enough to recover: the tainted on-disk file has to be discarded first
+# (never committed to git at this point in the script, so there is nothing
+# to git-checkout back to) — recapture then rebuilds it fresh, straight
+# from live WordPress data via the SAME identity (_duo_uuid postmeta/the
+# ledger row are untouched by deleting just the file), tokenized correctly.
+say "lint demonstration: deliberately drop _children's ref declaration, recapture, expect bare_id findings naming the real products"
 jq '.policy.post_meta._children = {"class":"authored"}' siterepo/r1b1/site.duo.json > siterepo/r1b1/.tmp-site.json && mv siterepo/r1b1/.tmp-site.json siterepo/r1b1/site.duo.json
 wp_r1b1 duo capture --repo=/siterepo >/dev/null
 set +e
 LINT_BAD=$(wp_r1b1 duo lint --repo=/siterepo --format=json | tail -1)
 set -e
 echo "$LINT_BAD" | jq -e '[.[] | select(.locator | test("_children"))] | length == 2' >/dev/null || fail "expected 2 bare_id findings on _children (got: $LINT_BAD)"
-pass "lint caught the deliberately-dropped ref: 2 bare_id findings, correctly naming Duo Mug/Duo Sticker Pack by title"
+pass "lint caught the deliberately-dropped ref: 2 bare_id findings, correctly naming Duo Mug/Duo Sticker Pack by title (capture-side early-warning layer — capture itself still succeeds pre-compile, since the ACTIVE policy has no ref declared here to violate)"
+
+say "restore the ref declaration; recapture now hits DUO-3210's pre-build compile gate — assert the STRUCTURAL refusal (the compiler upgraded this class from flagged to unshippable), not a lint warning"
 jq 'del(.policy.post_meta._children)' siterepo/r1b1/site.duo.json > siterepo/r1b1/.tmp-site.json && mv siterepo/r1b1/.tmp-site.json siterepo/r1b1/site.duo.json
+if OUT_COMPILE=$(wp_r1b1 duo capture --repo=/siterepo 2>&1); then
+  echo "$OUT_COMPILE"
+  fail "capture succeeded despite the on-disk tree still holding raw (untokenized) _children ids under the now-restored ref declaration (expected DUO-3210's pre-build compile refusal)"
+fi
+echo "$OUT_COMPILE"
+grep -qF "repository compilation failed (2 blocking diagnostic(s)); no target contact or mutation attempted" <<<"$OUT_COMPILE" \
+  || fail "abort message does not name the compilation-failed gate with 2 diagnostics (got: $OUT_COMPILE)"
+# Diagnostic paths are relative to state/, not the repo root -- glob from
+# inside it so BUNDLEFILE matches the compiler's own path format exactly.
+BUNDLEFILE=$(cd siterepo/r1b1/state && ls posts/product/*duo-bundle*.md)
+grep -qF "[nonportable_reference] $BUNDLEFILE:meta._children[0] — declared post reference must be a canonical token, never a raw target id" <<<"$OUT_COMPILE" \
+  || fail "abort message does not name _children[0]'s exact diagnostic on the bundle file (got: $OUT_COMPILE)"
+grep -qF "[nonportable_reference] $BUNDLEFILE:meta._children[1] — declared post reference must be a canonical token, never a raw target id" <<<"$OUT_COMPILE" \
+  || fail "abort message does not name _children[1]'s exact diagnostic on the bundle file (got: $OUT_COMPILE)"
+pass "confirmed: DUO-3210's pre-build compile gate refuses to capture at all while the on-disk revision is structurally invalid under the now-restored declaration — naming both diagnostics by exact locator, no mutation attempted. Restoring the manifest declaration alone no longer self-heals a tainted revision; this IS the M2 promise (DUO-3208's compiler) reaching capture's own precondition, not just plan/apply"
+
+say "recover: discard the tainted (never-committed) file so the pre-build compile has nothing invalid left to refuse; recapture rebuilds it fresh from live data under the SAME identity"
+rm -f "siterepo/r1b1/state/$BUNDLEFILE"
 wp_r1b1 duo capture --repo=/siterepo >/dev/null
 LINT_OK=$(wp_r1b1 duo lint --repo=/siterepo --format=json | tail -1)
-[ "$(echo "$LINT_OK" | jq 'length')" = "0" ] || fail "lint not clean after restoring manifest coverage (got: $LINT_OK)"
-pass "lint clean again — manifests/woocommerce.json's declaration (not a site override) is what makes this pass by default now"
+[ "$(echo "$LINT_OK" | jq 'length')" = "0" ] || fail "lint not clean after recovering (got: $LINT_OK)"
+NEW_BUNDLEFILE=$(cd siterepo/r1b1/state && ls posts/product/*duo-bundle*.md)
+[ "$NEW_BUNDLEFILE" = "$BUNDLEFILE" ] || fail "bundle recaptured under a DIFFERENT uuid/filename after recovery — identity should have survived (was: $BUNDLEFILE, now: $NEW_BUNDLEFILE)"
+pass "lint clean again, bundle recaptured under its ORIGINAL uuid (identity untouched — only the file was discarded, not the ledger row or the live post's own _duo_uuid) — manifests/woocommerce.json's declaration (not a site override) is what makes this pass by default now"
 
 say "capture-twice determinism"
 wp_r1b1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
@@ -380,53 +460,85 @@ POST_ORDERS=$(wp_r1b1 db query 'SELECT COUNT(*) FROM wp_posts WHERE post_type="s
 [ "$POST_ORDERS" = "0" ] || fail "HPOS is on but shop_order rows exist in wp_posts"
 pass "stock 15 -> 14 (runtime, r1b1-local); order is a wc_orders row, not a post — HPOS custom tables are outside duo's scope entirely, by construction"
 
-say "round-trip: clone into r1b2, plan, apply (adopt the WooCommerce/core installer collisions)"
+say "round-trip: clone into r1b2, deploy (DUO-3216: code lifecycle before state — real switch_theme() to Storefront, hooks fire), plan, apply (adopt the WooCommerce/core installer collisions)"
 git clone -q siterepo/origin-r1b.git siterepo/r1b2
+# DUO-3216 (aa9b36a) gave Deploy::code_mismatch() a new 'inactive_in_environment'
+# finding (theme/plugin installed but not active) that Apply::apply()'s
+# refuse-gate (agent/src/Apply.php:592) hard-blocks on unconditionally, with
+# no subset filtering — every code_mismatch row blocks apply, unlike
+# Deploy::run()'s own gate, which excludes exactly this issue from ITS
+# blocking set since reconciling it is deploy's whole job (agent/src/
+# Deploy.php:382-389). Before this issue, code_mismatch() had no concept of
+# "installed but inactive" at all, so this exact clone -> plan -> apply ->
+# (later) deploy ordering was legal; now r1b2's theme (twentytwentyfive,
+# per reset_env_state) vs r1b1's captured stylesheet (storefront, activated
+# for real at line ~218) is a real mismatch apply refuses outright:
+# "CODE_MISMATCH INACTIVE_IN_ENVIRONMENT storefront ... Run 'duo deploy
+# <env>' before apply so the theme lifecycle completes first." Deploy first,
+# same as r1c's own (already-correct) plugin-activation ordering.
+DEPLOY0_JSON=$(wp_r1b2 duo deploy --repo=/siterepo --format=json | tail -1)
+echo "$DEPLOY0_JSON" | jq -e '.theme_switched == "storefront"' >/dev/null || fail "deploy did not switch to storefront (got: $DEPLOY0_JSON)"
+[ "$(wp_r1b2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not the active theme on r1b2 after deploy"
+pass "r1b2 switched to Storefront via a real wp duo deploy (switch_theme() fired for real) — required BEFORE apply under DUO-3216"
 PLAN_TXT=$(wp_r1b2 duo plan --repo=/siterepo)
 echo "$PLAN_TXT" | grep -q 'COLLISION' || fail "expected installer-created page/term collisions in the plan"
 REV=$(git -C siterepo/r1b2 rev-parse HEAD)
 APPLY1_OUT=$($COMPOSE run --rm -T cli-r1b2 wp duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1)
 echo "$APPLY1_OUT"
+# Task #92 gave Apply::taxes_by_object_type() (agent/src/Apply.php) the same
+# pattern_object_type() fallback Capture's own copy already had: when
+# get_taxonomy() hasn't caught up yet within this SAME apply request (a
+# taxonomy_patterns-matched name landed by Snapshot's own phase-1 write,
+# same as Capture's timing hazard), the manifest's declared object_type
+# (manifests/woocommerce.json's taxonomy_patterns: [{"match":"^pa_",
+# "object_type":["product"]}]) is used instead -- this warning path can no
+# longer be reached for a declared pattern like pa_*, deterministically
+# (not order-dependent: the fallback is a static manifest lookup, not a
+# live query). Confirmed live on an independent minimal fixture (own pair,
+# destroyed after) before rewriting this assertion.
 echo "$APPLY1_OUT" | grep -q 'not registered on this environment' \
-  || fail "expected the pa_size/pa_color unregistered-taxonomy warning on this fresh target"
-pass "apply succeeded (canary clean) but warned that pa_color/pa_size aren't registered yet — relationships skipped for every post/term, exactly as Capture::taxes_by_object_type()'s own docblock anticipates"
+  && fail "unexpected unregistered-taxonomy warning for pa_size/pa_color -- task #92's object_type fallback (Apply.php, mirroring Capture's) should make this unreachable for a declared taxonomy_patterns match (got: $APPLY1_OUT)"
+pass "confirmed: NO unregistered-taxonomy warning on this fresh target -- task #92's object_type fallback closes it on the apply side too, not just capture's"
 
-say "confirm the precise blast radius: Duo Tee's own pa_color/pa_size term relationships are missing on r1b2 (attribute VALUES on variations are fine)"
+say "confirm the precise blast radius: Duo Tee's own pa_color/pa_size term relationships and is_purchasable on r1b2 (attribute VALUES on variations are fine either way)"
 TEE_B2=$(wp_r1b2 post list --post_type=product --name=duo-tee --field=ID)
 RELS=$(wp_r1b2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN (\"pa_size\",\"pa_color\")" --skip-column-names)
-[ "$RELS" = "0" ] || fail "expected zero pa_size/pa_color relationships before mitigation (got $RELS)"
+# NOT hard-asserted to a specific number, matching grind_r3a_multilingual.sh's
+# own established pattern for this exact question: Apply's taxesByObjectType()
+# is memoized on FIRST access (agent/src/Apply.php), lazily, not eagerly --
+# whether Snapshot's phase-1 typed-snapshot write of
+# woocommerce_attribute_taxonomies (task #75) lands BEFORE or AFTER that
+# first access, within the SAME apply run, is an entity-processing-order
+# question this script does not control. Confirmed live on an independent
+# fixture (relationships resolved immediately, 2/2, in that run) that this
+# CAN now resolve on the very first apply -- but that one run does not rule
+# out the order dependence r3a's own comment documents from direct repeat-run
+# observation, so this reports rather than forcing either outcome.
 V1_B2=$(wp_r1b2 post list --post_type=product_variation --name=duo-tee-small-red --field=ID)
 ATTR_VAL=$(wp_r1b2 post meta get "$V1_B2" attribute_pa_color)
 [ "$ATTR_VAL" = "red" ] || fail "variation attribute_pa_color did not round-trip (got $ATTR_VAL)"
 IS_PURCHASABLE_BEFORE=$(curl -s "$R1B2/wp-json/wc/store/v1/products/$TEE_B2" | jq -r '.is_purchasable')
-[ "$IS_PURCHASABLE_BEFORE" = "false" ] || fail "expected the parent to read is_purchasable=false before the attribute is pre-provisioned"
-pass "confirmed via the real Store API: parent's attributes=[] / is_purchasable=false, while the VARIATION's own postmeta (price, sku, attribute_pa_color=red) is already byte-correct — the gap is scoped exactly to the parent's taxonomy-term relationships, nothing else"
+# Also NOT hard-asserted: an independent live check found is_purchasable
+# can read false even with pa_size/pa_color relationships already fully
+# resolved (2/2) -- WC_Product_Variable::get_children() appears to have its
+# own separate caching behavior, not conclusively tied to the taxonomy-
+# relationship timing this section is actually about. Reported, not claimed
+# as proof of which cause is active this run.
+echo "pa_size/pa_color relationships on first apply: $RELS (informational -- see comment above); is_purchasable: $IS_PURCHASABLE_BEFORE (informational -- see comment above, not conclusively the same cause)"
+pass "variation's own postmeta (price, sku, attribute_pa_color=red) is already byte-correct regardless; relationship/purchasable state reported above, forced to the fully-resolved state below rather than assumed broken"
 
-# Pre-existing narrative staleness found while validating task #88, not
-# part of it, and deliberately NOT reworked here beyond this one unblock
-# (task #92 owns "pa_* zero-provisioning end-to-end" and its own
-# regress_pa_attributes.sh, gated to start AFTER #88): this comment and the
-# manual `wc product_attribute create` calls it used to justify predate
-# task #75's woocommerce_attribute_taxonomies typed-snapshot support. The
-# apply just above (adopting r1b2's own installer collisions) ALREADY
-# captured+applied r1b1's pa_size/pa_color woocommerce_attribute_taxonomies
-# ROWS via Snapshot.php — confirmed empirically: they exist on r1b2 and
-# get_taxonomy('pa_size'/'pa_color') both return true in a fresh process,
-# with zero manual steps. Manually re-creating the same slugs now fails
-# with WooCommerce's own "slug already in use" guard instead of doing
-# anything useful, so this asserts the auto-provisioned state directly.
-say "confirm pa_size/pa_color are ALREADY provisioned on r1b2 with zero manual steps (task #75's typed-snapshot apply, not the old manual pre-provisioning this section used to perform)"
+say "confirm pa_size/pa_color are registered on r1b2 with zero manual steps (task #75's typed-snapshot apply)"
 [ "$(wp_r1b2 eval 'echo get_taxonomy("pa_size") !== false ? "1" : "0";')" = "1" ] || fail "expected pa_size to already be registered on r1b2 (typed-snapshot apply should have created its woocommerce_attribute_taxonomies row)"
 [ "$(wp_r1b2 eval 'echo get_taxonomy("pa_color") !== false ? "1" : "0";')" = "1" ] || fail "expected pa_color to already be registered on r1b2 (typed-snapshot apply should have created its woocommerce_attribute_taxonomies row)"
-pass "pa_size/pa_color both registered on r1b2 already — task #75 closed the attribute-table half of the old manual-provisioning gap; the taxonomy-scope-list half (site.duo.json needing pa_* listed explicitly) is task #92's separate, tracked follow-up"
-say "self-heal test: does simply re-running apply now (no content change) restore the relationships?"
+pass "pa_size/pa_color both registered on r1b2 already — task #75 closed the attribute-table half; task #92's taxonomy_patterns closed the scope-list half, so this needs no site.duo.json entry either"
+say "self-heal test: does simply re-running apply now (no content change) change the relationship count either way?"
 REV2=$(git -C siterepo/r1b2 rev-parse HEAD)
 NOOP_APPLIED=$(wp_r1b2 duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --format=json | tail -1 | jq -r '.applied')
 RELS_AFTER_NOOP=$(wp_r1b2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN (\"pa_size\",\"pa_color\")" --skip-column-names)
-[ "$RELS_AFTER_NOOP" = "0" ] || fail "expected the self-heal test to still show 0 relationships (an 'unchanged' entity does not get relationships re-processed) — got $RELS_AFTER_NOOP; if this now passes, the engine changed behavior and the report needs updating"
-pass "confirmed: registering the taxonomy alone does NOT self-heal ($NOOP_APPLIED entities applied, relationships still 0) — an 'unchanged'-hash entity skips relationship writes entirely, by design"
+[ "$RELS_AFTER_NOOP" = "$RELS" ] || fail "expected the self-heal test to leave relationships unchanged from $RELS (an 'unchanged' entity does not get relationships re-processed) — got $RELS_AFTER_NOOP"
+pass "confirmed: a no-op re-apply never changes relationship state either way ($NOOP_APPLIED entities applied, relationships still $RELS_AFTER_NOOP) — an 'unchanged'-hash entity skips relationship writes entirely, by design, independent of whatever the starting count was"
 
-say "real fix: force a genuine content change on r1b1 so Duo Tee reprocesses; recapture, push, apply --force-theirs on r1b2"
+say "force a genuine content change on r1b1 so Duo Tee reprocesses; recapture, push, apply --force-theirs on r1b2 — must land on the FULLY resolved state regardless of where it started"
 wp_r1b1 post update "$TEE_ID" --post_excerpt="Our best-selling tee, now in two colors." >/dev/null
 wp_r1b1 duo capture --repo=/siterepo >/dev/null
 $GIT_1 add -A && $GIT_1 commit -qm "content: add Duo Tee short description" && $GIT_1 push -q origin main
@@ -434,9 +546,9 @@ git -C siterepo/r1b2 pull -q origin main
 REV3=$(git -C siterepo/r1b2 rev-parse HEAD)
 wp_r1b2 duo apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV3" >/dev/null
 RELS_FIXED=$(wp_r1b2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN (\"pa_size\",\"pa_color\")" --skip-column-names)
-[ "$RELS_FIXED" = "4" ] || fail "expected 4 pa_size/pa_color relationships after the real fix (got $RELS_FIXED)"
+[ "$RELS_FIXED" = "4" ] || fail "expected 4 pa_size/pa_color relationships after a genuine content change forces reprocessing (got $RELS_FIXED)"
 IS_PURCHASABLE_AFTER=$(curl -s "$R1B2/wp-json/wc/store/v1/products/$TEE_B2" | jq -r '.is_purchasable')
-pass "relationships restored (4 rows); parent is_purchasable now: $IS_PURCHASABLE_AFTER (informational — see report; checkout targets variations, not the parent)"
+pass "relationships fully resolved (4 rows) after a genuine content change, regardless of the first apply's own outcome; parent is_purchasable now: $IS_PURCHASABLE_AFTER (informational — see report; checkout targets variations, not the parent)"
 
 say "discovered along the way: _stock being runtime/excluded means a freshly-applied stock-managed variation has NO _stock row at all (not zero, ABSENT) — is_purchasable reads true regardless, but the Store API's own cart-add stock check treats the absence as zero and REFUSES the add. Confirmed by trying it broken-first, on purpose:"
 V1_STORE_BEFORE=$(curl -s "$R1B2/wp-json/wc/store/v1/products/$V1_B2")
@@ -476,10 +588,11 @@ STOCK_A1=$(wp_r1b1 post meta get "$V1" _stock)
 [ "$STOCK_B2" = "15" ] && [ "$STOCK_A1" = "14" ] || fail "expected independently-diverged stock (r1b2=15 set above, r1b1=14 after its sale), got r1b2=$STOCK_B2 r1b1=$STOCK_A1"
 pass "r1b2 has zero orders (r1b1's order #$ORDER_ID never propagated); the two environments' stock counts have already diverged independently (r1b1=14 after its own sale, r1b2=15 set by its own ops team above) and neither will ever overwrite the other via capture/apply"
 
-say "wp duo deploy on r1b2: real switch_theme() to Storefront"
+say "wp duo deploy on r1b2 again — DUO-3216 idempotency contract: already reconciled by the early deploy above (nothing since has touched active_plugins/template/stylesheet), so this must be a genuine no-op, and Storefront's rendered markup must have survived the whole apply sequence in between"
 DEPLOY_JSON=$(wp_r1b2 duo deploy --repo=/siterepo --format=json | tail -1)
-echo "$DEPLOY_JSON" | jq -e '.theme_switched == "storefront"' >/dev/null || fail "deploy did not switch to storefront (got: $DEPLOY_JSON)"
-[ "$(wp_r1b2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not the active theme on r1b2 after deploy"
+echo "$DEPLOY_JSON" | jq -e '.theme_switched == null' >/dev/null || fail "expected a no-op re-deploy (theme already switched by the early deploy above) — got: $DEPLOY_JSON"
+echo "$DEPLOY_JSON" | jq -e '(.activated | length) == 0 and (.deactivated | length) == 0' >/dev/null || fail "expected zero plugin lifecycle activity on an idempotent re-deploy — got: $DEPLOY_JSON"
+[ "$(wp_r1b2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not the active theme on r1b2"
 HOMEPAGE_OK=""
 for _ in 1 2 3; do
   curl -s "$R1B2/" -o /tmp/r1b2_home.html -w '%{http_code}' > /tmp/r1b2_home_code.txt || true
@@ -488,7 +601,7 @@ for _ in 1 2 3; do
 done
 rm -f /tmp/r1b2_home.html /tmp/r1b2_home_code.txt
 [ -n "$HOMEPAGE_OK" ] || fail "r1b2 homepage does not render storefront markup"
-pass "r1b2 switched to Storefront via a real wp duo deploy (switch_theme() fired for real, confirmed by rendered markup)"
+pass "confirmed: re-running wp duo deploy once everything is already reconciled is a true no-op (zero hook fires), and Storefront's rendered markup survived the full apply sequence since the early deploy"
 
 say "final apply + byte-identity"
 REV4=$(git -C siterepo/r1b2 rev-parse HEAD)
@@ -514,71 +627,26 @@ wp_r1b2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final >/dev/null
 DIFF_OUT=$(diff -rq siterepo/r1b1/state siterepo/r1b2/.tmp-final || true)
 echo "$DIFF_OUT"
 
-# Everything OUTSIDE product_variation must be true byte-identity, zero
-# exceptions — task #88 makes no claim beyond post_title, so nothing else
-# gets an exclusion here (same rigor the old assertion had, before this
-# section's rewrite).
-NON_VARIATION_DIFFS=$(echo "$DIFF_OUT" | grep -v 'product_variation.*duo-tee-' | grep -c 'differ' || true)
-[ "$NON_VARIATION_DIFFS" = "0" ] || fail "unexpected byte differences outside product_variation (see diff output above) — task #88's fix should leave everything else byte-identical"
-
-# product_variation files: task #88 (this task) fully closes #72's TIMING-
-# based divergence — proven structurally above (criterion 3: plan never
-# sees it) and now proven by construction here too, since both sides just
-# had an identical forced self-heal. What it does NOT close, and was never
-# scoped to close, is task #123 (filed during this validation, separate
-# root cause): Canon::normalize()'s alphabetical key-sorting of the
-# PARENT's _product_attributes (a plain authored meta value with no
-# order-preservation declared) silently changes WooCommerce's own title-
-# generation word order once that value round-trips through capture/apply
-# — a PERMANENT divergence (confirmed live: a real wc_get_product()->save()
-# on the untouched source does NOT reorder it, so there is no natural-
-# WooCommerce-mechanism way for the two sides to converge on their own).
-# So: assert every remaining product_variation diff is isolated to EXACTLY
-# the title field (every other front-matter field byte-identical) and that
-# the two title strings are anagrams of each other (same words, reordered
-# — proving it's #123's reordering, not an unexplained or unrelated
-# difference). This is strictly MORE rigorous than the old blanket
-# `grep -v` exclusion this section used to have, which accepted ANY
-# difference on a variation file with zero further scrutiny.
-#
-# DIRECTION, not a permanent exception: this per-field title carve-out is
-# scoped to #123 specifically and should be REMOVED the moment #123 lands
-# (its own acceptance criteria include this removal) — at that point the
-# loop below should collapse back to a plain, zero-exclusion byte-diff
-# assertion on the whole product_variation directory, same as every other
-# post type already gets above. If this loop is still here with #123
-# marked done, that's a regression to catch, not the steady state.
-for f in siterepo/r1b1/state/posts/product_variation/*duo-tee-*.md; do
-  base=$(basename "$f")
-  f2="siterepo/r1b2/.tmp-final/posts/product_variation/$base"
-  python3 - "$f" "$f2" <<'PYEOF' || fail "a product_variation file differs in more than just a title reordering (task #123) — see output above"
-import sys, json
-
-def parse(path):
-    text = open(path).read()
-    assert text.startswith('---\n'), f"{path}: missing front-matter fence"
-    end = text.index('\n---\n', 4)
-    return json.loads(text[4:end]), text[end + 5:]
-
-front1, body1 = parse(sys.argv[1])
-front2, body2 = parse(sys.argv[2])
-if body1 != body2:
-    print(f"body differs for {sys.argv[1]}")
-    sys.exit(1)
-title1, title2 = front1.pop('title'), front2.pop('title')
-if front1 != front2:
-    keys = sorted(set(front1) | set(front2))
-    diffs = [k for k in keys if front1.get(k) != front2.get(k)]
-    print(f"non-title field(s) differ for {sys.argv[1]}: {diffs}")
-    sys.exit(1)
-if sorted(title1) != sorted(title2):
-    print(f"title difference is NOT a same-content reordering for {sys.argv[1]}: {title1!r} vs {title2!r}")
-    sys.exit(1)
-print(f"ok: {sys.argv[1]} — only title differs, as a content-preserving reordering (task #123): {title1!r} vs {title2!r}")
-PYEOF
-done
+# TRUE zero-exclusion byte identity — no exceptions anywhere, including
+# product_variation.title. Two fixes compose to make this possible:
+# task #88 (Policy::field_class()/Canon::post_hash_basis()) closes #72's
+# TIMING-based divergence — proven structurally above (criterion 3: a
+# title-only self-heal never appears in plan's drift/update/conflict) and
+# now proven by construction here too, since both sides just had an
+# identical forced self-heal before this diff. Task #123 (Canon.php's
+# OrderPreserved mechanism, manifests/woocommerce.json's
+# `_product_attributes` "order_preserving": true declaration) closes the
+# SEPARATE, PERMANENT divergence this section used to carve out with an
+# anagram check: the parent's _product_attributes array order — which
+# WooCommerce's variation-title generator reads directly — now survives
+# capture/apply byte-for-byte instead of being alphabetically resorted, so
+# the generated title itself converges byte-identically, not just as a
+# same-words reordering. With both root causes closed, the whole tree
+# (product_variation included) needs no carve-out at all — same rigor
+# every other post type already gets, restored in full.
+[ -z "$DIFF_OUT" ] || fail "unexpected byte differences after an identical forced self-heal on both sides (see diff output above) — with #88 and #123 both closed, the entire tree, including product_variation.title, must be byte-identical with zero exceptions"
 rm -rf siterepo/r1b2/.tmp-final
-pass "task #88 CLOSED for real: every entity in the tree is byte-identical except product_variation.title, and that residual is isolated + proven to be exactly task #123's attribute-order reordering (same words, same data, different order) — not #72's timing-based self-heal, which criterion 3 above already proved is fully invisible to plan/drift. Root cause of #72 was WC_Product_Variation_Data_Store_CPT::read() silently self-healing title via raw \$wpdb, hook-free, no post_modified bump; #88's Policy::field_class()/Canon::post_hash_basis() close that gap completely. #123 is a separate, newly-characterized bug in how Canon serializes order-sensitive meta values, tracked independently."
+pass "task #88 AND task #123 both CLOSED for real: the entire tree is byte-identical with ZERO exceptions, product_variation.title included. #72's timing-based self-heal was proven invisible to plan/drift (criterion 3); #123's permanent _product_attributes reordering (WC_Product_Variation_Data_Store_CPT::read() reads the parent's raw array order to generate the title) no longer occurs because Canon::normalize() no longer resorts a meta value declared order_preserving — confirmed here by construction (identical bytes, not merely an anagram) rather than by a scoped exclusion."
 
 say "lint (final, hard gate)"
 LINT_FINAL=$(wp_r1b1 duo lint --repo=/siterepo --format=json | tail -1)
@@ -615,14 +683,20 @@ import re, sys
 p = sys.argv[1]
 s = open(p).read()
 s = re.sub(r'<<<<<<< HEAD\n        "_regular_price": "17\.99",\n=======\n        "_regular_price": "22\.99",\n>>>>>>> origin/price-r1b2\n', '        "_regular_price": "19.99",\n', s)
-s = re.sub(r'<<<<<<< HEAD\n    "modified_gmt": "[^"]+",\n=======\n(    "modified_gmt": "[^"]+",)\n>>>>>>> origin/price-r1b2\n', r'\1\n', s)
+# DUO-3207 added a "modified" field (alongside the pre-existing
+# "modified_gmt") to Capture.php's post representation -- the timestamp
+# hunk below is now 1-OR-2 lines depending on which fields actually
+# differ between the two branches, not always exactly one. Matches either
+# shape; keeps the origin/price-r1b2 side, same as before.
+s = re.sub(r'<<<<<<< HEAD\n((?:    "(?:modified|modified_gmt)": "[^"]+",\n)+)=======\n((?:    "(?:modified|modified_gmt)": "[^"]+",\n)+)>>>>>>> origin/price-r1b2\n', r'\2', s)
 open(p, 'w').write(s)
 PYEOF
 python3 - "$PARENTFILE" <<'PYEOF'
 import re, sys
 p = sys.argv[1]
 s = open(p).read()
-s = re.sub(r'<<<<<<< HEAD\n    "modified_gmt": "[^"]+",\n=======\n(    "modified_gmt": "[^"]+",)\n>>>>>>> origin/price-r1b2\n', r'\1\n', s)
+# Same DUO-3207 generalization as VARFILE's own resolution above.
+s = re.sub(r'<<<<<<< HEAD\n((?:    "(?:modified|modified_gmt)": "[^"]+",\n)+)=======\n((?:    "(?:modified|modified_gmt)": "[^"]+",\n)+)>>>>>>> origin/price-r1b2\n', r'\2', s)
 open(p, 'w').write(s)
 PYEOF
 grep -qc '<<<<<<<' "$VARFILE" "$PARENTFILE" && fail "conflict markers remain after resolution" || true
