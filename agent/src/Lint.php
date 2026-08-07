@@ -131,10 +131,48 @@ final class Lint {
         if (is_file($stateDir . '/options/core.json')) {
             self::scan_options_file($stateDir, 'options/core.json', $policy, $home, $homeEscaped, $findings);
         }
+        foreach (self::glob_rel($stateDir, 'user-meta/*.json') as $rel) {
+            self::scan_user_meta_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
+        }
         foreach (self::glob_rel($stateDir, 'tables/*/*.json') as $rel) {
             self::scan_table_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
         }
         return $findings;
+    }
+
+    private static function scan_user_meta_file(
+        string $stateDir,
+        string $rel,
+        Policy $policy,
+        string $home,
+        string $homeEscaped,
+        array &$findings
+    ): void {
+        $front = Canon::decode(Canon::read_file($stateDir . '/' . $rel));
+        $meta = (array) ($front['meta'] ?? []);
+        foreach ($meta as $key => $value) {
+            $rule = $policy->meta_rule_for_user((string) $key, $meta) ?? [];
+            if (isset($rule['ref']) || !empty($rule['lint_ok'])) {
+                continue;
+            }
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                self::scan_structured_bare_ids($value, $rel, 'meta.' . $key, $findings);
+                continue;
+            }
+            foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
+                $hit = Pending::resolve_id($id);
+                if ($hit !== null) {
+                    $findings[] = self::finding(
+                        'bare_id', $rel, 'meta.' . $key . $locSuffix, $id, $hit, self::bare_id_note($hit)
+                    );
+                }
+            }
+        }
+        self::walk_strings($meta, 'meta', function (string $path, string $value) use (
+            &$findings, $rel, $home, $homeEscaped
+        ): void {
+            self::flag_escaped_home($findings, $rel, $path, $value, $home, $homeEscaped);
+        });
     }
 
     // ------------------------------------------------------------ posts

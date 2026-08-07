@@ -199,6 +199,12 @@ final class Cli {
         foreach ($plan['incomplete_apply'] ?? [] as $r) {
             WP_CLI::line('INCOMPLETE_APPLY ' . $r['reason']);
         }
+        foreach ($plan['missing_user'] ?? [] as $r) {
+            WP_CLI::line("MISSING_USER {$r['path']} (exact login '{$r['login']}')");
+        }
+        foreach ($plan['skipped_user_meta'] ?? [] as $r) {
+            WP_CLI::line("SKIPPED_USER_META {$r['path']} (exact login '{$r['login']}')");
+        }
         // regen_pending (DUO-3234, design review addition 1): a derived
         // table with a hard per-entity availability dependency whose
         // post-apply verification failed and hasn't resolved yet — see
@@ -228,6 +234,8 @@ final class Cli {
         $counts .= ', ' . count($plan['incomplete_apply'] ?? []) . ' incomplete_apply';
         $counts .= ', ' . count($plan['regen_pending'] ?? []) . ' regen_pending';
         $counts .= ', ' . count($plan['env_missing'] ?? []) . ' env_missing';
+        $counts .= ', ' . count($plan['missing_user'] ?? []) . ' missing_user';
+        $counts .= ', ' . count($plan['skipped_user_meta'] ?? []) . ' skipped_user_meta';
         WP_CLI::success("plan: $counts");
         if ($plan['drift']) {
             WP_CLI::warning('environment drift detected — capture-first workflow recommended');
@@ -240,6 +248,9 @@ final class Cli {
         }
         if (!empty($plan['regen_pending'])) {
             WP_CLI::warning('regen_pending markers outstanding — the next duo apply will retry them automatically');
+        }
+        if (!empty($plan['missing_user'])) {
+            WP_CLI::warning('required exact login(s) missing — duo apply will refuse before target mutation');
         }
         $envMissingRequired = array_filter($plan['env_missing'] ?? [], fn($r) => !empty($r['required']));
         if ($envMissingRequired) {
@@ -576,7 +587,7 @@ final class Cli {
 
     /**
      * The core loop's review queue (DESIGN.md 3.1.5): unclassified post_meta
-     * /term_meta on in-scope entities, authored-but-unrepresentable user_meta,
+     * /term_meta on in-scope entities, representable authored user_meta,
      * plus registered/adapter-declared
      * entity types with live rows but no scope disposition (the same gates
      * `duo capture` aborts on), plus journal-observed unclassified options (options are

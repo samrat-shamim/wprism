@@ -176,11 +176,11 @@ check(
     'user hook sees the full user meta map and wins over a conflicting static rule'
 );
 check(
-    str_contains((string) $full->user_meta_capture_blocker('user_dynamic', [
+    $full->user_meta_capture_blocker('user_dynamic', [
         '_user_dynamic' => 'field_3',
         'user_dynamic' => '4',
-    ]), 'capture is blocked pending DUO-3268'),
-    'interpreter-classified authored user meta arms the DUO-3268 capture blocker instead of becoming inert'
+    ]) === null,
+    'interpreter-classified authored user meta is representable through the login-keyed sidecar'
 );
 check(
     ($full->meta_rule_for_term('term_static', [])['class'] ?? null) === 'derived',
@@ -202,15 +202,19 @@ Canon::write_file($siteRepo . '/site.duo.json', Canon::encode([
     'manifests' => ['legacy'],
     'policy' => new stdClass(),
 ]));
-Policy::set_rule($siteRepo, 'user_meta', 'profile_owner', ['class' => 'authored', 'ref' => 'user']);
+Policy::set_rule($siteRepo, 'user_meta', 'profile_owner', [
+    'class' => 'authored',
+    'ref' => 'user',
+    'missing_user' => 'warn',
+]);
 $sitePolicy = Policy::load($siteRepo);
 check(
     ($sitePolicy->meta_rule_for_user('profile_owner', [])['ref'] ?? null) === 'user',
     'wp duo classify write path accepts user_meta and Policy loads the site override'
 );
 check(
-    str_contains((string) $sitePolicy->user_meta_capture_blocker('profile_owner', []), 'DUO-3268'),
-    'static authored user_meta policy arms the same capture blocker'
+    $sitePolicy->user_meta_missing_behavior(['profile_owner' => 'user:editor']) === 'warn',
+    'static authored user_meta policy carries explicit warn-and-skip missing-user behavior'
 );
 $export = Policy::export_manifest($siteRepo, '^profile_', 'profile-fixture');
 $exportedUserMeta = (array) $export['user_meta'];

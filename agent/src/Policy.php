@@ -58,6 +58,7 @@ final class Policy {
             self::validate_scope_classes($p->site, 'site.duo.json', true);
             self::validate_option_storage($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
+            self::validate_user_meta_rules($p->site['policy'] ?? [], 'site.duo.json');
         }
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
         $pins = self::normalize_manifest_pins($rawPins);
@@ -73,6 +74,7 @@ final class Policy {
             self::validate_menu_field_classes($manifest);
             self::validate_regen_dependencies($manifest);
             self::validate_env_options($manifest, "manifest '$name'");
+            self::validate_user_meta_rules($manifest, "manifest '$name'");
             self::validate_scope_classes($manifest, "manifest '$name'", false);
             self::validate_sub_keys($manifest);
             self::validate_option_storage($manifest, "manifest '$name'");
@@ -913,26 +915,42 @@ final class Policy {
     }
 
     public function meta_rule_for_user(string $key, array $allMeta): ?array {
-        return $this->meta_rule_for_interpreter_hook('user_meta_rule', 'user_meta', $key, $allMeta);
+        $rule = $this->meta_rule_for_interpreter_hook('user_meta_rule', 'user_meta', $key, $allMeta);
+        if ($rule !== null) {
+            self::validate_user_meta_rule($rule, "user_meta.$key");
+        }
+        return $rule;
     }
 
     /**
-     * User-meta classification is useful before user meta is portable:
-     * runtime/env/derived decisions explicitly keep a key target-local, and
-     * interpreters can make those decisions from the owning user's complete
-     * meta map. `authored`, however, cannot become an inert declaration —
-     * spec v2 deliberately has no user entity or user-meta sidecar. Capture
-     * asks this guard about every live user-meta key and folds any returned
-     * reason into its ordinary aggregate loud gate, so the unsupported shape
-     * refuses by name until DUO-3268 defines representation, identity,
-     * missing-target, PII/secret, and deletion semantics.
+     * Backward-compatible facade kept for callers introduced by DUO-3262.
+     * Authored user meta is representable now, so classification itself is
+     * no longer a blocker; Capture performs the value-level PII/secret and
+     * shape checks while building the login-keyed sidecar.
      */
     public function user_meta_capture_blocker(string $key, array $allMeta): ?string {
-        $rule = $this->meta_rule_for_user($key, $allMeta);
-        if (($rule['class'] ?? '') === 'authored') {
-            return 'authored is unsupported by the v2 repository schema; capture is blocked pending DUO-3268';
-        }
+        $this->meta_rule_for_user($key, $allMeta);
         return null;
+    }
+
+    /**
+     * Missing owning-user behavior for one sidecar. Any authored key using
+     * the fail-closed default wins over warn-and-skip, so mixed declarations
+     * can never partially apply a sidecar.
+     */
+    public function user_meta_missing_behavior(array $meta): string {
+        $hasAuthored = false;
+        foreach ($meta as $key => $_) {
+            $rule = $this->meta_rule_for_user((string) $key, $meta);
+            if (($rule['class'] ?? '') !== 'authored') {
+                continue;
+            }
+            $hasAuthored = true;
+            if (($rule['missing_user'] ?? 'block') !== 'warn') {
+                return 'block';
+            }
+        }
+        return $hasAuthored ? 'warn' : 'block';
     }
 
     private function meta_rule_for_interpreter_hook(
@@ -994,6 +1012,34 @@ final class Policy {
             return ['rule' => $rule, 'source' => "interpreter $name"];
         }
         return $this->rule_details('term_meta', $key);
+    }
+
+    /** @return array{rule:?array, source:?string} */
+    public function meta_rule_details_for_user(string $key, array $allMeta): array {
+        foreach ($this->interpreters() as $name => $i) {
+            if (!method_exists($i, 'user_meta_rule')) {
+                continue;
+            }
+            $rule = $i->user_meta_rule($key, $allMeta);
+            if ($rule === null) {
+                continue;
+            }
+            self::validate_user_meta_rule($rule, "interpreter $name user_meta.$key");
+            foreach ($this->manifests as $m) {
+                if (($m['interpreter'] ?? null) === $name) {
+                    return [
+                        'rule' => $rule,
+                        'source' => (string) ($m['name'] ?? '?') . " (interpreter $name)",
+                    ];
+                }
+            }
+            return ['rule' => $rule, 'source' => "interpreter $name"];
+        }
+        $details = $this->rule_details('user_meta', $key);
+        if ($details['rule'] !== null) {
+            self::validate_user_meta_rule($details['rule'], "user_meta.$key");
+        }
+        return $details;
     }
 
     /**
@@ -1501,6 +1547,45 @@ final class Policy {
                     . 'secret or site-identity value; false: plugin-internal bookkeeping that '
                     . 'self-populates and is not worth checklisting) — no silent default either way'
                 );
+            }
+        }
+    }
+
+    /** Validate the user-meta-only safety vocabulary at policy load time. */
+    private static function validate_user_meta_rules(array $source, string $label): void {
+        foreach ((array) ($source['user_meta'] ?? []) as $key => $rule) {
+            if (!is_array($rule)) {
+                throw new \RuntimeException("duo: $label user_meta.$key must be a rule object");
+            }
+            self::validate_user_meta_rule($rule, "$label user_meta.$key");
+        }
+    }
+
+    /** Interpreter-returned rules pass through this same check at lookup. */
+    private static function validate_user_meta_rule(array $rule, string $where): void {
+        $class = $rule['class'] ?? null;
+        if (!in_array($class, self::CLASSES, true)) {
+            throw new \RuntimeException(
+                "duo: $where has an invalid or missing class (expected " . implode('|', self::CLASSES) . ')'
+            );
+        }
+        if (isset($rule['allow_pii']) && !is_bool($rule['allow_pii'])) {
+            throw new \RuntimeException("duo: $where allow_pii must be a boolean");
+        }
+        if (isset($rule['allow_secret']) && !is_bool($rule['allow_secret'])) {
+            throw new \RuntimeException("duo: $where allow_secret must be a boolean");
+        }
+        if ($class !== 'authored' && (!empty($rule['allow_pii']) || !empty($rule['allow_secret']))) {
+            throw new \RuntimeException(
+                "duo: $where PII/secret capture exceptions are valid only for class=authored"
+            );
+        }
+        if (isset($rule['missing_user'])) {
+            if ($class !== 'authored') {
+                throw new \RuntimeException("duo: $where missing_user is valid only for class=authored");
+            }
+            if (!in_array($rule['missing_user'], ['block', 'warn'], true)) {
+                throw new \RuntimeException("duo: $where missing_user must be block or warn");
             }
         }
     }
@@ -2124,6 +2209,11 @@ final class Policy {
         }
         if (isset($rule['allow_secret']) && !is_bool($rule['allow_secret'])) {
             throw new \RuntimeException('duo: allow_secret must be a boolean');
+        }
+        if ($section === 'user_meta') {
+            self::validate_user_meta_rule($rule, "user_meta.$key");
+        } elseif (isset($rule['allow_pii']) || isset($rule['missing_user'])) {
+            throw new \RuntimeException('duo: allow_pii and missing_user are valid only for user_meta rules');
         }
 
         $siteFile = rtrim($repo, '/') . '/site.duo.json';

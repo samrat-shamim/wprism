@@ -16,6 +16,7 @@ state/                       # canonical authored state (this spec's core)
   options/core.json
   posts/<post_type>/<uuid>--<slug>.md
   terms/<taxonomy>/<uuid>--<slug>.json
+  user-meta/<sha256(exact-login)>.json
   menus/<slug>.json
   deletions/<uuid>.json     # explicit, versioned deletion intent
 media/<sha256>.<ext>         # content-addressed binaries (git LFS in real repos)
@@ -35,7 +36,7 @@ Determinism is a hard requirement: **capturing the same site twice must produce 
 - Entity filenames are `<uuid>--<slug>.<ext>`. The uuid is identity; the slug is a human affordance (renames change the filename's slug half; tooling treats uuid as the key).
 - Each environment holds a **ledger** (`duo_map` table): `(uuid, entity_type, id_kind) → local_id`. `id_kind` is a distinct keyspace label: `post`, `term`, `term_taxonomy`, `user`, `comment`. Term entities map **two** kinds (`term`, `term_taxonomy`) because WordPress references both inconsistently.
 - `_duo_uuid` is globally unique across posts and terms. Capture rejects invalid UUIDs, multiple identity-meta rows on one owner, or one UUID copied onto multiple owners before publishing state. The repository compiler independently rejects duplicate UUIDs across every entity kind and declared table. `duo_map` writes are contradiction-intolerant: no ordinary path deletes another mapping, changes a local id, or silently retypes an identity.
-- Users are **not** entities: user references serialize as `user:<user_login>` tokens; apply resolves by login and falls back to a configured default author with a warning. Never auto-created.
+- Users are **not** entities: user references serialize as `user:<user_login>` tokens; apply resolves post authors by login and may fall back to a configured default author with a warning. User-meta sidecars are stricter: they resolve the owning login by exact bytes/case and never fall back. Users are never auto-created.
 - `guid` never appears in canonical state. Apply generates it deterministically per environment (`<home>/?duo=<uuid>`) on first insert and pins it in the ledger.
 
 ## Tokens
@@ -119,6 +120,21 @@ Front matter (canonical JSON between `---` fences) + raw body:
 ```
 
 `parent` is a term uuid or null. `nav_menu` terms are not stored here — menus own them.
+
+### User meta — `state/user-meta/<sha256(exact-login)>.json`
+
+```json
+{
+  "login": "editor",
+  "meta": {
+    "agency_profile_id": "{{post:0198b0c3-...}}"
+  }
+}
+```
+
+This is a login-keyed sidecar, not a user entity. The filename is the lowercase SHA-256 of the ASCII domain separator `duo-user-meta`, one NUL byte, and the exact `user_login`; the compiler recomputes it from `login`, so case-only and punctuation-heavy logins remain safe on every filesystem without minting a UUID. No `duo_map` identity is created. Capture emits only keys explicitly classified `authored`; unknown and `runtime`/`env`/`derived` keys remain target-local. Authored values use the ordinary meta ref/token/structured-value machinery, reject multi-row values rather than choosing one, and are recursively scanned for hard secrets and conservative PII signals. `allow_secret: true` and user-meta-only `allow_pii: true` are explicit false-positive escape hatches.
+
+Apply resolves the owning user with an exact, binary login comparison, never creates/renames/deletes a user, and reconciles only authored keys. Target-only non-authored keys survive byte-untouched. A missing owning login defaults to `missing_user: "block"` (refuse before mutation); `missing_user: "warn"` on every authored key in the sidecar instead warns and skips the whole sidecar. Mixed declarations fail closed. Capture retains an empty sidecar for a previously represented, still-existing login so removing the final authored key is explicit and deletes that owned key on apply. Removing the sidecar file itself is not deletion authority and leaves target metadata untouched; user lifecycle remains environment-local.
 
 ### Menus — `state/menus/<slug>.json`
 
@@ -341,7 +357,7 @@ Classes: `authored` (captured), `runtime` / `derived` / `env` (excluded; `derive
 Extended manifest capabilities (spec v0.5):
 
 - `"interpreter": "<name>"` — schema-driven classification: the named interpreter is consulted per (meta key, the entity's full meta map) *before* static rules — for plugins whose meta semantics live in data (field-group definitions), not in a static key list. **Interpreter code is part of the manifest artifact, never the engine**: the name resolves to `manifests/interpreters/<name>.php`, which must define `\Duo\Interpreters\<Name>` with `post_meta_rule(string $key, array $allMeta): ?array`; it may additionally define `term_meta_rule(...)` and `user_meta_rule(...)` with the same signature and nullable-defer semantics. The optional hooks do not widen older post-only interpreters: when absent, the corresponding static `term_meta`/`user_meta` rules retain control. Interpreter code ships, versions, and pins together with its manifest JSON. (Trust boundary: the manifests dir is operator-controlled and deploys with the agent itself, so loading it is the same trust decision as running the agent.)
-- `"user_meta": {"<key>": {"class": "runtime|env|derived|authored"}}` mirrors the static post/term-meta classification vocabulary without making users repository entities. `runtime`/`env`/`derived` are usable target-local dispositions. `authored` deliberately refuses capture while v1 has no user-meta representation, naming DUO-3268; it can never become a silently inert declaration. Interpreters follow the same posture through `user_meta_rule()`.
+- `"user_meta": {"<key>": {"class": "runtime|env|derived|authored", "missing_user": "block|warn", "allow_pii": false}}` mirrors the static post/term-meta classification vocabulary without making users repository entities. `runtime`/`env`/`derived` are target-local dispositions. `authored` uses the exact-login sidecar above; `missing_user` is user-meta-only and defaults to fail-closed `block`, while `allow_pii` is an explicit reviewed exception to the recursive PII gate. Interpreters follow the same contract through `user_meta_rule()`.
 - `"post_types": {"acf-field": {"class": "authored", "body": "verbatim", "phase": "early"}}` — body mode `verbatim` byte-preserves `post_content` (serialized-data bodies, where URL substitution would corrupt serialized lengths); a verbatim body containing the environment's home URL warns loudly at capture (it will not re-bind). `"phase": "early"` makes the type finalize before all others in apply phase 2 — for definition CPTs whose content interpreters read to type other entities' meta (declared ordering, never glob luck).
 - `"post_types": {"product_variation": {"fields": {"title": {"class": "derived"}}}}` (spec v0.11) — per-post_type classification for **post fields**: the ~13 keys every post file carries unconditionally (title, slug, status, dates, parent, menu_order, …), distinct from post_meta/options, whose rules already carry `class`. v1 accepts exactly `"title"` with `"class": "derived"`; Policy validates field name and class at manifest load and throws on anything else — `slug` participates in file names and Apply's collision/identity checks, and no other field has a proven self-healing precedent, so both stay unsupported rather than half-supported. Manifest-only, no site-policy override (`policy.post_types` is already the flat scope list; a rule map under the same key would collide — the `body`/`phase` precedent). Semantics: capture always writes the field's current observed value into the file verbatim, never omitted — a human reading `state/` sees the truth even when it is not authoritative; apply writes it once as a new row's bootstrap value on create and never overwrites it on update, letting the plugin's own derivation stand; the field is excluded from the **hash basis** used by `duo_state`, plan's three-way compare, and drift detection (`Canon::post_hash_basis()`) — never from the file itself — so a self-healing field's divergence is structurally invisible to plan/drift/conflict, not merely hidden from one diff. Proven case: WooCommerce's `product_variation` title, recomputed hook-free via raw `$wpdb` on every load (tasks #72/#88; the residual `_product_attributes` order divergence is #123's separate bug).
 - Meta ref rules may declare `"cast"`: `"string"` (ids stored as strings inside serialized arrays — the ACF shape) or `"csv"` (a `"1,2,3"` id list canonicalized to a token array, re-joined on apply). Ref kind `"user"` serializes as `user:<login>` tokens — users stay env-local; apply resolves by login and falls back to the default author with a warning.

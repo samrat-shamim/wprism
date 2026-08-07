@@ -131,6 +131,12 @@ final class Capture {
                 ? RepositoryCompiler::compile($c->repo, $policy)
                 : null;
             $previousOptions = $previous?->tree()['options/core']['data'] ?? null;
+            $previousUserLogins = [];
+            foreach ($previous?->tree() ?? [] as $entity) {
+                if (($entity['type'] ?? '') === 'user-meta') {
+                    $previousUserLogins[] = (string) ($entity['data']['login'] ?? '');
+                }
+            }
 
             // The one consistent-snapshot transaction: every SELECT build()
             // issues, plus the _duo_uuid/duo_map identity-minting writes
@@ -138,11 +144,12 @@ final class Capture {
             // on its own (see run_in_consistent_snapshot()) if a concurrent
             // WordPress write collides with one of THIS build's own writes.
             $build = self::run_in_consistent_snapshot(function () use (
-                $c, $policy, $repo, $forceUnresolvedRefs, $observedDeletedTables, $previousOptions
+                $c, $policy, $repo, $forceUnresolvedRefs, $observedDeletedTables, $previousOptions,
+                $previousUserLogins
             ): array {
                 Identity::assert_embedded_unique();
                 Snapshot::assert_mapped_history_present($policy, $repo, $observedDeletedTables);
-                $candidate = $c->build(true, $forceUnresolvedRefs, $previousOptions);
+                $candidate = $c->build(true, $forceUnresolvedRefs, $previousOptions, $previousUserLogins);
                 Identity::assert_entities_unique($candidate['entities']);
                 return $candidate;
             });
@@ -292,7 +299,14 @@ final class Capture {
         Snapshot::prune_dead_map($policy);
         $c = new self($repo, $policy);
         self::verify_engine_support($policy);
-        $repositoryOptions = RepositoryCompiler::compile($repo, $policy)->tree()['options/core']['data'] ?? null;
+        $repository = RepositoryCompiler::compile($repo, $policy);
+        $repositoryOptions = $repository->tree()['options/core']['data'] ?? null;
+        $repositoryUserLogins = [];
+        foreach ($repository->tree() as $entity) {
+            if (($entity['type'] ?? '') === 'user-meta') {
+                $repositoryUserLogins[] = (string) ($entity['data']['login'] ?? '');
+            }
+        }
 
         // DUO-3213: read-only (mint=false — build() never writes in this
         // mode), but still wrapped in the SAME consistent-snapshot
@@ -306,9 +320,11 @@ final class Capture {
         // publisher's filesystem operations, and MVCC gives it a coherent
         // view regardless of what a concurrent capture() is doing on the
         // DB side.
-        $build = self::run_in_consistent_snapshot(function () use ($c, $forceUnresolvedRefs, $repositoryOptions): array {
+        $build = self::run_in_consistent_snapshot(function () use (
+            $c, $forceUnresolvedRefs, $repositoryOptions, $repositoryUserLogins
+        ): array {
             Identity::assert_embedded_unique();
-            $candidate = $c->build(false, $forceUnresolvedRefs, $repositoryOptions);
+            $candidate = $c->build(false, $forceUnresolvedRefs, $repositoryOptions, $repositoryUserLogins);
             Identity::assert_entities_unique($candidate['entities']);
             return $candidate;
         });
@@ -457,26 +473,11 @@ final class Capture {
             }
         }
 
-        // Users remain environment-local and unscoped in spec v2, so an
-        // unclassified user-meta key is not implicitly claimed. A static or
-        // interpreter rule can still classify a known key runtime/env/derived
-        // today; authored is the one actionable pending finding because no
-        // user-meta wire representation exists yet (DUO-3268).
+        // Users remain environment-local and unscoped, so an unclassified
+        // user-meta key is not implicitly claimed. Authored rules now have a
+        // real login-keyed sidecar and therefore are no longer pending gate
+        // findings; value-level PII/secret refusals surface during capture.
         $userMeta = [];
-        foreach ($c->user_meta_maps() as $user) {
-            foreach ($user['meta'] as $key => $raw) {
-                $rule = $c->policy->meta_rule_for_user($key, $user['meta']);
-                if (($rule['class'] ?? '') !== 'authored') {
-                    continue;
-                }
-                $userMeta[$key]['entities'] = ($userMeta[$key]['entities'] ?? 0) + 1;
-                $userMeta[$key]['users'][$user['login']] = true;
-                $value = is_serialized($raw) ? @unserialize(trim($raw), ['allowed_classes' => false]) : $raw;
-                $userMeta[$key]['value_shapes'][get_debug_type($value)] = true;
-                $userMeta[$key]['reason'] = 'authored user meta is unsupported by the v2 repository schema; '
-                    . 'capture is blocked pending DUO-3268';
-            }
-        }
 
         return [
             'scope' => $scope,
@@ -655,7 +656,12 @@ final class Capture {
     // ------------------------------------------------------------------
 
     /** @return array{entities: array, media: array<string,string>, warnings: string[]} */
-    private function build(bool $mint, bool $forceUnresolvedRefs = false, ?array $previousOptions = null): array {
+    private function build(
+        bool $mint,
+        bool $forceUnresolvedRefs = false,
+        ?array $previousOptions = null,
+        array $carriedUserLogins = []
+    ): array {
         global $wpdb;
         $this->unclassified = [];
         $this->unscopedRefs = [];
@@ -712,19 +718,6 @@ final class Capture {
             }
         }
 
-        // User meta has classification but intentionally has no v2 wire
-        // format. Run the Policy guard against every live key: non-authored
-        // rules are usable target-local dispositions, while authored joins
-        // the ordinary aggregate loud gate before canonical state can
-        // silently omit the declared value.
-        foreach ($this->user_meta_maps() as $user) {
-            foreach ($user['meta'] as $key => $_) {
-                $reason = $this->policy->user_meta_capture_blocker($key, $user['meta']);
-                if ($reason !== null) {
-                    $this->unclassified[] = "user_meta:$key ($reason; user {$user['login']} blocked)";
-                }
-            }
-        }
         $menus = $this->scope_menus($mint);
 
         // Spec v2 term files carry authored meta. Unknown term-meta still
@@ -860,6 +853,16 @@ final class Capture {
         ];
 
         foreach ($tableEntities as $e) {
+            $entities[] = $e;
+        }
+
+        // Users themselves remain environment-local and receive no UUID or
+        // duo_map row. Only explicitly-authored metadata is emitted, keyed
+        // by the exact login. A previously/repository-present login is
+        // carried even when its authored map is now empty, making removal
+        // of the final owned key explicit without treating user deletion as
+        // portable authority.
+        foreach ($this->build_user_meta_entities($carriedUserLogins) as $e) {
             $entities[] = $e;
         }
 
@@ -1786,16 +1789,16 @@ final class Capture {
      * environment-local: this read neither mints identity nor emits an
      * entity. The join deliberately excludes orphaned usermeta rows, which
      * have no owning user/login and therefore cannot be a user-attached
-     * authored surface even under DUO-3268's future login-keyed design.
+     * authored surface under DUO-3268's login-keyed design.
      *
-     * @return array<int, array{login:string,meta:array<string,mixed>}>
+     * @return array<int, array{login:string,meta:array<string,mixed>,values:array<string,string[]>}>
      */
     private function user_meta_maps(): array {
         global $wpdb;
         $rows = $wpdb->get_results(
             "SELECT u.ID AS user_id, u.user_login, um.meta_key, um.meta_value
              FROM {$wpdb->users} u
-             INNER JOIN {$wpdb->usermeta} um ON um.user_id = u.ID
+             LEFT JOIN {$wpdb->usermeta} um ON um.user_id = u.ID
              ORDER BY u.ID ASC, um.umeta_id ASC",
             ARRAY_A
         ) ?: [];
@@ -1804,11 +1807,94 @@ final class Capture {
         foreach ($rows as $row) {
             $userId = (int) $row['user_id'];
             $out[$userId]['login'] = (string) $row['user_login'];
-            if (!isset($out[$userId]['meta'][$row['meta_key']])) {
-                $out[$userId]['meta'][$row['meta_key']] = $row['meta_value'];
+            $out[$userId]['meta'] ??= [];
+            $out[$userId]['values'] ??= [];
+            if ($row['meta_key'] === null) {
+                continue;
+            }
+            $key = (string) $row['meta_key'];
+            $out[$userId]['values'][$key][] = (string) $row['meta_value'];
+            if (!array_key_exists($key, $out[$userId]['meta'])) {
+                $out[$userId]['meta'][$key] = (string) $row['meta_value'];
             }
         }
         return $out;
+    }
+
+    /** @return array<int,array{uuid:string,type:string,path:string,content:string}> */
+    private function build_user_meta_entities(array $carriedLogins): array {
+        $carry = array_fill_keys(array_filter(array_map('strval', $carriedLogins)), true);
+        $users = [];
+        foreach ($this->user_meta_maps() as $user) {
+            UserMetaState::assert_login($user['login']);
+            $users[$user['login']] = $user;
+        }
+        ksort($users, SORT_STRING);
+
+        $out = [];
+        foreach ($users as $login => $user) {
+            $authored = [];
+            foreach ($user['values'] as $key => $values) {
+                [$store, $value] = $this->classify_user_meta_value(
+                    (string) $key,
+                    $values,
+                    $user['meta'],
+                    $login
+                );
+                if ($store) {
+                    $authored[(string) $key] = $value;
+                }
+            }
+            if (!$authored && !isset($carry[$login])) {
+                continue;
+            }
+            $document = UserMetaState::document($login, $authored);
+            $out[] = [
+                // Canonical-state key only: not a UUID, never duo_map.
+                'uuid' => UserMetaState::key($login),
+                'type' => 'user-meta',
+                'path' => UserMetaState::path($login),
+                'content' => Canon::encode($document),
+            ];
+        }
+        return $out;
+    }
+
+    /** @return array{0:bool,1:mixed} */
+    private function classify_user_meta_value(string $key, array $values, array $flatMeta, string $login): array {
+        $rule = $this->policy->meta_rule_for_user($key, $flatMeta);
+        if (($rule['class'] ?? '') !== 'authored') {
+            return [false, null];
+        }
+        if (count($values) !== 1) {
+            throw new \RuntimeException(
+                "duo: multi-value authored user meta '$key' on exact login '$login' is unsupported; "
+                . 'refusing to choose one row'
+            );
+        }
+        $value = maybe_unserialize($values[0]);
+        self::assert_plain($value, "user '$login' meta $key");
+        $this->guard_secret('user_meta', $key, $value, $rule, " on exact login '$login'");
+        $this->guard_personal_data($key, $value, $rule, $login);
+        if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+            $decoded = $this->decode_structured($value, $rule, "user '$login' meta $key");
+            $value = $this->tokens->struct_capture(
+                $decoded,
+                $rule['json_refs'] ?? [],
+                $rule['key_refs'] ?? null
+            );
+        } elseif (!empty($rule['ref'])) {
+            $value = $this->tokens->meta_value_to_tokens($value, $rule);
+            if ($value === null) {
+                return [false, null];
+            }
+        } elseif (is_string($value)) {
+            $value = $this->tokens->tokenize_text($value);
+        }
+        if (!empty($rule['order_preserving'])) {
+            $value = new OrderPreserved($value);
+        }
+        return [true, $value];
     }
 
     /**
@@ -2251,6 +2337,22 @@ final class Capture {
             . "If this is really a secret, reclassify it env-bound or runtime instead of authored.\n"
             . "If this is a false positive, allow it explicitly:\n"
             . "  wp duo classify --repo={$this->repo} --set '$section:$key=authored' --allow-secret"
+        );
+    }
+
+    /** User-meta-only PII gate; explicit authored classification is not consent. */
+    private function guard_personal_data(string $key, $value, array $rule, string $login): void {
+        if (!empty($rule['allow_pii'])) {
+            return;
+        }
+        $label = PersonalData::match_deep($key, $value);
+        if ($label === null) {
+            return;
+        }
+        throw new \RuntimeException(
+            "duo: PII guard tripped — user_meta '$key' on exact login '$login' looks like $label but is "
+            . "classified authored; refusing to capture it into state/.\n"
+            . 'Keep it runtime/env, or declare "allow_pii": true on this exact user_meta rule after review.'
         );
     }
 

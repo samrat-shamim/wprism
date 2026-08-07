@@ -51,12 +51,16 @@ final class PlanSummary {
         $incompleteApply = $plan['incomplete_apply'] ?? [];
         $regenPending = $plan['regen_pending'] ?? [];
         $envMissing = $plan['env_missing'] ?? [];
+        $missingUser = $plan['missing_user'] ?? [];
+        $skippedUserMeta = $plan['skipped_user_meta'] ?? [];
         $envMissingRequired = array_values(array_filter($envMissing, fn($r) => !empty($r['required'])));
         $summary = 'plan: ' . implode(', ', array_map(fn($k) => "{$counts[$k]} $k", self::BUCKETS));
         $summary .= ', ' . count($codeMismatch) . ' code_mismatch';
         $summary .= ', ' . count($incompleteApply) . ' incomplete_apply';
         $summary .= ', ' . count($regenPending) . ' regen_pending';
         $summary .= ', ' . count($envMissing) . ' env_missing';
+        $summary .= ', ' . count($missingUser) . ' missing_user';
+        $summary .= ', ' . count($skippedUserMeta) . ' skipped_user_meta';
         $lines[] = $summary;
 
         if (!empty($plan['drift'])) {
@@ -141,6 +145,20 @@ final class PlanSummary {
                 : 'only optional env value(s) missing — safe to promote, listed for visibility';
         }
 
+        if ($missingUser) {
+            $lines[] = 'MISSING_USER (required exact login absent; apply will refuse before mutation):';
+            foreach ($missingUser as $r) {
+                $lines[] = '  - ' . self::label($r) . " (exact login '" . ($r['login'] ?? '?') . "')";
+            }
+        }
+
+        if ($skippedUserMeta) {
+            $lines[] = 'SKIPPED_USER_META (exact login absent; policy explicitly warns and leaves target untouched):';
+            foreach ($skippedUserMeta as $r) {
+                $lines[] = '  - ' . self::label($r) . " (exact login '" . ($r['login'] ?? '?') . "')";
+            }
+        }
+
         // --- fail-closed exit semantics (DUO-3221) ---
         //
         // `duo status` answers "safe to promote?" for this environment, so
@@ -216,6 +234,7 @@ final class PlanSummary {
             && !$incompleteApply
             && !$regenPending
             && !$envMissingRequired
+            && !$missingUser
             && !$blocked
             && $counts['drift'] === 0;
 
