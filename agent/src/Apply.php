@@ -363,6 +363,15 @@ final class Apply {
                 . "'{$r['core_class']}' but '{$r['overridden_by']}' (pinned) reclassifies it "
                 . "'{$r['active_class']}' on this site — the plugin's declaration governs";
         }
+        // DUO-3272: the same loud-plan-warning treatment, for menu_fields
+        // instead of options — see Policy::active_menu_field_reclassifications()'s
+        // own docblock for why this is a separate method/loop rather than a
+        // generalized shared one.
+        foreach ($this->policy->active_menu_field_reclassifications() as $r) {
+            $this->warnings[] = "reclassified: menu field '{$r['name']}' is core-classified "
+                . "'{$r['core_class']}' but '{$r['overridden_by']}' (pinned) reclassifies it "
+                . "'{$r['active_class']}' on this site — the plugin's declaration governs";
+        }
         return $plan;
     }
 
@@ -1842,8 +1851,21 @@ final class Apply {
             }
         }
 
-        // locations in the active theme's mods
-        $this->assign_locations((int) $menuTermId, (array) ($front['locations'] ?? []));
+        // locations in the active theme's mods. DUO-3272: skipped entirely
+        // when a pinned manifest reclassifies menu_fields.locations
+        // 'derived' (e.g. Polylang) -- writing here would fight the
+        // plugin's own machinery (Languages::update_default()) for
+        // ownership of this exact raw slot instead of leaving it alone, as
+        // the reclassification promises. The menu-to-location assignment
+        // this environment actually needs still applies normally, via the
+        // declaring manifest's own sub_keys (Polylang: options.polylang.
+        // sub_keys.nav_menus) and, if that plugin's own request lifecycle
+        // does not self-heal the raw slot from it, a manifest-declared
+        // rebuilder (never hardcoded Polylang knowledge here -- see
+        // Apply::rebuild()).
+        if ($this->policy->menu_field_class('locations') !== 'derived') {
+            $this->assign_locations((int) $menuTermId, (array) ($front['locations'] ?? []));
+        }
     }
 
     private function assign_locations(int $menuTermId, array $locations): void {

@@ -633,7 +633,17 @@ final class RepositoryCompiler {
         $required = match ($kind) {
             'post' => ['uuid','type','slug','title','status','date','date_gmt','modified_gmt','author','parent','menu_order','comment_status','ping_status','excerpt','meta','terms'],
             'term' => ['uuid','taxonomy','name','slug','description','parent','relationships'],
-            'menu' => ['uuid','name','slug','locations','items'],
+            // DUO-3272: 'locations' drops out of the required set the
+            // moment a pinned manifest reclassifies menu_fields.locations
+            // 'derived' (e.g. Polylang) -- Capture::scope_menus() omits the
+            // key entirely under that override (never writes an empty []
+            // either), so a schema that still hard-required it here would
+            // reject every menu Capture legitimately produces. Ordinary,
+            // non-overridden sites are completely unaffected: 'locations'
+            // stays required exactly as before.
+            'menu' => $this->policy->menu_field_class('locations') === 'derived'
+                ? ['uuid','name','slug','items']
+                : ['uuid','name','slug','locations','items'],
             'table' => ['uuid','table','columns','meta'],
             default => [],
         };

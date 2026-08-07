@@ -1476,13 +1476,25 @@ final class Capture {
             return [];
         }
 
-        // menu -> locations, from the active theme's mods
-        $stylesheet = (string) get_option('stylesheet');
-        $mods = get_option('theme_mods_' . $stylesheet);
+        // menu -> locations, from the active theme's mods. DUO-3272: under a
+        // manifest that reclassifies menu_fields.locations 'derived' (e.g.
+        // Polylang — its own Languages::update_default() unconditionally
+        // rewrites this exact raw slot from ITS OWN nav_menus/default_lang
+        // bookkeeping any time the default language changes or is
+        // re-resolved, entirely outside this capture/apply cycle), the raw
+        // slot is not carried at all: not read here, not written into any
+        // menu's 'locations' key below. See Policy::menu_field_class()'s
+        // docblock and manifests/polylang.json's own DUO-3272 note for the
+        // full empirical grounding.
+        $locationsDerived = $this->policy->menu_field_class('locations') === 'derived';
         $locByTerm = [];
-        if (is_array($mods) && !empty($mods['nav_menu_locations'])) {
-            foreach ($mods['nav_menu_locations'] as $loc => $tid) {
-                $locByTerm[(int) $tid][] = (string) $loc;
+        if (!$locationsDerived) {
+            $stylesheet = (string) get_option('stylesheet');
+            $mods = get_option('theme_mods_' . $stylesheet);
+            if (is_array($mods) && !empty($mods['nav_menu_locations'])) {
+                foreach ($mods['nav_menu_locations'] as $loc => $tid) {
+                    $locByTerm[(int) $tid][] = (string) $loc;
+                }
             }
         }
 
@@ -1581,18 +1593,26 @@ final class Capture {
                 ];
             }
 
-            $locations = $locByTerm[(int) $mt->term_id] ?? [];
-            sort($locations, SORT_STRING);
+            $front = [
+                'uuid' => $uuid,
+                'name' => $mt->name,
+                'slug' => $mt->slug,
+                'items' => $itemList,
+            ];
+            if (!$locationsDerived) {
+                // DUO-3272: omitted entirely (not captured as []) when
+                // derived — Apply::finalize_menu()'s own '?? []' fallback
+                // for a missing key is exactly what keeps a derived-under-
+                // Polylang menu file forward-compatible with an
+                // engine/manifest pairing that predates this override.
+                $locations = $locByTerm[(int) $mt->term_id] ?? [];
+                sort($locations, SORT_STRING);
+                $front['locations'] = $locations;
+            }
             $menus[] = [
                 'uuid' => $uuid,
                 'slug' => $mt->slug,
-                'front' => [
-                    'uuid' => $uuid,
-                    'name' => $mt->name,
-                    'slug' => $mt->slug,
-                    'locations' => $locations,
-                    'items' => $itemList,
-                ],
+                'front' => $front,
             ];
         }
         return $menus;

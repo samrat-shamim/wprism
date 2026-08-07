@@ -70,6 +70,7 @@ final class Policy {
             }
             $manifest = Canon::decode(Canon::read_file($file));
             self::validate_field_classes($manifest);
+            self::validate_menu_field_classes($manifest);
             self::validate_regen_dependencies($manifest);
             self::validate_env_options($manifest, "manifest '$name'");
             self::validate_scope_classes($manifest, "manifest '$name'", false);
@@ -1210,6 +1211,78 @@ final class Policy {
     }
 
     /**
+     * v1-supported MENU FIELD classification surface (DUO-3272) — same
+     * purpose as DERIVABLE_FIELDS above (task #88), but for `menus/*.json`
+     * entities: a field name must appear here before ANY manifest may
+     * declare it under top-level `menu_fields.<field>` —
+     * validate_menu_field_classes() below enforces this at load() time.
+     * Deliberately just 'locations': it is the only menu field with a
+     * proven self-healing precedent under a real plugin (Polylang).
+     *
+     * Structurally different from DERIVABLE_FIELDS/field_class() even
+     * though the intent rhymes: field_class() is a narrow opt-in (implicit
+     * 'authored', a manifest may only ever DECLARE 'derived' — no core
+     * declaration exists to yield to, since every shipped user is a PLUGIN
+     * manifest asserting a fact about its own post type). menu_fields
+     * needs the full DUO-3249 core-yields-to-plugin precedence instead:
+     * core.json declares 'locations' authored as its v0 baseline (every
+     * ordinary, non-Polylang site), and a pinned plugin manifest may
+     * reclassify it — see menu_field_rule_details() below, which reuses
+     * rule_details('menu_fields', $field) directly rather than
+     * field_rule_details()'s simpler first-match-wins loop. That is why
+     * MENU_FIELD_CLASSES (unlike FIELD_CLASSES) allows both 'authored' and
+     * 'derived': core's own declaration must be expressible too.
+     */
+    private const MENU_DERIVABLE_FIELDS = ['locations'];
+
+    /** @see MENU_DERIVABLE_FIELDS */
+    private const MENU_FIELD_CLASSES = ['authored', 'derived'];
+
+    /**
+     * Menu-FIELD classification (DUO-3272). Proven case: Polylang's own
+     * Languages::update_default() (wp-content/plugins/polylang/src/Model/
+     * Languages.php:774) unconditionally rewrites
+     * theme_mods_<stylesheet>['nav_menu_locations'] — the exact raw value
+     * Capture::scope_menus() reads and Apply::assign_locations() writes —
+     * from Polylang's OWN nav_menus[theme][loc][lang] bookkeeping, any
+     * time the default language changes OR Languages::get_default()'s own
+     * fallback fires ("the default language is lost... let's select one
+     * arbitrarily" — an environment-dependent term-query-ordering pick
+     * this engine does not control). Two environments processing the
+     * identical captured state can end up with a DIFFERENT menu owning
+     * the same location, entirely outside Duo's own capture/apply cycle —
+     * DUO-3272's filed repro is 100% reproducible on demand: calling
+     * update_default() with a different language flips which menu file's
+     * `locations` holds a given slot, byte-for-byte matching the original
+     * flake.
+     *
+     * Owner ruling (issue comment 8e0edde6): the raw slot is a PROJECTION
+     * of state Duo already carries losslessly elsewhere — polylang.json's
+     * own sub_keys mechanism (DUO-3233/task #121) already propagates both
+     * `nav_menus` (which menu belongs at which location, PER LANGUAGE) and
+     * `default_lang` inside the `polylang` option itself. So classifying
+     * `locations` 'derived' under Polylang does not drop authored
+     * information — it stops Duo from ALSO separately carrying a value
+     * Polylang's own machinery treats as its mutable cache and rewrites at
+     * will, which is exactly what made the flake possible. Default
+     * 'authored' if nothing declares a rule at all (defensive fallback
+     * only — core.json's own menu_fields.locations declaration means this
+     * branch is not expected to be reached in practice).
+     */
+    public function menu_field_class(string $field): string {
+        return $this->menu_field_rule($field)['class'] ?? 'authored';
+    }
+
+    private function menu_field_rule(string $field): ?array {
+        return $this->rule('menu_fields', $field);
+    }
+
+    /** @return array{rule:?array, source:?string} */
+    public function menu_field_rule_details(string $field): array {
+        return $this->rule_details('menu_fields', $field);
+    }
+
+    /**
      * Loud, load-time guard for field_class()'s manifest input (mirrors
      * interpreters()'s "throw immediately, never degrade silently" posture
      * for a bad manifest declaration): a manifest naming an unsupported
@@ -1239,6 +1312,43 @@ final class Policy {
                         . ' is supported for post fields in v1'
                     );
                 }
+            }
+        }
+    }
+
+    /**
+     * Loud, load-time guard for menu_field_class()'s manifest input —
+     * DUO-3272's own version of validate_field_classes() immediately
+     * above, kept as its own function rather than merged into it (the same
+     * "mirrored for its own key shape rather than extended" posture
+     * validate_regen_dependencies() documents for itself): `menu_fields.
+     * <field>` is a flat, single-level top-level manifest key — menus have
+     * no "type" dimension the way posts do, so there is no per-type
+     * declaration to nest under. Also unlike validate_field_classes(),
+     * MENU_FIELD_CLASSES accepts 'authored' as well as 'derived' — core.
+     * json needs to express its own v0 baseline declaration here (DUO-3249
+     * precedence needs a core declaration to exist at all), not just a
+     * plugin's override. A manifest naming an unsupported menu field, or
+     * an unsupported class for a supported one, fails EVERY command that
+     * loads this manifest — exactly like its post-field counterpart.
+     */
+    private static function validate_menu_field_classes(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        foreach ($manifest['menu_fields'] ?? [] as $field => $rule) {
+            if (!in_array($field, self::MENU_DERIVABLE_FIELDS, true)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares menu_fields.$field, but only "
+                    . implode(', ', self::MENU_DERIVABLE_FIELDS) . ' may be field-classified in v1 (DUO-3272 '
+                    . 'scoped this deliberately tight, mirroring task #88 — see Policy::MENU_DERIVABLE_FIELDS\' docblock)'
+                );
+            }
+            $class = $rule['class'] ?? null;
+            if (!in_array($class, self::MENU_FIELD_CLASSES, true)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares menu_fields.$field.class="
+                    . var_export($class, true) . ' but only ' . implode(', ', self::MENU_FIELD_CLASSES)
+                    . ' is supported for menu fields in v1'
+                );
             }
         }
     }
@@ -1455,6 +1565,54 @@ final class Policy {
         $out = [];
         foreach ($core['options'] ?? [] as $name => $coreRule) {
             $winner = $this->option_rule_details($name);
+            $source = $winner['source'] ?? null;
+            if ($source === null || $source === 'core' || $source === 'site.duo.json') {
+                continue;
+            }
+            $activeClass = $winner['rule']['class'] ?? null;
+            $coreClass = $coreRule['class'] ?? null;
+            if ($activeClass === $coreClass) {
+                continue; // same-name declaration in both, but not actually a DIFFERENT classification -- nothing to warn about
+            }
+            $out[] = [
+                'name' => (string) $name,
+                'core_class' => $coreClass,
+                'active_class' => $activeClass,
+                'overridden_by' => $source,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * DUO-3272's own version of active_reclassifications() immediately
+     * above — same purpose (the loud, plan-visible half of the DUO-3249
+     * core-yields-to-plugin precedence, this time for menu_fields instead
+     * of options), kept as a separate function rather than a generalized
+     * shared one for the same reason validate_menu_field_classes() stays
+     * separate from validate_field_classes(): the two sections don't share
+     * a manifest shape (menu_fields is flat; options is too, but the two
+     * are semantically unrelated surfaces with their own core-declaration
+     * sets), and Apply::build_plan() needs to report them as distinct,
+     * clearly-labeled warnings rather than one merged list a reader has to
+     * disambiguate by field name alone.
+     *
+     * @return list<array{name:string, core_class:?string, active_class:?string, overridden_by:string}>
+     */
+    public function active_menu_field_reclassifications(): array {
+        $core = null;
+        foreach ($this->manifests as $m) {
+            if (($m['name'] ?? '') === 'core') {
+                $core = $m;
+                break;
+            }
+        }
+        if ($core === null) {
+            return [];
+        }
+        $out = [];
+        foreach ($core['menu_fields'] ?? [] as $name => $coreRule) {
+            $winner = $this->menu_field_rule_details($name);
             $source = $winner['source'] ?? null;
             if ($source === null || $source === 'core' || $source === 'site.duo.json') {
                 continue;
