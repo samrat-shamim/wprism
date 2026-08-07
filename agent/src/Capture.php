@@ -342,7 +342,9 @@ final class Capture {
      *   scope: array<string, array{entities:int}>,
      *   options: array<string, array{entities:int, owner_candidates:string[], value_shapes:string[], reason:string}>,
      *   post_meta: array<string, array{entities:int, post_types: string[]}>,
-     *   term_meta: array<string, array{entities:int, taxonomies:string[], value_shapes:string[], reason:string}>
+     *   term_meta: array<string, array{entities:int, taxonomies:string[], value_shapes:string[], reason:string}>,
+     *   menu_item_meta: array<string, array{entities:int}>,
+     *   user_meta: array<string, array{entities:int, users:string[], value_shapes:string[], reason:string}>
      * }
      */
     public static function gate_scan(string $repo): array {
@@ -395,8 +397,9 @@ final class Capture {
 
         $termMeta = [];
         foreach ($c->scope_terms() as $t) {
-            foreach ($c->term_meta_map((int) $t->term_id) as $key => $raw) {
-                $rule = $c->policy->term_meta_rule($key);
+            $flatMeta = $c->term_meta_map((int) $t->term_id);
+            foreach ($flatMeta as $key => $raw) {
+                $rule = $c->policy->meta_rule_for_term($key, $flatMeta);
                 if ($rule !== null && ($rule['class'] ?? '') !== 'authored') {
                     continue;
                 }
@@ -442,6 +445,27 @@ final class Capture {
             }
         }
 
+        // Users remain environment-local and unscoped in spec v1, so an
+        // unclassified user-meta key is not implicitly claimed. A static or
+        // interpreter rule can still classify a known key runtime/env/derived
+        // today; authored is the one actionable pending finding because no
+        // user-meta wire representation exists yet (DUO-3268).
+        $userMeta = [];
+        foreach ($c->user_meta_maps() as $user) {
+            foreach ($user['meta'] as $key => $raw) {
+                $rule = $c->policy->meta_rule_for_user($key, $user['meta']);
+                if (($rule['class'] ?? '') !== 'authored') {
+                    continue;
+                }
+                $userMeta[$key]['entities'] = ($userMeta[$key]['entities'] ?? 0) + 1;
+                $userMeta[$key]['users'][$user['login']] = true;
+                $value = is_serialized($raw) ? @unserialize(trim($raw), ['allowed_classes' => false]) : $raw;
+                $userMeta[$key]['value_shapes'][get_debug_type($value)] = true;
+                $userMeta[$key]['reason'] = 'authored user meta is unsupported by the v1 repository schema; '
+                    . 'capture is blocked pending DUO-3268';
+            }
+        }
+
         return [
             'scope' => $scope,
             'options' => $options,
@@ -461,6 +485,15 @@ final class Capture {
             'menu_item_meta' => array_map(
                 fn($ev) => ['entities' => $ev['entities']],
                 $menuItemMeta
+            ),
+            'user_meta' => array_map(
+                fn($ev) => [
+                    'entities' => $ev['entities'],
+                    'users' => array_keys($ev['users'] ?? []),
+                    'value_shapes' => array_keys($ev['value_shapes'] ?? []),
+                    'reason' => $ev['reason'],
+                ],
+                $userMeta
             ),
         ];
     }
@@ -668,6 +701,20 @@ final class Capture {
                 $termUuids[(int) $t->term_id] = $uuid;
             }
         }
+
+        // User meta has classification but intentionally has no v1 wire
+        // format. Run the Policy guard against every live key: non-authored
+        // rules are usable target-local dispositions, while authored joins
+        // the ordinary aggregate loud gate before canonical state can
+        // silently omit the declared value.
+        foreach ($this->user_meta_maps() as $user) {
+            foreach ($user['meta'] as $key => $_) {
+                $reason = $this->policy->user_meta_capture_blocker($key, $user['meta']);
+                if ($reason !== null) {
+                    $this->unclassified[] = "user_meta:$key ($reason; user {$user['login']} blocked)";
+                }
+            }
+        }
         $menus = $this->scope_menus($mint);
 
         // Term files have no meta field in spec v1. Unknown term-meta must
@@ -675,8 +722,9 @@ final class Capture {
         // explicitly rather than becoming an inert rule that appears to
         // resolve the review item while its value is still dropped.
         foreach ($terms as $t) {
-            foreach ($this->term_meta_map((int) $t->term_id) as $key => $_) {
-                $rule = $this->policy->term_meta_rule($key);
+            $flatMeta = $this->term_meta_map((int) $t->term_id);
+            foreach ($flatMeta as $key => $_) {
+                $rule = $this->policy->meta_rule_for_term($key, $flatMeta);
                 if ($rule === null) {
                     $this->unclassified[] = "term_meta:$key (unclassified on taxonomy {$t->taxonomy})";
                 } elseif (($rule['class'] ?? '') === 'authored') {
@@ -1625,8 +1673,10 @@ final class Capture {
         return [true, $v];
     }
 
-    /** Mirrors post_meta_map() for termmeta — used by gate_scan() only in v0
-     *  (no term-meta capture pipeline exists yet; see gate_scan()'s docblock). */
+    /** Mirrors post_meta_map() for termmeta. The review scan and capture's
+     *  loud pre-wire-format gate both pass this whole-object context to an
+     *  optional interpreter hook; no term-meta serialization pipeline exists
+     *  yet (DUO-3261). */
     private function term_meta_map(int $termId): array {
         global $wpdb;
         $rows = $wpdb->get_results($wpdb->prepare(
@@ -1637,6 +1687,36 @@ final class Capture {
         foreach ($rows as $r) {
             if (!isset($out[$r['meta_key']])) {
                 $out[$r['meta_key']] = $r['meta_value'];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Whole-user meta context for the optional interpreter hook. Users stay
+     * environment-local: this read neither mints identity nor emits an
+     * entity. The join deliberately excludes orphaned usermeta rows, which
+     * have no owning user/login and therefore cannot be a user-attached
+     * authored surface even under DUO-3268's future login-keyed design.
+     *
+     * @return array<int, array{login:string,meta:array<string,mixed>}>
+     */
+    private function user_meta_maps(): array {
+        global $wpdb;
+        $rows = $wpdb->get_results(
+            "SELECT u.ID AS user_id, u.user_login, um.meta_key, um.meta_value
+             FROM {$wpdb->users} u
+             INNER JOIN {$wpdb->usermeta} um ON um.user_id = u.ID
+             ORDER BY u.ID ASC, um.umeta_id ASC",
+            ARRAY_A
+        ) ?: [];
+        self::check_transient_db_error('Capture::user_meta_maps()');
+        $out = [];
+        foreach ($rows as $row) {
+            $userId = (int) $row['user_id'];
+            $out[$userId]['login'] = (string) $row['user_login'];
+            if (!isset($out[$userId]['meta'][$row['meta_key']])) {
+                $out[$userId]['meta'][$row['meta_key']] = $row['meta_value'];
             }
         }
         return $out;

@@ -33,6 +33,9 @@ cat > "$HOST_REPO/manifests/discovery-fixture.json" <<'JSON'
   "term_meta": {
     "duo_discovery_authored_term": {"class": "authored"}
   },
+  "user_meta": {
+    "duo_discovery_authored_user": {"class": "authored"}
+  },
   "tables": {
     "duo_discovery_rows": {
       "class": "authored_snapshot",
@@ -151,6 +154,16 @@ jq '.tables.duo_discovery_meta.keyspace.keys += ["upgrade_added_setting"]' \
   "$HOST_REPO/manifests/discovery-fixture.json" > "$HOST_REPO/manifests/discovery-fixture.json.tmp"
 mv "$HOST_REPO/manifests/discovery-fixture.json.tmp" "$HOST_REPO/manifests/discovery-fixture.json"
 
+wp1 user meta update admin duo_discovery_authored_user 'authored-but-unrepresentable' >/dev/null
+PENDING_USER=$(wp1 duo pending --repo="$REPO" --format=json 2>/dev/null | tail -1)
+printf '%s\n' "$PENDING_USER" | jq -e '
+  any(.[]; .section == "user_meta" and .key == "duo_discovery_authored_user"
+    and .evidence.entities == 1
+    and .evidence.users == ["admin"]
+    and (.evidence.reason | contains("DUO-3268")))
+' >/dev/null || fail "pending lacks authored user-meta refusal evidence: $PENDING_USER"
+pass "pending names authored user meta, owning login, and DUO-3268 refusal reason"
+
 set +e
 BLOCKED=$(wp1 duo capture --repo="$REPO" 2>&1)
 RC=$?
@@ -160,10 +173,12 @@ printf '%s\n' "$BLOCKED" | grep -q 'options:duo_discovery_unknown' \
   || fail "capture did not name the pre-existing unknown option: $BLOCKED"
 printf '%s\n' "$BLOCKED" | grep -q 'term_meta:duo_discovery_authored_term' \
   || fail "capture did not explicitly block authored term meta: $BLOCKED"
-pass "capture fails closed on pre-agent options and unrepresentable term meta"
+printf '%s\n' "$BLOCKED" | grep -q 'user_meta:duo_discovery_authored_user.*DUO-3268' \
+  || fail "capture did not explicitly block authored user meta and name DUO-3268: $BLOCKED"
+pass "capture fails closed on pre-agent options and unrepresentable term/user meta"
 
 wp1 duo classify --repo="$REPO" \
-  --set='options:duo_discovery_unknown=runtime;term_meta:duo_discovery_unknown_term=runtime;term_meta:duo_discovery_authored_term=runtime' >/dev/null
+  --set='options:duo_discovery_unknown=runtime;term_meta:duo_discovery_unknown_term=runtime;term_meta:duo_discovery_authored_term=runtime;user_meta:duo_discovery_authored_user=runtime' >/dev/null
 
 wp1 duo capture --repo="$REPO" >/dev/null
 jq -e '.records.duo_discovery_dynamic_17.value == "captured-before-observation"
