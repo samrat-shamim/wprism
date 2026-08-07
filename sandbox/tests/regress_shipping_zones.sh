@@ -148,6 +148,32 @@ echo "probe row ledger state after real capture: $FOUND"
 echo "$FOUND" | grep -q "MINTED" || fail "expected the probe row to be minted into duo_map by a real (mint=true) capture (got: $FOUND)"
 pass "the same row that correctly stayed silent on a non-minting snapshot is correctly captured for real on a real (minting) capture -- confirms this was a timing distinction, never a coverage gap"
 
+say "(4c) ALIVENESS: the option itself -- not just the table row -- is captured under its TOKENIZED name, proving option_name_refs' own discovery loop actually ran"
+# DUO-3257 finding: 4b's ledger-mint check alone does NOT prove this. Table
+# row minting happens unconditionally in Snapshot::capture() (runs before
+# build_options() in the same build(), mints every row of every declared
+# table regardless of build_options()'s own option_name_refs loop). A
+# regression that silently zeroes out THAT loop specifically (confirmed
+# live: a stray variable-name mismatch introduced by an unrelated DUO-3263
+# refactor did exactly this, undetected since this file's own conformance
+# target is opt-in and wasn't part of that PR's test scope) left the table
+# row correctly minted while the OPTION's captured key stayed the raw,
+# non-portable numeric-instance-id form -- 4b's assertion never noticed.
+# This check reads the actual captured option name directly.
+OPT_KEY=$(wp1 eval "
+\$doc = json_decode(file_get_contents('/siterepo/state/options/core.json'), true);
+foreach (array_keys(\$doc['records'] ?? []) as \$name) {
+    if (str_starts_with(\$name, 'woocommerce_flat_rate_') && str_ends_with(\$name, '_settings')) {
+        echo \$name;
+        break;
+    }
+}
+" 2>&1 | tail -1)
+echo "captured option key for the probe instance: $OPT_KEY"
+[ -n "$OPT_KEY" ] || fail "expected SOME woocommerce_flat_rate_*_settings key in captured options -- option_name_refs discovery produced nothing at all"
+echo "$OPT_KEY" | grep -q "{{wc_zone_method:" || fail "expected the captured option key to carry a resolved {{wc_zone_method:<uuid>}} token, not the raw numeric instance id -- got: $OPT_KEY (this is exactly the shape a dead option_name_refs loop produces: either absent entirely, or captured under the raw un-tokenized name)"
+pass "option_name_refs discovery fired for real: the probe's raw numeric instance id ($PROBE_INSTANCE_ID) was tokenized into a portable {{wc_zone_method:<uuid>}} reference in the captured option KEY"
+
 # cleanup the probe zone/method/option (undo the extra real capture too, by
 # re-capturing after removing the probe row so state/ matches the git-committed
 # fixture again)
@@ -162,4 +188,4 @@ echo "$LINT_OUT"
 echo "$LINT_OUT" | grep -qi "no findings" || fail "expected lint 0 findings on r3e2's applied state (got: $LINT_OUT)"
 pass "lint clean on r3e2's applied state"
 
-pass "task #93 regression: live zone/tax resolution + no-literal-brace proof + dangling-vs-unscoped severity (both directions) + escape hatch, all confirmed"
+pass "task #93 regression: live zone/tax resolution + no-literal-brace proof + dangling-vs-unscoped severity (both directions) + escape hatch + option_name_refs aliveness, all confirmed"
