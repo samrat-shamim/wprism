@@ -15,13 +15,15 @@
 set -euo pipefail
 CONF2_PORT="${CONF2_PORT:-8807}"
 
-FRONT=$(curl -fs "http://localhost:${CONF2_PORT}/conformance-careers/") || fail "conf2 conformance-careers page did not return 200"
+FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/conformance-careers/") || fail "conf2 conformance-careers page did not return 200"
+[ "${#FRONT}" -ge 1000 ] \
+  || fail "conf2 conformance-careers response was suspiciously short (${#FRONT} bytes)"
 
-if grep -qi 'fatal error\|uncaught' <<<"$FRONT"; then
+if grep -qiE 'fatal error|uncaught' <<<"$FRONT"; then
     fail "conf2's rendered careers page contains a PHP fatal error marker"
 fi
 
-grep -q 'Job Application\|nf-form-' <<<"$FRONT" \
+grep -qE 'Job Application|nf-form-' <<<"$FRONT" \
   || fail "conf2's rendered careers page shows no Ninja Forms markup at all (empty/broken form block)"
 
 grep -q 'First Name' <<<"$FRONT" \
