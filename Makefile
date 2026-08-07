@@ -118,6 +118,9 @@ grind-r3a:
 regress-pa-attributes:
 	bash sandbox/tests/regress_pa_attributes.sh
 
+regress-woo-attribute-deletion:
+	bash sandbox/tests/regress_woo_attribute_deletion.sh
+
 regress-shipping-zones:
 	bash sandbox/tests/regress_shipping_zones.sh
 
