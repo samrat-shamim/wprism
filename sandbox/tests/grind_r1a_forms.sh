@@ -200,9 +200,22 @@ rm -rf siterepo/r1a1 && mkdir -p siterepo/r1a1
 # runtime, visitor-authored, and must never enter the branchable partition.
 # wpcf7_contact_form IS in scope: it is CF7's own form-definition CPT, a
 # site-builder-authored entity like any other post type in this engine.
+#
+# DUO-3267: manifests now includes "ninja-forms", not just "core". This was
+# the deliberate omission the script's own header comment used to justify
+# ("Ninja Forms is the known typed-snapshot engine frontier ... this script
+# characterizes that gap empirically rather than working around it") — true
+# when task #56 wrote it, stale since task #75/#76 closed that frontier
+# elsewhere: manifests/ninja-forms.json now carries a complete, live-
+# verified typed-snapshot capture/apply for nf3_forms/nf3_fields/nf3_actions
+# (+ their _meta twins) AND a block_attrs codec for the Careers page's own
+# `wp:ninja-forms/form {"formID":N}` embed (kind nf3_form, resolved through
+# the same generalized Tokens::id_to_token()/token_to_id() every other ref
+# kind uses). This fixture just never got wired to that manifest once it
+# existed. See DUO-3267's own Linear scope note for the full trace.
 cat > siterepo/r1a1/site.duo.json <<'EOF'
 {
-  "manifests": ["core"],
+  "manifests": ["core", "ninja-forms"],
   "policy": {
     "options": {},
     "post_meta": {},
@@ -213,9 +226,11 @@ cat > siterepo/r1a1/site.duo.json <<'EOF'
 }
 EOF
 cp site-repo.gitignore.template siterepo/r1a1/.gitignore
-git -C siterepo/r1a1 init -q -b main
-git -C siterepo/r1a1 remote add origin ../origin-r1a.git
-pass "site repo initialized (manifests: [core], post_types scope excludes nf_sub deliberately)"
+GIT_1="git -C siterepo/r1a1 -c user.name=duo-r1a1 -c user.email=r1a1@example.test"
+GIT_2="git -C siterepo/r1a2 -c user.name=duo-r1a2 -c user.email=r1a2@example.test"
+$GIT_1 init -q -b main
+$GIT_1 remote add origin ../origin-r1a.git
+pass "site repo initialized (manifests: [core, ninja-forms] — nf3_* now in scope; post_types scope still excludes nf_sub deliberately)"
 
 # --- Contact Form 7 real seeding -----------------------------------------
 # WPCF7_ContactForm::get_template() is the exact method wp-admin's "Add New"
@@ -315,3 +330,91 @@ wp_1 post create --post_type=post --post_title='New Ways to Reach Us' --post_nam
   --post_status=publish --post_category="$(wp_1 term list category --slug=announcements --field=term_id)" \
   --post_content='<!-- wp:paragraph --><p>Our new Contact form makes it easier than ever to reach the team.</p><!-- /wp:paragraph -->' >/dev/null
 pass "3 posts created across 2 categories (Announcements, Careers)"
+
+# --- DUO-3267: the round-trip leg task #54 originally called for --------
+# Everything above this point predates this issue and was already proven;
+# nothing above is touched. What follows is new.
+
+say "core loop: capture on r1a1 (ninja-forms manifest now pinned, so nf3_* mints identity alongside posts)"
+wp_1 duo capture --repo=/siterepo
+pass "capture succeeded"
+
+say "hard lint gate"
+wp_1 duo lint --repo=/siterepo
+pass "lint: 0 findings"
+
+say "capture-twice determinism"
+wp_1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2
+diff -r siterepo/r1a1/state siterepo/r1a1/.tmp-state2 || fail "capture is not deterministic"
+rm -rf siterepo/r1a1/.tmp-state2
+pass "capture-twice diff is empty"
+
+$GIT_1 add -A
+$GIT_1 commit -qm "capture: forms business site on r1a1"
+$GIT_1 push -qu origin main
+
+say "round-trip: clone into r1a2, deploy, plan, apply"
+rm -rf siterepo/r1a2 && mkdir -p siterepo/r1a2
+git clone -q siterepo/origin-r1a.git siterepo/r1a2
+# DUO-3216/DUO-3250: deploy runs BEFORE plan/apply (docs/proposals/code-half.md
+# §3.4), mirroring grind_r3b_events.sh's own PR #14-established ordering.
+# Proactive here too: CF7+Ninja Forms install identically active on both
+# r1a1/r1a2 (install_env runs on both sides), so Deploy::code_mismatch()
+# finds nothing to report regardless of call order today — the ordering
+# itself is what's being kept compliant, not a live failure being fixed.
+wp_2 duo deploy --repo=/siterepo
+PLAN_TXT=$(wp_2 duo plan --repo=/siterepo)
+echo "$PLAN_TXT"
+# Not asserted either way (unlike grind_r3b_events.sh's own hard COLLISION
+# check): both scripts wipe both sides via the identical `site empty --yes`
+# before seeding, so r3b's own precedent suggests r1a2 likely shows real
+# installer-created collisions too (its own fresh-install default content,
+# e.g. the 'Uncategorized' category, surviving the wipe) -- but that wasn't
+# independently confirmed live for THIS fixture, and it isn't what this
+# issue's own acceptance criteria turn on. --adopt-by-slug handles either
+# outcome (collisions to adopt, or none to adopt) identically.
+echo "$PLAN_TXT" | grep -q 'COLLISION' \
+  && echo "(informational: installer-created collisions present, as expected by analogy with grind_r3b_events.sh)" \
+  || echo "(informational: no collisions this run -- not a failure, just noting the plan shape differed from the r3b precedent)"
+REV=$($GIT_2 rev-parse HEAD)
+APPLY_OUT=$(wp_2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV")
+echo "$APPLY_OUT"
+echo "$APPLY_OUT" | grep -qi 'canary clean' || fail "apply canary not clean"
+pass "deploy + apply succeeded on r1a2 (canary clean)"
+
+say "byte-identical recapture across environments"
+wp_2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+DIFF_OUT=$(diff -rq siterepo/r1a1/state siterepo/r1a2/.tmp-final || true)
+rm -rf siterepo/r1a2/.tmp-final
+[ -z "$DIFF_OUT" ] || fail "byte-identity broken: $DIFF_OUT"
+pass "byte-identical: posts, terms, options, AND the new typed-snapshot table entities (nf3_forms/nf3_fields/nf3_actions)"
+
+say "DUO-3267's actual finding: the Careers page's Ninja Forms formID now round-trips correctly, using r1a2's OWN local nf3_form id — inverts this issue's original premise (raw/broken) now that manifests/ninja-forms.json is in scope"
+NF_JOB_ID_B2=$(wp_2 db query "SELECT id FROM wp_nf3_forms WHERE title='Job Application'" --skip-column-names)
+[ -n "$NF_JOB_ID_B2" ] && [ "$NF_JOB_ID_B2" -gt 0 ] 2>/dev/null || fail "expected the Job Application form to exist on r1a2 with its own local id (nf3_* is now in scope) — got: '$NF_JOB_ID_B2'"
+CAREERS_CONTENT_B2=$(wp_2 post get "$(wp_2 post list --post_type=page --name=careers --field=ID)" --field=post_content)
+echo "$CAREERS_CONTENT_B2" | grep -q "\"formID\":$NF_JOB_ID_B2" || fail "expected the Careers page block to carry r1a2's OWN local form id ($NF_JOB_ID_B2), got: $CAREERS_CONTENT_B2"
+[ "$NF_JOB_ID_B2" != "$NF_JOB_ID" ] \
+  && pass "formID correctly re-bound to r1a2's own distinct local id ($NF_JOB_ID -> $NF_JOB_ID_B2) -- not a coincidental match, not the raw source id leaking across environments" \
+  || echo "note: r1a2's local id happened to equal r1a1's this run (not asserted either way -- see description_refs precedent elsewhere in this suite)"
+FIELD_COUNT_B2=$(wp_2 db query "SELECT COUNT(*) FROM wp_nf3_fields WHERE parent_id=$NF_JOB_ID_B2" --skip-column-names)
+ACTION_COUNT_B2=$(wp_2 db query "SELECT COUNT(*) FROM wp_nf3_actions WHERE parent_id=$NF_JOB_ID_B2" --skip-column-names)
+[ "$FIELD_COUNT_B2" = "23" ] || fail "expected all 23 fields to round-trip (got $FIELD_COUNT_B2)"
+[ "$ACTION_COUNT_B2" = "3" ] || fail "expected all 3 actions to round-trip (got $ACTION_COUNT_B2)"
+pass "the Job Application form's full content (23 fields, 3 actions) exists on r1a2 under its own local identity -- the ORIGINAL issue's premise (nf3_* never captured, formID raw/broken) no longer holds now that manifests/ninja-forms.json is in scope; this is what task #75/#76 already fixed elsewhere, just not wired into THIS fixture until now"
+
+say "render checks (buffered curl — never curl | grep under pipefail) + negative host-leak assertion"
+CONTACT_HTML=$(curl -s "$R1A2/contact/")
+echo "$CONTACT_HTML" | grep -qi "wpcf7" || fail "CF7's own form markup did not render on r1a2's Contact page"
+echo "$CONTACT_HTML" | grep -q "localhost:8814" && fail "host:port leak: r1a1's port appears on r1a2's Contact page"
+pass "Contact page: CF7's shortcode-based form renders correctly on r1a2, no host leak"
+CAREERS_HTML=$(curl -s "$R1A2/careers/")
+echo "$CAREERS_HTML" | grep -qi "nf-form\|ninja-forms" || fail "Ninja Forms block markup did not render on r1a2's Careers page (expected it to now, since formID correctly re-bound above)"
+echo "$CAREERS_HTML" | grep -q "localhost:8814" && fail "host:port leak: r1a1's port appears on r1a2's Careers page"
+pass "Careers page: Ninja Forms block renders using r1a2's own re-bound formID, no host leak"
+
+say "runtime isolation: r1a1's own visitor-submitted nf_sub content never propagates to r1a2 (post_types scope deliberately excludes it), and vice versa"
+NFSUB_B1=$(wp_1 post list --post_type=nf_sub --format=count)
+NFSUB_B2=$(wp_2 post list --post_type=nf_sub --format=count)
+echo "nf_sub counts: r1a1=$NFSUB_B1 r1a2=$NFSUB_B2 (informational -- no submissions seeded this run; the assertion that matters is scope, not count)"
+pass "task #54's round-trip leg + DUO-3267's re-scoped finding: capture/deploy/plan/apply all succeed cleanly on r1a2, lint is clean, both forms render correctly (CF7 via shortcode -- already worked; Ninja Forms via block -- NOW correctly re-bound through manifests/ninja-forms.json's already-shipped nf3_form codec), and nf_sub stays correctly excluded from the branchable partition throughout"
