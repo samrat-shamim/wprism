@@ -7,15 +7,15 @@
 # backed by real evidence at ITS OWN edges, not just the one version every
 # other fixture happens to exercise.
 #
-# First four real plugins: ACF, Contact Form 7, Elementor, and Ninja Forms.
-# ACF proved the artifact-sourcing mechanism itself; the others prove the matrix
+# First five real plugins: ACF, Contact Form 7, Elementor, Ninja Forms, and
+# Polylang. ACF proved the artifact-sourcing mechanism itself; the others prove the matrix
 # accepts genuinely different plugin content shapes rather than replaying one
-# ACF fixture. The other three pinned manifests remain separately
+# ACF fixture. The other two pinned manifests remain separately
 # scope-accounted on DUO-3223.
 #
 # For EACH boundary version (ACF 6.0.0/6.8.7; CF7 6.0.1/6.1.6; Elementor
-# 4.0.0/4.2.2; Ninja Forms 3.4.34.2/3.14.11 — all real wp.org releases, confirmed
-# against the plugin-info API, never invented): fresh state, install ONLY from
+# 4.0.0/4.2.2; Ninja Forms 3.4.34.2/3.14.11; Polylang 3.5/3.8.6 — all real
+# wp.org releases, confirmed against the plugin-info API, never invented): fresh state, install ONLY from
 # a digest-verified artifact (never a bare slug install that silently pulls
 # current), seed real plugin content through that plugin's own API, capture,
 # round-trip deploy/apply, and byte-identical recapture. A failure at either
@@ -197,6 +197,29 @@ echo \$form->get_setting('title') . '|' . count(Ninja_Forms()->form($form_id)->g
   pass "side 2 renders the real Job Application and Ninja Forms' model API resolves 23 fields and 3 actions"
 }
 
+seed_polylang_content() {
+  # Reuse the standalone fixture verbatim: two languages, translated post
+  # and category pairs, plus deleted fillers that force source/target ids
+  # apart so a stale-id implementation cannot pass by coincidence.
+  wp_conf1() { wp1 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  . conformance/seeds/polylang.sh
+  unset -f wp_conf1
+}
+
+check_polylang_content() {
+  # The standalone check uses Polylang's public lookup APIs, raw serialized
+  # relationship bytes, a target recapture, and a real frontend request.
+  wp_conf1() { wp1 "$@"; }
+  wp_conf2() { wp2 "$@"; }
+  local CONF_REPO2="siterepo/${PAIR}2"
+  local CONF1_PORT="$PORT1"
+  local CONF2_PORT="$PORT2"
+  . conformance/checks/polylang.sh
+  unset -f wp_conf1 wp_conf2
+}
+
 reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # core/theme installed and the site "installed" (unlike `pair.sh reset`,
   # which drops the database entirely and leaves the site UNINSTALLED until
@@ -208,7 +231,7 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   local cli="$1"
   "$cli" site empty --yes >/dev/null
   local plugin
-  for plugin in advanced-custom-fields contact-form-7 elementor ninja-forms; do
+  for plugin in advanced-custom-fields contact-form-7 elementor ninja-forms polylang; do
     "$cli" plugin deactivate "$plugin" >/dev/null 2>&1 || true
     "$cli" plugin delete "$plugin" >/dev/null 2>&1 || true
   done
@@ -224,6 +247,17 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
       WHERE option_name LIKE 'ninja_forms%'
          OR option_name LIKE 'nf_%'
          OR option_name LIKE 'ninja-forms-%';
+  " >/dev/null
+  # Polylang's terms are removed by site empty while the plugin is active,
+  # but authored/runtime options and language-cache transients deliberately
+  # survive uninstall. Delete them so each boundary starts from activation.
+  "$cli" db query "
+    DELETE FROM wp_options
+      WHERE option_name = 'polylang'
+         OR option_name LIKE 'polylang_%'
+         OR option_name LIKE 'widget_polylang%'
+         OR option_name LIKE '%pll_languages_list%'
+         OR option_name LIKE '%pll_activation_redirect%';
   " >/dev/null
   "$cli" db query "TRUNCATE TABLE wp_duo_map" >/dev/null 2>&1 || true
   "$cli" db query "TRUNCATE TABLE wp_duo_state" >/dev/null 2>&1 || true
@@ -512,6 +546,74 @@ EOF
   pass "byte-identical recapture at contact-form-7 $CF7_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
 done
 
+for POLYLANG_VERSION in 3.5 3.8.6; do
+  say "boundary: polylang $POLYLANG_VERSION"
+
+  reset_env wp1
+  reset_env wp2
+  rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
+  git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
+  mkdir -p "siterepo/${PAIR}1"
+
+  say "fetch + verify polylang $POLYLANG_VERSION (never a bare slug install — always a digest-checked artifact)"
+  ARTIFACT_1=$(fetch_artifact polylang "$POLYLANG_VERSION" cli1)
+  ARTIFACT_2=$(fetch_artifact polylang "$POLYLANG_VERSION" cli2)
+  pass "verified sha256-pinned artifact resolved for both sides: $ARTIFACT_1"
+
+  wp1 plugin install "$ARTIFACT_1" --activate >/dev/null
+  INSTALLED_1=$(wp1 plugin get polylang --field=version)
+  [ "$INSTALLED_1" = "$POLYLANG_VERSION" ] || fail "side 1 installed version mismatch: expected $POLYLANG_VERSION, got $INSTALLED_1"
+  pass "side 1: polylang $POLYLANG_VERSION installed from verified artifact, active"
+
+  cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
+{
+  "manifests": ["core", "polylang"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag", "language", "term_language", "term_translations", "post_translations"]
+  },
+  "spec_version": 2
+}
+EOF
+  cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+  "${GIT1[@]}" init -q -b main
+  "${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "policy: polylang $POLYLANG_VERSION version-boundary certification"
+  "${GIT1[@]}" push -qu origin main
+
+  seed_polylang_content
+  wp1 duo capture --repo=/siterepo
+  pass "captured on side 1 (polylang $POLYLANG_VERSION)"
+  wp1 duo lint --repo=/siterepo
+  pass "lint: 0 findings"
+
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "capture: polylang $POLYLANG_VERSION content"
+  "${GIT1[@]}" push -q origin main
+
+  git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
+  wp2 plugin install "$ARTIFACT_2" >/dev/null
+  INSTALLED_2=$(wp2 plugin get polylang --field=version)
+  [ "$INSTALLED_2" = "$POLYLANG_VERSION" ] || fail "side 2 installed version mismatch: expected $POLYLANG_VERSION, got $INSTALLED_2"
+
+  wp2 duo deploy --repo=/siterepo
+  REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
+  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at polylang $POLYLANG_VERSION"
+  pass "deploy + apply succeeded on side 2 (polylang $POLYLANG_VERSION, canary clean)"
+
+  check_polylang_content
+
+  wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
+  DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
+  rm -rf "siterepo/${PAIR}2/.tmp-final"
+  [ -z "$DIFF_OUT" ] || fail "byte-identity broken at polylang $POLYLANG_VERSION: $DIFF_OUT"
+  pass "byte-identical recapture at polylang $POLYLANG_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
+done
+
 # Team-lead's own requirement: the loop above proves every IN-RANGE boundary
 # certifies — it does not by itself prove the pin is honest, i.e. that an
 # OUT-OF-range version is actually refused rather than silently accepted.
@@ -728,6 +830,60 @@ grep -q "ninja-forms/ninja-forms.php" <<<"$DEPLOY_OUT" || fail "refusal did not 
 grep -q "3.3.21.4" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: ninja-forms 3.3.21.4 (real, installed, genuinely below the corrected min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
+
+say "negative control: polylang 3.4.5 (real wp.org release, genuinely below manifests/polylang.json's corrected min 3.5) must be REFUSED, not silently accepted"
+reset_env wp1
+rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
+git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
+mkdir -p "siterepo/${PAIR}1"
+
+# Build valid canonical state at the certified upper boundary, then replace
+# only the installed plugin bytes. The refusal therefore proves the version
+# gate against a real Polylang state tree rather than an empty repository.
+IN_RANGE_ARTIFACT=$(fetch_artifact polylang 3.8.6 cli1)
+wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "polylang"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag", "language", "term_language", "term_translations", "post_translations"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: polylang negative-control pin"
+"${GIT1[@]}" push -qu origin main
+seed_polylang_content
+wp1 duo capture --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: valid Polylang state for negative control"
+"${GIT1[@]}" push -q origin main
+
+wp1 plugin deactivate polylang >/dev/null
+wp1 plugin delete polylang >/dev/null
+OUT_OF_RANGE_ARTIFACT=$(fetch_artifact polylang 3.4.5 cli1)
+wp1 plugin install "$OUT_OF_RANGE_ARTIFACT" >/dev/null
+INSTALLED_OOR=$(wp1 plugin get polylang --field=version)
+[ "$INSTALLED_OOR" = "3.4.5" ] || fail "negative control: expected polylang 3.4.5 installed, got $INSTALLED_OOR"
+
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse polylang 3.4.5 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
+  || fail "deploy refused, but not for the expected outside_version_range reason (got: $DEPLOY_OUT)"
+grep -q "polylang/polylang.php" <<<"$DEPLOY_OUT" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
+grep -q "3.4.5" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
+printf '%s\n' "$DEPLOY_OUT"
+pass "confirmed: polylang 3.4.5 (real, installed, genuinely below the corrected 3.5 min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
 
 say "cleanup"
 bash bin/pair.sh destroy "$PAIR"

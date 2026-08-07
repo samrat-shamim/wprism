@@ -54,5 +54,19 @@
       "url": "https://downloads.wordpress.org/plugin/ninja-forms.3.14.11.zip",
       "sha256": "82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73"
     }
+  },
+  "polylang": {
+    "3.4.5": {
+      "url": "https://downloads.wordpress.org/plugin/polylang.3.4.5.zip",
+      "sha256": "adf4ac84fe0f10a326a7e6cad9453075bfe02eb99286f9c8f57259787914c9ab"
+    },
+    "3.5": {
+      "url": "https://downloads.wordpress.org/plugin/polylang.3.5.zip",
+      "sha256": "3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1"
+    },
+    "3.8.6": {
+      "url": "https://downloads.wordpress.org/plugin/polylang.3.8.6.zip",
+      "sha256": "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa"
+    }
   }
 }
