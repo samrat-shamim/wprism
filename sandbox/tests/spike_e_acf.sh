@@ -96,7 +96,7 @@ if [ ! -d siterepo/e1/.git ]; then
   "spec_version": 1
 }
 EOF
-  printf '.tmp*\n' > siterepo/e1/.gitignore
+  cp site-repo.gitignore.template siterepo/e1/.gitignore
   git -C siterepo/e1 init -q -b main
   git -C siterepo/e1 remote add origin ../origin-e.git
 fi

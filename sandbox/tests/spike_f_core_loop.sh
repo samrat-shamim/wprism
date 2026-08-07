@@ -132,7 +132,7 @@ cat > siterepo/f1/site.duo.json <<'EOF'
   "spec_version": 1
 }
 EOF
-printf '.tmp*\n' > siterepo/f1/.gitignore
+cp site-repo.gitignore.template siterepo/f1/.gitignore
 git -C siterepo/f1 init -q -b main
 git -C siterepo/f1 remote add origin ../origin-f.git
 pass "site repo initialized (manifests: [core], no duo-loop-demo policy yet)"

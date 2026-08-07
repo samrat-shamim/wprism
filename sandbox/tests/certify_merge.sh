@@ -145,7 +145,7 @@ cat > siterepo/mergecert1/site.duo.json <<'EOF'
   "spec_version": 1
 }
 EOF
-printf '.tmp*\nstate.capture.lock\n' > siterepo/mergecert1/.gitignore
+cp site-repo.gitignore.template siterepo/mergecert1/.gitignore
 git -C siterepo/mergecert1 init -q -b main
 git -C siterepo/mergecert1 remote add origin ../origin-mergecert.git
 wp1 duo capture --repo=/siterepo

@@ -247,6 +247,23 @@ retroactively apply to anything already running on the legacy
 `docker-compose.yml`, and destroying one of *those* pairs is out of scope
 for whoever manages this redesign — see below.
 
+## Scaffolding a fixture's own site-repo `.gitignore` (DUO-3244)
+
+Every fixture that scaffolds its own throwaway site-repo needs an inner
+`.gitignore` inside it (`siterepo/<pair>N/.gitignore`) — a SEPARATE file
+from the outer duo-wp repo's own `.gitignore`, since the inner one governs
+what git tracks *inside* the nested fixture repo. Copy
+`sandbox/site-repo.gitignore.template` into place (`cp
+site-repo.gitignore.template siterepo/<pair>N/.gitignore`, from `sandbox/`
+as cwd) rather than hand-rolling a `printf`: a narrower, independently
+hand-typed pattern is exactly what caused DUO-3244 (missing
+`state.capture.lock` — agent/src/Publish.php's capture-lock artifact,
+DUO-3213 — hit a real, structural "local changes would be overwritten by
+merge" failure the first time a test captured on both sides of a pair
+before a `git pull` on the second side). If the pattern this template
+covers ever needs to change, change it once, there, not across every
+fixture's own copy.
+
 ## What stays on the legacy `sandbox/docker-compose.yml` this round
 
 Untouched, on purpose: the mega-compose file itself, every pair it defines

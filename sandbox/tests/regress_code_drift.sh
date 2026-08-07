@@ -82,7 +82,7 @@ cat > siterepo/codedrift1/site.duo.json <<'EOF'
   "spec_version": 1
 }
 EOF
-printf '.tmp*\n' > siterepo/codedrift1/.gitignore
+cp site-repo.gitignore.template siterepo/codedrift1/.gitignore
 
 say "PART 1 — capture: must record a code_versions baseline (Deploy::record_code_versions())"
 wp1 duo capture --repo=/siterepo

@@ -80,7 +80,7 @@ if [ ! -d siterepo/a/.git ]; then
   "spec_version": 1
 }
 EOF
-  printf '.tmp*\n' > siterepo/a/.gitignore
+  cp site-repo.gitignore.template siterepo/a/.gitignore
   git -C siterepo/a add -A
   git -C siterepo/a -c user.name=duo -c user.email=duo@example.test commit -qm "init site repo"
   git -C siterepo/a push -qu origin main

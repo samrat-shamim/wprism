@@ -90,7 +90,7 @@ cat > siterepo/certmatrix1/site.duo.json <<'EOF'
   "spec_version": 1
 }
 EOF
-printf '.tmp*\nstate.capture.lock\n' > siterepo/certmatrix1/.gitignore
+cp site-repo.gitignore.template siterepo/certmatrix1/.gitignore
 git -C siterepo/certmatrix1 init -q -b main
 git -C siterepo/certmatrix1 remote add origin ../origin-certmatrix.git
 wp1 duo capture --repo=/siterepo

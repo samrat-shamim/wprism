@@ -261,7 +261,7 @@ echo "$ENTRY" | jq '{
   policy: {options: {}, post_meta: {}, post_types: .post_types, taxonomies: .taxonomies},
   spec_version: 1
 }' > "$R1"/site.duo.json
-printf '.tmp*\n' > "$R1"/.gitignore
+cp site-repo.gitignore.template "$R1"/.gitignore
 git -C "$R1" init -q -b main
 git -C "$R1" remote add origin "../origin-${CONF_PAIR}.git"
 
