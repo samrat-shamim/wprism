@@ -59,24 +59,18 @@ namespace Duo;
  *     that.
  *
  *   unrewritten_registered_ref — the mirror image of unregistered_block_attr
- *     above: a block attribute path IS declared in the block_attrs registry
- *     (a ref rule — "kind" or "kind_from", never a "lint_ok" declaration,
- *     never a "tokenize":"text" string rule) but its captured value is
- *     still numeric (scalar, or an array element) instead of a "{{...}}"
- *     token. unregistered_block_attr fires when NO rule exists for a path;
- *     this fires when a rule DOES exist and the rewrite it promises still
- *     visibly didn't happen — Blocks::walk()'s id_to_token() came back
- *     unmapped/dangling, or (for a "kind_from"-dispatched rule) the sibling
- *     attribute resolved to no kind and Blocks.php deliberately left the
- *     value untouched (see its resolve_kind() docblock) — fires regardless
- *     of whether the number currently resolves to a live entity, same as
- *     unregistered_block_attr: the danger is the declared rewrite not
- *     having run, not today's coincidence. Before this class existed,
- *     scan_blocks() exempted every registered path unconditionally, so a
- *     declared ref whose rewrite silently failed was invisible to lint —
- *     exactly the "declared ref, failed rewrite" gap this file's own
- *     opening paragraph describes byte-identical round-tripping as unable
- *     to catch.
+ *     above: a path IS declared as a ref (block_attrs, json_refs, or a
+ *     schema-owned menu ref) but its captured value is still numeric instead
+ *     of a "{{...}}" token. Fires regardless of whether the number currently
+ *     resolves to a live entity: the danger is the declared rewrite not
+ *     having run, not today's coincidence. Structured json_refs paths are
+ *     resolved with JsonRefs itself, so ref-bearing leaf keys need not look
+ *     id-shaped (Polylang's language-slug-keyed nav_menus shape). Before this
+ *     class existed, registered block paths were exempted unconditionally;
+ *     before DUO-3241, structured paths still depended on the fallback key-
+ *     name heuristic. Both made a declared ref whose rewrite failed invisible
+ *     to lint — exactly the "declared ref, failed rewrite" gap byte-identical
+ *     round-tripping cannot catch.
  *
  *   serialized_desc_ids — a term's `description` that unserializes (PHP
  *     serialize format) to data containing an integer matching an existing
@@ -172,7 +166,9 @@ final class Lint {
                 continue;
             }
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                self::scan_structured_bare_ids($value, $rel, 'meta.' . $key, $findings);
+                self::scan_structured_bare_ids(
+                    $value, $rel, 'meta.' . $key, $findings, (array) ($rule['json_refs'] ?? [])
+                );
                 continue;
             }
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
@@ -244,7 +240,9 @@ final class Lint {
                 }
                 $locator = $prefix . '.meta.' . $key;
                 if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                    self::scan_structured_bare_ids($value, $rel, $locator, $findings);
+                    self::scan_structured_bare_ids(
+                        $value, $rel, $locator, $findings, (array) ($rule['json_refs'] ?? [])
+                    );
                     continue;
                 }
                 foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
@@ -286,7 +284,9 @@ final class Lint {
                 continue; // human-reviewed declaration: numeric but genuinely not a ref
             }
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                self::scan_structured_bare_ids($value, $rel, 'meta.' . $key, $findings);
+                self::scan_structured_bare_ids(
+                    $value, $rel, 'meta.' . $key, $findings, (array) ($rule['json_refs'] ?? [])
+                );
                 continue; // structured value: the deep scan above supersedes the shallow one below
             }
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
@@ -331,14 +331,17 @@ final class Lint {
      * declaration must make its OWN paths lint-clean while the linter keeps
      * catching everything the declaration doesn't cover).
      *
-     * Safe to recurse everywhere without separately re-deriving which exact
-     * locators a declared path covers: Tokens::struct_capture() guarantees
-     * a resolved json_refs match is a token STRING (starts "{{") and an
-     * unmapped one is null — either way, never still a raw number — by the
-     * time captured state is read. So anything found HERE that is still a
-     * bare int is, by construction, something no declared path touched.
+     * Declared json_refs positions are walked with JsonRefs itself — the
+     * same path engine capture uses — and a raw numeric survivor at one of
+     * those exact positions is an unrewritten_registered_ref regardless of
+     * its key's spelling or whether the id resolves on this environment.
+     * This covers shapes such as Polylang nav_menus[theme][location][lang],
+     * whose ref-bearing leaf keys are language slugs rather than id-shaped
+     * names. Everything outside a declared position keeps the deliberately
+     * low-noise key-name heuristic below.
      *
-     * Scoped to id-shaped KEY NAMES (looks_like_id_key() below — a sibling
+     * The undeclared-position fallback is scoped to id-shaped KEY NAMES
+     * (looks_like_id_key() below — a sibling
      * of unregistered_block_attr's looks_like_id_attr(), NOT a reuse; see
      * that method's docblock for why) rather than flagging every numeric
      * leaf — a blind full recursion would flood on
@@ -357,7 +360,60 @@ final class Lint {
      * always semantic) are checked, the same list/map distinction
      * JsonRefs::walk() already makes for path resolution.
      */
-    private static function scan_structured_bare_ids($node, string $rel, string $locator, array &$findings): void {
+    private static function scan_structured_bare_ids(
+        $node,
+        string $rel,
+        string $locator,
+        array &$findings,
+        array $jsonRefs = []
+    ): void {
+        $declaredLocators = [];
+        foreach ($jsonRefs as $rule) {
+            $copy = $node;
+            JsonRefs::walk(
+                $copy,
+                JsonRefs::parse_path((string) $rule['path']),
+                function (&$container, $key, string $matchedLocator) use (
+                    &$declaredLocators, &$findings, $rel, $rule
+                ): void {
+                    $declaredLocators[$matchedLocator] = true;
+                    $value = $container[$key];
+                    if (is_array($value)) {
+                        return; // struct_capture() only rewrites scalar matches
+                    }
+                    foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
+                        if ($id <= 0) {
+                            continue; // json_refs' explicit unset convention
+                        }
+                        $hit = Pending::resolve_id($id);
+                        $kind = (string) ($rule['kind'] ?? 'entity');
+                        $findings[] = self::finding(
+                            'unrewritten_registered_ref',
+                            $rel,
+                            $matchedLocator . $locSuffix,
+                            $id,
+                            $hit,
+                            "json_refs path '" . (string) $rule['path'] . "' declares this value as a $kind "
+                                . 'reference, but it is still numeric in captured state — the declared rewrite '
+                                . 'to a {{...}} token never ran. This id is silently environment-bound and will '
+                                . 'point at the wrong entity (or nothing) once ids diverge on another environment.'
+                        );
+                    }
+                },
+                $locator
+            );
+        }
+        self::scan_structured_bare_ids_by_key($node, $rel, $locator, $findings, $declaredLocators);
+    }
+
+    /** Existing undeclared-position heuristic, excluding exact json_refs matches already classified above. */
+    private static function scan_structured_bare_ids_by_key(
+        $node,
+        string $rel,
+        string $locator,
+        array &$findings,
+        array $declaredLocators
+    ): void {
         if (!is_array($node)) {
             return;
         }
@@ -377,7 +433,9 @@ final class Lint {
                         $hit['kind'], $hit['id'], $hit['title'], $hit['post_type']
                     ));
                 }
-            } elseif (is_string($key) && self::looks_like_id_key($key)) {
+            } elseif (is_string($key)
+                && self::looks_like_id_key($key)
+                && !isset($declaredLocators[$childLocator])) {
                 foreach (Pending::numeric_candidates($v) as [$id, $locSuffix]) {
                     $hit = Pending::resolve_id($id);
                     if ($hit === null) {
@@ -394,7 +452,7 @@ final class Lint {
                     ));
                 }
             }
-            self::scan_structured_bare_ids($v, $rel, $childLocator, $findings);
+            self::scan_structured_bare_ids_by_key($v, $rel, $childLocator, $findings, $declaredLocators);
         }
     }
 
@@ -621,7 +679,9 @@ final class Lint {
                 continue;
             }
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                self::scan_structured_bare_ids($value, $rel, 'meta.' . $key, $findings);
+                self::scan_structured_bare_ids(
+                    $value, $rel, 'meta.' . $key, $findings, (array) ($rule['json_refs'] ?? [])
+                );
                 continue;
             }
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
@@ -644,9 +704,17 @@ final class Lint {
         // parallel check: a resolved json_refs match is never still a raw
         // id by this point (it's a token, or null if unmapped), so
         // anything scan_structured_bare_ids() finds inside this structure
-        // is, by construction, a genuine gap the "$.*" path didn't cover.
-        if ($policy->description_refs_for_taxonomy($taxonomy) !== null) {
-            self::scan_structured_bare_ids($desc, $rel, 'description', $findings);
+        // is either a raw survivor at the declared "$.*" path or a genuine
+        // undeclared-position gap elsewhere in the structure.
+        $descriptionRef = $policy->description_refs_for_taxonomy($taxonomy);
+        if ($descriptionRef !== null) {
+            self::scan_structured_bare_ids(
+                $desc,
+                $rel,
+                'description',
+                $findings,
+                [['path' => '$.*', 'kind' => (string) $descriptionRef['kind']]]
+            );
             return;
         }
 
@@ -714,7 +782,9 @@ final class Lint {
                 continue; // human-reviewed declaration: numeric but genuinely not a ref
             }
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                self::scan_structured_bare_ids($value, $rel, 'options.' . $key, $findings);
+                self::scan_structured_bare_ids(
+                    $value, $rel, 'options.' . $key, $findings, (array) ($rule['json_refs'] ?? [])
+                );
                 continue; // structured value: the deep scan above supersedes the shallow one below
             }
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
@@ -745,7 +815,9 @@ final class Lint {
                 continue;
             }
             if (!empty($subRule['json_refs']) || !empty($subRule['key_refs'])) {
-                self::scan_structured_bare_ids($subVal, $rel, $locator, $findings);
+                self::scan_structured_bare_ids(
+                    $subVal, $rel, $locator, $findings, (array) ($subRule['json_refs'] ?? [])
+                );
                 continue;
             }
             foreach (Pending::numeric_candidates($subVal) as [$id, $locSuffix]) {

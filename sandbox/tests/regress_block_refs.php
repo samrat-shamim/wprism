@@ -11,6 +11,9 @@
  *  - agent/src/Lint.php's scan_tree(): menu files used to be skipped
  *    entirely. Menu item refs and plugin-owned meta are now scanned with
  *    their schema/policy-specific semantics.
+ *  - agent/src/Lint.php's structured scan: numeric survivors at an exact
+ *    json_refs path are caught even when the leaf key is a language slug,
+ *    as in Polylang's nav_menus[theme][location][lang] shape.
  *  - agent/src/Blocks.php's walk(): an unmapped/dangling block ref used to
  *    keep the raw env-local id (`?? (int) $v`) instead of dropping it, the
  *    way options/post_meta refs already do (spec/repo-format.md "Dangling
@@ -165,9 +168,11 @@ $GLOBALS['wpdb'] = $wpdb;
 // ----------------------------------------------------------- engine + fixtures
 
 require __DIR__ . '/../../agent/src/Canon.php';
+require __DIR__ . '/../../agent/src/OptionState.php';
 require __DIR__ . '/../../agent/src/Policy.php';
 require __DIR__ . '/../../agent/src/Ledger.php';
 require __DIR__ . '/../../agent/src/Pending.php';
+require __DIR__ . '/../../agent/src/JsonRefs.php';
 require __DIR__ . '/../../agent/src/Tokens.php';
 require __DIR__ . '/../../agent/src/Blocks.php';
 require __DIR__ . '/../../agent/src/Lint.php';
@@ -192,6 +197,7 @@ use Duo\Policy;
 use Duo\Tokens;
 use Duo\Blocks;
 use Duo\Lint;
+use Duo\OptionState;
 
 const MAPPED_UUID = '01980000-0001-7000-8000-000000000001';
 const MAPPED_ID = 501;
@@ -231,6 +237,17 @@ $policy->manifests = [[
             'json_refs' => [['kind' => 'post', 'path' => '$.owner_id']],
         ],
         'menu_direct_ref' => ['class' => 'authored', 'ref' => 'post'],
+    ],
+    'options' => [
+        'polylang' => [
+            'class' => 'env',
+            'sub_keys' => [
+                'nav_menus' => [
+                    'class' => 'authored',
+                    'json_refs' => [['kind' => 'term', 'path' => '$.*.*.*']],
+                ],
+            ],
+        ],
     ],
 ]];
 $tokens = new Tokens();
@@ -500,6 +517,22 @@ Canon::write_file($stateDir . '/' . $menuRel, Canon::encode([
     ],
 ]));
 
+// S1 -- exact json_refs match under a NON-id-shaped leaf key. The old deep
+// scanner only recognized owner_id/related_id-style names and therefore
+// missed this real Polylang shape completely.
+Canon::write_file($stateDir . '/options/core.json', Canon::encode(OptionState::document([
+    'polylang' => OptionState::present([
+        'nav_menus' => [
+            'twentytwentyone' => [
+                'primary' => [
+                    'en' => '{{term:01980000-0004-7000-8000-000000000001}}',
+                    'de' => 999,
+                ],
+            ],
+        ],
+    ], 'yes'),
+])));
+
 $findings = Lint::scan_tree($stateDir, $policy);
 $byPath = [];
 foreach ($findings as $f) {
@@ -567,7 +600,22 @@ check(
     'M7: canonical direct/structured menu-meta refs stay lint-clean'
 );
 
-check(count($findings) === 7, 'sanity: exactly 7 findings total across block and menu fixtures -- got ' . count($findings) . ': ' . json_encode(array_column($findings, 'class')));
+$optionFindings = $byPath['options/core.json'] ?? [];
+check(count($optionFindings) === 1, 'S1: Polylang-shaped option -> exactly one numeric survivor finding (got ' . count($optionFindings) . ': ' . json_encode($optionFindings) . ')');
+if (count($optionFindings) === 1) {
+    check(
+        $optionFindings[0]['class'] === 'unrewritten_registered_ref',
+        'S2: declared json_refs survivor uses unrewritten_registered_ref (got: ' . $optionFindings[0]['class'] . ')'
+    );
+    check(
+        $optionFindings[0]['locator'] === 'options.polylang.nav_menus.twentytwentyone.primary.de',
+        'S3: locator reaches the non-id-shaped language slug exactly (got: ' . $optionFindings[0]['locator'] . ')'
+    );
+    check($optionFindings[0]['value'] === 999, 'S4: finding retains raw numeric survivor 999');
+    check(!isset($optionFindings[0]['matches']), 'S5: declared-path survivor fires even when the id does not resolve live');
+}
+
+check(count($findings) === 8, 'sanity: exactly 8 findings total across block, menu, and option fixtures -- got ' . count($findings) . ': ' . json_encode(array_column($findings, 'class')));
 
 // ======================================================================
 echo "\n";
