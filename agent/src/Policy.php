@@ -23,7 +23,12 @@ final class Policy {
      *   user_meta_rule(string $key, array $allMeta): ?array
      *   option_rule(string $name, array $allOptions): ?array
      * Each returns a classification rule (same shape as the corresponding
-     * static meta rule, optionally with 'cast') or null to defer. Manifests opt in via
+     * static meta rule, optionally with 'cast') or null to defer. An option
+     * interpreter may additionally return `deletion_witness: true` when
+     * that exact option value is the minimum context required to classify
+     * related tombstones from an immutable tree; OptionState binds the
+     * retained value/autoload to the prior record hash and apply never
+     * treats it as desired data. Manifests opt in via
      * {"interpreter": "<name>"} — for schema-driven plugins (ACF) whose meta
      * semantics live in data, not in a static key list. option_rule() (DUO-3263)
      * is consulted only for an option NAME already namespace-owned by some
@@ -947,13 +952,11 @@ final class Policy {
      * pattern rule (ACF options-page fields: arbitrary field names, ref kind
      * determined by a shadow-key-pointed schema, exactly like post/term meta
      * — see manifests/interpreters/acf.php's option_rule()). $allOptions is
-     * the full option_name => raw option_value map (mirroring $allMeta's
+     * the full option-name classification context (mirroring $allMeta's
      * "owning scope, shadow keys and all" shape) — options have no single
-     * owning entity to scope the map to, so callers pass every option Duo
-     * can see (live wp_options during capture, the repository's own
-     * OptionState::records() during repository-side authorization/
-     * compilation — see Capture::all_options_map() and
-     * RepositoryAuthorization/RepositoryCompiler's own construction).
+     * owning entity to scope the map to. Live capture passes raw wp_options
+     * values; immutable-tree callers pass OptionState::classification_values(),
+     * which adds only valid v2 witness context to ordinary present values.
      *
      * Routes through option_rule_details_for_option() rather than the plain
      * meta_rule_for_interpreter_hook() every other meta_rule_for_*() uses —

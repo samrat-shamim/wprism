@@ -22,8 +22,8 @@
 #   end-to-end below: capture -> apply -> cross-environment round-trip ->
 #   recapture byte-identical, the same depth as the options arm.
 #
-# OPTIONS-PAGE ARM (end-to-end, no wire-format dependency — options already
-#   have a full v1 format): ACF's acf_add_options_page() (the admin-UI
+# OPTIONS-PAGE ARM (end-to-end — options have an explicit versioned record
+#   format): ACF's acf_add_options_page() (the admin-UI
 #   registration convenience) does not exist in the free plugin at all
 #   (confirmed by reading the installed plugin source: no options-page-
 #   functions file, only a PRO upsell preview) — but the underlying value
@@ -39,32 +39,31 @@
 #   Policy::meta_rule_for_option()) makes these fields classify, capture,
 #   apply like any other authored option. Proven end-to-end for the PRESENT
 #   state: pending -> capture -> apply -> cross-environment round-trip ->
-#   recapture byte-identical. Deletion is a KNOWN, NAMED LIMITATION, proven
-#   here as a safe (loud, blocking) failure rather than claimed as working:
-#   ACF removes the value AND its shadow pointer atomically, so once BOTH
-#   are gone from live data, the classification can only be reconstructed
-#   from $previousDocument at CAPTURE time (which Capture.php's own
-#   deletion-reconciliation loop does correctly) — but capture's own
-#   post-write consistency pass (RepositoryCompiler -> RepositoryAuthorization)
-#   re-derives every record from the FRESH document alone, by design (a
-#   repository's authorization must hold for a commit checked out cold, not
-#   just the one just captured with history still in memory), and with both
-#   halves of the shadow pair gone there is nothing left to re-derive from.
-#   Net effect: capture of this exact deletion pattern currently fails
-#   closed and loud, not silently. Filed as a follow-up (see the DUO-3263 PR
-#   body's own scope note) rather than engineered around here.
+#   recapture byte-identical. DUO-3279 closes the deletion arm too: when ACF
+#   atomically removes the value and shadow rows, the v2 option tombstone for
+#   the shadow retains its prior field-key pointer as a hash-bound
+#   classification witness. The deleted authored value itself is not
+#   retained. RepositoryAuthorization re-runs the current ACF interpreter
+#   against that immutable-tree context, so a separately cloned repository
+#   can authorize and apply both deletes without capture history.
 #
-# Own dedicated pair (asub3263 — this issue's own name, never reusing the
-# asub3222*/asub3266/asub3275 namespaces from earlier issues), destroyed
-# unconditionally on exit via trap.
+# Dedicated pair, destroyed unconditionally on exit. The historical default
+# remains asub3263 for CI; distributed agents must supply their own PAIR and
+# explicit ports so this regression never resets another actor's sandbox.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-PAIR=asub3263
-PORT1=8970
-PORT2=8971
-export DUO_PAIR="$PAIR"
+PAIR="${PAIR:-asub3263}"
+[[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] \
+  || { echo "FAIL: PAIR '$PAIR' invalid (pair.sh naming: lowercase letters/digits, letter first)" >&2; exit 1; }
+if [ "$PAIR" != "asub3263" ] && { [ -z "${PORT1:-}" ] || [ -z "${PORT2:-}" ]; }; then
+  echo "FAIL: custom PAIR '$PAIR' requires explicit PORT1 and PORT2" >&2
+  exit 1
+fi
+PORT1="${PORT1:-8970}"
+PORT2="${PORT2:-8971}"
+export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
 COMPOSE=(docker compose -p "duo-${PAIR}" -f sandbox/pair.yml)
 SITE1="$REPO_ROOT/sandbox/siterepo/${PAIR}1"
 SITE2="$REPO_ROOT/sandbox/siterepo/${PAIR}2"
@@ -250,7 +249,7 @@ LOGO_ATT_ID=$(echo "$OPT_OUT" | grep -o 'logo_att_id=[0-9]*' | cut -d= -f2)
 [ -n "$LOGO_ATT_ID" ] || fail "options seed did not report logo_att_id"
 pass "(B) options-page tagline + logo set via update_field(...,'option') -- the free-plugin storage path, no acf_add_options_page() involved"
 
-say "(B1) capture succeeds end-to-end (no wire-format dependency for options); the ref field resolves to a real {{post:<uuid>}} token"
+say "(B1) present-state capture succeeds end-to-end; the ref field resolves to a real {{post:<uuid>}} token"
 wp1 duo capture --repo=/siterepo --format=json >/dev/null || fail "capture failed for the options-page arm"
 OPTIONS_FILE=$(find "$SITE1/state/options" -name '*.json' | head -1)
 [ -n "$OPTIONS_FILE" ] || fail "no options file captured"
@@ -321,36 +320,41 @@ print(json.dumps({k: v for k, v in d.items() if k in ('options_duo3263_tagline',
 ") || fail "recaptured tagline/shadow records differ between env1 and env2 (not a clean round trip)"
 pass "(B3) recaptured env2 tagline + shadow records are byte-identical to env1's original capture"
 
-say "(B4) deletion: delete_field() the tagline on env1 -- KNOWN, NAMED LIMITATION under test, not a claimed success"
-# ACF's delete_field(...,'option') removes BOTH the value AND shadow rows
-# atomically (empirically confirmed earlier this session). Capture.php's own
-# deletion-reconciliation loop correctly re-derives BOTH as 'authored' via
-# its OptionState::values($previousDocument) fallback and writes real
-# 'deleted' tombstones for both -- that half works. But capture's own
-# post-write consistency pass (RepositoryCompiler::compile() ->
-# RepositoryAuthorization::assert_tree() -> authorize_options()) then
-# re-derives classification for EVERY record in the FRESH document it just
-# produced, independent of $previousDocument (authorization is deliberately
-# a property of one immutable tree, not a diff against history -- it has to
-# hold for a commit checked out cold, not just the one just captured with
-# $previousDocument still in memory). With BOTH options_<name> and its
-# _options_<name> shadow now 'deleted' in the SAME document, there is no
-# live OR document-resident shadow pointer left for option_rule() to
-# resolve either name from -- a genuine mutual dependency, not a bug in the
-# fallback itself. Net effect: capturing this SPECIFIC deletion pattern
-# currently fails CLOSED and LOUD (not silent data loss, not a wrong value)
-# at the very next capture. Filed as a named follow-up rather than papered
-# over; see the DUO-3263 PR body's own scope note.
+say "(B4) deletion: delete_field() removes both source rows; capture emits self-classifiable tombstones"
 wp1 eval "delete_field('field_duo3263_tagline', 'option');" >/dev/null || fail "delete_field failed on env1"
 STILL_THERE=$(wp1 eval 'echo get_option("options_duo3263_tagline", "GONE");')
 [ "$STILL_THERE" = "GONE" ] || fail "delete_field did not actually remove the live option (test setup problem, not the fix under test)"
-if OUT=$(wp1 duo capture --repo=/siterepo --format=json 2>&1); then
-  fail "capture unexpectedly SUCCEEDED after the deletion -- if this changed, the known limitation below may be fixed; update this test to assert the new (better) behavior instead of the refusal: $OUT"
-fi
-echo "$OUT" | grep -q "repository_option_delete_not_authored" \
-  || fail "capture refused, but not with the expected repository_option_delete_not_authored finding (got: $OUT)"
-echo "$OUT" | grep -q "options_duo3263_tagline" || fail "refusal did not name the affected option (got: $OUT)"
-pass "(B4) deleting an ACF options-page value fails CLOSED at the next capture, loud and named -- not silent data loss, not a wrong value applied anywhere. This is the known, documented limitation (mutual shadow-pointer dependency when both rows are simultaneously gone), not a claimed round-trip."
+SHADOW_STILL_THERE=$(wp1 eval 'echo get_option("_options_duo3263_tagline", "GONE");')
+[ "$SHADOW_STILL_THERE" = "GONE" ] || fail "delete_field did not remove the live shadow option"
+wp1 duo capture --repo=/siterepo --format=json >/dev/null || fail "capture refused the ACF options-page deletion"
+python3 -c "
+import json
+d = json.load(open('$OPTIONS_FILE'))
+assert d['format'] == 'duo-options/v2', d['format']
+recs = d['records']
+value = recs['options_duo3263_tagline']
+shadow = recs['_options_duo3263_tagline']
+assert value['state'] == 'deleted' and 'classification_witness' not in value, value
+assert shadow['state'] == 'deleted', shadow
+assert shadow['classification_witness']['value'] == 'field_duo3263_tagline', shadow
+assert shadow['classification_witness']['autoload'] in ('yes','no','auto','on','off','auto-on','auto-off'), shadow
+assert len(value['expected_hash']) == 64 and len(shadow['expected_hash']) == 64
+" || fail "captured ACF deletion tombstones have the wrong v2 witness shape"
+pass "(B4) capture succeeds with two explicit tombstones; only the shadow retains the minimum field-key witness"
+
+say "(B5) commit deletion, clone the repository cold, and apply --with-deletes to independent env2"
+git -C "$SITE1" add state/options/core.json
+git -C "$SITE1" commit -qm "DUO-3279 ACF options-page deletion" >/dev/null
+rm -rf "$SITE2"
+git clone -q --depth 1 "file://$SITE1" "$SITE2" || fail "fresh repository clone for deletion apply failed"
+chmod -R a+rwX "$SITE2"
+wp2 duo apply --repo=/siterepo --with-deletes >/dev/null \
+  || fail "fresh-clone apply refused or failed to apply ACF option tombstones"
+ENV2_TAGLINE_AFTER_DELETE=$(wp2 eval 'echo get_option("options_duo3263_tagline", "GONE");')
+ENV2_SHADOW_AFTER_DELETE=$(wp2 eval 'echo get_option("_options_duo3263_tagline", "GONE");')
+[ "$ENV2_TAGLINE_AFTER_DELETE" = "GONE" ] || fail "env2 value row survived --with-deletes"
+[ "$ENV2_SHADOW_AFTER_DELETE" = "GONE" ] || fail "env2 shadow row survived --with-deletes"
+pass "(B5) a depth-1 cold clone with no prior present commit or capture history authorizes the tombstones and deletes both target rows"
 
 say "(regression) a genuinely unrelated, no-manifest-declares-it WordPress-internal option does not leak into captured state"
 # NOT siteurl/blogname -- those are legitimately captured (manifests/core.json

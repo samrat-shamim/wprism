@@ -1073,8 +1073,9 @@ final class RepositoryCompiler {
                 // options-page fields) needs the same document-sourced
                 // sibling map meta_rule_for_post() above already gets from
                 // $meta — options have no single owning entity, so this is
-                // every present value in this SAME document, built once.
-                $allOptions = OptionState::values($d);
+                // every present value plus valid v2 deletion witnesses in
+                // this SAME document, built once.
+                $allOptions = OptionState::classification_values($d);
                 foreach (OptionState::records($d) as $name => $record) {
                     if ($record['state'] !== 'present') {
                         continue;

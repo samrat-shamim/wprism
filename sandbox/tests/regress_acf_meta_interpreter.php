@@ -25,6 +25,7 @@
 require __DIR__ . '/../../agent/src/Canon.php';
 require __DIR__ . '/../../agent/src/OptionState.php';
 require __DIR__ . '/../../agent/src/Policy.php';
+require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
 require __DIR__ . '/../../manifests/interpreters/acf.php';
 
 use Duo\Policy;
@@ -118,8 +119,9 @@ check(
     'a plain options-page field resolves to a bare authored value'
 );
 check(
-    $acf2->option_rule('_options_site_tagline', $allOptions) === ['class' => 'authored'],
-    'the options-page shadow pointer itself is a plain authored value'
+    $acf2->option_rule('_options_site_tagline', $allOptions)
+        === ['class' => 'authored', 'deletion_witness' => true],
+    'the options-page shadow pointer is authored and declares its value as deletion-classification context'
 );
 check(
     $acf2->option_rule('options_site_logo', $allOptions) === ['class' => 'authored', 'ref' => 'post', 'cast' => 'string'],
@@ -158,6 +160,109 @@ $policy->prime_interpreters_from_repository([
     fake_field('field_site_tagline', 'text'),
     fake_field('field_site_logo', 'image'),
 ]);
+
+echo "\n== option tombstones: cold-tree classification witness ==\n";
+$priorTagline = \Duo\OptionState::present('Duo makes WordPress branchable.', 'off');
+$priorShadow = \Duo\OptionState::present('field_site_tagline', 'off');
+check(
+    \Duo\OptionState::document(['blogname' => $priorTagline])['format'] === 'duo-options/v1',
+    'ordinary documents stay byte-compatible v1; the format changes only when the new field is used'
+);
+$deletedOptions = \Duo\OptionState::document([
+    'options_site_tagline' => \Duo\OptionState::deleted($priorTagline),
+    '_options_site_tagline' => \Duo\OptionState::deleted($priorShadow, true),
+]);
+$deletionContext = \Duo\OptionState::classification_values($deletedOptions);
+check(
+    $deletedOptions['format'] === 'duo-options/v2'
+        && !isset($deletedOptions['records']['options_site_tagline']['classification_witness'])
+        && ($deletedOptions['records']['_options_site_tagline']['classification_witness']['value'] ?? null)
+            === 'field_site_tagline',
+    'v2 retains only the shadow pointer selected by policy, not the deleted authored field value'
+);
+check(
+    ($policy->meta_rule_for_option('options_site_tagline', $deletionContext)['class'] ?? null) === 'authored'
+        && ($policy->meta_rule_for_option('_options_site_tagline', $deletionContext)['class'] ?? null) === 'authored',
+    'both tombstones re-derive as authored from the fresh document alone'
+);
+$coldTreeAuthorized = true;
+$coldTreeError = '';
+try {
+    $coldPolicy = Policy::load(null, ['acf']);
+    $coldPolicy->site['policy']['post_types'] = ['acf-field'];
+    \Duo\RepositoryAuthorization::assert_tree($coldPolicy, [
+        'field_site_tagline' => fake_field('field_site_tagline', 'text'),
+        'options/core' => [
+            'type' => 'options',
+            'path' => 'options/core.json',
+            'data' => $deletedOptions,
+            'content' => \Duo\Canon::encode($deletedOptions),
+        ],
+    ]);
+} catch (\Throwable $e) {
+    $coldTreeAuthorized = false;
+    $coldTreeError = $e->getMessage();
+}
+check(
+    $coldTreeAuthorized,
+    'RepositoryAuthorization accepts the witnessed ACF pair from one cold immutable tree with no capture history'
+        . ($coldTreeError === '' ? '' : " (got: $coldTreeError)")
+);
+
+$tampered = $deletedOptions;
+$tampered['records']['_options_site_tagline']['classification_witness']['value'] = 'field_site_logo';
+$tamperRefused = false;
+try {
+    \Duo\OptionState::records($tampered);
+} catch (\RuntimeException $e) {
+    $tamperRefused = str_contains($e->getMessage(), 'does not match its expected_hash');
+}
+check($tamperRefused, 'a witness edited independently of its prior-record hash is rejected');
+
+$misversioned = $deletedOptions;
+$misversioned['format'] = 'duo-options/v1';
+$misversionedRefused = false;
+try {
+    \Duo\OptionState::records($misversioned);
+} catch (\RuntimeException $e) {
+    $misversionedRefused = str_contains($e->getMessage(), 'optional v2 classification_witness');
+}
+check($misversionedRefused, 'the new witness is refused under the legacy v1 format tag');
+
+$unrelatedDocument = \Duo\OptionState::document([
+    // Simulate the strongest hand-edit: a syntactically valid, hash-matched
+    // witness on an option no active policy/interpreter owns.
+    'cron' => \Duo\OptionState::deleted(
+        \Duo\OptionState::present('field_site_tagline', 'yes'),
+        true
+    ),
+]);
+$unrelatedTree = [
+    'options/core' => [
+        'type' => 'options',
+        'path' => 'options/core.json',
+        'data' => $unrelatedDocument,
+        'content' => \Duo\Canon::encode($unrelatedDocument),
+    ],
+];
+$unrelatedRefused = false;
+try {
+    $corePolicy = Policy::load(null, ['core']);
+    \Duo\RepositoryAuthorization::assert_tree($corePolicy, $unrelatedTree);
+} catch (\Duo\RepositoryAuthorizationException $e) {
+    $unrelatedRefused = count(array_filter(
+        $e->diagnostics,
+        static fn(array $d): bool => ($d['code'] ?? '') === 'repository_option_delete_not_authored'
+            && ($d['field'] ?? '') === 'cron'
+            && ($d['classification'] ?? '') === 'runtime'
+            && ($d['declared_by'] ?? '') === 'core'
+    )) === 1;
+}
+check(
+    $unrelatedRefused,
+    'even a validly hash-bound witness cannot authorize a tombstone for a non-authored option'
+);
+
 check(
     ($policy->meta_rule_for_option('options_site_tagline', $allOptions)['class'] ?? null) === 'authored',
     'Policy::meta_rule_for_option() dispatches to the real Acf interpreter through the real manifest'
