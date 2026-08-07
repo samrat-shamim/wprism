@@ -248,16 +248,26 @@ $GIT_1 add -A
 $GIT_1 commit -qm "capture: events + memberships site on r3b1"
 $GIT_1 push -q origin main
 
-say "round-trip: clone into r3b2, plan, apply (adopt installer collisions), deploy"
+say "round-trip: clone into r3b2, deploy, plan, apply (adopt installer collisions)"
 git clone -q siterepo/origin-r3b.git siterepo/r3b2
+# DUO-3216/DUO-3250: deploy runs BEFORE plan/apply, matching the documented
+# deploy-before-apply contract (docs/proposals/code-half.md §3.4) and the
+# exact ordering grind_r1b_shop.sh's own PR #14 fix established for this
+# same class of scenario. This reorder is proactive, not reactive to a live
+# failure here: TEC+PMPro install identically active on both r3b1/r3b2
+# (install_plugins runs on both sides), so Deploy::code_mismatch() finds
+# nothing to report regardless of call order today — but the ordering was
+# objectively non-compliant, and a silent landmine for the day this
+# scenario grows a theme-divergence or staggered-activation step the way
+# grind_r1b_shop.sh/grind_r3a_multilingual.sh already have.
+wp2 duo deploy --repo=/siterepo
 PLAN_TXT=$(wp2 duo plan --repo=/siterepo)
 echo "$PLAN_TXT" | grep -q 'COLLISION' || fail "expected installer-created page/post/term collisions in the plan"
 REV=$(git -C siterepo/r3b2 rev-parse HEAD)
 wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" \
   | tee /tmp/r3b_apply1.txt
 grep -q 'canary clean' /tmp/r3b_apply1.txt || fail "apply canary not clean"
-wp2 duo deploy --repo=/siterepo
-pass "apply + deploy succeeded on r3b2 (canary clean)"
+pass "deploy + apply succeeded on r3b2 (canary clean)"
 
 say "byte-identical recapture across environments"
 wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
