@@ -55,6 +55,14 @@ final class Pending {
         foreach ($gate['term_meta'] as $key => $ev) {
             $items[] = self::make_item('term_meta', $key, $ev, $journalTermMeta[$key] ?? null);
         }
+        // DUO-3266: menu items are posts, so their meta rows live in the
+        // SAME wp_postmeta table ordinary post_meta does — the journal
+        // watches at table granularity (tbl = 'postmeta'), so
+        // $journalPostMeta (already computed above) is the correct join
+        // source here too, not a separate query.
+        foreach ($gate['menu_item_meta'] as $key => $ev) {
+            $items[] = self::make_item('menu_item_meta', $key, $ev, $journalPostMeta[$key] ?? null);
+        }
         foreach (Snapshot::keyspace_gaps($policy) as $gap) {
             $items[] = self::make_item('table_meta', $gap['table'] . ':' . $gap['key'], [
                 'entities' => $gap['count'],
@@ -80,7 +88,10 @@ final class Pending {
             'options' => $wpdb->get_var($wpdb->prepare(
                 "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $key
             )),
-            'post_meta' => $wpdb->get_var($wpdb->prepare(
+            // menu_item_meta (DUO-3266) is the SAME wp_postmeta table —
+            // menu items are posts — so it shares this case rather than
+            // duplicating an identical query.
+            'post_meta', 'menu_item_meta' => $wpdb->get_var($wpdb->prepare(
                 "SELECT meta_value FROM {$wpdb->postmeta} WHERE meta_key = %s LIMIT 1", $key
             )),
             'term_meta' => $wpdb->get_var($wpdb->prepare(

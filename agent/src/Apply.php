@@ -1388,37 +1388,7 @@ final class Apply {
         Db::update($wpdb->posts, $fields, ['ID' => $id], null, null, 'apply update post');
 
         // authored meta reconciliation: we own exactly the authored-classified keys
-        $frontMeta = (array) ($front['meta'] ?? []);
-        $desired = [];
-        foreach ($frontMeta as $key => $v) {
-            $rule = $this->policy->meta_rule_for_post($key, $frontMeta) ?? [];
-            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-                $v = $this->encode_structured($v, $rule);
-            } elseif (!empty($rule['ref'])) {
-                $v = $this->tokens->meta_tokens_to_value($v, $rule);
-            } elseif (is_string($v)) {
-                $v = $this->tokens->detokenize_text($v);
-            }
-            $desired[$key] = maybe_serialize($v);
-        }
-        $envMeta = $wpdb->get_results($wpdb->prepare(
-            "SELECT meta_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_id ASC",
-            $id
-        ), ARRAY_A) ?: [];
-        $envFlat = [];
-        foreach ($envMeta as $m) {
-            $envFlat[$m['meta_key']] ??= $m['meta_value'];
-        }
-        foreach ($envMeta as $m) {
-            $rule = $this->policy->meta_rule_for_post($m['meta_key'], $envFlat);
-            if (($rule['class'] ?? '') === 'authored' && !array_key_exists($m['meta_key'], $desired)) {
-                Db::delete($wpdb->postmeta, ['meta_id' => $m['meta_id']], null, 'apply delete authored post meta');
-            }
-        }
-        foreach ($desired as $key => $val) {
-            $this->upsert_meta($wpdb->postmeta, 'post_id', $id, $key, $val);
-        }
+        $this->reconcile_authored_meta($id, (array) ($front['meta'] ?? []), 'post');
 
         // term relationships for owned taxonomies
         if ($front['type'] !== 'attachment') {
@@ -1651,6 +1621,17 @@ final class Apply {
             foreach ($metas as $k => $v) {
                 $this->upsert_meta($wpdb->postmeta, 'post_id', $id, $k, $v);
             }
+
+            // DUO-3266: any OTHER meta a manifest classifies authored on
+            // this item (a plugin's own menu-item field, now captured —
+            // see scope_menus()'s matching capture-side fix) reconciles
+            // through the SAME ownership discipline ordinary posts use.
+            // Never touches the 8 keys just written above: manifests/
+            // core.json classifies them managed/runtime, never authored,
+            // so reconcile_authored_meta()'s own delete-pass (which only
+            // acts on rows policy calls 'authored') can't touch them, and
+            // capture never puts them in item['meta'] either.
+            $this->reconcile_authored_meta($id, (array) ($item['meta'] ?? []), 'menu-item');
         }
 
         // remove env items no longer in the file (menu-scoped ownership)
@@ -1940,6 +1921,56 @@ final class Apply {
             return serialize($value);
         }
         return (string) maybe_serialize($value);
+    }
+
+    /**
+     * DUO-3266: authored postmeta reconciliation for one owner ($id) —
+     * factored out of finalize_post() so a second postmeta owner (menu
+     * items, finalize_menu() below) gets the SAME ownership discipline
+     * instead of a second, drift-prone copy. "We own exactly the
+     * authored-classified keys": every key in $frontMeta is resolved
+     * (ref/json_refs/key_refs/detokenize as its rule declares) and
+     * upserted; any row ALREADY on the target that policy classifies
+     * `authored` but is no longer in $frontMeta is deleted (removed from
+     * policy, or from this owner's captured state, since the last apply);
+     * everything else on the target — non-authored, or a key this owner's
+     * own structural fields already handle bespoke (menu items' 8
+     * `_menu_item_*` keys are classified `managed`/`runtime` in
+     * manifests/core.json, never `authored`, so they never appear here as
+     * either desired or deletable) — is left byte-untouched.
+     */
+    private function reconcile_authored_meta(int $id, array $frontMeta, string $ownerLabel): void {
+        global $wpdb;
+        $desired = [];
+        foreach ($frontMeta as $key => $v) {
+            $rule = $this->policy->meta_rule_for_post($key, $frontMeta) ?? [];
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+                $v = $this->encode_structured($v, $rule);
+            } elseif (!empty($rule['ref'])) {
+                $v = $this->tokens->meta_tokens_to_value($v, $rule);
+            } elseif (is_string($v)) {
+                $v = $this->tokens->detokenize_text($v);
+            }
+            $desired[$key] = maybe_serialize($v);
+        }
+        $envMeta = $wpdb->get_results($wpdb->prepare(
+            "SELECT meta_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_id ASC",
+            $id
+        ), ARRAY_A) ?: [];
+        $envFlat = [];
+        foreach ($envMeta as $m) {
+            $envFlat[$m['meta_key']] ??= $m['meta_value'];
+        }
+        foreach ($envMeta as $m) {
+            $rule = $this->policy->meta_rule_for_post($m['meta_key'], $envFlat);
+            if (($rule['class'] ?? '') === 'authored' && !array_key_exists($m['meta_key'], $desired)) {
+                Db::delete($wpdb->postmeta, ['meta_id' => $m['meta_id']], null, "apply delete authored $ownerLabel meta");
+            }
+        }
+        foreach ($desired as $key => $val) {
+            $this->upsert_meta($wpdb->postmeta, 'post_id', $id, $key, $val);
+        }
     }
 
     /** $value null writes a real SQL NULL — byte-faithful to plugins that store
