@@ -23,9 +23,26 @@ set -euo pipefail
 
 echo "seeding two languages"
 wp_conf1 eval '
+$languages = [
+    ["locale" => "en_US", "slug" => "en", "name" => "English", "rtl" => 0, "term_group" => 0, "flag" => "us"],
+    ["locale" => "fr_FR", "slug" => "fr", "name" => "French", "rtl" => 0, "term_group" => 1, "flag" => "fr"],
+];
 $model = PLL()->model;
-$model->languages->add(["locale" => "en_US", "slug" => "en", "name" => "English"]);
-$model->languages->add(["locale" => "fr_FR", "slug" => "fr", "name" => "French"]);
+if (isset($model->languages)) {
+    foreach ($languages as $args) {
+        $result = $model->languages->add($args);
+        if (is_wp_error($result)) { fwrite(STDERR, $result->get_error_message() . "\n"); exit(1); }
+    }
+} else {
+    // Polylang 3.5 predates Model\Languages. Its settings/wizard uses this
+    // official model class for the same operation.
+    $options =& PLL()->options;
+    $admin_model = new PLL_Admin_Model($options);
+    foreach ($languages as $args) {
+        $result = $admin_model->add_language($args);
+        if (is_wp_error($result)) { fwrite(STDERR, $result->get_error_message() . "\n"); exit(1); }
+    }
+}
 echo "languages added\n";
 '
 

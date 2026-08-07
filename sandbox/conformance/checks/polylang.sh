@@ -43,14 +43,14 @@ echo "ok: post_en's conf1 id ($CONF1_POST_EN_ID) and conf2 id ($POST_EN_ID) genu
 # --- (b) pll_get_post_translations() on conf2, using conf2's OWN local ids ---
 POST_TR=$(wp_conf2 eval "echo json_encode(pll_get_post_translations($POST_EN_ID));")
 echo "pll_get_post_translations($POST_EN_ID) = $POST_TR"
-echo "$POST_TR" | jq -e --argjson en "$POST_EN_ID" --argjson fr "$POST_FR_ID" '.en == $en and .fr == $fr' >/dev/null \
+jq -e --argjson en "$POST_EN_ID" --argjson fr "$POST_FR_ID" '.en == $en and .fr == $fr' <<<"$POST_TR" >/dev/null \
   || { echo "FAIL: pll_get_post_translations($POST_EN_ID) did not return {en:$POST_EN_ID, fr:$POST_FR_ID} — got $POST_TR" >&2; exit 1; }
 echo "ok: pll_get_post_translations() returns the correct pair using conf2-local ids"
 
 # --- (c) pll_get_term_translations() on conf2, using conf2's OWN local ids ---
 TERM_TR=$(wp_conf2 eval "echo json_encode(pll_get_term_translations($NEWS_ID));")
 echo "pll_get_term_translations($NEWS_ID) = $TERM_TR"
-echo "$TERM_TR" | jq -e --argjson en "$NEWS_ID" --argjson fr "$ACT_ID" '.en == $en and .fr == $fr' >/dev/null \
+jq -e --argjson en "$NEWS_ID" --argjson fr "$ACT_ID" '.en == $en and .fr == $fr' <<<"$TERM_TR" >/dev/null \
   || { echo "FAIL: pll_get_term_translations($NEWS_ID) did not return {en:$NEWS_ID, fr:$ACT_ID} — got $TERM_TR" >&2; exit 1; }
 echo "ok: pll_get_term_translations() returns the correct pair using conf2-local ids (capability 1 + 2 proof)"
 
@@ -58,7 +58,7 @@ echo "ok: pll_get_term_translations() returns the correct pair using conf2-local
 # language getter (proves the term_language relationship, not just
 # term_translations).
 TERM_TR_FR=$(wp_conf2 eval "echo json_encode(pll_get_term_translations($ACT_ID));")
-echo "$TERM_TR_FR" | jq -e --argjson en "$NEWS_ID" --argjson fr "$ACT_ID" '.en == $en and .fr == $fr' >/dev/null \
+jq -e --argjson en "$NEWS_ID" --argjson fr "$ACT_ID" '.en == $en and .fr == $fr' <<<"$TERM_TR_FR" >/dev/null \
   || { echo "FAIL: pll_get_term_translations($ACT_ID) did not return the same pair — got $TERM_TR_FR" >&2; exit 1; }
 NEWS_LANG=$(wp_conf2 eval "echo pll_get_term_language($NEWS_ID, 'slug');")
 ACT_LANG=$(wp_conf2 eval "echo pll_get_term_language($ACT_ID, 'slug');")
@@ -85,9 +85,9 @@ POST_EN_FILE=$(find "${CONF_REPO2:-siterepo/conf2}"/.tmp-fabcheck/posts -name '*
 POST_FR_FILE=$(find "${CONF_REPO2:-siterepo/conf2}"/.tmp-fabcheck/posts -name '*conformance-polylang-post-fr*')
 for f in "$POST_EN_FILE" "$POST_FR_FILE"; do
   JSON=$(cat "$f")
-  echo "$JSON" | grep -q '"term_language"' \
+  grep -q '"term_language"' <<<"$JSON" \
     && { echo "FAIL: $f has a fabricated term_language relationship" >&2; exit 1; }
-  echo "$JSON" | grep -q '"term_translations"' \
+  grep -q '"term_translations"' <<<"$JSON" \
     && { echo "FAIL: $f has a fabricated term_translations relationship" >&2; exit 1; }
 done
 rm -rf "${CONF_REPO2:-siterepo/conf2}"/.tmp-fabcheck
@@ -110,9 +110,9 @@ TERM_GROUP_DESC=$(wp_conf2 db query "SELECT description FROM wp_term_taxonomy WH
 echo "post_translations group description: $POST_GROUP_DESC"
 echo "term_translations group description: $TERM_GROUP_DESC"
 for DESC in "$POST_GROUP_DESC" "$TERM_GROUP_DESC"; do
-  echo "$DESC" | grep -qE 's:[0-9]+:"[0-9]+"' \
+  grep -qE 's:[0-9]+:"[0-9]+"' <<<"$DESC" \
     && { echo "FAIL: description has a STRING-typed id (should be PHP int i:N;): $DESC" >&2; exit 1; }
-  echo "$DESC" | grep -qE 'i:[0-9]+;' \
+  grep -qE 'i:[0-9]+;' <<<"$DESC" \
     || { echo "FAIL: description has no int-typed (i:N;) id at all — re-serialize may have dropped/corrupted it: $DESC" >&2; exit 1; }
 done
 # And the exact expected byte-for-byte content, built from conf2's own ids
@@ -131,12 +131,18 @@ echo "ok: re-serialized descriptions are byte-exact PHP serialize() output with 
 
 # --- render/negative host-leak convention (checks/fse.sh's methodology, ---
 # --- extended here to prove ordinary post round-trip wasn't disturbed) ----
-FRONT=$(curl -fs "http://localhost:${CONF2_PORT}/conformance-polylang-post-en/") || { echo "FAIL: conf2 post_en page did not return 200" >&2; exit 1; }
-if grep -q "localhost:${CONF1_PORT}" <<<"$FRONT"; then
+FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/conformance-polylang-post-en/") || { echo "FAIL: conf2 post_en page did not return 200" >&2; exit 1; }
+[ "${#FRONT}" -ge 1000 ] \
+  || { echo "FAIL: conf2 post_en response was suspiciously short (${#FRONT} bytes)" >&2; exit 1; }
+if grep -qiE 'fatal error|uncaught' <<<"$FRONT"; then
+    echo "FAIL: conf2's rendered post_en page contains a PHP fatal error marker" >&2
+    exit 1
+fi
+if grep -qE "localhost:${CONF1_PORT}" <<<"$FRONT"; then
     echo "FAIL: conf2's rendered post_en page links back to conf1 (localhost:${CONF1_PORT})" >&2
     exit 1
 fi
-grep -q 'Conformance content (English)' <<<"$FRONT" \
+grep -qE 'Conformance content \(English\)' <<<"$FRONT" \
   || { echo "FAIL: conf2's post_en page does not render its own content" >&2; exit 1; }
 echo "ok: conf2 renders post_en's own content, no conf1 host-leak"
 
