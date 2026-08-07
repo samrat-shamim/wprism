@@ -73,8 +73,9 @@ ONE="$(line 1)"
 TWO="$(line 2)"
 THREE="$(line 3)"
 [[ "$ONE" == *"duo compile"* && "$TWO" == *"duo promotion-begin"* && "$THREE" == *"duo deploy"* ]] || fail "legacy phase order wrong"
-[[ "$THREE" != *"--materializing-code"* && "$THREE" != *"--promotion-hold"* ]] || fail "legacy lifecycle got code-only flags"
-[[ "$THREE" == *"--force-code-mismatch"* && "$THREE" == *"--force-code-drift"* ]] || fail "force flags were not forwarded"
+[[ "$THREE" != *"--materializing-code"* && "$THREE" != *"--promotion-hold"* && "$THREE" != *"--state-handoff"* ]] || fail "legacy lifecycle got promotion-only flags"
+[[ "$THREE" == *"--force-code-mismatch"* && "$THREE" == *"--force-code-drift"* ]] \
+  || fail "code force flags were not forwarded"
 [ -n "$(arg "$THREE" '--compiled=[^ ]*')" ] || fail "legacy lifecycle lacks artifact"
 [ "$(arg "$TWO" '--promotion-owner=[^ ]*')" = "$(arg "$THREE" '--promotion-owner=[^ ]*')" ] || fail "legacy begin/lifecycle owner changed"
 [ "$(arg "$TWO" '--artifact-hash=[^ ]*')" = "$(arg "$THREE" '--artifact-hash=[^ ]*')" ] || fail "legacy begin/lifecycle hash changed"
@@ -100,7 +101,8 @@ H="$(arg "$THREE" '--artifact-hash=[^ ]*')"
 [ "$(arg "$TWO" '--promotion-owner=[^ ]*')" = "$O" ] && [ "$(arg "$FOUR" '--promotion-owner=[^ ]*')" = "$O" ] && [ "$(arg "$FIVE" '--promotion-owner=[^ ]*')" = "$O" ] || fail "owner changed between code phases"
 [ "$(arg "$TWO" '--artifact-hash=[^ ]*')" = "$H" ] && [ "$(arg "$FOUR" '--artifact-hash=[^ ]*')" = "$H" ] && [ "$(arg "$FIVE" '--artifact-hash=[^ ]*')" = "$H" ] || fail "expected artifact hash changed between phases"
 [[ "$THREE" != *"--promotion-hold"* && "$THREE" != *"--materializing-code"* ]] || fail "stage got lifecycle-only flags"
-[[ "$FOUR" == *"--promotion-hold"* && "$FOUR" == *"--materializing-code"* ]] || fail "lifecycle missing code flags"
+[[ "$FOUR" == *"--promotion-hold"* && "$FOUR" == *"--materializing-code"* && "$FOUR" != *"--state-handoff"* ]] \
+  || fail "standalone lifecycle flags crossed the promotion-only handoff boundary"
 [[ "$FIVE" != *"--promotion-hold"* && "$FIVE" != *"--materializing-code"* ]] || fail "standalone finalize retained lifecycle flags"
 ART="$(printf '%s' "$A" | sed 's/^--compiled=//')"
 [[ "$ART" == "$SITE/.duo/artifacts/deploy-"*.json ]] || fail "artifact outside target .duo/artifacts"
@@ -137,7 +139,7 @@ pass "compile failure causes no code/lifecycle call"
 # Public deploy owns its repo/artifact/lease flags and exposes only the two
 # force flags. A second --repo would otherwise make the lifecycle command's
 # target differ from the immutable artifact's source repo.
-for bad in --repo=/tmp/forged --compiled=/tmp/fake.json --artifact-hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --promotion-owner=intruder --promotion-hold --materializing-code --with-deletes; do
+for bad in --repo=/tmp/forged --compiled=/tmp/fake.json --artifact-hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --promotion-owner=intruder --promotion-hold --materializing-code --state-handoff --force-unresolved-refs --with-deletes; do
   : > "$LOG"
   if FAKE_CODE_ENABLED=1 "$DUO" --envs-file="$ENVS" deploy unit "$bad" >/dev/null 2>&1; then
     fail "deploy accepted $bad"

@@ -665,6 +665,8 @@ final class Cli {
      * [--artifact-hash=<sha256>] : Internal host-observed artifact hash; required with orchestrated promotion-owner.
      * [--materializing-code] : Internal orchestrator flag; prove code-stage completed for this artifact.
      * [--promotion-hold] : Internal orchestrator flag; retain the lease for the following apply phase.
+     * [--state-handoff] : Internal promote-only flag; bind lifecycle pre/post state hashes for apply.
+     * [--force-unresolved-refs] : Promotion passthrough for lifecycle handoff snapshots.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -678,6 +680,8 @@ final class Cli {
                 'artifact_hash' => $assoc['artifact-hash'] ?? '',
                 'materializing_code' => isset($assoc['materializing-code']),
                 'promotion_hold' => isset($assoc['promotion-hold']),
+                'state_handoff' => isset($assoc['state-handoff']),
+                'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
             ]);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc);

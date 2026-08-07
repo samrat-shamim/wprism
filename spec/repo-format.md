@@ -536,6 +536,33 @@ and `code_revision` while removing all temporary stage markers in one database
 transaction; statement/commit failure rolls the entire ledger transition back
 to its retryable staged form.
 
+The target database lease serializes Duo promotions; it cannot exclude a
+package manager, self-updater, shell user, or compromised process that writes
+the code tree directly. Code stage/finalize therefore require operational
+exclusion of every non-Duo writer from `WP_CONTENT_DIR` for their duration.
+The v0 PHP materializer refuses stable symlinks, unsafe paths, type changes,
+and hash-changed removals and publishes each file by temporary rename, but does
+not claim `openat(O_NOFOLLOW)`-grade safety against an adversarial concurrent
+directory-to-symlink swap. Only a descriptor whose complete payload was
+materialized is retained as component-root deletion authority; an interrupted
+partial write can require manual cleanup but cannot make an unproven root
+Duo-owned.
+
+Lifecycle deploy and state apply remain separate writers even though
+`active_plugins`, `template`, and `stylesheet` live in the same canonical
+`options/core` entity as ordinary authored options. If deploy actually invokes
+activation/deactivation/theme APIs, it binds the canonical entity hashes from
+immediately before and after that hook window to the current promotion
+owner/artifact session. Apply may use the pre-hook hash for its three-way base
+only after deploy proves every changed canonical record is either one of those
+three managed lifecycle records or already exactly equals the frozen artifact's
+non-`absent` desired record, and only when a fresh live snapshot still equals
+the recorded post-hook hash. Any unrelated hook mutation stops promotion before
+state apply; any later target edit invalidates the handoff and retains the
+normal conflict. This lets expected lifecycle-first progress and a
+same-revision authored option change compose without `--force-theirs` without
+granting entity-wide authority to arbitrary hook side effects.
+
 The checkpoint necessarily contains the temporary `duo_kv.promotion_lock` row,
 because it is taken under that lease. Since importing the database can replace
 that same row, it cannot provide its own uninterrupted exclusion. A later

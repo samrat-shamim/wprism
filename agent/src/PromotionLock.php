@@ -188,6 +188,67 @@ final class PromotionLock {
         }
     }
 
+    /**
+     * Persist one exact cross-process lifecycle handoff inside the durable
+     * promotion session. Deploy records the canonical entity hash on both
+     * sides of its hook-firing window; apply may use the pre-hook hash for
+     * three-way comparison only while the live entity still equals the
+     * recorded post-hook hash. The owner/artifact session prevents a stale
+     * handoff from authorizing another promotion.
+     */
+    public static function record_state_transition(
+        string $owner,
+        string $artifactHash,
+        string $entity,
+        string $beforeHash,
+        string $afterHash
+    ): void {
+        self::assert_identity($owner, $artifactHash);
+        self::assert_state_transition($entity, $beforeHash, $afterHash);
+        $current = self::current();
+        $session = self::current_session();
+        if ($current === null || $session === null
+            || !hash_equals($owner, (string) ($current['owner'] ?? ''))
+            || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))
+            || !hash_equals($owner, (string) ($session['owner'] ?? ''))
+            || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))) {
+            throw new \RuntimeException('duo: lifecycle state transition lost its promotion session');
+        }
+        $session['state_transition'] = [
+            'entity' => $entity,
+            'before_hash' => $beforeHash,
+            'after_hash' => $afterHash,
+        ];
+        Ledger::kv_set(self::SESSION_KEY, wp_json_encode($session));
+    }
+
+    /** @return array{entity:string,before_hash:string,after_hash:string}|null */
+    public static function state_transition(string $owner, string $artifactHash, string $entity): ?array {
+        self::assert_identity($owner, $artifactHash);
+        $session = self::current_session();
+        if ($session === null
+            || !hash_equals($owner, (string) ($session['owner'] ?? ''))
+            || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))) {
+            return null;
+        }
+        $row = $session['state_transition'] ?? null;
+        if ($row === null) {
+            return null;
+        }
+        if (!is_array($row)) {
+            throw new \RuntimeException('duo: malformed lifecycle state transition; refusing three-way bypass');
+        }
+        self::assert_state_transition(
+            (string) ($row['entity'] ?? ''),
+            (string) ($row['before_hash'] ?? ''),
+            (string) ($row['after_hash'] ?? '')
+        );
+        if (!hash_equals($entity, (string) $row['entity'])) {
+            return null;
+        }
+        return $row;
+    }
+
     public static function release(string $owner, string $artifactHash): void {
         global $wpdb;
         self::assert_identity($owner, $artifactHash);
@@ -364,6 +425,14 @@ final class PromotionLock {
         }
         if (!preg_match('/^[a-f0-9]{64}$/', $artifactHash)) {
             throw new \RuntimeException('duo: promotion lock requires the compiled artifact sha256');
+        }
+    }
+
+    private static function assert_state_transition(string $entity, string $beforeHash, string $afterHash): void {
+        if ($entity !== 'options/core'
+            || !preg_match('/^[a-f0-9]{64}$/', $beforeHash)
+            || !preg_match('/^[a-f0-9]{64}$/', $afterHash)) {
+            throw new \RuntimeException('duo: malformed lifecycle state transition; refusing three-way bypass');
         }
     }
 

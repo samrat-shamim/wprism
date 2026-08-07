@@ -449,6 +449,7 @@ final class Deploy {
         $continuation = (string) ($opts['promotion_owner'] ?? '') !== '';
         $expectedArtifact = (string) ($opts['artifact_hash'] ?? '');
         self::assert_materializing_continuation($opts, $continuation);
+        self::assert_state_handoff_continuation($opts, $continuation);
         if (($continuation && $expectedArtifact === '')
             || ($expectedArtifact !== ''
                 && (!preg_match('/^[0-9a-f]{64}$/', $expectedArtifact)
@@ -599,6 +600,29 @@ final class Deploy {
             $mismatch, fn($r) => $r['kind'] === 'theme' && $r['issue'] === 'missing_in_code'
         );
 
+        // Lifecycle APIs mutate managed records inside the same canonical
+        // options/core entity as ordinary authored options. When another
+        // authored record changes in this revision, apply must distinguish
+        // expected hook-first progress from a genuine target-side edit. Take
+        // the exact canonical hash immediately around a real lifecycle
+        // mutation and bind that handoff to this promotion session.
+        $desiredActiveBefore = $desired['active_plugins'] ?? null;
+        $lifecycleWillMutate = ($desiredActiveBefore !== null
+                && self::current_active_plugins() !== $desiredActiveBefore)
+            || (($desired['stylesheet'] ?? null) !== null
+                && (get_option('stylesheet') !== $desired['stylesheet']
+                    || (($desired['template'] ?? null) !== null
+                        && get_option('template') !== $desired['template'])));
+        $lifecycleBeforeSnapshot = null;
+        if (!empty($opts['state_handoff']) && $lifecycleWillMutate) {
+            $lifecycleBeforeSnapshot = self::options_snapshot(
+                $repo,
+                $lockedPolicy,
+                $lockedCompiled,
+                !empty($opts['force_unresolved_refs'])
+            );
+        }
+
         Canary::begin_external_observation();
         try {
             $desiredActive = $desired['active_plugins'] ?? null;
@@ -695,6 +719,34 @@ final class Deploy {
         foreach ($externalSideEffects as $observed) {
             $warnings[] = 'deploy-window observation: ' . $observed;
         }
+        if ($lifecycleBeforeSnapshot !== null) {
+            PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-state-handoff');
+            $lifecycleAfterSnapshot = self::options_snapshot(
+                $repo,
+                $lockedPolicy,
+                $lockedCompiled,
+                !empty($opts['force_unresolved_refs'])
+            );
+            $unexpected = self::unexpected_lifecycle_state_changes(
+                $lifecycleBeforeSnapshot['document'],
+                $lifecycleAfterSnapshot['document'],
+                (array) ($tree['options/core']['data'] ?? [])
+            );
+            if ($unexpected) {
+                throw new \RuntimeException(
+                    'duo: lifecycle hooks changed canonical authored option(s) outside this compiled state: '
+                    . implode(', ', $unexpected)
+                    . '. Capture/reconcile those changes before retrying; state apply was not run.'
+                );
+            }
+            PromotionLock::record_state_transition(
+                $promotionOwner,
+                $promotionArtifact,
+                'options/core',
+                $lifecycleBeforeSnapshot['hash'],
+                $lifecycleAfterSnapshot['hash']
+            );
+        }
 
         // Re-baseline unconditionally: whatever's active NOW (post-
         // reconciliation, whether clean or forced-through) becomes the new
@@ -775,6 +827,15 @@ final class Deploy {
         }
     }
 
+    private static function assert_state_handoff_continuation(array $opts, bool $continuation): void {
+        if (!empty($opts['state_handoff'])
+            && (!$continuation || empty($opts['promotion_hold']))) {
+            throw new \RuntimeException(
+                'duo: --state-handoff is valid only inside a retained host promotion continuation'
+            );
+        }
+    }
+
     /**
      * Pulls active_plugins/template/stylesheet out of an already-decoded
      * options/core.json record document. Shared with Apply::build_plan(), which already
@@ -800,6 +861,75 @@ final class Deploy {
             $out['stylesheet'] = (string) $options['stylesheet'];
         }
         return $out;
+    }
+
+    /** @return array{hash:string,document:array<string,mixed>} */
+    private static function options_snapshot(
+        string $repo,
+        Policy $policy,
+        CompiledRepository $compiled,
+        bool $forceUnresolvedRefs
+    ): array {
+        $snapshot = Capture::snapshot($repo, $forceUnresolvedRefs, $compiled, $policy);
+        $row = $snapshot['options/core'] ?? null;
+        $hash = is_array($row) ? (string) ($row['hash'] ?? '') : '';
+        $content = is_array($row) ? (string) ($row['content'] ?? '') : '';
+        if (!preg_match('/^[a-f0-9]{64}$/', $hash) || $content === '') {
+            throw new \RuntimeException('duo: lifecycle state handoff could not snapshot canonical options/core');
+        }
+        try {
+            $document = Canon::decode($content);
+            if (!is_array($document)) {
+                throw new \RuntimeException('snapshot document is not an object');
+            }
+            OptionState::records($document);
+        } catch (\Throwable $t) {
+            throw new \RuntimeException(
+                'duo: lifecycle state handoff captured malformed canonical options/core',
+                0,
+                $t
+            );
+        }
+        return ['hash' => $hash, 'document' => $document];
+    }
+
+    /**
+     * A whole-entity hash handoff may cover only lifecycle-managed records or
+     * authored records whose post-hook value is exactly the frozen desired
+     * value. Otherwise apply could mistake an unrelated hook migration for
+     * expected lifecycle progress and overwrite it with stale repository
+     * data. Return every unsafe name so deploy can stop before state apply.
+     *
+     * @return list<string>
+     */
+    private static function unexpected_lifecycle_state_changes(
+        array $beforeDocument,
+        array $afterDocument,
+        array $desiredDocument
+    ): array {
+        $before = OptionState::records($beforeDocument);
+        $after = OptionState::records($afterDocument);
+        $desired = OptionState::records($desiredDocument);
+        $managed = array_fill_keys(['active_plugins', 'template', 'stylesheet'], true);
+        $names = array_unique(array_merge(array_keys($before), array_keys($after)));
+        sort($names, SORT_STRING);
+        $unexpected = [];
+        foreach ($names as $name) {
+            $beforeRecord = $before[$name] ?? null;
+            $afterRecord = $after[$name] ?? null;
+            if (Canon::encode($beforeRecord) === Canon::encode($afterRecord)
+                || isset($managed[$name])) {
+                continue;
+            }
+            $desiredRecord = $desired[$name] ?? null;
+            if (is_array($afterRecord) && is_array($desiredRecord)
+                && ($desiredRecord['state'] ?? null) !== 'absent'
+                && Canon::encode($afterRecord) === Canon::encode($desiredRecord)) {
+                continue;
+            }
+            $unexpected[] = (string) $name;
+        }
+        return $unexpected;
     }
 
     /** @return string[] */

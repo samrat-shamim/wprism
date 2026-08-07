@@ -105,9 +105,11 @@ Verbs:
                           temporary lease row; recovery requires external writer
                           exclusion, then abort -> begin -> import -> final abort.
                           After a code-phase failure, code must be reconciled/restored before database import.
-                          Apply flags are forwarded verbatim; deploy receives the
-                          shared code/compiled flags only. Repository and lease
-                          artifact/hash and lease flags are owned by promote and rejected from caller input.
+                          Apply flags are forwarded verbatim. Lifecycle deploy
+                          also receives code compatibility flags and the same
+                          unresolved-reference snapshot policy. Repository,
+                          artifact/hash, materialization, handoff, and lease
+                          flags are owned by promote and rejected from caller input.
   pending <env>           List the review queue (`wp duo pending --format=json`)
                           as a table: section:key, proposal, evidence, ref-hint,
                           and a prominent SECRET flag where present. Exit 0 with
@@ -295,7 +297,7 @@ function orchestrator_run_id(): string {
 
 /** Arguments only the orchestrator can truthfully own. */
 function is_orchestrator_internal_flag(string $arg): bool {
-    foreach (['--repo', '--compiled', '--artifact-hash', '--promotion-owner', '--promotion-hold', '--materializing-code'] as $flag) {
+    foreach (['--repo', '--compiled', '--artifact-hash', '--promotion-owner', '--promotion-hold', '--materializing-code', '--state-handoff'] as $flag) {
         if ($arg === $flag || str_starts_with($arg, $flag . '=')) {
             return true;
         }
@@ -303,10 +305,19 @@ function is_orchestrator_internal_flag(string $arg): bool {
     return false;
 }
 
-/** Emit the useful half of a captured transport failure without duplicating it. */
+/** Emit both distinct streams of a captured transport failure. */
 function print_transport_detail(array $result): void {
-    $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
-    if ($detail !== '') {
+    // Docker Compose writes container lifecycle chatter to stderr even when
+    // the command itself returns its structured diagnostic on stdout.  A
+    // stderr-wins choice hides the actual refusal in exactly that common
+    // transport shape, so preserve both distinct streams.
+    $seen = [];
+    foreach ([$result['stderr'] ?? '', $result['stdout'] ?? ''] as $stream) {
+        $detail = trim((string) $stream);
+        if ($detail === '' || isset($seen[$detail])) {
+            continue;
+        }
+        $seen[$detail] = true;
         fwrite(STDERR, $detail . "\n");
     }
 }
@@ -392,7 +403,7 @@ function cmd_deploy(Transport $t, array $extra): int {
 
     echo "deploy phase: lifecycle\n";
     $lifecycle = $t->streamWp(CodeDeploy::lifecycleArgs(
-        $repo, $artifact, $runId, $artifactHash, $codeEnabled, $codeEnabled, $deployExtra
+        $repo, $artifact, $runId, $artifactHash, $codeEnabled, $codeEnabled, false, $deployExtra
     ));
     if ($lifecycle !== 0) {
         fwrite(STDERR, "duo: deploy: lifecycle deploy failed (exit $lifecycle); later phases were not run\n");
@@ -485,8 +496,10 @@ function cmd_promote(Transport $t, array $extra): int {
     $deployExtra = array_values(array_filter($extra, static function (string $arg): bool {
         return $arg === '--force-code-mismatch'
             || $arg === '--force-code-drift'
+            || $arg === '--force-unresolved-refs'
             || str_starts_with($arg, '--force-code-mismatch=')
-            || str_starts_with($arg, '--force-code-drift=');
+            || str_starts_with($arg, '--force-code-drift=')
+            || str_starts_with($arg, '--force-unresolved-refs=');
     }));
 
     if ($codeEnabled) {
@@ -499,7 +512,7 @@ function cmd_promote(Transport $t, array $extra): int {
 
     echo "promote phase: deploy\n";
     $deploy = $t->streamWp(CodeDeploy::lifecycleArgs(
-        $repo, $artifact, $runId, $artifactHash, true, $codeEnabled, $deployExtra
+        $repo, $artifact, $runId, $artifactHash, true, $codeEnabled, true, $deployExtra
     ));
     if ($deploy !== 0) {
         return promote_failed($t, 'deploy', $deploy, $checkpoint, $codeEnabled, $runId, $artifactHash);

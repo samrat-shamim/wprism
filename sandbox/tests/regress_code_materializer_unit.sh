@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Offline ownership/recovery checks for code-finalize.  The test invokes the
-# read-only pruning helper with a temporary WP_CONTENT_DIR; no DB or WP APIs.
+# Offline ownership/recovery checks for code-stage/finalize. The test invokes
+# private filesystem helpers against a temporary WP_CONTENT_DIR; no DB/WP APIs.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
@@ -111,6 +111,59 @@ if (file_get_contents($target . '/plugins/file-to-dir.php/secret.php') !== 'unow
     fail_materializer('file-to-directory preflight mutated nested content');
 }
 
+// Desired target types are checked as one inventory before the first rename.
+// A late lexical conflict must not let an earlier desired file move to v2.
+$payloadPriorSource = $tmp . '/payload-prior';
+$payloadPrior = descriptor_materializer($payloadPriorSource, 'payload', 'old-payload');
+$payloadRepo = $tmp . '/payload-repo';
+$payloadSource = $payloadRepo . '/code/wp-content';
+put_materializer(
+    $payloadSource . '/plugins/payload/payload.php',
+    "<?php\n/*\nPlugin Name: payload\n*/\nnew-payload"
+);
+put_materializer($payloadSource . '/plugins/payload/zz-conflict.php', '<?php new-conflict');
+$payloadCurrent = Code::descriptor_from_source($payloadSource);
+$oldPayload = file_get_contents($payloadPriorSource . '/plugins/payload/payload.php');
+put_materializer($target . '/plugins/payload/payload.php', $oldPayload);
+put_materializer($target . '/plugins/payload/zz-conflict.php/keep.txt', 'operator directory');
+$materialize = new ReflectionMethod(Code::class, 'materialize_payload');
+$materialize->setAccessible(true);
+try {
+    $materialize->invoke(null, $payloadRepo, $payloadCurrent, $payloadPrior, null, []);
+    fail_materializer('late payload type conflict was accepted');
+} catch (Throwable $e) {
+    if (!str_contains($e->getMessage(), "target path is not a regular file 'plugins/payload/zz-conflict.php'")) {
+        fail_materializer('payload type refusal was unclear: ' . $e->getMessage());
+    }
+}
+if (file_get_contents($target . '/plugins/payload/payload.php') !== $oldPayload) {
+    fail_materializer('payload preflight changed an earlier target file');
+}
+
+// Hash safety is also a whole-removal preflight. A changed late obsolete
+// file must preserve an earlier obsolete file instead of partially pruning.
+$pruneSource = $tmp . '/prune-prior';
+put_materializer(
+    $pruneSource . '/plugins/preflight/preflight.php',
+    "<?php\n/*\nPlugin Name: preflight\n*/\nowned-main"
+);
+put_materializer($pruneSource . '/plugins/preflight/z-obsolete.php', '<?php owned-obsolete');
+$prunePrior = Code::descriptor_from_source($pruneSource);
+$ownedMain = file_get_contents($pruneSource . '/plugins/preflight/preflight.php');
+put_materializer($target . '/plugins/preflight/preflight.php', $ownedMain);
+put_materializer($target . '/plugins/preflight/z-obsolete.php', '<?php operator-changed');
+try {
+    $method->invoke(null, $prunePrior, $emptyCurrent, [], $emptyCurrent);
+    fail_materializer('changed late obsolete file was pruned');
+} catch (Throwable $e) {
+    if (!str_contains($e->getMessage(), "changed prior-owned file 'plugins/preflight/z-obsolete.php'")) {
+        fail_materializer('changed obsolete refusal was unclear: ' . $e->getMessage());
+    }
+}
+if (file_get_contents($target . '/plugins/preflight/preflight.php') !== $ownedMain) {
+    fail_materializer('removal preflight deleted an earlier owned file');
+}
+
 // Custom WP_PLUGIN_DIR would make the standard payload inert; fail before a
 // stage can mutate anything.
 $layout = new ReflectionMethod(Code::class, 'assert_target_layout');
@@ -125,5 +178,5 @@ try {
 }
 $layout->invoke(null, ['owned_roots' => ['mu-plugins/bootstrap.php']]);
 
-echo "ok: finalize prunes recorded roots, preserves siblings/type replacements, and rejects custom roots\n";
+echo "ok: materialization preflights known conflicts before mutation, prunes recorded roots, preserves siblings/type replacements, and rejects custom roots\n";
 PHP

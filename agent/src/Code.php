@@ -472,19 +472,25 @@ final class Code {
             if ($staged !== null && $staged['code_revision'] !== $descriptor['code_revision']) {
                 $history[$staged['code_revision']] = $staged;
             }
-            // Record the attempted descriptor before the first rename.  A
-            // crash after a partial payload write must leave its component
-            // roots recoverable even when no stage revision was authorized.
+            // Re-check after acquiring the target lease. The first check is
+            // an early, target-free failure; this one detects a checkout
+            // change closer to the first target write, while the post-write
+            // check below catches a change during materialization.
+            self::assert_source_matches($repo, $descriptor);
+            CodeStateContract::validate($compiled, $descriptor);
+            $previous = self::stored_descriptor();
+            self::materialize_payload($repo, $descriptor, $previous, $staged, $history);
+            self::assert_source_matches($repo, $descriptor);
+            // A descriptor becomes deletion authority only after its entire
+            // payload has materialized successfully. Persisting an attempted
+            // descriptor before preflight/write would let a no-write failure
+            // claim an operator's pre-existing component root on a later
+            // promotion. A crash during per-file writes is therefore handled
+            // conservatively: unrecorded partial bytes may require manual
+            // cleanup, but they can never grant Duo root-wide ownership.
             $history[$descriptor['code_revision']] = $descriptor;
             ksort($history, SORT_STRING);
             Ledger::kv_set(self::CODE_STAGE_HISTORY_KEY, Canon::encode(array_values($history)));
-            // Re-check after acquiring the target lease. The first check is
-            // an early, target-free failure; this one closes the race between
-            // source validation and the first target file write.
-            self::assert_source_matches($repo, $descriptor);
-            CodeStateContract::validate($compiled, $descriptor);
-            self::write_payload($repo, $descriptor);
-            self::assert_source_matches($repo, $descriptor);
             // Temporary descriptor/artifact come before the stage revision:
             // lifecycle deploy trusts the revision key only after all other
             // metadata and target hashes are durable.
@@ -783,6 +789,58 @@ final class Code {
         }
     }
 
+    /**
+     * Refuse every deterministic target/removal conflict before the first
+     * payload rename. Per-file temp+rename still protects each individual
+     * write; this preflight additionally prevents an already-known late path
+     * conflict from leaving earlier files on the new revision.
+     *
+     * @param array<string,array<string,mixed>> $history
+     */
+    private static function materialize_payload(
+        string $repo,
+        array $descriptor,
+        ?array $previous,
+        ?array $staged,
+        array $history
+    ): void {
+        self::assert_payload_targets($descriptor);
+        self::assert_removal_safe($previous, $staged, $history, $descriptor);
+        self::write_payload($repo, $descriptor);
+    }
+
+    /** Validate the complete desired path inventory without creating it. */
+    private static function assert_payload_targets(array $descriptor): void {
+        if (!defined('WP_CONTENT_DIR') || !is_string(WP_CONTENT_DIR) || WP_CONTENT_DIR === '') {
+            throw new \RuntimeException('duo: code-stage requires WordPress WP_CONTENT_DIR');
+        }
+        $content = rtrim(WP_CONTENT_DIR, '/');
+        foreach ($descriptor['files'] as $row) {
+            $relative = $row['path'];
+            self::assert_no_symlinked_target_path($relative, true, 'code-stage preflight');
+            $parts = explode('/', $relative);
+            array_pop($parts);
+            $cursor = $content;
+            $walked = [];
+            foreach ($parts as $part) {
+                $walked[] = $part;
+                $cursor .= '/' . $part;
+                if (file_exists($cursor) && !is_dir($cursor)) {
+                    $parent = implode('/', $walked);
+                    throw new \RuntimeException(
+                        "duo: code-stage target parent is not a directory '$parent'"
+                    );
+                }
+            }
+            $target = self::safe_join($content, $relative);
+            if (file_exists($target) && !is_file($target)) {
+                throw new \RuntimeException(
+                    "duo: code-stage target path is not a regular file '$relative'"
+                );
+            }
+        }
+    }
+
     private static function verify_payload(array $descriptor): void {
         if (!defined('WP_CONTENT_DIR') || !is_string(WP_CONTENT_DIR) || WP_CONTENT_DIR === '') {
             throw new \RuntimeException('duo: code-finalize requires WordPress WP_CONTENT_DIR');
@@ -813,44 +871,18 @@ final class Code {
         if (!defined('WP_CONTENT_DIR') || !is_string(WP_CONTENT_DIR) || WP_CONTENT_DIR === '') {
             throw new \RuntimeException('duo: code-finalize requires WordPress WP_CONTENT_DIR');
         }
-        $roots = [];
-        $allDescriptors = [$previous, $staged, $current];
-        foreach ($history as $descriptor) {
-            $allDescriptors[] = $descriptor;
-        }
-        foreach ($allDescriptors as $descriptor) {
-            if ($descriptor === null) {
-                continue;
-            }
-            foreach ($descriptor['owned_roots'] as $root) {
-                $roots[$root] = true;
-            }
-        }
-        $knownHashes = [];
-        foreach ($allDescriptors as $descriptor) {
-            if ($descriptor === null) {
-                continue;
-            }
-            foreach ($descriptor['files'] as $row) {
-                $knownHashes[$row['path']][$row['sha256']] = true;
-            }
-        }
-        $recordedTypes = self::recorded_path_types($allDescriptors);
-        $currentTypes = self::recorded_path_types([$current]);
-        // Type validation is a preflight over the complete recorded
-        // inventory.  Do it before the first unlink/rmdir so a path which an
-        // operator replaced with another filesystem type cannot turn a
-        // historical ownership record into permission to recursively delete
-        // new, unowned content.
-        self::assert_recorded_target_types($recordedTypes, $currentTypes);
-        $currentPaths = [];
-        foreach ($current['files'] as $row) {
-            $currentPaths[$row['path']] = true;
-        }
+        $inventory = self::removal_inventory($previous, $staged, $history, $current);
+        self::assert_removal_inventory($inventory);
+        $rootNames = $inventory['roots'];
+        $knownHashes = $inventory['known_hashes'];
+        $currentPaths = $inventory['current_paths'];
         $removed = [];
-        $rootNames = array_keys($roots);
-        sort($rootNames, SORT_STRING);
         foreach ($rootNames as $root) {
+            // Repeat target-shape checks while mutating so ordinary external
+            // changes are detected close to each unlink/rmdir. These checks
+            // are not an atomic defense against an adversarial concurrent
+            // directory-to-symlink swap; promotion requires filesystem
+            // exclusion from non-Duo writers (documented in repo-format.md).
             if (!self::safe_component_root($root) || self::reserved_path($root)) {
                 throw new \RuntimeException("duo: code-finalize refuses unsafe owned root '$root'");
             }
@@ -887,6 +919,139 @@ final class Code {
         }
         sort($removed, SORT_STRING);
         return $removed;
+    }
+
+    /** @param array<string,array<string,mixed>> $history */
+    private static function assert_removal_safe(?array $previous, ?array $staged, array $history, array $current): void {
+        self::assert_removal_inventory(self::removal_inventory($previous, $staged, $history, $current));
+    }
+
+    /**
+     * Build one deterministic ownership view used by both preflight and the
+     * mutating prune. Keeping the two phases on the same inventory prevents a
+     * safety check from silently drifting away from deletion behavior.
+     *
+     * @param array<string,array<string,mixed>> $history
+     * @return array{roots:list<string>,known_hashes:array<string,array<string,bool>>,current_paths:array<string,bool>,recorded_types:array<string,array<string,bool>>,current_types:array<string,array<string,bool>>}
+     */
+    private static function removal_inventory(?array $previous, ?array $staged, array $history, array $current): array {
+        $roots = [];
+        $allDescriptors = [$previous, $staged, $current];
+        foreach ($history as $descriptor) {
+            $allDescriptors[] = $descriptor;
+        }
+        foreach ($allDescriptors as $descriptor) {
+            if ($descriptor === null) {
+                continue;
+            }
+            foreach ($descriptor['owned_roots'] as $root) {
+                $roots[$root] = true;
+            }
+        }
+        $knownHashes = [];
+        foreach ($allDescriptors as $descriptor) {
+            if ($descriptor === null) {
+                continue;
+            }
+            foreach ($descriptor['files'] as $row) {
+                $knownHashes[$row['path']][$row['sha256']] = true;
+            }
+        }
+        $recordedTypes = self::recorded_path_types($allDescriptors);
+        $currentTypes = self::recorded_path_types([$current]);
+        $currentPaths = [];
+        foreach ($current['files'] as $row) {
+            $currentPaths[$row['path']] = true;
+        }
+        $rootNames = array_keys($roots);
+        sort($rootNames, SORT_STRING);
+        return [
+            'roots' => $rootNames,
+            'known_hashes' => $knownHashes,
+            'current_paths' => $currentPaths,
+            'recorded_types' => $recordedTypes,
+            'current_types' => $currentTypes,
+        ];
+    }
+
+    /**
+     * Traverse the complete prune set without mutation. This catches a late
+     * changed file, symlink, special entry, or type replacement before stage
+     * writes new bytes and before finalize removes any earlier path.
+     *
+     * @param array{roots:list<string>,known_hashes:array<string,array<string,bool>>,current_paths:array<string,bool>,recorded_types:array<string,array<string,bool>>,current_types:array<string,array<string,bool>>} $inventory
+     */
+    private static function assert_removal_inventory(array $inventory): void {
+        self::assert_recorded_target_types($inventory['recorded_types'], $inventory['current_types']);
+        $knownHashes = $inventory['known_hashes'];
+        $currentPaths = $inventory['current_paths'];
+        foreach ($inventory['roots'] as $root) {
+            if (!self::safe_component_root($root) || self::reserved_path($root)) {
+                throw new \RuntimeException("duo: code-finalize refuses unsafe owned root '$root'");
+            }
+            self::assert_no_symlinked_target_path($root, true, 'code-finalize preflight');
+            $absolute = self::safe_join(WP_CONTENT_DIR, $root);
+            if (is_link($absolute)) {
+                throw new \RuntimeException("duo: code-finalize refuses to traverse a symlink at owned root '$root'");
+            }
+            if (!file_exists($absolute)) {
+                continue;
+            }
+            if (is_file($absolute)) {
+                if (!isset($currentPaths[$root])) {
+                    self::assert_obsolete_file_unchanged($absolute, $root, $knownHashes);
+                }
+                continue;
+            }
+            if (!is_dir($absolute)) {
+                throw new \RuntimeException("duo: code-finalize refuses to mutate a special owned root '$root'");
+            }
+            self::assert_prunable_directory($absolute, $root, $currentPaths, $knownHashes);
+        }
+    }
+
+    /** @param array<string,bool> $currentPaths @param array<string,array<string,bool>> $knownHashes */
+    private static function assert_prunable_directory(
+        string $absolute,
+        string $relativeRoot,
+        array $currentPaths,
+        array $knownHashes
+    ): void {
+        $children = @scandir($absolute);
+        if ($children === false) {
+            throw new \RuntimeException("duo: code-finalize cannot read owned component '$relativeRoot'");
+        }
+        foreach ($children as $child) {
+            if ($child === '.' || $child === '..') {
+                continue;
+            }
+            if (!self::safe_component($child)) {
+                throw new \RuntimeException("duo: code-finalize found an unsafe path under owned component '$relativeRoot'");
+            }
+            $relative = $relativeRoot . '/' . $child;
+            $path = $absolute . '/' . $child;
+            if (is_link($path)) {
+                throw new \RuntimeException("duo: code-finalize refuses to delete a symlink at '$relative'");
+            }
+            if (is_dir($path)) {
+                self::assert_prunable_directory($path, $relative, $currentPaths, $knownHashes);
+                continue;
+            }
+            if (!is_file($path)) {
+                throw new \RuntimeException("duo: code-finalize refuses to mutate a special path '$relative'");
+            }
+            if (!isset($currentPaths[$relative])) {
+                self::assert_obsolete_file_unchanged($path, $relative, $knownHashes);
+            }
+        }
+    }
+
+    /** @param array<string,array<string,bool>> $knownHashes */
+    private static function assert_obsolete_file_unchanged(string $absolute, string $relative, array $knownHashes): void {
+        if (isset($knownHashes[$relative])
+            && !isset($knownHashes[$relative][hash_file('sha256', $absolute)])) {
+            throw new \RuntimeException("duo: code-finalize refuses to remove changed prior-owned file '$relative'");
+        }
     }
 
     /**
