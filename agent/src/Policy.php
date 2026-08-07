@@ -89,6 +89,7 @@ final class Policy {
             self::validate_user_meta_rules($manifest, "manifest '$name'");
             self::validate_scope_classes($manifest, "manifest '$name'", false);
             self::validate_sub_keys($manifest);
+            self::validate_dynamic_options($manifest);
             self::validate_option_storage($manifest, "manifest '$name'");
             self::validate_adapter_contract($manifest);
             self::validate_discovery_contract($manifest);
@@ -565,6 +566,184 @@ final class Policy {
         }
         ksort($out, SORT_STRING);
         return $out;
+    }
+
+    /**
+     * DUO-3264 (owner ruling, fork A, issue comment 9fd882a6): "a manifest-
+     * level dynamic-name resolution primitive... one new primitive, reusable
+     * for any future active-theme-bound option, instead of a second bespoke
+     * path beside nav_menu_locations." theme_mods_<stylesheet> is the proven
+     * case (see manifests/core.json's own declaration + note) but this
+     * section is deliberately not theme_mods-specific: any manifest may
+     * declare an entry under any key.
+     *
+     * Shape: `{"<declaration key>": {"prefix": "...", "resolver": "...",
+     * "sub_keys": {...}}}`. `prefix` + the resolver's live value (supplied
+     * by the CALLER — Capture.php/Apply.php, which already call get_option()
+     * freely; this class stays WordPress-free/offline-testable by design,
+     * same posture as every other Policy.php method) concatenate to the one
+     * option name that is authored-eligible right now (e.g. "theme_mods_" .
+     * "storefront" = "theme_mods_storefront"). `sub_keys` is the ordinary
+     * sub_keys grammar (Policy::sub_keyed_options()'s own shape,
+     * Apply::apply_option_sub_keys()'s own merge-into-live-blob machinery),
+     * applied against that ONE resolved name — no new capture/apply
+     * machinery, only a new way to find the option's own NAME.
+     *
+     * Every OTHER live option name sharing the same `prefix` (a theme_mods_*
+     * row for a theme that is not currently active) is env-local residue by
+     * this SAME declaration, per the ruling's own required semantics — see
+     * is_dynamic_option_residue() below, the query surface a caller uses to
+     * recognize and skip such a row (never unclassified-pending, never
+     * captured) without a second, separately-maintained exclusion list.
+     *
+     * First-declaring-manifest wins per declaration key, matching this
+     * class's own established enumeration precedence elsewhere (no shipped
+     * manifest is expected to collide on a key here — only core.json is
+     * expected to ever declare theme_mods — but the tie-break is defined
+     * for the same reason it is everywhere else in this file: consistency,
+     * not because a real collision is anticipated).
+     *
+     * @return array<string, array{prefix:string, resolver:string, sub_keys:array<string,array>, autoload:?string}>
+     */
+    public function dynamic_options(): array {
+        $out = [];
+        foreach ($this->manifests as $m) {
+            foreach ($m['dynamic_options'] ?? [] as $key => $r) {
+                if (isset($out[$key])) {
+                    continue; // first-declaring-manifest wins
+                }
+                $out[$key] = self::with_option_autoload($r, $m);
+            }
+        }
+        ksort($out, SORT_STRING);
+        return $out;
+    }
+
+    /**
+     * Resolve one declared dynamic_options entry against a caller-supplied
+     * resolved value (e.g. the live active stylesheet slug for the
+     * "active_stylesheet" resolver) into the one concrete option name that
+     * is authored-eligible right now, plus its sub_keys rule. 'class' is
+     * always 'env' — a dynamic_options row's own containing blob is, by
+     * definition, mostly environment-local except its declared sub_keys,
+     * the identical "whole value env, named sub-keys authored" shape
+     * sub_keyed_options() already uses for polylang/wpseo; not made
+     * manifest-declarable since no other value has ever been a real,
+     * grounded need (widen this the day one is).
+     *
+     * @return ?array{name:string, class:string, sub_keys:array<string,array>, autoload:?string}
+     */
+    public function resolve_dynamic_option(string $key, string $resolvedValue): ?array {
+        $decl = $this->dynamic_options()[$key] ?? null;
+        if ($decl === null) {
+            return null;
+        }
+        return [
+            'name' => $decl['prefix'] . $resolvedValue,
+            'class' => 'env',
+            'sub_keys' => $decl['sub_keys'],
+            'autoload' => $decl['autoload'] ?? null,
+        ];
+    }
+
+    /**
+     * True when $liveName shares a declared dynamic_options entry's prefix
+     * but is NOT the one name resolve_dynamic_option() would currently
+     * produce for that same entry — a theme_mods_* row for a theme that
+     * used to be active, kept by WordPress itself so nothing is lost if the
+     * site switches back (confirmed empirically, DUO-3264: this is the same
+     * shape of residue as the nested sidebars_widgets/wp_classic_sidebars
+     * theme-switch bookkeeping already excluded in manifests/core.json's own
+     * note). $resolvedValues maps resolver name => this environment's own
+     * live value (e.g. `['active_stylesheet' => get_option('stylesheet')]`)
+     * — plural because a future second resolver is anticipated by the
+     * ruling's own "reusable for any future active-theme-bound option"
+     * framing, not because more than one exists yet.
+     *
+     * @param array<string,string> $resolvedValues
+     */
+    public function is_dynamic_option_residue(string $liveName, array $resolvedValues): bool {
+        foreach ($this->dynamic_options() as $decl) {
+            $prefix = $decl['prefix'];
+            if (!str_starts_with($liveName, $prefix)) {
+                continue;
+            }
+            $resolvedValue = $resolvedValues[$decl['resolver']] ?? null;
+            if ($resolvedValue === null) {
+                continue; // this environment supplied no live value for the declared resolver -- not this method's call to guess
+            }
+            return $liveName !== ($prefix . $resolvedValue);
+        }
+        return false;
+    }
+
+    /**
+     * The lookup Apply::option_apply_target() needs at actual apply time:
+     * given a captured document's own option key, find the one
+     * dynamic_options declaration (if any) it currently, EXACTLY resolves
+     * to on THIS environment, and return its sub_keys rule — or null if
+     * $name matches no declared prefix, or matches one but is NOT the
+     * currently-resolved row (residue; see is_dynamic_option_residue() —
+     * never guessed at, never silently applied to the wrong theme's own
+     * row). Safe to require an exact match here specifically because
+     * Apply::apply()'s own theme-mismatch refuse-gate (DUO-3216) already
+     * guarantees the target's active theme matches what was captured by
+     * the time this method is ever reached (the identical invariant
+     * assign_locations()/nav_menu_locations already depends on) — this is
+     * NOT the method RepositoryAuthorization::authorize_options() uses;
+     * see dynamic_option_rule_for_prefix() below for why authorization
+     * needs a looser check.
+     *
+     * @param array<string,string> $resolvedValues
+     * @return ?array{class:string, sub_keys:array<string,array>, autoload:?string}
+     */
+    public function dynamic_option_rule_for_name(string $name, array $resolvedValues): ?array {
+        foreach ($this->dynamic_options() as $key => $decl) {
+            if (!str_starts_with($name, $decl['prefix'])) {
+                continue;
+            }
+            $resolvedValue = $resolvedValues[$decl['resolver']] ?? null;
+            if ($resolvedValue === null) {
+                continue;
+            }
+            $resolved = $this->resolve_dynamic_option($key, $resolvedValue);
+            if ($resolved !== null && $resolved['name'] === $name) {
+                return ['class' => $resolved['class'], 'sub_keys' => $resolved['sub_keys'], 'autoload' => $resolved['autoload']];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The lookup RepositoryAuthorization::authorize_options() needs
+     * instead — deliberately LOOSER than dynamic_option_rule_for_name()
+     * above: matches $name against a declared prefix alone, independent of
+     * which theme is active on THIS environment right now. Authorization
+     * runs as part of RepositoryCompiler::compile(), which BOTH `wp duo
+     * deploy` and `wp duo apply` go through — including deploy itself, the
+     * command that reconciles a theme mismatch in the first place (DUO-3216).
+     * Requiring an exact match here would make deploy unable to compile the
+     * very repository it needs to read to know which theme to switch to, a
+     * genuine circular dependency (caught live, not by inspection: `wp duo
+     * deploy` itself refused with 'theme_mods_<captured-theme>' unclassified
+     * while the target was still on its PREVIOUS theme). Authorization's own
+     * checks (declared sub_keys class, autoload) are already theme-agnostic
+     * in substance — they validate the DECLARATION, not the live
+     * environment — so this method never needed the exact-match constraint
+     * dynamic_option_rule_for_name() correctly enforces for the different
+     * question (never write to the wrong theme's own row), which only
+     * matters once actual mutation is about to happen, well after DUO-3216's
+     * own refuse-gate has already run.
+     *
+     * @return ?array{class:string, sub_keys:array<string,array>, autoload:?string}
+     */
+    public function dynamic_option_rule_for_prefix(string $name): ?array {
+        foreach ($this->dynamic_options() as $decl) {
+            if (str_starts_with($name, $decl['prefix'])) {
+                return ['class' => 'env', 'sub_keys' => $decl['sub_keys'], 'autoload' => $decl['autoload'] ?? null];
+            }
+        }
+        return null;
     }
 
     /**
@@ -2036,6 +2215,61 @@ final class Policy {
     }
 
     /**
+     * v1-supported dynamic_options resolvers (DUO-3264, fork A) — a
+     * manifest's `resolver` value must appear here, mirroring
+     * MENU_DERIVABLE_FIELDS/DERIVABLE_FIELDS' own "start v1 scope tight"
+     * posture elsewhere in this file. Deliberately just 'active_stylesheet':
+     * the one proven case (theme_mods_<stylesheet>). A future resolver is
+     * anticipated by the ruling's own wording but not invented ahead of a
+     * second real, grounded need.
+     */
+    private const DYNAMIC_OPTION_RESOLVERS = ['active_stylesheet'];
+
+    /**
+     * Loud, load-time guard for dynamic_options' manifest input — DUO-3264's
+     * own version of validate_sub_keys() immediately above, kept as its own
+     * function rather than merged into it for the same "mirrored for its
+     * own key shape rather than extended" reason validate_menu_field_classes()
+     * documents for itself: dynamic_options is a flat, top-level manifest
+     * key with a DIFFERENT declaration shape (prefix + resolver, no bare
+     * class of its own), not a per-option-name sub_keys nesting. Reuses
+     * sub_keys' own per-sub-key class validation rule (same self::CLASSES
+     * set) since that inner shape genuinely is identical once you are past
+     * the top-level prefix/resolver fields.
+     */
+    private static function validate_dynamic_options(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        foreach ($manifest['dynamic_options'] ?? [] as $key => $decl) {
+            if (!is_array($decl)) {
+                throw new \RuntimeException("duo: manifest '$name' declares dynamic_options.$key that is not an object");
+            }
+            $prefix = $decl['prefix'] ?? null;
+            if (!is_string($prefix) || $prefix === '') {
+                throw new \RuntimeException("duo: manifest '$name' declares dynamic_options.$key with a missing or empty 'prefix'");
+            }
+            $resolver = $decl['resolver'] ?? null;
+            if (!in_array($resolver, self::DYNAMIC_OPTION_RESOLVERS, true)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares dynamic_options.$key.resolver=" . var_export($resolver, true)
+                    . ' but only ' . implode('|', self::DYNAMIC_OPTION_RESOLVERS) . ' is supported in v1'
+                );
+            }
+            $subKeys = $decl['sub_keys'] ?? null;
+            if (!is_array($subKeys) || !$subKeys) {
+                throw new \RuntimeException("duo: manifest '$name' declares dynamic_options.$key.sub_keys that is missing, empty, or not an object");
+            }
+            foreach ($subKeys as $subKey => $subRule) {
+                if (!is_array($subRule) || !in_array($subRule['class'] ?? null, self::CLASSES, true)) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' declares dynamic_options.$key.sub_keys.$subKey with an invalid or "
+                        . 'missing class (expected one of ' . implode('|', self::CLASSES) . ')'
+                    );
+                }
+            }
+        }
+    }
+
+    /**
      * A portable authored option must say how its wp_options row is stored.
      * `preserve` authorizes capture of the source row's exact autoload flag;
      * a concrete value is a stronger adapter contract and capture refuses a
@@ -2076,6 +2310,15 @@ final class Policy {
         foreach ((array) ($source['option_name_refs'] ?? []) as $i => $rule) {
             if (is_array($rule)) {
                 $check($rule, "option_name_refs[$i]");
+            }
+        }
+        // DUO-3264: dynamic_options entries are sub_keys-shaped (no bare
+        // top-level class of their own) — $check()'s existing
+        // $hasAuthoredSubKey detection already handles that correctly,
+        // reused as-is rather than duplicated.
+        foreach ((array) ($source['dynamic_options'] ?? []) as $key => $rule) {
+            if (is_array($rule)) {
+                $check($rule, "dynamic_options.$key");
             }
         }
     }

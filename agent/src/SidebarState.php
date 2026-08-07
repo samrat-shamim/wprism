@@ -55,7 +55,7 @@ final class SidebarState {
         self::assert_policy($policy);
         $declared = $policy->widget_types();
         $sidebars = self::load_sidebars_option();
-        $options = self::load_widget_options($declared, true);
+        $options = self::load_widget_options($policy, $declared, true);
         $entities = [];
         $warnings = [];
         $seen = [];
@@ -118,7 +118,7 @@ final class SidebarState {
     }
 
     /** Validate the multi-instance family before any row is used. */
-    private static function load_widget_options(array $declared, bool $scanUndeclared): array {
+    private static function load_widget_options(Policy $policy, array $declared, bool $scanUndeclared): array {
         global $wpdb;
         $rows = $wpdb->get_results(
             "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'widget\\_%' ORDER BY option_name",
@@ -146,9 +146,35 @@ final class SidebarState {
                 $instances[(int) $key] = $settings;
             }
             if ($instances && !isset($declared[$type]) && $scanUndeclared) {
+                // DUO-3264: the deliberate-exclusion escape hatch every
+                // other loud gate in this engine already has (options.
+                // <name>=runtime/env is the standing pattern this codebase
+                // uses to record "acknowledged, not portable" — see
+                // authorize_post()'s own per-key re-derivation for the
+                // established precedent of a second, deliberately
+                // redundant guard consulting the same classification).
+                // Live-verified before this existed: setting options.
+                // widget_<type>=runtime via site policy did NOT satisfy
+                // this guard (it only ever consulted $declared, this
+                // method's own widgets{}-sourced parameter) -- capture
+                // refused again with the identical message even after an
+                // operator followed the exact remedy the message itself
+                // named. That's the operator-path-dishonesty class this
+                // project refuses to ship (a stated remedy that doesn't
+                // function), so the guard now ALSO treats an explicit
+                // runtime/env classification as first-class acknowledgment,
+                // the same tier as a widgets{} declaration -- "acknowledged
+                // and excluded" alongside "acknowledged and portable",
+                // not a hierarchy between them.
+                $classification = $policy->option_rule($name);
+                if (in_array($classification['class'] ?? null, ['runtime', 'env'], true)) {
+                    continue;
+                }
                 throw new \RuntimeException(
-                    "duo: widget option '$name' contains instances but type '$type' is undeclared; "
-                    . 'add a pinned manifest declaration before capture'
+                    "duo: widget option '$name' contains instances but type '$type' is undeclared -- either add "
+                    . "\"$type\" to a pinned manifest's widgets{} grammar (see manifests/core.json's "
+                    . 'widgets.block/nav_menu/text for the shape) if its settings should be portable, or declare it '
+                    . "a deliberate exclusion (wp duo classify --set 'options:$name=runtime') if not"
                 );
             }
             if (isset($declared[$type])) {
@@ -280,7 +306,7 @@ final class SidebarState {
     /** Phase 1: allocate collision-free target-local counters for every desired widget. */
     public static function ensure_widgets(Policy $policy, array $tree): void {
         $declared = $policy->widget_types();
-        $options = self::load_widget_options($declared, false);
+        $options = self::load_widget_options($policy, $declared, false);
         $used = [];
         foreach ($options as $type => $instances) {
             $used[$type] = array_fill_keys(array_keys($instances), true);
@@ -313,7 +339,7 @@ final class SidebarState {
         Policy $policy, Tokens $tokens, array $front, string $sidebar, array $tree
     ): void {
         $declared = $policy->widget_types();
-        $options = self::load_widget_options($declared, false);
+        $options = self::load_widget_options($policy, $declared, false);
         $sidebars = self::load_sidebars_option();
         $globallyDesired = [];
         foreach ($tree as $entity) {
@@ -396,7 +422,7 @@ final class SidebarState {
 
     /** Mappings whose backing option instance disappeared, before pruning. */
     public static function observed_deleted_mapped_uuids(Policy $policy): array {
-        $options = self::load_widget_options($policy->widget_types(), false);
+        $options = self::load_widget_options($policy, $policy->widget_types(), false);
         $deleted = [];
         foreach (Ledger::all_map() as $row) {
             $type = self::type_from_kind($row['id_kind']);
@@ -410,7 +436,7 @@ final class SidebarState {
 
     public static function prune_dead_map(Policy $policy): void {
         global $wpdb;
-        $options = self::load_widget_options($policy->widget_types(), false);
+        $options = self::load_widget_options($policy, $policy->widget_types(), false);
         foreach (Ledger::all_map() as $row) {
             $type = self::type_from_kind($row['id_kind']);
             if ($type !== null && isset($policy->widget_types()[$type])

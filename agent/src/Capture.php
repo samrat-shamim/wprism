@@ -471,6 +471,50 @@ final class Capture {
             ];
         }
 
+        // DUO-3278's own widget-type registry (block/nav_menu/text at
+        // shipping time), and DUO-3264's own corrected understanding of
+        // this section's role — recorded with the correction included,
+        // not just the final answer, because the walk-back is itself the
+        // useful record for the next reader of this loop. This
+        // $gate['widgets'] section is a DIAGNOSTIC ENRICHMENT, deliberately
+        // never blocking on its own (nothing below merges it into
+        // Capture::$unclassified — confirmed by grep, not assumed).
+        // DUO-3264 first assumed (and shipped, briefly) a SECOND net one
+        // layer down — a core.json option_namespaces declaration for
+        // ^sidebars_widgets$/^widget_ plus per-name `runtime`
+        // classifications — believing THAT was the universal blocking net
+        // this section stayed informational alongside. Wrong, caught live
+        // by that same declaration's own conformance sweep: the REAL,
+        // sufficient, already-shipped blocking net is SidebarState::
+        // capture()'s own load_widget_options() (this class, private
+        // method) — an unconditional guard that refuses any widget_<type>
+        // row with real instances and an undeclared type, running BEFORE
+        // build_options() even executes in build()'s own call order. The
+        // option_namespaces declaration was therefore provably unreachable
+        // dead weight for this family and has been reverted (see
+        // manifests/core.json's own note at dynamic_options for the full
+        // evolution) — this diagnostic section needed no companion net; it
+        // already had one, one file over, the whole time. It stays
+        // informational because SidebarState's own guard already enforces;
+        // this only adds per-sidebar/per-instance detail a bare exception
+        // message can't carry.
+        //
+        // Second, separate finding while verifying the above (DUO-3283,
+        // filed as a closed record — the fix rode this same PR, not a
+        // follow-up): SidebarState::load_widget_options()'s own guard
+        // originally advertised a remedy — classify options.widget_<type>
+        // =runtime as a deliberate exclusion — that did not function; the
+        // guard only ever consulted widget_types() (this manifest key),
+        // never options.* classifications. Live-verified before any fix
+        // existed: the classification did nothing, capture refused again.
+        // Fixed AT THAT GUARD (not here): Policy is now threaded into
+        // load_widget_options(), which treats an explicit runtime/env
+        // options classification as first-class acknowledgment, the same
+        // tier as a widgets{} entry — see that method's own docblock for
+        // the full behavioral addition. Noted here too because this
+        // section's own reasoning above ("SidebarState's own guard already
+        // enforces") depends on that guard's remedies actually working,
+        // which is no longer merely asserted.
         $widgetTypes = $c->policy->widget_types();
         $widgets = [];
         foreach ($optionRows as $row) {
@@ -997,7 +1041,7 @@ final class Capture {
             throw new \RuntimeException(
                 "duo: incomplete state discovery on manifest-owned or in-scope surfaces (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $keys)
-                . "\nClassify them in site.duo.json policy.post_meta / policy.term_meta or a manifest."
+                . "\nClassify them in site.duo.json policy.options / policy.post_meta / policy.term_meta or a manifest."
                 . " Run: wp duo pending --repo={$this->repo} for evidence + proposals, then wp duo classify --repo={$this->repo} --set '<section>:<key>=<class>'."
             );
         }
@@ -2253,63 +2297,40 @@ final class Capture {
         // documented as missing — see Policy::sub_keyed_options()'s
         // docblock for the full history.
         foreach ($this->policy->sub_keyed_options() as $name => $rule) {
-            $subKeys = $rule['sub_keys'] ?? [];
-            $row = $this->read_option_row($name);
-            if ($row === null) {
-                continue; // option doesn't exist live at all -- nothing to carve a sub-key out of
+            $this->capture_option_sub_keys($name, $rule, $forceUnresolvedRefs, $liveCanonicalNames, $out);
+        }
+
+        // dynamic_options (DUO-3264, fork A): the SAME sub_keys-shaped
+        // capture as the loop immediately above, against a COMPUTED option
+        // name instead of an exactly-declared one -- theme_mods_<active
+        // stylesheet> is the proven case (manifests/core.json's own
+        // declaration + note has the full empirical grounding). Only ONE
+        // resolved name is ever read here; every OTHER live option name
+        // sharing the same prefix (a theme_mods_* row for a theme that is
+        // not currently active) is simply never looked at by this loop --
+        // not a separate exclusion step, a structural non-effect of only
+        // ever computing the one currently-resolved name. See
+        // Policy::is_dynamic_option_residue() for the queryable form of
+        // that same fact, available to a future caller that needs to
+        // recognize such a row explicitly (none does yet in this codebase).
+        foreach ($this->policy->dynamic_options() as $key => $decl) {
+            $resolvedValue = match ($decl['resolver']) {
+                'active_stylesheet' => (string) get_option('stylesheet'),
+                default => throw new \RuntimeException(
+                    "duo: dynamic_options.$key declares unsupported resolver '{$decl['resolver']}'"
+                ),
+            };
+            $resolved = $this->policy->resolve_dynamic_option($key, $resolvedValue);
+            if ($resolved === null) {
+                continue;
             }
-            $liveCanonicalNames[$name] = true;
-            $live = maybe_unserialize($row['option_value']);
-            self::assert_plain($live, "option $name");
-            if (!is_array($live)) {
-                throw new \RuntimeException(
-                    "duo: option '$name' declares sub_keys but its live value is not array-shaped (got "
-                    . get_debug_type($live) . ') — sub_keys assumes a plain PHP-serialized map, matching every '
-                    . 'verified case so far (Polylang\'s polylang option, Yoast\'s wpseo option)'
-                );
-            }
-            $captured = [];
-            foreach ($subKeys as $subKey => $subRule) {
-                if (($subRule['class'] ?? '') !== 'authored') {
-                    continue; // declared (documents intent) but not authored -- never captured, mirrors option_name_refs' own precedent
-                }
-                if (!array_key_exists($subKey, $live)) {
-                    continue; // this environment's live blob simply doesn't have this sub-key populated yet -- nothing to capture
-                }
-                $subVal = $live[$subKey];
-                $ctx = "$name.$subKey";
-                if (is_string($subVal)) {
-                    $this->guard_secret('options', $ctx, $subVal, $subRule);
-                } elseif (empty($subRule['allow_secret'])) {
-                    // Array-shaped sub-key value: deep scan, deliberately
-                    // NOT the is_string()-gated shallow guard_secret() call
-                    // above -- the same reasoning option_name_refs' own
-                    // Secrets::hard_match_deep() call already documents.
-                    // (DUO-3214 has since widened guard_secret() itself to
-                    // deep-scan unconditionally, closing task #127 -- this
-                    // call site predates that fix and is left as its own
-                    // implementation rather than folded into guard_secret()
-                    // as part of that unrelated rebase, to avoid changing
-                    // this rule's tested error message as a side effect.)
-                    $secretLabel = Secrets::hard_match_deep($subVal);
-                    if ($secretLabel !== null) {
-                        throw new \RuntimeException(
-                            "duo: secret guard tripped — option '$ctx' looks like a $secretLabel but is classified "
-                            . "authored (sub_keys); refusing to capture it into state/.\n"
-                            . "If this is really a secret, reclassify it runtime/derived/env instead of authored.\n"
-                            . 'If this is a false positive, declare "allow_secret": true on its sub_keys rule.'
-                        );
-                    }
-                }
-                $capturedValue = $this->capture_value($ctx, $subVal, $subRule, $forceUnresolvedRefs);
-                if ($capturedValue['included']) {
-                    $captured[$subKey] = $capturedValue['value'];
-                }
-            }
-            if ($captured) {
-                OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
-                $out[$name] = OptionState::present($captured, $row['autoload']);
-            }
+            $this->capture_option_sub_keys(
+                $resolved['name'],
+                ['sub_keys' => $resolved['sub_keys'], 'autoload' => $resolved['autoload']],
+                $forceUnresolvedRefs,
+                $liveCanonicalNames,
+                $out
+            );
         }
 
         // option_name_refs (task #93): options discovered by NAME PATTERN
@@ -2491,6 +2512,89 @@ final class Capture {
             }
         }
         return OptionState::document($out);
+    }
+
+    /**
+     * Shared per-sub-key capture loop for BOTH Policy::sub_keyed_options()
+     * (DUO-3233, exactly-named blobs — polylang/wpseo) and
+     * Policy::dynamic_options() (DUO-3264, a blob whose own NAME is
+     * computed, e.g. theme_mods_<active stylesheet>) — the two differ only
+     * in how $name itself was found; once found, capturing named,
+     * authored, live-populated sub-keys through the same guard_secret()/
+     * capture_value() path every other authored value uses is identical
+     * either way, so this is the one place that logic lives. $rule needs
+     * only 'sub_keys' and (when anything gets captured) 'autoload' —
+     * sub_keyed_options()'s own return shape already has both;
+     * dynamic_options callers synthesize the same small shape from
+     * Policy::resolve_dynamic_option()'s own return.
+     *
+     * @param array<string,bool> $liveCanonicalNames
+     * @param array<string,mixed> $out
+     */
+    private function capture_option_sub_keys(
+        string $name,
+        array $rule,
+        bool $forceUnresolvedRefs,
+        array &$liveCanonicalNames,
+        array &$out
+    ): void {
+        $subKeys = $rule['sub_keys'] ?? [];
+        $row = $this->read_option_row($name);
+        if ($row === null) {
+            return; // option doesn't exist live at all -- nothing to carve a sub-key out of
+        }
+        $liveCanonicalNames[$name] = true;
+        $live = maybe_unserialize($row['option_value']);
+        self::assert_plain($live, "option $name");
+        if (!is_array($live)) {
+            throw new \RuntimeException(
+                "duo: option '$name' declares sub_keys but its live value is not array-shaped (got "
+                . get_debug_type($live) . ') — sub_keys assumes a plain PHP-serialized map, matching every '
+                . 'verified case so far (Polylang\'s polylang option, Yoast\'s wpseo option)'
+            );
+        }
+        $captured = [];
+        foreach ($subKeys as $subKey => $subRule) {
+            if (($subRule['class'] ?? '') !== 'authored') {
+                continue; // declared (documents intent) but not authored -- never captured, mirrors option_name_refs' own precedent
+            }
+            if (!array_key_exists($subKey, $live)) {
+                continue; // this environment's live blob simply doesn't have this sub-key populated yet -- nothing to capture
+            }
+            $subVal = $live[$subKey];
+            $ctx = "$name.$subKey";
+            if (is_string($subVal)) {
+                $this->guard_secret('options', $ctx, $subVal, $subRule);
+            } elseif (empty($subRule['allow_secret'])) {
+                // Array-shaped sub-key value: deep scan, deliberately
+                // NOT the is_string()-gated shallow guard_secret() call
+                // above -- the same reasoning option_name_refs' own
+                // Secrets::hard_match_deep() call already documents.
+                // (DUO-3214 has since widened guard_secret() itself to
+                // deep-scan unconditionally, closing task #127 -- this
+                // call site predates that fix and is left as its own
+                // implementation rather than folded into guard_secret()
+                // as part of that unrelated rebase, to avoid changing
+                // this rule's tested error message as a side effect.)
+                $secretLabel = Secrets::hard_match_deep($subVal);
+                if ($secretLabel !== null) {
+                    throw new \RuntimeException(
+                        "duo: secret guard tripped — option '$ctx' looks like a $secretLabel but is classified "
+                        . "authored (sub_keys); refusing to capture it into state/.\n"
+                        . "If this is really a secret, reclassify it runtime/derived/env instead of authored.\n"
+                        . 'If this is a false positive, declare "allow_secret": true on its sub_keys rule.'
+                    );
+                }
+            }
+            $capturedValue = $this->capture_value($ctx, $subVal, $subRule, $forceUnresolvedRefs);
+            if ($capturedValue['included']) {
+                $captured[$subKey] = $capturedValue['value'];
+            }
+        }
+        if ($captured) {
+            OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
+            $out[$name] = OptionState::present($captured, $row['autoload']);
+        }
     }
 
     /** @return ?array{option_value:string,autoload:string} */

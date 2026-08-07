@@ -2,6 +2,108 @@
 # DUO-3209: copied/invalid embedded identity blocks before state publication.
 set -euo pipefail
 
+# DUO-3264: dynamic_options.theme_mods -- proof beyond the generic
+# byte-diff already run above in run.sh (which only proves conf1's
+# captured tokens equal conf2's captured tokens; it can't see whether the
+# target's LIVE blob merged sub-keys into conf2's own pre-existing content
+# correctly, or whether a previously-active theme's own row genuinely
+# never entered state/ at all). Deliberately placed FIRST in this file,
+# before any of the DUO-3209/3210 tests below delete the shared
+# conformance-logo attachment (the "branch edit" block) -- that later
+# deletion is what exercises Apply::apply_option_sub_keys()'s sub-key
+# tombstone fix (also DUO-3264, found live via this exact interaction: a
+# stale custom_logo/header_image/header_image_data left behind on conf2
+# after conf1's own recapture correctly stopped reporting them), so this
+# block intentionally runs against the fully-populated, pre-deletion state
+# rather than duplicating that proof.
+CONF2_MODS=$(wp_conf2 option get theme_mods_twentytwentyfive --format=json)
+echo "$CONF2_MODS" | jq -e '.background_color == "3c8c3c"' >/dev/null \
+  || fail "theme_mods_twentytwentyfive.background_color did not apply correctly on conf2: $CONF2_MODS"
+echo "$CONF2_MODS" | jq -e '.custom_logo | type == "number"' >/dev/null \
+  || fail "theme_mods_twentytwentyfive.custom_logo did not re-resolve to a local attachment id on conf2: $CONF2_MODS"
+CONF2_LOGO_ID=$(echo "$CONF2_MODS" | jq -r '.custom_logo')
+[ "$(wp_conf2 post get "$CONF2_LOGO_ID" --field=post_type 2>/dev/null)" = "attachment" ] \
+  || fail "theme_mods_twentytwentyfive.custom_logo ($CONF2_LOGO_ID) does not point at a real attachment on conf2"
+echo "$CONF2_MODS" | jq -e --arg port "$CONF2_PORT" '.header_image | contains("localhost:" + $port)' >/dev/null \
+  || fail "theme_mods_twentytwentyfive.header_image was not rewritten to conf2's own domain: $CONF2_MODS"
+echo "$CONF2_MODS" | jq -e '.header_image_data.attachment_id == .custom_logo' >/dev/null \
+  || fail "theme_mods_twentytwentyfive.header_image_data.attachment_id did not re-resolve consistently with custom_logo: $CONF2_MODS"
+CONF2_CSS_ID=$(echo "$CONF2_MODS" | jq -r '.custom_css_post_id')
+[ "$(wp_conf2 post get "$CONF2_CSS_ID" --field=post_type 2>/dev/null)" = "custom_css" ] \
+  || fail "theme_mods_twentytwentyfive.custom_css_post_id ($CONF2_CSS_ID) does not point at a real custom_css post on conf2"
+[ "$(wp_conf2 post get "$CONF2_CSS_ID" --field=post_content 2>/dev/null)" = 'body { background: #3c8c3c; }' ] \
+  || fail "custom_css post content did not round-trip to conf2"
+pass "theme_mods_twentytwentyfive's declared authored sub-keys (background_color, custom_logo, header_image, header_image_data, custom_css_post_id) all apply correctly on conf2, ref-typed fields re-resolved to conf2's own local ids"
+
+echo "$CONF2_MODS" | jq -e '.sidebars_widgets.data."sidebar-1" | length > 0' >/dev/null \
+  || fail "conf2's own pre-existing sidebars_widgets did not survive the theme_mods sub-key merge untouched: $CONF2_MODS"
+echo "$CONF2_MODS" | jq -e '.wp_classic_sidebars."sidebar-1".name == "Footer"' >/dev/null \
+  || fail "conf2's own pre-existing wp_classic_sidebars did not survive the theme_mods sub-key merge untouched: $CONF2_MODS"
+pass "conf2's own runtime-excluded sub-keys (sidebars_widgets, wp_classic_sidebars) survived the merge into the live blob untouched -- sub_keys apply is a merge, never a whole-value replace"
+
+jq -e '.records | has("theme_mods_twentytwentyone") | not' "$CONF_REPO1/state/options/core.json" >/dev/null \
+  || fail "theme_mods_twentytwentyone (a previously-active theme's own row) leaked into captured state -- residue exclusion failed"
+pass "theme_mods_twentytwentyone (residue: a previously-active, now-inactive theme's own row) never entered captured state, exactly as declared"
+
+PENDING2=$(wp_conf2 duo pending --repo=/siterepo --format=json)
+[ "$PENDING2" = "[]" ] \
+  || fail "wp duo pending on conf2 is no longer empty: $PENDING2"
+pass "wp duo pending remains empty post-apply -- empty, auto-registered widget_<type> rows (every core type not covered by widgets{}) stay unscanned by design (contentless scaffolding, never captured before this issue, not captured now); DUO-3278's own declared block/nav_menu/text content applied cleanly"
+
+# DUO-3264 <-> DUO-3278 cross-PR finding, full evolution (see manifests/
+# core.json's own note at dynamic_options for the complete walk-back):
+# DUO-3264 first shipped its OWN blocking net here (core.json
+# option_namespaces for ^sidebars_widgets$/^widget_, ~18 per-name `runtime`
+# classifications) believing gate_scan()'s widgets section was informational
+# only. Reverted: SidebarState::capture()'s own load_widget_options() ALREADY
+# has an unconditional, independent, EARLIER-firing guard for the identical
+# condition (any widget_<type> row with real instances and an undeclared
+# type refuses capture) -- proven live, this exact probe's own captured
+# error was SidebarState's message, not the (also shipped, at the time)
+# options-layer one, because SidebarState::capture() always runs before
+# build_options() in build()'s own call order. The options-layer net was
+# therefore provably unreachable dead weight for this family and is gone.
+# What's tested below is what remains true: SidebarState's own guard is
+# sufficient on its own, AND (a second, separate finding, also DUO-3264)
+# its FIRST shipped message advertised a remedy that didn't work --
+# "classify options:widget_<type>=runtime" did nothing, since the guard
+# only ever consulted widgets{}, never options.* classification. Fixed at
+# the source (SidebarState::load_widget_options() now also treats an
+# explicit runtime/env options classification as first-class
+# acknowledgment, same tier as a widgets{} entry) rather than dropping the
+# remedy from the message -- both are asserted below, live, not assumed.
+say "(DUO-3264 <-> DUO-3278) live probe: an unknown, non-core widget type gates loudly (SidebarState's own guard), names a remedy that actually works, then classifies clean"
+wp_conf1 option update widget_regress_fake_type '{"2":{"title":"Regress Fake"}}' --format=json >/dev/null
+
+FAKE_PENDING=$(wp_conf1 duo pending --repo=/siterepo --format=json)
+echo "$FAKE_PENDING" | jq -e 'any(.section == "widgets" and .key == "regress_fake_type")' >/dev/null \
+  || fail "unknown widget type regress_fake_type did not surface in wp duo pending's own widgets section (DUO-3278's gate_scan() diagnostic): $FAKE_PENDING"
+
+FAKE_RC=0
+FAKE_CAPTURE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || FAKE_RC=$?
+[ "$FAKE_RC" -ne 0 ] && echo "$FAKE_CAPTURE_OUT" | grep -q "widget option 'widget_regress_fake_type' contains instances but type 'regress_fake_type' is undeclared" \
+  || fail "capture did not loudly refuse the unknown widget type via SidebarState's own guard: $FAKE_CAPTURE_OUT"
+# team-lead's own requirement: this refusal must read as widgets-aware, not
+# a generic "go classify it" -- both real remedies named inline.
+echo "$FAKE_CAPTURE_OUT" | grep -q "add \"regress_fake_type\" to a pinned manifest's widgets{} grammar" \
+  || fail "refusal did not name the first remedy (extend widgets{} grammar), or misidentified the type: $FAKE_CAPTURE_OUT"
+echo "$FAKE_CAPTURE_OUT" | grep -q "declare it a deliberate exclusion (wp duo classify --set 'options:widget_regress_fake_type=runtime')" \
+  || fail "refusal did not name the second remedy (deliberate exclusion): $FAKE_CAPTURE_OUT"
+
+# The substantive gate: does the second remedy the message names ACTUALLY
+# work? (Team-lead's own requirement, after the first shipped version of
+# this message was proven to advertise a dead remedy.) Classify via site
+# policy exactly as the message instructs, then confirm capture proceeds.
+cp "$CONF_REPO1/site.duo.json" "$CONF_REPO1/.tmp-site-backup.json"
+jq '.policy.options.widget_regress_fake_type = {"class": "runtime"}' "$CONF_REPO1/site.duo.json" > "$CONF_REPO1/.tmp-site-new.json"
+mv "$CONF_REPO1/.tmp-site-new.json" "$CONF_REPO1/site.duo.json"
+wp_conf1 duo capture --repo=/siterepo >/dev/null \
+  || fail "capture still refused widget_regress_fake_type after following the message's own stated remedy (site policy classified it runtime) -- the escape hatch does not function"
+mv "$CONF_REPO1/.tmp-site-backup.json" "$CONF_REPO1/site.duo.json"
+wp_conf1 option delete widget_regress_fake_type >/dev/null
+wp_conf1 duo capture --repo=/siterepo >/dev/null
+pass "unknown widget type: SidebarState's own guard refuses naming BOTH remedies, the deliberate-exclusion remedy it names actually works (verified, not assumed -- the operator-path-dishonesty class this project refuses to ship), clean again once the fake type is fully removed"
+
 # DUO-3278: the core fixture's three declared widget kinds round-trip through
 # the sidebar wire format with ledger-only identity and target-local counters.
 SIDEBAR_FILE="$CONF_REPO1/state/sidebars/sidebar-1.json"

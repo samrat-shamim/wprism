@@ -333,6 +333,27 @@ final class RepositoryAuthorization {
                 ? $policy->canonical_option_name_ref_details((string) $name)
                 : $policy->option_rule_details_for_option((string) $name, $allOptions);
             $rule = $details['rule'] ?? [];
+            // DUO-3264 (fork A): theme_mods_<stylesheet>'s own sub_keys
+            // rule is never findable via the ordinary single-name lookup
+            // above (its physical NAME is computed, not declared).
+            // Deliberately the PREFIX-only match (Policy::
+            // dynamic_option_rule_for_prefix(), not the exact-match
+            // dynamic_option_rule_for_name() Apply::option_apply_target()
+            // uses): authorization runs as part of repository compilation,
+            // which `wp duo deploy` also goes through — including on a
+            // target whose active theme does not match yet, since deploy
+            // is what reconciles that mismatch. Requiring an exact match
+            // here would make deploy unable to compile the very repository
+            // it needs to read to know what to reconcile — see
+            // dynamic_option_rule_for_prefix()'s own docblock for the full
+            // reasoning (caught live, not by inspection).
+            if (($rule['class'] ?? null) === null && empty($rule['sub_keys']) && !str_contains((string) $name, '{{')) {
+                $dynamicRule = $policy->dynamic_option_rule_for_prefix((string) $name);
+                if ($dynamicRule !== null) {
+                    $rule = $dynamicRule;
+                    $details = ['rule' => $rule, 'source' => 'dynamic_options'];
+                }
+            }
             $class = $rule['class'] ?? 'unclassified';
             if ($record['state'] === 'deleted') {
                 if ($class !== 'authored' || !empty($rule['sub_keys'])) {

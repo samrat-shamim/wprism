@@ -54,6 +54,24 @@ wp_conf1 option update page_on_front "$HOME_ID" >/dev/null
 wp_conf1 option update default_category "$NEWS_ID" >/dev/null
 wp_conf1 option update sticky_posts "[$HELLO_ID]" --format=json >/dev/null
 
+# DUO-3264: dynamic_options.theme_mods (fork A of the owner ruling, issue
+# comment 9fd882a6) — a representative theme_mods_<stylesheet> sweep,
+# proving both halves of the mechanism against the REAL manifests/core.json
+# (not a fixture): (1) the currently-active theme's declared sub_keys
+# capture/apply/re-resolve correctly, merged into the live blob rather than
+# replacing it wholesale; (2) a PREVIOUSLY-active theme's own row becomes
+# residue — matched by the declared prefix, excluded by construction,
+# never unclassified-pending, never captured. twentytwentyone stands in for
+# "some other theme this site used to run" (classic, non-block); the final
+# active theme is twentytwentyfive (FSE/block, already conformance/seeds/
+# fse.sh's own theme) so the SAME manifest declaration is proven against
+# both a classic and a block theme's own theme_mods shape across this
+# project's conformance suite as a whole.
+wp_conf1 theme install twentytwentyone --activate >/dev/null
+wp_conf1 eval "set_theme_mod('background_color', 'aa3333'); set_theme_mod('custom_logo', $ATT_ID);" >/dev/null
+wp_conf1 theme install twentytwentyfive --activate >/dev/null
+wp_conf1 eval "set_theme_mod('background_color', '3c8c3c'); set_theme_mod('custom_logo', $ATT_ID); set_theme_mod('header_image', '$UP_URL'); set_theme_mod('header_image_data', array('attachment_id' => $ATT_ID, 'url' => '$UP_URL', 'thumbnail_url' => '$UP_URL', 'height' => 48, 'width' => 64)); wp_update_custom_css_post('body { background: #3c8c3c; }');" >/dev/null
+
 # DUO-3278: representative closed widget family. Counters are deliberately
 # sparse and later collide with unrelated target defaults; portable identity
 # comes only from duo_map, never from settings injected into these arrays.
@@ -75,4 +93,4 @@ update_option('sidebars_widgets', [
 ]);
 " >/dev/null
 
-echo "core seed: news=$NEWS_ID home=$HOME_ID att=$ATT_ID hello=$HELLO_ID widget-menu=$WIDGET_MENU_ID hierarchy=$BRANCH_A/$CHILD_A,$BRANCH_B/$CHILD_B"
+echo "core seed: news=$NEWS_ID home=$HOME_ID att=$ATT_ID hello=$HELLO_ID widget-menu=$WIDGET_MENU_ID hierarchy=$BRANCH_A/$CHILD_A,$BRANCH_B/$CHILD_B theme_mods: twentytwentyone(residue)+twentytwentyfive(active)"
