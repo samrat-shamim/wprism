@@ -30,6 +30,7 @@
  */
 
 require __DIR__ . '/../../agent/src/Canon.php';
+require __DIR__ . '/../../agent/src/OptionState.php';
 require __DIR__ . '/../../agent/src/Policy.php';
 require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
 require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
@@ -214,7 +215,7 @@ echo "\n== resolved_adapters(): digest determinism + \"schema change without ver
 // exist at all; the assertion below was repointed to the declared-value
 // case instead of deleted, so resolved_adapters()'s spec_version field is
 // still covered).
-$dirA = fresh_manifests_dir(['woo' => ['name' => 'woo', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'woocommerce/woocommerce.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'], 'options' => ['a' => ['class' => 'authored']]]]);
+$dirA = fresh_manifests_dir(['woo' => ['name' => 'woo', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'woocommerce/woocommerce.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'], 'option_autoload' => 'preserve', 'options' => ['a' => ['class' => 'authored']]]]);
 $pA = Policy::load(null, ['woo']);
 $adaptersA = RepositoryCompiler::resolved_adapters($pA);
 check(count($adaptersA) === 1 && $adaptersA[0]['name'] === 'woo', 'resolved_adapters() returns one row per pinned manifest, correctly named');
@@ -227,7 +228,7 @@ check(preg_match('/^[0-9a-f]{64}$/', $adaptersA[0]['digest']) === 1, 'resolved_a
 // manifest (the exact "schema change without version change" case the
 // issue's own Evidence-required list names — no version field moved at
 // all, only unrelated manifest content did).
-$dirB = fresh_manifests_dir(['woo' => ['name' => 'woo', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'woocommerce/woocommerce.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'], 'options' => ['a' => ['class' => 'env']]]]);
+$dirB = fresh_manifests_dir(['woo' => ['name' => 'woo', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'woocommerce/woocommerce.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'], 'option_autoload' => 'preserve', 'options' => ['a' => ['class' => 'env']]]]);
 $pB = Policy::load(null, ['woo']);
 $adaptersB = RepositoryCompiler::resolved_adapters($pB);
 check(

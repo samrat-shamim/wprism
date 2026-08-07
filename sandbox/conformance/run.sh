@@ -348,15 +348,15 @@ echo "$DEPLOY_OUT" | jq .
 pass "deploy succeeded on conf2"
 
 say "acceptance: conf2's activation/theme state matches canonical, from deploy alone"
-CANON_ACTIVE=$(jq -r '.active_plugins[]? | split("/")[0]' "$R1"/state/options/core.json | sort -u)
+CANON_ACTIVE=$(jq -r '.records.active_plugins.value[]? | split("/")[0]' "$R1"/state/options/core.json | sort -u)
 CONF2_ACTIVE=$(wp_conf2 plugin list --status=active --field=name | sort -u)
 if [ "$CANON_ACTIVE" != "$CONF2_ACTIVE" ]; then
   echo "canonical active plugins (from conf1's capture): $CANON_ACTIVE"
   echo "conf2 active plugins (post-deploy):               $CONF2_ACTIVE"
   fail "conf2's active-plugin set does not match canonical after deploy (manifest: $MANIFEST)"
 fi
-CANON_TEMPLATE=$(jq -r '.template // empty' "$R1"/state/options/core.json)
-CANON_STYLESHEET=$(jq -r '.stylesheet // empty' "$R1"/state/options/core.json)
+CANON_TEMPLATE=$(jq -r '.records.template.value // empty' "$R1"/state/options/core.json)
+CANON_STYLESHEET=$(jq -r '.records.stylesheet.value // empty' "$R1"/state/options/core.json)
 CONF2_TEMPLATE=$(wp_conf2 option get template)
 CONF2_STYLESHEET=$(wp_conf2 option get stylesheet)
 [ "$CANON_TEMPLATE" = "$CONF2_TEMPLATE" ] \

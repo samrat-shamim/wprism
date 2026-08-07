@@ -36,14 +36,21 @@ jq -n '{
 
 # active_plugins is intentionally valid managed state. The other four keys
 # exercise env/runtime plus an authored->runtime site-policy downgrade.
-jq -n '{
-  active_plugins: [],
-  blogname: "stale authored value",
-  cron: {},
-  siteurl: "https://wrong-environment.example",
-  stylesheet: "twentytwentyfive",
-  template: "twentytwentyfive"
-}' > "$HOST_REPO/state/options/core.json"
+jq -s '{format:"duo-options/v1",records:(
+  reduce ([.[] | (.options // {}) | to_entries[]
+    | select(.value.class == "authored" or .value.class == "managed"
+      or ([.value.sub_keys // {} | to_entries[] | select(.value.class == "authored")] | length > 0))
+    | .key] | unique[]) as $name ({}; .[$name] = {state:"absent"})
+  + {
+    active_plugins: {state:"present",autoload:"yes",value:[]},
+    blogname: {state:"present",autoload:"yes",value:"stale authored value"},
+    cron: {state:"present",autoload:"yes",value:{}},
+    siteurl: {state:"present",autoload:"yes",value:"https://wrong-environment.example"},
+    stylesheet: {state:"present",autoload:"yes",value:"twentytwentyfive"},
+    template: {state:"present",autoload:"yes",value:"twentytwentyfive"}
+  }
+)}' ../manifests/core.json ../manifests/woocommerce.json ../manifests/ninja-forms.json \
+  > "$HOST_REPO/state/options/core.json"
 
 POST_UUID=11111111-1111-4111-8111-111111111111
 POST_FRONT=$(jq -n --arg uuid "$POST_UUID" '{

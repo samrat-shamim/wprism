@@ -125,7 +125,7 @@ pass "clean plan summary, 0 code_mismatch"
 say "(b) inject code_mismatch: declare a plugin active in state/options/core.json that doesn't exist in this environment's code"
 CORE_JSON="$SITEREPO/state/options/core.json"
 [ -f "$CORE_JSON" ] || fail "expected $CORE_JSON to exist after capture"
-jq '.active_plugins = ["fake-plugin/fake-plugin.php"]' "$CORE_JSON" > "$CORE_JSON.tmp" && mv "$CORE_JSON.tmp" "$CORE_JSON"
+jq '.records.active_plugins.value = ["fake-plugin/fake-plugin.php"]' "$CORE_JSON" > "$CORE_JSON.tmp" && mv "$CORE_JSON.tmp" "$CORE_JSON"
 pass "state/options/core.json: active_plugins now declares fake-plugin/fake-plugin.php"
 
 assert_exit 1 "duo status ${PAIR}1 (code_mismatch)" -- "$DUO" status "${PAIR}1"
@@ -135,7 +135,7 @@ echo "$OUT" | grep -q ', 1 code_mismatch' || fail "duo status did not count 1 co
 pass "duo status exits non-zero and names the missing plugin"
 
 say "revert the code_mismatch injection; confirm code_mismatch clears"
-jq '.active_plugins = []' "$CORE_JSON" > "$CORE_JSON.tmp" && mv "$CORE_JSON.tmp" "$CORE_JSON"
+jq '.records.active_plugins.value = []' "$CORE_JSON" > "$CORE_JSON.tmp" && mv "$CORE_JSON.tmp" "$CORE_JSON"
 assert_exit 0 "duo status ${PAIR}1 (reverted)" -- "$DUO" status "${PAIR}1"
 echo "$OUT" | grep -q '0 code_mismatch' || fail "expected 0 code_mismatch after reverting the injected plugin"
 pass "code_mismatch clears after reverting; exit 0 again"

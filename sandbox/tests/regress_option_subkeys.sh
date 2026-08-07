@@ -188,19 +188,19 @@ pass "site repo initialized"
 
 say "(1) capture: sub_keys carves out ONLY the declared keys"
 wp1 duo capture --repo=/siterepo >/dev/null
-POLYLANG_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/asub32331/state/options/core.json')); print(sorted(d['polylang'].keys()))")
+POLYLANG_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/asub32331/state/options/core.json'))['records']; print(sorted(d['polylang']['value'].keys()))")
 [ "$POLYLANG_KEYS" = "['nav_menus', 'post_types', 'taxonomies']" ] || fail "expected captured polylang option to carry EXACTLY [nav_menus, post_types, taxonomies], got: $POLYLANG_KEYS"
 for excluded in force_lang domains hide_default rewrite redirect_lang browser media_support sync default_lang first_activation previous_version version; do
-  python3 -c "import json,sys; d=json.load(open('siterepo/asub32331/state/options/core.json')); sys.exit(1 if '$excluded' in d['polylang'] else 0)" \
+  python3 -c "import json,sys; d=json.load(open('siterepo/asub32331/state/options/core.json'))['records']; sys.exit(1 if '$excluded' in d['polylang']['value'] else 0)" \
     || fail "excluded sub-key '$excluded' leaked into captured polylang option"
 done
 pass "captured polylang option carries exactly nav_menus/post_types/taxonomies -- every env-bound/bookkeeping sibling excluded"
 
-WPSEO_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/asub32331/state/options/core.json')); print(sorted(d['wpseo'].keys()))")
+WPSEO_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/asub32331/state/options/core.json'))['records']; print(sorted(d['wpseo']['value'].keys()))")
 [ "$WPSEO_KEYS" = "['disableadvanced_meta']" ] || fail "expected captured wpseo option to carry EXACTLY [disableadvanced_meta], got: $WPSEO_KEYS"
 pass "captured wpseo option carries exactly disableadvanced_meta -- the ~115 other sibling keys (version, first_activated_on, tokens, ...) excluded"
 
-NAV_TOKENS=$(python3 -c "import json; d=json.load(open('siterepo/asub32331/state/options/core.json')); print(d['polylang']['nav_menus'])")
+NAV_TOKENS=$(python3 -c "import json; d=json.load(open('siterepo/asub32331/state/options/core.json'))['records']; print(d['polylang']['value']['nav_menus'])")
 echo "$NAV_TOKENS" | grep -q '{{term:' || fail "expected nav_menus term ids tokenized as {{term:<uuid>}}, got: $NAV_TOKENS"
 pass "nav_menus per-language menu-term-ids correctly tokenized via json_refs"
 
@@ -333,7 +333,7 @@ HOST_BAD_REPO=siterepo/asub32332/.tmp-duo3233-badsubkey
 rm -rf "$HOST_BAD_REPO"
 mkdir -p "$HOST_BAD_REPO/state/options"
 cp siterepo/asub32332/site.duo.json "$HOST_BAD_REPO/site.duo.json"
-jq -n '{polylang: {post_types: ["project"], sync: ["taxonomies"]}}' > "$HOST_BAD_REPO/state/options/core.json"
+jq -n '{format:"duo-options/v1",records:{polylang:{state:"present",autoload:"yes",value:{post_types:["project"],sync:["taxonomies"]}}}}' > "$HOST_BAD_REPO/state/options/core.json"
 set +e
 BAD_OUT=$($COMPOSE run --rm -T cli2 wp duo apply --repo="$BAD_REPO" --format=json 2>&1)
 BAD_RC=$?
@@ -355,7 +355,7 @@ HOST_BAD_REPO2=siterepo/asub32331/.tmp-duo3233-badlint
 rm -rf "$HOST_BAD_REPO2"
 mkdir -p "$HOST_BAD_REPO2/state/options"
 cp siterepo/asub32331/site.duo.json "$HOST_BAD_REPO2/site.duo.json"
-jq -n --argjson pid "$PROJ_EN" '{polylang: {post_types: [($pid | tostring)]}}' > "$HOST_BAD_REPO2/state/options/core.json"
+jq -n --argjson pid "$PROJ_EN" '{format:"duo-options/v1",records:{polylang:{state:"present",autoload:"yes",value:{post_types:[($pid | tostring)]}}}}' > "$HOST_BAD_REPO2/state/options/core.json"
 set +e
 LINT_OUT=$(wp1 duo lint --repo="$BAD_REPO2" 2>&1)
 set -e

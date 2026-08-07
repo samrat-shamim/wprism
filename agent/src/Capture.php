@@ -108,6 +108,7 @@ final class Capture {
             $previous = is_dir($c->repo . '/state')
                 ? RepositoryCompiler::compile($c->repo, $policy)
                 : null;
+            $previousOptions = $previous?->tree()['options/core']['data'] ?? null;
 
             // The one consistent-snapshot transaction: every SELECT build()
             // issues, plus the _duo_uuid/duo_map identity-minting writes
@@ -115,11 +116,11 @@ final class Capture {
             // on its own (see run_in_consistent_snapshot()) if a concurrent
             // WordPress write collides with one of THIS build's own writes.
             $build = self::run_in_consistent_snapshot(function () use (
-                $c, $policy, $repo, $forceUnresolvedRefs, $observedDeletedTables
+                $c, $policy, $repo, $forceUnresolvedRefs, $observedDeletedTables, $previousOptions
             ): array {
                 Identity::assert_embedded_unique();
                 Snapshot::assert_mapped_history_present($policy, $repo, $observedDeletedTables);
-                $candidate = $c->build(true, $forceUnresolvedRefs);
+                $candidate = $c->build(true, $forceUnresolvedRefs, $previousOptions);
                 Identity::assert_entities_unique($candidate['entities']);
                 return $candidate;
             });
@@ -233,6 +234,7 @@ final class Capture {
         Snapshot::prune_dead_map($policy);
         $c = new self($repo, $policy);
         self::verify_engine_support($policy);
+        $repositoryOptions = RepositoryCompiler::compile($repo, $policy)->tree()['options/core']['data'] ?? null;
 
         // DUO-3213: read-only (mint=false — build() never writes in this
         // mode), but still wrapped in the SAME consistent-snapshot
@@ -246,9 +248,9 @@ final class Capture {
         // publisher's filesystem operations, and MVCC gives it a coherent
         // view regardless of what a concurrent capture() is doing on the
         // DB side.
-        $build = self::run_in_consistent_snapshot(function () use ($c, $forceUnresolvedRefs): array {
+        $build = self::run_in_consistent_snapshot(function () use ($c, $forceUnresolvedRefs, $repositoryOptions): array {
             Identity::assert_embedded_unique();
-            $candidate = $c->build(false, $forceUnresolvedRefs);
+            $candidate = $c->build(false, $forceUnresolvedRefs, $repositoryOptions);
             Identity::assert_entities_unique($candidate['entities']);
             return $candidate;
         });
@@ -518,7 +520,7 @@ final class Capture {
     // ------------------------------------------------------------------
 
     /** @return array{entities: array, media: array<string,string>, warnings: string[]} */
-    private function build(bool $mint, bool $forceUnresolvedRefs = false): array {
+    private function build(bool $mint, bool $forceUnresolvedRefs = false, ?array $previousOptions = null): array {
         global $wpdb;
         $this->unclassified = [];
         $this->unscopedRefs = [];
@@ -676,7 +678,7 @@ final class Capture {
         }
 
         // ---- options file ----
-        $options = $this->build_options($mint, $forceUnresolvedRefs);
+        $options = $this->build_options($mint, $forceUnresolvedRefs, $previousOptions);
         $entities[] = [
             'uuid' => 'options/core',
             'type' => 'options',
@@ -1418,50 +1420,56 @@ final class Capture {
      * unchanged for this, so its existing dangling/unscoped messages read
      * naturally for a sub-key too ("option polylang.nav_menus: ...").
      *
-     * Returns null exactly when the ORIGINAL per-option loop would have
-     * `continue`d past this key entirely (a scalar ref that resolved to
-     * nothing — id 0, or dropped): the json_refs/key_refs and plain-string
-     * branches never produce a top-level null (struct_capture() always
-     * returns the same container shape it was given; tokenize_text() never
-     * nulls a string), so this signal is unambiguous to every caller.
+     * The explicit included bit is load-bearing: PHP null is a legitimate
+     * option value (`N;` on the SQL wire), while a scalar ref that resolves
+     * to nothing means "omit this record." Returning bare null used to
+     * conflate those two states and made the null-like matrix lossy.
+     *
+     * @return array{included:bool,value:mixed}
      */
-    private function capture_value(string $ctx, $v, array $rule, bool $forceUnresolvedRefs) {
+    private function capture_value(string $ctx, $v, array $rule, bool $forceUnresolvedRefs): array {
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
             $decoded = $this->decode_structured($v, $rule, "option $ctx");
-            return $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+            return ['included' => true, 'value' => $this->tokens->struct_capture(
+                $decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null
+            )];
         }
         if (!empty($rule['ref'])) {
-            return $this->option_ref_tokens($ctx, $v, $rule['ref'], $forceUnresolvedRefs);
+            $captured = $this->option_ref_tokens($ctx, $v, $rule['ref'], $forceUnresolvedRefs);
+            return ['included' => $captured !== null, 'value' => $captured];
         }
         if (is_string($v)) {
-            return $this->tokens->tokenize_text($v);
+            return ['included' => true, 'value' => $this->tokens->tokenize_text($v)];
         }
-        return $v;
+        return ['included' => true, 'value' => $v];
     }
 
-    private function build_options(bool $mint, bool $forceUnresolvedRefs = false): array {
-        global $wpdb;
+    private function build_options(
+        bool $mint,
+        bool $forceUnresolvedRefs = false,
+        ?array $previousDocument = null
+    ): array {
         $out = [];
         $processed = [];
+        $liveCanonicalNames = [];
         foreach ($this->policy->authored_options() as $name => $rule) {
             $processed[$name] = true;
-            $raw = $wpdb->get_var($wpdb->prepare(
-                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-                $name
-            ));
-            if ($raw === null) {
+            $row = $this->read_option_row($name);
+            if ($row === null) {
                 continue;
             }
-            $v = maybe_unserialize($raw);
+            $liveCanonicalNames[$name] = true;
+            $v = maybe_unserialize($row['option_value']);
             self::assert_plain($v, "option $name");
             if (is_string($v)) {
                 $this->guard_secret('options', $name, $v, $rule);
             }
-            $v = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
-            if ($v === null) {
+            $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
+            if (!$captured['included']) {
                 continue;
             }
-            $out[$name] = $v;
+            OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
+            $out[$name] = OptionState::present($captured['value'], $row['autoload']);
         }
 
         // Journal-independent discovery for manifest-owned option
@@ -1489,21 +1497,20 @@ final class Capture {
             if (($rule['class'] ?? '') !== 'authored' || !empty($rule['sub_keys'])) {
                 continue;
             }
-            $raw = $wpdb->get_var($wpdb->prepare(
-                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-                $name
-            ));
-            if ($raw === null) {
+            $row = $this->read_option_row($name);
+            if ($row === null) {
                 continue;
             }
-            $v = maybe_unserialize($raw);
+            $liveCanonicalNames[$name] = true;
+            $v = maybe_unserialize($row['option_value']);
             self::assert_plain($v, "option $name");
             if (is_string($v)) {
                 $this->guard_secret('options', $name, $v, $rule);
             }
-            $v = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
-            if ($v !== null) {
-                $out[$name] = $v;
+            $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
+            if ($captured['included']) {
+                OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
+                $out[$name] = OptionState::present($captured['value'], $row['autoload']);
             }
         }
 
@@ -1524,14 +1531,12 @@ final class Capture {
         // docblock for the full history.
         foreach ($this->policy->sub_keyed_options() as $name => $rule) {
             $subKeys = $rule['sub_keys'] ?? [];
-            $raw = $wpdb->get_var($wpdb->prepare(
-                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-                $name
-            ));
-            if ($raw === null) {
+            $row = $this->read_option_row($name);
+            if ($row === null) {
                 continue; // option doesn't exist live at all -- nothing to carve a sub-key out of
             }
-            $live = maybe_unserialize($raw);
+            $liveCanonicalNames[$name] = true;
+            $live = maybe_unserialize($row['option_value']);
             self::assert_plain($live, "option $name");
             if (!is_array($live)) {
                 throw new \RuntimeException(
@@ -1571,10 +1576,14 @@ final class Capture {
                         );
                     }
                 }
-                $captured[$subKey] = $this->capture_value($ctx, $subVal, $subRule, $forceUnresolvedRefs);
+                $capturedValue = $this->capture_value($ctx, $subVal, $subRule, $forceUnresolvedRefs);
+                if ($capturedValue['included']) {
+                    $captured[$subKey] = $capturedValue['value'];
+                }
             }
             if ($captured) {
-                $out[$name] = $captured;
+                OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
+                $out[$name] = OptionState::present($captured, $row['autoload']);
             }
         }
 
@@ -1640,13 +1649,12 @@ final class Capture {
                     continue;
                 }
                 $key = substr_replace($name, $token, $offset, $length);
-                $raw = $wpdb->get_var($wpdb->prepare(
-                    "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
-                ));
-                if ($raw === null) {
+                $row = $this->read_option_row($name);
+                if ($row === null) {
                     continue;
                 }
-                $v = maybe_unserialize($raw);
+                $liveCanonicalNames[$key] = true;
+                $v = maybe_unserialize($row['option_value']);
                 self::assert_plain($v, "option $name");
                 // Deep secret scan, not the shallow is_string() guard the
                 // ordinary options loop above uses: this value is typically
@@ -1682,7 +1690,8 @@ final class Capture {
                 // path with its own default, scoped only to option_name_
                 // refs-discovered rows.
                 $v = $this->tokens->struct_capture($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-                $out[$key] = $v;
+                OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
+                $out[$key] = OptionState::present($v, $row['autoload']);
             }
         }
 
@@ -1699,20 +1708,64 @@ final class Capture {
         // capture code that runs regardless of which manifests are pinned,
         // the same way those fields do.
         foreach (['active_plugins', 'template', 'stylesheet'] as $managedOption) {
-            $raw = $wpdb->get_var($wpdb->prepare(
-                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-                $managedOption
-            ));
-            if ($raw === null) {
+            $row = $this->read_option_row($managedOption);
+            if ($row === null) {
                 continue;
             }
-            $v = maybe_unserialize($raw);
+            $liveCanonicalNames[$managedOption] = true;
+            $v = maybe_unserialize($row['option_value']);
             self::assert_plain($v, "option $managedOption");
-            $out[$managedOption] = $managedOption === 'active_plugins'
+            $v = $managedOption === 'active_plugins'
                 ? array_values(array_map('strval', (array) $v))
                 : (string) $v;
+            $rule = $this->policy->option_rule($managedOption) ?? [];
+            OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$managedOption'");
+            $out[$managedOption] = OptionState::present($v, $row['autoload']);
         }
-        return $out;
+        foreach ($previousDocument === null ? [] : OptionState::records($previousDocument) as $name => $record) {
+            if (isset($out[$name]) || isset($liveCanonicalNames[$name])) {
+                continue; // still live (possibly omitted because a ref dropped) or replaced by a present record
+            }
+            if ($record['state'] === 'deleted') {
+                $out[$name] = $record; // absence converges: preserve the durable intent byte-for-byte
+                continue;
+            }
+            $details = str_contains((string) $name, '{{')
+                ? $this->policy->canonical_option_name_ref_details((string) $name)
+                : $this->policy->option_rule_details((string) $name);
+            $rule = $details['rule'] ?? [];
+            if ($record['state'] === 'present'
+                && ($rule['class'] ?? null) === 'authored' && empty($rule['sub_keys'])) {
+                $out[$name] = OptionState::deleted($record);
+            } else {
+                $out[$name] = OptionState::absent();
+            }
+        }
+        $required = array_fill_keys(array_keys($this->policy->authored_options()), true);
+        $required += array_fill_keys(array_keys($this->policy->sub_keyed_options()), true);
+        foreach (['active_plugins', 'template', 'stylesheet'] as $managedOption) {
+            if (($this->policy->option_rule($managedOption)['class'] ?? null) === 'managed') {
+                $required[$managedOption] = true;
+            }
+        }
+        foreach ($required as $name => $_) {
+            if (!isset($out[$name])) {
+                $out[$name] = OptionState::absent();
+            }
+        }
+        return OptionState::document($out);
+    }
+
+    /** @return ?array{option_value:string,autoload:string} */
+    private function read_option_row(string $name): ?array {
+        global $wpdb;
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT option_value, autoload FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
+        ), ARRAY_A);
+        if (!is_array($row)) {
+            return null;
+        }
+        return ['option_value' => (string) $row['option_value'], 'autoload' => (string) $row['autoload']];
     }
 
     /** All live option NAMES (not values) — the candidate set

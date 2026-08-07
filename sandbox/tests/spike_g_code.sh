@@ -238,10 +238,10 @@ say "(a) plugin confirmed NOT active on either env; initial capture on g1 record
 wp_g1 plugin list --status=active --field=name | grep -qx duo-loop-demo && fail "duo-loop-demo is already active on g1 before step (a) — reset_env_state did not take"
 wp_g2 plugin list --status=active --field=name | grep -qx duo-loop-demo && fail "duo-loop-demo is already active on g2 before step (a) — reset_env_state did not take"
 wp_g1 duo capture --repo=/siterepo
-jq -e '.active_plugins == []' siterepo/g1/state/options/core.json >/dev/null \
-  || fail "g1's captured active_plugins is not [] (got: $(jq -c .active_plugins siterepo/g1/state/options/core.json))"
-[ "$(jq -r '.template' siterepo/g1/state/options/core.json)" = "twentytwentyone" ] || fail "g1's captured template is not twentytwentyone"
-[ "$(jq -r '.stylesheet' siterepo/g1/state/options/core.json)" = "twentytwentyone" ] || fail "g1's captured stylesheet is not twentytwentyone"
+jq -e '.records.active_plugins.value == []' siterepo/g1/state/options/core.json >/dev/null \
+  || fail "g1's captured active_plugins is not [] (got: $(jq -c .records.active_plugins.value siterepo/g1/state/options/core.json))"
+[ "$(jq -r '.records.template.value' siterepo/g1/state/options/core.json)" = "twentytwentyone" ] || fail "g1's captured template is not twentytwentyone"
+[ "$(jq -r '.records.stylesheet.value' siterepo/g1/state/options/core.json)" = "twentytwentyone" ] || fail "g1's captured stylesheet is not twentytwentyone"
 git -C siterepo/g1 add -A
 git -C siterepo/g1 -c user.name=duo -c user.email=duo@example.test commit -qm "capture: initial state, duo-loop-demo inactive"
 git -C siterepo/g1 push -q origin main
@@ -251,8 +251,8 @@ say "(b) on g1: activate duo-loop-demo — a REAL admin action (activate_plugin(
 wp_g1 plugin activate duo-loop-demo
 wp_g1 plugin list --status=active --field=name | grep -qx duo-loop-demo || fail "duo-loop-demo did not actually activate on g1"
 wp_g1 duo capture --repo=/siterepo
-jq -e '.active_plugins | any(. == "duo-loop-demo/duo-loop-demo.php")' siterepo/g1/state/options/core.json >/dev/null \
-  || fail "g1's captured active_plugins does not include duo-loop-demo/duo-loop-demo.php after activating (got: $(jq -c .active_plugins siterepo/g1/state/options/core.json))"
+jq -e '.records.active_plugins.value | any(. == "duo-loop-demo/duo-loop-demo.php")' siterepo/g1/state/options/core.json >/dev/null \
+  || fail "g1's captured active_plugins does not include duo-loop-demo/duo-loop-demo.php after activating (got: $(jq -c .records.active_plugins.value siterepo/g1/state/options/core.json))"
 git -C siterepo/g1 add -A
 git -C siterepo/g1 -c user.name=duo -c user.email=duo@example.test commit -qm "capture: activate duo-loop-demo on g1"
 git -C siterepo/g1 push -q origin main
@@ -361,7 +361,7 @@ say "(d) fix: deactivate via canonical (g1 deactivates for real + captures + pus
 wp_g1 eval 'require_once ABSPATH . "wp-admin/includes/plugin.php"; deactivate_plugins("duo-loop-demo/duo-loop-demo.php");'
 wp_g1 plugin list --status=active --field=name | grep -qx duo-loop-demo && fail "duo-loop-demo still active on g1 after deactivation"
 wp_g1 duo capture --repo=/siterepo
-jq -e '.active_plugins | index("duo-loop-demo/duo-loop-demo.php") == null' siterepo/g1/state/options/core.json >/dev/null \
+jq -e '.records.active_plugins.value | index("duo-loop-demo/duo-loop-demo.php") == null' siterepo/g1/state/options/core.json >/dev/null \
   || fail "g1's captured active_plugins still lists duo-loop-demo after deactivating"
 git -C siterepo/g1 add -A
 git -C siterepo/g1 -c user.name=duo -c user.email=duo@example.test commit -qm "branch: deactivate duo-loop-demo to match its removal from code/"

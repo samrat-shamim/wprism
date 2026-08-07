@@ -103,7 +103,7 @@ say "state-v1 branch: env2 authors green while still running v1"
 "${GIT2[@]}" checkout -qb state-v1 main
 wp2 option update duo_loop_color green >/dev/null
 wp2 duo capture --repo=/siterepo >/dev/null
-jq -e '.duo_loop_color == "green"' "siterepo/${PAIR}2/state/options/core.json" >/dev/null \
+jq -e '.records.duo_loop_color.value == "green"' "siterepo/${PAIR}2/state/options/core.json" >/dev/null \
   || fail "state-v1 capture did not preserve the v1 scalar schema"
 "${GIT2[@]}" add -A
 "${GIT2[@]}" commit -qm "state-v1: editorial color blue to green"
@@ -162,7 +162,7 @@ pass "migration ran under v2; deploy reported (not hid) the accepted code-versio
 
 say "integration ordering step 3: re-capture the migrated v2 canonical shape BEFORE state merge"
 wp1 duo capture --repo=/siterepo >/dev/null
-jq -e '.duo_loop_color == {"label":"blue","schema":2}' "siterepo/${PAIR}1/state/options/core.json" >/dev/null \
+jq -e '.records.duo_loop_color.value == {"label":"blue","schema":2}' "siterepo/${PAIR}1/state/options/core.json" >/dev/null \
   || fail "post-migration capture is not the v2 object shape"
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: v2-migrated canonical shape"
@@ -184,9 +184,9 @@ pass "the version-skew semantic boundary surfaces as one reviewable canonical-fi
 
 say "resolve deliberately: keep v2 schema, carry forward v1 branch's editorial value"
 "${GIT1[@]}" checkout --ours -- state/options/core.json
-jq --indent 4 '.duo_loop_color.label = "green"' "siterepo/${PAIR}1/state/options/core.json" > "siterepo/${PAIR}1/.tmp-options.json"
+jq --indent 4 '.records.duo_loop_color.value.label = "green"' "siterepo/${PAIR}1/state/options/core.json" > "siterepo/${PAIR}1/.tmp-options.json"
 mv "siterepo/${PAIR}1/.tmp-options.json" "siterepo/${PAIR}1/state/options/core.json"
-jq -e '.duo_loop_color == {"label":"green","schema":2}' "siterepo/${PAIR}1/state/options/core.json" >/dev/null \
+jq -e '.records.duo_loop_color.value == {"label":"green","schema":2}' "siterepo/${PAIR}1/state/options/core.json" >/dev/null \
   || fail "resolution lost either v2 schema or v1 editorial value"
 "${GIT1[@]}" add state/options/core.json
 "${GIT1[@]}" commit -qm "merge state-v1 after migration (resolve green in v2 schema)"

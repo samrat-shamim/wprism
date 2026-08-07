@@ -1,6 +1,7 @@
 {
   "spec_version": 1,
   "name": "elementor",
+  "option_autoload": "preserve",
   "plugin": "elementor/elementor.php",
   "version_range": {"min": "4.0.0", "max": "5.0.0"},
   "notes": [

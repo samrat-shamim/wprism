@@ -82,7 +82,7 @@ echo "$OUT3"
 wp1 option delete woocommerce_flat_rate_999999_settings >/dev/null
 [ "$RC3" -eq 0 ] || fail "expected a genuinely dangling option_name_refs id to warn-and-drop (capture still succeeds), got exit $RC3: $OUT3"
 echo "$OUT3" | grep -qi "999999" || fail "expected the dangling warning to name the id 999999 (got: $OUT3)"
-jq -e 'to_entries | map(select(.key | test("999999"))) | length == 0' "$HOST_REPO/state-out/options/core.json" >/dev/null \
+jq -e '.records | to_entries | map(select(.key | test("999999"))) | length == 0' "$HOST_REPO/state-out/options/core.json" >/dev/null \
   || fail "the dangling option must be ABSENT from captured state, not present under a raw or malformed key"
 pass "dangling option_name_refs id warned and dropped; capture succeeded; nothing leaked into canonical state"
 rm -rf "$HOST_REPO"
