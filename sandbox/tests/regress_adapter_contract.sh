@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Regression — DUO-3222: version-pinned adapter compatibility contract
-# (Policy::load()'s new validators, Policy::theme_ranges(),
-# RepositoryCompiler's per-manifest digest/resolved_adapters()).
+# Regression — DUO-3222/DUO-3243: version-pinned adapter compatibility
+# contract plus optional content-addressed site manifest pins (Policy::load()
+# validators, Policy::theme_ranges(), RepositoryCompiler's existing
+# per-manifest digest/resolved_adapters(), and the real manifest-pin CLI
+# handler).
 #
 # Every one of these is pure PHP — no $wpdb, no WordPress bootstrap, by
 # design (RepositoryCompiler's own docblock: the tree becomes a validated
@@ -30,9 +32,10 @@ php -l regress_adapter_contract.php >/dev/null || fail "regress_adapter_contract
 php -l ../../agent/src/Policy.php >/dev/null || fail "agent/src/Policy.php has a syntax error"
 php -l ../../agent/src/RepositoryCompiler.php >/dev/null || fail "agent/src/RepositoryCompiler.php has a syntax error"
 php -l ../../agent/src/Deploy.php >/dev/null || fail "agent/src/Deploy.php has a syntax error"
+php -l ../../agent/src/Cli.php >/dev/null || fail "agent/src/Cli.php has a syntax error"
 pass "no syntax errors"
 
-say "running the offline harness (validators, theme_ranges(), digest determinism, in_range edges)"
+say "running the offline harness (validators, site pins, CLI emission, digest determinism, in_range edges)"
 php regress_adapter_contract.php || fail "regress_adapter_contract.php reported failing checks (see output above)"
 
 printf '\n\033[1;32m✔ REGRESS_ADAPTER_CONTRACT PASSED\033[0m\n'

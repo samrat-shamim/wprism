@@ -56,9 +56,11 @@ final class Policy {
             self::validate_option_storage($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
         }
-        $names = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
+        $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
+        $pins = self::normalize_manifest_pins($rawPins);
         $dir = self::manifests_dir();
-        foreach ($names as $name) {
+        foreach ($pins as $pin) {
+            $name = $pin['name'];
             $file = $dir . '/' . basename($name) . '.json';
             if (!is_file($file)) {
                 throw new \RuntimeException("duo: manifest '$name' not found in $dir");
@@ -75,7 +77,73 @@ final class Policy {
             $p->manifests[] = $manifest;
         }
         self::validate_no_conflicting_adapter_claims($p->manifests);
+        self::validate_manifest_pins($pins, $p);
         return $p;
+    }
+
+    /**
+     * `site.duo.json` originally accepted a flat list of manifest names. A
+     * content pin is additive, never a flag day: each entry may instead be
+     * {name,digest}, while strings keep their exact historical meaning. Keep
+     * the declared digest separate from the loaded manifest so it cannot
+     * accidentally participate in policy precedence or the manifest's own
+     * content hash.
+     *
+     * @return list<array{name:string,digest:?string}>
+     */
+    private static function normalize_manifest_pins($rawPins): array {
+        if (!is_array($rawPins) || !array_is_list($rawPins)) {
+            throw new \RuntimeException('duo: site.duo.json manifests must be a JSON array');
+        }
+        $pins = [];
+        foreach ($rawPins as $i => $raw) {
+            if (is_string($raw) && $raw !== '') {
+                $pins[] = ['name' => $raw, 'digest' => null];
+                continue;
+            }
+            if (!is_array($raw) || !is_string($raw['name'] ?? null) || $raw['name'] === '') {
+                throw new \RuntimeException(
+                    "duo: site.duo.json manifests[$i] must be a non-empty name string or an object with "
+                    . 'a non-empty string name and optional digest'
+                );
+            }
+            $digest = $raw['digest'] ?? null;
+            if ($digest !== null && (!is_string($digest) || !preg_match('/^[a-f0-9]{64}$/', $digest))) {
+                throw new \RuntimeException(
+                    "duo: site.duo.json manifest '{$raw['name']}' has an invalid digest; expected 64 lowercase "
+                    . 'hexadecimal characters'
+                );
+            }
+            $pins[] = ['name' => $raw['name'], 'digest' => $digest];
+        }
+        return $pins;
+    }
+
+    /**
+     * Compare against DUO-3222's resolved_adapters() result instead of
+     * inventing a second digest implementation. Validation happens only
+     * after every manifest and cross-manifest contract has passed, so a pin
+     * can never turn malformed adapter content into a trusted artifact.
+     *
+     * @param list<array{name:string,digest:?string}> $pins
+     */
+    private static function validate_manifest_pins(array $pins, self $policy): void {
+        if (!array_filter($pins, fn($pin) => $pin['digest'] !== null)) {
+            return;
+        }
+        $resolved = RepositoryCompiler::resolved_adapters($policy);
+        foreach ($pins as $i => $pin) {
+            if ($pin['digest'] === null) {
+                continue;
+            }
+            $actual = (string) ($resolved[$i]['digest'] ?? '');
+            if (!hash_equals($pin['digest'], $actual)) {
+                throw new \RuntimeException(
+                    "duo: manifest '{$pin['name']}' digest mismatch: expected {$pin['digest']}, actual $actual — "
+                    . 'review the manifest change, then update its site.duo.json pin'
+                );
+            }
+        }
     }
 
     /**

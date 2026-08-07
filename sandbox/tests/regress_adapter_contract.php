@@ -1,7 +1,8 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3222: the version-pinned adapter compatibility contract.
+ * DUO-3222/DUO-3243: the version-pinned adapter compatibility contract and
+ * optional content-addressed site manifest pins.
  *
  * Policy::load()'s new validators (validate_adapter_contract(),
  * validate_no_conflicting_adapter_claims()) and RepositoryCompiler's new
@@ -39,6 +40,23 @@ require __DIR__ . '/../../agent/src/Deploy.php';
 use Duo\Canon;
 use Duo\Policy;
 use Duo\RepositoryCompiler;
+
+/** Minimal command runner surface for exercising the real Cli handler offline. */
+final class WP_CLI {
+    public static array $lines = [];
+
+    public static function add_command($name, $class): void {}
+
+    public static function line($line): void {
+        self::$lines[] = (string) $line;
+    }
+
+    public static function error($message): void {
+        throw new \RuntimeException((string) $message);
+    }
+}
+
+require __DIR__ . '/../../agent/src/Cli.php';
 
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 0);
@@ -81,6 +99,22 @@ function fresh_manifests_dir(array $files): string {
         rmdir($root);
     });
     putenv("DUO_MANIFESTS_DIR=$root");
+    return $root;
+}
+
+/** Fresh site repo containing only the policy contract under test. */
+function fresh_site_repo(array $manifests): string {
+    $root = sys_get_temp_dir() . '/duo_regress_manifest_pin_' . bin2hex(random_bytes(4));
+    mkdir($root, 0777, true);
+    Canon::write_file("$root/site.duo.json", Canon::encode([
+        'manifests' => $manifests,
+        'policy' => new \stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]));
+    register_shutdown_function(function () use ($root) {
+        @unlink("$root/site.duo.json");
+        @rmdir($root);
+    });
     return $root;
 }
 
@@ -228,7 +262,7 @@ check(preg_match('/^[0-9a-f]{64}$/', $adaptersA[0]['digest']) === 1, 'resolved_a
 // manifest (the exact "schema change without version change" case the
 // issue's own Evidence-required list names — no version field moved at
 // all, only unrelated manifest content did).
-$dirB = fresh_manifests_dir(['woo' => ['name' => 'woo', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'woocommerce/woocommerce.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'], 'option_autoload' => 'preserve', 'options' => ['a' => ['class' => 'env']]]]);
+$dirB = fresh_manifests_dir(['woo' => ['name' => 'woo', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'woocommerce/woocommerce.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'], 'option_autoload' => 'preserve', 'options' => ['a' => ['class' => 'env', 'required' => false]]]]);
 $pB = Policy::load(null, ['woo']);
 $adaptersB = RepositoryCompiler::resolved_adapters($pB);
 check(
@@ -248,6 +282,75 @@ check(
 check(
     RepositoryCompiler::manifest_hash($pA) !== RepositoryCompiler::manifest_hash($pB),
     'the pre-existing combined manifest_hash() also moves — resolved_adapters() digests are the SAME underlying bytes exposed per-adapter, not a second independently-maintained notion of identity'
+);
+
+echo "\n== site.duo.json optional content pins: legacy, match, mismatch, reviewed update ==\n";
+
+$pinDir = fresh_manifests_dir(['pinned' => [
+    'name' => 'pinned',
+    'spec_version' => DUO_SPEC_VERSION,
+    'option_autoload' => 'preserve',
+    'options' => ['example' => ['class' => 'authored']],
+]]);
+$unpinnedRepo = fresh_site_repo(['pinned']);
+Policy::load($unpinnedRepo);
+check(true, 'legacy string manifest pin loads with byte-for-byte historical behavior');
+
+$originalPolicy = Policy::load(null, ['pinned']);
+$originalDigest = RepositoryCompiler::resolved_adapters($originalPolicy)[0]['digest'];
+$pinnedRepo = fresh_site_repo([['name' => 'pinned', 'digest' => $originalDigest]]);
+Policy::load($pinnedRepo);
+check(true, 'object manifest pin with the exact current digest loads normally');
+
+$wrongDigest = str_repeat('0', 64);
+$wrongRepo = fresh_site_repo([['name' => 'pinned', 'digest' => $wrongDigest]]);
+try {
+    Policy::load($wrongRepo);
+    check(false, 'mismatched manifest digest is refused (expected RuntimeException, none thrown)');
+} catch (\RuntimeException $e) {
+    check(
+        str_contains($e->getMessage(), "manifest 'pinned' digest mismatch")
+            && str_contains($e->getMessage(), "expected $wrongDigest")
+            && str_contains($e->getMessage(), "actual $originalDigest"),
+        'mismatched manifest digest refuses loudly with manifest name, expected digest, and actual digest'
+    );
+}
+
+Canon::write_file("$pinDir/pinned.json", Canon::encode([
+    'name' => 'pinned',
+    'spec_version' => DUO_SPEC_VERSION,
+    'option_autoload' => 'preserve',
+    'options' => ['example' => ['class' => 'env', 'required' => false]],
+]));
+expect_throw(
+    fn() => Policy::load($pinnedRepo),
+    'digest mismatch',
+    'a legitimate on-disk manifest change invalidates the old site pin before any policy consumer proceeds'
+);
+
+WP_CLI::$lines = [];
+(new \Duo\Cli())->manifest_pin([], ['name' => 'pinned']);
+$emittedPin = Canon::decode(implode("\n", WP_CLI::$lines));
+$changedDigest = RepositoryCompiler::resolved_adapters(Policy::load(null, ['pinned']))[0]['digest'];
+check(
+    $emittedPin === ['digest' => $changedDigest, 'name' => 'pinned'],
+    'wp duo manifest-pin emits the exact current copy-pasteable {name,digest} object without loading a stale site repo'
+);
+Canon::write_file("$pinnedRepo/site.duo.json", Canon::encode([
+    'manifests' => [$emittedPin],
+    'policy' => new \stdClass(),
+    'spec_version' => DUO_SPEC_VERSION,
+]));
+Policy::load($pinnedRepo);
+check(
+    $changedDigest !== $originalDigest,
+    'reviewed manifest update workflow succeeds only after the site pin is updated to the newly emitted digest'
+);
+
+expect_throw(
+    fn() => Policy::load(fresh_site_repo([['name' => 'pinned', 'digest' => 'not-a-sha256']])),
+    'invalid digest',
+    'malformed declared digest is refused instead of being treated as an absent optional pin'
 );
 
 echo "\n== Deploy::in_range() edge arithmetic (min inclusive, max exclusive) — via Reflection, the same private-method idiom regress_capture_publish.php already uses ==\n";

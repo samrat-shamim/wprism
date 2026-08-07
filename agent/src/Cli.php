@@ -4,7 +4,7 @@ namespace Duo;
 use WP_CLI;
 
 /**
- * wp duo <capture|plan|apply|identity-export|identity-import|journal-report|journal-reset>
+ * wp duo <capture|plan|apply|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
  */
 final class Cli {
     private static function halt_json_failure(\Throwable $t, array $assoc): void {
@@ -831,6 +831,32 @@ final class Cli {
             WP_CLI::error($t->getMessage());
         }
         WP_CLI::line(rtrim(Canon::encode($manifest)));
+    }
+
+    /**
+     * Emit a copy-pasteable content-addressed site.duo.json pin for one
+     * installed manifest. This intentionally does not load a site repo: a
+     * stale declared digest must not prevent the operator from calculating
+     * the reviewed replacement digest.
+     *
+     * ## OPTIONS
+     * --name=<name> : Manifest file name without the .json suffix.
+     *
+     * @subcommand manifest-pin
+     */
+    public function manifest_pin($args, $assoc) {
+        $name = $assoc['name'] ?? WP_CLI::error('--name required');
+        try {
+            $policy = Policy::load(null, [(string) $name]);
+            $resolved = RepositoryCompiler::resolved_adapters($policy);
+            $pin = [
+                'name' => (string) $name,
+                'digest' => (string) ($resolved[0]['digest'] ?? ''),
+            ];
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        WP_CLI::line(rtrim(Canon::encode($pin)));
     }
 }
 
