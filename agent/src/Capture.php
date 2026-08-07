@@ -498,6 +498,23 @@ final class Capture {
         // informational because SidebarState's own guard already enforces;
         // this only adds per-sidebar/per-instance detail a bare exception
         // message can't carry.
+        //
+        // Second, separate finding while verifying the above (DUO-3283,
+        // filed as a closed record — the fix rode this same PR, not a
+        // follow-up): SidebarState::load_widget_options()'s own guard
+        // originally advertised a remedy — classify options.widget_<type>
+        // =runtime as a deliberate exclusion — that did not function; the
+        // guard only ever consulted widget_types() (this manifest key),
+        // never options.* classifications. Live-verified before any fix
+        // existed: the classification did nothing, capture refused again.
+        // Fixed AT THAT GUARD (not here): Policy is now threaded into
+        // load_widget_options(), which treats an explicit runtime/env
+        // options classification as first-class acknowledgment, the same
+        // tier as a widgets{} entry — see that method's own docblock for
+        // the full behavioral addition. Noted here too because this
+        // section's own reasoning above ("SidebarState's own guard already
+        // enforces") depends on that guard's remedies actually working,
+        // which is no longer merely asserted.
         $widgetTypes = $c->policy->widget_types();
         $widgets = [];
         foreach ($optionRows as $row) {
