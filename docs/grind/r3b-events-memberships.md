@@ -21,6 +21,12 @@ patched over — and three distinct, previously-unseen engine gaps were
 found. All three are characterized with acceptance criteria and escalated;
 none was forced into a manifest.
 
+> **Resolution update:** DUO-3234 closed gap 1 with the manifest-declared
+> `regen_dependency` contract. DUO-3235 closed gaps 2 and 3 with
+> `identity.mode=composite_ref` and the `authored_snapshot_meta.id_column`
+> override. The re-runnable grind now proves all three fixes on the original
+> live fixtures; the sections below retain the discovery evidence as history.
+
 ## Environment facts
 
 - WordPress (current), PHP 8.3, MariaDB 11 (shared server, `sandbox/db.yml`).
@@ -104,7 +110,7 @@ per its own explicit instruction — three turned out to be wrong:
 
 ## The three engine gaps (loudest first)
 
-### Gap 1 — TEC's derived custom tables have a HARD per-entity query-availability dependency, and the manifest grammar has no primitive for that
+### Gap 1 — TEC's derived custom tables had a HARD per-entity query-availability dependency with no manifest primitive (closed by DUO-3234)
 
 The central finding of this round. TEC 6.x's "Custom Tables v1"
 architecture maintains `tec_events`/`tec_occurrences` alongside the classic
@@ -182,7 +188,7 @@ with an explicit existence check against the declared class/method that
 fails the apply loudly rather than silently if a future plugin version
 removes it).
 
-### Gap 2 — composite-primary-key join tables have no representation in the typed-snapshot grammar
+### Gap 2 — composite-primary-key join tables had no representation in the typed-snapshot grammar (closed by DUO-3235)
 
 Confirmed by reading `agent/src/Snapshot.php::assert_row_schema()`
 directly: `$pk = (string) ($decl['pk'] ?? '')` reads and stores exactly
@@ -217,6 +223,15 @@ reconciled as an owned edge-set the way `authored_snapshot_meta` sidecars
 already are, since a join row has no independent existence to identify in
 the first place).
 
+**Resolution:** DUO-3235 chose the composite-key mode: an ordered tuple of
+reference columns derives a portable UUID from the referenced entities'
+UUIDs, while the existing ledger stores a bounded packed local tuple. The
+PMPro manifest now declares `pmpro_memberships_pages` with
+`identity.mode=composite_ref`. The grind asserts that its one authored row
+exists immediately after apply, resolves to the target's own level and page
+IDs, survives byte-identical recapture, and enforces the restriction without
+calling PMPro's repair API by hand.
+
 `pmpro_discount_codes`/`pmpro_groups`/`pmpro_membership_levels_groups` are
 a **different** situation, kept clearly apart in the manifest notes: each
 has a normal single-column `id` PK (DESCRIBE'd live) and is structurally
@@ -226,7 +241,7 @@ Marked with the same intent marker, for the opposite reason: not attempted,
 not blocked — matching `docs/grind/r1b-shop.md`'s own shipping-zone
 discipline of never claiming more than was actually round-trip-tested.
 
-### Gap 3 — `authored_snapshot_meta`'s own primary-key column name is hardcoded to `'id'`
+### Gap 3 — `authored_snapshot_meta`'s own primary-key column name was hardcoded to `'id'` (closed by DUO-3235)
 
 Found live while attempting exactly the kind of declaration task #91 asked
 for. `pmpro_membership_levelmeta` (PMPro's level-settings EAV sidecar,
@@ -264,6 +279,10 @@ overridable the same way `key_column`/`value_column` already are — a
 small, mechanical fix, but past the ≤10-line bar this round's mandate set
 for self-fixing, and touching `agent/src/` at all is out of scope for this
 round regardless of size).
+
+**Resolution:** DUO-3235 added the proposed `id_column` field with the
+backward-compatible default of `id`; the PMPro declaration sets it to
+`meta_id`, and the original fixture now round-trips the level metadata.
 
 ## The site
 
@@ -378,9 +397,11 @@ telemetry config, all evidence-based), a genuine `authored_snapshot`
 declaration for `pmpro_membership_levels` (13 columns, mapped identity —
 verified no natural-key candidate exists, neither a DB-level unique
 constraint nor an application-layer duplicate check on `name`, unlike
-`woocommerce_attribute_taxonomies`'s `attribute_name`), and honest markers
-for every table blocked by gaps 2/3 or simply unexercised, each with the
-empirical reasoning recorded — never a silent omission.
+`woocommerce_attribute_taxonomies`'s `attribute_name`), an
+`authored_snapshot_meta` declaration for `pmpro_membership_levelmeta`, and
+an `identity.mode=composite_ref` declaration for
+`pmpro_memberships_pages`. Unexercised tables retain honest intent markers,
+with the empirical reasoning recorded — never a silent omission.
 
 Both manifests follow `manifests/ninja-forms.json`/`manifests/woocommerce.json`'s
 evidence-in-notes convention throughout: every classification decision
@@ -397,14 +418,11 @@ behavior, a live query result), not what was assumed.
   — posts, terms, options, *and* the new typed-snapshot table entities.
 - **`wp duo lint` (hard gate)**: **zero findings** on the final captured
   tree.
-- **The two gaps' real consequences, proven live, not just asserted**: on
-  r3b2 post-apply, `wp_tec_occurrences` has 0 rows and all 3 events are
-  invisible to `wp post list`; `wp_pmpro_memberships_pages` has 0 rows and
-  Studio Members Only is unrestricted. Both manually mitigated (TEC's
-  `Single_Event_Migration_Strategy` machinery per event;
-  `pmpro_update_post_level_restrictions()` once) and both confirmed fixed
-  — matching `docs/grind/r1b-shop.md`'s own "prove the break, then the
-  fix" pattern for its pa_* gap.
+- **The two original gaps' fixes, proven live:** after apply, TEC's
+  `regen_dependency` has made all 3 events query-visible with zero pending
+  regeneration markers. PMPro's composite-ref restriction row exists
+  immediately, points at r3b2's own Studio Access level and Studio Members
+  Only page, and requires no manual repair.
 - **Render checks (buffered curl throughout — `curl | grep -q` under
   `pipefail` is a banned pattern precisely because curl's own exit 23
   breaks it; every check here buffers to a variable first)**: r3b2's
@@ -418,9 +436,8 @@ behavior, a live query result), not what was assumed.
   r3b2's own host (`http://localhost:8853/event/community-meetup/`) —
   proving the typed-snapshot table grammar's URL tokenization round-trips
   correctly end to end, not just for post bodies. The restricted page
-  correctly blocks an anonymous visitor *after* the manual restriction fix
-  (and — deliberately checked — shows the *real* protected content to
-  nobody before that fix is applied).
+  correctly blocks an anonymous visitor using the captured restriction row,
+  with no manual repair step.
 - **A genuine, honestly-reported render-check flakiness, distinct from
   either engine gap and NOT hidden behind a quietly-widened assertion**:
   the *aggregate* `/events/list/` view occasionally needed considerably
@@ -445,8 +462,8 @@ behavior, a live query result), not what was assumed.
 - **Runtime isolation, both directions**: r3b2 has zero
   `pmpro_memberships_users` rows and no `dana.rivera` user after the whole
   round-trip — r3b1's real signup never propagated. r3b1's own signup (and
-  its own, independently-regenerated `tec_occurrences`) remain untouched
-  by any of r3b2's independent mitigation work.
+  its own `tec_occurrences`) remain untouched by any of r3b2's independent
+  apply-time work.
 - **Divergent-edit merge — proven on the new typed-snapshot table
   machinery specifically, not just posts**: conflicting Community-level
   price edits on both sides (`$12.99` vs `$8.99`) produced a real git
@@ -461,18 +478,12 @@ behavior, a live query result), not what was assumed.
 **(a) Engine gaps — each filed as its own board task, `SendMessage`'d to
 team-lead:**
 
-1. **Task #124** — TEC-style hard-dependency derived tables have no
-   manifest primitive to say "regenerate or the applied entity is
-   unusable" (gap 1 above).
-2. **Task #125** — composite-primary-key join tables have no
-   representation in the typed-snapshot grammar at all (gap 2 above) — the
-   sharper of the two for this scenario specifically, since it blocks
-   capturing a real, already-exercised authored fact (PMPro's page
-   restriction), not a hypothetical.
-3. **Task #126** — `authored_snapshot_meta`'s PK column name is hardcoded
-   to `'id'` with no override (gap 3 above) — the smallest of the three,
-   plausibly a sanctioned tiny fix in a future round, but past this
-   round's own ≤10-line/no-`agent/src/`-edits mandate.
+1. **Task #124 / DUO-3234 — closed:** TEC-style hard-dependency derived
+   tables now use `regen_dependency` (gap 1 above).
+2. **Task #125 / DUO-3235 — closed:** composite-primary-key join tables now
+   use `identity.mode=composite_ref` (gap 2 above).
+3. **Task #126 / DUO-3235 — closed:** `authored_snapshot_meta.id_column`
+   overrides nonstandard sidecar PK names (gap 3 above).
 
 **(b) Manifest gaps — closed in-round:** `manifests/the-events-calendar.json`
 and `manifests/paid-memberships-pro.json` (both new, real, substantive —
@@ -500,17 +511,11 @@ honestly rather than hidden behind a quietly-widened assertion.
 
 ## Verdict
 
-Both plugins are meaningfully branchable today, with real, substantive,
-evidence-grounded manifests — but this round's real news is what *isn't*
-branchable yet, and why. The typed-snapshot grammar (task #75) was built
-and proven against two fixtures whose custom tables were, in different
-ways, the *easy* case: `nf3_*` had plain single-target FKs and a
-surrogate PK on every table; `woocommerce_attribute_taxonomies` had zero
-FK columns and a clean natural key. This round handed it a table that's
-derived with teeth (TEC), a table with no surrogate key at all (PMPro's
-restriction join), and a table whose own identity column isn't spelled
-the way the grammar assumed (PMPro's level meta) — and each failure mode
-is different in kind, not degree, from anything the grammar has met
-before. None was worked around; all three are characterized precisely
-enough to become real engine tasks, which is the actual deliverable of a
-stress round like this one.
+Both plugins are meaningfully branchable today with real, substantive,
+evidence-grounded manifests. This round originally exposed three distinct
+failure modes: a derived table with a hard availability dependency (TEC),
+a join table with no surrogate key (PMPro's restriction join), and a
+sidecar whose PK name differed from the grammar's assumption (PMPro's level
+meta). DUO-3234 and DUO-3235 now close all three, and the same original
+fixtures serve as end-to-end regression proofs rather than stale proofs of
+the former gaps.

@@ -14,13 +14,11 @@
 # below, which now proves the automatic fix rather than the manual-step
 # gap this round originally found); (2)
 # PMPro's real content-restriction table, pmpro_memberships_pages, has a
-# COMPOSITE primary key (no surrogate id column) — Snapshot.php's
-# authored_snapshot grammar has no representation for that at all; (3)
-# pmpro_membership_levelmeta's own PK column is named meta_id, not id —
-# Snapshot.php's assert_meta_schema() hardcodes the literal string 'id'
-# with no override. (2) and (3) remain open; characterized with acceptance
-# criteria in the report, escalated to team-lead, NOT forced into the
-# manifests.
+# COMPOSITE primary key (no surrogate id column), a gap closed by DUO-3235's
+# identity.mode=composite_ref grammar; (3) pmpro_membership_levelmeta's own
+# PK column is named meta_id, not id, also closed by DUO-3235's id_column
+# override. See the two post-apply proofs below: both authored facts now
+# capture and converge without manual repair.
 #
 # Own dedicated sandbox/bin/pair.sh pair (r3b1 :8852 / r3b2 :8853, journal
 # on). Own site repo (sandbox/siterepo/{origin-r3b.git,r3b1,r3b2}).
@@ -85,6 +83,12 @@ pass "TEC + PMPro active on both sides"
 reset_env_state() { # reset_env_state <cli-fn>
   local cli="$1"
   "$cli" site empty --yes >/dev/null
+  # wp_delete_post() can leave the active theme's custom_css_post_id at
+  # WordPress's -1 sentinel when site-empty removes an old custom_css post.
+  # That is reset residue, not authored fixture state; if retained, the
+  # ref-typed theme-mod key correctly warns about an unmanaged post id on a
+  # later capture. Keep both sides' clean slate genuinely warning-free.
+  "$cli" theme mod remove custom_css_post_id >/dev/null 2>&1 || true
   "$cli" db query "TRUNCATE TABLE wp_tec_events" >/dev/null 2>&1 || true
   "$cli" db query "TRUNCATE TABLE wp_tec_occurrences" >/dev/null 2>&1 || true
   "$cli" db query "TRUNCATE TABLE wp_tec_kv_cache" >/dev/null 2>&1 || true
@@ -331,7 +335,7 @@ wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
 DIFF_OUT=$(diff -rq siterepo/r3b1/state siterepo/r3b2/.tmp-final || true)
 rm -rf siterepo/r3b2/.tmp-final
 [ -z "$DIFF_OUT" ] || fail "byte-identity broken: $DIFF_OUT"
-pass "byte-identical: posts, terms, options, AND the new typed-snapshot table entities (pmpro_membership_levels)"
+pass "byte-identical: posts, terms, options, AND typed-snapshot table entities (pmpro_membership_levels, pmpro_membership_levelmeta, pmpro_memberships_pages)"
 
 say "DUO-3234's regen_dependency contract, proven live: TEC's derived custom tables are now regenerated automatically as part of apply — the manual-step gap this round originally found is closed"
 # DUO-3258: this step used to assert the GAP itself (zero tec_occurrences,
@@ -360,16 +364,16 @@ echo "$PLAN_AFTER" | grep -q ', 0 regen_pending' || fail "expected zero regen_pe
 wp2 rewrite flush >/dev/null
 pass "confirmed fixed: DUO-3234's regen_dependency contract transparently regenerated wp_tec_occurrences as part of apply itself — 3/3 events visible immediately, tec_occurrences consistent with source ($TEC_ROWS rows), zero regen_pending markers outstanding, no manual step required. This WAS the round's central finding; DUO-3234 is why it no longer holds."
 
-say "THE second finding, proven live: PMPro's page-restriction join table (composite PK) never propagated — Studio Members Only is UNRESTRICTED on r3b2 until fixed by hand"
-RESTRICT_ROWS=$(wp2 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_pages" --skip-column-names)
-[ "$RESTRICT_ROWS" = "0" ] || fail "expected zero restriction rows on r3b2 before the manual fix (got $RESTRICT_ROWS)"
-pass "confirmed: pmpro_memberships_pages has 0 rows on r3b2 — the composite-PK gap means this authored fact never had a way to capture at all"
+say "DUO-3235's composite_ref contract, proven live: PMPro's page-restriction join row propagated and resolved to r3b2's own entity ids"
+RESTRICT_ROWS_B1=$(wp1 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_pages" --skip-column-names)
+RESTRICT_ROWS_B2=$(wp2 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_pages" --skip-column-names)
+[ "$RESTRICT_ROWS_B1" = "1" ] || fail "expected exactly one authored restriction row on r3b1 (got $RESTRICT_ROWS_B1)"
+[ "$RESTRICT_ROWS_B2" = "1" ] || fail "expected exactly one captured restriction row on r3b2 immediately after apply (got $RESTRICT_ROWS_B2)"
 STUDIO_ID_B2=$(wp2 post list --post_type=page --name=studio-members-only --field=ID)
 LEVEL2_ID_B2=$(wp2 db query "SELECT id FROM wp_pmpro_membership_levels WHERE name='Studio Access'" --skip-column-names)
-wp2 eval "pmpro_update_post_level_restrictions($STUDIO_ID_B2, [$LEVEL2_ID_B2]);" >/dev/null
-RESTRICT_ROWS_AFTER=$(wp2 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_pages" --skip-column-names)
-[ "$RESTRICT_ROWS_AFTER" = "1" ] || fail "manual restriction fix did not take (got $RESTRICT_ROWS_AFTER rows)"
-pass "the honest mitigation (calling PMPro's own real pmpro_update_post_level_restrictions() by hand, the same function the real admin metabox calls) restores the restriction"
+RESTRICT_MATCH_B2=$(wp2 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_pages WHERE membership_id=$LEVEL2_ID_B2 AND page_id=$STUDIO_ID_B2" --skip-column-names)
+[ "$RESTRICT_MATCH_B2" = "1" ] || fail "captured restriction did not resolve to r3b2's own Studio Access level ($LEVEL2_ID_B2) and Studio Members Only page ($STUDIO_ID_B2)"
+pass "confirmed fixed: the composite_ref row exists immediately after apply and points at r3b2's own Studio Access level + Studio Members Only page; no PMPro repair call was needed"
 
 say "render checks (buffered curl — never curl | grep under pipefail) + negative host-leak assertion"
 EVENT_HTML=$(curl -s "$R3B2/event/fall-open-house/")
@@ -410,11 +414,17 @@ fi
 STUDIO_HTML=$(curl -s "$R3B2/studio-members-only/")
 LEAK_COUNT=$(printf '%s%s%s%s' "$EVENT_HTML" "$EVENT2_HTML" "$EVENT3_HTML" "$STUDIO_HTML" | grep -c "localhost:8852" || true)
 [ "$LEAK_COUNT" = "0" ] || fail "found $LEAK_COUNT leaked side-1 host string(s) in r3b2's rendered pages"
-echo "$STUDIO_HTML" | grep -qi "tool access, storage lockers" && fail "restricted content visible to an anonymous visitor after the restriction fix"
+echo "$STUDIO_HTML" | grep -qi "tool access, storage lockers" && fail "captured restriction did not block the authored content from an anonymous visitor"
 CONFIRMATION_B2=$(wp2 db query "SELECT confirmation FROM wp_pmpro_membership_levels WHERE name='Community'" --skip-column-names)
 echo "$CONFIRMATION_B2" | grep -q "localhost:8853" || fail "confirmation text internal link did not detokenize to r3b2's own host"
 echo "$CONFIRMATION_B2" | grep -q "localhost:8852" && fail "confirmation text leaked r3b1's host"
-pass "TEC event pages render correctly on r3b2; zero side-1 host leaks anywhere; the restricted page correctly blocks anonymous access post-fix; the membership confirmation text's internal link correctly re-bound to r3b2's own host (http://localhost:8853/...), not r3b1's"
+pass "TEC event pages render correctly on r3b2; zero side-1 host leaks anywhere; the captured restriction blocks anonymous access with no manual repair; the membership confirmation text's internal link correctly re-bound to r3b2's own host (http://localhost:8853/...), not r3b1's"
+
+# A front-end request with no Customizer CSS can materialize WordPress's
+# custom_css_post_id=-1 sentinel. It is runtime lookup residue, not authored
+# fixture state; clear it before the later capture for the same reason the
+# reset path above does.
+wp2 theme mod remove custom_css_post_id >/dev/null 2>&1 || true
 
 say "runtime isolation: r3b1's real member signup never propagates to r3b2, and vice versa nothing here touches r3b1"
 MEMBERS_B2=$(wp2 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_users" --skip-column-names)
