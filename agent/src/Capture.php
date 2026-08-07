@@ -136,12 +136,29 @@ final class Capture {
             // The previous compiled revision is the only authority from
             // which a deletion intent can be created. A first capture has no
             // prior state and therefore cannot infer a deletion. Compiling
-            // before target reads also refuses to build new state on top of
-            // an already-invalid repository revision.
+            // before target reads also still refuses to build new state on
+            // top of a genuinely corrupted repository revision (malformed
+            // JSON, invalid record shapes, illegitimate tombstones — every
+            // check in RepositoryCompiler except one).
+            //
+            // DUO-3287: compile_for_diff(), not compile() — this revision
+            // was captured under whatever policy was active AT THAT TIME,
+            // which the CURRENT policy may since have outgrown (a manifest
+            // added to site.duo.json after the last capture, the entire
+            // premise of DUO-3257's incremental adoption model). Demanding
+            // current-policy completeness from a historical revision isn't
+            // corruption detection, it's refusing to read history that
+            // predates a policy expansion — verified live: every
+            // required-option-missing diagnostic this produced (13-17 of
+            // them, reproduced deterministically) was a genuinely NEW
+            // authored-exact option the previous revision had never even
+            // been asked to know about. compile_for_diff() skips only that
+            // one completeness check; RepositoryCompiler.php's own
+            // $completenessOptional docblock has the full reasoning.
             //
             // DUO-3263: a FRESH Policy::load(), never the shared $policy
-            // build() below will use. RepositoryCompiler::compile() primes
-            // every schema-driven interpreter from THIS tree via
+            // build() below will use. RepositoryCompiler::compile[_for_diff]()
+            // primes every schema-driven interpreter from THIS tree via
             // prime_interpreters_from_repository() (manifests/interpreters/
             // acf.php's own field_definition() docblock: "authorization is
             // about one immutable revision," so once primed it never falls
@@ -158,7 +175,7 @@ final class Capture {
             // proof the previous revision's own priming was leaking forward
             // into the new one's classification instead of a fresh lookup.
             $previous = is_dir($c->repo . '/state')
-                ? RepositoryCompiler::compile($c->repo, Policy::load($repo))
+                ? RepositoryCompiler::compile_for_diff($c->repo, Policy::load($repo))
                 : null;
             $previousOptions = $previous?->tree()['options/core']['data'] ?? null;
             $previousUserLogins = [];
@@ -348,7 +365,14 @@ final class Capture {
         // mutable state. Direct callers still compile here with a fresh
         // Policy object: DUO-3263 requires repository interpreter priming not
         // to contaminate the live-DB fallback used by $c->build() below.
-        $repository = $compiled ?? RepositoryCompiler::compile($repo, Policy::load($repo));
+        // DUO-3287: compile_for_diff() — this is the read-only drift-check
+        // path (plan/status calling snapshot() with no pre-supplied
+        // artifact); it must tolerate a repository revision captured under
+        // an older, narrower policy exactly like Capture::run()'s own
+        // previous-revision compile above. Verified live: `wp duo plan`
+        // hit the identical false-positive as capture on the same
+        // manifest-expansion scenario before this fix.
+        $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
         $repositoryOptions = self::repository_options($repo, $policy, $repository);
         $repositoryUserLogins = [];
         foreach ($repository->tree() as $entity) {
@@ -403,9 +427,12 @@ final class Capture {
         Policy $policy,
         ?CompiledRepository $compiled
     ): ?array {
+        // DUO-3287: same compile_for_diff() reasoning as snapshot()'s own
+        // fallback above — this helper exists specifically for that
+        // no-pre-supplied-artifact path.
         $tree = $compiled !== null
             ? $compiled->tree()
-            : RepositoryCompiler::compile($repo, Policy::load($repo))->tree();
+            : RepositoryCompiler::compile_for_diff($repo, Policy::load($repo))->tree();
         $options = $tree['options/core']['data'] ?? null;
         return is_array($options) ? $options : null;
     }

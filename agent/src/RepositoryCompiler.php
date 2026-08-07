@@ -175,6 +175,34 @@ final class RepositoryCompiler {
     private string $repo;
     private string $stateDir;
     private Policy $policy;
+    // DUO-3287: this compiler serves two structurally different callers.
+    // Most (Apply, Deploy, Cli's verify command, RepositoryAuthorization,
+    // IdentityBackup) compile the tree they are about to ACT on — apply it,
+    // deploy it, export it, authorize it — under the CURRENT policy, and
+    // that tree genuinely must be complete against that policy right now;
+    // an option authored_options() requires with no record at all really is
+    // a hole. But two callers (Capture::run()'s own pre-flight compile of
+    // the PREVIOUS revision, purely to harvest deletion-reconciliation
+    // data; Capture::snapshot()'s non-minting drift-check path, which
+    // Apply::build_plan() also uses) are reading a tree that was captured
+    // under whatever policy was active AT THAT TIME, specifically so it can
+    // be diffed against live/new state — and the current policy is often
+    // wider than the one that produced it, e.g. a manifest was added to
+    // site.duo.json since the last capture. Demanding CURRENT-policy
+    // completeness from a HISTORICAL revision doesn't detect corruption;
+    // it makes ordinary incremental adoption (start narrow, expand
+    // coverage later, the entire premise of DUO-3257) impossible — verified
+    // live: every required-option-missing name across 13-17 diagnostics
+    // was a genuinely NEW authored-exact option the previous revision had
+    // never seen, not a hole in an already-known one. $completenessOptional
+    // narrows the fix to exactly that one check (the "every required name
+    // needs some record" gate in parse_entity()'s options branch) — every
+    // OTHER validation in this class (malformed JSON, invalid record
+    // shapes, illegitimate tombstones, conflict markers, identity
+    // uniqueness, media integrity, everything else) stays fully active
+    // regardless, so a genuinely corrupted historical revision is still
+    // caught exactly as before.
+    private bool $completenessOptional;
     /** @var array<int,array<string,mixed>> */
     private array $diagnostics = [];
     /** @var array<string,array{kind:string,path:string}> */
@@ -188,15 +216,28 @@ final class RepositoryCompiler {
     /** @var array<string,string> every content-addressed blob in media/, including safe orphans */
     private array $mediaCatalog = [];
 
-    private function __construct(string $stateDir, string $mediaRoot, Policy $policy) {
+    private function __construct(string $stateDir, string $mediaRoot, Policy $policy, bool $completenessOptional = false) {
         $this->stateDir = rtrim($stateDir, '/');
         $this->repo = rtrim($mediaRoot, '/'); // media/ root only — see compile_staged()'s docblock for why this can differ from stateDir's own parent
         $this->policy = $policy;
+        $this->completenessOptional = $completenessOptional;
     }
 
     public static function compile(string $repo, Policy $policy): CompiledRepository {
         $repo = rtrim($repo, '/');
         return self::compile_staged($repo . '/state', $repo, $policy);
+    }
+
+    /**
+     * DUO-3287: same as compile(), for the two callers reading a
+     * historical/comparison revision rather than one about to be acted on
+     * — see $completenessOptional's own docblock above for the exact
+     * distinction and why it must not apply to every caller.
+     */
+    public static function compile_for_diff(string $repo, Policy $policy): CompiledRepository {
+        $repo = rtrim($repo, '/');
+        $c = new self($repo . '/state', $repo, $policy, true);
+        return $c->run();
     }
 
     /**
@@ -585,19 +626,21 @@ final class RepositoryCompiler {
                 $this->add('schema_content_mismatch', $path, '', $t->getMessage());
                 return null;
             }
-            $required = array_fill_keys(array_keys($this->policy->authored_options()), true);
-            $required += array_fill_keys(array_keys($this->policy->sub_keyed_options()), true);
-            foreach (['active_plugins', 'template', 'stylesheet'] as $managedOption) {
-                if (($this->policy->option_rule($managedOption)['class'] ?? null) === 'managed') {
-                    $required[$managedOption] = true;
+            if (!$this->completenessOptional) {
+                $required = array_fill_keys(array_keys($this->policy->authored_options()), true);
+                $required += array_fill_keys(array_keys($this->policy->sub_keyed_options()), true);
+                foreach (['active_plugins', 'template', 'stylesheet'] as $managedOption) {
+                    if (($this->policy->option_rule($managedOption)['class'] ?? null) === 'managed') {
+                        $required[$managedOption] = true;
+                    }
                 }
-            }
-            foreach (array_diff_key($required, $records) as $name => $_) {
-                $this->add(
-                    'schema_content_mismatch', $path, 'records.' . $name,
-                    "authored exact option '$name' needs an explicit absent, present, or deleted record; "
-                    . 'removing a record is not deletion intent'
-                );
+                foreach (array_diff_key($required, $records) as $name => $_) {
+                    $this->add(
+                        'schema_content_mismatch', $path, 'records.' . $name,
+                        "authored exact option '$name' needs an explicit absent, present, or deleted record; "
+                        . 'removing a record is not deletion intent'
+                    );
+                }
             }
             return [
                 'type' => 'options', 'path' => $path,
