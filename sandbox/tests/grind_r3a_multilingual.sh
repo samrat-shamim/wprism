@@ -686,8 +686,13 @@ python3 - "$ABOUT_FILE" <<'PYEOF'
 import re, sys
 p = sys.argv[1]
 s = open(p).read()
-s = re.sub(r'<<<<<<< HEAD\n    "excerpt": "[^"]+",\n    "menu_order": 0,\n    "meta": \{\},\n    "modified_gmt": "([^"]+)",\n=======\n    "excerpt": "[^"]+",\n    "menu_order": 0,\n    "meta": \{\},\n    "modified_gmt": "[^"]+",\n>>>>>>> origin/about-r3a2\n',
-           '    "excerpt": "Founded in 2020, Duo is your local apparel shop shipping worldwide.",\n    "menu_order": 0,\n    "meta": {},\n    "modified_gmt": "\\1",\n', s)
+# DUO-3207 added a "modified" field (alongside the pre-existing
+# "modified_gmt") to Capture.php's post representation -- the trailing
+# timestamp portion of this hunk is now 1-OR-2 lines, not always exactly
+# one. Matches either shape; keeps HEAD's (r3a1's own) timestamp block,
+# same as before -- only the excerpt itself is an editorial override.
+s = re.sub(r'<<<<<<< HEAD\n    "excerpt": "[^"]+",\n    "menu_order": 0,\n    "meta": \{\},\n((?:    "(?:modified|modified_gmt)": "[^"]+",\n)+)=======\n    "excerpt": "[^"]+",\n    "menu_order": 0,\n    "meta": \{\},\n(?:    "(?:modified|modified_gmt)": "[^"]+",\n)+>>>>>>> origin/about-r3a2\n',
+           '    "excerpt": "Founded in 2020, Duo is your local apparel shop shipping worldwide.",\n    "menu_order": 0,\n    "meta": {},\n\\1', s)
 open(p, 'w').write(s)
 PYEOF
 grep -q '<<<<<<<' "$ABOUT_FILE" && fail "conflict markers remain after resolution" || true

@@ -664,14 +664,20 @@ import re, sys
 p = sys.argv[1]
 s = open(p).read()
 s = re.sub(r'<<<<<<< HEAD\n        "_regular_price": "17\.99",\n=======\n        "_regular_price": "22\.99",\n>>>>>>> origin/price-r1b2\n', '        "_regular_price": "19.99",\n', s)
-s = re.sub(r'<<<<<<< HEAD\n    "modified_gmt": "[^"]+",\n=======\n(    "modified_gmt": "[^"]+",)\n>>>>>>> origin/price-r1b2\n', r'\1\n', s)
+# DUO-3207 added a "modified" field (alongside the pre-existing
+# "modified_gmt") to Capture.php's post representation -- the timestamp
+# hunk below is now 1-OR-2 lines depending on which fields actually
+# differ between the two branches, not always exactly one. Matches either
+# shape; keeps the origin/price-r1b2 side, same as before.
+s = re.sub(r'<<<<<<< HEAD\n((?:    "(?:modified|modified_gmt)": "[^"]+",\n)+)=======\n((?:    "(?:modified|modified_gmt)": "[^"]+",\n)+)>>>>>>> origin/price-r1b2\n', r'\2', s)
 open(p, 'w').write(s)
 PYEOF
 python3 - "$PARENTFILE" <<'PYEOF'
 import re, sys
 p = sys.argv[1]
 s = open(p).read()
-s = re.sub(r'<<<<<<< HEAD\n    "modified_gmt": "[^"]+",\n=======\n(    "modified_gmt": "[^"]+",)\n>>>>>>> origin/price-r1b2\n', r'\1\n', s)
+# Same DUO-3207 generalization as VARFILE's own resolution above.
+s = re.sub(r'<<<<<<< HEAD\n((?:    "(?:modified|modified_gmt)": "[^"]+",\n)+)=======\n((?:    "(?:modified|modified_gmt)": "[^"]+",\n)+)>>>>>>> origin/price-r1b2\n', r'\2', s)
 open(p, 'w').write(s)
 PYEOF
 grep -qc '<<<<<<<' "$VARFILE" "$PARENTFILE" && fail "conflict markers remain after resolution" || true
