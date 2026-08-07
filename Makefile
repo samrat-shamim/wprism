@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge certify-adversarial-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge certify-adversarial-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-promotion-unit regress-promotion
 
 up:
 	$(COMPOSE) up -d
@@ -211,3 +211,14 @@ regress-adapter-contract:
 # static function. Own sandbox/bin/pair.sh pair (asub3222tr 8918/8919).
 regress-adapter-theme-range:
 	bash sandbox/tests/regress_adapter_theme_range.sh
+
+# DUO-3216: offline host-orchestrator state-machine contract — one compiled
+# artifact, durable pre-mutation DB checkpoint, deploy -> apply ordering,
+# stop-on-first-failure, and exact transport-shaped restore instructions.
+regress-promotion-unit:
+	bash sandbox/tests/regress_promotion_unit.sh
+
+# DUO-3216: live activation/deactivation/order gate, deploy-window mail/HTTP
+# observations, and the composed host promote path with a retained DB dump.
+regress-promotion:
+	bash sandbox/tests/regress_promotion.sh

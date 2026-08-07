@@ -66,6 +66,15 @@ abstract class Transport {
         return self::runCapturing($this->wpCommand($wpArgs));
     }
 
+    /**
+     * Render the exact host-side command an operator can use for recovery.
+     * Promotion checkpoints live inside the target environment, so a bare
+     * `wp db import` instruction is insufficient for docker/ssh transports.
+     */
+    public function wpInstruction(array $wpArgs): string {
+        return $this->wpCommand($wpArgs);
+    }
+
     /** @return array{exit:int, stdout:string, stderr:string} */
     public function captureRaw(string $script): array {
         return self::runCapturing($this->rawCommand($script));

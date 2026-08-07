@@ -44,6 +44,7 @@ Usage:
   duo capture <env> [extra wp-cli flags...]
   duo plan    <env> [extra wp-cli flags...]
   duo apply   <env> [extra wp-cli flags...]
+  duo promote <env> [extra apply flags...]
   duo pending <env>
   duo classify <env> [--accept-proposals]
   duo -h | --help
@@ -74,6 +75,11 @@ Verbs:
                           Extra flags (e.g. --adopt-by-slug=terms
                           --default-author=admin, --with-deletes) are forwarded
                           verbatim. Output streams live; exit code is the agent's.
+  promote <env> [...]     Compile once, export a database checkpoint, then run
+                          deploy -> apply against that immutable artifact. Stops
+                          at the first failed phase and prints the exact database
+                          restore command. Apply flags are forwarded verbatim;
+                          deploy receives the shared code/compiled flags only.
   pending <env>           List the review queue (`wp duo pending --format=json`)
                           as a table: section:key, proposal, evidence, ref-hint,
                           and a prominent SECRET flag where present. Exit 0 with
@@ -158,7 +164,7 @@ function main(array $argv): int {
     }
 
     $verb = array_shift($rest);
-    $verbsNeedingEnv = ['doctor', 'status', 'capture', 'plan', 'apply', 'pending', 'classify'];
+    $verbsNeedingEnv = ['doctor', 'status', 'capture', 'plan', 'apply', 'promote', 'pending', 'classify'];
 
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
@@ -182,6 +188,7 @@ function main(array $argv): int {
         'doctor' => cmd_doctor($transport),
         'status' => cmd_status($transport),
         'capture', 'plan', 'apply' => cmd_passthrough($transport, $verb, $extra),
+        'promote' => cmd_promote($transport, $extra),
         'pending' => cmd_pending($transport, $extra),
         'classify' => cmd_classify($transport, $extra),
     };
@@ -250,6 +257,102 @@ function cmd_status(Transport $t): int {
 function cmd_passthrough(Transport $t, string $verb, array $extra): int {
     $wpArgs = array_merge(['duo', $verb, '--repo=' . $t->repoPath()], $extra);
     return $t->streamWp($wpArgs);
+}
+
+/**
+ * DUO-3216's deliberately thin promotion state machine. The architecture
+ * ruling keeps deploy's hook-firing window distinct from apply's hard canary,
+ * while this host command gives both phases one compiled input and one truthful
+ * success boundary. Checkpoints/artifacts live below the target checkout's
+ * gitignored .duo directory: durable for docker one-shot containers, outside
+ * canonical state, and independent of a git executable existing on the target.
+ */
+function cmd_promote(Transport $t, array $extra): int {
+    foreach ($extra as $arg) {
+        if ($arg === '--compiled' || str_starts_with($arg, '--compiled=')) {
+            fwrite(STDERR, "duo: promote owns --compiled so deploy and apply cannot diverge; remove '$arg'\n");
+            return 1;
+        }
+    }
+
+    $repo = rtrim($t->repoPath(), '/');
+    $runId = gmdate('Ymd-His') . '-' . bin2hex(random_bytes(4));
+    $duoDir = $repo . '/.duo';
+    $artifact = "$duoDir/artifacts/promote-$runId.json";
+    $checkpoint = "$duoDir/checkpoints/promote-$runId.sql";
+    $mkdir = $t->captureRaw(
+        'mkdir -p ' . escapeshellarg(dirname($artifact)) . ' ' . escapeshellarg(dirname($checkpoint))
+    );
+    if ($mkdir['exit'] !== 0) {
+        fwrite(STDERR, "duo: promote: could not create target checkpoint directories\n");
+        $detail = trim($mkdir['stderr'] !== '' ? $mkdir['stderr'] : $mkdir['stdout']);
+        if ($detail !== '') {
+            fwrite(STDERR, $detail . "\n");
+        }
+        return $mkdir['exit'] !== 0 ? $mkdir['exit'] : 1;
+    }
+
+    echo "promote phase: compile\n";
+    $compile = $t->captureWp([
+        'duo', 'compile', '--repo=' . $repo, '--out=' . $artifact, '--format=json',
+    ]);
+    if ($compile['exit'] !== 0) {
+        fwrite(STDERR, "duo: promote: compile failed; no checkpoint or target mutation occurred\n");
+        $detail = trim($compile['stderr'] !== '' ? $compile['stderr'] : $compile['stdout']);
+        if ($detail !== '') {
+            fwrite(STDERR, $detail . "\n");
+        }
+        return $compile['exit'] !== 0 ? $compile['exit'] : 1;
+    }
+
+    echo "promote phase: checkpoint\n";
+    $export = $t->captureWp(['db', 'export', $checkpoint, '--porcelain']);
+    if ($export['exit'] !== 0) {
+        fwrite(STDERR, "duo: promote: database checkpoint failed; deploy/apply were not started\n");
+        $detail = trim($export['stderr'] !== '' ? $export['stderr'] : $export['stdout']);
+        if ($detail !== '') {
+            fwrite(STDERR, $detail . "\n");
+        }
+        return $export['exit'] !== 0 ? $export['exit'] : 1;
+    }
+    echo "database checkpoint: $checkpoint\n";
+
+    $compiledFlag = '--compiled=' . $artifact;
+    $deployExtra = array_values(array_filter($extra, static function (string $arg): bool {
+        return $arg === '--force-code-mismatch'
+            || $arg === '--force-code-drift'
+            || str_starts_with($arg, '--force-code-mismatch=')
+            || str_starts_with($arg, '--force-code-drift=');
+    }));
+
+    echo "promote phase: deploy\n";
+    $deploy = $t->streamWp(array_merge(
+        ['duo', 'deploy', '--repo=' . $repo, $compiledFlag],
+        $deployExtra
+    ));
+    if ($deploy !== 0) {
+        return promote_failed($t, 'deploy', $deploy, $checkpoint);
+    }
+
+    echo "promote phase: apply\n";
+    $apply = $t->streamWp(array_merge(
+        ['duo', 'apply', '--repo=' . $repo, $compiledFlag],
+        $extra
+    ));
+    if ($apply !== 0) {
+        return promote_failed($t, 'apply', $apply, $checkpoint);
+    }
+
+    echo "promote complete: deploy -> apply\n";
+    echo "database checkpoint retained: $checkpoint\n";
+    return 0;
+}
+
+function promote_failed(Transport $t, string $phase, int $exit, string $checkpoint): int {
+    fwrite(STDERR, "duo: promote: $phase failed (exit $exit); later phases were not run\n");
+    fwrite(STDERR, "database checkpoint: $checkpoint\n");
+    fwrite(STDERR, "restore with: " . $t->wpInstruction(['db', 'import', $checkpoint]) . "\n");
+    return $exit !== 0 ? $exit : 1;
 }
 
 /**

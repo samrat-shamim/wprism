@@ -42,9 +42,10 @@ final class Deploy {
      * version (read via WordPress's own plugin-header parser — correct for
      * both composer-managed and vendored plugins, since vendored plugins
      * have no lockfile to check at all) falls inside it. Symmetric checks
-     * for template/stylesheet's theme directories (both parent and child,
-     * when they differ — a child theme's switch_theme() needs its parent
-     * present too).
+     * for template/stylesheet's theme directories. It also compares desired
+     * activation membership, exact plugin load order, and active theme against
+     * the live managed options. Those lifecycle rows block apply but are the
+     * precise work Deploy::run() is allowed to reconcile.
      *
      * Shared by Deploy::run() (this verb's own refuse-precondition) and
      * Apply::build_plan()'s code_mismatch bucket (surfaced at ordinary
@@ -73,6 +74,7 @@ final class Deploy {
         if ($desiredActive !== null) {
             $allPlugins = get_plugins();
             $ranges = $policy->version_ranges();
+            $currentActive = self::current_active_plugins();
             foreach ($desiredActive as $plugin) {
                 $plugin = (string) $plugin;
                 $valid = validate_plugin($plugin);
@@ -88,6 +90,16 @@ final class Deploy {
                             . "changes haven't reached this environment yet.",
                     ];
                     continue; // can't read a version off a plugin that isn't there
+                }
+                if (!in_array($plugin, $currentActive, true)) {
+                    $rows[] = [
+                        'issue' => 'inactive_in_environment',
+                        'kind' => 'plugin',
+                        'plugin' => $plugin,
+                        'message' => "active_plugins in state/options/core.json declares '$plugin', and its code "
+                            . "is installed, but it is not active in this environment. Run 'duo deploy <env>' "
+                            . 'before apply so activation hooks and schema migrations complete first.',
+                    ];
                 }
                 if (isset($ranges[$plugin])) {
                     $r = $ranges[$plugin];
@@ -109,6 +121,28 @@ final class Deploy {
                         ];
                     }
                 }
+            }
+            foreach (array_values(array_diff($currentActive, $desiredActive)) as $plugin) {
+                $rows[] = [
+                    'issue' => 'unexpected_active_plugin',
+                    'kind' => 'plugin',
+                    'plugin' => $plugin,
+                    'message' => "plugin '$plugin' is active in this environment but absent from canonical "
+                        . "active_plugins. Run 'duo deploy <env>' before apply so its deactivation hooks complete first.",
+                ];
+            }
+            if (!$rows
+                && count($currentActive) === count($desiredActive)
+                && !array_diff($currentActive, $desiredActive)
+                && $currentActive !== $desiredActive) {
+                $rows[] = [
+                    'issue' => 'active_plugin_order_mismatch',
+                    'kind' => 'plugin_order',
+                    'message' => 'active_plugins contains the canonical plugin set but its load order differs. '
+                        . "Run 'duo deploy <env>' before apply so WordPress loads plugins in the declared order.",
+                    'desired_order' => $desiredActive,
+                    'environment_order' => $currentActive,
+                ];
             }
         }
 
@@ -135,6 +169,16 @@ final class Deploy {
                 ];
             } else {
                 self::check_theme_range($desiredStylesheet, $themeRanges, $rows);
+                if (get_option('stylesheet') !== $desiredStylesheet) {
+                    $rows[] = [
+                        'issue' => 'inactive_in_environment',
+                        'kind' => 'theme',
+                        'theme' => $desiredStylesheet,
+                        'message' => "stylesheet in state/options/core.json declares '$desiredStylesheet', and its code "
+                            . "is installed, but this environment has theme '" . (string) get_option('stylesheet')
+                            . "' active. Run 'duo deploy <env>' before apply so the theme lifecycle completes first.",
+                    ];
+                }
             }
         }
         if ($desiredTemplate !== null && $desiredTemplate !== $desiredStylesheet) {
@@ -306,12 +350,12 @@ final class Deploy {
      * environment's code or outside its manifest's version_range —
      * --force-code-mismatch overrides, matching apply's existing
      * --force-theirs/--force-delete-referenced convention. Idempotent: a
-     * second run against an already-reconciled environment computes empty
-     * $toActivate/$toDeactivate/theme-diff and calls zero WP APIs, so no
-     * hook re-fires and the run is a genuine no-op, not just a no-visible-
-     * effect one.
+     * lifecycle-only mismatch rows are consumed here rather than refused.
+     * A second run against an already-reconciled environment computes empty
+     * $toActivate/$toDeactivate/order/theme diffs and calls zero lifecycle
+     * APIs, so no hook re-fires and the run is a genuine no-op.
      *
-     * @return array{activated:string[], deactivated:string[], theme_switched:?string, code_mismatch:array, warnings:string[]}
+     * @return array{activated:string[], deactivated:string[], theme_switched:?string, active_plugins_order_corrected:bool, code_mismatch:array, reconciled_code_mismatch:array, external_side_effects:string[], warnings:string[]}
      */
     public static function run(string $repo, array $opts = []): array {
         $repo = rtrim($repo, '/');
@@ -331,8 +375,20 @@ final class Deploy {
             : [];
 
         $mismatch = self::code_mismatch($policy, $desired);
-        if ($mismatch && empty($opts['force_code_mismatch'])) {
-            $list = implode("\n\n", array_map(fn($r) => '  - ' . $r['message'], $mismatch));
+        // An inactive-but-installed plugin is exactly the condition deploy
+        // exists to reconcile. It blocks plan/apply, but cannot block this
+        // lifecycle phase from activating it. Missing/incompatible code stays
+        // a hard deploy precondition as before.
+        $blockingMismatch = array_values(array_filter(
+            $mismatch,
+            fn($r) => !in_array(
+                $r['issue'],
+                ['inactive_in_environment', 'unexpected_active_plugin', 'active_plugin_order_mismatch'],
+                true
+            )
+        ));
+        if ($blockingMismatch && empty($opts['force_code_mismatch'])) {
+            $list = implode("\n\n", array_map(fn($r) => '  - ' . $r['message'], $blockingMismatch));
             throw new \RuntimeException(
                 "duo: deploy refused — code_mismatch:\n\n$list\n\n"
                 . 'Install/vendor whatever is missing (or update code/) in this environment first, '
@@ -376,12 +432,13 @@ final class Deploy {
         // theme switch ..." message below, once activation actually reaches
         // them; double-reporting the same finding under two different
         // messages would be noise, not signal.
-        foreach (array_filter($mismatch, fn($r) => $r['issue'] === 'outside_version_range') as $r) {
+        foreach (array_filter($blockingMismatch, fn($r) => $r['issue'] === 'outside_version_range') as $r) {
             $warnings[] = 'FORCED past code_mismatch: ' . $r['message'];
         }
         $activated = [];
         $deactivated = [];
         $themeSwitched = null;
+        $orderCorrected = false;
         // Findings that survived the refuse-gate above (only possible when
         // --force-code-mismatch was passed) still name real absences —
         // calling activate_plugin()/switch_theme() on something with no
@@ -391,7 +448,7 @@ final class Deploy {
         // that issue means "present but a version this manifest doesn't
         // vouch for," never "absent," so activation still makes sense.
         $missingPlugins = array_column(
-            array_filter($mismatch, fn($r) => $r['kind'] === 'plugin' && $r['issue'] === 'missing_in_code'),
+            array_filter($blockingMismatch, fn($r) => $r['kind'] === 'plugin' && $r['issue'] === 'missing_in_code'),
             'plugin'
         );
         // DUO-3222: issue-scoped, mirroring $missingPlugins immediately above
@@ -411,63 +468,88 @@ final class Deploy {
             $mismatch, fn($r) => $r['kind'] === 'theme' && $r['issue'] === 'missing_in_code'
         );
 
-        $desiredActive = $desired['active_plugins'] ?? null;
-        if ($desiredActive !== null) {
-            $current = self::current_active_plugins();
-            $toActivate = array_values(array_diff($desiredActive, $current));
-            $toDeactivate = array_values(array_diff($current, $desiredActive));
+        Canary::begin_external_observation();
+        try {
+            $desiredActive = $desired['active_plugins'] ?? null;
+            if ($desiredActive !== null) {
+                $current = self::current_active_plugins();
+                $toActivate = array_values(array_diff($desiredActive, $current));
+                $toDeactivate = array_values(array_diff($current, $desiredActive));
 
-            foreach ($toActivate as $plugin) {
-                if (in_array($plugin, $missingPlugins, true)) {
-                    $warnings[] = "skipped activating '$plugin' (missing_in_code, --force-code-mismatch was set)";
-                    continue;
+                foreach ($toActivate as $plugin) {
+                    if (in_array($plugin, $missingPlugins, true)) {
+                        $warnings[] = "skipped activating '$plugin' (missing_in_code, --force-code-mismatch was set)";
+                        continue;
+                    }
+                    $result = activate_plugin($plugin); // hooks fire deliberately — this is the point of this class
+                    if (is_wp_error($result)) {
+                        throw new \RuntimeException("duo: required plugin activation failed for '$plugin'");
+                    }
+                    $activated[] = $plugin;
                 }
-                $result = activate_plugin($plugin); // hooks fire deliberately — this is the point of this class
-                if (is_wp_error($result)) {
-                    throw new \RuntimeException("duo: required plugin activation failed for '$plugin'");
+                if ($toDeactivate) {
+                    // Symmetric with activation, matching §3.3's own failure-mode
+                    // wording for the inverse case ("this environment will do so
+                    // automatically on the next 'duo deploy'") — deactivation is
+                    // not deferred to a human step in this proposal, apply's
+                    // own hook-free posture just means IT can never be the one
+                    // to do it. Hooks fire deliberately here too.
+                    deactivate_plugins($toDeactivate);
+                    $deactivated = $toDeactivate;
                 }
-                $activated[] = $plugin;
-            }
-            if ($toDeactivate) {
-                // Symmetric with activation, matching §3.3's own failure-mode
-                // wording for the inverse case ("this environment will do so
-                // automatically on the next 'duo deploy'") — deactivation is
-                // not deferred to a human step in this proposal, apply's
-                // own hook-free posture just means IT can never be the one
-                // to do it. Hooks fire deliberately here too.
-                deactivate_plugins($toDeactivate);
-                $deactivated = $toDeactivate;
-            }
-            $after = self::current_active_plugins();
-            foreach ($toActivate as $plugin) {
-                if (!in_array($plugin, $missingPlugins, true) && !in_array($plugin, $after, true)) {
-                    throw new \RuntimeException("duo: plugin activation did not persist for '$plugin'");
+                $after = self::current_active_plugins();
+                foreach ($toActivate as $plugin) {
+                    if (!in_array($plugin, $missingPlugins, true) && !in_array($plugin, $after, true)) {
+                        throw new \RuntimeException("duo: plugin activation did not persist for '$plugin'");
+                    }
+                }
+                foreach ($toDeactivate as $plugin) {
+                    if (in_array($plugin, $after, true)) {
+                        throw new \RuntimeException("duo: plugin deactivation did not persist for '$plugin'");
+                    }
+                }
+                if (!$missingPlugins && $after !== $desiredActive) {
+                    // WordPress exposes no lifecycle API for load-order changes.
+                    // Membership has already been reconciled through activate/
+                    // deactivate above; this managed option write changes order
+                    // only and is verified immediately.
+                    update_option('active_plugins', $desiredActive);
+                    $after = self::current_active_plugins();
+                    if ($after !== $desiredActive) {
+                        throw new \RuntimeException('duo: exact active plugin order did not persist');
+                    }
+                    $orderCorrected = true;
                 }
             }
-            foreach ($toDeactivate as $plugin) {
-                if (in_array($plugin, $after, true)) {
-                    throw new \RuntimeException("duo: plugin deactivation did not persist for '$plugin'");
+
+            $desiredStylesheet = $desired['stylesheet'] ?? null;
+            $desiredTemplate = $desired['template'] ?? null;
+            if ($desiredStylesheet !== null && get_option('stylesheet') !== $desiredStylesheet) {
+                if ($themeMissing) {
+                    $warnings[] = "skipped theme switch to '$desiredStylesheet' (missing_in_code, --force-code-mismatch was set)";
+                } else {
+                    switch_theme($desiredStylesheet); // hooks fire deliberately (switch_theme/after_switch_theme)
+                    $themeSwitched = $desiredStylesheet;
+                    if (get_option('stylesheet') !== $desiredStylesheet) {
+                        throw new \RuntimeException("duo: theme switch did not persist for '$desiredStylesheet'");
+                    }
+                    if ($desiredTemplate !== null && get_option('template') !== $desiredTemplate) {
+                        throw new \RuntimeException(
+                            "duo: theme switch to '$desiredStylesheet' produced a template that disagrees with canonical state"
+                        );
+                    }
                 }
             }
+        } catch (\Throwable $t) {
+            $externalSideEffects = Canary::end_external_observation();
+            $detail = $externalSideEffects
+                ? "\nDeploy-window external side effects observed:\n  - " . implode("\n  - ", $externalSideEffects)
+                : '';
+            throw new \RuntimeException($t->getMessage() . $detail, 0, $t);
         }
-
-        $desiredStylesheet = $desired['stylesheet'] ?? null;
-        $desiredTemplate = $desired['template'] ?? null;
-        if ($desiredStylesheet !== null && get_option('stylesheet') !== $desiredStylesheet) {
-            if ($themeMissing) {
-                $warnings[] = "skipped theme switch to '$desiredStylesheet' (missing_in_code, --force-code-mismatch was set)";
-            } else {
-                switch_theme($desiredStylesheet); // hooks fire deliberately (switch_theme/after_switch_theme)
-                $themeSwitched = $desiredStylesheet;
-                if (get_option('stylesheet') !== $desiredStylesheet) {
-                    throw new \RuntimeException("duo: theme switch did not persist for '$desiredStylesheet'");
-                }
-                if ($desiredTemplate !== null && get_option('template') !== $desiredTemplate) {
-                    throw new \RuntimeException(
-                        "duo: theme switch to '$desiredStylesheet' produced a template that disagrees with canonical state"
-                    );
-                }
-            }
+        $externalSideEffects = Canary::end_external_observation();
+        foreach ($externalSideEffects as $observed) {
+            $warnings[] = 'deploy-window observation: ' . $observed;
         }
 
         // Re-baseline unconditionally: whatever's active NOW (post-
@@ -479,6 +561,7 @@ final class Deploy {
         // proceeds once past the refuse-gate above.
         self::record_code_versions($policy);
 
+        $remainingMismatch = self::code_mismatch($policy, $desired);
         return [
             'artifact' => [
                 'hash' => $compiled->artifact_hash(),
@@ -488,8 +571,19 @@ final class Deploy {
             'activated' => $activated,
             'deactivated' => $deactivated,
             'theme_switched' => $themeSwitched,
-            'code_mismatch' => $mismatch,
+            'active_plugins_order_corrected' => $orderCorrected,
+            'code_mismatch' => $remainingMismatch,
+            'reconciled_code_mismatch' => array_values(array_filter(
+                $mismatch,
+                fn($r) => in_array(
+                    $r['issue'],
+                    ['inactive_in_environment', 'unexpected_active_plugin', 'active_plugin_order_mismatch'],
+                    true
+                )
+                    && !in_array($r, $remainingMismatch, true)
+            )),
             'code_drift' => $drift,
+            'external_side_effects' => $externalSideEffects,
             'warnings' => $warnings,
         ];
     }

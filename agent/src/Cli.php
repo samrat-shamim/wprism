@@ -338,11 +338,15 @@ final class Cli {
         if ($summary['theme_switched'] !== null) {
             WP_CLI::line("theme switched: {$summary['theme_switched']}");
         }
+        if ($summary['active_plugins_order_corrected']) {
+            WP_CLI::line('active plugin load order corrected');
+        }
         WP_CLI::success(sprintf(
-            '%d activated, %d deactivated%s',
+            '%d activated, %d deactivated%s%s',
             count($summary['activated']),
             count($summary['deactivated']),
-            $summary['theme_switched'] !== null ? ", theme -> {$summary['theme_switched']}" : ''
+            $summary['theme_switched'] !== null ? ", theme -> {$summary['theme_switched']}" : '',
+            $summary['active_plugins_order_corrected'] ? ', active plugin order exact' : ''
         ));
     }
 

@@ -10,6 +10,8 @@ exactly as before. `duo` only adds two things on top of the per-environment
    `wp --path=`.
 2. **Cross-environment ergonomics** — `duo envs`/`duo doctor`/`duo status`,
    which no single-environment `wp duo …` call can give you.
+3. **Truthful promotion sequencing** — `duo promote` compiles once, exports
+   a database checkpoint, then runs deploy → apply against the same artifact.
 
 `duo` is dependency-free PHP 8+: no composer, no vendored packages, no
 WordPress required on the machine that runs it. Requires only a `php`
@@ -25,6 +27,7 @@ duo status <env>
 duo capture <env> [extra wp-cli flags...]
 duo plan    <env> [extra wp-cli flags...]
 duo apply   <env> [extra wp-cli flags...]
+duo promote <env> [extra apply flags...]
 duo pending <env>
 duo classify <env> [--accept-proposals]
 duo -h | --help
@@ -89,6 +92,26 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
 
   stdout/stderr stream live (not buffered/reformatted) and the exit code is
   exactly the agent's exit code.
+
+- **`duo promote <env> [apply flags...]`** — the normal fail-closed promotion
+  path. It compiles the repository once into `.duo/artifacts/`, exports the
+  target database into `.duo/checkpoints/`, then runs `wp duo deploy` followed
+  by `wp duo apply`, passing the same immutable `--compiled` artifact to both.
+  It stops on the first non-zero phase and prints the retained checkpoint path
+  plus an exact, transport-shaped `wp db import` command (local, Docker, or
+  SSH). On success it retains the checkpoint and prints the phase trace.
+
+  Apply flags are forwarded to apply; `--force-code-mismatch` and
+  `--force-code-drift` are also forwarded to deploy. Callers cannot supply
+  `--compiled` because promotion owns that artifact boundary. Site repos must
+  ignore the operational directory:
+
+  ```gitignore
+  .duo/
+  ```
+
+  Deploy remains a distinct lifecycle window where activation hooks fire;
+  apply remains the separately canary-armed, hook-free state window.
 
 - **`duo pending <env>`** — runs `wp duo pending --repo=<repo_path>
   --format=json` (the review-queue scan: gate items from the loud-and-
@@ -251,6 +274,7 @@ the registry.
 
 ```
 .duo-envs.json
+.duo/
 ```
 
 (Already added to this repo's `.gitignore` for the sandbox.)

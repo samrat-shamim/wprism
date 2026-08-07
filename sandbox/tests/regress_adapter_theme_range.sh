@@ -16,9 +16,9 @@
 # at all — proving the new code path doesn't need spike_g_code.sh's own
 # git/code-half machinery, only a live theme to read.
 #
-# Uses a BUNDLED-by-default WordPress theme (twentytwentyfour, inactive on
-# a fresh install — zero network installs, and using an INACTIVE theme
-# means this test never touches the site's own active-theme option).
+# Uses a BUNDLED-by-default WordPress theme (twentytwentyfour — zero network
+# installs). Each case activates the stylesheet it declares so DUO-3216's
+# lifecycle mismatch detection cannot mask the version-range assertion.
 # Policy's own $manifests array is populated directly in the eval snippet
 # (public property, no manifests-dir file I/O needed) — deliberately not a
 # permanent manifests/*.json fixture: unlike duo-loop-demo-versioned.json's
@@ -61,6 +61,7 @@ RANGE_MIN="0.0.0"
 RANGE_MAX="9.0.0"
 BUMPED_VERSION="20.0.0"   # >= RANGE_MAX -> outside_version_range
 
+wp1 theme activate twentytwentyfour >/dev/null
 say "(control) real version ($REAL_VERSION) inside the declared range [$RANGE_MIN, $RANGE_MAX) -> zero findings"
 EVAL_SNIPPET=$(cat <<PHP
 \$p = new \Duo\Policy();
@@ -103,6 +104,7 @@ echo "$MSG" | grep -q "theme_version_range" || fail "message does not mention th
 echo "$MSG" | grep -q -- "--force-code-mismatch" || fail "message does not mention --force-code-mismatch (got: $MSG)"
 pass "(e) outside_version_range correctly flagged for the THEME slot — $MSG"
 
+wp1 theme activate twentytwentyone >/dev/null
 say "template slot gets the identical treatment when it differs from stylesheet (both slots symmetric, matching the existing plugin-side loop's own even-handedness)"
 EVAL_SNIPPET_DIFF=$(cat <<PHP
 \$p = new \Duo\Policy();

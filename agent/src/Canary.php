@@ -6,13 +6,19 @@ namespace Duo;
  * attempt, or outbound HTTP request is a hard failure ("no mails fired" alone
  * is trivially true under direct SQL — the hook assertion is the real claim).
  * Mail/HTTP are short-circuited while armed so nothing escapes even on a bug.
+ * Deploy uses a separate reporting-only external observer below; it never sets
+ * $armed and therefore cannot weaken or overload this apply invariant.
  */
 final class Canary {
     private static bool $armed = false;
     private static bool $registered = false;
     private static bool $cronSuppressed = false;
+    private static bool $externalObserverActive = false;
+    private static bool $externalObserverRegistered = false;
     /** @var string[] */
     private static array $violations = [];
+    /** @var string[] */
+    private static array $externalObservations = [];
 
     public const HOOKS = ['save_post', 'transition_post_status', 'created_term', 'wp_insert_comment'];
 
@@ -53,6 +59,41 @@ final class Canary {
     /** @return string[] */
     public static function violations(): array {
         return self::$violations;
+    }
+
+    /**
+     * Observe deploy's deliberately hook-firing lifecycle window without
+     * changing the apply canary's fixed meaning. These filters never
+     * short-circuit mail/HTTP and their findings are reporting-only: plugin
+     * activation is allowed to perform its normal migrations and external
+     * calls, but the promotion evidence names every attempted escape.
+     */
+    public static function begin_external_observation(): void {
+        self::$externalObservations = [];
+        self::$externalObserverActive = true;
+        if (self::$externalObserverRegistered) {
+            return;
+        }
+        self::$externalObserverRegistered = true;
+        add_filter('pre_wp_mail', function ($short, $atts) {
+            if (self::$externalObserverActive) {
+                self::$externalObservations[] = 'wp_mail attempted: '
+                    . (is_array($atts) ? ($atts['subject'] ?? '') : '');
+            }
+            return $short;
+        }, -2147483647, 2);
+        add_filter('pre_http_request', function ($pre, $args, $url) {
+            if (self::$externalObserverActive) {
+                self::$externalObservations[] = "http request attempted: $url";
+            }
+            return $pre;
+        }, -2147483647, 3);
+    }
+
+    /** @return string[] */
+    public static function end_external_observation(): array {
+        self::$externalObserverActive = false;
+        return self::$externalObservations;
     }
 
     /**
