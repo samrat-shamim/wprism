@@ -19,11 +19,13 @@ require __DIR__ . '/src/LocalTransport.php';
 require __DIR__ . '/src/DockerTransport.php';
 require __DIR__ . '/src/SshTransport.php';
 require __DIR__ . '/src/Doctor.php';
+require __DIR__ . '/src/CodeDeploy.php';
 require __DIR__ . '/src/PlanSummary.php';
 require __DIR__ . '/src/Pending.php';
 require __DIR__ . '/src/Triage.php';
 
 use Duo\Orchestrator\Doctor;
+use Duo\Orchestrator\CodeDeploy;
 use Duo\Orchestrator\Pending;
 use Duo\Orchestrator\PlanSummary;
 use Duo\Orchestrator\Registry;
@@ -44,6 +46,7 @@ Usage:
   duo capture <env> [extra wp-cli flags...]
   duo plan    <env> [extra wp-cli flags...]
   duo apply   <env> [extra wp-cli flags...]
+  duo deploy  <env> [--force-code-mismatch] [--force-code-drift]
   duo env-set <env> --name=<name> (--value=<value> | --stdin)
   duo promote <env> [extra apply flags...]
   duo pending <env>
@@ -57,26 +60,32 @@ Verbs:
                           duo agent, and repo_path/site.duo.json. Non-zero exit
                           on any failing check.
   status <env>            Run `wp duo plan --format=json` and print counts per
-                          plan bucket (incl. deletion conflicts and
-                          code_mismatch), drift paths, blocked deletes,
-                          code_mismatch findings, and any
+                          plan bucket (incl. deletion conflicts,
+                          code_mismatch, and code_drift), drift paths,
+                          blocked deletes, code findings, and any
                           plan-level warnings. Non-zero exit ("not safe to
                           promote") if the plan has any conflict, deletion
-                          conflict, collision, code_mismatch, blocked delete,
+                          conflict, collision, code_mismatch, code_drift,
+                          blocked delete,
                           a required env_missing entry (env-set --name=<name>
-                          --stdin to provision it), or drift (drift is
-                          the one case `duo apply` itself does not refuse
-                          on, but status still reports as not clean — see
-                          cli/src/PlanSummary.php's decision-matrix
-                          comment), or if the underlying `wp duo plan` call
-                          failed or returned unparseable JSON. Warnings
-                          alone never flip this.
+                          --stdin to provision it), or ordinary state drift.
+                          Apply refuses code_drift unless --force-code-drift;
+                          ordinary state drift is the one case apply does not
+                          refuse on, but status still reports it as not clean.
+                          See cli/src/PlanSummary.php's decision-matrix
+                          comment. Underlying plan failure/unparseable JSON is
+                          also non-zero. Warnings alone never flip this.
   capture <env> [...]     `wp duo capture --repo=<repo_path> [...]`
   plan <env> [...]        `wp duo plan    --repo=<repo_path> [...]`
   apply <env> [...]       `wp duo apply   --repo=<repo_path> [...]`
                           Extra flags (e.g. --adopt-by-slug=terms
                           --default-author=admin, --with-deletes) are forwarded
                           verbatim. Output streams live; exit code is the agent's.
+  deploy <env> [...]      Compile once into the target's operational .duo/
+                          directory, then (when the artifact declares code)
+                          stage code -> run lifecycle deploy -> finalize code
+                          under one target lease. With no code descriptor it
+                          retains the established lifecycle-only deploy path.
   env-set <env>           `wp duo env-set --repo=<repo_path> --name=<name>
     --name=<name>         (--value=<value> | --stdin)`. Provisions one
     (--value=<v>|--stdin)   manifest-declared class="env" option on <env> —
@@ -87,13 +96,20 @@ Verbs:
                           own global flag); --value is scriptable but lands
                           in shell history like any other flag. Refuses any
                           name not declared class="env" by the loaded policy.
-  promote <env> [...]     Compile once, export a database checkpoint, then run
-                          deploy -> apply against that immutable artifact and one
+  promote <env> [...]     Compile once, acquire an artifact-bound target lease,
+                          export a database checkpoint, then run code stage -> lifecycle deploy -> code finalize ->
+                          apply (or lifecycle deploy -> apply for a repository
+                          with no code descriptor) against one immutable artifact and one
                           target-DB lease. Stops at the first failed phase and
-                          prints the exact database restore command. Apply flags
-                          are forwarded verbatim; deploy receives the shared
-                          code/compiled flags only. Internal lease flags are owned
-                          by promote and rejected from caller input.
+                          prints recovery guidance. The checkpoint contains the
+                          temporary lease row; recovery requires external writer
+                          exclusion, then abort -> begin -> import -> final abort.
+                          After a code-phase failure, code must be reconciled/restored before database import.
+                          Apply flags are forwarded verbatim. Lifecycle deploy
+                          also receives code compatibility flags and the same
+                          unresolved-reference snapshot policy. Repository,
+                          artifact/hash, materialization, handoff, and lease
+                          flags are owned by promote and rejected from caller input.
   pending <env>           List the review queue (`wp duo pending --format=json`)
                           as a table: section:key, proposal, evidence, ref-hint,
                           and a prominent SECRET flag where present. Exit 0 with
@@ -178,7 +194,7 @@ function main(array $argv): int {
     }
 
     $verb = array_shift($rest);
-    $verbsNeedingEnv = ['doctor', 'status', 'capture', 'plan', 'apply', 'env-set', 'promote', 'pending', 'classify'];
+    $verbsNeedingEnv = ['doctor', 'status', 'capture', 'plan', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify'];
 
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
@@ -202,6 +218,7 @@ function main(array $argv): int {
         'doctor' => cmd_doctor($transport),
         'status' => cmd_status($transport),
         'capture', 'plan', 'apply', 'env-set' => cmd_passthrough($transport, $verb, $extra),
+        'deploy' => cmd_deploy($transport, $extra),
         'promote' => cmd_promote($transport, $extra),
         'pending' => cmd_pending($transport, $extra),
         'classify' => cmd_classify($transport, $extra),
@@ -273,26 +290,161 @@ function cmd_passthrough(Transport $t, string $verb, array $extra): int {
     return $t->streamWp($wpArgs);
 }
 
+/** One generated owner identifies every target-side phase of a host run. */
+function orchestrator_run_id(): string {
+    return gmdate('Ymd-His') . '-' . bin2hex(random_bytes(16));
+}
+
+/** Arguments only the orchestrator can truthfully own. */
+function is_orchestrator_internal_flag(string $arg): bool {
+    foreach (['--repo', '--compiled', '--artifact-hash', '--promotion-owner', '--promotion-hold', '--materializing-code', '--state-handoff'] as $flag) {
+        if ($arg === $flag || str_starts_with($arg, $flag . '=')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Emit both distinct streams of a captured transport failure. */
+function print_transport_detail(array $result): void {
+    // Docker Compose writes container lifecycle chatter to stderr even when
+    // the command itself returns its structured diagnostic on stdout.  A
+    // stderr-wins choice hides the actual refusal in exactly that common
+    // transport shape, so preserve both distinct streams.
+    $seen = [];
+    foreach ([$result['stderr'] ?? '', $result['stdout'] ?? ''] as $stream) {
+        $detail = trim((string) $stream);
+        if ($detail === '' || isset($seen[$detail])) {
+            continue;
+        }
+        $seen[$detail] = true;
+        fwrite(STDERR, $detail . "\n");
+    }
+}
+
+/** @return list<string> force flags that may also be passed to lifecycle deploy. */
+function deploy_force_flags(array $extra, string $verb): array {
+    $allowed = [];
+    foreach ($extra as $arg) {
+        if (is_orchestrator_internal_flag($arg)) {
+            throw new \RuntimeException(
+                "$verb owns its repository, compiled artifact/hash, code-materialization, and target lease flags; remove '$arg'"
+            );
+        }
+        if ($arg === '--force-code-mismatch' || $arg === '--force-code-drift'
+            || str_starts_with($arg, '--force-code-mismatch=')
+            || str_starts_with($arg, '--force-code-drift=')) {
+            $allowed[] = $arg;
+            continue;
+        }
+        throw new \RuntimeException(
+            "duo $verb: unsupported deploy flag '$arg' (only --force-code-mismatch and --force-code-drift are accepted)"
+        );
+    }
+    return $allowed;
+}
+
 /**
- * DUO-3216's deliberately thin promotion state machine. The architecture
- * ruling keeps deploy's hook-firing window distinct from apply's hard canary,
- * while this host command gives both phases one compiled input and one truthful
- * success boundary. Checkpoints/artifacts live below the target checkout's
- * gitignored .duo directory: durable for docker one-shot containers, outside
- * canonical state, and independent of a git executable existing on the target.
+ * Host-level code deploy. Unlike promote it deliberately does not create a
+ * database checkpoint: it owns only the immutable artifact plus the code
+ * stage/lifecycle/finalize sequence. Operators who need the coupled DB
+ * checkpoint use `duo promote`.
+ */
+function cmd_deploy(Transport $t, array $extra): int {
+    try {
+        $deployExtra = deploy_force_flags($extra, 'deploy');
+    } catch (\Throwable $e) {
+        fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
+        return 1;
+    }
+
+    $repo = rtrim($t->repoPath(), '/');
+    $runId = orchestrator_run_id();
+    $artifact = "$repo/.duo/artifacts/deploy-$runId.json";
+    $mkdir = $t->captureRaw('mkdir -p ' . escapeshellarg(dirname($artifact)));
+    if ($mkdir['exit'] !== 0) {
+        fwrite(STDERR, "duo: deploy: could not create target artifact directory\n");
+        print_transport_detail($mkdir);
+        return $mkdir['exit'] !== 0 ? $mkdir['exit'] : 1;
+    }
+
+    echo "deploy phase: compile\n";
+    $compile = CodeDeploy::compile($t, $repo, $artifact);
+    if ($compile['exit'] !== 0) {
+        fwrite(STDERR, "duo: deploy: compile failed; no lifecycle or code materialization occurred\n");
+        print_transport_detail($compile);
+        return $compile['exit'] !== 0 ? $compile['exit'] : 1;
+    }
+    if ($compile['summary'] === null) {
+        fwrite(STDERR, "duo: deploy: compile returned no valid artifact hash; no lifecycle or code materialization occurred\n");
+        return 1;
+    }
+
+    $artifactHash = (string) $compile['summary']['artifact_hash'];
+    $codeEnabled = CodeDeploy::enabled($compile['summary']);
+    echo "deploy phase: promotion-begin\n";
+    $begin = $t->captureWp(CodeDeploy::beginArgs($runId, $artifactHash));
+    if ($begin['exit'] !== 0) {
+        fwrite(STDERR, "duo: deploy: promotion-begin failed; lifecycle and code materialization were not started\n");
+        print_transport_detail($begin);
+        compensate_uncertain_begin($t, $begin, $runId, $artifactHash, 'deploy');
+        return $begin['exit'] !== 0 ? $begin['exit'] : 1;
+    }
+
+    if ($codeEnabled) {
+        echo "deploy phase: code-stage\n";
+        $stage = $t->streamWp(CodeDeploy::stageArgs($repo, $artifact, $runId, $artifactHash));
+        if ($stage !== 0) {
+            fwrite(STDERR, "duo: deploy: code-stage failed (exit $stage); lifecycle deploy and code-finalize were not run\n");
+            promotion_abort($t, $runId, $artifactHash);
+            return $stage;
+        }
+    }
+
+    echo "deploy phase: lifecycle\n";
+    $lifecycle = $t->streamWp(CodeDeploy::lifecycleArgs(
+        $repo, $artifact, $runId, $artifactHash, $codeEnabled, $codeEnabled, false, $deployExtra
+    ));
+    if ($lifecycle !== 0) {
+        fwrite(STDERR, "duo: deploy: lifecycle deploy failed (exit $lifecycle); later phases were not run\n");
+        promotion_abort($t, $runId, $artifactHash);
+        return $lifecycle;
+    }
+
+    if ($codeEnabled) {
+        echo "deploy phase: code-finalize\n";
+        $finalize = $t->streamWp(CodeDeploy::finalizeArgs($repo, $artifact, $runId, $artifactHash, false));
+        if ($finalize !== 0) {
+            fwrite(STDERR, "duo: deploy: code-finalize failed (exit $finalize); later phases were not run\n");
+            promotion_abort($t, $runId, $artifactHash);
+            return $finalize;
+        }
+        echo "deploy complete: code-stage -> lifecycle deploy -> code-finalize\n";
+        return 0;
+    }
+
+    echo "deploy complete: lifecycle deploy (no code descriptor)\n";
+    return 0;
+}
+
+/**
+ * Promotion's fail-closed state machine. It first binds the target lease to
+ * the compiled outer artifact, then takes the DB checkpoint under that lease.
+ * It keeps the hook-firing lifecycle window distinct from apply's canary, now
+ * with an optional code stage and finalize around that lifecycle phase. A
+ * legacy artifact with no code descriptor follows the original deploy ->
+ * apply path byte-for-byte after the checkpoint boundary.
  */
 function cmd_promote(Transport $t, array $extra): int {
     foreach ($extra as $arg) {
-        if ($arg === '--compiled' || str_starts_with($arg, '--compiled=')
-            || $arg === '--promotion-owner' || str_starts_with($arg, '--promotion-owner=')
-            || $arg === '--promotion-hold') {
-            fwrite(STDERR, "duo: promote owns its compiled artifact and target lease flags; remove '$arg'\n");
+        if (is_orchestrator_internal_flag($arg)) {
+            fwrite(STDERR, "duo: promote owns its repository, compiled artifact/hash, code-materialization, and target lease flags; remove '$arg'\n");
             return 1;
         }
     }
 
     $repo = rtrim($t->repoPath(), '/');
-    $runId = gmdate('Ymd-His') . '-' . bin2hex(random_bytes(16));
+    $runId = orchestrator_run_id();
     $duoDir = $repo . '/.duo';
     $artifact = "$duoDir/artifacts/promote-$runId.json";
     $checkpoint = "$duoDir/checkpoints/promote-$runId.sql";
@@ -301,80 +453,178 @@ function cmd_promote(Transport $t, array $extra): int {
     );
     if ($mkdir['exit'] !== 0) {
         fwrite(STDERR, "duo: promote: could not create target checkpoint directories\n");
-        $detail = trim($mkdir['stderr'] !== '' ? $mkdir['stderr'] : $mkdir['stdout']);
-        if ($detail !== '') {
-            fwrite(STDERR, $detail . "\n");
-        }
+        print_transport_detail($mkdir);
         return $mkdir['exit'] !== 0 ? $mkdir['exit'] : 1;
     }
 
     echo "promote phase: compile\n";
-    $compile = $t->captureWp([
-        'duo', 'compile', '--repo=' . $repo, '--out=' . $artifact, '--format=json',
-    ]);
+    $compile = CodeDeploy::compile($t, $repo, $artifact);
     if ($compile['exit'] !== 0) {
         fwrite(STDERR, "duo: promote: compile failed; no checkpoint or target mutation occurred\n");
-        $detail = trim($compile['stderr'] !== '' ? $compile['stderr'] : $compile['stdout']);
-        if ($detail !== '') {
-            fwrite(STDERR, $detail . "\n");
-        }
+        print_transport_detail($compile);
         return $compile['exit'] !== 0 ? $compile['exit'] : 1;
     }
-    $compiledSummary = json_decode(trim($compile['stdout']), true);
-    $artifactHash = is_array($compiledSummary) ? (string) ($compiledSummary['artifact_hash'] ?? '') : '';
-    if (!preg_match('/^[a-f0-9]{64}$/', $artifactHash)) {
+    if ($compile['summary'] === null) {
         fwrite(STDERR, "duo: promote: compile returned no valid artifact hash; no checkpoint or target mutation occurred\n");
         return 1;
+    }
+    $artifactHash = (string) $compile['summary']['artifact_hash'];
+    $codeEnabled = CodeDeploy::enabled($compile['summary']);
+
+    echo "promote phase: promotion-begin\n";
+    $begin = $t->captureWp(CodeDeploy::beginArgs($runId, $artifactHash));
+    if ($begin['exit'] !== 0) {
+        fwrite(STDERR, "duo: promote: promotion-begin failed; checkpoint, deploy, and apply were not started\n");
+        print_transport_detail($begin);
+        compensate_uncertain_begin($t, $begin, $runId, $artifactHash, 'promote');
+        return $begin['exit'] !== 0 ? $begin['exit'] : 1;
     }
 
     echo "promote phase: checkpoint\n";
     $export = $t->captureWp(['db', 'export', $checkpoint, '--porcelain']);
     if ($export['exit'] !== 0) {
         fwrite(STDERR, "duo: promote: database checkpoint failed; deploy/apply were not started\n");
-        $detail = trim($export['stderr'] !== '' ? $export['stderr'] : $export['stdout']);
-        if ($detail !== '') {
-            fwrite(STDERR, $detail . "\n");
+        print_transport_detail($export);
+        $clean = promotion_abort($t, $runId, $artifactHash);
+        if ($clean) {
+            fwrite(STDERR, "duo: promote: promotion lease cleanup confirmed; no usable checkpoint was produced\n");
         }
         return $export['exit'] !== 0 ? $export['exit'] : 1;
     }
     echo "database checkpoint: $checkpoint\n";
 
-    $compiledFlag = '--compiled=' . $artifact;
-    $promotionOwnerFlag = '--promotion-owner=' . $runId;
     $deployExtra = array_values(array_filter($extra, static function (string $arg): bool {
         return $arg === '--force-code-mismatch'
             || $arg === '--force-code-drift'
+            || $arg === '--force-unresolved-refs'
             || str_starts_with($arg, '--force-code-mismatch=')
-            || str_starts_with($arg, '--force-code-drift=');
+            || str_starts_with($arg, '--force-code-drift=')
+            || str_starts_with($arg, '--force-unresolved-refs=');
     }));
 
+    if ($codeEnabled) {
+        echo "promote phase: code-stage\n";
+        $stage = $t->streamWp(CodeDeploy::stageArgs($repo, $artifact, $runId, $artifactHash));
+        if ($stage !== 0) {
+            return promote_failed($t, 'code-stage', $stage, $checkpoint, true, $runId, $artifactHash);
+        }
+    }
+
     echo "promote phase: deploy\n";
-    $deploy = $t->streamWp(array_merge(
-        ['duo', 'deploy', '--repo=' . $repo, $compiledFlag, $promotionOwnerFlag, '--promotion-hold'],
-        $deployExtra
+    $deploy = $t->streamWp(CodeDeploy::lifecycleArgs(
+        $repo, $artifact, $runId, $artifactHash, true, $codeEnabled, true, $deployExtra
     ));
     if ($deploy !== 0) {
-        return promote_failed($t, 'deploy', $deploy, $checkpoint);
+        return promote_failed($t, 'deploy', $deploy, $checkpoint, $codeEnabled, $runId, $artifactHash);
+    }
+
+    if ($codeEnabled) {
+        echo "promote phase: code-finalize\n";
+        $finalize = $t->streamWp(CodeDeploy::finalizeArgs($repo, $artifact, $runId, $artifactHash, true));
+        if ($finalize !== 0) {
+            return promote_failed($t, 'code-finalize', $finalize, $checkpoint, true, $runId, $artifactHash);
+        }
     }
 
     echo "promote phase: apply\n";
     $apply = $t->streamWp(array_merge(
-        ['duo', 'apply', '--repo=' . $repo, $compiledFlag, $promotionOwnerFlag],
+        [
+            'duo', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
+            '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
+        ],
         $extra
     ));
     if ($apply !== 0) {
-        return promote_failed($t, 'apply', $apply, $checkpoint);
+        return promote_failed($t, 'apply', $apply, $checkpoint, $codeEnabled, $runId, $artifactHash);
     }
 
-    echo "promote complete: deploy -> apply\n";
+    echo $codeEnabled
+        ? "promote complete: code-stage -> deploy -> code-finalize -> apply\n"
+        : "promote complete: deploy -> apply\n";
     echo "database checkpoint retained: $checkpoint\n";
     return 0;
 }
 
-function promote_failed(Transport $t, string $phase, int $exit, string $checkpoint): int {
-    fwrite(STDERR, "duo: promote: $phase failed (exit $exit); later phases were not run\n");
+/**
+ * Best-effort host compensation after any post-begin failure. The agent's
+ * mutating phases release on their own failures too, so success here includes
+ * a matching lease that is already absent. A mismatching owner/hash remains a
+ * hard warning: never erase another promotion's lock to make this run look
+ * clean.
+ */
+function promotion_abort(Transport $t, string $owner, string $artifactHash): bool {
+    $abort = $t->captureWp(CodeDeploy::abortArgs($owner, $artifactHash));
+    if ($abort['exit'] === 0) {
+        return true;
+    }
+    fwrite(STDERR, "duo: promote: promotion lease cleanup could not be confirmed\n");
+    print_transport_detail($abort);
+    fwrite(STDERR, "retry lease cleanup with: " . $t->wpInstruction(CodeDeploy::abortArgs($owner, $artifactHash)) . "\n");
+    return false;
+}
+
+/** Compensate only an ambiguous begin; a named live contender is definitive. */
+function compensate_uncertain_begin(
+    Transport $t,
+    array $begin,
+    string $owner,
+    string $artifactHash,
+    string $verb
+): void {
+    $detail = (string) ($begin['stdout'] ?? '') . "\n" . (string) ($begin['stderr'] ?? '');
+    if (str_contains($detail, 'promotion lock held by')) {
+        fwrite(STDERR, "duo: $verb: target reported a definite competing lease; no cleanup was attempted\n");
+        return;
+    }
+    fwrite(STDERR, "duo: $verb: begin outcome is uncertain; attempting exact owner/artifact cleanup\n");
+    promotion_abort($t, $owner, $artifactHash);
+}
+
+/** Print row repair for a dump containing its lease; external exclusion is required. */
+function print_promotion_recovery(
+    Transport $t,
+    string $checkpoint,
+    bool $codeMayHaveChanged,
+    string $owner,
+    string $artifactHash
+): void {
     fwrite(STDERR, "database checkpoint: $checkpoint\n");
-    fwrite(STDERR, "restore with: " . $t->wpInstruction(['db', 'import', $checkpoint]) . "\n");
+    if ($codeMayHaveChanged) {
+        fwrite(
+            STDERR,
+            "duo: promote: code may be staged or partially finalized; first reconcile or restore code to a known pre-promotion revision.\n"
+        );
+    }
+    fwrite(
+        STDERR,
+        "duo: promote: this checkpoint contains its temporary promotion lease row. "
+        . "A database import can replace that row, so first establish external maintenance/exclusion "
+        . "that prevents every Duo writer for the full recovery window. The commands below repair the row; "
+        . "they are not a substitute for that exclusion. Then run in this order:\n"
+    );
+    fwrite(STDERR, "  1. " . $t->wpInstruction(CodeDeploy::abortArgs($owner, $artifactHash)) . "\n");
+    fwrite(STDERR, "  2. " . $t->wpInstruction(CodeDeploy::beginArgs($owner, $artifactHash)) . "\n");
+    fwrite(STDERR, "  3. " . $t->wpInstruction(['db', 'import', $checkpoint]) . "\n");
+    fwrite(STDERR, "  4. " . $t->wpInstruction(CodeDeploy::abortArgs($owner, $artifactHash)) . "\n");
+    fwrite(STDERR, "duo: promote: run step 4 even if the database import fails.\n");
+}
+
+function promote_failed(
+    Transport $t,
+    string $phase,
+    int $exit,
+    string $checkpoint,
+    bool $codeMayHaveChanged,
+    string $owner,
+    string $artifactHash
+): int {
+    fwrite(STDERR, "duo: promote: $phase failed (exit $exit); later phases were not run\n");
+    if (promotion_abort($t, $owner, $artifactHash)) {
+        fwrite(STDERR, "duo: promote: promotion lease cleanup confirmed\n");
+        print_promotion_recovery($t, $checkpoint, $codeMayHaveChanged, $owner, $artifactHash);
+    } else {
+        fwrite(STDERR, "duo: promote: do not begin checkpoint recovery until the exact lease cleanup command above succeeds. Expiry lets a different promotion owner recover the target; it does not authorize this checkpoint restore.\n");
+    }
     return $exit !== 0 ? $exit : 1;
 }
 

@@ -7,14 +7,14 @@
 # backed by real evidence at ITS OWN edges, not just the one version every
 # other fixture happens to exercise.
 #
-# First three real plugins: ACF, Contact Form 7, and Elementor. ACF proved the
-# artifact-sourcing mechanism itself; CF7 and Elementor prove the matrix
+# First four real plugins: ACF, Contact Form 7, Elementor, and Ninja Forms.
+# ACF proved the artifact-sourcing mechanism itself; the others prove the matrix
 # accepts genuinely different plugin content shapes rather than replaying one
-# ACF fixture. The other four pinned manifests remain separately
+# ACF fixture. The other three pinned manifests remain separately
 # scope-accounted on DUO-3223.
 #
 # For EACH boundary version (ACF 6.0.0/6.8.7; CF7 6.0.1/6.1.6; Elementor
-# 4.0.0/4.2.2 — all real, currently-existing wp.org releases, confirmed
+# 4.0.0/4.2.2; Ninja Forms 3.4.34.2/3.14.11 — all real wp.org releases, confirmed
 # against the plugin-info API, never invented): fresh state, install ONLY from
 # a digest-verified artifact (never a bare slug install that silently pulls
 # current), seed real plugin content through that plugin's own API, capture,
@@ -149,6 +149,54 @@ check_elementor_content() {
   unset -f wp_conf2
 }
 
+seed_ninja_forms_content() {
+  # Reuse the standalone conformance seed verbatim. It imports Ninja Forms'
+  # own bundled Job Application template through the plugin's real admin
+  # import process, yielding a typed-table graph of 1 form, 23 fields, and
+  # 3 actions plus a page containing the real block.
+  wp_conf1() { wp1 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  . conformance/seeds/ninja-forms.sh
+  unset -f wp_conf1
+}
+
+postdeploy_ninja_forms_content() {
+  # Deployment activates the plugin and Ninja Forms creates its own sample
+  # form on the target. Reuse the standalone hook that removes only that
+  # environment-local activation side effect before apply.
+  wp_conf2() { wp2 "$@"; }
+  local CONF_REPO2="siterepo/${PAIR}2"
+  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  . conformance/postdeploy/ninja-forms.sh
+  unset -f wp_conf2
+}
+
+check_ninja_forms_boundary_content() {
+  local front form_id api_out
+  front=$(curl -fsSL "http://localhost:${PORT2}/conformance-careers/") \
+    || fail "side 2 conformance-careers page did not return 200"
+  [ "${#front}" -ge 1000 ] \
+    || fail "side 2 conformance-careers response was suspiciously short (${#front} bytes)"
+  if grep -qiE 'fatal error|uncaught' <<<"$front"; then
+    fail "side 2 rendered careers page contains a PHP fatal error marker"
+  fi
+  grep -qE 'Job Application|nf-form-' <<<"$front" \
+    || fail "side 2 rendered careers page has no Ninja Forms markup"
+  grep -q 'First Name' <<<"$front" \
+    || fail "side 2 rendered form is missing its own field content"
+
+  form_id=$(wp2 db query "SELECT id FROM wp_nf3_forms WHERE title='Job Application'" --skip-column-names | tr -d '[:space:]')
+  [ -n "$form_id" ] || fail "side 2 has no Job Application row in nf3_forms"
+  api_out=$(wp2 eval "
+\$form = Ninja_Forms()->form($form_id)->get();
+echo \$form->get_setting('title') . '|' . count(Ninja_Forms()->form($form_id)->get_fields()) . '|' . count(Ninja_Forms()->form($form_id)->get_actions());
+")
+  [ "$api_out" = "Job Application|23|3" ] \
+    || fail "side 2 Ninja Forms model API mismatch (got: $api_out)"
+  pass "side 2 renders the real Job Application and Ninja Forms' model API resolves 23 fields and 3 actions"
+}
+
 reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # core/theme installed and the site "installed" (unlike `pair.sh reset`,
   # which drops the database entirely and leaves the site UNINSTALLED until
@@ -160,10 +208,23 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   local cli="$1"
   "$cli" site empty --yes >/dev/null
   local plugin
-  for plugin in advanced-custom-fields contact-form-7 elementor; do
+  for plugin in advanced-custom-fields contact-form-7 elementor ninja-forms; do
     "$cli" plugin deactivate "$plugin" >/dev/null 2>&1 || true
     "$cli" plugin delete "$plugin" >/dev/null 2>&1 || true
   done
+  # Ninja Forms' custom tables and schema-version options survive plugin
+  # deletion. Leaving them behind makes a later boundary inherit an earlier
+  # release's schema instead of exercising a fresh install at that boundary.
+  "$cli" db query "
+    DROP TABLE IF EXISTS
+      wp_nf3_action_meta, wp_nf3_actions, wp_nf3_chunks,
+      wp_nf3_field_meta, wp_nf3_fields, wp_nf3_form_meta, wp_nf3_forms,
+      wp_nf3_object_meta, wp_nf3_objects, wp_nf3_relationships, wp_nf3_upgrades;
+    DELETE FROM wp_options
+      WHERE option_name LIKE 'ninja_forms%'
+         OR option_name LIKE 'nf_%'
+         OR option_name LIKE 'ninja-forms-%';
+  " >/dev/null
   "$cli" db query "TRUNCATE TABLE wp_duo_map" >/dev/null 2>&1 || true
   "$cli" db query "TRUNCATE TABLE wp_duo_state" >/dev/null 2>&1 || true
   "$cli" db query "TRUNCATE TABLE wp_duo_kv" >/dev/null 2>&1 || true
@@ -242,6 +303,75 @@ EOF
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at acf $ACF_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at acf $ACF_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
+done
+
+for NINJA_VERSION in 3.4.34.2 3.14.11; do
+  say "boundary: ninja-forms $NINJA_VERSION"
+
+  reset_env wp1
+  reset_env wp2
+  rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
+  git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
+  mkdir -p "siterepo/${PAIR}1"
+
+  say "fetch + verify ninja-forms $NINJA_VERSION (never a bare slug install — always a digest-checked artifact)"
+  ARTIFACT_1=$(fetch_artifact ninja-forms "$NINJA_VERSION" cli1)
+  ARTIFACT_2=$(fetch_artifact ninja-forms "$NINJA_VERSION" cli2)
+  pass "verified sha256-pinned artifact resolved for both sides: $ARTIFACT_1"
+
+  wp1 plugin install "$ARTIFACT_1" --activate >/dev/null
+  INSTALLED_1=$(wp1 plugin get ninja-forms --field=version)
+  [ "$INSTALLED_1" = "$NINJA_VERSION" ] || fail "side 1 installed version mismatch: expected $NINJA_VERSION, got $INSTALLED_1"
+  pass "side 1: ninja-forms $NINJA_VERSION installed from verified artifact, active"
+
+  cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
+{
+  "manifests": ["core", "ninja-forms"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+  cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+  "${GIT1[@]}" init -q -b main
+  "${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "policy: ninja-forms $NINJA_VERSION version-boundary certification"
+  "${GIT1[@]}" push -qu origin main
+
+  seed_ninja_forms_content
+  wp1 duo capture --repo=/siterepo
+  pass "captured on side 1 (ninja-forms $NINJA_VERSION)"
+  wp1 duo lint --repo=/siterepo
+  pass "lint: 0 findings"
+
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "capture: ninja-forms $NINJA_VERSION content"
+  "${GIT1[@]}" push -q origin main
+
+  git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
+  wp2 plugin install "$ARTIFACT_2" >/dev/null
+  INSTALLED_2=$(wp2 plugin get ninja-forms --field=version)
+  [ "$INSTALLED_2" = "$NINJA_VERSION" ] || fail "side 2 installed version mismatch: expected $NINJA_VERSION, got $INSTALLED_2"
+
+  wp2 duo deploy --repo=/siterepo
+  postdeploy_ninja_forms_content
+  REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
+  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at ninja-forms $NINJA_VERSION"
+  pass "deploy + apply succeeded on side 2 (ninja-forms $NINJA_VERSION, canary clean)"
+
+  check_ninja_forms_boundary_content
+
+  wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
+  DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
+  rm -rf "siterepo/${PAIR}2/.tmp-final"
+  [ -z "$DIFF_OUT" ] || fail "byte-identity broken at ninja-forms $NINJA_VERSION: $DIFF_OUT"
+  pass "byte-identical recapture at ninja-forms $NINJA_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
 done
 
 for ELEMENTOR_VERSION in 4.0.0 4.2.2; do
@@ -442,11 +572,11 @@ DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse acf 5.12.6 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
-echo "$DEPLOY_OUT" | grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" \
+grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
   || fail "deploy refused, but not for the expected outside_version_range reason (got: $DEPLOY_OUT)"
-echo "$DEPLOY_OUT" | grep -q "advanced-custom-fields/acf.php" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
-echo "$DEPLOY_OUT" | grep -q "5.12.6" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
-echo "$DEPLOY_OUT"
+grep -q "advanced-custom-fields/acf.php" <<<"$DEPLOY_OUT" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
+grep -q "5.12.6" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
+printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: acf 5.12.6 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
 
 say "negative control: contact-form-7 5.9.8 (real wp.org release, genuinely below manifests/contact-form-7.json's own declared min 6.0.0) must be REFUSED, not silently accepted"
@@ -489,11 +619,11 @@ DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse contact-form-7 5.9.8 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
-echo "$DEPLOY_OUT" | grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" \
+grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
   || fail "deploy refused, but not for the expected outside_version_range reason (got: $DEPLOY_OUT)"
-echo "$DEPLOY_OUT" | grep -q "contact-form-7/wp-contact-form-7.php" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
-echo "$DEPLOY_OUT" | grep -q "5.9.8" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
-echo "$DEPLOY_OUT"
+grep -q "contact-form-7/wp-contact-form-7.php" <<<"$DEPLOY_OUT" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
+grep -q "5.9.8" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
+printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: contact-form-7 5.9.8 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
 
 say "negative control: elementor 3.35.9 (real wp.org release, genuinely below manifests/elementor.json's own declared min 4.0.0) must be REFUSED, not silently accepted"
@@ -536,12 +666,68 @@ DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse elementor 3.35.9 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
-echo "$DEPLOY_OUT" | grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" \
+grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
   || fail "deploy refused, but not for the expected outside_version_range reason (got: $DEPLOY_OUT)"
-echo "$DEPLOY_OUT" | grep -q "elementor/elementor.php" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
-echo "$DEPLOY_OUT" | grep -q "3.35.9" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
-echo "$DEPLOY_OUT"
+grep -q "elementor/elementor.php" <<<"$DEPLOY_OUT" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
+grep -q "3.35.9" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
+printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: elementor 3.35.9 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
+
+say "negative control: ninja-forms 3.3.21.4 (real wp.org release, genuinely below manifests/ninja-forms.json's corrected min 3.4.34.2) must be REFUSED, not silently accepted"
+reset_env wp1
+rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
+git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
+mkdir -p "siterepo/${PAIR}1"
+
+# Build valid canonical state with the certified upper-bound artifact first.
+# The below-range release fatals during activation on the repository's PHP
+# runtime, so asking it to create canonical content would test an unrelated
+# runtime incompatibility rather than the deploy-time version gate this
+# negative control owns.
+IN_RANGE_ARTIFACT=$(fetch_artifact ninja-forms 3.14.11 cli1)
+wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "ninja-forms"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: ninja-forms negative-control pin"
+"${GIT1[@]}" push -qu origin main
+seed_ninja_forms_content
+wp1 duo capture --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: valid Ninja Forms state for negative control"
+"${GIT1[@]}" push -q origin main
+
+wp1 plugin deactivate ninja-forms >/dev/null
+wp1 plugin delete ninja-forms >/dev/null
+OUT_OF_RANGE_ARTIFACT=$(fetch_artifact ninja-forms 3.3.21.4 cli1)
+wp1 plugin install "$OUT_OF_RANGE_ARTIFACT" >/dev/null
+INSTALLED_OOR=$(wp1 plugin get ninja-forms --field=version)
+[ "$INSTALLED_OOR" = "3.3.21.4" ] || fail "negative control: expected ninja-forms 3.3.21.4 installed, got $INSTALLED_OOR"
+
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse ninja-forms 3.3.21.4 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
+  || fail "deploy refused, but not for the expected outside_version_range reason (got: $DEPLOY_OUT)"
+grep -q "ninja-forms/ninja-forms.php" <<<"$DEPLOY_OUT" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
+grep -q "3.3.21.4" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
+printf '%s\n' "$DEPLOY_OUT"
+pass "confirmed: ninja-forms 3.3.21.4 (real, installed, genuinely below the corrected min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
 
 say "cleanup"
 bash bin/pair.sh destroy "$PAIR"

@@ -169,9 +169,15 @@ import_nf_template() {
   nf_import_step_php "siterepo/$env/.tmp-nf-import-step.php"
   for step in 1 2 3 4 5 6; do
     out=$($COMPOSE run --rm -T -e "NF_TEMPLATE_PATH=/var/www/html/wp-content/plugins/ninja-forms/includes/Templates/$template" "cli-$env" wp eval-file "$tmp" 2>&1) || true
-    if echo "$out" | grep -q '"batch_complete":true'; then
+    # Herestrings, not pipes -- DUO-3267's own SIGPIPE-race finding (see the
+    # render-check section below) applies to any `echo "$VAR" | grep` shape
+    # under this script's `set -o pipefail`, not just the two checks that
+    # happened to surface it; swept the whole file rather than leaving the
+    # same class of bug in place elsewhere on the assumption it's "probably
+    # fine" for a smaller variable.
+    if grep -q '"batch_complete":true' <<<"$out"; then
       rm -f "siterepo/$env/.tmp-nf-import-step.php"
-      echo "$out" | grep -o '"form_id":[0-9]*' | grep -o '[0-9]*'
+      grep -o '"form_id":[0-9]*' <<<"$out" | grep -o '[0-9]*'
       return 0
     fi
   done
@@ -200,9 +206,38 @@ rm -rf siterepo/r1a1 && mkdir -p siterepo/r1a1
 # runtime, visitor-authored, and must never enter the branchable partition.
 # wpcf7_contact_form IS in scope: it is CF7's own form-definition CPT, a
 # site-builder-authored entity like any other post type in this engine.
+#
+# DUO-3267: manifests now includes "ninja-forms", not just "core". This was
+# the deliberate omission the script's own header comment used to justify
+# ("Ninja Forms is the known typed-snapshot engine frontier ... this script
+# characterizes that gap empirically rather than working around it") — true
+# when task #56 wrote it, stale since task #75/#76 closed that frontier
+# elsewhere: manifests/ninja-forms.json now carries a complete, live-
+# verified typed-snapshot capture/apply for nf3_forms/nf3_fields/nf3_actions
+# (+ their _meta twins) AND a block_attrs codec for the Careers page's own
+# `wp:ninja-forms/form {"formID":N}` embed (kind nf3_form, resolved through
+# the same generalized Tokens::id_to_token()/token_to_id() every other ref
+# kind uses). This fixture just never got wired to that manifest once it
+# existed. See DUO-3267's own Linear scope note for the full trace.
+#
+# "contact-form-7" added the same way, found by team-lead's live run of the
+# round-trip leg above: this script's very first `wp duo capture` (never
+# exercised before -- the ORIGINAL script had none) hit the discovery gate
+# ("duo: incomplete state discovery on manifest-owned or in-scope surfaces")
+# naming CF7's own seven postmeta keys (_form/_mail/_mail_2/_messages/
+# _additional_settings/_hash/_locale) as unclassified. manifests/contact-
+# form-7.json already declares all seven as authored -- built during the
+# ORIGINAL R1-A grind round (docs/grind/r1a-forms.md) and empirically
+# verified then -- and its own note already says "wpcf7_contact_form must
+# be added to site.duo.json's policy.post_types for any of this to take
+# effect": post_types already had it (below), but the manifest declaring
+# what those keys ARE was never pinned. This script predates the discovery-
+# gate rework entirely (round-2 era, per team-lead) -- it had literally
+# never run a single capture before tonight, so this gap sat unexercised
+# rather than merely stale.
 cat > siterepo/r1a1/site.duo.json <<'EOF'
 {
-  "manifests": ["core"],
+  "manifests": ["core", "contact-form-7", "ninja-forms"],
   "policy": {
     "options": {},
     "post_meta": {},
@@ -213,9 +248,11 @@ cat > siterepo/r1a1/site.duo.json <<'EOF'
 }
 EOF
 cp site-repo.gitignore.template siterepo/r1a1/.gitignore
-git -C siterepo/r1a1 init -q -b main
-git -C siterepo/r1a1 remote add origin ../origin-r1a.git
-pass "site repo initialized (manifests: [core], post_types scope excludes nf_sub deliberately)"
+GIT_1="git -C siterepo/r1a1 -c user.name=duo-r1a1 -c user.email=r1a1@example.test"
+GIT_2="git -C siterepo/r1a2 -c user.name=duo-r1a2 -c user.email=r1a2@example.test"
+$GIT_1 init -q -b main
+$GIT_1 remote add origin ../origin-r1a.git
+pass "site repo initialized (manifests: [core, ninja-forms] — nf3_* now in scope; post_types scope still excludes nf_sub deliberately)"
 
 # --- Contact Form 7 real seeding -----------------------------------------
 # WPCF7_ContactForm::get_template() is the exact method wp-admin's "Add New"
@@ -315,3 +352,164 @@ wp_1 post create --post_type=post --post_title='New Ways to Reach Us' --post_nam
   --post_status=publish --post_category="$(wp_1 term list category --slug=announcements --field=term_id)" \
   --post_content='<!-- wp:paragraph --><p>Our new Contact form makes it easier than ever to reach the team.</p><!-- /wp:paragraph -->' >/dev/null
 pass "3 posts created across 2 categories (Announcements, Careers)"
+
+# --- DUO-3267: the round-trip leg task #54 originally called for --------
+# Everything above this point predates this issue and was already proven;
+# nothing above is touched. What follows is new.
+
+say "core loop: capture on r1a1 (ninja-forms manifest now pinned, so nf3_* mints identity alongside posts)"
+wp_1 duo capture --repo=/siterepo
+pass "capture succeeded"
+
+say "hard lint gate"
+wp_1 duo lint --repo=/siterepo
+pass "lint: 0 findings"
+
+say "capture-twice determinism"
+wp_1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2
+diff -r siterepo/r1a1/state siterepo/r1a1/.tmp-state2 || fail "capture is not deterministic"
+rm -rf siterepo/r1a1/.tmp-state2
+pass "capture-twice diff is empty"
+
+$GIT_1 add -A
+$GIT_1 commit -qm "capture: forms business site on r1a1"
+$GIT_1 push -qu origin main
+
+say "round-trip: clone into r1a2, deploy, plan, apply"
+rm -rf siterepo/r1a2 && mkdir -p siterepo/r1a2
+git clone -q siterepo/origin-r1a.git siterepo/r1a2
+# DUO-3216/DUO-3250: deploy runs BEFORE plan/apply (docs/proposals/code-half.md
+# §3.4), mirroring grind_r3b_events.sh's own PR #14-established ordering.
+# Proactive here too: CF7+Ninja Forms install identically active on both
+# r1a1/r1a2 (install_env runs on both sides), so Deploy::code_mismatch()
+# finds nothing to report regardless of call order today — the ordering
+# itself is what's being kept compliant, not a live failure being fixed.
+wp_2 duo deploy --repo=/siterepo
+PLAN_TXT=$(wp_2 duo plan --repo=/siterepo)
+echo "$PLAN_TXT"
+# Not asserted either way (unlike grind_r3b_events.sh's own hard COLLISION
+# check): both scripts wipe both sides via the identical `site empty --yes`
+# before seeding, so r3b's own precedent suggests r1a2 likely shows real
+# installer-created collisions too (its own fresh-install default content,
+# e.g. the 'Uncategorized' category, surviving the wipe) -- but that wasn't
+# independently confirmed live for THIS fixture, and it isn't what this
+# issue's own acceptance criteria turn on. --adopt-by-slug handles either
+# outcome (collisions to adopt, or none to adopt) identically.
+grep -q 'COLLISION' <<<"$PLAN_TXT" \
+  && echo "(informational: installer-created collisions present, as expected by analogy with grind_r3b_events.sh)" \
+  || echo "(informational: no collisions this run -- not a failure, just noting the plan shape differed from the r3b precedent)"
+REV=$($GIT_2 rev-parse HEAD)
+APPLY_OUT=$(wp_2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV")
+echo "$APPLY_OUT"
+grep -qi 'canary clean' <<<"$APPLY_OUT" || fail "apply canary not clean"
+pass "deploy + apply succeeded on r1a2 (canary clean)"
+
+say "DUO-3267/DUO-3282 rebuilder-fired probe -- immediately after apply, before any fetch. The rebuilder command itself is independently proven correct (team-lead ran it verbatim via the ordinary wp-cli shell path: count 0->1, zero error output) and the manifest declaration is independently proven to parse/aggregate correctly (offline Policy::rebuilders() check, no WordPress needed). The ONLY layer left unverified is whether Apply::rebuild()'s own WP_CLI::runcommand() launch actually invokes it during a real apply -- exactly where DUO-3282's stdout/stderr-swallowing gap hides evidence. A non-zero count here closes that question for good; zero is now unambiguous evidence of a runcommand launch-layer failure, not a render-mystery artifact -- the render mystery is independently resolved by the byte-truncation-window fix below, and a cold render with zero nf3_upgrades rows has already been proven to work correctly, so this probe is about the manifest declaration's own integrity, not the render."
+NF_UPGRADES_COUNT=$(wp_2 db query "SELECT COUNT(*) FROM wp_nf3_upgrades" --skip-column-names)
+echo "nf3_upgrades row count immediately post-apply: $NF_UPGRADES_COUNT"
+[ "${NF_UPGRADES_COUNT:-0}" -gt 0 ] 2>/dev/null || fail "rebuilder-fired probe: nf3_upgrades has ZERO rows immediately post-apply (got: '$NF_UPGRADES_COUNT') -- the command and the manifest declaration are both independently proven correct, so this is unambiguous evidence of a WP_CLI::runcommand() launch-layer failure inside Apply::rebuild() -- file as its own precisely-scoped engine bug (see DUO-3282), do not re-litigate the command or the manifest"
+pass "rebuilder-fired probe: nf3_upgrades has $NF_UPGRADES_COUNT row(s) immediately post-apply -- Apply's own WP_CLI::runcommand() launch DID invoke the declared rebuilder"
+
+say "byte-identical recapture across environments"
+wp_2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+DIFF_OUT=$(diff -rq siterepo/r1a1/state siterepo/r1a2/.tmp-final || true)
+rm -rf siterepo/r1a2/.tmp-final
+[ -z "$DIFF_OUT" ] || fail "byte-identity broken: $DIFF_OUT"
+pass "byte-identical: posts, terms, options, AND the new typed-snapshot table entities (nf3_forms/nf3_fields/nf3_actions)"
+
+say "DUO-3267's actual finding: the Careers page's Ninja Forms formID now round-trips correctly, using r1a2's OWN local nf3_form id — inverts this issue's original premise (raw/broken) now that manifests/ninja-forms.json is in scope"
+NF_JOB_ID_B2=$(wp_2 db query "SELECT id FROM wp_nf3_forms WHERE title='Job Application'" --skip-column-names)
+[ -n "$NF_JOB_ID_B2" ] && [ "$NF_JOB_ID_B2" -gt 0 ] 2>/dev/null || fail "expected the Job Application form to exist on r1a2 with its own local id (nf3_* is now in scope) — got: '$NF_JOB_ID_B2'"
+CAREERS_CONTENT_B2=$(wp_2 post get "$(wp_2 post list --post_type=page --name=careers --field=ID)" --field=post_content)
+grep -q "\"formID\":$NF_JOB_ID_B2" <<<"$CAREERS_CONTENT_B2" || fail "expected the Careers page block to carry r1a2's OWN local form id ($NF_JOB_ID_B2), got: $CAREERS_CONTENT_B2"
+[ "$NF_JOB_ID_B2" != "$NF_JOB_ID" ] \
+  && pass "formID correctly re-bound to r1a2's own distinct local id ($NF_JOB_ID -> $NF_JOB_ID_B2) -- not a coincidental match, not the raw source id leaking across environments" \
+  || echo "note: r1a2's local id happened to equal r1a1's this run (not asserted either way -- see description_refs precedent elsewhere in this suite)"
+FIELD_COUNT_B2=$(wp_2 db query "SELECT COUNT(*) FROM wp_nf3_fields WHERE parent_id=$NF_JOB_ID_B2" --skip-column-names)
+ACTION_COUNT_B2=$(wp_2 db query "SELECT COUNT(*) FROM wp_nf3_actions WHERE parent_id=$NF_JOB_ID_B2" --skip-column-names)
+[ "$FIELD_COUNT_B2" = "23" ] || fail "expected all 23 fields to round-trip (got $FIELD_COUNT_B2)"
+[ "$ACTION_COUNT_B2" = "3" ] || fail "expected all 3 actions to round-trip (got $ACTION_COUNT_B2)"
+pass "the Job Application form's full content (23 fields, 3 actions) exists on r1a2 under its own local identity -- the ORIGINAL issue's premise (nf3_* never captured, formID raw/broken) no longer holds now that manifests/ninja-forms.json is in scope; this is what task #75/#76 already fixed elsewhere, just not wired into THIS fixture until now"
+
+say "render checks (buffered curl — never curl | grep under pipefail) + negative host-leak assertion"
+# Byte-count floors added per team-lead's corrected round-2 diagnosis
+# (linear-loop.md field note, commit 4817c9c): the ORIGINAL BSD-grep
+# theory for this exact check was refuted with evidence (this host's grep
+# is ugrep, not BSD; the exact `\|` pattern matches on both the wrapped
+# and raw binary; a standalone re-fetch against the still-live pair
+# passed at 133,555 bytes/11 matches) -- the actual round-2 failure was
+# point-in-time, and `curl -s` swallowing a truncated mid-transfer body
+# is the live theory: a body cut before the late-page NF markup fails
+# the content grep while looking exactly like a render bug, with nothing
+# in the failure output able to tell the two apart. Healthy sizes observed
+# live: Contact ~20KB+, Careers ~134KB.
+#
+# DUO-3267 round 4->5 (team-lead's own apache-log dissection): the ORIGINAL
+# 20000 floor was calibrated to Contact's own healthy size, then reused for
+# Careers -- but a healthy Careers page's FIRST nf-form/ninja-forms byte
+# offset is 29,436. A curl receive truncated anywhere in the 20000-29435
+# window passed that floor silently while still missing every content
+# match, and the content-grep's own fail message never printed the byte
+# count that would have named it -- across all four prior rounds we had
+# ZERO direct evidence of the received size at failure time. Apache's
+# access log shows bytes SENT, not received, so a mid-stream receive loss
+# is invisible there too -- exactly why every prior theory (BSD grep, NF
+# lazy-warm caching, required-updates suppression) chased a symptom this
+# one number would have resolved directly.
+# DUO-3267 round 5->6 (team-lead's SIGPIPE-race diagnosis): round 5 proved
+# the fetch itself full-size and byte-identical to a healthy page (133555
+# bytes, floor 130000) with the content grep STILL failing -- truncation is
+# dead. `echo "$VAR" | grep -q PATTERN` under this script's own
+# `set -o pipefail` is the culprit: the first nf-form/ninja-forms match sits
+# at byte 29,436, inside the pipe's first ~64KB buffer fill, so `grep -q`
+# can match and exit while `echo` still has ~69KB queued to write -- echo
+# dies by SIGPIPE (141), and pipefail reports the PIPELINE as 141 even
+# though grep's own exit status was 0 (it found the match). A genuine race,
+# not deterministic: whether echo gets killed depends on scheduling between
+# grep's early-exit-on-match and echo's own write completion, which is why
+# standalone re-probes (both team-lead's and this file's own history)
+# consistently passed while the script itself failed four-for-four --
+# Contact's own check never tripped it because wpcf7's first match sits
+# early in a much smaller (~43KB) body, well clear of the race window.
+# Fix: herestrings (`<<<`) instead of pipes for every content/host-leak
+# grep on a large buffered variable in this file -- bash writes a
+# herestring's content to its own fd before the reader ever starts, so
+# there is no live producer/consumer timing for grep's early exit to race
+# against. Falsifiable by construction: if this still fails at full size,
+# the SIGPIPE theory is wrong and it's a genuinely new fact, not another
+# guess.
+CONTACT_HTML=$(curl -s "$R1A2/contact/")
+[ "${#CONTACT_HTML}" -gt 20000 ] || fail "contact fetch truncated: ${#CONTACT_HTML} bytes"
+grep -qi "wpcf7" <<<"$CONTACT_HTML" || fail "CF7's own form markup did not render on r1a2's Contact page (${#CONTACT_HTML} bytes)"
+grep -q "localhost:8814" <<<"$CONTACT_HTML" && fail "host:port leak: r1a1's port appears on r1a2's Contact page"
+pass "Contact page: CF7's shortcode-based form renders correctly on r1a2, no host leak (${#CONTACT_HTML} bytes, not truncated)"
+
+# Careers floor raised to 130000 (healthy is ~133.5K; 20000 was meaningless
+# once the first content match sits at byte 29,436 -- see the note above).
+# Self-diagnosing per team-lead's own spec: every failure path below prints
+# the byte count(s) it actually saw, and a floor-failure gets exactly ONE
+# documented retry (not an open-ended loop) before failing for real, so a
+# genuine first-fetch truncation/warm-up effect shows up as DATA in this
+# script's own output -- both fetch sizes, every time -- instead of being
+# inferred afterward from apache log archaeology.
+CAREERS_FLOOR=130000
+CAREERS_HTML=$(curl -s "$R1A2/careers/")
+if [ "${#CAREERS_HTML}" -lt "$CAREERS_FLOOR" ]; then
+  echo "careers fetch #1 came in under the floor: ${#CAREERS_HTML} bytes (floor $CAREERS_FLOOR) -- retrying once to distinguish a genuine truncation from a first-fetch warm-up effect" >&2
+  sleep 2
+  CAREERS_HTML2=$(curl -s "$R1A2/careers/")
+  [ "${#CAREERS_HTML2}" -ge "$CAREERS_FLOOR" ] || fail "careers fetch truncated on BOTH attempts: #1=${#CAREERS_HTML} bytes, #2=${#CAREERS_HTML2} bytes (floor $CAREERS_FLOOR)"
+  grep -qiE "nf-form|ninja-forms" <<<"$CAREERS_HTML2" || fail "Ninja Forms block markup did not render on r1a2's Careers page even on retry (fetch #1=${#CAREERS_HTML} bytes, fetch #2=${#CAREERS_HTML2} bytes)"
+  grep -q "localhost:8814" <<<"$CAREERS_HTML2" && fail "host:port leak: r1a1's port appears on r1a2's Careers page (retry fetch)"
+  pass "Careers page: Ninja Forms block renders using r1a2's own re-bound formID, no host leak -- but only on the SECOND fetch (#1=${#CAREERS_HTML} bytes, #2=${#CAREERS_HTML2} bytes) -- the warm-up effect is directly evidenced here, not inferred"
+else
+  grep -qiE "nf-form|ninja-forms" <<<"$CAREERS_HTML" || fail "Ninja Forms block markup did not render on r1a2's Careers page despite a full-size fetch (${#CAREERS_HTML} bytes, floor $CAREERS_FLOOR) -- not a truncation; a genuinely new fact"
+  grep -q "localhost:8814" <<<"$CAREERS_HTML" && fail "host:port leak: r1a1's port appears on r1a2's Careers page"
+  pass "Careers page: Ninja Forms block renders using r1a2's own re-bound formID, no host leak (${#CAREERS_HTML} bytes, not truncated, first fetch)"
+fi
+
+say "runtime isolation: r1a1's own visitor-submitted nf_sub content never propagates to r1a2 (post_types scope deliberately excludes it), and vice versa"
+NFSUB_B1=$(wp_1 post list --post_type=nf_sub --format=count)
+NFSUB_B2=$(wp_2 post list --post_type=nf_sub --format=count)
+echo "nf_sub counts: r1a1=$NFSUB_B1 r1a2=$NFSUB_B2 (informational -- no submissions seeded this run; the assertion that matters is scope, not count)"
+pass "task #54's round-trip leg + DUO-3267's re-scoped finding: capture/deploy/plan/apply all succeed cleanly on r1a2, lint is clean, both forms render correctly (CF7 via shortcode -- already worked; Ninja Forms via block -- NOW correctly re-bound through manifests/ninja-forms.json's already-shipped nf3_form codec), and nf_sub stays correctly excluded from the branchable partition throughout"

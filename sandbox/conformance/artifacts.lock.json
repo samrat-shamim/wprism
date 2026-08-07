@@ -40,5 +40,19 @@
       "url": "https://downloads.wordpress.org/plugin/elementor.4.2.2.zip",
       "sha256": "4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db"
     }
+  },
+  "ninja-forms": {
+    "3.3.21.4": {
+      "url": "https://downloads.wordpress.org/plugin/ninja-forms.3.3.21.4.zip",
+      "sha256": "54fc48a030a85d4929fe4c3dc364affdd996e1add175f42a5d1f90c08a43682f"
+    },
+    "3.4.34.2": {
+      "url": "https://downloads.wordpress.org/plugin/ninja-forms.3.4.34.2.zip",
+      "sha256": "a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687"
+    },
+    "3.14.11": {
+      "url": "https://downloads.wordpress.org/plugin/ninja-forms.3.14.11.zip",
+      "sha256": "82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73"
+    }
   }
 }

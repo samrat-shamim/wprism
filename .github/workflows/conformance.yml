@@ -12,6 +12,33 @@ on:
   workflow_dispatch:
 
 jobs:
+  code-half-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: code/state boundary and promotion contracts
+        run: make code-half-unit
+
+  code-half-live-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: live promotion lease, fencing, and frozen-input races
+        run: make regress-promotion-lock
+
+  code-half-grind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: clean-room code materialization and state handoff
+        run: make grind-code-half
+
   conformance:
     runs-on: ubuntu-latest
     timeout-minutes: 20

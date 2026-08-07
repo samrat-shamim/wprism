@@ -90,9 +90,23 @@ final class Apply {
         // loud-and-blocking gate on an unscoped ref-typed option. Threaded
         // through so plan/apply have the same escape hatch `duo capture`
         // does, matching this file's existing --force-* precedents.
-        $env = Capture::snapshot($this->repo, !empty($opts['force_unresolved_refs']));
+        $env = Capture::snapshot(
+            $this->repo,
+            !empty($opts['force_unresolved_refs']),
+            $compiled,
+            $this->policy
+        );
         $base = Ledger::all_state();
         $adopt = array_fill_keys(array_filter(explode(',', $opts['adopt_by_slug'] ?? '')), true);
+        $lifecycleTransition = null;
+        $promotionOwner = (string) ($opts['promotion_owner'] ?? '');
+        if ($promotionOwner !== '') {
+            $lifecycleTransition = PromotionLock::state_transition(
+                $promotionOwner,
+                $compiled->artifact_hash(),
+                'options/core'
+            );
+        }
 
         $plan = [
             'create' => [], 'update' => [], 'unchanged' => [], 'drift' => [],
@@ -106,6 +120,11 @@ final class Apply {
             $fileH = $e['hash'];
             $envE = $env[$uuid] ?? null;
             $baseH = $base[$uuid]['content_hash'] ?? null;
+            $comparisonEnvH = self::lifecycle_comparison_hash(
+                (string) $uuid,
+                $envE['hash'] ?? null,
+                $lifecycleTransition
+            );
             $row = ['uuid' => $uuid, 'type' => $e['type'], 'path' => $e['path']];
             if ($e['type'] === SidebarState::ENTITY_TYPE && $envE !== null) {
                 $envFront = Canon::decode($envE['content']);
@@ -197,7 +216,7 @@ final class Apply {
             if ($envE !== null) {
                 if ($fileH === $envE['hash']) {
                     $plan['unchanged'][] = $row;
-                } elseif ($baseH === null || $envE['hash'] === $baseH) {
+                } elseif ($baseH === null || $comparisonEnvH === $baseH) {
                     $plan['update'][] = $row + ['first_sync' => $baseH === null];
                 } elseif ($fileH === $baseH) {
                     $plan['drift'][] = $row;
@@ -312,22 +331,19 @@ final class Apply {
         }
 
         // docs/proposals/code-half.md §3.2: the cross-partition invariant's
-        // plan-time checks — missing_in_code / outside_version_range — read
-        // the TARGET state's active_plugins/template/stylesheet (this
-        // tree's own options/core entity, when present) through the exact
-        // same detector `wp duo deploy` itself refuses on (Deploy.php), so
-        // ordinary `duo plan`/`duo status` and `duo deploy`/`duo apply` can
-        // never disagree about what "in code" means. Surfaced here (not
-        // only at deploy time) per §3.2: "Both checks run inside the
-        // existing Apply::build_plan() ... so they show up in ordinary
-        // 'duo plan'/'duo status', not just at deploy time." code_revision_
-        // stale (§3.2 point 3) is deliberately not implemented — phase 1
-        // has no code/ materialization step to populate either side of
-        // that comparison; see Deploy::code_mismatch()'s docblock.
+        // plan-time checks read BOTH live lifecycle facts (active plugins /
+        // themes) and, for an opt-in code descriptor, the completed verified
+        // payload revision in the environment ledger. Keep these in the same
+        // code_mismatch bucket: apply cannot safely write authored state when
+        // either the declared lifecycle or the descriptor bytes have not yet
+        // reached this environment.
         $desired = isset($tree['options/core'])
             ? Deploy::extract_desired($tree['options/core']['data'])
             : [];
-        $plan['code_mismatch'] = Deploy::code_mismatch($this->policy, $desired);
+        $plan['code_mismatch'] = array_merge(
+            Deploy::code_mismatch($this->policy, $desired),
+            Deploy::code_revision_mismatch($compiled)
+        );
         // DUO-3231: same $desired, same call shape as code_mismatch above —
         // see Deploy::code_drift()'s own docblock for why it's a distinct
         // question (out-of-band version change vs. compatibility range).
@@ -441,6 +457,27 @@ final class Apply {
             $this->warnings[] = $inactiveWarning;
         }
         return $plan;
+    }
+
+    /**
+     * Deploy already changed lifecycle-managed records through WordPress
+     * APIs. Compare three-way history against the exact pre-hook snapshot
+     * only while the current canonical entity still equals deploy's recorded
+     * post-hook snapshot; any later or unrelated target edit falls back to
+     * the ordinary conflict path.
+     *
+     * @param array{entity:string,before_hash:string,after_hash:string}|null $transition
+     */
+    private static function lifecycle_comparison_hash(
+        string $uuid,
+        ?string $environmentHash,
+        ?array $transition
+    ): ?string {
+        if ($uuid === 'options/core' && $environmentHash !== null && $transition !== null
+            && hash_equals((string) $transition['after_hash'], $environmentHash)) {
+            return (string) $transition['before_hash'];
+        }
+        return $environmentHash;
     }
 
     /**
@@ -799,12 +836,12 @@ final class Apply {
         $policy = Policy::load($repo);
         $compiled = self::compiled($repo, $policy, $opts);
         Canary::suppress_cron_spawn();
-        $a = new self($repo, $policy, $compiled);
         Ledger::ensure();
-        Snapshot::repair_truncated_entity_types($policy); // DUO-3246
-        $a->promotionOwner = PromotionLock::owner($opts);
-        $a->promotionArtifact = $compiled->artifact_hash();
-        PromotionLock::acquire($a->promotionOwner, $a->promotionArtifact, 'apply');
+        $promotionOwner = PromotionLock::owner($opts);
+        $promotionArtifact = $compiled->artifact_hash();
+        $continuation = (string) ($opts['promotion_owner'] ?? '') !== '';
+        self::assert_expected_artifact($promotionArtifact, $opts, $continuation);
+        PromotionLock::acquire($promotionOwner, $promotionArtifact, 'apply', null, $continuation);
         try {
             // The artifact was first validated before target contact. Repeat
             // that association under the lease so a concurrent checkout or
@@ -812,17 +849,32 @@ final class Apply {
             // preflight and mutation.
             $lockedPolicy = Policy::load($repo);
             $lockedCompiled = self::compiled($repo, $lockedPolicy, $opts);
-            if (!hash_equals($a->promotionArtifact, $lockedCompiled->artifact_hash())) {
+            if (!hash_equals($promotionArtifact, $lockedCompiled->artifact_hash())) {
                 throw new \RuntimeException('duo: compiled artifact changed before locked apply');
             }
-            $summary = $a->run($opts, $compiled);
-            PromotionLock::heartbeat($a->promotionOwner, $a->promotionArtifact, 'complete');
-            PromotionLock::release($a->promotionOwner, $a->promotionArtifact);
-            $summary['promotion_lock'] = ['owner' => $a->promotionOwner, 'released' => true];
+            $a = new self($repo, $lockedPolicy, $lockedCompiled);
+            $a->promotionOwner = $promotionOwner;
+            $a->promotionArtifact = $promotionArtifact;
+            Snapshot::repair_truncated_entity_types($lockedPolicy); // DUO-3246
+            PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'artifact-validated');
+            if (getenv('DUO_TEST_MODE') === '1') {
+                $pauseMs = (int) (getenv('DUO_TEST_PROMOTION_LOCKED_PAUSE_MS') ?: 0);
+                if ($pauseMs > 0 && $pauseMs <= 10000) {
+                    usleep($pauseMs * 1000);
+                }
+            }
+            $summary = $a->run($opts, $lockedCompiled);
+            PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'complete');
+            PromotionLock::release($promotionOwner, $promotionArtifact);
+            $summary['promotion_lock'] = ['owner' => $promotionOwner, 'released' => true];
             return $summary;
         } catch (\Throwable $t) {
             try {
-                PromotionLock::release_after_failure($a->promotionOwner, $a->promotionArtifact);
+                // Preserve DUO-3253's independent-connection cleanup when a
+                // failed rollback leaves the global wpdb transaction open,
+                // while using the always-initialized exact continuation
+                // identity from this invocation.
+                PromotionLock::release_after_failure($promotionOwner, $promotionArtifact);
             } catch (\Throwable $_releaseFailure) {
                 // The original failure is the actionable cause. A lost lease
                 // is already fail-closed and expires without human cleanup.
@@ -838,10 +890,30 @@ final class Apply {
      * may retain pre-apply models and persist them from shutdown callbacks.
      */
     public static function verify_canonical(string $repo, array $opts = []): array {
-        $policy = Policy::load($repo);
-        $compiled = self::compiled($repo, $policy, $opts);
         $expectedArtifact = (string) ($opts['expected_artifact'] ?? '');
-        if ($expectedArtifact !== '' && !hash_equals($expectedArtifact, $compiled->artifact_hash())) {
+        if (!preg_match('/^[a-f0-9]{64}$/', $expectedArtifact)) {
+            throw new \RuntimeException(
+                'duo: canonical verification requires the parent apply expected artifact sha256'
+            );
+        }
+        $policySnapshot = (string) ($opts['policy_snapshot'] ?? '');
+        $compiledPath = (string) ($opts['compiled'] ?? '');
+        if ($policySnapshot === '' || $compiledPath === '') {
+            throw new \RuntimeException(
+                'duo: canonical verification requires the parent apply frozen policy snapshot and compiled artifact'
+            );
+        }
+        try {
+            $decodedPolicy = Canon::decode(Canon::read_file($policySnapshot));
+            if (!is_array($decodedPolicy)) {
+                throw new \RuntimeException('snapshot root is not an object');
+            }
+            $policy = Policy::from_snapshot($decodedPolicy);
+        } catch (\Throwable $t) {
+            throw new \RuntimeException('duo: canonical verification frozen policy is invalid: ' . $t->getMessage(), 0, $t);
+        }
+        $compiled = RepositoryCompiler::read_artifact($compiledPath, $policy);
+        if (!hash_equals($expectedArtifact, $compiled->artifact_hash())) {
             throw new \RuntimeException(
                 'duo: post-apply convergence verification refused a different compiled artifact'
             );
@@ -851,6 +923,7 @@ final class Apply {
         Ledger::ensure();
         Snapshot::repair_truncated_entity_types($policy);
         return $a->verify_convergence_local(
+            $compiled,
             $compiled->tree(),
             $compiled->deletions(),
             !empty($opts['with_deletes']),
@@ -917,22 +990,20 @@ final class Apply {
             );
         }
 
-        // docs/proposals/code-half.md §3.3's blocking posture: a code_mismatch
-        // row only ever exists for an entry the TARGET state declares active
-        // (Deploy::code_mismatch() is scoped that way by construction), so
-        // every row here already qualifies — matching the two existing
-        // --force-* precedents immediately around this one.
-        if ($plan['code_mismatch'] && empty($opts['force_code_mismatch'])) {
-            $list = implode("\n\n", array_map(fn($r) => '  - ' . $r['message'], $plan['code_mismatch']));
-            throw new \RuntimeException(
-                "duo: apply refused — code_mismatch:\n\n$list\n\n"
-                . "Run 'duo deploy <env>' first if this environment simply hasn't been deployed/reconciled yet, "
-                . 'or pass --force-code-mismatch to proceed anyway.'
-            );
-        }
+        // The completed code_revision is the ordering witness between the
+        // code and state halves. It is deliberately NOT part of the generic
+        // --force-code-mismatch escape hatch: state writes before stage ->
+        // lifecycle -> finalize would recreate the exact schema/content skew
+        // Duo is supposed to prevent. The remaining lifecycle compatibility
+        // rows retain the existing explicit force behavior below.
+        $forceableCodeMismatch = self::enforce_code_mismatch_gate(
+            $plan['code_mismatch'],
+            $opts
+        );
 
-        // DUO-3231: same blocking posture and escape-hatch convention as
-        // code_mismatch immediately above — see Deploy::code_drift()'s
+        // DUO-3231: code_drift remains a separate, explicitly forceable
+        // provenance gate. That is distinct from the non-forceable stale
+        // descriptor ordering check above — see Deploy::code_drift()'s
         // docblock for what distinguishes the two questions.
         if ($plan['code_drift'] && empty($opts['force_code_drift'])) {
             $list = implode("\n\n", array_map(fn($r) => '  - ' . $r['message'], $plan['code_drift']));
@@ -957,7 +1028,7 @@ final class Apply {
         // code_mismatch finding, missing_in_code included, is only ever
         // visible via THIS warning in apply's context, so none are excluded
         // here.
-        foreach ($plan['code_mismatch'] as $r) {
+        foreach ($forceableCodeMismatch as $r) {
             $this->warnings[] = 'FORCED past code_mismatch: ' . $r['message'];
         }
 
@@ -1232,6 +1303,56 @@ final class Apply {
         ];
     }
 
+    private static function assert_expected_artifact(string $actual, array $opts, bool $required): void {
+        $expected = (string) ($opts['artifact_hash'] ?? '');
+        if (($required && $expected === '')
+            || ($expected !== '' && (!preg_match('/^[0-9a-f]{64}$/', $expected) || !hash_equals($expected, $actual)))) {
+            throw new \RuntimeException('duo: apply artifact does not match the host-compiled artifact hash');
+        }
+    }
+
+    /**
+     * Enforce the deliberately asymmetric code/state preconditions.
+     *
+     * Lifecycle compatibility rows retain their explicit force escape hatch.
+     * A code_revision_stale row does not: it means this artifact's code
+     * descriptor has not completed stage -> lifecycle -> finalize on this
+     * environment, so state writes would cross the code/state ordering
+     * boundary without a verified payload witness.
+     *
+     * @param list<array<string,mixed>> $mismatches
+     * @param array<string,mixed> $opts
+     * @return list<array<string,mixed>> forceable lifecycle mismatches
+     */
+    private static function enforce_code_mismatch_gate(array $mismatches, array $opts): array {
+        $stale = array_values(array_filter(
+            $mismatches,
+            static fn(array $r): bool => ($r['issue'] ?? null) === 'code_revision_stale'
+        ));
+        if ($stale) {
+            $list = implode("\n\n", array_map(fn(array $r): string => '  - ' . ($r['message'] ?? 'code revision is stale'), $stale));
+            throw new \RuntimeException(
+                "duo: apply refused — code_revision_stale:\n\n$list\n\n"
+                . "Run the host 'duo deploy <env>' workflow to stage, reconcile, verify, and finalize the exact code payload. "
+                . 'This ordering invariant is non-forceable; neither --force-code-mismatch nor --force-code-drift overrides it.'
+            );
+        }
+
+        $forceable = array_values(array_filter(
+            $mismatches,
+            static fn(array $r): bool => ($r['issue'] ?? null) !== 'code_revision_stale'
+        ));
+        if ($forceable && empty($opts['force_code_mismatch'])) {
+            $list = implode("\n\n", array_map(fn(array $r): string => '  - ' . ($r['message'] ?? 'code mismatch'), $forceable));
+            throw new \RuntimeException(
+                "duo: apply refused — code_mismatch:\n\n$list\n\n"
+                . "Run 'duo deploy <env>' first for lifecycle reconciliation, "
+                . 'or pass --force-code-mismatch to proceed despite those lifecycle mismatches.'
+            );
+        }
+        return $forceable;
+    }
+
     /** Hash only facts which authorize target mutation; output/report buckets are excluded. */
     private function plan_precondition_hash(array $plan): string {
         $keys = [
@@ -1310,12 +1431,20 @@ final class Apply {
         // contaminate this process's shutdown state. Pin it to the exact
         // artifact used above; a concurrently changed repository fails
         // closed instead of verifying a different desired revision.
+        $artifactSnapshot = tempnam(sys_get_temp_dir(), 'duo-verify-artifact-');
+        $policySnapshot = tempnam(sys_get_temp_dir(), 'duo-verify-policy-');
+        if ($artifactSnapshot === false || $policySnapshot === false) {
+            if (is_string($artifactSnapshot)) { @unlink($artifactSnapshot); }
+            if (is_string($policySnapshot)) { @unlink($policySnapshot); }
+            throw new \RuntimeException('duo: could not allocate frozen canonical-verification inputs');
+        }
+        @chmod($artifactSnapshot, 0600);
+        @chmod($policySnapshot, 0600);
         $cmd = 'duo verify-canonical --repo=' . escapeshellarg($this->repo)
             . ' --expected-artifact=' . $compiled->artifact_hash()
+            . ' --compiled=' . escapeshellarg($artifactSnapshot)
+            . ' --policy-snapshot=' . escapeshellarg($policySnapshot)
             . ' --format=json';
-        if (!empty($opts['compiled'])) {
-            $cmd .= ' --compiled=' . escapeshellarg((string) $opts['compiled']);
-        }
         if (!empty($opts['with_deletes'])) {
             $cmd .= ' --with-deletes';
         }
@@ -1324,6 +1453,8 @@ final class Apply {
         }
 
         try {
+            $compiled->write($artifactSnapshot);
+            Canon::write_file($policySnapshot, Canon::encode($this->policy->export_snapshot()));
             $res = \WP_CLI::runcommand($cmd, [
                 'launch' => true,
                 'return' => 'all',
@@ -1335,6 +1466,9 @@ final class Apply {
                 0,
                 $t
             );
+        } finally {
+            @unlink($artifactSnapshot);
+            @unlink($policySnapshot);
         }
         if ((int) $res->return_code !== 0) {
             $detail = trim((string) ($res->stderr ?? ''));
@@ -1369,12 +1503,18 @@ final class Apply {
     }
 
     private function verify_convergence_local(
+        CompiledRepository $compiled,
         array $tree,
         array $deletions,
         bool $verifyDeletes,
         bool $forceUnresolvedRefs
     ): array {
-        $actual = Capture::snapshot($this->repo, $forceUnresolvedRefs);
+        $actual = Capture::snapshot(
+            $this->repo,
+            $forceUnresolvedRefs,
+            $compiled,
+            $this->policy
+        );
         $failures = [];
         $skippedUserMeta = 0;
 
@@ -2005,8 +2145,9 @@ final class Apply {
         // DUO-3263: an interpreter-classified option (ACF's options-page
         // fields) needs the same document-sourced sibling map (the shadow
         // pointer) RepositoryAuthorization/RepositoryCompiler already build
-        // from this same document — built once, reused per name below.
-        $allOptions = OptionState::values($document);
+        // from this same document (including valid v2 deletion witnesses) —
+        // built once, reused per name below.
+        $allOptions = OptionState::classification_values($document);
         foreach (OptionState::records($document) as $name => $record) {
             if ($record['state'] === 'absent') {
                 continue; // explicit no-value/no-delete intent; target row is untouched

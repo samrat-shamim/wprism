@@ -324,25 +324,31 @@ final class Capture {
      *
      * @return array<string, array{type: string, hash: string, content: string, path: string}>
      */
-    public static function snapshot(string $repo, bool $forceUnresolvedRefs = false): array {
+    public static function snapshot(
+        string $repo,
+        bool $forceUnresolvedRefs = false,
+        ?CompiledRepository $compiled = null,
+        ?Policy $policy = null
+    ): array {
         Canary::suppress_cron_spawn();
         Ledger::ensure();
         Identity::assert_embedded_unique();
         Ledger::prune_dead_map();
-        $policy = Policy::load($repo);
+        // Apply supplies the policy that was validated with its frozen
+        // artifact under the promotion lease. Direct diagnostic callers do
+        // not own that boundary and retain the historical load-on-entry path.
+        $policy ??= Policy::load($repo);
         Snapshot::prune_dead_map($policy);
         SidebarState::prune_dead_map($policy);
         $c = new self($repo, $policy);
         self::verify_engine_support($policy);
-        // DUO-3263: fresh Policy::load(), same reasoning as run()'s own
-        // identical fix a few methods up — compiling the repository here
-        // must not permanently prime the SAME $policy object's interpreter
-        // instances that $c->build() below (line ~346) still needs live-DB
-        // fallback from, or a brand-new schema-driven field the repository
-        // hasn't seen yet reads as unclassified even though the live
-        // environment has it.
-        $repository = RepositoryCompiler::compile($repo, Policy::load($repo));
-        $repositoryOptions = $repository->tree()['options/core']['data'] ?? null;
+        // Apply/plan supply the immutable artifact already validated under
+        // their promotion boundary, so their target snapshot never reopens
+        // mutable state. Direct callers still compile here with a fresh
+        // Policy object: DUO-3263 requires repository interpreter priming not
+        // to contaminate the live-DB fallback used by $c->build() below.
+        $repository = $compiled ?? RepositoryCompiler::compile($repo, Policy::load($repo));
+        $repositoryOptions = self::repository_options($repo, $policy, $repository);
         $repositoryUserLogins = [];
         foreach ($repository->tree() as $entity) {
             if (($entity['type'] ?? '') === 'user-meta') {
@@ -384,6 +390,23 @@ final class Capture {
             ];
         }
         return $out;
+    }
+
+    /**
+     * Read canonical option intent from the caller's frozen artifact when it
+     * has one. Kept as a pure helper so the no-reopen invariant has a fast
+     * offline regression independent of WordPress/DB snapshot mechanics.
+     */
+    private static function repository_options(
+        string $repo,
+        Policy $policy,
+        ?CompiledRepository $compiled
+    ): ?array {
+        $tree = $compiled !== null
+            ? $compiled->tree()
+            : RepositoryCompiler::compile($repo, Policy::load($repo))->tree();
+        $options = $tree['options/core']['data'] ?? null;
+        return is_array($options) ? $options : null;
     }
 
     /**
@@ -2475,7 +2498,7 @@ final class Capture {
             $rule = $details['rule'] ?? [];
             if ($record['state'] === 'present'
                 && ($rule['class'] ?? null) === 'authored' && empty($rule['sub_keys'])) {
-                $out[$name] = OptionState::deleted($record);
+                $out[$name] = OptionState::deleted($record, !empty($rule['deletion_witness']));
             } else {
                 $out[$name] = OptionState::absent();
             }

@@ -4,12 +4,14 @@ namespace Duo;
 use WP_CLI;
 
 /**
- * wp duo <capture|plan|apply|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
+ * wp duo <capture|plan|apply|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
  */
 final class Cli {
     private static function halt_json_failure(\Throwable $t, array $assoc): void {
         if (($assoc['format'] ?? '') !== 'json'
-            || !($t instanceof RepositoryCompilationException || $t instanceof RepositoryAuthorizationException)) {
+            || !($t instanceof RepositoryCompilationException
+                || $t instanceof RepositoryAuthorizationException
+                || $t instanceof CodeCompilationException)) {
             return;
         }
         WP_CLI::line(json_encode($t->payload(), JSON_UNESCAPED_SLASHES));
@@ -45,6 +47,162 @@ final class Cli {
             'compiled artifact %s (revision %s, manifests %s)%s',
             $artifact->artifact_hash(), $artifact->revision_hash(), $artifact->manifest_hash(),
             !empty($assoc['out']) ? ' -> ' . $assoc['out'] : ''
+        ));
+    }
+
+    /**
+     * Acquire the host promotion lease before its database checkpoint. This
+     * is intentionally hash-only: the host has already compiled and verified
+     * the immutable outer artifact, while this command must remain available
+     * to release/recover a lease even if the working repo later changes.
+     *
+     * ## OPTIONS
+     * --promotion-owner=<token> : Required internal orchestrator owner token.
+     * --artifact-hash=<sha256> : Required immutable artifact hash binding code and state.
+     * [--json] : JSON summary.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand promotion-begin
+     */
+    public function promotion_begin($args, $assoc) {
+        $owner = $assoc['promotion-owner'] ?? WP_CLI::error('--promotion-owner required');
+        $artifactHash = $assoc['artifact-hash'] ?? WP_CLI::error('--artifact-hash required');
+        try {
+            Ledger::ensure();
+            $summary = PromotionLock::begin((string) $owner, (string) $artifactHash);
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        WP_CLI::success(sprintf(
+            'promotion lease acquired for artifact %s until epoch %d',
+            $summary['artifact_hash'],
+            $summary['expires_at']
+        ));
+    }
+
+    /**
+     * Idempotently remove a host promotion lease after a failure or after a
+     * checkpoint import has restored that checkpoint's lease row. It never
+     * reads the mutable repository or mutates code/state payloads.
+     *
+     * ## OPTIONS
+     * --promotion-owner=<token> : Required internal orchestrator owner token.
+     * --artifact-hash=<sha256> : Required immutable artifact hash binding code and state.
+     * [--json] : JSON summary.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand promotion-abort
+     */
+    public function promotion_abort($args, $assoc) {
+        $owner = $assoc['promotion-owner'] ?? WP_CLI::error('--promotion-owner required');
+        $artifactHash = $assoc['artifact-hash'] ?? WP_CLI::error('--artifact-hash required');
+        try {
+            Ledger::ensure();
+            $summary = PromotionLock::abort((string) $owner, (string) $artifactHash);
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        WP_CLI::success($summary['released']
+            ? 'promotion lease aborted'
+            : 'promotion lease already absent');
+    }
+
+    /**
+     * Add/update the immutable code half in WP_CONTENT_DIR. This is the
+     * deletion-free stage before lifecycle deploy; it never removes old files.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root (contains site.duo.json).
+     * --compiled=<path> : Required frozen compiler artifact from host duo deploy.
+     * --promotion-owner=<token> : Required internal orchestrator lease token.
+     * --artifact-hash=<sha256> : Required host-observed outer artifact hash.
+     * [--json] : JSON summary.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand code-stage
+     */
+    public function code_stage($args, $assoc) {
+        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
+        $compiledPath = $assoc['compiled'] ?? WP_CLI::error('--compiled required');
+        $promotionOwner = $assoc['promotion-owner'] ?? WP_CLI::error('--promotion-owner required');
+        $artifactHash = $assoc['artifact-hash'] ?? WP_CLI::error('--artifact-hash required');
+        try {
+            $policy = Policy::load($repo);
+            $compiled = RepositoryCompiler::read_artifact((string) $compiledPath, $policy);
+            $summary = Code::stage($repo, $compiled, [
+                'promotion_owner' => (string) $promotionOwner,
+                'artifact_hash' => (string) $artifactHash,
+            ]);
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc);
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        if (!$summary['enabled']) {
+            WP_CLI::success('code materialization is disabled for this legacy repository');
+            return;
+        }
+        WP_CLI::success(sprintf(
+            'staged code revision %s (%d file(s)); promotion lease retained for finalize',
+            $summary['code_revision'], $summary['files']
+        ));
+    }
+
+    /**
+     * Finalize code after lifecycle deploy, pruning only owned component
+     * roots and recording the completed code descriptor. Use
+     * --promotion-hold when the following state apply must keep the lease.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root (contains site.duo.json).
+     * --compiled=<path> : Required frozen compiler artifact from host duo deploy.
+     * --promotion-owner=<token> : Required internal orchestrator lease token.
+     * --artifact-hash=<sha256> : Required host-observed outer artifact hash.
+     * [--promotion-hold] : Retain the lease for the following state apply.
+     * [--json] : JSON summary.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand code-finalize
+     */
+    public function code_finalize($args, $assoc) {
+        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
+        $compiledPath = $assoc['compiled'] ?? WP_CLI::error('--compiled required');
+        $promotionOwner = $assoc['promotion-owner'] ?? WP_CLI::error('--promotion-owner required');
+        $artifactHash = $assoc['artifact-hash'] ?? WP_CLI::error('--artifact-hash required');
+        try {
+            $policy = Policy::load($repo);
+            $compiled = RepositoryCompiler::read_artifact((string) $compiledPath, $policy);
+            $summary = Code::finalize($repo, $compiled, [
+                'promotion_owner' => (string) $promotionOwner,
+                'artifact_hash' => (string) $artifactHash,
+                'promotion_hold' => isset($assoc['promotion-hold']),
+            ]);
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc);
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        if (!$summary['enabled']) {
+            WP_CLI::success('code materialization is disabled for this legacy repository');
+            return;
+        }
+        WP_CLI::success(sprintf(
+            'finalized code revision %s (%d file(s), %d removed)',
+            $summary['code_revision'], $summary['files'], count($summary['removed'])
         ));
     }
 
@@ -150,6 +308,7 @@ final class Cli {
      *   detection captures the live environment too, so it hits the identical gate.
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
+     * [--artifact-hash=<sha256>] : Internal host-observed artifact hash; required with orchestrated promotion-owner.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -192,9 +351,23 @@ final class Cli {
         // code_mismatch (docs/proposals/code-half.md §3.2): a different row
         // shape (issue/kind/plugin-or-theme/message, no uuid/path) than the
         // $kinds loop above, so it gets its own rendering rather than being
-        // folded into that loop. code_drift (DUO-3231) is the same shape,
-        // same reason.
-        foreach ($plan['code_mismatch'] ?? [] as $r) {
+        // folded into that loop. A descriptor's code_revision_stale row is
+        // deliberately non-forceable: it is the code-before-state ordering
+        // witness, not an ordinary lifecycle compatibility mismatch.
+        $codeMismatch = $plan['code_mismatch'] ?? [];
+        $codeRevisionStale = array_values(array_filter(
+            $codeMismatch,
+            static fn(array $r): bool => ($r['issue'] ?? null) === 'code_revision_stale'
+        ));
+        $forceableCodeMismatch = array_values(array_filter(
+            $codeMismatch,
+            static fn(array $r): bool => ($r['issue'] ?? null) !== 'code_revision_stale'
+        ));
+        foreach ($codeRevisionStale as $r) {
+            WP_CLI::line('CODE_REVISION_STALE code payload');
+            WP_CLI::line('  ' . ($r['message'] ?? 'run the host duo deploy workflow'));
+        }
+        foreach ($forceableCodeMismatch as $r) {
             WP_CLI::line('CODE_MISMATCH ' . strtoupper($r['issue']) . ' ' . ($r['plugin'] ?? $r['theme'] ?? '?'));
             WP_CLI::line('  ' . $r['message']);
         }
@@ -246,7 +419,10 @@ final class Cli {
         if ($plan['drift']) {
             WP_CLI::warning('environment drift detected — capture-first workflow recommended');
         }
-        if (!empty($plan['code_mismatch'])) {
+        if ($codeRevisionStale) {
+            WP_CLI::warning('code_revision_stale — run host `duo deploy <env>`; force flags cannot bypass this ordering invariant');
+        }
+        if ($forceableCodeMismatch) {
             WP_CLI::warning('code_mismatch findings — duo apply will refuse until resolved (or run with --force-code-mismatch)');
         }
         if (!empty($plan['code_drift'])) {
@@ -398,6 +574,7 @@ final class Cli {
                 'revision' => $assoc['revision'] ?? '',
                 'compiled' => $assoc['compiled'] ?? '',
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
+                'artifact_hash' => $assoc['artifact-hash'] ?? '',
             ]);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc);
@@ -429,7 +606,8 @@ final class Cli {
      * ## OPTIONS
      * --repo=<path>
      * --expected-artifact=<sha256>
-     * [--compiled=<path>]
+     * --compiled=<path>
+     * --policy-snapshot=<path>
      * [--with-deletes]
      * [--force-unresolved-refs]
      * [--format=<format>] : Output format. Accepts json.
@@ -442,7 +620,8 @@ final class Cli {
                 $assoc['repo'] ?? WP_CLI::error('--repo required'),
                 [
                     'expected_artifact' => $assoc['expected-artifact'] ?? WP_CLI::error('--expected-artifact required'),
-                    'compiled' => $assoc['compiled'] ?? '',
+                    'compiled' => $assoc['compiled'] ?? WP_CLI::error('--compiled required'),
+                    'policy_snapshot' => $assoc['policy-snapshot'] ?? WP_CLI::error('--policy-snapshot required'),
                     'with_deletes' => isset($assoc['with-deletes']),
                     'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
                 ]
@@ -483,7 +662,11 @@ final class Cli {
      *   changed outside 'duo deploy'/'duo capture' since the last recorded baseline.
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with apply.
+     * [--artifact-hash=<sha256>] : Internal host-observed artifact hash; required with orchestrated promotion-owner.
+     * [--materializing-code] : Internal orchestrator flag; prove code-stage completed for this artifact.
      * [--promotion-hold] : Internal orchestrator flag; retain the lease for the following apply phase.
+     * [--state-handoff] : Internal promote-only flag; bind lifecycle pre/post state hashes for apply.
+     * [--force-unresolved-refs] : Promotion passthrough for lifecycle handoff snapshots.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -494,7 +677,11 @@ final class Cli {
                 'force_code_drift' => isset($assoc['force-code-drift']),
                 'compiled' => $assoc['compiled'] ?? '',
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
+                'artifact_hash' => $assoc['artifact-hash'] ?? '',
+                'materializing_code' => isset($assoc['materializing-code']),
                 'promotion_hold' => isset($assoc['promotion-hold']),
+                'state_handoff' => isset($assoc['state-handoff']),
+                'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
             ]);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc);

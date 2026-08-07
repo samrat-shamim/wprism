@@ -7,6 +7,8 @@ namespace Duo;
  * and unclassified is a loud abort at the call sites (never a silent guess).
  */
 final class Policy {
+    private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v1';
+
     public array $site = [];
     /** @var array<int, array> */
     public array $manifests = [];
@@ -23,7 +25,12 @@ final class Policy {
      *   user_meta_rule(string $key, array $allMeta): ?array
      *   option_rule(string $name, array $allOptions): ?array
      * Each returns a classification rule (same shape as the corresponding
-     * static meta rule, optionally with 'cast') or null to defer. Manifests opt in via
+     * static meta rule, optionally with 'cast') or null to defer. An option
+     * interpreter may additionally return `deletion_witness: true` when
+     * that exact option value is the minimum context required to classify
+     * related tombstones from an immutable tree; OptionState binds the
+     * retained value/autoload to the prior record hash and apply never
+     * treats it as desired data. Manifests opt in via
      * {"interpreter": "<name>"} — for schema-driven plugins (ACF) whose meta
      * semantics live in data, not in a static key list. option_rule() (DUO-3263)
      * is consulted only for an option NAME already namespace-owned by some
@@ -59,6 +66,7 @@ final class Policy {
                 throw new \RuntimeException("duo: $siteFile not found (not a duo site repo?)");
             }
             $p->site = Canon::decode(Canon::read_file($siteFile));
+            self::validate_code_config($p->site, 'site.duo.json');
             self::validate_scope_classes($p->site, 'site.duo.json', true);
             self::validate_option_storage($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
@@ -94,6 +102,101 @@ final class Policy {
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_manifest_pins($pins, $p);
         return $p;
+    }
+
+    /**
+     * Serialize the already-validated policy inputs for a fresh verification
+     * process. The compiled artifact independently binds the site and
+     * manifest hashes; this snapshot carries the bytes needed to reconstruct
+     * that exact policy without reopening mutable repository files.
+     */
+    public function export_snapshot(): array {
+        return [
+            'format' => self::SNAPSHOT_FORMAT,
+            'site' => $this->site,
+            'manifests' => $this->manifests,
+        ];
+    }
+
+    /** Reconstruct and fully validate a policy exported by export_snapshot(). */
+    public static function from_snapshot(array $snapshot): self {
+        $keys = array_keys($snapshot);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['format', 'manifests', 'site']
+            || ($snapshot['format'] ?? null) !== self::SNAPSHOT_FORMAT
+            || !is_array($snapshot['site'] ?? null)
+            || !is_array($snapshot['manifests'] ?? null)
+            || !array_is_list($snapshot['manifests'])) {
+            throw new \RuntimeException('duo: frozen policy snapshot has an unsupported or malformed shape');
+        }
+
+        $p = new self();
+        $p->site = $snapshot['site'];
+        self::validate_code_config($p->site, 'frozen site.duo.json');
+        self::validate_scope_classes($p->site, 'frozen site.duo.json', true);
+        self::validate_option_storage($p->site['policy'] ?? [], 'frozen site.duo.json');
+        self::validate_env_options($p->site['policy'] ?? [], 'frozen site.duo.json');
+        self::validate_user_meta_rules($p->site['policy'] ?? [], 'frozen site.duo.json');
+
+        $pins = self::normalize_manifest_pins($p->site['manifests'] ?? ['core']);
+        if (count($pins) !== count($snapshot['manifests'])) {
+            throw new \RuntimeException('duo: frozen policy snapshot manifest count disagrees with site pins');
+        }
+        foreach ($snapshot['manifests'] as $i => $manifest) {
+            if (!is_array($manifest) || array_is_list($manifest)) {
+                throw new \RuntimeException("duo: frozen policy snapshot manifests[$i] is not an object");
+            }
+            $name = (string) ($manifest['name'] ?? '');
+            if ($name === '' || !hash_equals((string) $pins[$i]['name'], $name)) {
+                throw new \RuntimeException("duo: frozen policy snapshot manifest order/name disagrees with site pin $i");
+            }
+            self::validate_field_classes($manifest);
+            self::validate_menu_field_classes($manifest);
+            self::validate_regen_dependencies($manifest);
+            self::validate_env_options($manifest, "frozen manifest '$name'");
+            self::validate_user_meta_rules($manifest, "frozen manifest '$name'");
+            self::validate_scope_classes($manifest, "frozen manifest '$name'", false);
+            self::validate_sub_keys($manifest);
+            self::validate_option_storage($manifest, "frozen manifest '$name'");
+            self::validate_adapter_contract($manifest);
+            self::validate_discovery_contract($manifest);
+            $p->manifests[] = $manifest;
+        }
+        self::validate_no_conflicting_option_rules(
+            $p->manifests,
+            $p->site['policy']['options'] ?? []
+        );
+        self::validate_no_conflicting_adapter_claims($p->manifests);
+        self::validate_manifest_pins($pins, $p);
+        return $p;
+    }
+
+    /**
+     * The v0 code half is deliberately opt-in and deliberately narrow. Do
+     * not accept a tempting near-miss here: a future layout must get a new
+     * format rather than silently being interpreted as this payload format.
+     */
+    private static function validate_code_config(array $site, string $label): void {
+        if (!array_key_exists('code', $site)) {
+            return; // legacy state-only repositories remain fully supported
+        }
+        $code = $site['code'];
+        if (!is_array($code) || array_is_list($code)) {
+            throw new \RuntimeException(
+                "duo: $label code must be an object with exactly format, layout, and source"
+            );
+        }
+        try {
+            Code::assert_config($code);
+        } catch (\Throwable $t) {
+            throw new \RuntimeException("duo: $label code declaration is invalid: {$t->getMessage()}", 0, $t);
+        }
+    }
+
+    /** @return ?array{format:int,layout:string,source:string} */
+    public function code_config(): ?array {
+        $code = $this->site['code'] ?? null;
+        return is_array($code) ? $code : null;
     }
 
     /**
@@ -1126,13 +1229,11 @@ final class Policy {
      * pattern rule (ACF options-page fields: arbitrary field names, ref kind
      * determined by a shadow-key-pointed schema, exactly like post/term meta
      * — see manifests/interpreters/acf.php's option_rule()). $allOptions is
-     * the full option_name => raw option_value map (mirroring $allMeta's
+     * the full option-name classification context (mirroring $allMeta's
      * "owning scope, shadow keys and all" shape) — options have no single
-     * owning entity to scope the map to, so callers pass every option Duo
-     * can see (live wp_options during capture, the repository's own
-     * OptionState::records() during repository-side authorization/
-     * compilation — see Capture::all_options_map() and
-     * RepositoryAuthorization/RepositoryCompiler's own construction).
+     * owning entity to scope the map to. Live capture passes raw wp_options
+     * values; immutable-tree callers pass OptionState::classification_values(),
+     * which adds only valid v2 witness context to ordinary present values.
      *
      * Routes through option_rule_details_for_option() rather than the plain
      * meta_rule_for_interpreter_hook() every other meta_rule_for_*() uses —

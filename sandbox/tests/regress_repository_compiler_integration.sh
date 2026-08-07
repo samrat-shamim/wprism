@@ -24,6 +24,10 @@ REPO=/siterepo/.tmp-duo-3208
 ARTIFACT="$REPO/artifact.json"
 rm -rf "$HOST1" "$HOST2"
 mkdir -p "$HOST1"
+# pair.yml intentionally runs wp-cli as www-data (33:33), while the fixture
+# is prepared by the host user. Make this disposable repo writable by both;
+# otherwise capture cannot create its lock/state files on a normal 022 umask.
+chmod 0777 "$HOST1"
 jq -n '{
   manifests: ["core"],
   policy: {
@@ -36,11 +40,20 @@ jq -n '{
 
 wp1 duo capture --repo="$REPO" --format=json >/dev/null
 wp1 duo compile --repo="$REPO" --out="$ARTIFACT" --format=json >/dev/null
+# Captured files are owned by the container's www-data uid. This disposable
+# fixture is subsequently copied, mutated, and removed by the host user, so
+# have the owning uid grant that access explicitly.
+$COMPOSE run --rm -T cli1 sh -c \
+  'chmod -R a+rwX /siterepo/.tmp-duo-3208/state && chmod a+rw /siterepo/.tmp-duo-3208/artifact.json /siterepo/.tmp-duo-3208/state.capture.lock' \
+  >/dev/null
 ARTIFACT_HASH=$(jq -r '.artifact_hash' "$HOST1/artifact.json")
 [[ "$ARTIFACT_HASH" =~ ^[0-9a-f]{64}$ ]] || fail "compile did not emit a content-addressed artifact"
 pass "wp duo compile emitted a self-verifying artifact"
 
 cp -R "$HOST1" "$HOST2"
+# cp creates this disposable second checkout as the host user. The next
+# assertion deliberately mutates it after compilation to prove the frozen
+# artifact is independent of later checkout edits.
 PAGE=$(rg --files "$HOST2/state/posts/page" | head -1)
 [ -n "$PAGE" ] || fail "captured fixture has no page entity"
 printf '\n<<<<<<< mutation-after-compile\n' >> "$PAGE"

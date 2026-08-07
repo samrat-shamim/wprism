@@ -10,9 +10,12 @@ exactly as before. `duo` only adds two things on top of the per-environment
    `wp --path=`.
 2. **Cross-environment ergonomics** — `duo envs`/`duo doctor`/`duo status`,
    which no single-environment `wp duo …` call can give you.
-3. **Truthful promotion sequencing** — `duo promote` compiles once, exports
-   a database checkpoint, then runs deploy → apply against the same artifact
-   under one target-database promotion lease.
+3. **Truthful code-and-state sequencing** — compilation produces one
+   content-addressed artifact whose `artifact_hash` binds the state revision
+   and, when present, its separate code revision. `duo deploy` materializes
+   that code around the lifecycle window; `duo promote` additionally takes a
+   database checkpoint and converges the bound state revision under one
+   target-database promotion lease.
 
 `duo` is dependency-free PHP 8+: no composer, no vendored packages, no
 WordPress required on the machine that runs it. Requires only a `php`
@@ -28,6 +31,7 @@ duo status <env>
 duo capture <env> [extra wp-cli flags...]
 duo plan    <env> [extra wp-cli flags...]
 duo apply   <env> [extra wp-cli flags...]
+duo deploy  <env> [--force-code-mismatch] [--force-code-drift]
 duo env-set <env> --name=<name> (--value=<value> | --stdin)
 duo promote <env> [extra apply flags...]
 duo pending <env>
@@ -76,10 +80,10 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   rewrites a bare `--json` into `--format=json` before the command ever sees
   `$assoc['json']`; see the comments in `agent/src/Cli.php`) and renders a
   human summary: counts per plan bucket (create/update/adopt/unchanged/
-  drift/conflict/collision/delete/code_mismatch/incomplete_apply/
+  drift/conflict/collision/delete/code_mismatch/code_drift/incomplete_apply/
   regen_pending/env_missing), drift paths, blocked-delete reasons,
-  code_mismatch findings (agent/src/Deploy.php's missing_in_code/
-  outside_version_range checks — docs/proposals/code-half.md §3.2),
+  code_mismatch and code_drift findings (the latter is an installed code
+  version/provenance change after Duo's last trusted observation),
   regen_pending entries (a derived table with a hard per-entity
   availability dependency — DUO-3234, e.g. TEC's tec_occurrences — whose
   post-apply verification failed and hasn't yet resolved), env_missing
@@ -88,25 +92,34 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   any plan-level warnings.
 
   Exit non-zero ("not safe to promote") if the plan contains any
-  `conflict`, `collision`, or `code_mismatch` entry, any blocked delete,
-  any drift, a retained `incomplete_apply` marker, a `regen_pending`
-  entry, or a **required** `env_missing` entry — drift and regen_pending
-  are two cases `duo apply` itself does *not* refuse on (a drifted entity
-  just folds into `update` once the repo side changes too, or stays
-  `drift` otherwise; a regen_pending marker is what makes the *next* apply
-  retry, not something the apply that set it refuses on), and env_missing
-  is a third: apply never refuses on it at all (env values are never
-  captured/applied — there is nothing for apply's own preconditions to
-  check), but `duo status` still reports a required-and-missing entry as
-  not clean, since status answers "safe to promote?", not just "will apply
-  refuse?" — capture first for drift, retry for regen_pending (automatic
-  on the next `duo apply`), `duo env-set` for env_missing. An *optional*
-  (`required: false`) env_missing entry is still listed for visibility but
-  never flips this by itself — it's plugin-internal bookkeeping the
-  plugin populates on its own. Also non-zero if the underlying `wp duo
-  plan` call itself failed or returned unparseable JSON. Plain warnings
-  are rendered but never flip this by themselves — see the decision-matrix
-  comment in `cli/src/PlanSummary.php::render()`.
+  `conflict`, `collision`, `code_mismatch`, or `code_drift` entry, any
+  blocked delete, any ordinary state drift, a retained `incomplete_apply`
+  marker, a `regen_pending` entry, or a **required** `env_missing` entry.
+  `duo apply` refuses code_drift unless explicitly passed
+  `--force-code-drift`; ordinary state drift and regen_pending are two
+  different cases apply itself does *not* refuse on (a drifted entity just
+  folds into `update` once the repo side changes too, or stays `drift`
+  otherwise; a regen_pending marker is what makes the *next* apply retry,
+  not something the apply that set it refuses on). Env_missing is a third:
+  apply never refuses on it at all (env values are never captured/applied —
+  there is nothing for apply's own preconditions to check), but status still
+  reports a required-and-missing entry as not clean because it answers
+  "safe to promote?", not just "will apply refuse?" — capture first for
+  ordinary drift, retry for regen_pending (automatic on the next `duo
+  apply`), `duo env-set` for env_missing. An *optional* (`required: false`)
+  env_missing entry is still listed for visibility but never flips this by
+  itself — it's plugin-internal bookkeeping the plugin populates on its own.
+  Also non-zero if the underlying `wp duo plan` call itself failed or
+  returned unparseable JSON. Plain warnings are rendered but never flip this
+  by themselves — see the decision-matrix comment in
+  `cli/src/PlanSummary.php::render()`.
+
+  `code_revision_stale` is stricter than a lifecycle compatibility finding:
+  the current artifact's code payload has not completed the host
+  `duo deploy <env>` stage → lifecycle → finalize sequence. It is an
+  unconditional code-before-state ordering gate. Neither
+  `--force-code-mismatch` nor `--force-code-drift` permits `duo apply` to
+  cross it.
 
   `duo status` parses and reformats; it does not print the raw JSON. Use
   `duo plan <env> --format=json` for that.
@@ -135,23 +148,87 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   ever sees it, confirmed live rather than assumed. See "Env-bound value
   provisioning" below for what this command is for.
 
-- **`duo promote <env> [apply flags...]`** — the normal fail-closed promotion
-  path. It compiles the repository once into `.duo/artifacts/`, exports the
-  target database into `.duo/checkpoints/`, then runs `wp duo deploy` followed
-  by `wp duo apply`, passing the same immutable `--compiled` artifact to both.
-  Both phases also receive one generated internal lease owner. Deploy retains
-  that target-DB lease for apply; apply releases it only after convergence
-  metadata commits. A concurrent promotion is refused, while a crashed owner is
-  recoverable after the bounded expiry. The internal lease flags cannot be
-  supplied by callers.
-  It stops on the first non-zero phase and prints the retained checkpoint path
-  plus an exact, transport-shaped `wp db import` command (local, Docker, or
-  SSH). On success it retains the checkpoint and prints the phase trace.
+- **`duo deploy <env> [--force-code-mismatch] [--force-code-drift]`** — the
+  standalone lifecycle/code path. It compiles once into the target's
+  `.duo/artifacts/` directory, begins an exact target owner/artifact session,
+  and deliberately takes no database checkpoint.
+  The artifact has a state revision and may have a separate, opaque code
+  descriptor/revision; its `artifact_hash` binds both. When that descriptor is
+  present, the host carries the one frozen artifact, its expected outer hash,
+  and generated owner through
+  `wp duo code-stage` → `wp duo deploy --materializing-code` →
+  `wp duo code-finalize`. It does not interpret descriptor fields or mutate
+  files itself — those checks and mutations belong to the target agent. An
+  artifact without a code descriptor retains the established lifecycle-only
+  deploy path. Stop-on-first-failure and the target command's exit code apply
+  to every phase. A `code_revision_stale` finding is recovered only by this
+  host workflow; force flags may override explicit lifecycle compatibility or
+  drift findings, never the verified code-before-state ordering witness.
+  The target database lease serializes Duo writers only. Operators must exclude
+  package managers, self-updaters, and other direct `WP_CONTENT_DIR` writers
+  during stage/finalize; stable symlinks are refused, but this v0 PHP
+  materializer is not an adversarial filesystem-race sandbox.
 
-  Apply flags are forwarded to apply; `--force-code-mismatch` and
-  `--force-code-drift` are also forwarded to deploy. Callers cannot supply
-  `--compiled` or internal promotion-lease flags because promotion owns those
-  boundaries. Site repos must ignore the operational directory:
+- **`duo promote <env> [apply flags...]`** — the normal fail-closed
+  code-and-state promotion path. It compiles the repository once into
+  `.duo/artifacts/`, acquires a target-DB lease bound to that artifact's outer
+  `artifact_hash`, then exports the target database into `.duo/checkpoints/`.
+  The same generated owner and artifact remain bound throughout. If the
+  artifact declares code, it runs `code-stage` → lifecycle `deploy`
+  (`--materializing-code --state-handoff`) → `code-finalize` before `apply`;
+  otherwise it
+  preserves the legacy deploy → apply path. The lifecycle deploy and
+  code-finalize retain the lease through state apply, which releases it only
+  after convergence metadata commits. A concurrent promotion is refused, while
+  a crashed owner is recoverable after the bounded expiry. The first skeleton's
+  lease row is a 300-second process-handoff window. Each live mutation process
+  also holds a database advisory fence, so opaque hooks and filesystem walks
+  cannot be overlapped by a recovered writer if the row TTL passes mid-call.
+  Only `promotion-begin` creates or recovers a session; it records the latest
+  begun owner/artifact identity, and every later phase must continue both that
+  identity and its exact live row. The original owner therefore
+  cannot revive an expired lease for a later phase, so an export that outlives
+  the lease fails closed before code/state mutation rather than reusing an
+  unprotected snapshot. The host only sequences the separate halves; it neither interprets the opaque code
+  descriptor nor treats `revision_hash` or `code_revision` as the lease key.
+
+  Lifecycle APIs and authored options share the canonical `options/core`
+  entity even though they have separate writers. When activation,
+  deactivation, or a theme switch actually runs, deploy records that entity's
+  canonical hash immediately before and after the hook window inside the
+  exact owner/artifact session. Before recording that handoff, deploy verifies
+  each changed canonical record is lifecycle-managed or already exactly equals
+  this artifact's non-`absent` desired record; an unrelated authored hook
+  mutation stops the promotion before state apply. Apply compares three-way
+  history against the pre-hook hash only if its fresh live snapshot still
+  equals the recorded post-hook hash. A later target edit invalidates the
+  handoff and takes the ordinary conflict path; no force flag is implied.
+
+  It stops on the first non-zero phase and compensates with an exact,
+  idempotent lease abort. A failed export is not presented as a usable
+  checkpoint. Every successful checkpoint intentionally contains the temporary
+  `promotion_lock` row, because the lease existed before export. A database
+  import can replace that row and therefore cannot itself be serialized by a
+  lock stored inside the imported database. Recovery first requires external
+  maintenance/exclusion for every Duo writer, then four ordered commands:
+  exact abort of the old owner/hash (idempotent), re-begin that owner/hash,
+  `wp db import <checkpoint>`, and a final abort of the row restored by the
+  import—even when import fails. The first abort refuses if a newer session
+  superseded this checkpoint, instead of presenting an obsolete dump as a safe
+  recovery source. After a code-enabled failure, first reconcile or
+  restore code to its known pre-promotion revision; a database import alone is
+  not a complete code-and-state rollback. On success it retains the checkpoint
+  and prints the phase trace.
+
+  Apply flags are forwarded to apply; `--force-code-mismatch`,
+  `--force-code-drift`, and `--force-unresolved-refs` are also forwarded to
+  deploy. Callers cannot supply
+  `--repo`, `--compiled`, `--artifact-hash`, `--promotion-owner`,
+  `--promotion-hold`, `--materializing-code`, or `--state-handoff`, because the
+  host owns those boundaries. The force
+  flags never bypass `code_revision_stale`; promotion resolves it by running
+  the code phases before state apply. Site repos must ignore the operational
+  directory:
 
   ```gitignore
   .duo/

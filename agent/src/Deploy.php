@@ -15,17 +15,10 @@ namespace Duo;
  * add plugin-activation special-casing to Canary.php itself (the whole
  * value of the canary is that "armed" means one fixed thing).
  *
- * Phase 1 scope (no code/ materialization transport exists yet — that's
- * cli/'s orchestrator territory, §2.2, out of this engine task's reach):
- * "in code" means "installed in this environment's wp-content/", not
- * "present in a bind-mounted code/ tree" — the sandbox spike (task #40)
- * is what makes those the same directory. This class never writes
- * duo_kv['code_revision']: that marker belongs to the materialization step
- * (§2.2 — "before writing the new code revision into the ledger"), which
- * phase 1 doesn't implement; writing a marker with no corresponding
- * materialize-and-verify step would make a future code_revision_stale
- * check lie about what it's supposed to mean (see code_mismatch()'s
- * docblock for the same point applied to that check specifically).
+ * Code payload materialization itself belongs to the separate stage/finalize
+ * commands. This class consumes their verified ledger markers: a normal
+ * deploy must never advance code_revision, because lifecycle reconciliation
+ * alone cannot prove that the repository payload reached this environment.
  */
 final class Deploy {
     /** duo_kv key for code_drift()'s baseline — see record_code_versions(). */
@@ -51,13 +44,10 @@ final class Deploy {
      * Apply::build_plan()'s code_mismatch bucket (surfaced at ordinary
      * `duo plan`/`duo status` time, not just at deploy time) — one
      * implementation, so the two can never disagree about what "in code"
-     * means. `code_revision_stale` (§3.2 point 3 — comparing the repo's
-     * code/composer.lock hash against duo_kv['code_revision']) is
-     * deliberately NOT implemented here: phase 1 has no materialization
-     * step to populate either side of that comparison (no code/
-     * composer.lock is ever resolved, and nothing ever writes
-     * duo_kv['code_revision']), so there is nothing yet to compare —
-     * documented as phase 2 in the final report, not silently dropped.
+     * means. Descriptor-to-ledger identity is deliberately a separate
+     * `code_revision_mismatch()` check below: this method remains about the
+     * target's live WordPress lifecycle/code facts, while the descriptor
+     * check remains valid even for a payload with no active components.
      *
      * @param array $desired {
      *   active_plugins?: string[] plugin basenames the target state declares active (null = not captured/declared, skip plugin checks entirely),
@@ -197,7 +187,91 @@ final class Deploy {
                 self::check_theme_range($desiredTemplate, $themeRanges, $rows);
             }
         }
+        // A child theme's stylesheet can already be correct while the
+        // template option has been mutated independently (or inherited from
+        // an old theme). WordPress renders against both options. Treat that
+        // as a lifecycle mismatch instead of silently accepting inert FSE
+        // rows; run() replays switch_theme() and then proves the parent it
+        // resolved is exactly the canonical one.
+        if ($desiredStylesheet !== null
+            && $desiredTemplate !== null
+            && get_option('stylesheet') === $desiredStylesheet
+            && get_option('template') !== $desiredTemplate) {
+            $rows[] = [
+                'issue' => 'template_mismatch',
+                'kind' => 'theme',
+                'theme' => $desiredStylesheet,
+                'template' => $desiredTemplate,
+                'environment_template' => (string) get_option('template'),
+                'message' => "stylesheet '$desiredStylesheet' is active, but state/options/core.json declares "
+                    . "template '$desiredTemplate' and this environment has template '"
+                    . (string) get_option('template') . "'. Run 'duo deploy <env>' so WordPress can reconcile "
+                    . 'the theme through switch_theme(); Duo will refuse if this stylesheet cannot resolve to the '
+                    . 'declared parent.',
+            ];
+        }
         return $rows;
+    }
+
+    /**
+     * Descriptor-to-target materialization proof. A descriptor is opt-in:
+     * legacy compiled artifacts deliberately return null and retain the
+     * lifecycle-only behavior they had before code payload management. Once
+     * a descriptor exists, however, a missing completed marker is every bit
+     * as stale as a different one — merely observing compatible installed
+     * plugin headers is not proof that this artifact's bytes were deployed.
+     *
+     * @return list<array{issue:string,kind:string,expected_revision:string,completed_revision:?string,message:string}>
+     */
+    public static function code_revision_mismatch(CompiledRepository $compiled): array {
+        $revision = self::compiled_code_revision($compiled);
+        if ($revision === null) {
+            return [];
+        }
+        if (!class_exists(Code::class) || !method_exists(Code::class, 'completed_code_mismatch')) {
+            throw new \RuntimeException(
+                'duo: code payload proof implementation is unavailable; refusing to trust code_revision'
+            );
+        }
+        // Code owns the payload proof. This bridge only preserves the
+        // structured plan/apply finding shape used by older callers.
+        $detail = Code::completed_code_mismatch($compiled);
+        if ($detail === null) {
+            return [];
+        }
+        $completed = Ledger::kv_get(Code::CODE_REVISION_KEY);
+        return [[
+            'issue' => 'code_revision_stale',
+            'kind' => 'code',
+            'expected_revision' => $revision,
+            'completed_revision' => $completed,
+            'message' => "compiled code revision '$revision' is stale on this environment: $detail. "
+                . "Run 'duo deploy <env>' so Duo can stage, reconcile, verify, and finalize this exact code payload before apply.",
+        ]];
+    }
+
+    /**
+     * Return the opt-in descriptor revision, or null for a legacy artifact.
+     * The method_exists guard lets an older drop-in agent continue to read a
+     * legacy artifact during a rolling agent upgrade; a current descriptor
+     * must still have both compiler accessors and a non-empty revision.
+     */
+    private static function compiled_code_revision(CompiledRepository $compiled): ?string {
+        if (!method_exists($compiled, 'code_descriptor')) {
+            return null;
+        }
+        $descriptor = $compiled->code_descriptor();
+        if ($descriptor === null) {
+            return null;
+        }
+        if (!is_array($descriptor) || !method_exists($compiled, 'code_revision')) {
+            throw new \RuntimeException('duo: compiled code descriptor is malformed or unsupported by this agent');
+        }
+        $revision = $compiled->code_revision();
+        if (!is_string($revision) || $revision === '') {
+            throw new \RuntimeException('duo: compiled code descriptor has no revision');
+        }
+        return $revision;
     }
 
     /**
@@ -372,7 +446,17 @@ final class Deploy {
         Ledger::ensure();
         $promotionOwner = PromotionLock::owner($opts);
         $promotionArtifact = $compiled->artifact_hash();
-        PromotionLock::acquire($promotionOwner, $promotionArtifact, 'deploy');
+        $continuation = (string) ($opts['promotion_owner'] ?? '') !== '';
+        $expectedArtifact = (string) ($opts['artifact_hash'] ?? '');
+        self::assert_materializing_continuation($opts, $continuation);
+        self::assert_state_handoff_continuation($opts, $continuation);
+        if (($continuation && $expectedArtifact === '')
+            || ($expectedArtifact !== ''
+                && (!preg_match('/^[0-9a-f]{64}$/', $expectedArtifact)
+                    || !hash_equals($expectedArtifact, $promotionArtifact)))) {
+            throw new \RuntimeException('duo: deploy artifact does not match the host-compiled artifact hash');
+        }
+        PromotionLock::acquire($promotionOwner, $promotionArtifact, 'deploy', null, $continuation);
         try {
             $lockedPolicy = Policy::load($repo);
             $lockedCompiled = $compiledPath !== ''
@@ -381,20 +465,50 @@ final class Deploy {
             if (!hash_equals($promotionArtifact, $lockedCompiled->artifact_hash())) {
                 throw new \RuntimeException('duo: compiled artifact changed before locked deploy');
             }
+            // The promotion lock and locked-artifact revalidation are the
+            // boundary at which a staged code payload may authorize this
+            // lifecycle phase. Code owns the proof: revision, artifact
+            // identity, canonical staged descriptor, and target hashes.
+            if (!empty($opts['materializing_code'])) {
+                Code::assert_verified_staged($lockedCompiled);
+            }
             $desired = isset($tree['options/core'])
                 ? self::extract_desired($tree['options/core']['data'])
                 : [];
 
-        $mismatch = self::code_mismatch($policy, $desired);
+        $revisionMismatch = self::code_revision_mismatch($lockedCompiled);
+        $stagedMaterialization = !empty($opts['materializing_code']) && (bool) $revisionMismatch;
+        if ($revisionMismatch && !$stagedMaterialization) {
+            $list = implode("\n\n", array_map(fn($r) => '  - ' . $r['message'], $revisionMismatch));
+            throw new \RuntimeException(
+                "duo: deploy refused — code_revision_stale:\n\n$list\n\n"
+                . "This lifecycle command cannot materialize code. Run the host 'duo deploy <env>' workflow, "
+                . 'which stages and verifies the exact descriptor before invoking this command.'
+            );
+        }
+
+        $mismatch = array_merge(
+            self::code_mismatch($policy, $desired),
+            $revisionMismatch
+        );
         // An inactive-but-installed plugin is exactly the condition deploy
         // exists to reconcile. It blocks plan/apply, but cannot block this
-        // lifecycle phase from activating it. Missing/incompatible code stays
-        // a hard deploy precondition as before.
+        // lifecycle phase from activating it. A template_mismatch is also a
+        // lifecycle row: switch_theme() can repair an independently-mutated
+        // template option. code_revision_stale was checked above; it is
+        // allowed here only when the verified stage marker proves the host
+        // orchestrator is between code-stage and code-finalize.
         $blockingMismatch = array_values(array_filter(
             $mismatch,
             fn($r) => !in_array(
                 $r['issue'],
-                ['inactive_in_environment', 'unexpected_active_plugin', 'active_plugin_order_mismatch'],
+                [
+                    'inactive_in_environment',
+                    'unexpected_active_plugin',
+                    'active_plugin_order_mismatch',
+                    'template_mismatch',
+                    'code_revision_stale',
+                ],
                 true
             )
         ));
@@ -413,7 +527,7 @@ final class Deploy {
         // catching the risk. Checked BEFORE this run's own reconciliation
         // touches anything, same ordering rule code_mismatch above follows.
         $drift = self::code_drift($policy, $desired);
-        if ($drift && empty($opts['force_code_drift'])) {
+        if ($drift && empty($opts['force_code_drift']) && !$stagedMaterialization) {
             $list = implode("\n\n", array_map(fn($r) => '  - ' . $r['message'], $drift));
             throw new \RuntimeException(
                 "duo: deploy refused — code_drift:\n\n$list\n\n"
@@ -422,19 +536,26 @@ final class Deploy {
         }
 
         self::require_plugin_admin_functions();
-        // Architecture Rulings §1 (report-not-hide): reaching this line with
-        // $drift non-empty is only possible via --force-code-drift (the
-        // gate above already threw otherwise) — the overridden findings
-        // still need to surface in BOTH human and machine output, not just
-        // the machine-readable 'code_drift' key of the final return (which
-        // human-mode `wp duo deploy` never separately renders — see
-        // Cli::deploy()). Seeding $warnings here, unconditionally for every
-        // forced-through finding, is what makes them show up as WP_CLI::
-        // warning() lines in ordinary (non --format=json) deploy output.
-        $warnings = array_map(
-            fn($r) => 'FORCED past code_drift: ' . $r['message'],
-            $drift
-        );
+        // Architecture Rulings §1 (report-not-hide): lifecycle deploy runs
+        // in the narrow interval after code-stage and before code-finalize,
+        // so the stale descriptor finding remains visible in both JSON and
+        // human output. A version delta caused by that same verified staging
+        // is reported, but is not mislabeled as a forced out-of-band change.
+        $warnings = [];
+        if ($stagedMaterialization) {
+            foreach ($revisionMismatch as $r) {
+                $warnings[] = 'staged code materialization: ' . $r['message'];
+            }
+        }
+        if ($drift && !empty($opts['force_code_drift'])) {
+            foreach ($drift as $r) {
+                $warnings[] = 'FORCED past code_drift: ' . $r['message'];
+            }
+        } elseif ($drift && $stagedMaterialization) {
+            foreach ($drift as $r) {
+                $warnings[] = 'code_drift observed during verified staged code materialization: ' . $r['message'];
+            }
+        }
         // Same posture, one issue over: an outside_version_range code_mismatch
         // finding that survived the refuse-gate above (only possible via
         // --force-code-mismatch) still needs to surface here, not just in
@@ -478,6 +599,29 @@ final class Deploy {
         $themeMissing = (bool) array_filter(
             $mismatch, fn($r) => $r['kind'] === 'theme' && $r['issue'] === 'missing_in_code'
         );
+
+        // Lifecycle APIs mutate managed records inside the same canonical
+        // options/core entity as ordinary authored options. When another
+        // authored record changes in this revision, apply must distinguish
+        // expected hook-first progress from a genuine target-side edit. Take
+        // the exact canonical hash immediately around a real lifecycle
+        // mutation and bind that handoff to this promotion session.
+        $desiredActiveBefore = $desired['active_plugins'] ?? null;
+        $lifecycleWillMutate = ($desiredActiveBefore !== null
+                && self::current_active_plugins() !== $desiredActiveBefore)
+            || (($desired['stylesheet'] ?? null) !== null
+                && (get_option('stylesheet') !== $desired['stylesheet']
+                    || (($desired['template'] ?? null) !== null
+                        && get_option('template') !== $desired['template'])));
+        $lifecycleBeforeSnapshot = null;
+        if (!empty($opts['state_handoff']) && $lifecycleWillMutate) {
+            $lifecycleBeforeSnapshot = self::options_snapshot(
+                $repo,
+                $lockedPolicy,
+                $lockedCompiled,
+                !empty($opts['force_unresolved_refs'])
+            );
+        }
 
         Canary::begin_external_observation();
         try {
@@ -538,7 +682,12 @@ final class Deploy {
 
             $desiredStylesheet = $desired['stylesheet'] ?? null;
             $desiredTemplate = $desired['template'] ?? null;
-            if ($desiredStylesheet !== null && get_option('stylesheet') !== $desiredStylesheet) {
+            $stylesheetMismatch = $desiredStylesheet !== null
+                && get_option('stylesheet') !== $desiredStylesheet;
+            $templateMismatch = $desiredStylesheet !== null
+                && $desiredTemplate !== null
+                && get_option('template') !== $desiredTemplate;
+            if ($desiredStylesheet !== null && ($stylesheetMismatch || $templateMismatch)) {
                 PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-theme');
                 if ($themeMissing) {
                     $warnings[] = "skipped theme switch to '$desiredStylesheet' (missing_in_code, --force-code-mismatch was set)";
@@ -549,8 +698,12 @@ final class Deploy {
                         throw new \RuntimeException("duo: theme switch did not persist for '$desiredStylesheet'");
                     }
                     if ($desiredTemplate !== null && get_option('template') !== $desiredTemplate) {
+                        $actualTemplate = (string) get_option('template');
                         throw new \RuntimeException(
-                            "duo: theme switch to '$desiredStylesheet' produced a template that disagrees with canonical state"
+                            "duo: canonical template '$desiredTemplate' cannot be realized by stylesheet "
+                            . "'$desiredStylesheet': WordPress resolved '$actualTemplate'. Check this theme's Template "
+                            . 'header and state/options/core.json; refusing to write template directly because that would '
+                            . 'bypass WordPress theme lifecycle.'
                         );
                     }
                 }
@@ -566,6 +719,34 @@ final class Deploy {
         foreach ($externalSideEffects as $observed) {
             $warnings[] = 'deploy-window observation: ' . $observed;
         }
+        if ($lifecycleBeforeSnapshot !== null) {
+            PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-state-handoff');
+            $lifecycleAfterSnapshot = self::options_snapshot(
+                $repo,
+                $lockedPolicy,
+                $lockedCompiled,
+                !empty($opts['force_unresolved_refs'])
+            );
+            $unexpected = self::unexpected_lifecycle_state_changes(
+                $lifecycleBeforeSnapshot['document'],
+                $lifecycleAfterSnapshot['document'],
+                (array) ($tree['options/core']['data'] ?? [])
+            );
+            if ($unexpected) {
+                throw new \RuntimeException(
+                    'duo: lifecycle hooks changed canonical authored option(s) outside this compiled state: '
+                    . implode(', ', $unexpected)
+                    . '. Capture/reconcile those changes before retrying; state apply was not run.'
+                );
+            }
+            PromotionLock::record_state_transition(
+                $promotionOwner,
+                $promotionArtifact,
+                'options/core',
+                $lifecycleBeforeSnapshot['hash'],
+                $lifecycleAfterSnapshot['hash']
+            );
+        }
 
         // Re-baseline unconditionally: whatever's active NOW (post-
         // reconciliation, whether clean or forced-through) becomes the new
@@ -577,7 +758,10 @@ final class Deploy {
         PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-verify');
         self::record_code_versions($policy);
 
-        $remainingMismatch = self::code_mismatch($policy, $desired);
+        $remainingMismatch = array_merge(
+            self::code_mismatch($policy, $desired),
+            self::code_revision_mismatch($lockedCompiled)
+        );
         $summary = [
             'artifact' => [
                 'hash' => $compiled->artifact_hash(),
@@ -593,7 +777,12 @@ final class Deploy {
                 $mismatch,
                 fn($r) => in_array(
                     $r['issue'],
-                    ['inactive_in_environment', 'unexpected_active_plugin', 'active_plugin_order_mismatch'],
+                    [
+                        'inactive_in_environment',
+                        'unexpected_active_plugin',
+                        'active_plugin_order_mismatch',
+                        'template_mismatch',
+                    ],
                     true
                 )
                     && !in_array($r, $remainingMismatch, true)
@@ -624,6 +813,30 @@ final class Deploy {
     }
 
     /**
+     * The stale-code lifecycle exception is an internal handoff from the
+     * host's verified code-stage phase. A standalone agent invocation may
+     * never manufacture that exception with the boolean flag alone; strict
+     * PromotionLock continuation below then proves the exact begun session.
+     */
+    private static function assert_materializing_continuation(array $opts, bool $continuation): void {
+        if (!empty($opts['materializing_code']) && !$continuation) {
+            throw new \RuntimeException(
+                'duo: --materializing-code is valid only inside the host orchestrator promotion continuation; '
+                . "run 'duo deploy <env>'"
+            );
+        }
+    }
+
+    private static function assert_state_handoff_continuation(array $opts, bool $continuation): void {
+        if (!empty($opts['state_handoff'])
+            && (!$continuation || empty($opts['promotion_hold']))) {
+            throw new \RuntimeException(
+                'duo: --state-handoff is valid only inside a retained host promotion continuation'
+            );
+        }
+    }
+
+    /**
      * Pulls active_plugins/template/stylesheet out of an already-decoded
      * options/core.json record document. Shared with Apply::build_plan(), which already
      * has the target tree's options entity decoded (from load_tree()) and
@@ -648,6 +861,75 @@ final class Deploy {
             $out['stylesheet'] = (string) $options['stylesheet'];
         }
         return $out;
+    }
+
+    /** @return array{hash:string,document:array<string,mixed>} */
+    private static function options_snapshot(
+        string $repo,
+        Policy $policy,
+        CompiledRepository $compiled,
+        bool $forceUnresolvedRefs
+    ): array {
+        $snapshot = Capture::snapshot($repo, $forceUnresolvedRefs, $compiled, $policy);
+        $row = $snapshot['options/core'] ?? null;
+        $hash = is_array($row) ? (string) ($row['hash'] ?? '') : '';
+        $content = is_array($row) ? (string) ($row['content'] ?? '') : '';
+        if (!preg_match('/^[a-f0-9]{64}$/', $hash) || $content === '') {
+            throw new \RuntimeException('duo: lifecycle state handoff could not snapshot canonical options/core');
+        }
+        try {
+            $document = Canon::decode($content);
+            if (!is_array($document)) {
+                throw new \RuntimeException('snapshot document is not an object');
+            }
+            OptionState::records($document);
+        } catch (\Throwable $t) {
+            throw new \RuntimeException(
+                'duo: lifecycle state handoff captured malformed canonical options/core',
+                0,
+                $t
+            );
+        }
+        return ['hash' => $hash, 'document' => $document];
+    }
+
+    /**
+     * A whole-entity hash handoff may cover only lifecycle-managed records or
+     * authored records whose post-hook value is exactly the frozen desired
+     * value. Otherwise apply could mistake an unrelated hook migration for
+     * expected lifecycle progress and overwrite it with stale repository
+     * data. Return every unsafe name so deploy can stop before state apply.
+     *
+     * @return list<string>
+     */
+    private static function unexpected_lifecycle_state_changes(
+        array $beforeDocument,
+        array $afterDocument,
+        array $desiredDocument
+    ): array {
+        $before = OptionState::records($beforeDocument);
+        $after = OptionState::records($afterDocument);
+        $desired = OptionState::records($desiredDocument);
+        $managed = array_fill_keys(['active_plugins', 'template', 'stylesheet'], true);
+        $names = array_unique(array_merge(array_keys($before), array_keys($after)));
+        sort($names, SORT_STRING);
+        $unexpected = [];
+        foreach ($names as $name) {
+            $beforeRecord = $before[$name] ?? null;
+            $afterRecord = $after[$name] ?? null;
+            if (Canon::encode($beforeRecord) === Canon::encode($afterRecord)
+                || isset($managed[$name])) {
+                continue;
+            }
+            $desiredRecord = $desired[$name] ?? null;
+            if (is_array($afterRecord) && is_array($desiredRecord)
+                && ($desiredRecord['state'] ?? null) !== 'absent'
+                && Canon::encode($afterRecord) === Canon::encode($desiredRecord)) {
+                continue;
+            }
+            $unexpected[] = (string) $name;
+        }
+        return $unexpected;
     }
 
     /** @return string[] */

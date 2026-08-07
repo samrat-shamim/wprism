@@ -325,8 +325,9 @@ final class RepositoryAuthorization {
         // manifests/interpreters/acf.php's own prime_repository() docblock
         // documents) — the sibling-lookup context (ACF's shadow pointer) an
         // interpreter's option_rule() needs comes from this SAME document's
-        // own present values, never a live target.
-        $allOptions = OptionState::values($document);
+        // own present values plus hash-bound v2 deletion witnesses, never a
+        // live target or capture-process history.
+        $allOptions = OptionState::classification_values($document);
         foreach (OptionState::records($document) as $name => $record) {
             $details = str_contains((string) $name, '{{')
                 ? $policy->canonical_option_name_ref_details((string) $name)

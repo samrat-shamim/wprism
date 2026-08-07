@@ -1,0 +1,17 @@
+{
+  "name": "duo-code-half-probe",
+  "option_autoload": "preserve",
+  "options": {
+    "duo_code_half_probe_activations": {"class": "runtime"},
+    "duo_code_half_probe_deactivations": {"class": "runtime"},
+    "duo_code_half_probe_schema": {"class": "runtime"},
+    "duo_code_half_probe_settings": {"class": "authored"},
+    "duo_code_half_probe_trace": {"class": "runtime"}
+  },
+  "plugin": "duo-code-half-probe/duo-code-half-probe.php",
+  "spec_version": 2,
+  "tables": {
+    "duo_code_half_probe_rows": {"class": "runtime"}
+  },
+  "version_range": {"max": "3.0.0", "min": "1.0.0"}
+}

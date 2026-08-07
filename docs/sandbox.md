@@ -178,6 +178,16 @@ key, which is why `pair.journal.yml` has to repeat the
 the new define — `WORDPRESS_CONFIG_EXTRA` is one scalar value, and the
 override's value for that key wholly replaces the base's.
 
+The two site-repo bind roots are mode `0777` by design. They are disposable
+test directories jointly written by the host-side Git harness and the
+container-side wp-cli user (uid 33), which creates top-level capture locks
+and atomic staging directories. Linux bind mounts preserve the host runner's
+ownership, so ordinary host-created `0755` directories would make capture
+fail in CI. Conformance also invokes wp-cli with umask `000`, keeping its
+captured descendants removable by the host-side harness. These exceptions
+are confined to disposable sandbox paths and processes; they are not guidance
+for production repository permissions.
+
 ### `reset` — what it covers, and what it deliberately doesn't
 
 ```
