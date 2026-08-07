@@ -7,7 +7,7 @@ namespace Duo\Orchestrator;
  * human table. Also shared by `duo classify`'s interactive per-item blocks
  * (Triage.php), so evidence/ref-hint formatting reads identically in both
  * places. Confirmed shape, one list item per unclassified key:
- *   {section: 'options'|'post_meta'|'term_meta'|'menu_item_meta', key: string,
+ *   {section: 'options'|'post_meta'|'term_meta', key: string,
  *    proposal: 'authored'|'runtime'|null,
  *    evidence: {entities?: int, post_types?: string[],
  *               journal?: {n: int, surfaces: array<string,int>,

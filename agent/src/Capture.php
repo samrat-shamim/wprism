@@ -343,9 +343,12 @@ final class Capture {
      *   options: array<string, array{entities:int, owner_candidates:string[], value_shapes:string[], reason:string}>,
      *   post_meta: array<string, array{entities:int, post_types: string[]}>,
      *   term_meta: array<string, array{entities:int, taxonomies:string[], value_shapes:string[], reason:string}>,
-     *   menu_item_meta: array<string, array{entities:int}>,
      *   user_meta: array<string, array{entities:int, users:string[], value_shapes:string[], reason:string}>
      * }
+     *
+     * (Menu-item meta findings fold into post_meta above, tagged
+     * 'nav_menu_item' in that entry's post_types — DUO-3275, no separate
+     * menu_item_meta key.)
      */
     public static function gate_scan(string $repo): array {
         $c = new self($repo, Policy::load($repo));
@@ -413,22 +416,32 @@ final class Capture {
             }
         }
 
-        // DUO-3266: menu items are posts (nav_menu_item) but never reach
-        // scope_posts()'s generic post_meta scan above — they're handled
-        // by the dedicated scope_menus() capture path instead. Before this
-        // fix, that meant menu-item meta had NO discovery-time visibility
-        // at all: an unclassified plugin-added key on a menu item silently
-        // vanished with no wp duo pending entry, no warning, nothing (the
-        // same silent-loss bug this issue's live capture-time fix closes,
-        // but on the discovery side). A direct, read-only query here (no
-        // scope_menus(), which mints identity — a side effect a pure
-        // dry-run scan must not have) plus the SAME meta_rule_for_post()
-        // check the post_meta loop above uses gives menu items the
-        // identical discovery-pass treatment. The 8 core _menu_item_*
-        // keys are classified "managed"/"runtime" in manifests/core.json
-        // (never null, never 'authored'), so they're skipped here for
-        // free — no separate allowlist needed, same as the live path.
-        $menuItemMeta = [];
+        // DUO-3266/DUO-3275: menu items are posts (nav_menu_item) but never
+        // reach scope_posts()'s generic post_meta scan above — they're
+        // handled by the dedicated scope_menus() capture path instead.
+        // Before DUO-3266, that meant menu-item meta had NO discovery-time
+        // visibility at all: an unclassified plugin-added key on a menu
+        // item silently vanished with no wp duo pending entry, no warning,
+        // nothing. DUO-3266's first pass fixed that but invented a
+        // SEPARATE 'menu_item_meta' discovery section — which broke the
+        // invariant every OTHER pending section already had (the section
+        // name pending shows IS the real, copy-pasteable
+        // Policy::SECTIONS name `wp duo classify --set` needs):
+        // 'menu_item_meta' was never a member of Policy::SECTIONS, so
+        // classifying exactly what pending suggested hard-refused with
+        // "unknown policy section". Menu-item meta and ordinary post_meta
+        // are not actually separate classification domains — nav_menu_item
+        // IS a real post_type, and both go through the identical
+        // Policy::meta_rule_for_post()/policy.post_meta namespace — so
+        // DUO-3275 folds this scan into the SAME $postMeta structure
+        // above instead, tagging 'nav_menu_item' into that entry's own
+        // post_types set exactly like any other post type would appear.
+        // A direct, read-only query here (no scope_menus(), which mints
+        // identity — a side effect a pure dry-run scan must not have).
+        // The 8 core _menu_item_* keys are classified "managed"/"runtime"
+        // in manifests/core.json (never null, never 'authored'), so
+        // they're skipped here for free — no separate allowlist needed,
+        // same as the live capture-time path.
         $menuItemIds = $wpdb->get_col(
             "SELECT p.ID FROM {$wpdb->posts} p
              JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
@@ -441,7 +454,8 @@ final class Capture {
                 if ($c->policy->meta_rule_for_post($key, $flatMeta) !== null) {
                     continue;
                 }
-                $menuItemMeta[$key]['entities'] = ($menuItemMeta[$key]['entities'] ?? 0) + 1;
+                $postMeta[$key]['entities'] = ($postMeta[$key]['entities'] ?? 0) + 1;
+                $postMeta[$key]['post_types']['nav_menu_item'] = true;
             }
         }
 
@@ -481,10 +495,6 @@ final class Capture {
                     'reason' => $ev['reason'],
                 ],
                 $termMeta
-            ),
-            'menu_item_meta' => array_map(
-                fn($ev) => ['entities' => $ev['entities']],
-                $menuItemMeta
             ),
             'user_meta' => array_map(
                 fn($ev) => [
