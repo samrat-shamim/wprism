@@ -295,6 +295,21 @@ final class Snapshot {
     /** duo_map.id_kind is VARCHAR(16) — see this file's docblock. */
     private const MAX_ID_KIND_LEN = 16;
 
+    /**
+     * DUO-3246: duo_map.entity_type/duo_state.entity_type are VARCHAR(64)
+     * (Ledger::ensure() — manually synced with this constant, same
+     * precedent as MAX_ID_KIND_LEN above). Unlike id_kind (a short,
+     * freely-chosen abbreviation this project budgets DOWN to fit),
+     * entity_type for a table row IS the table name itself — a plugin's
+     * own naming choice, not ours to shorten — so this asserts against the
+     * WIDENED ceiling rather than the original, narrower one: two shipped
+     * tables (woocommerce_shipping_zone_locations, woocommerce_shipping_
+     * zone_methods) already exceed 32 chars, silently truncated by MySQL
+     * before this fix. See repair_truncated_entity_types() for rows
+     * already corrupted under the old width.
+     */
+    private const MAX_ENTITY_TYPE_LEN = 64;
+
     /** Single source of truth for "is this authored_snapshot declaration a
      *  composite_ref (pure join table) identity" — every dispatch site below
      *  (schema assertion, capture, ensure/finalize, delete, ledger hygiene)
@@ -349,6 +364,76 @@ final class Snapshot {
             $out[$name] = $decl;
         }
         return $out;
+    }
+
+    /**
+     * DUO-3246: repairs duo_map/duo_state rows whose entity_type was
+     * silently truncated by the pre-fix VARCHAR(32) schema — a table row's
+     * entity_type IS its table name (see this function's own caller,
+     * row_tables(), and this file's docblock), and two currently-shipped
+     * tables (woocommerce_shipping_zone_locations, woocommerce_shipping_
+     * zone_methods) exceed 32 chars.
+     *
+     * A migration-time direct UPDATE, deliberately never Ledger::set():
+     * DUO-3209's identity-contradiction guard exists specifically to
+     * refuse an ORDINARY code path silently retyping an identity —
+     * repairing a KNOWN truncation artifact is not an ordinary retype, it
+     * is restoring the value that should have been written the first
+     * time. Routing this through Ledger::set() would immediately hit the
+     * exact guard this function exists to get past; going around it here,
+     * once, for a named and understood reason, is not the same thing as
+     * softening the guard itself (see Ledger::set()'s own docblock — that
+     * guard's semantics are not this file's to change unilaterally).
+     *
+     * Detection: entity_type values sitting EXACTLY at the old 32-char
+     * ceiling that are an UNAMBIGUOUS prefix of one of THIS policy's
+     * currently declared row-table names (mapped/natural_key AND
+     * composite_ref alike — row_tables() already returns both). A 32-char
+     * value that is genuinely, intentionally 32 chars (one exists today:
+     * woocommerce_attribute_taxonomies) is left alone — it is not a
+     * prefix of any OTHER declared name, so it never matches. If a
+     * truncated prefix were ever ambiguous between two declared tables,
+     * this skips it rather than guessing (loud-not-silent, same posture
+     * as every other identity decision in this file).
+     *
+     * Idempotent: a policy with no truncated rows costs a handful of cheap
+     * queries and mutates nothing. Safe to call on every capture/plan/
+     * apply/deploy entry point (see its own call sites).
+     *
+     * @return string[] human-readable "table: old -> new (N rows)" repair
+     *   log entries, empty when nothing needed fixing (for regression
+     *   evidence and CLI/log visibility — not required by callers)
+     */
+    public static function repair_truncated_entity_types(Policy $policy): array {
+        global $wpdb;
+        Ledger::ensure(); // guarantee the column is already widened before any UPDATE targets it
+        $declared = array_keys(self::row_tables($policy));
+        $oldCeiling = 32;
+        $long = array_filter($declared, fn($name) => strlen($name) > $oldCeiling);
+        $repaired = [];
+        foreach ($long as $full) {
+            $truncated = substr($full, 0, $oldCeiling);
+            $ambiguous = false;
+            foreach ($long as $other) {
+                if ($other !== $full && substr($other, 0, $oldCeiling) === $truncated) {
+                    $ambiguous = true;
+                    break;
+                }
+            }
+            if ($ambiguous) {
+                continue;
+            }
+            foreach (['duo_map', 'duo_state'] as $table) {
+                $affected = (int) Db::query($wpdb->prepare(
+                    "UPDATE {$wpdb->prefix}{$table} SET entity_type = %s WHERE entity_type = %s",
+                    $full, $truncated
+                ), "ledger repair truncated entity_type in $table ($truncated -> $full)");
+                if ($affected > 0) {
+                    $repaired[] = "$table: '$truncated' -> '$full' ($affected row" . ($affected === 1 ? '' : 's') . ')';
+                }
+            }
+        }
+        return $repaired;
     }
 
     /** Declared ATTACHED-META tables (class === authored_snapshot_meta), keyed by table name. */
@@ -649,6 +734,13 @@ final class Snapshot {
      * data-dependent), so it's cheap to always run.
      */
     public static function assert_row_schema(string $table, array $decl): void {
+        if (strlen($table) > self::MAX_ENTITY_TYPE_LEN) {
+            throw new \RuntimeException(
+                "duo: table '$table' name is " . strlen($table) . ' chars — a table row entity_type IS the table '
+                . 'name itself, which must be 1-' . self::MAX_ENTITY_TYPE_LEN
+                . ' chars (duo_map.entity_type/duo_state.entity_type are VARCHAR(' . self::MAX_ENTITY_TYPE_LEN . '))'
+            );
+        }
         if (self::is_composite_ref($decl)) {
             self::assert_composite_row_schema($table, $decl);
             return;
@@ -724,6 +816,17 @@ final class Snapshot {
      * need) but unexercised, so refused rather than half-supported.
      */
     public static function assert_composite_row_schema(string $table, array $decl): void {
+        // Also checked by assert_row_schema()'s own dispatch before it ever
+        // reaches here (the only current call path) — duplicated anyway,
+        // matching this function's own id_kind check just below, in case a
+        // future caller invokes this directly.
+        if (strlen($table) > self::MAX_ENTITY_TYPE_LEN) {
+            throw new \RuntimeException(
+                "duo: table '$table' name is " . strlen($table) . ' chars — a table row entity_type IS the table '
+                . 'name itself, which must be 1-' . self::MAX_ENTITY_TYPE_LEN
+                . ' chars (duo_map.entity_type/duo_state.entity_type are VARCHAR(' . self::MAX_ENTITY_TYPE_LEN . '))'
+            );
+        }
         if (isset($decl['pk'])) {
             throw new \RuntimeException(
                 "duo: table '$table' declares identity.mode=composite_ref AND a 'pk' — "
@@ -875,6 +978,7 @@ final class Snapshot {
         if (!$rowTables) {
             return [];
         }
+        self::repair_truncated_entity_types($policy); // DUO-3246 — before any Ledger::set() below can hit the guard
         $metaTables = self::meta_tables($policy);
         $metaByOwner = self::meta_tables_by_owner($rowTables, $metaTables); // throws on a dangling attached_to.table
 
