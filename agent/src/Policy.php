@@ -2764,7 +2764,15 @@ final class Policy {
         $policy = self::load($repo);
         $sitePolicy = $policy->site['policy'] ?? [];
 
-        $out = ['name' => $name, 'options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []];
+        // DUO-3247 made spec_version mandatory at load() — sourced from the
+        // canonical constant, never a literal, so this can never drift out
+        // of sync with what load() actually requires the way it silently
+        // did before (this export wrote no spec_version at all until
+        // DUO-3284 caught it live: an exported manifest the engine's own
+        // loader refused, found via a sandbox/tests/ run that finally
+        // exercised the full export-then-reload path).
+        $specVersion = defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 0;
+        $out = ['name' => $name, 'spec_version' => $specVersion, 'options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []];
         foreach (self::SECTIONS as $section) {
             foreach ($sitePolicy[$section] ?? [] as $key => $rule) {
                 $matched = @preg_match('/' . $matchRegex . '/', $key);
