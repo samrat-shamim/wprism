@@ -82,6 +82,10 @@ final class Policy {
             self::validate_discovery_contract($manifest);
             $p->manifests[] = $manifest;
         }
+        self::validate_no_conflicting_option_rules(
+            $p->manifests,
+            $p->site['policy']['options'] ?? []
+        );
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_manifest_pins($pins, $p);
         return $p;
@@ -368,44 +372,21 @@ final class Policy {
     /**
      * Option names classified authored (the capture whitelist).
      *
-     * DUO-3249: the first loop below adds any name ANY pinned manifest
-     * declares `authored`, independent of whether some OTHER manifest
-     * reclassifies that same name to something else — it has no way to
-     * know a later-considered manifest will un-author a name an earlier
-     * one already added, since it never re-consults rule_details()'s own
-     * (now core-yields-to-plugin-aware) resolution. Left uncorrected, a
-     * plugin manifest's own `derived`/`env`/`runtime` reclassification of a
-     * core option (e.g. polylang.json's `default_category` — DUO-3249)
-     * would still end up captured as authored here, silently contradicting
-     * what `Policy::option_rule()` reports for the exact same name. The
-     * final pass below re-resolves every candidate through that single
-     * authoritative precedence algorithm and drops anything it no longer
-     * agrees is authored — correctness over performance (one extra
-     * rule_details() walk per candidate name, a short list, once per
-     * capture/plan/apply invocation, never per-entity).
+     * DUO-3255: resolved_exact_options() is the single precedence path for
+     * this and the env/sub-key bulk enumerators. It delegates every name to
+     * rule_details(), so bulk lookup can never silently use a different pin
+     * winner than the per-name capture/apply path. Policy::load() has
+     * already refused contradictory non-core declarations; identical ones
+     * dedupe here, while core-yields-to-plugin and site override precedence
+     * remain exactly the rule_details() contract.
      */
     public function authored_options(): array {
         $out = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['options'] ?? [] as $name => $r) {
-                if (($r['class'] ?? '') === 'authored') {
-                    $out[$name] = self::with_option_autoload($r, $m);
-                }
-            }
-        }
-        foreach ($this->site['policy']['options'] ?? [] as $name => $r) {
+        foreach ($this->resolved_exact_options() as $name => $r) {
             if (($r['class'] ?? '') === 'authored') {
-                $out[$name] = self::with_option_autoload($r, $this->site['policy'] ?? []);
-            } else {
-                unset($out[$name]);
+                $out[$name] = $r;
             }
         }
-        foreach (array_keys($out) as $name) {
-            if (($this->option_rule($name)['class'] ?? null) !== 'authored') {
-                unset($out[$name]);
-            }
-        }
-        ksort($out, SORT_STRING);
         return $out;
     }
 
@@ -440,18 +421,39 @@ final class Policy {
      */
     public function sub_keyed_options(): array {
         $out = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['options'] ?? [] as $name => $r) {
-                if (!empty($r['sub_keys'])) {
-                    $out[$name] = self::with_option_autoload($r, $m);
-                }
+        foreach ($this->resolved_exact_options() as $name => $r) {
+            if (!empty($r['sub_keys'])) {
+                $out[$name] = $r;
             }
         }
-        foreach ($this->site['policy']['options'] ?? [] as $name => $r) {
-            if (!empty($r['sub_keys'])) {
-                $out[$name] = self::with_option_autoload($r, $this->site['policy'] ?? []);
-            } else {
-                unset($out[$name]);
+        return $out;
+    }
+
+    /**
+     * Resolve every exact option name once through rule_details() — never
+     * reimplement its precedence with a bulk foreach overwrite. Names from
+     * site policy are included even when no manifest declares them. Pattern
+     * rules remain discovery/classification rules and are deliberately not
+     * enumerated here, matching these bulk APIs' historical exact-name
+     * contract.
+     *
+     * @return array<string,array>
+     */
+    private function resolved_exact_options(): array {
+        $names = [];
+        foreach ($this->manifests as $manifest) {
+            foreach ($manifest['options'] ?? [] as $name => $_rule) {
+                $names[(string) $name] = true;
+            }
+        }
+        foreach ($this->site['policy']['options'] ?? [] as $name => $_rule) {
+            $names[(string) $name] = true;
+        }
+        $out = [];
+        foreach (array_keys($names) as $name) {
+            $rule = $this->option_rule_details($name)['rule'];
+            if ($rule !== null) {
+                $out[$name] = $rule;
             }
         }
         ksort($out, SORT_STRING);
@@ -1617,21 +1619,11 @@ final class Policy {
      */
     public function env_options(): array {
         $out = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['options'] ?? [] as $name => $r) {
-                if (($r['class'] ?? '') === 'env') {
-                    $out[$name] = self::with_option_autoload($r, $m);
-                }
-            }
-        }
-        foreach ($this->site['policy']['options'] ?? [] as $name => $r) {
+        foreach ($this->resolved_exact_options() as $name => $r) {
             if (($r['class'] ?? '') === 'env') {
-                $out[$name] = self::with_option_autoload($r, $this->site['policy'] ?? []);
-            } else {
-                unset($out[$name]);
+                $out[$name] = $r;
             }
         }
-        ksort($out, SORT_STRING);
         return $out;
     }
 
@@ -1862,6 +1854,64 @@ final class Policy {
             $rule['autoload'] = $source['option_autoload'];
         }
         return $rule;
+    }
+
+    /**
+     * DUO-3255: two non-core manifests may share an exact option name only
+     * when their effective rules are identical. Pin order is incidental and
+     * must never choose between contradictory authored/env/runtime/derived
+     * contracts. Core-vs-plugin declarations are deliberately exempt: the
+     * DUO-3249 core-yields-to-plugin rule is a ratified reclassification
+     * layer and active_reclassifications() makes it plan-visible.
+     *
+     * A site policy rule for the colliding name is the explicit resolution
+     * path. It outranks every manifest in rule_details(), so its presence
+     * makes the operator's choice unambiguous and this guard skips that
+     * name. `note` is the sole non-semantic option-rule annotation; every
+     * other field (including required, ref/json/key/sub-key shape, lint_ok,
+     * and effective autoload storage) participates in the comparison.
+     *
+     * @param list<array> $manifests
+     * @param array<string,array> $siteOptions
+     */
+    private static function validate_no_conflicting_option_rules(array $manifests, array $siteOptions): void {
+        $seen = [];
+        foreach ($manifests as $manifest) {
+            $manifestName = (string) ($manifest['name'] ?? '?');
+            if ($manifestName === 'core') {
+                continue;
+            }
+            foreach ($manifest['options'] ?? [] as $optionName => $rule) {
+                $optionName = (string) $optionName;
+                if (array_key_exists($optionName, $siteOptions) || !is_array($rule)) {
+                    continue;
+                }
+                $effective = self::with_option_autoload($rule, $manifest);
+                unset($effective['note']);
+                $fingerprint = Canon::encode($effective);
+                if (!isset($seen[$optionName])) {
+                    $seen[$optionName] = [
+                        'manifest' => $manifestName,
+                        'class' => $rule['class'] ?? null,
+                        'rule' => $effective,
+                        'fingerprint' => $fingerprint,
+                    ];
+                    continue;
+                }
+                $prior = $seen[$optionName];
+                if ($prior['fingerprint'] === $fingerprint) {
+                    continue;
+                }
+                throw new \RuntimeException(
+                    "duo: manifests '{$prior['manifest']}' and '$manifestName' declare contradictory rules"
+                    . " for options.$optionName ({$prior['manifest']} class="
+                    . var_export($prior['class'], true) . ", $manifestName class="
+                    . var_export($rule['class'] ?? null, true) . '); effective rules differ ('
+                    . Canon::encode($prior['rule']) . ' vs ' . Canon::encode($effective) . '). '
+                    . "Add an explicit site.duo.json policy.options.$optionName override to resolve this option."
+                );
+            }
+        }
     }
 
     /**
