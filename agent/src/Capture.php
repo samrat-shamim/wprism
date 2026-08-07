@@ -410,6 +410,38 @@ final class Capture {
             }
         }
 
+        // DUO-3266: menu items are posts (nav_menu_item) but never reach
+        // scope_posts()'s generic post_meta scan above — they're handled
+        // by the dedicated scope_menus() capture path instead. Before this
+        // fix, that meant menu-item meta had NO discovery-time visibility
+        // at all: an unclassified plugin-added key on a menu item silently
+        // vanished with no wp duo pending entry, no warning, nothing (the
+        // same silent-loss bug this issue's live capture-time fix closes,
+        // but on the discovery side). A direct, read-only query here (no
+        // scope_menus(), which mints identity — a side effect a pure
+        // dry-run scan must not have) plus the SAME meta_rule_for_post()
+        // check the post_meta loop above uses gives menu items the
+        // identical discovery-pass treatment. The 8 core _menu_item_*
+        // keys are classified "managed"/"runtime" in manifests/core.json
+        // (never null, never 'authored'), so they're skipped here for
+        // free — no separate allowlist needed, same as the live path.
+        $menuItemMeta = [];
+        $menuItemIds = $wpdb->get_col(
+            "SELECT p.ID FROM {$wpdb->posts} p
+             JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
+             JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+             WHERE tt.taxonomy = 'nav_menu' AND p.post_type = 'nav_menu_item' AND p.post_status = 'publish'"
+        ) ?: [];
+        foreach ($menuItemIds as $iid) {
+            $flatMeta = $c->post_meta_map((int) $iid);
+            foreach ($flatMeta as $key => $_) {
+                if ($c->policy->meta_rule_for_post($key, $flatMeta) !== null) {
+                    continue;
+                }
+                $menuItemMeta[$key]['entities'] = ($menuItemMeta[$key]['entities'] ?? 0) + 1;
+            }
+        }
+
         return [
             'scope' => $scope,
             'options' => $options,
@@ -425,6 +457,10 @@ final class Capture {
                     'reason' => $ev['reason'],
                 ],
                 $termMeta
+            ),
+            'menu_item_meta' => array_map(
+                fn($ev) => ['entities' => $ev['entities']],
+                $menuItemMeta
             ),
         ];
     }
@@ -1189,14 +1225,7 @@ final class Capture {
         }
 
         // meta, classified
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_key ASC, meta_id ASC",
-            $id
-        ), ARRAY_A) ?: [];
-        $byKey = [];
-        foreach ($rows as $r) {
-            $byKey[$r['meta_key']][] = $r['meta_value'];
-        }
+        $byKey = $this->post_meta_by_key($id);
         $meta = [];
         $attachedFile = null;
         $alt = '';
@@ -1210,46 +1239,10 @@ final class Capture {
                 $alt = (string) $values[0];
                 continue;
             }
-            $rule = $this->policy->meta_rule_for_post($key, $flatMeta);
-            if ($rule === null) {
-                $this->unclassified[] = "post_meta:$key";
-                continue;
+            [$store, $v] = $this->classify_meta_value($key, $values, $flatMeta, "post $id", 'post_meta');
+            if ($store) {
+                $meta[$key] = $v;
             }
-            if (($rule['class'] ?? '') !== 'authored') {
-                continue;
-            }
-            if (count($values) > 1) {
-                throw new \RuntimeException("duo: multi-value authored meta '$key' on post $id unsupported in v0");
-            }
-            $v = maybe_unserialize($values[0]);
-            self::assert_plain($v, "post $id meta $key");
-            // DUO-3214: unconditional, not gated on is_string($v) — an
-            // authored value that decoded to an array (a serialized
-            // settings blob) must be scanned too; guard_secret() deep-scans
-            // internally now (see its own docblock).
-            $this->guard_secret('post_meta', $key, $v, $rule, " on post $id");
-            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                $decoded = $this->decode_structured($v, $rule, "post $id meta $key");
-                $v = $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-            } elseif (!empty($rule['ref'])) {
-                $v = $this->tokens->meta_value_to_tokens($v, $rule);
-                if ($v === null) {
-                    // dangling scalar ref: key skipped (warned inside Tokens) —
-                    // a raw env-local id must never reach canonical state
-                    continue;
-                }
-            } elseif (is_string($v)) {
-                $v = $this->tokens->tokenize_text($v);
-            }
-            // DUO-3214(b) / task #123: applied LAST, to the fully-processed
-            // value, so it composes correctly with ref/json_refs rewriting
-            // above rather than racing it — order preservation is about
-            // how Canon serializes the FINAL value, not an input-shape
-            // concern. See Canon::normalize()'s docblock for the mechanism.
-            if (!empty($rule['order_preserving'])) {
-                $v = new OrderPreserved($v);
-            }
-            $meta[$key] = $v;
         }
 
         // parent
@@ -1450,11 +1443,42 @@ final class Capture {
                 $classes = is_array($classes)
                     ? array_values(array_filter(array_map('strval', $classes), fn($s) => $s !== ''))
                     : [];
+                // DUO-3266: every OTHER key in this item's meta — anything
+                // beyond the 8 WordPress-core _menu_item_* keys read above
+                // — used to be silently dropped here, never reaching
+                // Policy::meta_rule_for_post() or $this->unclassified[]
+                // the way ordinary post_meta already does (Capture.php's
+                // build_post(), a few hundred lines up). manifests/core.json
+                // already classifies all 8 core keys "managed" (bespoke-
+                // handled, same as _wp_attached_file) or "runtime"
+                // (_menu_item_orphaned) — neither is 'authored' — so
+                // classify_meta_value() skips them here for free, with NO
+                // separate allowlist needed; a genuinely unclassified key
+                // (a plugin's own menu-item meta) now hits the SAME loud
+                // gate every other post type's meta already does, and a
+                // key a manifest DOES classify authored now actually
+                // captures instead of vanishing.
+                $itemByKey = $this->post_meta_by_key($iid);
+                $itemFlatMeta = array_map(fn($vals) => $vals[0], $itemByKey);
+                $itemMeta = [];
+                foreach ($itemByKey as $ikey => $ivalues) {
+                    [$store, $iv] = $this->classify_meta_value(
+                        $ikey,
+                        $ivalues,
+                        $itemFlatMeta,
+                        "menu '{$mt->slug}' item $iid",
+                        'menu_item_meta'
+                    );
+                    if ($store) {
+                        $itemMeta[$ikey] = $iv;
+                    }
+                }
                 $itemList[] = [
                     'uuid' => $iu,
                     'type' => $type,
                     'object' => (string) ($m['_menu_item_object'] ?? ''),
                     'ref' => $ref,
+                    'meta' => $itemMeta,
                     'parent' => $parentItem > 0 ? ($itemUuidById[$parentItem] ?? null) : null,
                     'position' => (int) $ip->menu_order,
                     'title' => $ip->post_title,
@@ -1496,6 +1520,109 @@ final class Capture {
             }
         }
         return $out;
+    }
+
+    /**
+     * Multi-value form of post_meta_map(): key -> ALL raw values, in
+     * meta_id order. build_post()'s own authored-meta pipeline needs this
+     * shape (not the flat single-value one) because a real duplicate-key
+     * row is exactly what "multi-value authored meta ... unsupported in
+     * v0" (classify_meta_value() below) must detect — post_meta_map()
+     * silently keeps only the first row per key, which would hide that
+     * case rather than refuse it.
+     */
+    private function post_meta_by_key(int $postId): array {
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_key ASC, meta_id ASC",
+            $postId
+        ), ARRAY_A) ?: [];
+        $byKey = [];
+        foreach ($rows as $r) {
+            $byKey[$r['meta_key']][] = $r['meta_value'];
+        }
+        return $byKey;
+    }
+
+    /**
+     * DUO-3266: classify and fully resolve ONE post-meta-shaped key through
+     * the ordinary meta_rule_for_post()-driven pipeline — multi-value
+     * rejection, secret scanning, ref/json_refs/key_refs resolution, plain
+     * string tokenization, order-preservation. Factored out of build_post()
+     * so a second owner of postmeta rows (menu items, whose item-building
+     * loop in scope_menus() previously read a fixed 8-key allowlist and
+     * silently dropped everything else — the exact silent-authored-data-
+     * loss bug this issue exists to close) gets the SAME classification
+     * discipline ordinary posts already have, not a second, drift-prone
+     * reimplementation of it.
+     *
+     * $ownerLabel/$unclassifiedPrefix let call sites keep their own
+     * existing message shape (`post $id` / `post_meta:$key` for ordinary
+     * posts; a menu-item-specific label for DUO-3266) rather than forcing
+     * one generic wording on every caller.
+     *
+     * @param string[] $values raw multi-value meta_value list for this key
+     *   (WordPress meta rows are multi-valued at the schema level even
+     *   though authored meta here is v0-restricted to single-valued).
+     * @param array<string,string> $flatMeta first-value-per-key map, as
+     *   Policy::meta_rule_for_post() expects (some rules key off sibling
+     *   values, e.g. ACF's shadow-key pointer lookup).
+     * @return array{0: bool, 1: mixed} [$store, $value]. $store is false
+     *   for unclassified (already appended to $this->unclassified[]),
+     *   non-authored, or dangling-ref keys — $value is meaningless then.
+     *   $store is true otherwise, with $value the fully resolved value to
+     *   store; $value MAY legitimately be PHP null (an authored meta row
+     *   whose stored bytes are serialize(null) is rare but real, and must
+     *   stay distinguishable from "don't store this key at all" — hence
+     *   the explicit $store flag rather than "null return means skip").
+     */
+    private function classify_meta_value(
+        string $key,
+        array $values,
+        array $flatMeta,
+        string $ownerLabel,
+        string $unclassifiedPrefix
+    ): array {
+        $rule = $this->policy->meta_rule_for_post($key, $flatMeta);
+        if ($rule === null) {
+            $this->unclassified[] = "$unclassifiedPrefix:$key";
+            return [false, null];
+        }
+        if (($rule['class'] ?? '') !== 'authored') {
+            return [false, null];
+        }
+        if (count($values) > 1) {
+            throw new \RuntimeException("duo: multi-value authored meta '$key' on $ownerLabel unsupported in v0");
+        }
+        $v = maybe_unserialize($values[0]);
+        self::assert_plain($v, "$ownerLabel meta $key");
+        // DUO-3214: unconditional, not gated on is_string($v) — an
+        // authored value that decoded to an array (a serialized settings
+        // blob) must be scanned too; guard_secret() deep-scans internally
+        // now (see its own docblock).
+        $this->guard_secret('post_meta', $key, $v, $rule, " on $ownerLabel");
+        if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+            $decoded = $this->decode_structured($v, $rule, "$ownerLabel meta $key");
+            $v = $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+        } elseif (!empty($rule['ref'])) {
+            $v = $this->tokens->meta_value_to_tokens($v, $rule);
+            if ($v === null) {
+                // dangling scalar ref: key skipped (warned inside Tokens) —
+                // a raw env-local id must never reach canonical state
+                return [false, null];
+            }
+        } elseif (is_string($v)) {
+            $v = $this->tokens->tokenize_text($v);
+        }
+        // DUO-3214(b) / task #123: applied LAST, to the fully-processed
+        // value, so it composes correctly with ref/json_refs rewriting
+        // above rather than racing it — order preservation is about how
+        // Canon serializes the FINAL value, not an input-shape concern.
+        // See Canon::normalize()'s docblock for the mechanism.
+        if (!empty($rule['order_preserving'])) {
+            $v = new OrderPreserved($v);
+        }
+        return [true, $v];
     }
 
     /** Mirrors post_meta_map() for termmeta — used by gate_scan() only in v0

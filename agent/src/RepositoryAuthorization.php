@@ -52,7 +52,7 @@ final class RepositoryAuthorization {
     private const MENU_FIELDS = ['uuid', 'name', 'slug', 'locations', 'items'];
     private const MENU_ITEM_FIELDS = [
         'uuid', 'type', 'object', 'ref', 'parent', 'position', 'title',
-        'description', 'attr_title', 'target', 'classes', 'xfn',
+        'description', 'attr_title', 'target', 'classes', 'xfn', 'meta',
     ];
     private const TABLE_FIELDS = ['columns', 'meta', 'table', 'uuid'];
     private const MANAGED_OPTIONS = ['active_plugins', 'template', 'stylesheet'];
@@ -239,6 +239,23 @@ final class RepositoryAuthorization {
             }
             $refMeta = ($item['type'] ?? '') === 'custom' ? '_menu_item_url' : '_menu_item_object_id';
             self::require_managed_meta($policy, $refMeta, "items[$index].ref", $path, $uuid, $out);
+
+            // DUO-3266: re-derive classification from the COMPILED
+            // repository's own policy, independent of what captured it —
+            // same defense-in-depth authorize_post() already applies to
+            // its own 'meta' field (a merge/rebase can land a captured
+            // 'authored' key next to a policy that no longer agrees).
+            $itemMeta = (array) ($item['meta'] ?? []);
+            foreach ($itemMeta as $key => $_) {
+                $details = $policy->meta_rule_details_for_post((string) $key, $itemMeta);
+                $class = $details['rule']['class'] ?? 'unclassified';
+                if ($class !== 'authored') {
+                    self::finding(
+                        $out, 'repository_field_not_authored', $path, $uuid,
+                        "menu_item[$index]", (string) $key, $class, $details['source']
+                    );
+                }
+            }
         }
     }
 
