@@ -1641,14 +1641,12 @@ final class Apply {
         $this->reconcile_authored_meta($id, (array) ($front['meta'] ?? []), 'post');
 
         // term relationships for owned taxonomies
-        if ($front['type'] !== 'attachment') {
-            $this->reconcile_relationships(
-                $id,
-                $front['type'],
-                (array) ($front['terms'] ?? []),
-                (array) ($front['term_orders'] ?? [])
-            );
-        }
+        $this->reconcile_relationships(
+            $id,
+            $front['type'],
+            (array) ($front['terms'] ?? []),
+            (array) ($front['term_orders'] ?? [])
+        );
 
         // attachment binary + managed meta
         if ($front['type'] === 'attachment') {

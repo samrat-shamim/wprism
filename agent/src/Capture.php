@@ -196,10 +196,13 @@ final class Capture {
                 // already a normal, anticipated condition this system
                 // tolerates (RepositoryCompiler::catalog_media_directory()'s
                 // own "safe orphan blobs" docblock), not a new risk.
-                foreach ($build['media'] as $file => $src) {
+                foreach ($build['media'] as $file => $source) {
                     $dst = $c->repo . '/media/' . $file;
                     if (!is_file($dst)) {
-                        Canon::write_file($dst, Canon::read_file($src));
+                        $bytes = array_key_exists('bytes', $source)
+                            ? $source['bytes']
+                            : Canon::read_file($source['path']);
+                        Canon::write_file($dst, $bytes);
                     }
                 }
                 // DUO-3236: the staged candidate must itself compile before
@@ -655,7 +658,11 @@ final class Capture {
 
     // ------------------------------------------------------------------
 
-    /** @return array{entities: array, media: array<string,string>, warnings: string[]} */
+    /** @return array{
+     *   entities: array,
+     *   media: array<string,array{path?:string,bytes?:string}>,
+     *   warnings: string[]
+     * } */
     private function build(
         bool $mint,
         bool $forceUnresolvedRefs = false,
@@ -1370,7 +1377,7 @@ final class Capture {
         $taxes = $this->taxesForPostType[$p->post_type] ?? [];
         $termsField = [];
         $termOrders = [];
-        if ($taxes && !$isAttachment) {
+        if ($taxes) {
             $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
             $rels = $wpdb->get_results($wpdb->prepare(
                 "SELECT tt.taxonomy, tt.term_id, tr.term_order FROM {$wpdb->term_relationships} tr
@@ -1418,18 +1425,76 @@ final class Capture {
                 throw new \RuntimeException("duo: attachment $id has no _wp_attached_file");
             }
             $up = wp_upload_dir(null, false);
-            $src = trailingslashit($up['basedir']) . $attachedFile;
-            if (!is_file($src)) {
-                throw new \RuntimeException("duo: attachment $id file missing: $src");
+            $localPath = trailingslashit($up['basedir']) . $attachedFile;
+            $source = is_file($localPath) ? ['path' => $localPath] : null;
+
+            /**
+             * Lets an offload adapter supply attachment bytes without
+             * requiring a persistent local uploads copy. The strict result
+             * contract is exactly one of:
+             *
+             *   ['path' => '/readable/materialized/file']
+             *   ['bytes' => $rawBytes]
+             *
+             * The ordinary local upload path is the default when present,
+             * so providers may leave it alone, replace it with a temporary
+             * materialization, or return bytes from their own API.
+             */
+            $source = apply_filters(
+                'duo_attachment_capture_source',
+                $source,
+                $id,
+                (string) $attachedFile,
+                $localPath
+            );
+            if ($source === null) {
+                throw new \RuntimeException(
+                    "duo: attachment $id file '$attachedFile' is not present locally and no offload provider"
+                    . ' supplied bytes via duo_attachment_capture_source; capture cannot proceed for this attachment'
+                );
             }
-            $sha = hash_file('sha256', $src);
+            if (!is_array($source)) {
+                throw new \RuntimeException(
+                    "duo: attachment $id offload provider returned an invalid duo_attachment_capture_source value;"
+                    . " expected exactly ['path' => <readable path>] or ['bytes' => <raw bytes>]"
+                );
+            }
+            $hasPath = array_key_exists('path', $source);
+            $hasBytes = array_key_exists('bytes', $source);
+            if ($hasPath === $hasBytes) {
+                throw new \RuntimeException(
+                    "duo: attachment $id offload provider returned an invalid duo_attachment_capture_source value;"
+                    . " expected exactly one of 'path' or 'bytes'"
+                );
+            }
+            if ($hasPath) {
+                if (!is_string($source['path']) || $source['path'] === ''
+                    || !is_file($source['path']) || !is_readable($source['path'])) {
+                    throw new \RuntimeException(
+                        "duo: attachment $id offload provider path is not a readable file"
+                    );
+                }
+                $sha = hash_file('sha256', $source['path']);
+                if ($sha === false) {
+                    throw new \RuntimeException(
+                        "duo: attachment $id offload provider path could not be hashed"
+                    );
+                }
+            } else {
+                if (!is_string($source['bytes'])) {
+                    throw new \RuntimeException(
+                        "duo: attachment $id offload provider bytes must be a string"
+                    );
+                }
+                $sha = hash('sha256', $source['bytes']);
+            }
             $ext = pathinfo($attachedFile, PATHINFO_EXTENSION);
             $mediaFile = $sha . ($ext ? ".$ext" : '');
             $front['file'] = $attachedFile;
             $front['media'] = $mediaFile;
             $front['mime'] = $p->post_mime_type;
             $front['alt'] = $alt;
-            $mediaRef = [$mediaFile, $src];
+            $mediaRef = [$mediaFile, $source];
         }
 
         // Secret guard on bodies: loud warning, never an abort — people
