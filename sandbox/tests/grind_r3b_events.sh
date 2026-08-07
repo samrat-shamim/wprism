@@ -7,21 +7,33 @@
 # engine gaps were found this round: (1) TEC's tec_events/tec_occurrences
 # are derived with a HARD per-entity query-availability dependency, not a
 # soft cache — the manifest can mark them 'derived' but the grammar has no
-# primitive for 'apply must regenerate this or the entity is unusable'; (2)
+# primitive for 'apply must regenerate this or the entity is unusable'
+# (CLOSED by DUO-3234: post_types.<type>.regen_dependency is exactly that
+# primitive now, declared for tribe_events in manifests/the-events-
+# calendar.json — see "DUO-3234's regen_dependency contract, proven live"
+# below, which now proves the automatic fix rather than the manual-step
+# gap this round originally found); (2)
 # PMPro's real content-restriction table, pmpro_memberships_pages, has a
 # COMPOSITE primary key (no surrogate id column) — Snapshot.php's
 # authored_snapshot grammar has no representation for that at all; (3)
 # pmpro_membership_levelmeta's own PK column is named meta_id, not id —
 # Snapshot.php's assert_meta_schema() hardcodes the literal string 'id'
-# with no override. All three are characterized with acceptance criteria in
-# the report, escalated to team-lead, NOT forced into the manifests.
+# with no override. (2) and (3) remain open; characterized with acceptance
+# criteria in the report, escalated to team-lead, NOT forced into the
+# manifests.
 #
 # Own dedicated sandbox/bin/pair.sh pair (r3b1 :8852 / r3b2 :8853, journal
 # on). Own site repo (sandbox/siterepo/{origin-r3b.git,r3b1,r3b2}).
 #
-# Re-run safety: r3b1/r3b2 are never torn down (`pair.sh destroy`/`docker
-# compose down` are off-limits — other agents share the shared db and
-# network). Every run wipes WP content, the duo ledger tables, the
+# Re-run safety: r3b1/r3b2 are never torn down via `pair.sh destroy`/
+# `docker compose down` (off-limits — other agents share the shared db and
+# network). `pair.sh stop r3b` between runs IS fine and expected (frees
+# RAM/CPU immediately; containers/volumes/databases all kept, so the
+# TEC+PMPro install + seeded content survive at zero footprint — DUO-3256/
+# DUO-3258's own hygiene note, generalizing the original "never torn down"
+# convention: stopped-not-destroyed is what that convention actually
+# requires now that host pair-budget discipline matters). Every run wipes
+# WP content, the duo ledger tables, the
 # tec_*/pmpro_* custom tables, the PMPro system-page options, and the
 # site-repo git state from scratch — mirroring grind_r1b_shop.sh's own
 # reset_env_state() approach exactly (NOT sandbox/bin/pair.sh's own `reset`
@@ -218,10 +230,35 @@ say "core loop: capture (both graduated manifests already pinned — capture sho
 wp1 duo capture --repo=/siterepo
 pass "capture succeeded with zero unclassified-meta gate firing — manifests/the-events-calendar.json + manifests/paid-memberships-pro.json fully cover this site's real content"
 
-say "deliberately exercise task #73's unscoped-ref gate: un-mint the checkout page's identity while 'page' is temporarily out of scope"
+say "deliberately exercise task #73's unscoped-ref gate: retype the checkout page's own row out of scope, un-mint its identity"
+# DUO-3256: this used to remove "page" from policy.post_types wholesale,
+# which also un-scopes the OTHER ~9 real page-type entities already
+# captured on disk (PMPro's system pages + Studio Members Only) — and
+# Capture::run() compiles+authorizes the EXISTING repo/state tree against
+# the CURRENT policy before build() ever runs ("refuses to build new state
+# on top of an already-invalid repository revision"), so that broader
+# RepositoryAuthorization gate now fires on all 10 pages before task #73's
+# own narrower per-option gate is ever reached. Capture::ref_target_type()
+# keys off the LIVE wp_posts.post_type column for the referenced id, not
+# whole-type policy scope — so retyping ONLY the checkout page's own row
+# triggers the intended narrow gate without touching policy.post_types at
+# all, leaving the other 9 pages validly in scope throughout.
+#
+# A second collateral dependency, found live (not guessed): PMPro's own
+# pmpro_generatePages() nests "Membership Confirmation" under "Membership
+# Checkout" via post_parent — a structural relationship independent of any
+# option, resolved for EVERY captured post before task #73's own gate ever
+# runs. Retyping checkout alone left confirmation's parent unresolvable,
+# tripping a different, more fundamental "unmanaged parent post" error
+# first. Temporarily re-parenting any such child to top-level (and
+# restoring it afterward) neutralizes this without assuming confirmation
+# is the only child — any post PMPro (or a future seed change) nests under
+# checkout gets the same treatment.
 CHECKOUT_ID=$(wp1 option get pmpro_checkout_page_id)
+CHECKOUT_CHILDREN=$(wp1 db query "SELECT ID FROM wp_posts WHERE post_parent=$CHECKOUT_ID" --skip-column-names)
 wp1 db query "DELETE FROM wp_duo_map WHERE id_kind='post' AND local_id=$CHECKOUT_ID"
-jq '.policy.post_types -= ["page"]' siterepo/r3b1/site.duo.json > siterepo/r3b1/.tmp-site.json && mv siterepo/r3b1/.tmp-site.json siterepo/r3b1/site.duo.json
+wp1 db query "UPDATE wp_posts SET post_parent=0 WHERE post_parent=$CHECKOUT_ID"
+wp1 db query "UPDATE wp_posts SET post_type='duo_test_unscoped' WHERE ID=$CHECKOUT_ID"
 set +e
 GATE_OUT=$(wp1 duo capture --repo=/siterepo 2>&1)
 GATE_RC=$?
@@ -230,7 +267,10 @@ set -e
 echo "$GATE_OUT" | grep -q "unresolvable ref-typed option(s) point at real, out-of-scope entities" || fail "wrong error (got: $GATE_OUT)"
 echo "$GATE_OUT" | grep -q "pmpro_checkout_page_id" || fail "gate did not name the option"
 pass "loud-and-blocking gate fired correctly, naming the option, the raw id, and the real target type"
-jq '.policy.post_types += ["page"]' siterepo/r3b1/site.duo.json > siterepo/r3b1/.tmp-site.json && mv siterepo/r3b1/.tmp-site.json siterepo/r3b1/site.duo.json
+wp1 db query "UPDATE wp_posts SET post_type='page' WHERE ID=$CHECKOUT_ID"
+for cid in $CHECKOUT_CHILDREN; do
+  wp1 db query "UPDATE wp_posts SET post_parent=$CHECKOUT_ID WHERE ID=$cid"
+done
 wp1 duo capture --repo=/siterepo
 pass "scope fixed, recapture succeeds cleanly"
 
@@ -276,24 +316,32 @@ rm -rf siterepo/r3b2/.tmp-final
 [ -z "$DIFF_OUT" ] || fail "byte-identity broken: $DIFF_OUT"
 pass "byte-identical: posts, terms, options, AND the new typed-snapshot table entities (pmpro_membership_levels)"
 
-say "THE central finding, proven live: TEC's derived custom tables leave applied events genuinely INVISIBLE until manually regenerated"
+say "DUO-3234's regen_dependency contract, proven live: TEC's derived custom tables are now regenerated automatically as part of apply — the manual-step gap this round originally found is closed"
+# DUO-3258: this step used to assert the GAP itself (zero tec_occurrences,
+# invisible events, then a manual per-event regeneration loop reproducing
+# TEC's own Single_Event_Migration_Strategy machinery by hand). DUO-3234
+# landed manifests/the-events-calendar.json's post_types.tribe_events.
+# regen_dependency (regenerator="the-events-calendar", verify={table:
+# tec_occurrences, column: post_id}) — see that manifest's own note: "the
+# manual step is now automatic." Apply::regen_dependencies() runs
+# synchronously inside apply(), calls the regenerator for every applied
+# tribe_events post, and hard-fails the WHOLE apply (not a warning) if
+# verification still finds no row afterward. The round-trip apply above
+# already proves this succeeded — a regen_dependencies() failure would
+# have thrown before "canary clean" ever printed — this step makes that
+# proof explicit and checks the regen_pending ledger directly (DUO-3234's
+# own designed observability surface), rather than only inferring success
+# from apply's own exit code.
 TEC_ROWS=$(wp2 db query "SELECT COUNT(*) FROM wp_tec_occurrences" --skip-column-names)
-[ "$TEC_ROWS" = "0" ] || fail "expected zero tec_occurrences rows on a fresh apply (hook-free, direct \$wpdb writes never trigger TEC's own regeneration) — got $TEC_ROWS"
-INVISIBLE_COUNT=$(wp2 post list --post_type=tribe_events --post_status=any --format=count)
-[ "$INVISIBLE_COUNT" = "0" ] || fail "expected the 3 applied events to be invisible to WP_Query (got $INVISIBLE_COUNT visible)"
-pass "confirmed broken exactly as the report describes: 3 real tribe_events posts exist (wp_posts), but wp_tec_occurrences has 0 rows and wp_post list --post_type=tribe_events finds NONE of them"
-EVENT_IDS=$(wp2 db query "SELECT ID FROM wp_posts WHERE post_type='tribe_events'" --skip-column-names)
-for eid in $EVENT_IDS; do
-  wp2 eval "
-    \$m = TEC\Events\Custom_Tables\V1\Models\Event::upsert(['post_id'], TEC\Events\Custom_Tables\V1\Models\Event::data_from_post($eid));
-    \$e = TEC\Events\Custom_Tables\V1\Models\Event::find($eid, 'post_id');
-    if (\$e) { \$e->occurrences()->save_occurrences(); }
-  " >/dev/null
-done
-FIXED_COUNT=$(wp2 post list --post_type=tribe_events --post_status=any --format=count)
-[ "$FIXED_COUNT" = "3" ] || fail "expected all 3 events visible after the manual regeneration fix (got $FIXED_COUNT)"
+TEC_B1_NOW=$(wp1 db query "SELECT COUNT(*) FROM wp_tec_occurrences" --skip-column-names)
+[ "$TEC_ROWS" != "0" ] && [ "$TEC_ROWS" = "$TEC_B1_NOW" ] \
+  || fail "expected tec_occurrences to be nonzero and consistent with the source side's count after a fresh apply (source r3b1=$TEC_B1_NOW, target r3b2=$TEC_ROWS) — the regen_dependency contract is not behaving as declared"
+VISIBLE_COUNT=$(wp2 post list --post_type=tribe_events --post_status=any --format=count)
+[ "$VISIBLE_COUNT" = "3" ] || fail "expected all 3 applied events immediately visible to WP_Query with no manual step (got $VISIBLE_COUNT)"
+PLAN_AFTER=$(wp2 duo plan --repo=/siterepo)
+echo "$PLAN_AFTER" | grep -q ', 0 regen_pending' || fail "expected zero regen_pending markers outstanding after a clean apply (plan said: $(echo "$PLAN_AFTER" | grep -o '[0-9]* regen_pending'))"
 wp2 rewrite flush >/dev/null
-pass "the honest mitigation (TEC's own Single_Event_Migration_Strategy machinery, run by hand per event) fully restores visibility — a manual step, not an automated one, exactly like docs/grind/r1b-shop.md's pa_* attribute pre-provisioning gap"
+pass "confirmed fixed: DUO-3234's regen_dependency contract transparently regenerated wp_tec_occurrences as part of apply itself — 3/3 events visible immediately, tec_occurrences consistent with source ($TEC_ROWS rows), zero regen_pending markers outstanding, no manual step required. This WAS the round's central finding; DUO-3234 is why it no longer holds."
 
 say "THE second finding, proven live: PMPro's page-restriction join table (composite PK) never propagated — Studio Members Only is UNRESTRICTED on r3b2 until fixed by hand"
 RESTRICT_ROWS=$(wp2 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_pages" --skip-column-names)
@@ -359,7 +407,7 @@ echo "$USERS_B2" | grep -q dana.rivera && fail "r3b1's member user leaked onto r
 MEMBERS_B1=$(wp1 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_users" --skip-column-names)
 [ "$MEMBERS_B1" = "1" ] || fail "expected r3b1's own signup to remain intact (got $MEMBERS_B1)"
 TEC_B1=$(wp1 db query "SELECT COUNT(*) FROM wp_tec_occurrences" --skip-column-names)
-[ "$TEC_B1" = "3" ] || fail "expected r3b1's own tec_occurrences (never touched by this round's r3b2-side regeneration work) to remain intact (got $TEC_B1)"
+[ "$TEC_B1" = "3" ] || fail "expected r3b1's own tec_occurrences (never touched by r3b2's own apply-time regen_dependency work) to remain intact (got $TEC_B1)"
 pass "confirmed both directions: r3b2 has zero of r3b1's member/runtime data; r3b1's own runtime state (member signup, tec_occurrences) is untouched by any of r3b2's independent work"
 
 say "divergent-edit merge: conflicting Community-level price edits on both environments"
