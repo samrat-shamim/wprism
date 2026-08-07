@@ -56,7 +56,17 @@ cleanup() {
   wp1 post delete "$PAGE_ID" --force >/dev/null 2>&1 || true
   wp1 option update wp_page_for_privacy_policy "$ORIG_PRIVACY" >/dev/null 2>&1 || true
   wp1 eval "update_option('sticky_posts', json_decode('$ORIG_STICKY', true) ?: []);" >/dev/null 2>&1 || true
-  rm -rf "$HOST_REPO"
+  # r1b1's own option/page state is ALWAYS restored above regardless of
+  # KEEP_SCRATCH -- this only ever skips the scratch TREE deletion, so a
+  # failed run's captured options/core.json survives for direct
+  # inspection instead of a diagnosis having to be reconstructed from
+  # warnings/log text alone (the exact gap that cost extra round trips
+  # diagnosing (1b) below the first time this script was reconciled).
+  if [ "${KEEP_SCRATCH:-0}" = "1" ]; then
+    echo "KEEP_SCRATCH=1: leaving $HOST_REPO on disk for inspection (remove by hand when done)"
+  else
+    rm -rf "$HOST_REPO"
+  fi
 }
 trap cleanup EXIT
 
@@ -70,11 +80,43 @@ cat > "$HOST_REPO/site.duo.json" <<'EOF'
     "post_meta": {},
     "term_meta": {},
     "post_types": ["post", "attachment"],
-    "taxonomies": ["category", "post_tag"]
+    "taxonomies": ["category", "post_tag"],
+    "scope": {
+      "post_type": {
+        "page": {"class": "runtime"},
+        "product": {"class": "runtime"}
+      },
+      "taxonomy": {
+        "pa_color": {"class": "runtime"},
+        "pa_size": {"class": "runtime"},
+        "product_cat": {"class": "runtime"}
+      }
+    }
   }
 }
 EOF
-pass "scratch repo ready at $HOST_REPO (policy.post_types has no 'page' — any real page is, by construction, UNSCOPED not unclassified)"
+# scope_gaps() hardening (post-dates this fixture): ANY public post_type/
+# taxonomy with real rows now must be classified one way or the other --
+# in policy.post_types/taxonomies, or explicitly excluded via
+# scope.post_type/taxonomy.<name>.class -- not just types a ref happens to
+# point at. r1b1 is Grind R1-B's live WooCommerce shop (task #64+), so its
+# product/pa_color/pa_size/product_cat rows now trip this gate exactly
+# like 'page' does, BEFORE capture ever reaches the option-ref gate this
+# script means to exercise -- an unrelated shop-surface gap masking the
+# scope-gate test's own subject. 'page' ITSELF now needs its own explicit
+# "runtime" entry too: omission from policy.post_types alone satisfied the
+# OLD gate, but the new one treats undeclared-with-real-rows as its own
+# violation regardless of whether anything references that type. "runtime"
+# (not "authored") is deliberate for all five: Policy::post_types() only
+# merges a scope-classified type into "in scope" when class is exactly
+# authored (confirmed by reading it directly) -- so 'page' stays correctly
+# OUT of policy.post_types() for the ref-classification check below, and
+# a real page-referencing option ref still resolves as UNSCOPED, not
+# accidentally scoped-in by this fix. product/pa_*/product_cat need no
+# such care (nothing in this script ever references them), so the same
+# "runtime" shape is used uniformly rather than reasoning through a
+# second class per type.
+pass "scratch repo ready at $HOST_REPO (policy.post_types has no 'page' — any real page is, by construction, UNSCOPED not unclassified; r1b1's own shop surface explicitly excluded so its unrelated real rows can't trip the scope gate first)"
 
 say "(1) UNSCOPED: wp_page_for_privacy_policy -> a REAL page whose post_type isn't in policy scope"
 wp1 option update wp_page_for_privacy_policy "$PAGE_ID" >/dev/null
@@ -94,9 +136,20 @@ say "(1b) same case, escape hatch: --force-unresolved-refs proceeds, drops it li
 OUT1B=$(wp1 duo capture --repo="$REPO" --out="$OUT" --force-unresolved-refs 2>&1)
 echo "$OUT1B"
 echo "$OUT1B" | grep -qi "success" || fail "expected --force-unresolved-refs to let capture succeed (got: $OUT1B)"
-jq -e '.records | has("wp_page_for_privacy_policy") | not' "$HOST_OUT/options/core.json" >/dev/null \
-  || fail "wp_page_for_privacy_policy should be absent from forced capture's output"
-pass "forced capture succeeded; option correctly dropped (never a raw env-local id in canonical state)"
+# NOT has()|not: wp_page_for_privacy_policy is policy-declared authored
+# (manifests/core.json), so Capture::build_options()'s own $required pass
+# (independent of any previous-document reconciliation -- confirmed by
+# reading it directly) ALWAYS gives it a record, even when its ref drops.
+# A scalar ref's option_ref_tokens() returns null on drop (unlike an
+# array ref, which always returns an array, even empty -- see (3b) below,
+# a REAL asymmetry, not a bug) -> capture_value()'s own included=false ->
+# the main present-record loop skips it -> the $required fallback writes
+# OptionState::absent(), exactly {"state":"absent"} (validate_record()
+# forbids any other key on an absent record, so this equality check IS
+# the "no raw id anywhere in the record" proof, not a separate check).
+jq -e '.records.wp_page_for_privacy_policy == {"state":"absent"}' "$HOST_OUT/options/core.json" >/dev/null \
+  || fail "wp_page_for_privacy_policy should be exactly {state:absent} (dropped, no raw id) in forced capture's output (got: $(jq -c '.records.wp_page_for_privacy_policy' "$HOST_OUT/options/core.json"))"
+pass "forced capture succeeded; option correctly recorded as absent (never a raw env-local id in canonical state)"
 
 say "(2) DANGLING (regression, must be UNCHANGED): wp_page_for_privacy_policy -> an id that exists NOWHERE"
 wp1 option update wp_page_for_privacy_policy 999999999 >/dev/null
@@ -104,8 +157,12 @@ OUT2=$(wp1 duo capture --repo="$REPO" --out="$OUT" 2>&1)
 echo "$OUT2"
 echo "$OUT2" | grep -qi "success" || fail "expected a genuinely dangling ref to still warn-and-drop, not abort (got: $OUT2)"
 echo "$OUT2" | grep -q "999999999" || fail "expected the ordinary dangling warning naming the id (got: $OUT2)"
-jq -e '.records | has("wp_page_for_privacy_policy") | not' "$HOST_OUT/options/core.json" >/dev/null \
-  || fail "wp_page_for_privacy_policy should be absent (dangling, dropped)"
+# Same record shape as (1b) above, same reason: a dropped scalar ref
+# always ends up {"state":"absent"} via the $required fallback, dangling
+# or unscoped-forced makes no difference to THIS shape (only to which
+# warning text fires, already checked above).
+jq -e '.records.wp_page_for_privacy_policy == {"state":"absent"}' "$HOST_OUT/options/core.json" >/dev/null \
+  || fail "wp_page_for_privacy_policy should be exactly {state:absent} (dangling, dropped) (got: $(jq -c '.records.wp_page_for_privacy_policy' "$HOST_OUT/options/core.json"))"
 pass "dangling reference still warns and drops silently, exit 0 — unaffected by this fix (spike A's id-0/deleted-target case stays honest)"
 
 say "(3) UNSCOPED, array ref: sticky_posts -> [that same real, out-of-scope page]"
@@ -125,6 +182,14 @@ wp1 eval "update_option('sticky_posts', [888888888]);" >/dev/null
 OUT3B=$(wp1 duo capture --repo="$REPO" --out="$OUT" 2>&1)
 echo "$OUT3B"
 echo "$OUT3B" | grep -qi "success" || fail "expected a dangling array element to still warn-and-drop (got: $OUT3B)"
+# Sweep note (unlike (1b)/(2) above, this one does NOT need the {state:
+# absent} fix): option_ref_tokens()'s array-ref branch (confirmed by
+# reading it directly) ALWAYS returns an array, even when every element
+# dropped -- an empty array is still `!== null`, so capture_value()'s
+# included stays true and the option stays a PRESENT record with an
+# empty value, never falling through to the $required absent() fallback
+# a scalar ref's null return does. A real, deliberate scalar/array
+# asymmetry, not a bug -- this assertion was already correct.
 jq -e '.records.sticky_posts.value == []' "$HOST_OUT/options/core.json" >/dev/null \
   || fail "sticky_posts should be an empty array (dangling element dropped, not the whole key)"
 pass "dangling array element still drops just that element and exits 0 — unaffected by this fix"
@@ -139,13 +204,70 @@ cat > "$HOST_REPO/site.duo.json" <<'EOF'
     "post_meta": {},
     "term_meta": {},
     "post_types": ["post", "page", "attachment"],
-    "taxonomies": ["category", "post_tag"]
+    "taxonomies": ["category", "post_tag"],
+    "scope": {
+      "post_type": {
+        "product": {"class": "runtime"}
+      },
+      "taxonomy": {
+        "pa_color": {"class": "runtime"},
+        "pa_size": {"class": "runtime"},
+        "product_cat": {"class": "runtime"}
+      }
+    }
   }
 }
 EOF
+# Same r1b1 shop-surface gap as the first heredoc above -- 'page' is
+# already IN policy.post_types here (this step's own subject is an
+# in-scope-but-unminted PAGE, not an out-of-scope one), so it needs no
+# separate scope entry, but product/pa_*/product_cat still do:
+# Capture::snapshot() -> build(false, ...) hits the SAME unconditional
+# scope_gaps() check (confirmed by reading both directly), so this
+# heredoc is exposed to the identical widening.
 wp1 option update wp_page_for_privacy_policy "$PAGE_ID" >/dev/null
 # $PAGE_ID has never been in scope in any earlier step above, so it has never
 # been minted a uuid — exactly the "in scope, not yet identified" case.
+#
+# Third aged layer (team-lead's v2 live run): unlike run() (steps 1-3b
+# above, via ordinary `wp duo capture --out=...`), whose own $previous
+# computation gates RepositoryCompiler::compile() behind
+# `is_dir($c->repo.'/state')` -- confirmed by reading Capture.php:130
+# directly, deliberately tolerant of "first capture, no prior state" --
+# Capture::snapshot() (Capture.php:295) calls RepositoryCompiler::compile()
+# UNCONDITIONALLY: its entire contract is comparing the live environment
+# against the repo's own COMMITTED state (Apply::build_plan()'s three-way
+# compare), which presupposes committed state exists. This scratch repo
+# never creates $REPO/state (every step above captures to --out only, by
+# design, so nothing here ever mints on r1b1's real ledger) -- this step
+# predates snapshot()'s compile-first requirement and is the only one in
+# this script that calls snapshot() directly, so it's the only one exposed.
+#
+# Fix is an EMPTY $REPO/state, created here (immediately before the one
+# call that needs it), not in the shared setup above: creating it earlier
+# would flip steps 1-3b's OWN is_dir() check too, and while that path
+# traces as harmless (RepositoryCompiler::compile() on an empty state/
+# dir: state_directory_missing check passes, spec_version already
+# correct, state_files()'s RecursiveDirectoryIterator yields nothing so
+# the file-scan loop adds zero diagnostics, the final `if ($this->
+# diagnostics) fail()` gate is skipped, RepositoryAuthorization::
+# assert_tree() foreach's over an empty $tree and returns immediately --
+# confirmed by reading all four checkpoints directly, not assumed) --
+# there is no reason to touch three already-verified-passing steps to fix
+# a fourth. An empty state/ is also sufficient, not just necessary: with
+# nothing compiled, RepositoryCompiler::compile(...)->tree()['options/
+# core']['data'] ?? null (Capture.php:295) still evaluates to null via
+# the null-coalesce (no 'options/core' key exists), so $repositoryOptions
+# stays null here exactly as it did before this fix -- this step's own
+# subject (build(false, ...)'s minting-vs-scope classification) is
+# unaffected; only the compile gate blocking it from running at all is.
+#
+# Sweep for the same exposure elsewhere in this script (team-lead's ask):
+# this is the ONLY step that evaluates snapshot()/plan/apply directly --
+# steps 1-3b all go through run() via the ordinary `wp duo capture` CLI
+# path, gated as above. Step (4) is also the LAST step in the file (see
+# the closing pass() below) -- there is no step 5+ to sweep.
+mkdir -p "$HOST_REPO/state"
 SNAP_OUT=$(wp1 eval "try { \Duo\Capture::snapshot('$REPO'); echo 'OK'; } catch (\Throwable \$e) { echo 'THROWN: ' . \$e->getMessage(); }" 2>&1 | tail -1)
 echo "$SNAP_OUT"
 echo "$SNAP_OUT" | grep -q '^OK' || fail "Capture::snapshot() (non-minting) incorrectly treated an in-scope-but-unminted page as UNSCOPED (got: $SNAP_OUT)"
