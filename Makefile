@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge regress-capture-publish regress-code-drift regress-option-subkeys regress-fatal-mutations-unit regress-fatal-mutations
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge regress-capture-publish regress-code-drift regress-option-subkeys regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range
 
 up:
 	$(COMPOSE) up -d
@@ -177,3 +177,20 @@ regress-fatal-mutations-unit:
 
 regress-fatal-mutations:
 	bash sandbox/tests/regress_fatal_mutations.sh
+
+# DUO-3222 (version-pinned adapter compatibility contract): Policy::load()'s
+# new validators, Policy::theme_ranges(), and RepositoryCompiler's
+# per-manifest digest/resolved_adapters() — pure PHP, offline, no docker
+# (same idiom as regress-capture-publish above). See the script's own
+# header for exactly what is/isn't covered here vs. the live theme-range
+# leg below.
+regress-adapter-contract:
+	bash sandbox/tests/regress_adapter_contract.sh
+
+# DUO-3222's one genuinely live leg: Deploy::code_mismatch()'s new THEME
+# version_range check, called directly against a real bundled WordPress
+# theme (twentytwentyfour, zero network installs) via `wp eval` — no
+# site-repo/plan/apply pipeline needed, since code_mismatch() is a plain
+# static function. Own sandbox/bin/pair.sh pair (asub3222tr 8918/8919).
+regress-adapter-theme-range:
+	bash sandbox/tests/regress_adapter_theme_range.sh
