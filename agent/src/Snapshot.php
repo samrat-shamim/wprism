@@ -988,6 +988,19 @@ final class Snapshot {
         foreach ($metaTables as $metaName => $metaDecl) {
             self::assert_meta_schema($metaName, $metaDecl);
         }
+        $keyspaceGaps = self::keyspace_gaps($policy);
+        if ($keyspaceGaps) {
+            $lines = [];
+            foreach ($keyspaceGaps as $gap) {
+                $lines[] = "table_meta:{$gap['table']}:{$gap['key']} owner candidate {$gap['owner']}; "
+                    . "{$gap['count']} row(s), shape(s) " . implode(',', $gap['value_shapes'])
+                    . "; {$gap['reason']}";
+            }
+            throw new \RuntimeException(
+                "duo: attached-meta keys exist outside a version-pinned declared keyspace (loud-and-blocking gate):\n  - "
+                . implode("\n  - ", $lines)
+            );
+        }
 
         $entities = [];
         foreach (self::topo_order($rowTables) as $table) {
@@ -996,6 +1009,78 @@ final class Snapshot {
             ));
         }
         return $entities;
+    }
+
+    /**
+     * Enumerate unknown keys in opted-in EAV keyspaces. `default_class`
+     * remains the classification for keys INSIDE the bounded keyspace; it
+     * is never permission to absorb a plugin-upgrade-added key outside it.
+     *
+     * @return list<array{table:string,key:string,owner:string,count:int,value_shapes:string[],reason:string}>
+     */
+    public static function keyspace_gaps(Policy $policy): array {
+        global $wpdb;
+        $out = [];
+        foreach (self::meta_tables($policy) as $table => $decl) {
+            $keyspace = $decl['keyspace'] ?? null;
+            if (!is_array($keyspace)) {
+                continue;
+            }
+            $prefixed = $wpdb->prefix . preg_replace('/[^A-Za-z0-9_]/', '', $table);
+            if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
+                continue;
+            }
+            $keyCol = preg_replace('/[^A-Za-z0-9_]/', '', (string) ($decl['key_column'] ?? 'meta_key'));
+            $valCol = preg_replace('/[^A-Za-z0-9_]/', '', (string) ($decl['value_column'] ?? 'meta_value'));
+            $rows = $wpdb->get_results(
+                "SELECT `$keyCol` AS k, `$valCol` AS v FROM `$prefixed` ORDER BY `$keyCol` ASC",
+                ARRAY_A
+            ) ?: [];
+            $unknown = [];
+            foreach ($rows as $row) {
+                $key = (string) $row['k'];
+                if (self::meta_key_in_keyspace($decl, $key)) {
+                    continue;
+                }
+                $raw = $row['v'];
+                $value = is_string($raw) && is_serialized($raw)
+                    ? @unserialize(trim($raw), ['allowed_classes' => false])
+                    : $raw;
+                $unknown[$key]['count'] = ($unknown[$key]['count'] ?? 0) + 1;
+                $unknown[$key]['shapes'][get_debug_type($value)] = true;
+            }
+            $owner = $policy->declared_table_details($table)['source'] ?? '?';
+            $range = $keyspace['version_range'];
+            foreach ($unknown as $key => $evidence) {
+                $out[] = [
+                    'table' => $table,
+                    'key' => $key,
+                    'owner' => (string) $owner,
+                    'count' => $evidence['count'],
+                    'value_shapes' => array_keys($evidence['shapes']),
+                    'reason' => "not declared for adapter keyspace [{$range['min']}, {$range['max']})",
+                ];
+            }
+        }
+        return $out;
+    }
+
+    /** True when an attached-meta key is inside its declared adapter keyspace. */
+    public static function meta_key_in_keyspace(array $decl, string $key): bool {
+        $keyspace = $decl['keyspace'] ?? null;
+        if (!is_array($keyspace)) {
+            return true; // legacy open keyspace; adapters opt in explicitly
+        }
+        if (array_key_exists($key, $decl['keys'] ?? [])
+            || in_array($key, array_map('strval', $keyspace['keys'] ?? []), true)) {
+            return true;
+        }
+        foreach ($keyspace['patterns'] ?? [] as $pattern) {
+            if (preg_match('/' . $pattern['match'] . '/', $key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function capture_table(string $table, array $decl, array $metaDecls, Tokens $tokens, bool $mint): array {
@@ -1751,6 +1836,11 @@ final class Snapshot {
 
         $desiredRaw = [];
         foreach ($desiredMeta as $key => $v) {
+            if (!self::meta_key_in_keyspace($decl, (string) $key)) {
+                throw new \RuntimeException(
+                    "duo: repository asks apply to write table_meta:$metaTable:$key outside its declared keyspace"
+                );
+            }
             $rule = self::meta_key_rule($keyRules, $default, $key);
             if (!empty($rule['ref'])) {
                 $desiredRaw[$key] = $v === null ? '0' : (string) $tokens->token_to_id((string) $v);
@@ -1764,6 +1854,9 @@ final class Snapshot {
         foreach ($existingByKey as $key => $rowId) {
             if (array_key_exists($key, $desiredRaw)) {
                 continue;
+            }
+            if (!self::meta_key_in_keyspace($decl, $key)) {
+                continue; // outside the adapter's declared ownership; discovery gate reports it, never delete it
             }
             $rule = self::meta_key_rule($keyRules, $default, $key);
             if (($rule['class'] ?? $default) !== 'authored') {

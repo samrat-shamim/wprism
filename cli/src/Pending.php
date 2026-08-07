@@ -84,6 +84,18 @@ final class Pending {
             $typesStr = $types ? ' (' . implode(',', $types) . ')' : '';
             $parts[] = "{$evidence['entities']} {$noun}{$typesStr}";
         }
+        foreach ([
+            'taxonomies' => 'taxonomies',
+            'owner_candidates' => 'owner',
+            'value_shapes' => 'shapes',
+        ] as $field => $label) {
+            if (is_array($evidence[$field] ?? null) && $evidence[$field]) {
+                $parts[] = $label . '=' . implode(',', $evidence[$field]);
+            }
+        }
+        if (is_string($evidence['reason'] ?? null) && $evidence['reason'] !== '') {
+            $parts[] = 'blocked=' . $evidence['reason'];
+        }
         if (is_array($evidence['journal'] ?? null)) {
             $j = $evidence['journal'];
             $n = $j['n'] ?? 0;

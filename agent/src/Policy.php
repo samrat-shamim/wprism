@@ -67,6 +67,7 @@ final class Policy {
             self::validate_scope_classes($manifest, "manifest '$name'", false);
             self::validate_sub_keys($manifest);
             self::validate_adapter_contract($manifest);
+            self::validate_discovery_contract($manifest);
             $p->manifests[] = $manifest;
         }
         self::validate_no_conflicting_adapter_claims($p->manifests);
@@ -149,6 +150,53 @@ final class Policy {
     /** @return array{rule:?array, source:?string} */
     public function option_rule_details(string $name): array {
         return $this->rule_details('options', $name);
+    }
+
+    /**
+     * Return the manifest namespace that claims discovery responsibility for
+     * an option name. A namespace is deliberately ownership-only: it does
+     * not classify the value. The ordinary exact/pattern rule must still do
+     * that, otherwise Capture/Pending report the row as an unknown.
+     *
+     * @return ?array{owner:string, match:string}
+     */
+    public function option_namespace(string $name): ?array {
+        $matches = [];
+        foreach ($this->manifests as $m) {
+            foreach ($m['option_namespaces'] ?? [] as $decl) {
+                if (preg_match('/' . $decl['match'] . '/', $name)) {
+                    $matches[] = [
+                        'owner' => (string) ($m['name'] ?? '?'),
+                        'match' => (string) $decl['match'],
+                    ];
+                }
+            }
+        }
+        if (count($matches) > 1) {
+            throw new \RuntimeException(
+                "duo: option '$name' is claimed by overlapping namespaces from "
+                . implode(', ', array_map(fn($m) => $m['owner'], $matches))
+                . ' — discovery ownership must not depend on manifest load order'
+            );
+        }
+        return $matches[0] ?? null;
+    }
+
+    /** Classification for a namespace-owned option, with owner agreement. */
+    public function owned_option_rule(string $name): ?array {
+        $owner = $this->option_namespace($name);
+        if ($owner === null) {
+            return null;
+        }
+        $details = $this->option_rule_details($name);
+        if ($details['rule'] !== null && $details['source'] !== 'site.duo.json'
+            && $details['source'] !== $owner['owner']) {
+            throw new \RuntimeException(
+                "duo: option '$name' namespace is owned by '{$owner['owner']}' but its classification comes from "
+                . "'{$details['source']}' — cross-manifest ownership is ambiguous"
+            );
+        }
+        return $details['rule'];
     }
 
     public function post_meta_rule(string $key): ?array {
@@ -959,6 +1007,61 @@ final class Policy {
                         "duo: manifest '$name' declares post_types.$postType.fields.$field.class="
                         . var_export($class, true) . ' but only ' . implode(', ', self::FIELD_CLASSES)
                         . ' is supported for post fields in v1'
+                    );
+                }
+            }
+        }
+    }
+
+    /** Validate the journal-independent discovery vocabulary at load time. */
+    private static function validate_discovery_contract(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        $namespaces = $manifest['option_namespaces'] ?? [];
+        if (!is_array($namespaces)) {
+            throw new \RuntimeException("duo: manifest '$name' option_namespaces must be an array");
+        }
+        foreach ($namespaces as $i => $decl) {
+            $match = is_array($decl) ? ($decl['match'] ?? null) : null;
+            if (!is_string($match) || $match === '' || @preg_match('/' . $match . '/', '') === false) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' option_namespaces[$i].match must be a non-empty valid regex"
+                );
+            }
+        }
+
+        foreach ($manifest['tables'] ?? [] as $table => $decl) {
+            if (($decl['class'] ?? '') !== 'authored_snapshot_meta' || !isset($decl['keyspace'])) {
+                continue;
+            }
+            $keyspace = $decl['keyspace'];
+            $range = is_array($keyspace) ? ($keyspace['version_range'] ?? null) : null;
+            $min = is_array($range) ? ($range['min'] ?? null) : null;
+            $max = is_array($range) ? ($range['max'] ?? null) : null;
+            if (!is_string($min) || $min === '' || !is_string($max) || $max === ''
+                || version_compare($min, $max, '>=')) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' table '$table' keyspace needs version_range {min,max} with min < max"
+                );
+            }
+            $keys = $keyspace['keys'] ?? [];
+            $patterns = $keyspace['patterns'] ?? [];
+            if (!is_array($keys) || !is_array($patterns)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' table '$table' keyspace keys/patterns must be arrays"
+                );
+            }
+            foreach ($keys as $key) {
+                if (!is_string($key) || $key === '') {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' table '$table' keyspace.keys must contain non-empty strings"
+                    );
+                }
+            }
+            foreach ($patterns as $i => $pattern) {
+                $match = is_array($pattern) ? ($pattern['match'] ?? null) : null;
+                if (!is_string($match) || $match === '' || @preg_match('/' . $match . '/', '') === false) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' table '$table' keyspace.patterns[$i].match must be a valid regex"
                     );
                 }
             }
