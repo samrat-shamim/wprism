@@ -514,55 +514,35 @@ DIFF_OUT=$(diff -rq siterepo/r3a1/state siterepo/r3a2/.tmp-final || true)
 echo "$DIFF_OUT"
 
 # TRUE zero-exclusion byte identity -- no exceptions anywhere, including
-# product_variation.title. Task #88 (Policy::field_class()/Canon::
-# post_hash_basis()) closed #72's TIMING-based divergence, proven above
-# (criterion 3: plan stays silent) and again here by construction (both
-# sides had an identical forced self-heal before this diff). Task #123
-# (Canon.php's OrderPreserved mechanism, manifests/woocommerce.json's
-# `_product_attributes` "order_preserving": true) closed the SEPARATE,
-# PERMANENT divergence this section used to carve out with an anagram
-# check: the parent's _product_attributes array order -- which
-# WooCommerce's variation-title generator reads directly -- now survives
-# capture/apply byte-for-byte, so the generated title converges byte-
-# identically too. With both root causes closed, no carve-out is needed
-# for EITHER of them; this round's fixture (pa_size x pa_color, an
-# independent attribute ordering from grind_r1b_shop.sh's own fixture) is
-# exactly the second, different-ordering confirmation #123's own
-# acceptance criteria called for.
-#
-# DUO-3249 (filed, NOT this task's fix): a THIRD, separate, precisely-
-# scoped exception -- options/core.json's default_category. Polylang
-# manages default_category PER LANGUAGE, and DUO-3233's sub_keys
-# propagation (task #121) now completes Polylang's own config on the
-# target, activating that management there too -- default_category may
-# legitimately point at a DIFFERENT (but equally real, equally captured)
-# category term on r3a2 than r3a1 (uncategorized vs uncategorized-de), a
-# genuine environment-coupled value under Polylang once both correct
-# fixes compose, not a byte-identity bug in either one. Scoped to EXACTLY
-# this: core.json may differ, and ONLY in default_category, and ONLY to a
-# value that resolves to a REAL captured category term -- any OTHER file
-# differing, or core.json differing in any OTHER key, or a dangling
-# reference, still fails loudly below exactly like before.
-CORE_JSON_DIFF_LINE="Files siterepo/r3a1/state/options/core.json and siterepo/r3a2/.tmp-final/options/core.json differ"
-DIFF_OUT_MINUS_CORE=$(grep -vF "$CORE_JSON_DIFF_LINE" <<<"$DIFF_OUT" || true)
-[ -z "$DIFF_OUT_MINUS_CORE" ] || fail "unexpected byte differences after an identical forced self-heal on both sides, beyond the known DUO-3249 default_category carve-out (see diff output above) -- with #88 and #123 both closed, the entire tree must be byte-identical except that one scoped exception"
-if grep -qF "$CORE_JSON_DIFF_LINE" <<<"$DIFF_OUT"; then
-  DC_R3A1=$(jq -r '.default_category' siterepo/r3a1/state/options/core.json)
-  DC_R3A2=$(jq -r '.default_category' siterepo/r3a2/.tmp-final/options/core.json)
-  [ "$DC_R3A1" != "$DC_R3A2" ] || fail "core.json differs per diff -rq but default_category is byte-identical ($DC_R3A1) on both sides -- some OTHER key diverged instead, not the known DUO-3249 finding"
-  jq 'del(.default_category)' siterepo/r3a1/state/options/core.json > siterepo/r3a1/.tmp-core1-nodc.json
-  jq 'del(.default_category)' siterepo/r3a2/.tmp-final/options/core.json > siterepo/r3a1/.tmp-core2-nodc.json
-  diff -q siterepo/r3a1/.tmp-core1-nodc.json siterepo/r3a1/.tmp-core2-nodc.json >/dev/null \
-    || fail "core.json diverges in a key OTHER than default_category too (r3a1=$DC_R3A1 vs r3a2=$DC_R3A2 for default_category, but that is not the ONLY divergence) -- not the scoped DUO-3249 carve-out"
-  rm -f siterepo/r3a1/.tmp-core1-nodc.json siterepo/r3a1/.tmp-core2-nodc.json
-  echo "$DC_R3A2" | grep -qE '^\{\{term:[0-9a-f-]{36}\}\}$' || fail "r3a2's divergent default_category ($DC_R3A2) is not a well-formed term token -- not the known DUO-3249 finding"
-  DC_R3A2_UUID=$(echo "$DC_R3A2" | sed -E 's/\{\{term:([0-9a-f-]+)\}\}/\1/')
-  ls siterepo/r3a2/.tmp-final/terms/*/"$DC_R3A2_UUID"--*.json >/dev/null 2>&1 \
-    || fail "r3a2's divergent default_category token ($DC_R3A2) does not resolve to any captured term file -- a dangling reference, not the known real-category DUO-3249 finding"
-  pass "task #88 AND task #123 both CLOSED for real (zero exceptions), and the ONE remaining divergence -- options/core.json's default_category -- is exactly DUO-3249's known, scoped, real-category finding (r3a1=$DC_R3A1, r3a2=$DC_R3A2, both resolve to real captured terms)"
-else
-  pass "task #88 AND task #123 both CLOSED for real, AND this run happened to show TRUE zero-exclusion byte identity including options/core.json's default_category -- DUO-3249's divergence is real but apparently not triggered on every run; either outcome is legitimate, only a DIFFERENT divergence would not be"
-fi
+# product_variation.title AND options/core.json's default_category. Task
+# #88 (Policy::field_class()/Canon::post_hash_basis()) closed #72's
+# TIMING-based divergence, proven above (criterion 3: plan stays silent)
+# and again here by construction (both sides had an identical forced
+# self-heal before this diff). Task #123 (Canon.php's OrderPreserved
+# mechanism, manifests/woocommerce.json's `_product_attributes`
+# "order_preserving": true) closed the SEPARATE, PERMANENT divergence this
+# section used to carve out with an anagram check: the parent's
+# _product_attributes array order -- which WooCommerce's variation-title
+# generator reads directly -- now survives capture/apply byte-for-byte, so
+# the generated title converges byte-identically too. DUO-3249
+# (manifests/polylang.json reclassifying default_category to `derived`
+# once Polylang is pinned, per the owner ruling on that issue) closed the
+# THIRD, separate divergence this section used to carve out: Polylang
+# manages default_category PER LANGUAGE once DUO-3233's sub_keys
+# propagation (task #121) completes its config on the target, so a
+# captured `authored` value from one environment was never actually safe
+# to replay onto another's own per-language default -- excluding it from
+# canonical state entirely (the same treatment core.json's own
+# rewrite_rules already gets) means it simply never appears in EITHER
+# side's captured tree at all, so there is nothing left to carve an
+# exception for. With all three root causes closed, no carve-out is
+# needed for any of them; this round's fixture (pa_size x pa_color, an
+# independent attribute ordering from grind_r1b_shop.sh's own fixture, PLUS
+# the multilingual Polylang setup this script's own name promises) is
+# exactly the confirmation #123's own acceptance criteria called for, now
+# joined by DUO-3249's own live proof on the same run.
+[ -z "$DIFF_OUT" ] || fail "unexpected byte differences after an identical forced self-heal on both sides -- with #88, #123, and DUO-3249 all closed, the entire tree must be byte-identical, zero exceptions (see diff output above)"
+pass "task #88, task #123, AND DUO-3249 all CLOSED for real -- TRUE zero-exclusion byte identity, including product_variation.title and options/core.json's default_category, no carve-outs anywhere"
 [ -e "siterepo/r3a1/state/posts/product_variation" ] && ls siterepo/r3a1/state/posts/product_variation/*duo-tee-*.md >/dev/null 2>&1 \
   || fail "expected product_variation files under siterepo/r3a1/state/posts/product_variation/*duo-tee-*.md, found none -- this assertion proves nothing about #123 if the fixture it depends on is missing"
 rm -rf siterepo/r3a2/.tmp-final

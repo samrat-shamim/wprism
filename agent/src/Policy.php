@@ -180,6 +180,29 @@ final class Policy {
      * that only says "runtime" but not whether site.duo.json or which pinned
      * manifest made that decision is not actionable enough to repair safely.
      *
+     * DUO-3249: a NON-core manifest's own declaration of a name ALSO
+     * declared by the core manifest always outranks core's, regardless of
+     * relative pin order. This is not a general "later pin wins" rule (see
+     * the loop below — among two or more NON-core manifests declaring the
+     * same name, the FIRST one in pin order still wins, completely
+     * unchanged from before this fix; that remaining ambiguity is a
+     * separate, undecided question, DUO-3255, deliberately not touched
+     * here). It specifically encodes DESIGN.md §3.1's own numbered
+     * precedence order — "1. Core schema rules" then "2. Plugin manifests"
+     * — as an actual load-bearing precedence rather than merely descriptive
+     * prose: every shipped site.duo.json pins `core` FIRST (grep-verified,
+     * not assumed), so a plain first-pin-order walk would have let core's
+     * own declaration win over ANY later plugin manifest's deliberate
+     * reclassification of the same option, every single time, silently —
+     * exactly backwards from "layer 2 refines layer 1", and exactly what
+     * left Polylang's per-language `default_category` divergence
+     * undetected until live grind evidence forced the question (DUO-3249).
+     * A plugin manifest reclassifying a core option is therefore always
+     * loud and deliberate by construction (it only ever WINS, never
+     * silently collides) — `Policy::active_reclassifications()` is what
+     * makes it plan-visible too, so "loud" extends to runtime output, not
+     * just load-time precedence.
+     *
      * @return array{rule:?array, source:?string}
      */
     private function rule_details(string $section, string $name): array {
@@ -192,15 +215,25 @@ final class Policy {
                 'source' => 'site.duo.json',
             ];
         }
+        $coreMatch = null;
         foreach ($this->manifests as $m) {
-            if (isset($m[$section][$name])) {
-                return [
-                    'rule' => $section === 'options'
-                        ? self::with_option_autoload($m[$section][$name], $m)
-                        : $m[$section][$name],
-                    'source' => (string) ($m['name'] ?? '?'),
-                ];
+            if (!isset($m[$section][$name])) {
+                continue;
             }
+            $found = [
+                'rule' => $section === 'options'
+                    ? self::with_option_autoload($m[$section][$name], $m)
+                    : $m[$section][$name],
+                'source' => (string) ($m['name'] ?? '?'),
+            ];
+            if ($found['source'] === 'core') {
+                $coreMatch = $found; // keep scanning: a non-core manifest's own declaration still outranks this
+                continue;
+            }
+            return $found;
+        }
+        if ($coreMatch !== null) {
+            return $coreMatch;
         }
         $patternKey = self::PATTERN_KEYS[$section] ?? null;
         if ($patternKey !== null) {
@@ -322,7 +355,25 @@ final class Policy {
         return ['rule' => $rule, 'source' => $source];
     }
 
-    /** Option names classified authored (the capture whitelist). */
+    /**
+     * Option names classified authored (the capture whitelist).
+     *
+     * DUO-3249: the first loop below adds any name ANY pinned manifest
+     * declares `authored`, independent of whether some OTHER manifest
+     * reclassifies that same name to something else — it has no way to
+     * know a later-considered manifest will un-author a name an earlier
+     * one already added, since it never re-consults rule_details()'s own
+     * (now core-yields-to-plugin-aware) resolution. Left uncorrected, a
+     * plugin manifest's own `derived`/`env`/`runtime` reclassification of a
+     * core option (e.g. polylang.json's `default_category` — DUO-3249)
+     * would still end up captured as authored here, silently contradicting
+     * what `Policy::option_rule()` reports for the exact same name. The
+     * final pass below re-resolves every candidate through that single
+     * authoritative precedence algorithm and drops anything it no longer
+     * agrees is authored — correctness over performance (one extra
+     * rule_details() walk per candidate name, a short list, once per
+     * capture/plan/apply invocation, never per-entity).
+     */
     public function authored_options(): array {
         $out = [];
         foreach ($this->manifests as $m) {
@@ -336,6 +387,11 @@ final class Policy {
             if (($r['class'] ?? '') === 'authored') {
                 $out[$name] = self::with_option_autoload($r, $this->site['policy'] ?? []);
             } else {
+                unset($out[$name]);
+            }
+        }
+        foreach (array_keys($out) as $name) {
+            if (($this->option_rule($name)['class'] ?? null) !== 'authored') {
                 unset($out[$name]);
             }
         }
@@ -1283,6 +1339,63 @@ final class Policy {
             }
         }
         ksort($out, SORT_STRING);
+        return $out;
+    }
+
+    /**
+     * DUO-3249: every core-manifest OPTION name where a pinned, NON-core
+     * manifest's own declaration outranks core's per rule_details()'s
+     * core-yields-to-plugin precedence AND actually resolves to a
+     * DIFFERENT class — the loud, plan-visible half of that precedence fix
+     * (owner ruling, issue comment 8e6d4aeb: "Plan emits a note whenever a
+     * reclassification override is active — loud, never silent").
+     * Apply::build_plan() turns each entry into a plain plan warning.
+     *
+     * Deliberately narrow, matching the ruling's own scope: options only
+     * (mirrors env_options()'s identical "options only for v1" cut — no
+     * shipped manifest reclassifies a core post_meta/term_meta/table key
+     * today), and core-vs-PLUGIN-MANIFEST only — a site.duo.json override
+     * of a core option is the operator's own explicit, already-visible
+     * choice (it's sitting in a file they wrote), not a silent manifest-
+     * pinning side effect, so it does not need this same loud treatment
+     * and is excluded here on purpose, not by oversight. This says nothing
+     * about, and does not resolve, the SEPARATE question of two non-core
+     * manifests declaring the same option name (DUO-3255) — that
+     * collision (if it exists in this policy at all) does not surface
+     * here regardless of which of the two manifests rule_details() picks.
+     *
+     * @return list<array{name:string, core_class:?string, active_class:?string, overridden_by:string}>
+     */
+    public function active_reclassifications(): array {
+        $core = null;
+        foreach ($this->manifests as $m) {
+            if (($m['name'] ?? '') === 'core') {
+                $core = $m;
+                break;
+            }
+        }
+        if ($core === null) {
+            return [];
+        }
+        $out = [];
+        foreach ($core['options'] ?? [] as $name => $coreRule) {
+            $winner = $this->option_rule_details($name);
+            $source = $winner['source'] ?? null;
+            if ($source === null || $source === 'core' || $source === 'site.duo.json') {
+                continue;
+            }
+            $activeClass = $winner['rule']['class'] ?? null;
+            $coreClass = $coreRule['class'] ?? null;
+            if ($activeClass === $coreClass) {
+                continue; // same-name declaration in both, but not actually a DIFFERENT classification -- nothing to warn about
+            }
+            $out[] = [
+                'name' => (string) $name,
+                'core_class' => $coreClass,
+                'active_class' => $activeClass,
+                'overridden_by' => $source,
+            ];
+        }
         return $out;
     }
 

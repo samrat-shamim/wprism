@@ -346,6 +346,23 @@ final class Apply {
                     . "this environment — see 'wp duo env-set --name=$name --stdin'";
             }
         }
+
+        // DUO-3249: loud, plan-visible half of Policy::rule_details()'s
+        // core-yields-to-plugin precedence fix — a plain warning naming
+        // every core-manifest option a pinned plugin manifest is actively
+        // reclassifying on THIS site (e.g. polylang.json's own
+        // default_category -> derived). A structural fact about which
+        // manifests are pinned together, not a per-environment condition,
+        // so it belongs in $plan['warnings'] like code_mismatch's own
+        // rendering precedent, never a new ok-flipping bucket — an active
+        // reclassification is correct, intended behavior once the
+        // overriding manifest is pinned, not a problem to refuse promotion
+        // over.
+        foreach ($this->policy->active_reclassifications() as $r) {
+            $this->warnings[] = "reclassified: option '{$r['name']}' is core-classified "
+                . "'{$r['core_class']}' but '{$r['overridden_by']}' (pinned) reclassifies it "
+                . "'{$r['active_class']}' on this site — the plugin's declaration governs";
+        }
         return $plan;
     }
 
