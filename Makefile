@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate
 
 up:
 	$(COMPOSE) up -d
@@ -161,6 +161,17 @@ certify-adversarial-matrix:
 # multiple failed designs it took to get the ninja-forms leg right.
 certify-deletion-matrix:
 	bash sandbox/tests/certify_deletion_matrix.sh
+
+# DUO-3223's own last remaining piece (version-boundary matrix), unblocked
+# by the owner ruling on artifact sourcing (issue comment 0ec1d2e3): installs
+# ACF from a sha256-verified wp.org artifact (never a bare slug, never
+# "latest") at BOTH its manifest-declared version_range boundaries, proving
+# the range is backed by real evidence at its own edges, not just whatever
+# version every other fixture happens to have installed. First real plugin
+# only -- see the script's own header for why, and DUO-3223 for the
+# remaining 6 pinned manifests as their own next slice.
+certify-version-matrix:
+	bash sandbox/tests/certify_version_matrix.sh
 
 # DUO-3213 (atomic capture publication): offline, no docker -- exercises
 # agent/src/Publish.php's capture lock, staging dir, atomic swap, and crash

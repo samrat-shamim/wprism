@@ -1,0 +1,12 @@
+{
+  "advanced-custom-fields": {
+    "6.0.0": {
+      "url": "https://downloads.wordpress.org/plugin/advanced-custom-fields.6.0.0.zip",
+      "sha256": "b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341"
+    },
+    "6.8.7": {
+      "url": "https://downloads.wordpress.org/plugin/advanced-custom-fields.6.8.7.zip",
+      "sha256": "f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2"
+    }
+  }
+}

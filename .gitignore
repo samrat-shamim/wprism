@@ -20,3 +20,12 @@ state.capture.lock
 # load-bearing copy of this ignore rule is the template, which becomes
 # every managed site-repo's OWN .gitignore.
 .duo-env-values.json
+
+# DUO-3223 (version-boundary matrix / artifact-sourcing ruling, issue
+# comment 0ec1d2e3): the content-addressed cache sandbox/bin/fetch-
+# artifact.sh downloads pinned plugin ZIPs into. sandbox/conformance/
+# artifacts.lock.json (the pins themselves — {slug, version, url, sha256})
+# IS committed; the ZIPs it verifies are exactly the kind of large,
+# regenerable-from-a-pinned-digest binary blob git should never carry.
+sandbox/conformance/artifacts-cache/*
+!sandbox/conformance/artifacts-cache/.gitkeep

@@ -1,0 +1,27 @@
+# -----------------------------------------------------------------------------
+# Override: mount a shared, gitignored, content-addressed artifact cache into
+# cli1/cli2 (DUO-3223's version-boundary matrix / the owner ruling on
+# artifact sourcing, issue comment 0ec1d2e3). Layered in via `docker compose
+# -f pair.yml -f pair.artifacts.yml ...`.
+#
+# Deliberately NOT per-pair (unlike pair.yml's own ./siterepo/${DUO_PAIR}1
+# mounts): sandbox/conformance/artifacts-cache/ is one shared directory
+# across every pair and every run, keyed by content hash inside
+# sandbox/bin/fetch-artifact.sh — a plugin ZIP fetched once for pair A stays
+# cached for pair B, and survives `pair.sh reset`, which only touches
+# siterepo/ and the databases, never this mount's source directory. This is
+# what makes the cache actually save repeat downloads instead of re-fetching
+# every run the way a per-pair mount under siterepo/ would (siterepo/<name>1
+# is wiped by reset_env_state()-style scripts and pair.sh reset alike).
+#
+# Read-write, not :ro: fetch-artifact.sh runs INSIDE a cli container (this
+# host's own shell has no outbound network access, confirmed empirically —
+# the containers do) and writes the verified ZIP into this mount itself.
+# -----------------------------------------------------------------------------
+services:
+  cli1:
+    volumes:
+      - ./conformance/artifacts-cache:/artifacts-cache
+  cli2:
+    volumes:
+      - ./conformance/artifacts-cache:/artifacts-cache
