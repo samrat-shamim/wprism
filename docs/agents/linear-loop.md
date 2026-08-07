@@ -272,3 +272,19 @@ debugging time. Follow them; extend this list when you pay for a new one.
   (`python3 helper.py spec.json`). And always **re-fetch what actually
   posted** — the write succeeding says nothing about what the shell did to
   the bytes first.
+- **Source-read any test script before running it** — even "just a regress
+  script from main." A script may hardcode ANOTHER actor's pair name,
+  fixed ports, or an unconditional `pair.sh reset` (observed live: an
+  unread script reset a foreign pair — both DBs dropped and its host
+  siterepo trees rm -rf'd; near-zero real loss only because the trees were
+  the script's own regenerable fixtures and the issue had already merged;
+  filed as DUO-3252). `reset` destroys more than containers. The mandate
+  is per-run, not per-repo-trust: read the resource stanza (PAIR/ports/
+  reset/up/destroy lines) of anything you invoke, every time it changed.
+- **Close-gate scope notes go in the issue DESCRIPTION, not comments**
+  (protocol step 6). A comment-only scope note scrolls away and the
+  description keeps claiming the original full scope — the next claimer
+  reads a lie (observed live: two consecutive Backlog returns of the same
+  issue carried evidence-complete comments and an untouched description).
+  At every partial-scope close/return: append `## Scope note` to the
+  description itself stating delivered vs deferred, then comment.
