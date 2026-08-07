@@ -154,15 +154,12 @@ jq '.tables.duo_discovery_meta.keyspace.keys += ["upgrade_added_setting"]' \
   "$HOST_REPO/manifests/discovery-fixture.json" > "$HOST_REPO/manifests/discovery-fixture.json.tmp"
 mv "$HOST_REPO/manifests/discovery-fixture.json.tmp" "$HOST_REPO/manifests/discovery-fixture.json"
 
-wp1 user meta update admin duo_discovery_authored_user 'authored-but-unrepresentable' >/dev/null
+wp1 user meta update admin duo_discovery_authored_user 'authored-and-represented' >/dev/null
 PENDING_USER=$(wp1 duo pending --repo="$REPO" --format=json 2>/dev/null | tail -1)
 printf '%s\n' "$PENDING_USER" | jq -e '
-  any(.[]; .section == "user_meta" and .key == "duo_discovery_authored_user"
-    and .evidence.entities == 1
-    and .evidence.users == ["admin"]
-    and (.evidence.reason | contains("DUO-3268")))
-' >/dev/null || fail "pending lacks authored user-meta refusal evidence: $PENDING_USER"
-pass "pending names authored user meta, owning login, and DUO-3268 refusal reason"
+  all(.[]; .section != "user_meta" or .key != "duo_discovery_authored_user")
+' >/dev/null || fail "representable authored user meta incorrectly remained pending: $PENDING_USER"
+pass "representable authored user meta is absent from the discovery queue"
 
 set +e
 BLOCKED=$(wp1 duo capture --repo="$REPO" 2>&1)
@@ -173,18 +170,24 @@ printf '%s\n' "$BLOCKED" | grep -q 'options:duo_discovery_unknown' \
   || fail "capture did not name the pre-existing unknown option: $BLOCKED"
 printf '%s\n' "$BLOCKED" | grep -q 'term_meta:duo_discovery_authored_term' \
   || fail "capture did not explicitly block authored term meta: $BLOCKED"
-printf '%s\n' "$BLOCKED" | grep -q 'user_meta:duo_discovery_authored_user.*DUO-3268' \
-  || fail "capture did not explicitly block authored user meta and name DUO-3268: $BLOCKED"
-pass "capture fails closed on pre-agent options and unrepresentable term/user meta"
+if printf '%s\n' "$BLOCKED" | grep -q 'user_meta:duo_discovery_authored_user'; then
+  fail "representable authored user meta incorrectly joined the aggregate capture gate: $BLOCKED"
+fi
+pass "capture fails closed on pre-agent options and unrepresentable term meta only"
 
 wp1 duo classify --repo="$REPO" \
-  --set='options:duo_discovery_unknown=runtime;term_meta:duo_discovery_unknown_term=runtime;term_meta:duo_discovery_authored_term=runtime;user_meta:duo_discovery_authored_user=runtime' >/dev/null
+  --set='options:duo_discovery_unknown=runtime;term_meta:duo_discovery_unknown_term=runtime;term_meta:duo_discovery_authored_term=runtime' >/dev/null
 
 wp1 duo capture --repo="$REPO" >/dev/null
 jq -e '.records.duo_discovery_dynamic_17.value == "captured-before-observation"
   and (.records | has("duo_discovery_unknown") == false)' "$HOST_REPO/state/options/core.json" >/dev/null \
   || fail "dynamic option family was not enumerated/captured correctly"
 pass "authored dynamic option families are captured by declarative enumeration, not exact names"
+
+USER_META_FILE=$(find "$HOST_REPO/state/user-meta" -type f -name '*.json' -print -quit)
+jq -e '.login == "admin" and .meta.duo_discovery_authored_user == "authored-and-represented"' \
+  "$USER_META_FILE" >/dev/null || fail "authored user meta did not use the login-keyed sidecar"
+pass "authored user meta is represented by an exact-login sidecar"
 
 PENDING_AFTER=$(wp1 duo pending --repo="$REPO" --format=json 2>/dev/null | tail -1)
 printf '%s\n' "$PENDING_AFTER" | jq -e '[.[] | select(

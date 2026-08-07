@@ -20,6 +20,9 @@ define('DUO_SPEC_VERSION', 2);
 require_once "$root/agent/src/Uuid.php";
 require_once "$root/agent/src/Canon.php";
 require_once "$root/agent/src/OptionState.php";
+require_once "$root/agent/src/UserMetaState.php";
+require_once "$root/agent/src/Secrets.php";
+require_once "$root/agent/src/PersonalData.php";
 require_once "$root/agent/src/Policy.php";
 require_once "$root/agent/src/Snapshot.php";
 require_once "$root/agent/src/Deletion.php";
@@ -39,6 +42,7 @@ use Duo\Policy;
 use Duo\RepositoryCompilationException;
 use Duo\RepositoryCompiler;
 use Duo\RepositoryAuthorizationException;
+use Duo\UserMetaState;
 
 $tmp = sys_get_temp_dir() . '/duo-3208-' . bin2hex(random_bytes(6));
 mkdir($tmp, 0777, true);
@@ -367,6 +371,51 @@ if ($frozen->artifact_hash() !== $compiled->artifact_hash()) fail('loading compi
 if ($frozen->media_content("{$m['mediaHash']}.txt") !== "duo-compiler-media\n") fail('compiled input reread mutable media');
 needs(failure($mutable), 'conflict_marker');
 ok('compiled input is immutable: later state/media edits affect recompilation, never the artifact consumer');
+
+$userMeta = "$tmp/user-meta"; build_valid($userMeta);
+$sitePath = "$userMeta/site.duo.json";
+$site = Canon::decode(file_get_contents($sitePath));
+$site['policy']['user_meta']['profile_link'] = [
+    'class' => 'authored', 'ref' => 'post', 'missing_user' => 'block',
+];
+put($sitePath, Canon::encode($site));
+$login = 'Exact.Editor+Agency';
+$userMetaPath = "$userMeta/state/" . UserMetaState::path($login);
+put($userMetaPath, Canon::encode(UserMetaState::document($login, [
+    'profile_link' => '{{post:' . uuid(2) . '}}',
+])));
+$compiledUserMeta = compile_repo($userMeta);
+$userMetaKey = UserMetaState::key($login);
+if (($compiledUserMeta->tree()[$userMetaKey]['type'] ?? null) !== 'user-meta') {
+    fail('login-keyed user-meta sidecar did not compile under its non-UUID canonical state key');
+}
+ok('login-keyed user-meta sidecar compiles without minting a user UUID');
+
+$document = Canon::decode(file_get_contents($userMetaPath));
+$document['meta']['profile_link'] = 2;
+put($userMetaPath, Canon::encode($document));
+$p = failure($userMeta); needs($p, 'nonportable_reference');
+ok('user-meta declared refs reject raw target ids offline');
+
+$document['meta']['profile_link'] = '{{post:' . uuid(2) . '}}';
+$document['login'] = 'Case-Diverged';
+put($userMetaPath, Canon::encode($document));
+$p = failure($userMeta); needs($p, 'schema_content_mismatch');
+ok('user-meta filename is bound to the exact login and case');
+
+$pii = "$tmp/user-meta-pii"; build_valid($pii);
+$sitePath = "$pii/site.duo.json";
+$site = Canon::decode(file_get_contents($sitePath));
+$site['policy']['user_meta']['contact_email'] = ['class' => 'authored'];
+put($sitePath, Canon::encode($site));
+put("$pii/state/" . UserMetaState::path('editor'), Canon::encode(
+    UserMetaState::document('editor', ['contact_email' => 'editor@example.test'])
+));
+$auth = authorization_failure($pii);
+if (!in_array('repository_user_meta_pii_not_allowed', array_column($auth['diagnostics'], 'code'), true)) {
+    fail('hand-authored PII bypassed user-meta repository authorization');
+}
+ok('repository authorization independently rejects unapproved PII in user-meta sidecars');
 
 $ctrl = "$tmp/decouple-control"; build_valid($ctrl);
 $viaCompile = compile_repo($ctrl);

@@ -55,6 +55,7 @@ final class RepositoryAuthorization {
         'description', 'attr_title', 'target', 'classes', 'xfn', 'meta',
     ];
     private const TABLE_FIELDS = ['columns', 'meta', 'table', 'uuid'];
+    private const USER_META_FIELDS = ['login', 'meta'];
     private const MANAGED_OPTIONS = ['active_plugins', 'template', 'stylesheet'];
 
     /**
@@ -142,6 +143,9 @@ final class RepositoryAuthorization {
                     break;
                 case 'options':
                     self::authorize_options($policy, (string) $uuid, $entity, $diagnostics);
+                    break;
+                case 'user-meta':
+                    self::authorize_user_meta($policy, (string) $uuid, $entity, $diagnostics);
                     break;
                 default:
                     self::authorize_table($policy, (string) $uuid, $entity, $diagnostics);
@@ -322,6 +326,42 @@ final class RepositoryAuthorization {
             $managed = $class === 'managed' && in_array($name, self::MANAGED_OPTIONS, true);
             if ($class !== 'authored' && !$managed) {
                 self::finding($out, 'repository_field_not_authored', $entity['path'], $uuid, 'option', (string) $name, $class, $details['source']);
+            }
+        }
+    }
+
+    private static function authorize_user_meta(
+        Policy $policy,
+        string $stateKey,
+        array $entity,
+        array &$out
+    ): void {
+        $front = $entity['data'] ?? Canon::decode($entity['content']);
+        $path = (string) $entity['path'];
+        self::unexpected_fields($front, self::USER_META_FIELDS, $path, $stateKey, 'user_meta_field', $out);
+        $meta = (array) ($front['meta'] ?? []);
+        foreach ($meta as $key => $value) {
+            $details = $policy->meta_rule_details_for_user((string) $key, $meta);
+            $rule = $details['rule'] ?? [];
+            $class = $rule['class'] ?? 'unclassified';
+            if ($class !== 'authored') {
+                self::finding(
+                    $out, 'repository_field_not_authored', $path, $stateKey,
+                    'user_meta', (string) $key, $class, $details['source']
+                );
+                continue;
+            }
+            if (empty($rule['allow_secret']) && Secrets::hard_match_deep($value) !== null) {
+                self::finding(
+                    $out, 'repository_user_meta_secret_not_allowed', $path, $stateKey,
+                    'user_meta', (string) $key, 'secret', $details['source']
+                );
+            }
+            if (empty($rule['allow_pii']) && PersonalData::match_deep((string) $key, $value) !== null) {
+                self::finding(
+                    $out, 'repository_user_meta_pii_not_allowed', $path, $stateKey,
+                    'user_meta', (string) $key, 'pii', $details['source']
+                );
             }
         }
     }
