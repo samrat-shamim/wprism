@@ -169,9 +169,15 @@ import_nf_template() {
   nf_import_step_php "siterepo/$env/.tmp-nf-import-step.php"
   for step in 1 2 3 4 5 6; do
     out=$($COMPOSE run --rm -T -e "NF_TEMPLATE_PATH=/var/www/html/wp-content/plugins/ninja-forms/includes/Templates/$template" "cli-$env" wp eval-file "$tmp" 2>&1) || true
-    if echo "$out" | grep -q '"batch_complete":true'; then
+    # Herestrings, not pipes -- DUO-3267's own SIGPIPE-race finding (see the
+    # render-check section below) applies to any `echo "$VAR" | grep` shape
+    # under this script's `set -o pipefail`, not just the two checks that
+    # happened to surface it; swept the whole file rather than leaving the
+    # same class of bug in place elsewhere on the assumption it's "probably
+    # fine" for a smaller variable.
+    if grep -q '"batch_complete":true' <<<"$out"; then
       rm -f "siterepo/$env/.tmp-nf-import-step.php"
-      echo "$out" | grep -o '"form_id":[0-9]*' | grep -o '[0-9]*'
+      grep -o '"form_id":[0-9]*' <<<"$out" | grep -o '[0-9]*'
       return 0
     fi
   done
@@ -389,13 +395,13 @@ echo "$PLAN_TXT"
 # independently confirmed live for THIS fixture, and it isn't what this
 # issue's own acceptance criteria turn on. --adopt-by-slug handles either
 # outcome (collisions to adopt, or none to adopt) identically.
-echo "$PLAN_TXT" | grep -q 'COLLISION' \
+grep -q 'COLLISION' <<<"$PLAN_TXT" \
   && echo "(informational: installer-created collisions present, as expected by analogy with grind_r3b_events.sh)" \
   || echo "(informational: no collisions this run -- not a failure, just noting the plan shape differed from the r3b precedent)"
 REV=$($GIT_2 rev-parse HEAD)
 APPLY_OUT=$(wp_2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV")
 echo "$APPLY_OUT"
-echo "$APPLY_OUT" | grep -qi 'canary clean' || fail "apply canary not clean"
+grep -qi 'canary clean' <<<"$APPLY_OUT" || fail "apply canary not clean"
 pass "deploy + apply succeeded on r1a2 (canary clean)"
 
 say "DUO-3267/DUO-3282 rebuilder-fired probe -- immediately after apply, before any fetch. The rebuilder command itself is independently proven correct (team-lead ran it verbatim via the ordinary wp-cli shell path: count 0->1, zero error output) and the manifest declaration is independently proven to parse/aggregate correctly (offline Policy::rebuilders() check, no WordPress needed). The ONLY layer left unverified is whether Apply::rebuild()'s own WP_CLI::runcommand() launch actually invokes it during a real apply -- exactly where DUO-3282's stdout/stderr-swallowing gap hides evidence. A non-zero count here closes that question for good; zero is now unambiguous evidence of a runcommand launch-layer failure, not a render-mystery artifact -- the render mystery is independently resolved by the byte-truncation-window fix below, and a cold render with zero nf3_upgrades rows has already been proven to work correctly, so this probe is about the manifest declaration's own integrity, not the render."
@@ -415,7 +421,7 @@ say "DUO-3267's actual finding: the Careers page's Ninja Forms formID now round-
 NF_JOB_ID_B2=$(wp_2 db query "SELECT id FROM wp_nf3_forms WHERE title='Job Application'" --skip-column-names)
 [ -n "$NF_JOB_ID_B2" ] && [ "$NF_JOB_ID_B2" -gt 0 ] 2>/dev/null || fail "expected the Job Application form to exist on r1a2 with its own local id (nf3_* is now in scope) — got: '$NF_JOB_ID_B2'"
 CAREERS_CONTENT_B2=$(wp_2 post get "$(wp_2 post list --post_type=page --name=careers --field=ID)" --field=post_content)
-echo "$CAREERS_CONTENT_B2" | grep -q "\"formID\":$NF_JOB_ID_B2" || fail "expected the Careers page block to carry r1a2's OWN local form id ($NF_JOB_ID_B2), got: $CAREERS_CONTENT_B2"
+grep -q "\"formID\":$NF_JOB_ID_B2" <<<"$CAREERS_CONTENT_B2" || fail "expected the Careers page block to carry r1a2's OWN local form id ($NF_JOB_ID_B2), got: $CAREERS_CONTENT_B2"
 [ "$NF_JOB_ID_B2" != "$NF_JOB_ID" ] \
   && pass "formID correctly re-bound to r1a2's own distinct local id ($NF_JOB_ID -> $NF_JOB_ID_B2) -- not a coincidental match, not the raw source id leaking across environments" \
   || echo "note: r1a2's local id happened to equal r1a1's this run (not asserted either way -- see description_refs precedent elsewhere in this suite)"
@@ -450,10 +456,32 @@ say "render checks (buffered curl — never curl | grep under pipefail) + negati
 # is invisible there too -- exactly why every prior theory (BSD grep, NF
 # lazy-warm caching, required-updates suppression) chased a symptom this
 # one number would have resolved directly.
+# DUO-3267 round 5->6 (team-lead's SIGPIPE-race diagnosis): round 5 proved
+# the fetch itself full-size and byte-identical to a healthy page (133555
+# bytes, floor 130000) with the content grep STILL failing -- truncation is
+# dead. `echo "$VAR" | grep -q PATTERN` under this script's own
+# `set -o pipefail` is the culprit: the first nf-form/ninja-forms match sits
+# at byte 29,436, inside the pipe's first ~64KB buffer fill, so `grep -q`
+# can match and exit while `echo` still has ~69KB queued to write -- echo
+# dies by SIGPIPE (141), and pipefail reports the PIPELINE as 141 even
+# though grep's own exit status was 0 (it found the match). A genuine race,
+# not deterministic: whether echo gets killed depends on scheduling between
+# grep's early-exit-on-match and echo's own write completion, which is why
+# standalone re-probes (both team-lead's and this file's own history)
+# consistently passed while the script itself failed four-for-four --
+# Contact's own check never tripped it because wpcf7's first match sits
+# early in a much smaller (~43KB) body, well clear of the race window.
+# Fix: herestrings (`<<<`) instead of pipes for every content/host-leak
+# grep on a large buffered variable in this file -- bash writes a
+# herestring's content to its own fd before the reader ever starts, so
+# there is no live producer/consumer timing for grep's early exit to race
+# against. Falsifiable by construction: if this still fails at full size,
+# the SIGPIPE theory is wrong and it's a genuinely new fact, not another
+# guess.
 CONTACT_HTML=$(curl -s "$R1A2/contact/")
 [ "${#CONTACT_HTML}" -gt 20000 ] || fail "contact fetch truncated: ${#CONTACT_HTML} bytes"
-echo "$CONTACT_HTML" | grep -qi "wpcf7" || fail "CF7's own form markup did not render on r1a2's Contact page"
-echo "$CONTACT_HTML" | grep -q "localhost:8814" && fail "host:port leak: r1a1's port appears on r1a2's Contact page"
+grep -qi "wpcf7" <<<"$CONTACT_HTML" || fail "CF7's own form markup did not render on r1a2's Contact page (${#CONTACT_HTML} bytes)"
+grep -q "localhost:8814" <<<"$CONTACT_HTML" && fail "host:port leak: r1a1's port appears on r1a2's Contact page"
 pass "Contact page: CF7's shortcode-based form renders correctly on r1a2, no host leak (${#CONTACT_HTML} bytes, not truncated)"
 
 # Careers floor raised to 130000 (healthy is ~133.5K; 20000 was meaningless
@@ -471,12 +499,12 @@ if [ "${#CAREERS_HTML}" -lt "$CAREERS_FLOOR" ]; then
   sleep 2
   CAREERS_HTML2=$(curl -s "$R1A2/careers/")
   [ "${#CAREERS_HTML2}" -ge "$CAREERS_FLOOR" ] || fail "careers fetch truncated on BOTH attempts: #1=${#CAREERS_HTML} bytes, #2=${#CAREERS_HTML2} bytes (floor $CAREERS_FLOOR)"
-  echo "$CAREERS_HTML2" | grep -qiE "nf-form|ninja-forms" || fail "Ninja Forms block markup did not render on r1a2's Careers page even on retry (fetch #1=${#CAREERS_HTML} bytes, fetch #2=${#CAREERS_HTML2} bytes)"
-  echo "$CAREERS_HTML2" | grep -q "localhost:8814" && fail "host:port leak: r1a1's port appears on r1a2's Careers page (retry fetch)"
+  grep -qiE "nf-form|ninja-forms" <<<"$CAREERS_HTML2" || fail "Ninja Forms block markup did not render on r1a2's Careers page even on retry (fetch #1=${#CAREERS_HTML} bytes, fetch #2=${#CAREERS_HTML2} bytes)"
+  grep -q "localhost:8814" <<<"$CAREERS_HTML2" && fail "host:port leak: r1a1's port appears on r1a2's Careers page (retry fetch)"
   pass "Careers page: Ninja Forms block renders using r1a2's own re-bound formID, no host leak -- but only on the SECOND fetch (#1=${#CAREERS_HTML} bytes, #2=${#CAREERS_HTML2} bytes) -- the warm-up effect is directly evidenced here, not inferred"
 else
-  echo "$CAREERS_HTML" | grep -qiE "nf-form|ninja-forms" || fail "Ninja Forms block markup did not render on r1a2's Careers page despite a full-size fetch (${#CAREERS_HTML} bytes, floor $CAREERS_FLOOR) -- not a truncation; a genuinely new fact"
-  echo "$CAREERS_HTML" | grep -q "localhost:8814" && fail "host:port leak: r1a1's port appears on r1a2's Careers page"
+  grep -qiE "nf-form|ninja-forms" <<<"$CAREERS_HTML" || fail "Ninja Forms block markup did not render on r1a2's Careers page despite a full-size fetch (${#CAREERS_HTML} bytes, floor $CAREERS_FLOOR) -- not a truncation; a genuinely new fact"
+  grep -q "localhost:8814" <<<"$CAREERS_HTML" && fail "host:port leak: r1a1's port appears on r1a2's Careers page"
   pass "Careers page: Ninja Forms block renders using r1a2's own re-bound formID, no host leak (${#CAREERS_HTML} bytes, not truncated, first fetch)"
 fi
 
