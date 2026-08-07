@@ -112,7 +112,7 @@ cat > siterepo/fx1/site.duo.json <<'EOF'
     "post_types": ["post", "page", "attachment"],
     "taxonomies": ["category", "post_tag", "language", "term_language", "term_translations", "post_translations"]
   },
-  "spec_version": 0
+  "spec_version": 1
 }
 EOF
 printf '.tmp*\n' > siterepo/fx1/.gitignore

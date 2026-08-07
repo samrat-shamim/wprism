@@ -2,8 +2,8 @@
 # Spike D — WooCommerce authored round-trip + referential delete guard:
 #   a product catalog (meta/terms/media refs, string/csv cast variants) round-
 #   trips A -> B byte-for-byte; runtime meta (_stock) is never reconciled; a
-#   manifest delete_guard blocks removing a product an order references until
-#   explicitly forced, then applies loudly. Coupons section: a product+
+#   manifest deletion capability blocks removing a product an order references
+#   until explicitly forced, then applies loudly. Coupons section: a product+
 #   category-restricted percent coupon and an expiring free-shipping
 #   fixed_cart coupon round-trip their ref/cast fields (incl. exclude_
 #   variants) A -> B byte-for-byte; a redemption's usage_count/_used_by stay
@@ -46,7 +46,7 @@ cat > siterepo/a/site.duo.json <<'EOF'
     "post_types": ["post", "page", "attachment", "product", "shop_coupon"],
     "taxonomies": ["category", "post_tag", "product_cat", "product_tag", "product_type"]
   },
-  "spec_version": 0
+  "spec_version": 1
 }
 EOF
 $GIT_A add -A && $GIT_A commit -qm "policy: manage the WooCommerce catalog" && $GIT_A push -q origin main
@@ -215,17 +215,17 @@ echo "$PLAN_TEXT"
 echo "$PLAN_TEXT" | grep -q '\[BLOCKED:' || fail "plan did not surface the referential guard"
 pass "plan blocks the delete (order references this product)"
 
-say "apply --with-deletes must fail loudly without --force-delete-referenced"
+say "apply with the explicit drift override must still fail without --force-delete-referenced"
 set +e
-APPLY_ERR=$(wp_b duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1)
+APPLY_ERR=$(wp_b duo apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin 2>&1)
 APPLY_RC=$?
 set -e
 [ "$APPLY_RC" -ne 0 ] || fail "apply succeeded despite the referential guard"
 echo "$APPLY_ERR" | grep -qi 'referential guard' || fail "failure did not mention the referential guard"
 pass "apply refused the guarded delete"
 
-say "apply --force-delete-referenced must succeed with a FORCED warning"
-FORCE_OUT=$(wp_b duo apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin 2>&1)
+say "apply with both explicit overrides must succeed with loud FORCED warnings"
+FORCE_OUT=$(wp_b duo apply --repo=/siterepo --with-deletes --force-theirs --force-delete-referenced --default-author=admin 2>&1)
 echo "$FORCE_OUT"
 echo "$FORCE_OUT" | grep -qi 'FORCED' || fail "no FORCED warning printed"
 pass "forced delete applied with a loud warning"

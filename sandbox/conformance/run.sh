@@ -259,7 +259,7 @@ git init --bare -b main "$ORIGIN" >/dev/null
 echo "$ENTRY" | jq '{
   manifests: .pin,
   policy: {options: {}, post_meta: {}, post_types: .post_types, taxonomies: .taxonomies},
-  spec_version: 0
+  spec_version: 1
 }' > "$R1"/site.duo.json
 printf '.tmp*\n' > "$R1"/.gitignore
 git -C "$R1" init -q -b main

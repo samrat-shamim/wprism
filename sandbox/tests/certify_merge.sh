@@ -142,7 +142,7 @@ cat > siterepo/mergecert1/site.duo.json <<'EOF'
     "post_types": ["post", "page", "attachment"],
     "taxonomies": ["category"]
   },
-  "spec_version": 0
+  "spec_version": 1
 }
 EOF
 printf '.tmp*\n' > siterepo/mergecert1/.gitignore

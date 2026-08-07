@@ -119,7 +119,7 @@ cat > siterepo/r3b1/site.duo.json <<'EOF'
     "post_types": ["post", "page", "attachment", "tribe_events", "tribe_venue", "tribe_organizer"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 0
+  "spec_version": 1
 }
 EOF
 printf '.tmp*\n' > siterepo/r3b1/.gitignore

@@ -31,7 +31,7 @@ jq -n '{
     post_types: ["post", "page", "attachment"],
     taxonomies: ["category", "post_tag"]
   },
-  spec_version: 0
+  spec_version: 1
 }' > "$HOST1/site.duo.json"
 
 wp1 duo capture --repo="$REPO" --format=json >/dev/null

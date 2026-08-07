@@ -92,6 +92,7 @@ final class Apply {
         $plan = [
             'create' => [], 'update' => [], 'unchanged' => [], 'drift' => [],
             'conflict' => [], 'adopt' => [], 'collision' => [], 'delete' => [],
+            'delete_conflict' => [], 'deleted' => [],
             'code_mismatch' => [], 'code_drift' => [], 'incomplete_apply' => [],
         ];
         $collisionCache = [];
@@ -133,34 +134,88 @@ final class Apply {
             }
             $plan['create'][] = $row;
         }
-        global $wpdb;
-        $guards = $this->policy->delete_guards();
-        foreach ($base as $uuid => $b) {
-            if (isset($tree[$uuid])) {
+        // Absence is not deletion authority. Only a compiled, versioned
+        // tombstone can enter one of the deletion buckets below. Its
+        // expected_hash is the three-way base that capture observed before
+        // removing the live file; this makes delete-vs-edit a first-class
+        // conflict instead of letting an omitted file erase target data.
+        $deletionCaps = [];
+        foreach ($compiled->deletions() as $uuid => $d) {
+            $data = (array) $d['data'];
+            $kind = (string) $data['kind'];
+            $subtype = (string) $data['type'];
+            $entityType = $kind === 'table' ? $subtype : $kind;
+            $expected = (string) $data['expected_hash'];
+            $receipt = (string) $d['hash'];
+            $envE = $env[$uuid] ?? null;
+            $baseE = $base[$uuid] ?? null;
+            $row = [
+                'uuid' => $uuid,
+                'type' => $entityType,
+                'deletion_kind' => $kind,
+                'deletion_type' => $subtype,
+                'path' => (string) $d['path'],
+                'expected_hash' => $expected,
+                'receipt_hash' => $receipt,
+            ];
+            $deletionCaps[$uuid] = Deletion::capability($this->policy, $kind, $subtype);
+
+            if ($envE === null) {
+                $plan['deleted'][] = $row;
                 continue;
             }
-            $row = ['uuid' => $uuid, 'type' => $b['entity_type']];
-            if ($b['entity_type'] === 'post' && $guards) {
-                $localId = Ledger::id_for($uuid, Ledger::KIND_POST);
-                if ($localId !== null) {
-                    $ptype = (string) $wpdb->get_var($wpdb->prepare(
-                        "SELECT post_type FROM {$wpdb->posts} WHERE ID = %d", $localId
-                    ));
-                    $row['post_type'] = $ptype;
-                    foreach ($guards["post:$ptype"] ?? [] as $g) {
-                        $refs = $this->count_guard_refs($g, $localId);
-                        if ($refs === null) {
-                            $this->warnings[] = "delete guard table '{$g['table']}' not present; guard skipped for $uuid";
-                            continue;
-                        }
-                        if ($refs > 0) {
-                            $row['blocked'] = ($g['reason'] ?? "referenced by {$g['table']}.{$g['column']}") . " — $refs row(s)";
-                            break;
-                        }
-                    }
-                }
+            if ($baseE === null) {
+                $plan['delete_conflict'][] = $row + [
+                    'reason' => 'target entity exists but has no last-synced base',
+                ];
+                continue;
+            }
+            if (($baseE['entity_type'] ?? '') === 'deletion') {
+                $plan['delete_conflict'][] = $row + [
+                    'reason' => 'target entity was recreated after this deletion intent was applied',
+                ];
+                continue;
+            }
+            if (!hash_equals($expected, (string) ($baseE['content_hash'] ?? ''))) {
+                $plan['delete_conflict'][] = $row + [
+                    'reason' => 'tombstone expected hash does not match the target last-synced base',
+                ];
+                continue;
+            }
+            if (!hash_equals($expected, (string) $envE['hash'])) {
+                $plan['delete_conflict'][] = $row + [
+                    'reason' => 'target entity changed locally since the tombstone base',
+                ];
+                continue;
             }
             $plan['delete'][] = $row;
+        }
+
+        // Runtime reverse references are target facts, so check them only
+        // after classifying every tombstone. A guard may exclude authored
+        // child rows which are themselves safe DELETE candidates in this
+        // same revision; conflicted children are deliberately not excluded.
+        $deleteUuids = array_fill_keys(array_column($plan['delete'], 'uuid'), true);
+        if (!empty($opts['force_theirs'])) {
+            $deleteUuids += array_fill_keys(array_column($plan['delete_conflict'], 'uuid'), true);
+        }
+        foreach (['delete', 'delete_conflict'] as $bucket) {
+            foreach ($plan[$bucket] as &$row) {
+                $blocks = [];
+                foreach ($deletionCaps[$row['uuid']]['guards'] ?? [] as $guard) {
+                    $result = $this->count_guard_refs($guard, $row['uuid'], $deleteUuids, $compiled->deletions());
+                    if ($result['error'] !== null) {
+                        $blocks[] = $result['error'];
+                    } elseif ($result['count'] > 0) {
+                        $blocks[] = ($guard['reason'] ?? "referenced by {$guard['table']}.{$guard['column']}")
+                            . " — {$result['count']} row(s)";
+                    }
+                }
+                if ($blocks) {
+                    $row['blocked'] = implode('; ', $blocks);
+                }
+            }
+            unset($row);
         }
 
         // docs/proposals/code-half.md §3.2: the cross-partition invariant's
@@ -253,17 +308,87 @@ final class Apply {
         return 1;
     }
 
-    /** @return ?int row count, or null when the guard table doesn't exist */
-    private function count_guard_refs(array $guard, int $localId): ?int {
+    /** Delete custom-table children before their declared parents. */
+    private function deletion_rank(array $row): int {
+        if (($row['deletion_kind'] ?? '') === 'table') {
+            return 100 + Snapshot::phase2_rank($this->policy, (string) $row['deletion_type']);
+        }
+        return match ($row['deletion_kind'] ?? '') {
+            'post' => 30,
+            'menu' => 20,
+            'term' => 10,
+            default => 0,
+        };
+    }
+
+    /** @return array{count:int,error:?string} */
+    private function count_guard_refs(
+        array $guard,
+        string $targetUuid,
+        array $deleteUuids,
+        array $deletions
+    ): array {
         global $wpdb;
         $table = $wpdb->prefix . preg_replace('/[^A-Za-z0-9_]/', '', $guard['table']);
         $column = preg_replace('/[^A-Za-z0-9_]/', '', $guard['column']);
         if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table))) {
-            return null;
+            return ['count' => 0, 'error' => "required guard table '{$guard['table']}' is absent"];
         }
-        return (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM `$table` WHERE `$column` = %d", $localId
-        ));
+        $localId = Ledger::id_for($targetUuid, (string) $guard['id_kind']);
+        if ($localId === null) {
+            return [
+                'count' => 0,
+                'error' => "required {$guard['id_kind']} identity mapping is absent for guard {$guard['table']}.{$guard['column']}",
+            ];
+        }
+
+        $where = ["`$column` = %d"];
+        $args = [$localId];
+        foreach ((array) ($guard['where'] ?? []) as $name => $value) {
+            $name = preg_replace('/[^A-Za-z0-9_]/', '', (string) $name);
+            if (is_int($value)) {
+                $where[] = "`$name` = %d";
+                $args[] = $value;
+            } else {
+                $where[] = "`$name` = %s";
+                $args[] = (string) $value;
+            }
+        }
+        foreach ((array) ($guard['exclude_where'] ?? []) as $name => $value) {
+            $name = preg_replace('/[^A-Za-z0-9_]/', '', (string) $name);
+            if (is_int($value)) {
+                $where[] = "`$name` <> %d";
+                $args[] = $value;
+            } else {
+                $where[] = "`$name` <> %s";
+                $args[] = (string) $value;
+            }
+        }
+
+        $sourceKind = (string) ($guard['source_id_kind'] ?? '');
+        $sourcePk = preg_replace('/[^A-Za-z0-9_]/', '', (string) ($guard['source_pk'] ?? ''));
+        if ($sourceKind !== '' && $sourcePk !== '') {
+            $allowed = [];
+            foreach ($deleteUuids as $uuid => $_) {
+                if (!isset($deletions[$uuid])) {
+                    continue;
+                }
+                $id = Ledger::id_for((string) $uuid, $sourceKind);
+                if ($id !== null) {
+                    $allowed[] = $id;
+                }
+            }
+            if ($allowed) {
+                $where[] = "`$sourcePk` NOT IN (" . implode(',', array_fill(0, count($allowed), '%d')) . ')';
+                array_push($args, ...$allowed);
+            }
+        }
+        $sql = "SELECT COUNT(*) FROM `$table` WHERE " . implode(' AND ', $where);
+        $count = $wpdb->get_var($wpdb->prepare($sql, ...$args));
+        if ($wpdb->last_error) {
+            return ['count' => 0, 'error' => "guard query failed for {$guard['table']}.{$guard['column']}: {$wpdb->last_error}"];
+        }
+        return ['count' => (int) $count, 'error' => null];
     }
 
     /** Same-slug env entity: managed w/ different uuid (hard collision) or unmanaged (adoptable). */
@@ -443,6 +568,19 @@ final class Apply {
                 "duo: conflicts (env and repo both changed since last sync) — capture first or --force-theirs:\n  - $list"
             );
         }
+        if ($plan['delete_conflict'] && empty($opts['force_theirs'])) {
+            $list = implode("\n  - ", array_map(
+                fn($r) => "{$r['path']}: {$r['reason']}",
+                $plan['delete_conflict']
+            ));
+            throw new \RuntimeException(
+                "duo: deletion conflicts (target differs from the tombstone's expected base) — "
+                . "capture/reconcile first or --force-theirs:\n  - $list"
+            );
+        }
+        foreach ($plan['delete_conflict'] as $r) {
+            $this->warnings[] = "FORCED deletion conflict {$r['uuid']} ({$r['reason']})";
+        }
 
         // docs/proposals/code-half.md §3.3's blocking posture: a code_mismatch
         // row only ever exists for an entry the TARGET state declares active
@@ -488,8 +626,17 @@ final class Apply {
             $this->warnings[] = 'FORCED past code_mismatch: ' . $r['message'];
         }
 
+        $deleteWork = $plan['delete'];
+        if (!empty($opts['force_theirs'])) {
+            $deleteWork = array_merge($deleteWork, $plan['delete_conflict']);
+        }
+        usort($deleteWork, fn(array $a, array $b): int =>
+            $this->deletion_rank($b) <=> $this->deletion_rank($a)
+            ?: ($a['uuid'] <=> $b['uuid'])
+        );
+
         if (!empty($opts['with_deletes'])) {
-            $blocked = array_filter($plan['delete'], fn($r) => isset($r['blocked']));
+            $blocked = array_filter($deleteWork, fn($r) => isset($r['blocked']));
             if ($blocked && empty($opts['force_delete_referenced'])) {
                 $list = implode("\n  - ", array_map(
                     fn($r) => "{$r['type']} {$r['uuid']}: {$r['blocked']}",
@@ -583,12 +730,10 @@ final class Apply {
                 }
             }
 
-            // ---- deletes (flag-gated; referential guards are post-v0) ----
-            $deleted = [];
+            // ---- explicit tombstone deletes (still flag-gated) ----
             if (!empty($opts['with_deletes'])) {
-                foreach ($plan['delete'] as $r) {
+                foreach ($deleteWork as $r) {
                     $this->delete_entity($r['uuid'], $r['type']);
-                    $deleted[] = $r['uuid'];
                 }
             }
 
@@ -624,7 +769,9 @@ final class Apply {
         // failed run — see that method's own docblock for why plan's content
         // hash alone (unchanged after a regen-verify failure, since derived
         // tables are excluded from the hash basis) can't carry this signal.
-        $this->rebuild($newAttachmentIds, count($work) > 0, $work, $tree);
+        $didMutate = count($work) > 0
+            || (!empty($opts['with_deletes']) && count($deleteWork) > 0);
+        $this->rebuild($newAttachmentIds, $didMutate, $work, $tree);
 
         // ---- ledger bookkeeping (one atomic convergence boundary) ----
         // The retry marker, every base hash, deletes, and applied revision
@@ -641,8 +788,9 @@ final class Apply {
                 Ledger::set_state_hash($r['uuid'], $e['type'], $e['hash']);
             }
             if (!empty($opts['with_deletes'])) {
-                foreach ($plan['delete'] as $r) {
+                foreach (array_merge($deleteWork, $plan['deleted']) as $r) {
                     Ledger::forget($r['uuid']);
+                    Ledger::set_state_hash($r['uuid'], 'deletion', $r['receipt_hash']);
                 }
             }
             // The compiler revision is the truthful default receipt. An
@@ -673,7 +821,7 @@ final class Apply {
                 'manifests' => $compiled->manifest_hash(),
             ],
             'plan' => array_map('count', $plan),
-            'applied' => count($work),
+            'applied' => count($work) + (!empty($opts['with_deletes']) ? count($deleteWork) : 0),
             'drift' => array_column($plan['drift'], 'path'),
             'warnings' => array_merge($this->warnings, $this->tokens->warnings),
             'canary' => 'clean',
@@ -1447,20 +1595,60 @@ final class Apply {
     private function delete_entity(string $uuid, string $type): void {
         global $wpdb;
         if (isset($this->snapshotRowTables()[$type])) {
+            $idKind = (string) $this->snapshotRowTables()[$type]['id_kind'];
+            $localId = Ledger::id_for($uuid, $idKind);
+            if ($localId === null) {
+                throw new \RuntimeException("duo: cannot delete $type $uuid: target identity mapping is missing");
+            }
             Snapshot::delete_row($this->policy, $uuid, $type);
+            Snapshot::assert_row_deleted($this->policy, $type, $localId);
             $this->warnings[] = "deleted $type $uuid";
             return;
         }
         if ($type === 'post') {
             $id = Ledger::id_for($uuid, Ledger::KIND_POST);
-            if ($id !== null) {
-                $postType = (string) $wpdb->get_var($wpdb->prepare(
-                    "SELECT post_type FROM {$wpdb->posts} WHERE ID = %d", $id
-                ));
-                $this->delete_post_relationships($id, $postType);
-                Db::delete($wpdb->postmeta, ['post_id' => $id], null, 'apply delete post meta');
-                Db::delete($wpdb->posts, ['ID' => $id], null, 'apply delete post');
+            if ($id === null) {
+                throw new \RuntimeException("duo: cannot delete post $uuid: target identity mapping is missing");
             }
+            $postType = (string) $wpdb->get_var($wpdb->prepare(
+                "SELECT post_type FROM {$wpdb->posts} WHERE ID = %d", $id
+            ));
+            $revisionIds = array_map('intval', $wpdb->get_col($wpdb->prepare(
+                "SELECT ID FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = 'revision' ORDER BY ID ASC",
+                $id
+            )) ?: []);
+            foreach ($revisionIds as $revisionId) {
+                Db::delete(
+                    $wpdb->postmeta,
+                    ['post_id' => $revisionId],
+                    null,
+                    'apply delete post revision meta'
+                );
+                Db::delete($wpdb->posts, ['ID' => $revisionId], null, 'apply delete post revision');
+                $this->assert_zero(
+                    "SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID = %d",
+                    [$revisionId],
+                    "post $uuid revision $revisionId"
+                );
+                $this->assert_zero(
+                    "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE post_id = %d",
+                    [$revisionId],
+                    "post $uuid revision $revisionId metadata"
+                );
+            }
+            $this->delete_post_relationships($id, $postType);
+            Db::delete($wpdb->postmeta, ['post_id' => $id], null, 'apply delete post meta');
+            Db::delete($wpdb->posts, ['ID' => $id], null, 'apply delete post');
+            $this->assert_zero(
+                "SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID = %d",
+                [$id],
+                "post $uuid row"
+            );
+            $this->assert_zero(
+                "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE post_id = %d",
+                [$id],
+                "post $uuid metadata"
+            );
             // DUO-3234: a deleted post can never usefully retry regeneration
             // again — clear any outstanding marker so it doesn't linger
             // forever for a uuid that no longer resolves to anything.
@@ -1468,27 +1656,82 @@ final class Apply {
         } elseif ($type === 'term' || $type === 'menu') {
             $termId = Ledger::id_for($uuid, Ledger::KIND_TERM);
             $tt = Ledger::id_for($uuid, Ledger::KIND_TT);
-            if ($termId !== null) {
-                // This term's OWN outbound relationships (term-object taxonomies
-                // where THIS term is object_id — capability symmetric to
-                // delete_post_relationships() below) must go BEFORE the target-
-                // side cleanup and the row deletes, for the same reason: an
-                // unfiltered delete keyed on the bare id risks nothing here
-                // (term_relationships has no other FK into wp_terms), but
-                // leaving these rows would orphan-reference a term_id that's
-                // about to stop existing.
-                $this->delete_term_relationships($termId);
+            if ($termId === null || $tt === null) {
+                throw new \RuntimeException("duo: cannot delete $type $uuid: target term identity mapping is incomplete");
             }
-            if ($tt !== null) {
-                Db::delete($wpdb->term_relationships, ['term_taxonomy_id' => $tt], null, 'apply delete taxonomy relationships');
-                Db::delete($wpdb->term_taxonomy, ['term_taxonomy_id' => $tt], null, 'apply delete term taxonomy');
+            if ($type === 'menu') {
+                $itemIds = array_map('intval', $wpdb->get_col($wpdb->prepare(
+                    "SELECT p.ID FROM {$wpdb->posts} p
+                     JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
+                     WHERE tr.term_taxonomy_id = %d AND p.post_type = 'nav_menu_item'
+                     ORDER BY p.ID ASC",
+                    $tt
+                )) ?: []);
+                foreach ($itemIds as $itemId) {
+                    $itemUuid = Ledger::uuid_for($itemId, Ledger::KIND_POST);
+                    $this->delete_post_relationships($itemId, 'nav_menu_item');
+                    Db::delete($wpdb->postmeta, ['post_id' => $itemId], null, 'apply delete menu item meta');
+                    Db::delete($wpdb->posts, ['ID' => $itemId], null, 'apply delete menu item');
+                    if ($itemUuid !== null) {
+                        Ledger::forget($itemUuid);
+                    }
+                    $this->assert_zero(
+                        "SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID = %d",
+                        [$itemId],
+                        "menu $uuid item $itemId"
+                    );
+                    $this->assert_zero(
+                        "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE post_id = %d",
+                        [$itemId],
+                        "menu $uuid item $itemId metadata"
+                    );
+                }
             }
-            if ($termId !== null) {
-                Db::delete($wpdb->termmeta, ['term_id' => $termId], null, 'apply delete term meta');
-                Db::delete($wpdb->terms, ['term_id' => $termId], null, 'apply delete term');
-            }
+            // This term's OWN outbound relationships (term-object taxonomies
+            // where THIS term is object_id) go before target-side cleanup.
+            $this->delete_term_relationships($termId);
+            Db::delete(
+                $wpdb->term_relationships,
+                ['term_taxonomy_id' => $tt],
+                null,
+                'apply delete taxonomy relationships'
+            );
+            Db::delete($wpdb->term_taxonomy, ['term_taxonomy_id' => $tt], null, 'apply delete term taxonomy');
+            Db::delete($wpdb->termmeta, ['term_id' => $termId], null, 'apply delete term meta');
+            Db::delete($wpdb->terms, ['term_id' => $termId], null, 'apply delete term');
+            $this->assert_zero(
+                "SELECT COUNT(*) FROM {$wpdb->terms} WHERE term_id = %d",
+                [$termId],
+                "$type $uuid term row"
+            );
+            $this->assert_zero(
+                "SELECT COUNT(*) FROM {$wpdb->term_taxonomy} WHERE term_taxonomy_id = %d",
+                [$tt],
+                "$type $uuid taxonomy row"
+            );
+            $this->assert_zero(
+                "SELECT COUNT(*) FROM {$wpdb->termmeta} WHERE term_id = %d",
+                [$termId],
+                "$type $uuid metadata"
+            );
+            $this->assert_zero(
+                "SELECT COUNT(*) FROM {$wpdb->term_relationships} WHERE term_taxonomy_id = %d",
+                [$tt],
+                "$type $uuid inbound relationships"
+            );
+        } else {
+            throw new \RuntimeException("duo: cannot delete unsupported entity type '$type'");
         }
         $this->warnings[] = "deleted $type $uuid";
+    }
+
+    /** A post-delete assertion inside the active transaction. */
+    private function assert_zero(string $sql, array $args, string $label): void {
+        global $wpdb;
+        $count = (int) $wpdb->get_var($wpdb->prepare($sql, ...$args));
+        if ($count !== 0) {
+            throw new \RuntimeException("duo: deletion verification failed: $count $label row(s) remain");
+        }
     }
 
     /**
@@ -1522,6 +1765,13 @@ final class Apply {
              WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
             $id
         ), 'apply delete post relationships');
+        $this->assert_zero(
+            "SELECT COUNT(*) FROM {$wpdb->term_relationships} tr
+             JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+             WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
+            [$id],
+            "post $id term relationships"
+        );
     }
 
     /**
@@ -1553,6 +1803,13 @@ final class Apply {
              WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
             $termId
         ), 'apply delete term-object relationships');
+        $this->assert_zero(
+            "SELECT COUNT(*) FROM {$wpdb->term_relationships} tr
+             JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+             WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
+            [$termId],
+            "term $termId outbound relationships"
+        );
     }
 
     private function resolve_login(string $login): ?int {

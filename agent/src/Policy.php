@@ -310,7 +310,7 @@ final class Policy {
      * deciding how to (un)serialize; this only returns the declared rule).
      *
      * Manifest-only, first declaration in pin order wins — same precedence
-     * as block_attr_rules()/rebuilders()/delete_guards(): a structural fact
+     * as block_attr_rules()/rebuilders()/deletion_capability(): a structural fact
      * about the taxonomy's OWN data shape (like block_attrs is a structural
      * fact about a block type's shape), not a site-local policy choice, so
      * — unlike options/post_meta/term_meta — there is no site.duo.json
@@ -1120,16 +1120,74 @@ final class Policy {
     }
 
     /**
-     * Referential delete guards, keyed "post:<post_type>" — each guard names a
-     * table/column holding local ids that reference the entity; matching rows
-     * block deletion at plan time.
+     * Version-1 deletion capabilities are exact entity selectors
+     * (`post:page`, `term:category`, `menu:nav_menu`, or
+     * `table:nf3_forms`). Multiple pinned manifests may add guards to the
+     * same selector, but their cascade contract must agree exactly.
+     *
+     * @return ?array{cascades:string[],guards:array<int,array<string,mixed>>,declared_by:string[]}
      */
-    public function delete_guards(): array {
-        $out = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['delete_guards'] ?? [] as $key => $guards) {
-                $out[$key] = array_merge($out[$key] ?? [], $guards);
+    public function deletion_capability(string $selector): ?array {
+        $out = null;
+        foreach ($this->manifests as $manifest) {
+            $decl = $manifest['deletions'][$selector] ?? null;
+            if ($decl === null) {
+                continue;
             }
+            if (!is_array($decl) || !isset($decl['cascades']) || !is_array($decl['cascades'])) {
+                throw new \RuntimeException("duo: manifest deletion capability '$selector' must declare a cascades list");
+            }
+            $cascades = array_values(array_unique(array_map('strval', $decl['cascades'])));
+            sort($cascades, SORT_STRING);
+            $guards = $decl['guards'] ?? [];
+            if (!is_array($guards) || !array_is_list($guards)) {
+                throw new \RuntimeException("duo: manifest deletion capability '$selector' guards must be a list");
+            }
+            foreach ($guards as $i => $guard) {
+                if (!is_array($guard)
+                    || !preg_match('/^[A-Za-z0-9_]+$/', (string) ($guard['table'] ?? ''))
+                    || !preg_match('/^[A-Za-z0-9_]+$/', (string) ($guard['column'] ?? ''))
+                    || !preg_match('/^[a-z][a-z0-9_]*$/', (string) ($guard['id_kind'] ?? ''))) {
+                    throw new \RuntimeException(
+                        "duo: manifest deletion capability '$selector' guard[$i] must declare table, column, and id_kind"
+                    );
+                }
+                foreach (['where', 'exclude_where'] as $predicate) {
+                    $values = $guard[$predicate] ?? [];
+                    if (!is_array($values) || (isset($guard[$predicate]) && array_is_list($values))) {
+                        throw new \RuntimeException(
+                            "duo: manifest deletion capability '$selector' guard[$i].$predicate must be an object"
+                        );
+                    }
+                    foreach ($values as $column => $value) {
+                        if (!preg_match('/^[A-Za-z0-9_]+$/', (string) $column)
+                            || (!is_string($value) && !is_int($value))) {
+                            throw new \RuntimeException(
+                                "duo: manifest deletion capability '$selector' guard[$i].$predicate must contain scalar column predicates"
+                            );
+                        }
+                    }
+                }
+                $hasSourceKind = isset($guard['source_id_kind']);
+                $hasSourcePk = isset($guard['source_pk']);
+                if ($hasSourceKind !== $hasSourcePk
+                    || ($hasSourceKind && !preg_match('/^[a-z][a-z0-9_]*$/', (string) $guard['source_id_kind']))
+                    || ($hasSourcePk && !preg_match('/^[A-Za-z0-9_]+$/', (string) $guard['source_pk']))) {
+                    throw new \RuntimeException(
+                        "duo: manifest deletion capability '$selector' guard[$i] must declare source_id_kind and source_pk together"
+                    );
+                }
+            }
+            $source = (string) ($manifest['name'] ?? '?');
+            if ($out === null) {
+                $out = ['cascades' => $cascades, 'guards' => [], 'declared_by' => []];
+            } elseif ($out['cascades'] !== $cascades) {
+                throw new \RuntimeException(
+                    "duo: pinned manifests disagree on cascade effects for deletion capability '$selector'"
+                );
+            }
+            $out['guards'] = array_merge($out['guards'], $guards);
+            $out['declared_by'][] = $source;
         }
         return $out;
     }

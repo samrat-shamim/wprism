@@ -368,7 +368,12 @@ final class Snapshot {
      * That shape is indistinguishable from a database restore without its
      * identity sidecar, so capture fails closed and asks for recovery.
      */
-    public static function assert_mapped_history_present(Policy $policy, string $repo): void {
+    public static function assert_mapped_history_present(
+        Policy $policy,
+        string $repo,
+        array $observedDeleted = []
+    ): void {
+        $observedDeleted = array_fill_keys($observedDeleted, true);
         foreach (self::row_tables($policy) as $table => $decl) {
             if (($decl['identity']['mode'] ?? 'mapped') !== 'mapped') {
                 continue;
@@ -376,7 +381,8 @@ final class Snapshot {
             foreach (glob(rtrim($repo, '/') . "/state/tables/$table/*.json") ?: [] as $file) {
                 $front = Canon::decode(Canon::read_file($file));
                 $uuid = (string) ($front['uuid'] ?? '');
-                if (!Uuid::is($uuid) || Ledger::id_for($uuid, $decl['id_kind']) === null) {
+                if (!Uuid::is($uuid)
+                    || (Ledger::id_for($uuid, $decl['id_kind']) === null && !isset($observedDeleted[$uuid]))) {
                     throw new \RuntimeException(
                         "duo: mapped identity history is missing for canonical $table entity $uuid; "
                         . 'refusing to mint a replacement. Restore the database-matched identity sidecar with '
@@ -385,6 +391,43 @@ final class Snapshot {
                 }
             }
         }
+    }
+
+    /**
+     * Record mapped identities whose exact local row is absent before dead-
+     * map pruning. Capture may turn only these witnessed disappearances into
+     * tombstones; a canonical mapped UUID with no mapping at all remains the
+     * database/sidecar recovery failure asserted above.
+     *
+     * @return string[] deleted UUIDs
+     */
+    public static function observed_deleted_mapped_uuids(Policy $policy): array {
+        global $wpdb;
+        $out = [];
+        foreach (self::row_tables($policy) as $table => $decl) {
+            if (($decl['identity']['mode'] ?? 'mapped') !== 'mapped') {
+                continue;
+            }
+            $prefixed = $wpdb->prefix . $table;
+            $pk = preg_replace('/[^A-Za-z0-9_]/', '', (string) $decl['pk']);
+            if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
+                continue;
+            }
+            foreach (Ledger::all_map() as $map) {
+                if ($map['id_kind'] !== $decl['id_kind']) {
+                    continue;
+                }
+                $exists = $wpdb->get_var($wpdb->prepare(
+                    "SELECT `$pk` FROM `$prefixed` WHERE `$pk` = %d LIMIT 1",
+                    $map['local_id']
+                ));
+                if ($exists === null) {
+                    $out[] = $map['uuid'];
+                }
+            }
+        }
+        sort($out, SORT_STRING);
+        return array_values(array_unique($out));
     }
 
     /** A DR export must cover every live mapped row, not just known ones. */
@@ -1679,8 +1722,8 @@ final class Snapshot {
     /**
      * Delete one row and its attached-meta sidecar (flag-gated by the
      * caller, matching posts/terms — Apply::delete_entity()'s existing
-     * with-deletes convention). No cross-table ordering: see this file's
-     * docblock, "What this file does NOT do."
+     * with-deletes convention). Apply::deletion_rank() owns cross-table
+     * children-before-parent ordering; this helper deletes one exact row.
      */
     public static function delete_row(Policy $policy, string $uuid, string $table): void {
         global $wpdb;
@@ -1702,8 +1745,12 @@ final class Snapshot {
             // environment — see finalize_composite_row()'s docblock).
             $cols = $decl['identity']['columns'];
             [$a, $b] = self::unpack_composite_id($localId);
-            $wpdb->delete($wpdb->prefix . $table, [$cols[0] => $a, $cols[1] => $b]);
-            Ledger::forget($uuid);
+            Db::delete(
+                $wpdb->prefix . $table,
+                [$cols[0] => $a, $cols[1] => $b],
+                null,
+                "apply delete composite typed-snapshot row $table"
+            );
             return;
         }
         foreach (self::meta_tables($policy) as $metaName => $metaDecl) {
@@ -1724,6 +1771,53 @@ final class Snapshot {
         // Identity/base metadata is forgotten by Apply's post-rebuild ledger
         // transaction. Doing it here would commit convergence metadata with
         // the authored-row transaction before required rebuilds succeeded.
+    }
+
+    /**
+     * Prove a typed-table delete and every declared attached-meta cascade
+     * affected the exact target identity. Called before commit; any survivor
+     * throws and rolls the whole apply transaction back.
+     */
+    public static function assert_row_deleted(Policy $policy, string $table, int $localId): void {
+        global $wpdb;
+        $decl = self::row_tables($policy)[$table] ?? null;
+        if ($decl === null) {
+            throw new \RuntimeException("duo: cannot verify deletion of undeclared table '$table'");
+        }
+        $prefixed = $wpdb->prefix . $table;
+        if (self::is_composite_ref($decl)) {
+            $cols = $decl['identity']['columns'];
+            [$a, $b] = self::unpack_composite_id($localId);
+            $remaining = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM `$prefixed` WHERE `{$cols[0]}` = %d AND `{$cols[1]}` = %d",
+                $a,
+                $b
+            ));
+        } else {
+            $pk = preg_replace('/[^A-Za-z0-9_]/', '', (string) $decl['pk']);
+            $remaining = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM `$prefixed` WHERE `$pk` = %d",
+                $localId
+            ));
+        }
+        if ($remaining !== 0) {
+            throw new \RuntimeException("duo: deletion verification failed for $table local id $localId");
+        }
+        foreach (self::meta_tables($policy) as $metaName => $metaDecl) {
+            if (($metaDecl['attached_to']['table'] ?? null) !== $table) {
+                continue;
+            }
+            $fk = preg_replace('/[^A-Za-z0-9_]/', '', (string) $metaDecl['attached_to']['column']);
+            $count = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM `{$wpdb->prefix}$metaName` WHERE `$fk` = %d",
+                $localId
+            ));
+            if ($count !== 0) {
+                throw new \RuntimeException(
+                    "duo: deletion verification failed for $table local id $localId: $count attached $metaName row(s) remain"
+                );
+            }
+        }
     }
 
     // ------------------------------------------------------------- ledger

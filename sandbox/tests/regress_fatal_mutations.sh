@@ -68,7 +68,7 @@ cat > "$SITEREPO/site.duo.json" <<'EOF'
     "post_types": ["post", "page", "attachment"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 0
+  "spec_version": 1
 }
 EOF
 wp1 duo capture --repo=/siterepo >/dev/null
@@ -119,12 +119,32 @@ DELETE_POST=$(find "$SITEREPO/state/posts/post" -type f | head -1)
 DELETE_UUID=$(php -r 'require $argv[1]; [$f] = \Duo\Canon::parse_post_file(file_get_contents($argv[2])); echo $f["uuid"];' "$REPO_ROOT/agent/src/Canon.php" "$DELETE_POST")
 DELETE_ID=$(wp1 eval "echo \\Duo\\Ledger::id_for('$DELETE_UUID', \\Duo\\Ledger::KIND_POST);" 2>/dev/null | tr -d '\r' | tail -1)
 DELETE_SAVED="$SITEREPO/.duo-3206-deleted-post.md"
-mv "$DELETE_POST" "$DELETE_SAVED"
+cp "$DELETE_POST" "$DELETE_SAVED"
+wp1 eval "
+\$compiled = \\Duo\\RepositoryCompiler::compile('/siterepo', \\Duo\\Policy::load('/siterepo'));
+\$entity = \$compiled->tree()['$DELETE_UUID'];
+if (!is_dir('/siterepo/state/deletions') && !wp_mkdir_p('/siterepo/state/deletions')) {
+    throw new \\RuntimeException('could not create deletion fixture directory');
+}
+\$written = file_put_contents('/siterepo/state/deletions/$DELETE_UUID.json', \\Duo\\Canon::encode([
+    'expected_hash' => \$entity['hash'],
+    'expected_revision' => \$compiled->revision_hash(),
+    'format' => \\Duo\\Deletion::FORMAT,
+    'kind' => 'post',
+    'source_path' => \$entity['path'],
+    'type' => \$entity['data']['type'],
+    'uuid' => '$DELETE_UUID',
+]));
+if (\$written === false || !unlink('/siterepo/state/' . \$entity['path'])) {
+    throw new \\RuntimeException('could not publish explicit deletion fixture');
+}
+" >/dev/null
 expect_failure "apply delete post" "apply delete post" \
-  duo apply --repo=/siterepo --with-deletes --revision=bad-delete
+  duo apply --repo=/siterepo --with-deletes --force-delete-referenced --revision=bad-delete
 [ "$(wp1 post get "$DELETE_ID" --field=ID 2>/dev/null | tr -d '\r')" = "$DELETE_ID" ] || fail "delete failure did not restore post"
 STATE_HASH=$(wp1 eval "echo \\Duo\\Ledger::state_hash('$DELETE_UUID') ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1)
 [ "$STATE_HASH" != NULL ] || fail "delete failure removed base state"
+rm -f "$SITEREPO/state/deletions/$DELETE_UUID.json"
 mv "$DELETE_SAVED" "$DELETE_POST"
 reset_baseline
 pass "failed delete rolled back row/meta cleanup and kept base state"

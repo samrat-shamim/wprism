@@ -115,3 +115,54 @@ wp_conf1 duo identity-import --repo=/siterepo --in="$SIDE" >/dev/null
 wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-restored-state >/dev/null
 
 pass "mapped identity loss blocks; verified sidecar restores map/state/revision; stale, conflicting, and tampered restores fail atomically"
+
+# DUO-3210: deleting a mapped custom-table parent is explicit and guarded.
+# The 23 fields + 3 actions are authored children deleted in the same
+# revision, so they are excluded from the form's reverse-ref count; a target-
+# only nf_sub row is runtime data and must block until removed.
+FORM_UUID=$(jq -r '.uuid' "$CONF_REPO1"/state/tables/nf3_forms/*.json)
+CONF1_FORM_ID=$(wp_conf1 db query "SELECT id FROM wp_nf3_forms WHERE title='Job Application'" --skip-column-names | tr -d '[:space:]')
+SUB_ID=$(wp_conf2 post create --post_type=nf_sub --post_title='Conformance Runtime Submission' --post_status=publish --porcelain)
+wp_conf2 post meta add "$SUB_ID" _form_id "$CONF2_FORM_ID" >/dev/null
+PAGE_ID=$(wp_conf1 post list --post_type=page --name=conformance-careers --field=ID | tr -d '[:space:]')
+wp_conf1 post update "$PAGE_ID" --post_content='<!-- wp:paragraph --><p>Applications are closed.</p><!-- /wp:paragraph -->' >/dev/null
+wp_conf1 db query "
+  DELETE FROM wp_nf3_field_meta WHERE parent_id IN (SELECT id FROM wp_nf3_fields WHERE parent_id=$CONF1_FORM_ID);
+  DELETE FROM wp_nf3_action_meta WHERE parent_id IN (SELECT id FROM wp_nf3_actions WHERE parent_id=$CONF1_FORM_ID);
+  DELETE FROM wp_nf3_fields WHERE parent_id=$CONF1_FORM_ID;
+  DELETE FROM wp_nf3_actions WHERE parent_id=$CONF1_FORM_ID;
+  DELETE FROM wp_nf3_form_meta WHERE parent_id=$CONF1_FORM_ID;
+  DELETE FROM wp_nf3_forms WHERE id=$CONF1_FORM_ID;
+" >/dev/null
+CAPTURE_DELETE=$(wp_conf1 duo capture --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+[ "$(jq -r '.counts.deletion' <<<"$CAPTURE_DELETE")" = 27 ] \
+  || fail "form removal did not capture 27 explicit tombstones: $CAPTURE_DELETE"
+[ -f "$CONF_REPO1/state/deletions/$FORM_UUID.json" ] || fail "form tombstone was not published"
+git -C "$CONF_REPO1" add -A
+git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: delete Ninja Forms graph'
+git -C "$CONF_REPO1" push -q origin main
+git -C "$CONF_REPO2" pull -q origin main
+
+DELETE_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e --arg uuid "$FORM_UUID" '
+  (.delete | length) == 27 and
+  (.delete_conflict | length) == 0 and
+  (.delete | any(.uuid == $uuid and (.blocked | contains("form submissions"))))
+' <<<"$DELETE_PLAN" >/dev/null || fail "Ninja Forms deletion plan did not isolate authored children and block the runtime submission: $DELETE_PLAN"
+
+DELETE_RC=0
+DELETE_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || DELETE_RC=$?
+[ "$DELETE_RC" -ne 0 ] && grep -qi 'referential guard' <<<"$DELETE_OUT" \
+  || fail "runtime form submission did not block apply: $DELETE_OUT"
+wp_conf2 post delete "$SUB_ID" --force >/dev/null
+DELETE_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e '.canary == "clean" and .applied >= 28' <<<"$DELETE_OUT" >/dev/null \
+  || fail "guard-cleared form graph deletion failed: $DELETE_OUT"
+for table in nf3_forms nf3_fields nf3_actions nf3_form_meta nf3_field_meta nf3_action_meta; do
+  [ "$(wp_conf2 db query "SELECT COUNT(*) FROM wp_$table" --skip-column-names | tr -d '[:space:]')" = 0 ] \
+    || fail "exact delete verification left rows in wp_$table"
+done
+RETRY_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0 and (.deleted | length) == 27' \
+  <<<"$RETRY_PLAN" >/dev/null || fail "deleted receipts were not idempotent on retry: $RETRY_PLAN"
+pass "explicit Ninja Forms tombstones delete children-before-parent, preserve runtime submissions behind a guard, verify exact absence, and retry as deleted"

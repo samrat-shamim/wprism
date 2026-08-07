@@ -10,7 +10,7 @@ if (!defined('ABSPATH') && !(defined('WP_CLI') && WP_CLI)) {
 }
 
 define('DUO_AGENT_VERSION', '0.5.0');
-define('DUO_SPEC_VERSION', 0);
+define('DUO_SPEC_VERSION', 1);
 
 require_once __DIR__ . '/src/Uuid.php';
 require_once __DIR__ . '/src/Canon.php';
@@ -20,6 +20,7 @@ require_once __DIR__ . '/src/Policy.php';
 require_once __DIR__ . '/src/Ledger.php';
 require_once __DIR__ . '/src/Identity.php';
 require_once __DIR__ . '/src/IdentityBackup.php';
+require_once __DIR__ . '/src/Deletion.php';
 require_once __DIR__ . '/src/JsonRefs.php';
 require_once __DIR__ . '/src/Tokens.php';
 require_once __DIR__ . '/src/Blocks.php';
