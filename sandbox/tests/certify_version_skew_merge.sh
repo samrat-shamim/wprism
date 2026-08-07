@@ -71,7 +71,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
   "spec_version": 1
 }
 EOF
-printf '.tmp*\nstate.capture.lock\n' > "siterepo/${PAIR}1/.gitignore"
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 git -C "siterepo/${PAIR}1" init -q -b main
 git -C "siterepo/${PAIR}1" remote add origin "../origin-$PAIR.git"
 "${GIT1[@]}" add -A

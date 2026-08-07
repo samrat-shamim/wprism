@@ -215,7 +215,7 @@ cat > siterepo/g1/site.duo.json <<EOF
   "spec_version": 1
 }
 EOF
-printf '.tmp*\n' > siterepo/g1/.gitignore
+cp site-repo.gitignore.template siterepo/g1/.gitignore
 git -C siterepo/g1 init -q -b main
 git -C siterepo/g1 remote add origin ../origin-g.git
 git -C siterepo/g1 add -A

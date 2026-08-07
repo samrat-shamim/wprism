@@ -115,7 +115,7 @@ cat > siterepo/fx1/site.duo.json <<'EOF'
   "spec_version": 1
 }
 EOF
-printf '.tmp*\n' > siterepo/fx1/.gitignore
+cp site-repo.gitignore.template siterepo/fx1/.gitignore
 git -C siterepo/fx1 init -q -b main
 git -C siterepo/fx1 remote add origin ../origin-fx.git
 

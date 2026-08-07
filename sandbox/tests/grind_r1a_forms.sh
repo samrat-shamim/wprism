@@ -212,7 +212,7 @@ cat > siterepo/r1a1/site.duo.json <<'EOF'
   "spec_version": 1
 }
 EOF
-printf '.tmp*\n' > siterepo/r1a1/.gitignore
+cp site-repo.gitignore.template siterepo/r1a1/.gitignore
 git -C siterepo/r1a1 init -q -b main
 git -C siterepo/r1a1 remote add origin ../origin-r1a.git
 pass "site repo initialized (manifests: [core], post_types scope excludes nf_sub deliberately)"

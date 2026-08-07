@@ -1,0 +1,12 @@
+# DUO-3244: single source of truth for every sandbox fixture's INNER
+# site-repo .gitignore (siterepo/<pair>N/.gitignore) -- copy this file
+# rather than hand-rolling a printf. Mirrors the OUTER duo-wp repo's own
+# .gitignore exactly (state.capture.lock/-staging/-backup are
+# agent/src/Publish.php's capture-lock artifacts, DUO-3213): a fixture
+# missing state.capture.lock here hits a real, structural failure the
+# moment a test captures on both sides of a pair before a git pull on the
+# second side -- see DUO-3244 for the concrete repro.
+.tmp*
+state.capture.lock
+state.capture-staging/
+state.capture-backup/
