@@ -460,8 +460,26 @@ POST_ORDERS=$(wp_r1b1 db query 'SELECT COUNT(*) FROM wp_posts WHERE post_type="s
 [ "$POST_ORDERS" = "0" ] || fail "HPOS is on but shop_order rows exist in wp_posts"
 pass "stock 15 -> 14 (runtime, r1b1-local); order is a wc_orders row, not a post — HPOS custom tables are outside duo's scope entirely, by construction"
 
-say "round-trip: clone into r1b2, plan, apply (adopt the WooCommerce/core installer collisions)"
+say "round-trip: clone into r1b2, deploy (DUO-3216: code lifecycle before state — real switch_theme() to Storefront, hooks fire), plan, apply (adopt the WooCommerce/core installer collisions)"
 git clone -q siterepo/origin-r1b.git siterepo/r1b2
+# DUO-3216 (aa9b36a) gave Deploy::code_mismatch() a new 'inactive_in_environment'
+# finding (theme/plugin installed but not active) that Apply::apply()'s
+# refuse-gate (agent/src/Apply.php:592) hard-blocks on unconditionally, with
+# no subset filtering — every code_mismatch row blocks apply, unlike
+# Deploy::run()'s own gate, which excludes exactly this issue from ITS
+# blocking set since reconciling it is deploy's whole job (agent/src/
+# Deploy.php:382-389). Before this issue, code_mismatch() had no concept of
+# "installed but inactive" at all, so this exact clone -> plan -> apply ->
+# (later) deploy ordering was legal; now r1b2's theme (twentytwentyfive,
+# per reset_env_state) vs r1b1's captured stylesheet (storefront, activated
+# for real at line ~218) is a real mismatch apply refuses outright:
+# "CODE_MISMATCH INACTIVE_IN_ENVIRONMENT storefront ... Run 'duo deploy
+# <env>' before apply so the theme lifecycle completes first." Deploy first,
+# same as r1c's own (already-correct) plugin-activation ordering.
+DEPLOY0_JSON=$(wp_r1b2 duo deploy --repo=/siterepo --format=json | tail -1)
+echo "$DEPLOY0_JSON" | jq -e '.theme_switched == "storefront"' >/dev/null || fail "deploy did not switch to storefront (got: $DEPLOY0_JSON)"
+[ "$(wp_r1b2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not the active theme on r1b2 after deploy"
+pass "r1b2 switched to Storefront via a real wp duo deploy (switch_theme() fired for real) — required BEFORE apply under DUO-3216"
 PLAN_TXT=$(wp_r1b2 duo plan --repo=/siterepo)
 echo "$PLAN_TXT" | grep -q 'COLLISION' || fail "expected installer-created page/term collisions in the plan"
 REV=$(git -C siterepo/r1b2 rev-parse HEAD)
@@ -570,10 +588,11 @@ STOCK_A1=$(wp_r1b1 post meta get "$V1" _stock)
 [ "$STOCK_B2" = "15" ] && [ "$STOCK_A1" = "14" ] || fail "expected independently-diverged stock (r1b2=15 set above, r1b1=14 after its sale), got r1b2=$STOCK_B2 r1b1=$STOCK_A1"
 pass "r1b2 has zero orders (r1b1's order #$ORDER_ID never propagated); the two environments' stock counts have already diverged independently (r1b1=14 after its own sale, r1b2=15 set by its own ops team above) and neither will ever overwrite the other via capture/apply"
 
-say "wp duo deploy on r1b2: real switch_theme() to Storefront"
+say "wp duo deploy on r1b2 again — DUO-3216 idempotency contract: already reconciled by the early deploy above (nothing since has touched active_plugins/template/stylesheet), so this must be a genuine no-op, and Storefront's rendered markup must have survived the whole apply sequence in between"
 DEPLOY_JSON=$(wp_r1b2 duo deploy --repo=/siterepo --format=json | tail -1)
-echo "$DEPLOY_JSON" | jq -e '.theme_switched == "storefront"' >/dev/null || fail "deploy did not switch to storefront (got: $DEPLOY_JSON)"
-[ "$(wp_r1b2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not the active theme on r1b2 after deploy"
+echo "$DEPLOY_JSON" | jq -e '.theme_switched == null' >/dev/null || fail "expected a no-op re-deploy (theme already switched by the early deploy above) — got: $DEPLOY_JSON"
+echo "$DEPLOY_JSON" | jq -e '(.activated | length) == 0 and (.deactivated | length) == 0' >/dev/null || fail "expected zero plugin lifecycle activity on an idempotent re-deploy — got: $DEPLOY_JSON"
+[ "$(wp_r1b2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not the active theme on r1b2"
 HOMEPAGE_OK=""
 for _ in 1 2 3; do
   curl -s "$R1B2/" -o /tmp/r1b2_home.html -w '%{http_code}' > /tmp/r1b2_home_code.txt || true
@@ -582,7 +601,7 @@ for _ in 1 2 3; do
 done
 rm -f /tmp/r1b2_home.html /tmp/r1b2_home_code.txt
 [ -n "$HOMEPAGE_OK" ] || fail "r1b2 homepage does not render storefront markup"
-pass "r1b2 switched to Storefront via a real wp duo deploy (switch_theme() fired for real, confirmed by rendered markup)"
+pass "confirmed: re-running wp duo deploy once everything is already reconciled is a true no-op (zero hook fires), and Storefront's rendered markup survived the full apply sequence since the early deploy"
 
 say "final apply + byte-identity"
 REV4=$(git -C siterepo/r1b2 rev-parse HEAD)

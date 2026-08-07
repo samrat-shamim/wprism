@@ -349,9 +349,25 @@ git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test add -
 git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test commit -qm "capture: multilingual WooCommerce shop on r3a1" --allow-empty
 git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test push -q origin main
 
-say "round-trip: clone into r3a2 (deliberately NO manual Polylang config — a genuinely fresh target), plan, apply"
+say "round-trip: clone into r3a2 (deliberately NO manual Polylang config — a genuinely fresh target), deploy (DUO-3216: code lifecycle before state — real switch_theme() to Storefront, hooks fire), apply"
 rm -rf siterepo/r3a2
 git clone -q siterepo/origin-r3a.git siterepo/r3a2
+# DUO-3216 (aa9b36a) gave Deploy::code_mismatch() a new 'inactive_in_environment'
+# finding (theme/plugin installed but not active) that Apply::apply()'s
+# refuse-gate (agent/src/Apply.php:592) hard-blocks on unconditionally, with
+# no subset filtering -- every code_mismatch row blocks apply, unlike
+# Deploy::run()'s own gate, which excludes exactly this issue from ITS
+# blocking set since reconciling it is deploy's whole job (agent/src/
+# Deploy.php:382-389). Before this issue, code_mismatch() had no concept of
+# "installed but inactive" at all, so this exact clone -> apply -> (later)
+# deploy ordering was legal; now r3a2's theme (twentytwentyone, per
+# reset_env_state) vs r3a1's captured stylesheet (storefront, activated for
+# real earlier in this script) is a real mismatch apply refuses outright.
+# Deploy first, same fix as grind_r1b_shop.sh's identical finding.
+DEPLOY0_JSON=$(wp_2 duo deploy --repo=/siterepo --format=json | tail -1)
+echo "$DEPLOY0_JSON" | grep -q '"theme_switched":"storefront"' || fail "deploy did not switch to storefront (got: $DEPLOY0_JSON)"
+[ "$(wp_2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not the active theme on r3a2 after deploy"
+pass "r3a2 switched to Storefront via a real wp duo deploy — required BEFORE apply under DUO-3216"
 REV=$(git -C siterepo/r3a2 rev-parse HEAD)
 APPLY1_OUT=$(wp_env 2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1)
 echo "$APPLY1_OUT"
@@ -464,11 +480,13 @@ LANG_KAPPE=$(wp_2 eval "var_export(pll_get_post_language($KAPPE_B2));")
 [ "$LANG_KAPPE" = "'de'" ] || fail "expected Duo Kappe language=de after the fix (got $LANG_KAPPE)"
 pass "relationships restored (4 rows), language restored for Duo Tee/Mug/Cap/Kappe — the real fix, matching r1b's playbook exactly"
 
-say "wp duo deploy on r3a2: real switch_theme() to Storefront"
+say "wp duo deploy on r3a2 again — DUO-3216 idempotency contract: already reconciled by the early deploy above, so this must be a genuine no-op"
 DEPLOY_JSON=$(wp_2 duo deploy --repo=/siterepo --format=json | tail -1)
-echo "$DEPLOY_JSON" | grep -q '"theme_switched":"storefront"' || fail "deploy did not switch to storefront"
-[ "$(wp_2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not active on r3a2 after deploy"
-pass "r3a2 switched to Storefront via wp duo deploy"
+echo "$DEPLOY_JSON" | grep -q '"theme_switched":null' || fail "expected a no-op re-deploy (theme already switched by the early deploy above) — got: $DEPLOY_JSON"
+echo "$DEPLOY_JSON" | grep -q '"activated":\[\]' || fail "expected zero plugin activations on an idempotent re-deploy — got: $DEPLOY_JSON"
+echo "$DEPLOY_JSON" | grep -q '"deactivated":\[\]' || fail "expected zero plugin deactivations on an idempotent re-deploy — got: $DEPLOY_JSON"
+[ "$(wp_2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not active on r3a2"
+pass "confirmed: re-running wp duo deploy once everything is already reconciled is a true no-op (zero hook fires)"
 
 # task #88 (POST FIELD derived classification) landed mid-round and closes
 # #72 for real: product_variation.title is now classified 'derived' in
