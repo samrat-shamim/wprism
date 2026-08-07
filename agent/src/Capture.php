@@ -63,6 +63,13 @@ final class Capture {
         $this->repo = rtrim($repo, '/');
         $this->policy = $policy;
         $this->tokens = new Tokens();
+        // DUO-3260: Tokens::tokenize_text()'s own unscoped-ref check needs
+        // a Policy to judge scope against, but is called from too many
+        // sites to thread one through as a per-call parameter (see
+        // Tokens::$policy's own docblock for why that's a real safety
+        // concern, not just style) — set once, here, guaranteed to exist
+        // for every tokenize_text() call this Capture instance ever makes.
+        $this->tokens->policy = $policy;
     }
 
     /**
@@ -127,10 +134,35 @@ final class Capture {
             // prior state and therefore cannot infer a deletion. Compiling
             // before target reads also refuses to build new state on top of
             // an already-invalid repository revision.
+            //
+            // DUO-3263: a FRESH Policy::load(), never the shared $policy
+            // build() below will use. RepositoryCompiler::compile() primes
+            // every schema-driven interpreter from THIS tree via
+            // prime_interpreters_from_repository() (manifests/interpreters/
+            // acf.php's own field_definition() docblock: "authorization is
+            // about one immutable revision," so once primed it never falls
+            // back to a live DB query again for that interpreter instance).
+            // Interpreter instances are cached per-Policy-object and $policy
+            // is otherwise reused for the whole rest of this method — sharing
+            // it here would permanently lock every interpreter into
+            // repository-only mode using the PREVIOUS revision's content,
+            // before build() below has captured anything new at all. Caught
+            // live: a second capture that introduces a brand-new ACF field
+            // (term- or options-page-attached) the previous revision had
+            // never seen came back unclassified, even though the exact same
+            // field classified correctly on this repo's first-ever capture —
+            // proof the previous revision's own priming was leaking forward
+            // into the new one's classification instead of a fresh lookup.
             $previous = is_dir($c->repo . '/state')
-                ? RepositoryCompiler::compile($c->repo, $policy)
+                ? RepositoryCompiler::compile($c->repo, Policy::load($repo))
                 : null;
             $previousOptions = $previous?->tree()['options/core']['data'] ?? null;
+            $previousUserLogins = [];
+            foreach ($previous?->tree() ?? [] as $entity) {
+                if (($entity['type'] ?? '') === 'user-meta') {
+                    $previousUserLogins[] = (string) ($entity['data']['login'] ?? '');
+                }
+            }
 
             // The one consistent-snapshot transaction: every SELECT build()
             // issues, plus the _duo_uuid/duo_map identity-minting writes
@@ -138,11 +170,12 @@ final class Capture {
             // on its own (see run_in_consistent_snapshot()) if a concurrent
             // WordPress write collides with one of THIS build's own writes.
             $build = self::run_in_consistent_snapshot(function () use (
-                $c, $policy, $repo, $forceUnresolvedRefs, $observedDeletedTables, $previousOptions
+                $c, $policy, $repo, $forceUnresolvedRefs, $observedDeletedTables, $previousOptions,
+                $previousUserLogins
             ): array {
                 Identity::assert_embedded_unique();
                 Snapshot::assert_mapped_history_present($policy, $repo, $observedDeletedTables);
-                $candidate = $c->build(true, $forceUnresolvedRefs, $previousOptions);
+                $candidate = $c->build(true, $forceUnresolvedRefs, $previousOptions, $previousUserLogins);
                 Identity::assert_entities_unique($candidate['entities']);
                 return $candidate;
             });
@@ -189,10 +222,13 @@ final class Capture {
                 // already a normal, anticipated condition this system
                 // tolerates (RepositoryCompiler::catalog_media_directory()'s
                 // own "safe orphan blobs" docblock), not a new risk.
-                foreach ($build['media'] as $file => $src) {
+                foreach ($build['media'] as $file => $source) {
                     $dst = $c->repo . '/media/' . $file;
                     if (!is_file($dst)) {
-                        Canon::write_file($dst, Canon::read_file($src));
+                        $bytes = array_key_exists('bytes', $source)
+                            ? $source['bytes']
+                            : Canon::read_file($source['path']);
+                        Canon::write_file($dst, $bytes);
                     }
                 }
                 // DUO-3236: the staged candidate must itself compile before
@@ -292,7 +328,21 @@ final class Capture {
         Snapshot::prune_dead_map($policy);
         $c = new self($repo, $policy);
         self::verify_engine_support($policy);
-        $repositoryOptions = RepositoryCompiler::compile($repo, $policy)->tree()['options/core']['data'] ?? null;
+        // DUO-3263: fresh Policy::load(), same reasoning as run()'s own
+        // identical fix a few methods up — compiling the repository here
+        // must not permanently prime the SAME $policy object's interpreter
+        // instances that $c->build() below (line ~346) still needs live-DB
+        // fallback from, or a brand-new schema-driven field the repository
+        // hasn't seen yet reads as unclassified even though the live
+        // environment has it.
+        $repository = RepositoryCompiler::compile($repo, Policy::load($repo));
+        $repositoryOptions = $repository->tree()['options/core']['data'] ?? null;
+        $repositoryUserLogins = [];
+        foreach ($repository->tree() as $entity) {
+            if (($entity['type'] ?? '') === 'user-meta') {
+                $repositoryUserLogins[] = (string) ($entity['data']['login'] ?? '');
+            }
+        }
 
         // DUO-3213: read-only (mint=false — build() never writes in this
         // mode), but still wrapped in the SAME consistent-snapshot
@@ -306,9 +356,11 @@ final class Capture {
         // publisher's filesystem operations, and MVCC gives it a coherent
         // view regardless of what a concurrent capture() is doing on the
         // DB side.
-        $build = self::run_in_consistent_snapshot(function () use ($c, $forceUnresolvedRefs, $repositoryOptions): array {
+        $build = self::run_in_consistent_snapshot(function () use (
+            $c, $forceUnresolvedRefs, $repositoryOptions, $repositoryUserLogins
+        ): array {
             Identity::assert_embedded_unique();
-            $candidate = $c->build(false, $forceUnresolvedRefs, $repositoryOptions);
+            $candidate = $c->build(false, $forceUnresolvedRefs, $repositoryOptions, $repositoryUserLogins);
             Identity::assert_entities_unique($candidate['entities']);
             return $candidate;
         });
@@ -366,10 +418,17 @@ final class Capture {
             "SELECT option_name, option_value FROM {$wpdb->options} ORDER BY option_name ASC",
             ARRAY_A
         ) ?: [];
+        // DUO-3263: same option_name=>value map an interpreter's option_rule()
+        // needs (a shadow-key lookup, exactly like post/term meta) — built
+        // once from the rows already fetched above, not a second query.
+        $allOptionValues = [];
+        foreach ($optionRows as $row) {
+            $allOptionValues[(string) $row['option_name']] = (string) $row['option_value'];
+        }
         foreach ($optionRows as $row) {
             $key = (string) $row['option_name'];
             $owner = $c->policy->option_namespace($key);
-            if ($owner === null || $c->policy->owned_option_rule($key) !== null
+            if ($owner === null || $c->policy->owned_option_rule_via_interpreter($key, $allOptionValues) !== null
                 || $c->policy->match_option_name_ref($key) !== null) {
                 continue;
             }
@@ -403,16 +462,14 @@ final class Capture {
             $flatMeta = $c->term_meta_map((int) $t->term_id);
             foreach ($flatMeta as $key => $raw) {
                 $rule = $c->policy->meta_rule_for_term($key, $flatMeta);
-                if ($rule !== null && ($rule['class'] ?? '') !== 'authored') {
+                if ($rule !== null) {
                     continue;
                 }
                 $termMeta[$key]['entities'] = ($termMeta[$key]['entities'] ?? 0) + 1;
                 $termMeta[$key]['taxonomies'][$t->taxonomy] = true;
                 $value = is_serialized($raw) ? @unserialize(trim($raw), ['allowed_classes' => false]) : $raw;
                 $termMeta[$key]['value_shapes'][get_debug_type($value)] = true;
-                $termMeta[$key]['reason'] = $rule === null
-                    ? 'unclassified term meta on an in-scope taxonomy'
-                    : 'authored term meta is unsupported by the v1 term-file schema; taxonomy capture is blocked';
+                $termMeta[$key]['reason'] = 'unclassified term meta on an in-scope taxonomy';
             }
         }
 
@@ -459,26 +516,11 @@ final class Capture {
             }
         }
 
-        // Users remain environment-local and unscoped in spec v1, so an
-        // unclassified user-meta key is not implicitly claimed. A static or
-        // interpreter rule can still classify a known key runtime/env/derived
-        // today; authored is the one actionable pending finding because no
-        // user-meta wire representation exists yet (DUO-3268).
+        // Users remain environment-local and unscoped, so an unclassified
+        // user-meta key is not implicitly claimed. Authored rules now have a
+        // real login-keyed sidecar and therefore are no longer pending gate
+        // findings; value-level PII/secret refusals surface during capture.
         $userMeta = [];
-        foreach ($c->user_meta_maps() as $user) {
-            foreach ($user['meta'] as $key => $raw) {
-                $rule = $c->policy->meta_rule_for_user($key, $user['meta']);
-                if (($rule['class'] ?? '') !== 'authored') {
-                    continue;
-                }
-                $userMeta[$key]['entities'] = ($userMeta[$key]['entities'] ?? 0) + 1;
-                $userMeta[$key]['users'][$user['login']] = true;
-                $value = is_serialized($raw) ? @unserialize(trim($raw), ['allowed_classes' => false]) : $raw;
-                $userMeta[$key]['value_shapes'][get_debug_type($value)] = true;
-                $userMeta[$key]['reason'] = 'authored user meta is unsupported by the v1 repository schema; '
-                    . 'capture is blocked pending DUO-3268';
-            }
-        }
 
         return [
             'scope' => $scope,
@@ -656,8 +698,17 @@ final class Capture {
 
     // ------------------------------------------------------------------
 
-    /** @return array{entities: array, media: array<string,string>, warnings: string[]} */
-    private function build(bool $mint, bool $forceUnresolvedRefs = false, ?array $previousOptions = null): array {
+    /** @return array{
+     *   entities: array,
+     *   media: array<string,array{path?:string,bytes?:string}>,
+     *   warnings: string[]
+     * } */
+    private function build(
+        bool $mint,
+        bool $forceUnresolvedRefs = false,
+        ?array $previousOptions = null,
+        array $carriedUserLogins = []
+    ): array {
         global $wpdb;
         $this->unclassified = [];
         $this->unscopedRefs = [];
@@ -671,6 +722,14 @@ final class Capture {
         // constructor) already guarantees this starts empty.
         $this->tokens->unscopedBlockRefs = [];
         $this->tokens->unscopedShortcodeRefs = [];
+        $this->tokens->unscopedUrlQueryRefs = [];
+        // DUO-3260: tokenize_text()'s own unscoped check reads $this->
+        // tokens->forceUnresolvedRefs directly (see that property's own
+        // docblock for why it's stored on the instance rather than
+        // threaded through tokenize_text()'s many call sites) — set once
+        // per build, mirroring $this->tokens->policy's own constructor-
+        // time assignment.
+        $this->tokens->forceUnresolvedRefs = $forceUnresolvedRefs;
         $entities = [];
         $media = [];
 
@@ -714,33 +773,17 @@ final class Capture {
             }
         }
 
-        // User meta has classification but intentionally has no v1 wire
-        // format. Run the Policy guard against every live key: non-authored
-        // rules are usable target-local dispositions, while authored joins
-        // the ordinary aggregate loud gate before canonical state can
-        // silently omit the declared value.
-        foreach ($this->user_meta_maps() as $user) {
-            foreach ($user['meta'] as $key => $_) {
-                $reason = $this->policy->user_meta_capture_blocker($key, $user['meta']);
-                if ($reason !== null) {
-                    $this->unclassified[] = "user_meta:$key ($reason; user {$user['login']} blocked)";
-                }
-            }
-        }
         $menus = $this->scope_menus($mint);
 
-        // Term files have no meta field in spec v1. Unknown term-meta must
-        // therefore block, and an "authored" classification must also block
-        // explicitly rather than becoming an inert rule that appears to
-        // resolve the review item while its value is still dropped.
+        // Spec v2 term files carry authored meta. Unknown term-meta still
+        // blocks loudly; every classified non-authored disposition remains
+        // target-local and every classified authored key is captured below.
         foreach ($terms as $t) {
             $flatMeta = $this->term_meta_map((int) $t->term_id);
             foreach ($flatMeta as $key => $_) {
                 $rule = $this->policy->meta_rule_for_term($key, $flatMeta);
                 if ($rule === null) {
                     $this->unclassified[] = "term_meta:$key (unclassified on taxonomy {$t->taxonomy})";
-                } elseif (($rule['class'] ?? '') === 'authored') {
-                    $this->unclassified[] = "term_meta:$key (authored is unsupported by the v1 term-file schema; taxonomy {$t->taxonomy} blocked)";
                 }
             }
         }
@@ -785,6 +828,22 @@ final class Capture {
                     $this->tokens->warnings[] = "term {$t->slug}: unmanaged parent term {$t->parent} dropped";
                 }
             }
+            $termByKey = $this->term_meta_by_key((int) $t->term_id);
+            $termFlatMeta = array_map(fn($values) => $values[0], $termByKey);
+            $termMeta = [];
+            foreach ($termByKey as $key => $values) {
+                [$store, $value] = $this->classify_meta_value(
+                    $key,
+                    $values,
+                    $termFlatMeta,
+                    "term {$t->taxonomy}:{$t->slug}",
+                    'term_meta',
+                    true
+                );
+                if ($store) {
+                    $termMeta[$key] = $value;
+                }
+            }
             $front = [
                 'uuid' => $uuid,
                 'taxonomy' => $t->taxonomy,
@@ -792,6 +851,7 @@ final class Capture {
                 'slug' => $t->slug,
                 'description' => $this->term_description($t),
                 'parent' => $parentUuid,
+                'meta' => (object) $termMeta,
                 'relationships' => (object) $this->term_relationships((int) $t->term_id),
             ];
             $entities[] = [
@@ -848,6 +908,16 @@ final class Capture {
         ];
 
         foreach ($tableEntities as $e) {
+            $entities[] = $e;
+        }
+
+        // Users themselves remain environment-local and receive no UUID or
+        // duo_map row. Only explicitly-authored metadata is emitted, keyed
+        // by the exact login. A previously/repository-present login is
+        // carried even when its authored map is now empty, making removal
+        // of the final owned key explicit without treating user deletion as
+        // portable authority.
+        foreach ($this->build_user_meta_entities($carriedUserLogins) as $e) {
             $entities[] = $e;
         }
 
@@ -972,6 +1042,42 @@ final class Capture {
                 . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
                 . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
                 . "Add the missing post type/taxonomy to policy scope above and re-run capture, or pass "
+                . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
+            );
+        }
+
+        // URL-query-refs' own unscoped gate (DUO-3260, task #73's mirror a
+        // third time — for `?p=`/`?page_id=`/`?attachment_id=` refs,
+        // funneled through Tokens::queue_unscoped_url_query_ref()): the id
+        // names a REAL row whose post_type simply isn't in policy scope,
+        // as opposed to a dangling reference or a real row of an in-scope
+        // type simply not minted on this build yet — both of those are
+        // handled by Tokens.php's ordinary warn-and-drop, never reaching
+        // this list. Same posture as every gate above: a policy edit can
+        // actually fix this, so it aborts by default instead of silently
+        // vanishing from captured state. Always kind=post (the only kind
+        // this mechanism's three query parameters ever resolve to — see
+        // Tokens::tokenize_url_query_refs()'s own docblock), so unlike the
+        // option/block/shortcode gates above, no term/taxonomy branch is
+        // needed here. `context` may be '' (empty) — tokenize_text() is
+        // called from too many places to guarantee a meaningful label at
+        // every one (see Tokens::$unscopedUrlQueryRefs's own docblock);
+        // the message degrades gracefully rather than printing a
+        // misleading empty prefix.
+        if ($this->tokens->unscopedUrlQueryRefs) {
+            $lines = [];
+            foreach ($this->tokens->unscopedUrlQueryRefs as $r) {
+                $where = $r['context'] !== '' ? "{$r['context']}: " : '';
+                $lines[] = "{$where}url query ref '{$r['param']}' references post id {$r['id']}, which is a real "
+                    . "'{$r['target_type']}' — but '{$r['target_type']}' is not in policy.post_types, so its "
+                    . "identity was never tracked and the reference cannot resolve";
+            }
+            throw new \RuntimeException(
+                "duo: unresolvable url-query-typed reference(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
+                . implode("\n  - ", $lines)
+                . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
+                . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
+                . "Add the missing post type to policy scope above and re-run capture, or pass "
                 . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
             );
         }
@@ -1311,7 +1417,7 @@ final class Capture {
         if ((string) $p->post_password !== '') {
             throw new \RuntimeException(
                 "duo: protected {$p->post_type} '{$p->post_name}' (post $id) has post_password; "
-                . 'spec v1 has no portable secret representation for post passwords, so capture refuses it'
+                . 'spec v2 has no portable secret representation for post passwords, so capture refuses it'
             );
         }
 
@@ -1355,7 +1461,7 @@ final class Capture {
         $taxes = $this->taxesForPostType[$p->post_type] ?? [];
         $termsField = [];
         $termOrders = [];
-        if ($taxes && !$isAttachment) {
+        if ($taxes) {
             $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
             $rels = $wpdb->get_results($wpdb->prepare(
                 "SELECT tt.taxonomy, tt.term_id, tr.term_order FROM {$wpdb->term_relationships} tr
@@ -1403,18 +1509,76 @@ final class Capture {
                 throw new \RuntimeException("duo: attachment $id has no _wp_attached_file");
             }
             $up = wp_upload_dir(null, false);
-            $src = trailingslashit($up['basedir']) . $attachedFile;
-            if (!is_file($src)) {
-                throw new \RuntimeException("duo: attachment $id file missing: $src");
+            $localPath = trailingslashit($up['basedir']) . $attachedFile;
+            $source = is_file($localPath) ? ['path' => $localPath] : null;
+
+            /**
+             * Lets an offload adapter supply attachment bytes without
+             * requiring a persistent local uploads copy. The strict result
+             * contract is exactly one of:
+             *
+             *   ['path' => '/readable/materialized/file']
+             *   ['bytes' => $rawBytes]
+             *
+             * The ordinary local upload path is the default when present,
+             * so providers may leave it alone, replace it with a temporary
+             * materialization, or return bytes from their own API.
+             */
+            $source = apply_filters(
+                'duo_attachment_capture_source',
+                $source,
+                $id,
+                (string) $attachedFile,
+                $localPath
+            );
+            if ($source === null) {
+                throw new \RuntimeException(
+                    "duo: attachment $id file '$attachedFile' is not present locally and no offload provider"
+                    . ' supplied bytes via duo_attachment_capture_source; capture cannot proceed for this attachment'
+                );
             }
-            $sha = hash_file('sha256', $src);
+            if (!is_array($source)) {
+                throw new \RuntimeException(
+                    "duo: attachment $id offload provider returned an invalid duo_attachment_capture_source value;"
+                    . " expected exactly ['path' => <readable path>] or ['bytes' => <raw bytes>]"
+                );
+            }
+            $hasPath = array_key_exists('path', $source);
+            $hasBytes = array_key_exists('bytes', $source);
+            if ($hasPath === $hasBytes) {
+                throw new \RuntimeException(
+                    "duo: attachment $id offload provider returned an invalid duo_attachment_capture_source value;"
+                    . " expected exactly one of 'path' or 'bytes'"
+                );
+            }
+            if ($hasPath) {
+                if (!is_string($source['path']) || $source['path'] === ''
+                    || !is_file($source['path']) || !is_readable($source['path'])) {
+                    throw new \RuntimeException(
+                        "duo: attachment $id offload provider path is not a readable file"
+                    );
+                }
+                $sha = hash_file('sha256', $source['path']);
+                if ($sha === false) {
+                    throw new \RuntimeException(
+                        "duo: attachment $id offload provider path could not be hashed"
+                    );
+                }
+            } else {
+                if (!is_string($source['bytes'])) {
+                    throw new \RuntimeException(
+                        "duo: attachment $id offload provider bytes must be a string"
+                    );
+                }
+                $sha = hash('sha256', $source['bytes']);
+            }
             $ext = pathinfo($attachedFile, PATHINFO_EXTENSION);
             $mediaFile = $sha . ($ext ? ".$ext" : '');
             $front['file'] = $attachedFile;
             $front['media'] = $mediaFile;
             $front['mime'] = $p->post_mime_type;
             $front['alt'] = $alt;
-            $mediaRef = [$mediaFile, $src];
+            $mediaRef = [$mediaFile, $source];
         }
 
         // Secret guard on bodies: loud warning, never an abort — people
@@ -1692,9 +1856,12 @@ final class Capture {
         array $values,
         array $flatMeta,
         string $ownerLabel,
-        string $unclassifiedPrefix
+        string $unclassifiedPrefix,
+        bool $termMeta = false
     ): array {
-        $rule = $this->policy->meta_rule_for_post($key, $flatMeta);
+        $rule = $termMeta
+            ? $this->policy->meta_rule_for_term($key, $flatMeta)
+            : $this->policy->meta_rule_for_post($key, $flatMeta);
         if ($rule === null) {
             $this->unclassified[] = "$unclassifiedPrefix:$key";
             return [false, null];
@@ -1711,7 +1878,7 @@ final class Capture {
         // authored value that decoded to an array (a serialized settings
         // blob) must be scanned too; guard_secret() deep-scans internally
         // now (see its own docblock).
-        $this->guard_secret('post_meta', $key, $v, $rule, " on $ownerLabel");
+        $this->guard_secret($termMeta ? 'term_meta' : 'post_meta', $key, $v, $rule, " on $ownerLabel");
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
             $decoded = $this->decode_structured($v, $rule, "$ownerLabel meta $key");
             $v = $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
@@ -1736,10 +1903,7 @@ final class Capture {
         return [true, $v];
     }
 
-    /** Mirrors post_meta_map() for termmeta. The review scan and capture's
-     *  loud pre-wire-format gate both pass this whole-object context to an
-     *  optional interpreter hook; no term-meta serialization pipeline exists
-     *  yet (DUO-3261). */
+    /** First-value-per-key termmeta context for static/interpreter rules. */
     private function term_meta_map(int $termId): array {
         global $wpdb;
         $rows = $wpdb->get_results($wpdb->prepare(
@@ -1755,21 +1919,35 @@ final class Capture {
         return $out;
     }
 
+    /** Multi-value termmeta read, preserving meta_id order per key. */
+    private function term_meta_by_key(int $termId): array {
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT meta_key, meta_value FROM {$wpdb->termmeta} WHERE term_id = %d ORDER BY meta_key ASC, meta_id ASC",
+            $termId
+        ), ARRAY_A) ?: [];
+        $byKey = [];
+        foreach ($rows as $row) {
+            $byKey[$row['meta_key']][] = $row['meta_value'];
+        }
+        return $byKey;
+    }
+
     /**
      * Whole-user meta context for the optional interpreter hook. Users stay
      * environment-local: this read neither mints identity nor emits an
      * entity. The join deliberately excludes orphaned usermeta rows, which
      * have no owning user/login and therefore cannot be a user-attached
-     * authored surface even under DUO-3268's future login-keyed design.
+     * authored surface under DUO-3268's login-keyed design.
      *
-     * @return array<int, array{login:string,meta:array<string,mixed>}>
+     * @return array<int, array{login:string,meta:array<string,mixed>,values:array<string,string[]>}>
      */
     private function user_meta_maps(): array {
         global $wpdb;
         $rows = $wpdb->get_results(
             "SELECT u.ID AS user_id, u.user_login, um.meta_key, um.meta_value
              FROM {$wpdb->users} u
-             INNER JOIN {$wpdb->usermeta} um ON um.user_id = u.ID
+             LEFT JOIN {$wpdb->usermeta} um ON um.user_id = u.ID
              ORDER BY u.ID ASC, um.umeta_id ASC",
             ARRAY_A
         ) ?: [];
@@ -1778,11 +1956,94 @@ final class Capture {
         foreach ($rows as $row) {
             $userId = (int) $row['user_id'];
             $out[$userId]['login'] = (string) $row['user_login'];
-            if (!isset($out[$userId]['meta'][$row['meta_key']])) {
-                $out[$userId]['meta'][$row['meta_key']] = $row['meta_value'];
+            $out[$userId]['meta'] ??= [];
+            $out[$userId]['values'] ??= [];
+            if ($row['meta_key'] === null) {
+                continue;
+            }
+            $key = (string) $row['meta_key'];
+            $out[$userId]['values'][$key][] = (string) $row['meta_value'];
+            if (!array_key_exists($key, $out[$userId]['meta'])) {
+                $out[$userId]['meta'][$key] = (string) $row['meta_value'];
             }
         }
         return $out;
+    }
+
+    /** @return array<int,array{uuid:string,type:string,path:string,content:string}> */
+    private function build_user_meta_entities(array $carriedLogins): array {
+        $carry = array_fill_keys(array_filter(array_map('strval', $carriedLogins)), true);
+        $users = [];
+        foreach ($this->user_meta_maps() as $user) {
+            UserMetaState::assert_login($user['login']);
+            $users[$user['login']] = $user;
+        }
+        ksort($users, SORT_STRING);
+
+        $out = [];
+        foreach ($users as $login => $user) {
+            $authored = [];
+            foreach ($user['values'] as $key => $values) {
+                [$store, $value] = $this->classify_user_meta_value(
+                    (string) $key,
+                    $values,
+                    $user['meta'],
+                    $login
+                );
+                if ($store) {
+                    $authored[(string) $key] = $value;
+                }
+            }
+            if (!$authored && !isset($carry[$login])) {
+                continue;
+            }
+            $document = UserMetaState::document($login, $authored);
+            $out[] = [
+                // Canonical-state key only: not a UUID, never duo_map.
+                'uuid' => UserMetaState::key($login),
+                'type' => 'user-meta',
+                'path' => UserMetaState::path($login),
+                'content' => Canon::encode($document),
+            ];
+        }
+        return $out;
+    }
+
+    /** @return array{0:bool,1:mixed} */
+    private function classify_user_meta_value(string $key, array $values, array $flatMeta, string $login): array {
+        $rule = $this->policy->meta_rule_for_user($key, $flatMeta);
+        if (($rule['class'] ?? '') !== 'authored') {
+            return [false, null];
+        }
+        if (count($values) !== 1) {
+            throw new \RuntimeException(
+                "duo: multi-value authored user meta '$key' on exact login '$login' is unsupported; "
+                . 'refusing to choose one row'
+            );
+        }
+        $value = maybe_unserialize($values[0]);
+        self::assert_plain($value, "user '$login' meta $key");
+        $this->guard_secret('user_meta', $key, $value, $rule, " on exact login '$login'");
+        $this->guard_personal_data($key, $value, $rule, $login);
+        if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+            $decoded = $this->decode_structured($value, $rule, "user '$login' meta $key");
+            $value = $this->tokens->struct_capture(
+                $decoded,
+                $rule['json_refs'] ?? [],
+                $rule['key_refs'] ?? null
+            );
+        } elseif (!empty($rule['ref'])) {
+            $value = $this->tokens->meta_value_to_tokens($value, $rule);
+            if ($value === null) {
+                return [false, null];
+            }
+        } elseif (is_string($value)) {
+            $value = $this->tokens->tokenize_text($value);
+        }
+        if (!empty($rule['order_preserving'])) {
+            $value = new OrderPreserved($value);
+        }
+        return [true, $value];
     }
 
     /**
@@ -1861,13 +2122,13 @@ final class Capture {
         // classification are separate declarations: a claimed name with no
         // exact/pattern rule is queued as unknown; an authored pattern is a
         // real dynamic-family capture rule, not merely a lookup fallback.
-        $liveOptionNames = $this->option_name_scan();
-        foreach ($liveOptionNames as $name) {
+        $allOptionValues = $this->all_options_map();
+        foreach (array_keys($allOptionValues) as $name) {
             $owner = $this->policy->option_namespace($name);
             if ($owner === null) {
                 continue;
             }
-            $rule = $this->policy->owned_option_rule($name);
+            $rule = $this->policy->owned_option_rule_via_interpreter($name, $allOptionValues);
             if (isset($processed[$name]) || $this->policy->match_option_name_ref($name) !== null) {
                 continue;
             }
@@ -2089,6 +2350,15 @@ final class Capture {
             OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$managedOption'");
             $out[$managedOption] = OptionState::present($v, $row['autoload']);
         }
+        // DUO-3263: an interpreter-classified option's shadow pointer is
+        // atomically removed alongside its value (empirically confirmed for
+        // ACF: delete_field() leaves no orphaned _options_<name> row), so
+        // the live map above can no longer answer "was this authored" for
+        // a name that just went missing. The PREVIOUS capture's own
+        // document still carries it (the shadow key is its own captured
+        // 'present' record, same as the value) — built lazily, only if a
+        // non-ref-token name actually needs it below.
+        $previousOptionValues = null;
         foreach ($previousDocument === null ? [] : OptionState::records($previousDocument) as $name => $record) {
             if (isset($out[$name]) || isset($liveCanonicalNames[$name])) {
                 continue; // still live (possibly omitted because a ref dropped) or replaced by a present record
@@ -2099,7 +2369,10 @@ final class Capture {
             }
             $details = str_contains((string) $name, '{{')
                 ? $this->policy->canonical_option_name_ref_details((string) $name)
-                : $this->policy->option_rule_details((string) $name);
+                : $this->policy->option_rule_details_for_option(
+                    (string) $name,
+                    $previousOptionValues ??= OptionState::values($previousDocument)
+                );
             $rule = $details['rule'] ?? [];
             if ($record['state'] === 'present'
                 && ($rule['class'] ?? null) === 'authored' && empty($rule['sub_keys'])) {
@@ -2218,16 +2491,23 @@ final class Capture {
         return ['option_value' => (string) $row['option_value'], 'autoload' => (string) $row['autoload']];
     }
 
-    /** All live option NAMES (not values) — the candidate set
-     *  option_name_refs patterns test against (task #93). One full scan
-     *  per capture, not per-pattern/per-option: cheap (option_name is
-     *  indexed, and this reads only that one column), and Policy::rule()'s
-     *  existing pattern-fallback loop already sets the precedent of
-     *  testing a candidate against every declared pattern in PHP rather
-     *  than pushing regex evaluation into SQL. */
-    private function option_name_scan(): array {
+    /** All live options as a name => raw value map — the candidate set
+     *  option_name_refs patterns test against (task #93), and (DUO-3263)
+     *  the sibling-lookup context a namespace-owned option's interpreter
+     *  hook needs (a shadow-key pointer, exactly like post/term meta's
+     *  $allMeta). One full scan per capture, not per-pattern/per-option:
+     *  cheap (option_name is indexed), and Policy::rule()'s existing
+     *  pattern-fallback loop already sets the precedent of testing a
+     *  candidate against every declared pattern in PHP rather than pushing
+     *  regex evaluation into SQL. */
+    private function all_options_map(): array {
         global $wpdb;
-        return $wpdb->get_col("SELECT option_name FROM {$wpdb->options}") ?: [];
+        $rows = $wpdb->get_results("SELECT option_name, option_value FROM {$wpdb->options}", ARRAY_A) ?: [];
+        $out = [];
+        foreach ($rows as $row) {
+            $out[(string) $row['option_name']] = (string) $row['option_value'];
+        }
+        return $out;
     }
 
     /**
@@ -2285,6 +2565,22 @@ final class Capture {
             . "If this is really a secret, reclassify it env-bound or runtime instead of authored.\n"
             . "If this is a false positive, allow it explicitly:\n"
             . "  wp duo classify --repo={$this->repo} --set '$section:$key=authored' --allow-secret"
+        );
+    }
+
+    /** User-meta-only PII gate; explicit authored classification is not consent. */
+    private function guard_personal_data(string $key, $value, array $rule, string $login): void {
+        if (!empty($rule['allow_pii'])) {
+            return;
+        }
+        $label = PersonalData::match_deep($key, $value);
+        if ($label === null) {
+            return;
+        }
+        throw new \RuntimeException(
+            "duo: PII guard tripped — user_meta '$key' on exact login '$login' looks like $label but is "
+            . "classified authored; refusing to capture it into state/.\n"
+            . 'Keep it runtime/env, or declare "allow_pii": true on this exact user_meta rule after review.'
         );
     }
 

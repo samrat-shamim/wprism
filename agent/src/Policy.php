@@ -18,13 +18,17 @@ final class Policy {
     /**
      * Interpreter contract. An interpreter is a class with the required
      *   post_meta_rule(string $key, array $allMeta): ?array
-     * hook and may additionally define either of the optional hooks
+     * hook and may additionally define any of the optional hooks
      *   term_meta_rule(string $key, array $allMeta): ?array
      *   user_meta_rule(string $key, array $allMeta): ?array
+     *   option_rule(string $name, array $allOptions): ?array
      * Each returns a classification rule (same shape as the corresponding
      * static meta rule, optionally with 'cast') or null to defer. Manifests opt in via
      * {"interpreter": "<name>"} — for schema-driven plugins (ACF) whose meta
-     * semantics live in data, not in a static key list.
+     * semantics live in data, not in a static key list. option_rule() (DUO-3263)
+     * is consulted only for an option NAME already namespace-owned by some
+     * manifest's option_namespaces declaration — unlike the meta hooks, an
+     * interpreter has no implicit reach over every option in the table.
      *
      * Interpreter CODE is part of the manifest artifact, never the engine:
      * a declared name resolves to <manifests_dir>/interpreters/<name>.php,
@@ -58,6 +62,7 @@ final class Policy {
             self::validate_scope_classes($p->site, 'site.duo.json', true);
             self::validate_option_storage($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
+            self::validate_user_meta_rules($p->site['policy'] ?? [], 'site.duo.json');
         }
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
         $pins = self::normalize_manifest_pins($rawPins);
@@ -73,6 +78,7 @@ final class Policy {
             self::validate_menu_field_classes($manifest);
             self::validate_regen_dependencies($manifest);
             self::validate_env_options($manifest, "manifest '$name'");
+            self::validate_user_meta_rules($manifest, "manifest '$name'");
             self::validate_scope_classes($manifest, "manifest '$name'", false);
             self::validate_sub_keys($manifest);
             self::validate_dynamic_options($manifest);
@@ -81,6 +87,10 @@ final class Policy {
             self::validate_discovery_contract($manifest);
             $p->manifests[] = $manifest;
         }
+        self::validate_no_conflicting_option_rules(
+            $p->manifests,
+            $p->site['policy']['options'] ?? []
+        );
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_manifest_pins($pins, $p);
         return $p;
@@ -367,44 +377,21 @@ final class Policy {
     /**
      * Option names classified authored (the capture whitelist).
      *
-     * DUO-3249: the first loop below adds any name ANY pinned manifest
-     * declares `authored`, independent of whether some OTHER manifest
-     * reclassifies that same name to something else — it has no way to
-     * know a later-considered manifest will un-author a name an earlier
-     * one already added, since it never re-consults rule_details()'s own
-     * (now core-yields-to-plugin-aware) resolution. Left uncorrected, a
-     * plugin manifest's own `derived`/`env`/`runtime` reclassification of a
-     * core option (e.g. polylang.json's `default_category` — DUO-3249)
-     * would still end up captured as authored here, silently contradicting
-     * what `Policy::option_rule()` reports for the exact same name. The
-     * final pass below re-resolves every candidate through that single
-     * authoritative precedence algorithm and drops anything it no longer
-     * agrees is authored — correctness over performance (one extra
-     * rule_details() walk per candidate name, a short list, once per
-     * capture/plan/apply invocation, never per-entity).
+     * DUO-3255: resolved_exact_options() is the single precedence path for
+     * this and the env/sub-key bulk enumerators. It delegates every name to
+     * rule_details(), so bulk lookup can never silently use a different pin
+     * winner than the per-name capture/apply path. Policy::load() has
+     * already refused contradictory non-core declarations; identical ones
+     * dedupe here, while core-yields-to-plugin and site override precedence
+     * remain exactly the rule_details() contract.
      */
     public function authored_options(): array {
         $out = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['options'] ?? [] as $name => $r) {
-                if (($r['class'] ?? '') === 'authored') {
-                    $out[$name] = self::with_option_autoload($r, $m);
-                }
-            }
-        }
-        foreach ($this->site['policy']['options'] ?? [] as $name => $r) {
+        foreach ($this->resolved_exact_options() as $name => $r) {
             if (($r['class'] ?? '') === 'authored') {
-                $out[$name] = self::with_option_autoload($r, $this->site['policy'] ?? []);
-            } else {
-                unset($out[$name]);
+                $out[$name] = $r;
             }
         }
-        foreach (array_keys($out) as $name) {
-            if (($this->option_rule($name)['class'] ?? null) !== 'authored') {
-                unset($out[$name]);
-            }
-        }
-        ksort($out, SORT_STRING);
         return $out;
     }
 
@@ -439,18 +426,39 @@ final class Policy {
      */
     public function sub_keyed_options(): array {
         $out = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['options'] ?? [] as $name => $r) {
-                if (!empty($r['sub_keys'])) {
-                    $out[$name] = self::with_option_autoload($r, $m);
-                }
+        foreach ($this->resolved_exact_options() as $name => $r) {
+            if (!empty($r['sub_keys'])) {
+                $out[$name] = $r;
             }
         }
-        foreach ($this->site['policy']['options'] ?? [] as $name => $r) {
-            if (!empty($r['sub_keys'])) {
-                $out[$name] = self::with_option_autoload($r, $this->site['policy'] ?? []);
-            } else {
-                unset($out[$name]);
+        return $out;
+    }
+
+    /**
+     * Resolve every exact option name once through rule_details() — never
+     * reimplement its precedence with a bulk foreach overwrite. Names from
+     * site policy are included even when no manifest declares them. Pattern
+     * rules remain discovery/classification rules and are deliberately not
+     * enumerated here, matching these bulk APIs' historical exact-name
+     * contract.
+     *
+     * @return array<string,array>
+     */
+    private function resolved_exact_options(): array {
+        $names = [];
+        foreach ($this->manifests as $manifest) {
+            foreach ($manifest['options'] ?? [] as $name => $_rule) {
+                $names[(string) $name] = true;
+            }
+        }
+        foreach ($this->site['policy']['options'] ?? [] as $name => $_rule) {
+            $names[(string) $name] = true;
+        }
+        $out = [];
+        foreach (array_keys($names) as $name) {
+            $rule = $this->option_rule_details($name)['rule'];
+            if ($rule !== null) {
+                $out[$name] = $rule;
             }
         }
         ksort($out, SORT_STRING);
@@ -1092,26 +1100,98 @@ final class Policy {
     }
 
     public function meta_rule_for_user(string $key, array $allMeta): ?array {
-        return $this->meta_rule_for_interpreter_hook('user_meta_rule', 'user_meta', $key, $allMeta);
+        $rule = $this->meta_rule_for_interpreter_hook('user_meta_rule', 'user_meta', $key, $allMeta);
+        if ($rule !== null) {
+            self::validate_user_meta_rule($rule, "user_meta.$key");
+        }
+        return $rule;
     }
 
     /**
-     * User-meta classification is useful before user meta is portable:
-     * runtime/env/derived decisions explicitly keep a key target-local, and
-     * interpreters can make those decisions from the owning user's complete
-     * meta map. `authored`, however, cannot become an inert declaration —
-     * spec v1 deliberately has no user entity or user-meta sidecar. Capture
-     * asks this guard about every live user-meta key and folds any returned
-     * reason into its ordinary aggregate loud gate, so the unsupported shape
-     * refuses by name until DUO-3268 defines representation, identity,
-     * missing-target, PII/secret, and deletion semantics.
+     * DUO-3263: a third optional interpreter hook, same contract shape as
+     * term/user above, for options whose NAME a manifest's option_namespaces
+     * claims but whose per-name classification can't be a static exact/
+     * pattern rule (ACF options-page fields: arbitrary field names, ref kind
+     * determined by a shadow-key-pointed schema, exactly like post/term meta
+     * — see manifests/interpreters/acf.php's option_rule()). $allOptions is
+     * the full option_name => raw option_value map (mirroring $allMeta's
+     * "owning scope, shadow keys and all" shape) — options have no single
+     * owning entity to scope the map to, so callers pass every option Duo
+     * can see (live wp_options during capture, the repository's own
+     * OptionState::records() during repository-side authorization/
+     * compilation — see Capture::all_options_map() and
+     * RepositoryAuthorization/RepositoryCompiler's own construction).
+     *
+     * Routes through option_rule_details_for_option() rather than the plain
+     * meta_rule_for_interpreter_hook() every other meta_rule_for_*() uses —
+     * caught live (regress_acf_term_options_fields.sh's first run):
+     * OptionState::assert_rule_autoload() requires every options rule to
+     * declare 'autoload' (or 'preserve'), and the static options path
+     * always gets that via with_option_autoload()'s manifest-level
+     * option_autoload default; an interpreter-returned rule bypassed it
+     * entirely. Only the details() path knows which manifest's interpreter
+     * answered, so autoload injection lives there (see its own docblock).
+     */
+    public function meta_rule_for_option(string $name, array $allOptions): ?array {
+        return $this->option_rule_details_for_option($name, $allOptions)['rule'];
+    }
+
+    /**
+     * Interpreter-aware sibling of owned_option_rule() (DUO-3263): same
+     * namespace-ownership gate and cross-manifest-ambiguity check, but
+     * consulting a declared interpreter's option_rule() before the static
+     * options rule. A separate method rather than changing owned_option_rule()
+     * itself — that accessor has callers uninterested in live/repository
+     * option context (mirrors post_meta_rule()/meta_rule_for_post() staying
+     * two separate methods rather than one changing shape underneath its
+     * existing callers).
+     */
+    public function owned_option_rule_via_interpreter(string $name, array $allOptions): ?array {
+        $owner = $this->option_namespace($name);
+        if ($owner === null) {
+            return null;
+        }
+        $details = $this->option_rule_details_for_option($name, $allOptions);
+        if ($details['rule'] !== null && $details['source'] !== 'site.duo.json'
+            && $details['source'] !== $owner['owner']
+            && !str_starts_with((string) $details['source'], $owner['owner'] . ' (interpreter')) {
+            throw new \RuntimeException(
+                "duo: option '$name' namespace is owned by '{$owner['owner']}' but its classification comes from "
+                . "'{$details['source']}' — cross-manifest ownership is ambiguous"
+            );
+        }
+        return $details['rule'];
+    }
+
+    /**
+     * Backward-compatible facade kept for callers introduced by DUO-3262.
+     * Authored user meta is representable now, so classification itself is
+     * no longer a blocker; Capture performs the value-level PII/secret and
+     * shape checks while building the login-keyed sidecar.
      */
     public function user_meta_capture_blocker(string $key, array $allMeta): ?string {
-        $rule = $this->meta_rule_for_user($key, $allMeta);
-        if (($rule['class'] ?? '') === 'authored') {
-            return 'authored is unsupported by the v1 repository schema; capture is blocked pending DUO-3268';
-        }
+        $this->meta_rule_for_user($key, $allMeta);
         return null;
+    }
+
+    /**
+     * Missing owning-user behavior for one sidecar. Any authored key using
+     * the fail-closed default wins over warn-and-skip, so mixed declarations
+     * can never partially apply a sidecar.
+     */
+    public function user_meta_missing_behavior(array $meta): string {
+        $hasAuthored = false;
+        foreach ($meta as $key => $_) {
+            $rule = $this->meta_rule_for_user((string) $key, $meta);
+            if (($rule['class'] ?? '') !== 'authored') {
+                continue;
+            }
+            $hasAuthored = true;
+            if (($rule['missing_user'] ?? 'block') !== 'warn') {
+                return 'block';
+            }
+        }
+        return $hasAuthored ? 'warn' : 'block';
     }
 
     private function meta_rule_for_interpreter_hook(
@@ -1134,8 +1214,91 @@ final class Policy {
 
     /** @return array{rule:?array, source:?string} */
     public function meta_rule_details_for_post(string $key, array $allMeta): array {
+        return $this->rule_details_for_interpreter_hook(
+            'post_meta_rule',
+            $key,
+            $allMeta,
+            fn() => $this->post_meta_rule_details($key)
+        );
+    }
+
+    /**
+     * DUO-3263: option_rule() sibling of meta_rule_details_for_post() above,
+     * for the same "which interpreter/manifest actually decided this"
+     * provenance RepositoryAuthorization/RepositoryCompiler need (they
+     * report a mismatched source, not just a classification).
+     *
+     * @return array{rule:?array, source:?string}
+     */
+    public function option_rule_details_for_option(string $name, array $allOptions): array {
+        return $this->rule_details_for_interpreter_hook(
+            'option_rule',
+            $name,
+            $allOptions,
+            fn() => $this->option_rule_details($name)
+        );
+    }
+
+    /**
+     * Shared by meta_rule_details_for_post() (post_meta_rule is mandatory —
+     * every interpreter already satisfies method_exists() by the load-time
+     * check in interpreters(), so the guard below is a no-op there) and
+     * option_rule_details_for_option() (option_rule is optional, so the
+     * guard is load-bearing there, mirroring meta_rule_for_interpreter_hook()'s
+     * own method_exists() gate).
+     *
+     * The $hook === 'option_rule' branch below is the one hook-specific
+     * exception to this being a generic dispatcher: every STATIC options
+     * rule already gets the owning manifest's own option_autoload default
+     * injected (with_option_autoload(), called at every static rule()
+     * options lookup) — OptionState::assert_rule_autoload() hard-requires
+     * every options rule to declare 'autoload' (or 'preserve') before a row
+     * can be captured. An interpreter-returned options rule needs the exact
+     * same treatment or it can never pass that check (caught live:
+     * regress_acf_term_options_fields.sh's first run failed capture outright
+     * with "option '...' has autoload 'off' but policy declares NULL").
+     * term_meta/user_meta rules have no such concept, so this is scoped to
+     * the one hook name that does, not a general behavior change.
+     *
+     * @return array{rule:?array, source:?string}
+     */
+    private function rule_details_for_interpreter_hook(
+        string $hook,
+        string $key,
+        array $allMeta,
+        callable $staticDetails
+    ): array {
         foreach ($this->interpreters() as $name => $i) {
-            $rule = $i->post_meta_rule($key, $allMeta);
+            if (!method_exists($i, $hook)) {
+                continue;
+            }
+            $rule = $i->{$hook}($key, $allMeta);
+            if ($rule === null) {
+                continue;
+            }
+            foreach ($this->manifests as $m) {
+                if (($m['interpreter'] ?? null) === $name) {
+                    if ($hook === 'option_rule') {
+                        $rule = self::with_option_autoload($rule, $m);
+                    }
+                    return [
+                        'rule' => $rule,
+                        'source' => (string) ($m['name'] ?? '?') . " (interpreter $name)",
+                    ];
+                }
+            }
+            return ['rule' => $rule, 'source' => "interpreter $name"];
+        }
+        return $staticDetails();
+    }
+
+    /** @return array{rule:?array, source:?string} */
+    public function meta_rule_details_for_term(string $key, array $allMeta): array {
+        foreach ($this->interpreters() as $name => $i) {
+            if (!method_exists($i, 'term_meta_rule')) {
+                continue;
+            }
+            $rule = $i->term_meta_rule($key, $allMeta);
             if ($rule === null) {
                 continue;
             }
@@ -1149,7 +1312,35 @@ final class Policy {
             }
             return ['rule' => $rule, 'source' => "interpreter $name"];
         }
-        return $this->post_meta_rule_details($key);
+        return $this->rule_details('term_meta', $key);
+    }
+
+    /** @return array{rule:?array, source:?string} */
+    public function meta_rule_details_for_user(string $key, array $allMeta): array {
+        foreach ($this->interpreters() as $name => $i) {
+            if (!method_exists($i, 'user_meta_rule')) {
+                continue;
+            }
+            $rule = $i->user_meta_rule($key, $allMeta);
+            if ($rule === null) {
+                continue;
+            }
+            self::validate_user_meta_rule($rule, "interpreter $name user_meta.$key");
+            foreach ($this->manifests as $m) {
+                if (($m['interpreter'] ?? null) === $name) {
+                    return [
+                        'rule' => $rule,
+                        'source' => (string) ($m['name'] ?? '?') . " (interpreter $name)",
+                    ];
+                }
+            }
+            return ['rule' => $rule, 'source' => "interpreter $name"];
+        }
+        $details = $this->rule_details('user_meta', $key);
+        if ($details['rule'] !== null) {
+            self::validate_user_meta_rule($details['rule'], "user_meta.$key");
+        }
+        return $details;
     }
 
     /**
@@ -1286,7 +1477,7 @@ final class Policy {
     /**
      * DUO-3234 — a post type's derived-table hard-dependency declaration, if
      * any: `{"regenerator": "<name>", "verify": {"table": "<t>", "column": "<c>"}}`.
-     * v1 scope, stated loudly: post_types{}-keyed only (a per-post-type
+     * v2 scope, stated loudly: post_types{}-keyed only (a per-post-type
      * property, matching the phase/fields precedents immediately above and
      * below — never a `tables{}` declaration, since the derived table itself
      * has no independent identity to declare; see agent/src/Snapshot.php's
@@ -1310,7 +1501,7 @@ final class Policy {
     }
 
     /**
-     * v1-supported post FIELD classification surface (task #88). A field
+     * v2-supported post FIELD classification surface (task #88). A field
      * name must appear here before ANY manifest may declare it under
      * `post_types.<type>.fields.<field>` — validate_field_classes() below
      * enforces this at load() time, loudly, rather than silently ignoring
@@ -1390,7 +1581,7 @@ final class Policy {
     }
 
     /**
-     * v1-supported MENU FIELD classification surface (DUO-3272) — same
+     * v2-supported MENU FIELD classification surface (DUO-3272) — same
      * purpose as DERIVABLE_FIELDS above (task #88), but for `menus/*.json`
      * entities: a field name must appear here before ANY manifest may
      * declare it under top-level `menu_fields.<field>` —
@@ -1468,7 +1659,7 @@ final class Policy {
      * field, or an unsupported class for a supported field, fails EVERY
      * command that loads this manifest (capture/plan/apply/lint/pending),
      * not just the specific post_type/field it misdeclares — task #88's
-     * "start v1 scope tight" instruction, enforced structurally rather than
+     * "start scope tight" instruction, enforced structurally rather than
      * left as a convention. Called from load() for every manifest, so a
      * bad declaration can never reach field_class()'s per-post lookup.
      */
@@ -1479,7 +1670,7 @@ final class Policy {
                 if (!in_array($field, self::DERIVABLE_FIELDS, true)) {
                     throw new \RuntimeException(
                         "duo: manifest '$name' declares post_types.$postType.fields.$field, but only "
-                        . implode(', ', self::DERIVABLE_FIELDS) . ' may be field-classified in v1 (task #88 '
+                        . implode(', ', self::DERIVABLE_FIELDS) . ' may be field-classified in v2 (task #88 '
                         . 'scoped this deliberately tight — see Policy::DERIVABLE_FIELDS\' docblock)'
                     );
                 }
@@ -1488,7 +1679,7 @@ final class Policy {
                     throw new \RuntimeException(
                         "duo: manifest '$name' declares post_types.$postType.fields.$field.class="
                         . var_export($class, true) . ' but only ' . implode(', ', self::FIELD_CLASSES)
-                        . ' is supported for post fields in v1'
+                        . ' is supported for post fields in v2'
                     );
                 }
             }
@@ -1517,7 +1708,7 @@ final class Policy {
             if (!in_array($field, self::MENU_DERIVABLE_FIELDS, true)) {
                 throw new \RuntimeException(
                     "duo: manifest '$name' declares menu_fields.$field, but only "
-                    . implode(', ', self::MENU_DERIVABLE_FIELDS) . ' may be field-classified in v1 (DUO-3272 '
+                    . implode(', ', self::MENU_DERIVABLE_FIELDS) . ' may be field-classified in v2 (DUO-3272 '
                     . 'scoped this deliberately tight, mirroring task #88 — see Policy::MENU_DERIVABLE_FIELDS\' docblock)'
                 );
             }
@@ -1526,7 +1717,7 @@ final class Policy {
                 throw new \RuntimeException(
                     "duo: manifest '$name' declares menu_fields.$field.class="
                     . var_export($class, true) . ' but only ' . implode(', ', self::MENU_FIELD_CLASSES)
-                    . ' is supported for menu fields in v1'
+                    . ' is supported for menu fields in v2'
                 );
             }
         }
@@ -1640,7 +1831,7 @@ final class Policy {
      * Deliberately narrow, matching env_options()'s own scope: only
      * top-level `options.<name>.class === "env"` rules. A `sub_keys`
      * entry's OWN class (DUO-3233's per-sub-key carve-out) is out of
-     * v1 scope for the identical reason post_meta/term_meta env values
+     * v2 scope for the identical reason post_meta/term_meta env values
      * are (see env_options()'s docblock) — no shipped manifest declares
      * one today (confirmed empirically, not assumed), so this is a named
      * scope cut, not an oversight.
@@ -1661,6 +1852,45 @@ final class Policy {
         }
     }
 
+    /** Validate the user-meta-only safety vocabulary at policy load time. */
+    private static function validate_user_meta_rules(array $source, string $label): void {
+        foreach ((array) ($source['user_meta'] ?? []) as $key => $rule) {
+            if (!is_array($rule)) {
+                throw new \RuntimeException("duo: $label user_meta.$key must be a rule object");
+            }
+            self::validate_user_meta_rule($rule, "$label user_meta.$key");
+        }
+    }
+
+    /** Interpreter-returned rules pass through this same check at lookup. */
+    private static function validate_user_meta_rule(array $rule, string $where): void {
+        $class = $rule['class'] ?? null;
+        if (!in_array($class, self::CLASSES, true)) {
+            throw new \RuntimeException(
+                "duo: $where has an invalid or missing class (expected " . implode('|', self::CLASSES) . ')'
+            );
+        }
+        if (isset($rule['allow_pii']) && !is_bool($rule['allow_pii'])) {
+            throw new \RuntimeException("duo: $where allow_pii must be a boolean");
+        }
+        if (isset($rule['allow_secret']) && !is_bool($rule['allow_secret'])) {
+            throw new \RuntimeException("duo: $where allow_secret must be a boolean");
+        }
+        if ($class !== 'authored' && (!empty($rule['allow_pii']) || !empty($rule['allow_secret']))) {
+            throw new \RuntimeException(
+                "duo: $where PII/secret capture exceptions are valid only for class=authored"
+            );
+        }
+        if (isset($rule['missing_user'])) {
+            if ($class !== 'authored') {
+                throw new \RuntimeException("duo: $where missing_user is valid only for class=authored");
+            }
+            if (!in_array($rule['missing_user'], ['block', 'warn'], true)) {
+                throw new \RuntimeException("duo: $where missing_user must be block or warn");
+            }
+        }
+    }
+
     /**
      * Option names classified `env`, keyed by name, value = the full rule
      * (including the mandatory `required` flag validate_env_options()
@@ -1675,7 +1905,7 @@ final class Policy {
      * to write to any option name NOT in this map (never an arbitrary
      * option, only a manifest-declared env-classified one).
      *
-     * Scope: OPTIONS ONLY for v1, deliberately. post_meta/term_meta
+     * Scope: OPTIONS ONLY for v2, deliberately. post_meta/term_meta
      * classification can be interpreter-driven (Policy::meta_rule_for_post()
      * dispatches to schema-driven code reading a SPECIFIC post's whole
      * meta map — Policy.php's own interpreter contract docblock at the top
@@ -1688,21 +1918,11 @@ final class Policy {
      */
     public function env_options(): array {
         $out = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['options'] ?? [] as $name => $r) {
-                if (($r['class'] ?? '') === 'env') {
-                    $out[$name] = self::with_option_autoload($r, $m);
-                }
-            }
-        }
-        foreach ($this->site['policy']['options'] ?? [] as $name => $r) {
+        foreach ($this->resolved_exact_options() as $name => $r) {
             if (($r['class'] ?? '') === 'env') {
-                $out[$name] = self::with_option_autoload($r, $this->site['policy'] ?? []);
-            } else {
-                unset($out[$name]);
+                $out[$name] = $r;
             }
         }
-        ksort($out, SORT_STRING);
         return $out;
     }
 
@@ -1716,7 +1936,7 @@ final class Policy {
      * Apply::build_plan() turns each entry into a plain plan warning.
      *
      * Deliberately narrow, matching the ruling's own scope: options only
-     * (mirrors env_options()'s identical "options only for v1" cut — no
+     * (mirrors env_options()'s identical "options only for v2" cut — no
      * shipped manifest reclassifies a core post_meta/term_meta/table key
      * today), and core-vs-PLUGIN-MANIFEST only — a site.duo.json override
      * of a core option is the operator's own explicit, already-visible
@@ -2000,6 +2220,64 @@ final class Policy {
     }
 
     /**
+     * DUO-3255: two non-core manifests may share an exact option name only
+     * when their effective rules are identical. Pin order is incidental and
+     * must never choose between contradictory authored/env/runtime/derived
+     * contracts. Core-vs-plugin declarations are deliberately exempt: the
+     * DUO-3249 core-yields-to-plugin rule is a ratified reclassification
+     * layer and active_reclassifications() makes it plan-visible.
+     *
+     * A site policy rule for the colliding name is the explicit resolution
+     * path. It outranks every manifest in rule_details(), so its presence
+     * makes the operator's choice unambiguous and this guard skips that
+     * name. `note` is the sole non-semantic option-rule annotation; every
+     * other field (including required, ref/json/key/sub-key shape, lint_ok,
+     * and effective autoload storage) participates in the comparison.
+     *
+     * @param list<array> $manifests
+     * @param array<string,array> $siteOptions
+     */
+    private static function validate_no_conflicting_option_rules(array $manifests, array $siteOptions): void {
+        $seen = [];
+        foreach ($manifests as $manifest) {
+            $manifestName = (string) ($manifest['name'] ?? '?');
+            if ($manifestName === 'core') {
+                continue;
+            }
+            foreach ($manifest['options'] ?? [] as $optionName => $rule) {
+                $optionName = (string) $optionName;
+                if (array_key_exists($optionName, $siteOptions) || !is_array($rule)) {
+                    continue;
+                }
+                $effective = self::with_option_autoload($rule, $manifest);
+                unset($effective['note']);
+                $fingerprint = Canon::encode($effective);
+                if (!isset($seen[$optionName])) {
+                    $seen[$optionName] = [
+                        'manifest' => $manifestName,
+                        'class' => $rule['class'] ?? null,
+                        'rule' => $effective,
+                        'fingerprint' => $fingerprint,
+                    ];
+                    continue;
+                }
+                $prior = $seen[$optionName];
+                if ($prior['fingerprint'] === $fingerprint) {
+                    continue;
+                }
+                throw new \RuntimeException(
+                    "duo: manifests '{$prior['manifest']}' and '$manifestName' declare contradictory rules"
+                    . " for options.$optionName ({$prior['manifest']} class="
+                    . var_export($prior['class'], true) . ", $manifestName class="
+                    . var_export($rule['class'] ?? null, true) . '); effective rules differ ('
+                    . Canon::encode($prior['rule']) . ' vs ' . Canon::encode($effective) . '). '
+                    . "Add an explicit site.duo.json policy.options.$optionName override to resolve this option."
+                );
+            }
+        }
+    }
+
+    /**
      * DUO-3222: loud, load-time guard for the adapter compatibility
      * contract — same "throw immediately" posture as every validator
      * above. A manifest that names a plugin/theme without an exact,
@@ -2085,7 +2363,7 @@ final class Policy {
      * precedence this issue's own non-negotiable constraint forbids
      * ("Manifest precedence cannot depend on load order").
      *
-     * v1 has NO composition/override escape hatch (no "supersedes" field
+     * v2 has NO composition/override escape hatch (no "supersedes" field
      * or similar): every manifest pinned by every real site in this
      * project models a DISTINCT plugin or theme today, so there is no
      * genuine case requiring two manifests to legitimately co-declare the
@@ -2117,7 +2395,7 @@ final class Policy {
                         throw new \RuntimeException(
                             "duo: manifests '{$prev['name']}' and '$name' both declare $idKey '$id' with "
                             . "different $rangeKey values (" . json_encode($prev['range']) . ' vs '
-                            . json_encode($range) . ') — conflicting ownership with no v1 composition rule; '
+                            . json_encode($range) . ') — conflicting ownership with no v2 composition rule; '
                             . 'pin only one, or narrow one range to a disjoint window'
                         );
                     }
@@ -2344,6 +2622,11 @@ final class Policy {
         }
         if (isset($rule['allow_secret']) && !is_bool($rule['allow_secret'])) {
             throw new \RuntimeException('duo: allow_secret must be a boolean');
+        }
+        if ($section === 'user_meta') {
+            self::validate_user_meta_rule($rule, "user_meta.$key");
+        } elseif (isset($rule['allow_pii']) || isset($rule['missing_user'])) {
+            throw new \RuntimeException('duo: allow_pii and missing_user are valid only for user_meta rules');
         }
 
         $siteFile = rtrim($repo, '/') . '/site.duo.json';

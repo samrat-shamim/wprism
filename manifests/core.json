@@ -73,7 +73,7 @@
       ]
     }
   },
-  "spec_version": 1,
+  "spec_version": 2,
   "name": "core",
   "option_autoload": "preserve",
   "notes": [

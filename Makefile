@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter
 
 up:
 	$(COMPOSE) up -d
@@ -213,6 +213,9 @@ regress-discovery-completeness:
 regress-core-semantics:
 	bash sandbox/tests/regress_core_semantics.sh
 
+regress-attachment-portability:
+	bash sandbox/tests/regress_attachment_portability.sh
+
 # DUO-3206: offline wpdb return semantics plus a live, isolated failure-
 # injection matrix for insert/update/delete/transactions/rebuilders/ledger.
 regress-fatal-mutations-unit:
@@ -234,6 +237,15 @@ regress-adapter-contract:
 # pure PHP fixture manifests/interpreters, no WordPress or docker.
 regress-interpreter-policy:
 	bash sandbox/tests/regress_interpreter_policy.sh
+
+# DUO-3263: real Acf interpreter term_meta_rule()/option_rule() classification
+# (term-attached fields reuse post_meta_rule()'s shadow-key machinery
+# unchanged; options-page fields use the options_/_options_ prefix
+# convention empirically confirmed against fresh ACF 6.8.7 free), plus one
+# end-to-end pass through the real manifests/acf.json + Policy dispatch/
+# ownership wiring. Pure PHP, no WordPress or docker.
+regress-acf-meta-interpreter:
+	bash sandbox/tests/regress_acf_meta_interpreter.sh
 
 # DUO-3222's one genuinely live leg: Deploy::code_mismatch()'s new THEME
 # version_range check, called directly against a real bundled WordPress

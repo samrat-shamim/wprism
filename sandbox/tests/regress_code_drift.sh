@@ -79,7 +79,7 @@ cat > siterepo/codedrift1/site.duo.json <<'EOF'
     "post_types": ["post", "page", "attachment"],
     "taxonomies": ["category"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 cp site-repo.gitignore.template siterepo/codedrift1/.gitignore

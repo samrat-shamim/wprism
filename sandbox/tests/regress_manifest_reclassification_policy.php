@@ -13,11 +13,10 @@
  * install (default_category actually converging correctly across two
  * languages).
  *
- * What this file deliberately does NOT re-litigate: the SEPARATE,
- * undecided question of two NON-core manifests declaring the same name
- * (DUO-3255) — the last check below proves that case is completely
- * UNCHANGED by this fix (still first-pin-order-wins, exactly as before),
- * not that it is now "correct" in some new sense.
+ * DUO-3255 later ratified the formerly-undecided non-core collision case:
+ * contradictory rules refuse, identical rules dedupe. The final checks
+ * preserve this file's original boundary proof while asserting that new
+ * ruling does not disturb core-yields-to-plugin reclassification.
  *
  * Exit 0 and "ALL PASSED" on success; any failed check prints "FAIL: ..."
  * and the script exits 1.
@@ -52,6 +51,21 @@ function check(bool $cond, string $msg): void {
     } else {
         echo "FAIL: $msg\n";
         $failures++;
+    }
+}
+function check_throws(callable $fn, string $needle, string $msg): void {
+    global $failures;
+    try {
+        $fn();
+        echo "FAIL: $msg (did not throw)\n";
+        $failures++;
+    } catch (\Throwable $e) {
+        if (str_contains($e->getMessage(), $needle)) {
+            echo "ok: $msg (threw: {$e->getMessage()})\n";
+        } else {
+            echo "FAIL: $msg (threw, but message missing '$needle': {$e->getMessage()})\n";
+            $failures++;
+        }
     }
 }
 
@@ -137,7 +151,7 @@ $agreeing = Policy::load(null, ['core', 'agree']);
 check($agreeing->active_reclassifications() === [], 'no reclassification reported when the plugin agrees with core\'s own class');
 
 // ======================================================================
-echo "\n== NOT touched by this fix: two non-core manifests colliding stays first-pin-order-wins, unchanged (DUO-3255's own separate territory) ==\n";
+echo "\n== non-core collisions: contradictions refuse, identical rules dedupe (DUO-3255) ==\n";
 
 write_manifest($fixtureDir, 'p1', [
     'name' => 'p1',
@@ -150,12 +164,70 @@ write_manifest($fixtureDir, 'p2', [
     'spec_version' => DUO_SPEC_VERSION,
     'options' => ['shared_name' => ['class' => 'runtime']],
 ]);
-$collide = Policy::load(null, ['p1', 'p2']);
-$d = $collide->option_rule_details('shared_name');
-check(($d['source'] ?? null) === 'p1', 'two non-core manifests colliding still resolves to the FIRST one in pin order, exactly as before this fix (DUO-3255 territory, deliberately untouched)');
-$collideReversed = Policy::load(null, ['p2', 'p1']);
-$d2 = $collideReversed->option_rule_details('shared_name');
-check(($d2['source'] ?? null) === 'p2', 'and reversing THEIR pin order still flips the winner, confirming this case is genuinely order-dependent still, not fixed here');
+check_throws(fn() => Policy::load(null, ['p1', 'p2']), 'contradictory rules for options.shared_name',
+    'two non-core manifests with different classes refuse instead of selecting a pin-order winner');
+
+write_manifest($fixtureDir, 'p3', [
+    'name' => 'p3',
+    'spec_version' => DUO_SPEC_VERSION,
+    'options' => ['shared_name' => ['class' => 'runtime']],
+]);
+write_manifest($fixtureDir, 'p4', [
+    'name' => 'p4',
+    'spec_version' => DUO_SPEC_VERSION,
+    'options' => ['shared_name' => ['class' => 'runtime']],
+]);
+$identical = Policy::load(null, ['p3', 'p4']);
+$d = $identical->option_rule_details('shared_name');
+check(($d['source'] ?? null) === 'p3', 'identical non-core declarations dedupe and direct lookup uses the first pin');
+
+write_manifest($fixtureDir, 'p5', [
+    'name' => 'p5',
+    'spec_version' => DUO_SPEC_VERSION,
+    'option_autoload' => 'preserve',
+    'options' => ['shared_authored' => ['class' => 'authored', 'ref' => 'post']],
+]);
+write_manifest($fixtureDir, 'p6', [
+    'name' => 'p6',
+    'spec_version' => DUO_SPEC_VERSION,
+    'option_autoload' => 'preserve',
+    'options' => ['shared_authored' => ['class' => 'authored', 'ref' => 'post']],
+]);
+$identicalAuthored = Policy::load(null, ['p5', 'p6']);
+check(($identicalAuthored->option_rule_details('shared_authored')['source'] ?? null) === 'p5',
+    'identical authored declarations use the first direct-lookup winner');
+check(isset($identicalAuthored->authored_options()['shared_authored']),
+    'authored_options() enumerates that same resolved declaration exactly once');
+
+write_manifest($fixtureDir, 'p7', [
+    'name' => 'p7',
+    'spec_version' => DUO_SPEC_VERSION,
+    'option_autoload' => 'preserve',
+    'options' => [
+        'shared_subkeys' => [
+            'class' => 'env',
+            'required' => false,
+            'sub_keys' => ['portable' => ['class' => 'authored']],
+        ],
+    ],
+]);
+write_manifest($fixtureDir, 'p8', [
+    'name' => 'p8',
+    'spec_version' => DUO_SPEC_VERSION,
+    'option_autoload' => 'preserve',
+    'options' => [
+        'shared_subkeys' => [
+            'class' => 'env',
+            'required' => false,
+            'sub_keys' => ['portable' => ['class' => 'authored']],
+        ],
+    ],
+]);
+$identicalSubkeys = Policy::load(null, ['p7', 'p8']);
+check(($identicalSubkeys->option_rule_details('shared_subkeys')['source'] ?? null) === 'p7',
+    'identical sub-key declarations use the first direct-lookup winner');
+check(isset($identicalSubkeys->sub_keyed_options()['shared_subkeys']),
+    'sub_keyed_options() enumerates that same resolved declaration exactly once');
 
 // ======================================================================
 echo "\n";

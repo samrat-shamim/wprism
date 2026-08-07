@@ -47,7 +47,7 @@ final class RepositoryAuthorization {
     ];
     private const ATTACHMENT_FIELDS = ['file', 'media', 'mime', 'alt'];
     private const TERM_FIELDS = [
-        'uuid', 'taxonomy', 'name', 'slug', 'description', 'parent', 'relationships',
+        'uuid', 'taxonomy', 'name', 'slug', 'description', 'parent', 'meta', 'relationships',
     ];
     private const MENU_FIELDS = ['uuid', 'name', 'slug', 'locations', 'items'];
     private const MENU_ITEM_FIELDS = [
@@ -55,6 +55,7 @@ final class RepositoryAuthorization {
         'description', 'attr_title', 'target', 'classes', 'xfn', 'meta',
     ];
     private const TABLE_FIELDS = ['columns', 'meta', 'table', 'uuid'];
+    private const USER_META_FIELDS = ['login', 'meta'];
     private const MANAGED_OPTIONS = ['active_plugins', 'template', 'stylesheet'];
 
     /**
@@ -143,6 +144,9 @@ final class RepositoryAuthorization {
                 case 'options':
                     self::authorize_options($policy, (string) $uuid, $entity, $diagnostics);
                     break;
+                case 'user-meta':
+                    self::authorize_user_meta($policy, (string) $uuid, $entity, $diagnostics);
+                    break;
                 default:
                     self::authorize_table($policy, (string) $uuid, $entity, $diagnostics);
                     break;
@@ -214,6 +218,14 @@ final class RepositoryAuthorization {
         $path = $entity['path'];
         self::unexpected_fields($front, self::TERM_FIELDS, $path, $uuid, 'term_field', $out);
         self::authorize_taxonomy($policy, (string) ($front['taxonomy'] ?? ''), $path, $uuid, 'taxonomy', $out);
+        $meta = (array) ($front['meta'] ?? []);
+        foreach ($meta as $key => $_) {
+            $details = $policy->meta_rule_details_for_term((string) $key, $meta);
+            $class = $details['rule']['class'] ?? 'unclassified';
+            if ($class !== 'authored') {
+                self::finding($out, 'repository_field_not_authored', $path, $uuid, 'term_meta', (string) $key, $class, $details['source']);
+            }
+        }
         foreach ((array) ($front['relationships'] ?? []) as $taxonomy => $_) {
             self::authorize_taxonomy($policy, (string) $taxonomy, $path, $uuid, 'term_relationships', $out);
         }
@@ -261,10 +273,17 @@ final class RepositoryAuthorization {
 
     private static function authorize_options(Policy $policy, string $uuid, array $entity, array &$out): void {
         $document = $entity['data'] ?? Canon::decode($entity['content']);
+        // DUO-3263: re-derivation is about this one immutable revision (same
+        // "authorization is about one immutable revision" principle
+        // manifests/interpreters/acf.php's own prime_repository() docblock
+        // documents) — the sibling-lookup context (ACF's shadow pointer) an
+        // interpreter's option_rule() needs comes from this SAME document's
+        // own present values, never a live target.
+        $allOptions = OptionState::values($document);
         foreach (OptionState::records($document) as $name => $record) {
             $details = str_contains((string) $name, '{{')
                 ? $policy->canonical_option_name_ref_details((string) $name)
-                : $policy->option_rule_details((string) $name);
+                : $policy->option_rule_details_for_option((string) $name, $allOptions);
             $rule = $details['rule'] ?? [];
             // DUO-3264 (fork A): theme_mods_<stylesheet>'s own sub_keys
             // rule is never findable via the ordinary single-name lookup
@@ -335,6 +354,42 @@ final class RepositoryAuthorization {
             $managed = $class === 'managed' && in_array($name, self::MANAGED_OPTIONS, true);
             if ($class !== 'authored' && !$managed) {
                 self::finding($out, 'repository_field_not_authored', $entity['path'], $uuid, 'option', (string) $name, $class, $details['source']);
+            }
+        }
+    }
+
+    private static function authorize_user_meta(
+        Policy $policy,
+        string $stateKey,
+        array $entity,
+        array &$out
+    ): void {
+        $front = $entity['data'] ?? Canon::decode($entity['content']);
+        $path = (string) $entity['path'];
+        self::unexpected_fields($front, self::USER_META_FIELDS, $path, $stateKey, 'user_meta_field', $out);
+        $meta = (array) ($front['meta'] ?? []);
+        foreach ($meta as $key => $value) {
+            $details = $policy->meta_rule_details_for_user((string) $key, $meta);
+            $rule = $details['rule'] ?? [];
+            $class = $rule['class'] ?? 'unclassified';
+            if ($class !== 'authored') {
+                self::finding(
+                    $out, 'repository_field_not_authored', $path, $stateKey,
+                    'user_meta', (string) $key, $class, $details['source']
+                );
+                continue;
+            }
+            if (empty($rule['allow_secret']) && Secrets::hard_match_deep($value) !== null) {
+                self::finding(
+                    $out, 'repository_user_meta_secret_not_allowed', $path, $stateKey,
+                    'user_meta', (string) $key, 'secret', $details['source']
+                );
+            }
+            if (empty($rule['allow_pii']) && PersonalData::match_deep((string) $key, $value) !== null) {
+                self::finding(
+                    $out, 'repository_user_meta_pii_not_allowed', $path, $stateKey,
+                    'user_meta', (string) $key, 'pii', $details['source']
+                );
             }
         }
     }

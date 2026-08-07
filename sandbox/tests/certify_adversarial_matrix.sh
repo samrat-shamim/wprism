@@ -87,7 +87,7 @@ cat > siterepo/certmatrix1/site.duo.json <<'EOF'
     "post_types": ["post", "page", "attachment"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 cp site-repo.gitignore.template siterepo/certmatrix1/.gitignore
@@ -230,7 +230,7 @@ cat > siterepo/certmatrix1/site.duo.json <<'EOF'
     "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon"],
     "taxonomies": ["category", "post_tag", "product_cat", "product_type"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 $GIT_A checkout -q main

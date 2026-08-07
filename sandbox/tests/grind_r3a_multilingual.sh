@@ -316,7 +316,7 @@ cat > siterepo/r3a1/site.duo.json <<'EOF'
     "post_types": ["post", "page", "attachment", "product", "product_variation"],
     "taxonomies": ["category", "post_tag", "product_cat", "pa_size", "pa_color", "language", "post_translations", "term_language", "term_translations"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 cp site-repo.gitignore.template siterepo/r3a1/.gitignore

@@ -69,7 +69,7 @@ cat > "$SITEREPO/site.duo.json" <<'EOF'
     "post_types": ["post", "page", "attachment"],
     "taxonomies": ["category", "post_tag"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 wp1 duo capture --repo=/siterepo >/dev/null
@@ -234,7 +234,7 @@ cp "$REPO_ROOT/manifests/core.json" "$SITEREPO/test-manifests/core.json"
 cat > "$SITEREPO/test-manifests/duo-3206-fatal-rebuilder.json" <<'EOF'
 {
   "name": "duo-3206-fatal-rebuilder",
-  "spec_version": 1,
+  "spec_version": 2,
   "rebuilders": [{"command": "duo-3206-command-that-does-not-exist"}]
 }
 EOF
@@ -259,7 +259,7 @@ cat > "$SITEREPO/test-manifests/duo-3220-corrupting-rebuilder.json" <<'EOF'
 {
   "name": "duo-3220-corrupting-rebuilder",
   "rebuilders": [{"command": "option update blogname duo-3220-corrupted-after-apply"}],
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 jq '.manifests = ["core", "duo-3220-corrupting-rebuilder"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"

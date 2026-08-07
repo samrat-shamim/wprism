@@ -1,13 +1,19 @@
 <?php
 /**
- * Offline (no docker, no WordPress bootstrap) regression harness for two
- * DUO-3212 fixes in the reference-hygiene layer:
+ * Offline (no docker, no WordPress bootstrap) regression harness for
+ * reference-hygiene fixes in the block and menu layers:
  *
  *  - agent/src/Lint.php's scan_blocks(): a registered block_attrs path used
  *    to be 100% exempt from the suspicious-ref check regardless of whether
  *    its value actually got rewritten. New finding class
  *    'unrewritten_registered_ref' catches a registered ref path whose
  *    captured value is still numeric.
+ *  - agent/src/Lint.php's scan_tree(): menu files used to be skipped
+ *    entirely. Menu item refs and plugin-owned meta are now scanned with
+ *    their schema/policy-specific semantics.
+ *  - agent/src/Lint.php's structured scan: numeric survivors at an exact
+ *    json_refs path are caught even when the leaf key is a language slug,
+ *    as in Polylang's nav_menus[theme][location][lang] shape.
  *  - agent/src/Blocks.php's walk(): an unmapped/dangling block ref used to
  *    keep the raw env-local id (`?? (int) $v`) instead of dropping it, the
  *    way options/post_meta refs already do (spec/repo-format.md "Dangling
@@ -162,9 +168,11 @@ $GLOBALS['wpdb'] = $wpdb;
 // ----------------------------------------------------------- engine + fixtures
 
 require __DIR__ . '/../../agent/src/Canon.php';
+require __DIR__ . '/../../agent/src/OptionState.php';
 require __DIR__ . '/../../agent/src/Policy.php';
 require __DIR__ . '/../../agent/src/Ledger.php';
 require __DIR__ . '/../../agent/src/Pending.php';
+require __DIR__ . '/../../agent/src/JsonRefs.php';
 require __DIR__ . '/../../agent/src/Tokens.php';
 require __DIR__ . '/../../agent/src/Blocks.php';
 require __DIR__ . '/../../agent/src/Lint.php';
@@ -189,6 +197,7 @@ use Duo\Policy;
 use Duo\Tokens;
 use Duo\Blocks;
 use Duo\Lint;
+use Duo\OptionState;
 
 const MAPPED_UUID = '01980000-0001-7000-8000-000000000001';
 const MAPPED_ID = 501;
@@ -221,6 +230,24 @@ $policy->manifests = [[
         'core/image'   => [['kind' => 'post', 'path' => 'id', 'type' => 'int']],
         'core/gallery' => [['kind' => 'post', 'path' => 'ids', 'type' => 'int[]']],
         'core/query'   => [['lint_ok' => true, 'path' => 'queryId']],
+    ],
+    'post_meta' => [
+        'menu_structured' => [
+            'class' => 'authored',
+            'json_refs' => [['kind' => 'post', 'path' => '$.owner_id']],
+        ],
+        'menu_direct_ref' => ['class' => 'authored', 'ref' => 'post'],
+    ],
+    'options' => [
+        'polylang' => [
+            'class' => 'env',
+            'sub_keys' => [
+                'nav_menus' => [
+                    'class' => 'authored',
+                    'json_refs' => [['kind' => 'term', 'path' => '$.*.*.*']],
+                ],
+            ],
+        ],
     ],
 ]];
 $tokens = new Tokens();
@@ -438,6 +465,74 @@ $l5path = write_fixture_post($stateDir, 'l5-array-one-raw', '01980000-0002-7000-
     '<!-- wp:gallery {"ids":["{{post:' . MAPPED_UUID . '}}",999]} -->'
     . '<figure class="wp-block-gallery"></figure><!-- /wp:gallery -->');
 
+// M1/M2 -- menus are not post files, but item meta uses the same post_meta
+// policy. Prove custom numeric-looking URLs stay URLs; typed refs must be
+// canonical tokens; direct declared refs are exempt; and a structured rule
+// keeps scanning id-shaped positions its own json_refs path did not cover.
+$menuRel = 'menus/01980000-0003-7000-8000-000000000001--primary.json';
+Canon::write_file($stateDir . '/' . $menuRel, Canon::encode([
+    'uuid' => '01980000-0003-7000-8000-000000000001',
+    'name' => 'Primary',
+    'slug' => 'primary',
+    'locations' => [],
+    'items' => [
+        [
+            'uuid' => '01980000-0003-7000-8000-000000000002',
+            'type' => 'custom',
+            'object' => 'custom',
+            'ref' => '777',
+            'meta' => [
+                'plain_menu_value' => 777,
+                'menu_direct_ref' => '{{post:' . MAPPED_UUID . '}}',
+            ],
+            'parent' => null,
+            'position' => 1,
+            'title' => 'Custom',
+        ],
+        [
+            'uuid' => '01980000-0003-7000-8000-000000000003',
+            'type' => 'post_type',
+            'object' => 'post',
+            'ref' => '999',
+            'meta' => [
+                'menu_structured' => [
+                    'owner_id' => '{{post:' . MAPPED_UUID . '}}',
+                    'related_id' => 777,
+                ],
+            ],
+            'parent' => null,
+            'position' => 2,
+            'title' => 'Post',
+        ],
+        [
+            'uuid' => '01980000-0003-7000-8000-000000000004',
+            'type' => 'custom',
+            'object' => 'custom',
+            'ref' => 'http:\/\/example.test\/environment-bound',
+            'meta' => [],
+            'parent' => null,
+            'position' => 3,
+            'title' => 'Escaped URL',
+        ],
+    ],
+]));
+
+// S1 -- exact json_refs match under a NON-id-shaped leaf key. The old deep
+// scanner only recognized owner_id/related_id-style names and therefore
+// missed this real Polylang shape completely.
+Canon::write_file($stateDir . '/options/core.json', Canon::encode(OptionState::document([
+    'polylang' => OptionState::present([
+        'nav_menus' => [
+            'twentytwentyone' => [
+                'primary' => [
+                    'en' => '{{term:01980000-0004-7000-8000-000000000001}}',
+                    'de' => 999,
+                ],
+            ],
+        ],
+    ], 'yes'),
+])));
+
 $findings = Lint::scan_tree($stateDir, $policy);
 $byPath = [];
 foreach ($findings as $f) {
@@ -473,7 +568,54 @@ if (count($l5) === 1) {
     check($l5[0]['value'] === 999, 'L5: value is 999, the raw survivor (the token at index 0 is correctly untouched/not flagged)');
 }
 
-check(count($findings) === 3, 'sanity: exactly 3 findings total across all 5 fixtures (L2 + L4 + L5) -- got ' . count($findings) . ': ' . json_encode(array_column($findings, 'class')));
+$menuFindings = $byPath[$menuRel] ?? [];
+check(count($menuFindings) === 4, 'M1: menu file -> exactly four planted findings (got ' . count($menuFindings) . ': ' . json_encode($menuFindings) . ')');
+$menuByLocator = [];
+foreach ($menuFindings as $finding) {
+    $menuByLocator[$finding['locator']] = $finding;
+}
+check(
+    ($menuByLocator['items[0].meta.plain_menu_value']['class'] ?? null) === 'bare_id',
+    'M2: plain menu-item meta is scanned like plain post meta'
+);
+check(
+    ($menuByLocator['items[1].meta.menu_structured.related_id']['class'] ?? null) === 'bare_id',
+    'M3: structured menu-item meta scans undeclared id-shaped positions deeply'
+);
+check(
+    ($menuByLocator['items[1].ref']['class'] ?? null) === 'unrewritten_registered_ref',
+    'M4: raw post_type menu ref is a registered-ref survivor'
+);
+check(
+    !isset($menuByLocator['items[0].ref']),
+    'M5: numeric-looking custom menu ref remains a URL, never an entity-id finding'
+);
+check(
+    ($menuByLocator['items[2].ref']['class'] ?? null) === 'escaped_home',
+    'M6: custom menu ref is treated as a URL and checked for escaped environment hosts'
+);
+check(
+    !isset($menuByLocator['items[0].meta.menu_direct_ref'])
+        && !isset($menuByLocator['items[1].meta.menu_structured.owner_id']),
+    'M7: canonical direct/structured menu-meta refs stay lint-clean'
+);
+
+$optionFindings = $byPath['options/core.json'] ?? [];
+check(count($optionFindings) === 1, 'S1: Polylang-shaped option -> exactly one numeric survivor finding (got ' . count($optionFindings) . ': ' . json_encode($optionFindings) . ')');
+if (count($optionFindings) === 1) {
+    check(
+        $optionFindings[0]['class'] === 'unrewritten_registered_ref',
+        'S2: declared json_refs survivor uses unrewritten_registered_ref (got: ' . $optionFindings[0]['class'] . ')'
+    );
+    check(
+        $optionFindings[0]['locator'] === 'options.polylang.nav_menus.twentytwentyone.primary.de',
+        'S3: locator reaches the non-id-shaped language slug exactly (got: ' . $optionFindings[0]['locator'] . ')'
+    );
+    check($optionFindings[0]['value'] === 999, 'S4: finding retains raw numeric survivor 999');
+    check(!isset($optionFindings[0]['matches']), 'S5: declared-path survivor fires even when the id does not resolve live');
+}
+
+check(count($findings) === 8, 'sanity: exactly 8 findings total across block, menu, and option fixtures -- got ' . count($findings) . ': ' . json_encode(array_column($findings, 'class')));
 
 // ======================================================================
 echo "\n";

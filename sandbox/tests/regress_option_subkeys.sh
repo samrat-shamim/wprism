@@ -175,7 +175,7 @@ cat > siterepo/asub32331/site.duo.json <<'EOF'
     "post_types": ["post", "page", "attachment", "project"],
     "taxonomies": ["category", "post_tag", "project_type", "language", "post_translations", "term_language", "term_translations"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 cp site-repo.gitignore.template siterepo/asub32331/.gitignore

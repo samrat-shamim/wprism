@@ -55,12 +55,82 @@ final class Tokens {
      * if non-empty — see build()'s gate for the exact posture and message.
      */
     public array $unscopedShortcodeRefs = [];
+    /**
+     * @var list<array{context:string,param:string,id:int,target_type:string}>
+     * URL-query-ref violations (DUO-3260, task #73's triage ported a
+     * third time): a `?p=`/`?page_id=`/`?attachment_id=` value whose id
+     * names a REAL row genuinely outside policy scope. Unlike $unscoped
+     * BlockRefs/$unscopedShortcodeRefs above, tokenize_text() is called
+     * from many contexts that aren't "one post's own content" (option
+     * values, term descriptions, menu item urls -- see its own call
+     * sites) so there's no single natural "postLabel" the way Blocks.php/
+     * Shortcodes.php have one; `context` is best-effort, populated only
+     * where a caller has a cheap label handy (empty string otherwise,
+     * never fabricated). Populated by tokenize_text() itself via $this->
+     * policy/$this->forceUnresolvedRefs (see those properties' own
+     * docblocks for why they're stored on the instance instead of
+     * threaded as call parameters through every one of tokenize_text()'s
+     * many call sites) rather than passed in per call. Capture::build()
+     * reads it after the whole build completes and throws its own
+     * batched abort if non-empty — see build()'s gate for the exact
+     * posture and message.
+     */
+    public array $unscopedUrlQueryRefs = [];
     /** @var array<int,string> user id -> login (capture direction) */
     private array $userLogins = [];
     /** @var array<string,int> login -> user id (apply direction) */
     private array $userIds = [];
     /** Fallback for unresolvable user tokens on apply (set by Apply). */
     public ?int $defaultUserId = null;
+    /**
+     * DUO-3260: set once by Capture (constructor — Capture always has a
+     * Policy from its own construction) rather than threaded as a
+     * parameter through tokenize_text()'s many call sites (block_attrs'
+     * "tokenize":"text" rule, the main content rewrite closure,
+     * tokenize_leaves()'s own recursive JSON-leaf walk, six more direct
+     * call sites in Capture.php itself for excerpts/descriptions/menu-
+     * item urls/plain option values) — an optional per-call parameter
+     * that's easy to forget would silently SKIP the unscoped-ref safety
+     * check at whichever call site omitted it; a required instance
+     * property set exactly once cannot be silently forgotten the same
+     * way. Nullable only so a Tokens instance can theoretically exist
+     * before Capture finishes constructing it — or, per Apply.php's own
+     * instance (constructed at Apply.php:38, never given a Policy),
+     * exist for its ENTIRE life without ever needing one. That claim is
+     * traced exhaustively, not assumed: every one of Apply's 20+
+     * `$this->tokens->...` call sites is apply-direction
+     * (detokenize_text/token_to_id/struct_apply/tokens_to_value/
+     * meta_tokens_to_value) or a read-only accessor (home/warnings/
+     * defaultUserId); struct_apply() itself only ever calls
+     * tokenize_leaves($value, false) — detokenize; and Apply's one call
+     * into Blocks::apply_rewrite() pins $capture=false at that call site
+     * (threaded unchanged through every recursive walk()), which is the
+     * same flag that gates tokenize_text() vs. detokenize_text() inside
+     * $rewriteString AND the same flag Shortcodes::capture_rewrite_text()
+     * vs. apply_rewrite_text() is chosen on — so tokenize_text() is
+     * structurally unreachable through Apply's Tokens instance on every
+     * path (full call-site enumeration in the DUO-3260 PR body).
+     * Because that is a proof about the CURRENT call graph and not a
+     * language-level guarantee against a future caller constructing its
+     * own Tokens for capture-direction work and forgetting this, null is
+     * NOT silently tolerated at the point where it would actually matter:
+     * queue_unscoped_url_query_ref() below throws rather than skipping
+     * the classification it can't perform without a Policy. (A blanket
+     * guard at the top of tokenize_text() itself was considered and
+     * rejected — most call sites use it only for the home/uploads
+     * substitution and have no reason to ever populate $policy; two
+     * already-shipped suites, regress_block_refs.php and
+     * regress_shortcode_refs.php, construct bare Tokens instances with
+     * no $policy for exactly that reason, and both call tokenize_text()
+     * legitimately. The guard is scoped to the one mechanism that
+     * actually consumes $policy, not the shared entry point.)
+     */
+    public ?Policy $policy = null;
+    /** DUO-3260: mirrors $policy above — set once per build (Capture::
+     *  build()'s own $forceUnresolvedRefs parameter), not threaded
+     *  per call, for the identical "can't be silently forgotten"
+     *  reason. */
+    public bool $forceUnresolvedRefs = false;
 
     public function __construct() {
         $this->home = untrailingslashit((string) get_option('home'));
@@ -98,7 +168,7 @@ final class Tokens {
      * needs — same ordering constraint the original (plain-only) code
      * already respected.
      */
-    public function tokenize_text(string $s): string {
+    public function tokenize_text(string $s, string $contextLabel = ''): string {
         if ($s === '') {
             return $s;
         }
@@ -106,7 +176,125 @@ final class Tokens {
         $s = str_replace($this->uploadsUrlEscaped, '{{uploads}}', $s);
         $s = str_replace($this->home, '{{home}}', $s);
         $s = str_replace($this->homeEscaped, '{{home}}', $s);
-        return $s;
+        return $this->tokenize_url_query_refs($s, $contextLabel);
+    }
+
+    /**
+     * DUO-3260: WordPress's own redirect_canonical() (verified by reading
+     * wp-includes/canonical.php directly, not assumed) resolves exactly
+     * three query-string parameters to a real post id, regardless of
+     * post_type (get_post() is type-agnostic): `p` (index.php?p=N,
+     * WordPress's oldest URL scheme), `page_id`, `attachment_id`.
+     * Deliberately NOT `page` (no underscore) — that is WordPress's own
+     * `<!--nextpage-->` PAGINATION query var (canonical.php's is_404()
+     * branch), never an entity reference; conflating the two would be
+     * exactly the kind of unverified assumption this project's "ground
+     * it, don't assume it" discipline exists to catch.
+     *
+     * Scoped to {{home}}-anchored spans ONLY, via an outer pass that
+     * finds each home-prefixed URL span before an inner pass rewrites
+     * the specific query params within it: an external URL that happens
+     * to carry an unrelated `?p=123` (any third-party site using the
+     * same common parameter name) must never be touched. {{home}}
+     * having already replaced this environment's own home URL literal
+     * (tokenize_text()'s own preceding lines) is the only reliable
+     * signal "this URL is one of ours" — mirroring Blocks.php's own
+     * wp-image-<id> class scoped-rewrite precedent (IMAGE_CLASS_BLOCKS)
+     * rather than a blind sweep for these parameter names anywhere in
+     * arbitrary text. A purely relative internal link (`href="/?p=123"`,
+     * no scheme/host) is NOT reachable by this mechanism, same
+     * unavoidable pre-existing limitation the plain home/uploads
+     * substitution above already has for relative permalinks.
+     *
+     * Unmapped ids: the whole `separator+param=value` span drops (never
+     * just the value, matching every other scalar ref's own whole-key
+     * drop convention in this codebase), with a warning, and is
+     * independently classified via Capture::classify_unscoped_ref() for
+     * Capture::build()'s own batched abort gate — same task #73 triage
+     * ported a third time this session. Accepts a known, minor, purely
+     * cosmetic byte artifact on drop: the query string's remaining
+     * separators are NOT re-normalized (e.g. `?p=1&foo=2` with `p`
+     * dropped becomes `?&foo=2`, not `?foo=2`) — every resulting shape
+     * is still a structurally valid query string any real parser
+     * (including PHP's own parse_str()) reads identically to the fully-
+     * normalized form, so this is deliberately not chased further.
+     */
+    private function tokenize_url_query_refs(string $s, string $contextLabel): string {
+        if (!str_contains($s, '{{home}}')) {
+            return $s;
+        }
+        $out = preg_replace_callback('/\{\{home\}\}[^\s"\'<>]*/', function (array $span) use ($contextLabel) {
+            $rewritten = preg_replace_callback(
+                '/([?&])(p|page_id|attachment_id)=(\d+)/',
+                function (array $m) use ($contextLabel) {
+                    $id = (int) $m[3];
+                    $tok = $this->id_to_token($id, 'post');
+                    if ($tok === null) {
+                        $this->warnings[] = "url query ref '{$m[2]}=$id' unmapped post id $id dropped (dangling reference)";
+                        $this->queue_unscoped_url_query_ref($contextLabel, $m[2], $id);
+                        return ''; // drop separator+param+value together
+                    }
+                    return $m[1] . $m[2] . '=' . $tok;
+                },
+                $span[0]
+            );
+            return $rewritten ?? $span[0];
+        }, $s);
+        return $out ?? $s;
+    }
+
+    /**
+     * Mirrors Blocks::queue_unscoped()/Shortcodes::queue_unscoped() but
+     * delegates the whole three-way decision to Capture::classify_
+     * unscoped_ref() directly (the extraction DUO-3259 added specifically
+     * so a third caller wouldn't need a third hand-copy) rather than
+     * re-deriving it. Called from tokenize_url_query_refs() for EVERY id
+     * that id_to_token() fails to resolve, before classification —
+     * dangling vs. unscoped is exactly what $policy is needed to tell
+     * apart, so both sub-cases hit the guard below identically when
+     * $policy is unset. $this->policy being null used to be a deliberate
+     * no-op ("this call site can't judge scope, never assume it's fine");
+     * it is now a throw for the identical reason $policy's own docblock
+     * gives — see it for the full call-graph proof that no CURRENT
+     * caller can ever trigger this.
+     */
+    private function queue_unscoped_url_query_ref(string $contextLabel, string $param, int $id): void {
+        if ($this->policy === null) {
+            // Was a silent `return` (no unscoped-classification possible
+            // without a Policy). Changed to a throw: silently skipping the
+            // task #73 loud-and-blocking gate at exactly the point that
+            // gate is supposed to fire is the precise defect class
+            // $policy's own docblock explains this instance-property
+            // design exists to prevent — an unconfigured instance must
+            // fail loudly and immediately the first time it actually
+            // needs the check, not degrade into a quiet no-op that only
+            // a byte-for-byte capture diff would ever reveal. Every
+            // CURRENT capture-direction caller sets $policy unconditionally
+            // (Capture's own constructor requires a non-nullable Policy
+            // parameter, so every Capture-owned Tokens instance has one
+            // from the moment it exists); this only fires for a future
+            // caller that constructs its own Tokens for capture-direction
+            // work and forgets.
+            throw new \RuntimeException(
+                "duo: tokenize_text() found an unmapped url-query ref ('$param=$id') that needs the "
+                . 'dangling-vs-unscoped triage (task #73\'s loud-and-blocking gate), but this Tokens '
+                . "instance's \$policy was never set, so the triage cannot run. Refusing rather than "
+                . 'silently treating it as dangling: set Tokens::$policy (and $forceUnresolvedRefs) before '
+                . 'calling tokenize_text() on any content that may carry a query-string reference — every '
+                . "Capture-owned Tokens instance already does this unconditionally in Capture's own "
+                . 'constructor.'
+            );
+        }
+        $targetType = Capture::classify_unscoped_ref($id, 'post', $this->forceUnresolvedRefs, $this->policy);
+        if ($targetType === null) {
+            return;
+        }
+        $this->unscopedUrlQueryRefs[] = [
+            'context' => $contextLabel,
+            'param' => $param,
+            'id' => $id,
+            'target_type' => $targetType,
+        ];
     }
 
     /**
@@ -131,7 +319,38 @@ final class Tokens {
         }
         $s = str_replace('{{uploads}}', $this->uploadsUrl, $s);
         $s = str_replace('{{home}}', $this->home, $s);
-        return $s;
+        return $this->detokenize_url_query_refs($s);
+    }
+
+    /**
+     * Apply-direction mirror of tokenize_url_query_refs() above. Unlike
+     * that method, needs no {{home}}-anchoring: a `{{post:<uuid>}}` token
+     * immediately after `?p=`/`?page_id=`/`?attachment_id=` can only ever
+     * have been written by tokenize_url_query_refs() itself (nothing else
+     * in this engine emits that exact shape at that exact position), so
+     * the token's own presence is already an unambiguous, self-contained
+     * signal — no separate "is this one of ours" check needed the way
+     * capture direction requires. Order relative to the {{home}}/
+     * {{uploads}} restores above genuinely does not matter for
+     * correctness (this regex never references either), placed after
+     * them only to match this codebase's established "generic detokenize
+     * first, structural restore last" convention (Tokens::struct_apply()'s
+     * own ordering) for readability, not because it's load-bearing here.
+     * Unresolvable throws (Tokens::token_to_id()'s own contract) — no
+     * soft fallback for a ref that resolved fine at capture time but
+     * whose target doesn't exist on THIS environment, matching every
+     * other apply-direction ref restore in this codebase exactly.
+     */
+    private function detokenize_url_query_refs(string $s): string {
+        if (!str_contains($s, '{{post:')) {
+            return $s;
+        }
+        $out = preg_replace_callback(
+            '/([?&](?:p|page_id|attachment_id)=)\{\{post:([0-9a-f-]{36})\}\}/',
+            fn(array $m) => $m[1] . $this->token_to_id('{{post:' . $m[2] . '}}'),
+            $s
+        );
+        return $out ?? $s;
     }
 
     // ---- typed id refs ----

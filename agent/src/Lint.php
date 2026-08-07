@@ -9,7 +9,7 @@ namespace Duo;
  * through a declared rewrite path: both sides just encode the same wrong
  * bytes, and the diff comes back empty). Pending::ref_hint() was this
  * check's seed — one key, one current live value. Lint::scan_tree()
- * generalizes it to a whole captured state tree, across four surfaces the
+ * generalizes it to a whole captured state tree, across every canonical surface the
  * three frontier explorations independently found broken.
  *
  * scan_tree() reads a CAPTURED state tree from disk — the canonical files
@@ -25,9 +25,9 @@ namespace Duo;
  * versions, ordering indexes). Every finding says so in its own "note" —
  * the caveat travels with the finding, never left implicit.
  *
- * Seven detection classes (five from wave 1, plus DUO-3259's shortcode pair
- * below — sub-key option refs and id-keyed arrays are task #11's wave 2,
- * deliberately not attempted here):
+ * Eight detection classes (five from wave 1, plus DUO-3259's shortcode pair
+ * and DUO-3260's url-query-ref class below — sub-key option refs and
+ * id-keyed arrays are task #11's wave 2, deliberately not attempted here):
  *
  *   bare_id — a numeric scalar / array element / CSV segment inside an
  *     authored post_meta or option value whose classification rule has NO
@@ -59,24 +59,18 @@ namespace Duo;
  *     that.
  *
  *   unrewritten_registered_ref — the mirror image of unregistered_block_attr
- *     above: a block attribute path IS declared in the block_attrs registry
- *     (a ref rule — "kind" or "kind_from", never a "lint_ok" declaration,
- *     never a "tokenize":"text" string rule) but its captured value is
- *     still numeric (scalar, or an array element) instead of a "{{...}}"
- *     token. unregistered_block_attr fires when NO rule exists for a path;
- *     this fires when a rule DOES exist and the rewrite it promises still
- *     visibly didn't happen — Blocks::walk()'s id_to_token() came back
- *     unmapped/dangling, or (for a "kind_from"-dispatched rule) the sibling
- *     attribute resolved to no kind and Blocks.php deliberately left the
- *     value untouched (see its resolve_kind() docblock) — fires regardless
- *     of whether the number currently resolves to a live entity, same as
- *     unregistered_block_attr: the danger is the declared rewrite not
- *     having run, not today's coincidence. Before this class existed,
- *     scan_blocks() exempted every registered path unconditionally, so a
- *     declared ref whose rewrite silently failed was invisible to lint —
- *     exactly the "declared ref, failed rewrite" gap this file's own
- *     opening paragraph describes byte-identical round-tripping as unable
- *     to catch.
+ *     above: a path IS declared as a ref (block_attrs, json_refs, or a
+ *     schema-owned menu ref) but its captured value is still numeric instead
+ *     of a "{{...}}" token. Fires regardless of whether the number currently
+ *     resolves to a live entity: the danger is the declared rewrite not
+ *     having run, not today's coincidence. Structured json_refs paths are
+ *     resolved with JsonRefs itself, so ref-bearing leaf keys need not look
+ *     id-shaped (Polylang's language-slug-keyed nav_menus shape). Before this
+ *     class existed, registered block paths were exempted unconditionally;
+ *     before DUO-3241, structured paths still depended on the fallback key-
+ *     name heuristic. Both made a declared ref whose rewrite failed invisible
+ *     to lint — exactly the "declared ref, failed rewrite" gap byte-identical
+ *     round-tripping cannot catch.
  *
  *   serialized_desc_ids — a term's `description` that unserializes (PHP
  *     serialize format) to data containing an integer matching an existing
@@ -95,6 +89,19 @@ namespace Duo;
  *     shortcode tags this engine has actually declared shortcode_attrs
  *     for (see scan_shortcodes()'s own docblock for why an unbounded "any
  *     shortcode on the system" scan isn't attempted).
+ *
+ *   unrewritten_url_query_ref (DUO-3260) — a `?p=`/`?page_id=`/
+ *     `?attachment_id=` query-string parameter (WordPress's own internal-
+ *     link id scheme; NOT `?page=`, which is WordPress's own separate
+ *     pagination var) still holding a raw digit anywhere in captured
+ *     state. Unlike Tokens::tokenize_url_query_refs()'s own REWRITE
+ *     (deliberately {{home}}-anchored, for safety — never touch an
+ *     external URL's own unrelated `?p=`), this scan is NOT anchored: a
+ *     wide net with an honest caveat, this file's own established
+ *     philosophy throughout, since narrow precision is the rewrite
+ *     mechanism's job, not the detector's. Fires regardless of whether
+ *     the id currently resolves to a live entity, same posture as every
+ *     other unrewritten-ref finding.
  *
  * Finding shape (every class): {class, path, locator, value, matches?,
  * note}. `path` is state-relative (e.g. "posts/post/<uuid>--slug.md").
@@ -128,13 +135,132 @@ final class Lint {
         foreach (self::glob_rel($stateDir, 'terms/*/*.json') as $rel) {
             self::scan_term_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
         }
+        foreach (self::glob_rel($stateDir, 'menus/*.json') as $rel) {
+            self::scan_menu_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
+        }
         if (is_file($stateDir . '/options/core.json')) {
             self::scan_options_file($stateDir, 'options/core.json', $policy, $home, $homeEscaped, $findings);
+        }
+        foreach (self::glob_rel($stateDir, 'user-meta/*.json') as $rel) {
+            self::scan_user_meta_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
         }
         foreach (self::glob_rel($stateDir, 'tables/*/*.json') as $rel) {
             self::scan_table_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
         }
         return $findings;
+    }
+
+    private static function scan_user_meta_file(
+        string $stateDir,
+        string $rel,
+        Policy $policy,
+        string $home,
+        string $homeEscaped,
+        array &$findings
+    ): void {
+        $front = Canon::decode(Canon::read_file($stateDir . '/' . $rel));
+        $meta = (array) ($front['meta'] ?? []);
+        foreach ($meta as $key => $value) {
+            $rule = $policy->meta_rule_for_user((string) $key, $meta) ?? [];
+            if (isset($rule['ref']) || !empty($rule['lint_ok'])) {
+                continue;
+            }
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                self::scan_structured_bare_ids(
+                    $value, $rel, 'meta.' . $key, $findings, (array) ($rule['json_refs'] ?? [])
+                );
+                continue;
+            }
+            foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
+                $hit = Pending::resolve_id($id);
+                if ($hit !== null) {
+                    $findings[] = self::finding(
+                        'bare_id', $rel, 'meta.' . $key . $locSuffix, $id, $hit, self::bare_id_note($hit)
+                    );
+                }
+            }
+        }
+        self::walk_strings($meta, 'meta', function (string $path, string $value) use (
+            &$findings, $rel, $home, $homeEscaped
+        ): void {
+            self::flag_escaped_home($findings, $rel, $path, $value, $home, $homeEscaped);
+        });
+    }
+
+    // ------------------------------------------------------------ menus
+
+    /**
+     * Menu items are nav_menu_item posts, but canonical menu files embed
+     * them under items[] instead of ordinary per-post Markdown files. Their plugin-owned meta
+     * therefore uses the ordinary post_meta policy while the ref field has
+     * a schema-owned meaning: post_type/taxonomy refs must already be tokens;
+     * custom refs are URLs and must never be interpreted as numeric ids.
+     */
+    private static function scan_menu_file(
+        string $stateDir,
+        string $rel,
+        Policy $policy,
+        string $home,
+        string $homeEscaped,
+        array &$findings
+    ): void {
+        $front = Canon::decode(Canon::read_file($stateDir . '/' . $rel));
+        foreach ((array) ($front['items'] ?? []) as $index => $item) {
+            if (!is_array($item)) {
+                continue; // RepositoryCompiler owns malformed item shapes.
+            }
+            $type = (string) ($item['type'] ?? '');
+            $ref = $item['ref'] ?? '';
+            $prefix = "items[$index]";
+            if ($type === 'post_type' || $type === 'taxonomy') {
+                foreach (Pending::numeric_candidates($ref) as [$id, $locSuffix]) {
+                    $hit = Pending::resolve_id($id);
+                    $kind = $type === 'post_type' ? 'post' : 'term';
+                    $findings[] = self::finding(
+                        'unrewritten_registered_ref',
+                        $rel,
+                        $prefix . '.ref' . $locSuffix,
+                        $id,
+                        $hit,
+                        "menu item type '$type' declares its ref as a canonical $kind token, but this value is "
+                            . 'still numeric in captured state — the schema-owned rewrite never ran and the id '
+                            . 'is silently environment-bound.'
+                    );
+                }
+            } elseif ($type === 'custom' && is_string($ref)) {
+                // A numeric-looking custom URL is not an entity reference.
+                self::flag_escaped_home($findings, $rel, $prefix . '.ref', $ref, $home, $homeEscaped);
+            }
+
+            $meta = (array) ($item['meta'] ?? []);
+            foreach ($meta as $key => $value) {
+                $rule = $policy->meta_rule_for_post((string) $key, $meta) ?? [];
+                if (isset($rule['ref']) || !empty($rule['lint_ok'])) {
+                    continue;
+                }
+                $locator = $prefix . '.meta.' . $key;
+                if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                    self::scan_structured_bare_ids(
+                        $value, $rel, $locator, $findings, (array) ($rule['json_refs'] ?? [])
+                    );
+                    continue;
+                }
+                foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
+                    $hit = Pending::resolve_id($id);
+                    if ($hit !== null) {
+                        $findings[] = self::finding(
+                            'bare_id', $rel, $locator . $locSuffix, $id, $hit, self::bare_id_note($hit)
+                        );
+                    }
+                }
+            }
+            self::walk_strings($meta, $prefix . '.meta', function (
+                string $path,
+                string $value
+            ) use (&$findings, $rel, $home, $homeEscaped): void {
+                self::flag_escaped_home($findings, $rel, $path, $value, $home, $homeEscaped);
+            });
+        }
     }
 
     // ------------------------------------------------------------ posts
@@ -158,7 +284,9 @@ final class Lint {
                 continue; // human-reviewed declaration: numeric but genuinely not a ref
             }
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                self::scan_structured_bare_ids($value, $rel, 'meta.' . $key, $findings);
+                self::scan_structured_bare_ids(
+                    $value, $rel, 'meta.' . $key, $findings, (array) ($rule['json_refs'] ?? [])
+                );
                 continue; // structured value: the deep scan above supersedes the shallow one below
             }
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
@@ -170,11 +298,14 @@ final class Lint {
             }
         }
 
-        // (b) escaped_home — recursively through meta values, and the raw body as one unit.
+        // (b) escaped_home / unrewritten_url_query_ref — recursively
+        // through meta values, and the raw body as one unit.
         self::walk_strings($meta, 'meta', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
+            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
         });
         self::flag_escaped_home($findings, $rel, 'body', $body, $home, $homeEscaped);
+        self::flag_unrewritten_url_query_ref($findings, $rel, 'body', $body);
 
         // (c) unregistered_block_attr / (e) shortcode findings — block/
         // shortcode content only (verbatim bodies, e.g. acf-field, aren't
@@ -200,14 +331,17 @@ final class Lint {
      * declaration must make its OWN paths lint-clean while the linter keeps
      * catching everything the declaration doesn't cover).
      *
-     * Safe to recurse everywhere without separately re-deriving which exact
-     * locators a declared path covers: Tokens::struct_capture() guarantees
-     * a resolved json_refs match is a token STRING (starts "{{") and an
-     * unmapped one is null — either way, never still a raw number — by the
-     * time captured state is read. So anything found HERE that is still a
-     * bare int is, by construction, something no declared path touched.
+     * Declared json_refs positions are walked with JsonRefs itself — the
+     * same path engine capture uses — and a raw numeric survivor at one of
+     * those exact positions is an unrewritten_registered_ref regardless of
+     * its key's spelling or whether the id resolves on this environment.
+     * This covers shapes such as Polylang nav_menus[theme][location][lang],
+     * whose ref-bearing leaf keys are language slugs rather than id-shaped
+     * names. Everything outside a declared position keeps the deliberately
+     * low-noise key-name heuristic below.
      *
-     * Scoped to id-shaped KEY NAMES (looks_like_id_key() below — a sibling
+     * The undeclared-position fallback is scoped to id-shaped KEY NAMES
+     * (looks_like_id_key() below — a sibling
      * of unregistered_block_attr's looks_like_id_attr(), NOT a reuse; see
      * that method's docblock for why) rather than flagging every numeric
      * leaf — a blind full recursion would flood on
@@ -226,7 +360,60 @@ final class Lint {
      * always semantic) are checked, the same list/map distinction
      * JsonRefs::walk() already makes for path resolution.
      */
-    private static function scan_structured_bare_ids($node, string $rel, string $locator, array &$findings): void {
+    private static function scan_structured_bare_ids(
+        $node,
+        string $rel,
+        string $locator,
+        array &$findings,
+        array $jsonRefs = []
+    ): void {
+        $declaredLocators = [];
+        foreach ($jsonRefs as $rule) {
+            $copy = $node;
+            JsonRefs::walk(
+                $copy,
+                JsonRefs::parse_path((string) $rule['path']),
+                function (&$container, $key, string $matchedLocator) use (
+                    &$declaredLocators, &$findings, $rel, $rule
+                ): void {
+                    $declaredLocators[$matchedLocator] = true;
+                    $value = $container[$key];
+                    if (is_array($value)) {
+                        return; // struct_capture() only rewrites scalar matches
+                    }
+                    foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
+                        if ($id <= 0) {
+                            continue; // json_refs' explicit unset convention
+                        }
+                        $hit = Pending::resolve_id($id);
+                        $kind = (string) ($rule['kind'] ?? 'entity');
+                        $findings[] = self::finding(
+                            'unrewritten_registered_ref',
+                            $rel,
+                            $matchedLocator . $locSuffix,
+                            $id,
+                            $hit,
+                            "json_refs path '" . (string) $rule['path'] . "' declares this value as a $kind "
+                                . 'reference, but it is still numeric in captured state — the declared rewrite '
+                                . 'to a {{...}} token never ran. This id is silently environment-bound and will '
+                                . 'point at the wrong entity (or nothing) once ids diverge on another environment.'
+                        );
+                    }
+                },
+                $locator
+            );
+        }
+        self::scan_structured_bare_ids_by_key($node, $rel, $locator, $findings, $declaredLocators);
+    }
+
+    /** Existing undeclared-position heuristic, excluding exact json_refs matches already classified above. */
+    private static function scan_structured_bare_ids_by_key(
+        $node,
+        string $rel,
+        string $locator,
+        array &$findings,
+        array $declaredLocators
+    ): void {
         if (!is_array($node)) {
             return;
         }
@@ -246,7 +433,9 @@ final class Lint {
                         $hit['kind'], $hit['id'], $hit['title'], $hit['post_type']
                     ));
                 }
-            } elseif (is_string($key) && self::looks_like_id_key($key)) {
+            } elseif (is_string($key)
+                && self::looks_like_id_key($key)
+                && !isset($declaredLocators[$childLocator])) {
                 foreach (Pending::numeric_candidates($v) as [$id, $locSuffix]) {
                     $hit = Pending::resolve_id($id);
                     if ($hit === null) {
@@ -263,7 +452,7 @@ final class Lint {
                     ));
                 }
             }
-            self::scan_structured_bare_ids($v, $rel, $childLocator, $findings);
+            self::scan_structured_bare_ids_by_key($v, $rel, $childLocator, $findings, $declaredLocators);
         }
     }
 
@@ -482,6 +671,29 @@ final class Lint {
         $front = Canon::decode(Canon::read_file($stateDir . '/' . $rel));
         $desc = $front['description'] ?? '';
         $taxonomy = (string) ($front['taxonomy'] ?? '');
+        $meta = (array) ($front['meta'] ?? []);
+
+        foreach ($meta as $key => $value) {
+            $rule = $policy->meta_rule_for_term((string) $key, $meta);
+            if (isset($rule['ref']) || !empty($rule['lint_ok'])) {
+                continue;
+            }
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                self::scan_structured_bare_ids(
+                    $value, $rel, 'meta.' . $key, $findings, (array) ($rule['json_refs'] ?? [])
+                );
+                continue;
+            }
+            foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
+                $hit = Pending::resolve_id($id);
+                if ($hit !== null) {
+                    $findings[] = self::finding('bare_id', $rel, 'meta.' . $key . $locSuffix, $id, $hit, self::bare_id_note($hit));
+                }
+            }
+        }
+        self::walk_strings($meta, 'meta', function (string $path, string $value) use (&$findings, $rel, $home, $homeEscaped) {
+            self::flag_escaped_home($findings, $rel, $path, $value, $home, $homeEscaped);
+        });
 
         // A taxonomy declaring taxonomies.<tax>.description_refs already
         // has its description rewritten through Tokens::struct_capture()
@@ -492,9 +704,17 @@ final class Lint {
         // parallel check: a resolved json_refs match is never still a raw
         // id by this point (it's a token, or null if unmapped), so
         // anything scan_structured_bare_ids() finds inside this structure
-        // is, by construction, a genuine gap the "$.*" path didn't cover.
-        if ($policy->description_refs_for_taxonomy($taxonomy) !== null) {
-            self::scan_structured_bare_ids($desc, $rel, 'description', $findings);
+        // is either a raw survivor at the declared "$.*" path or a genuine
+        // undeclared-position gap elsewhere in the structure.
+        $descriptionRef = $policy->description_refs_for_taxonomy($taxonomy);
+        if ($descriptionRef !== null) {
+            self::scan_structured_bare_ids(
+                $desc,
+                $rel,
+                'description',
+                $findings,
+                [['path' => '$.*', 'kind' => (string) $descriptionRef['kind']]]
+            );
             return;
         }
 
@@ -502,8 +722,9 @@ final class Lint {
             return;
         }
 
-        // (b) escaped_home
+        // (b) escaped_home / unrewritten_url_query_ref
         self::flag_escaped_home($findings, $rel, 'description', $desc, $home, $homeEscaped);
+        self::flag_unrewritten_url_query_ref($findings, $rel, 'description', $desc);
 
         // (d) serialized_desc_ids — PHP-serialized data with NO declared
         // description_refs rewrite path (Polylang's post_translations/
@@ -561,7 +782,9 @@ final class Lint {
                 continue; // human-reviewed declaration: numeric but genuinely not a ref
             }
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                self::scan_structured_bare_ids($value, $rel, 'options.' . $key, $findings);
+                self::scan_structured_bare_ids(
+                    $value, $rel, 'options.' . $key, $findings, (array) ($rule['json_refs'] ?? [])
+                );
                 continue; // structured value: the deep scan above supersedes the shallow one below
             }
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
@@ -573,9 +796,10 @@ final class Lint {
             }
         }
 
-        // (b) escaped_home
+        // (b) escaped_home / unrewritten_url_query_ref
         self::walk_strings($options, 'options', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
+            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
         });
     }
 
@@ -591,7 +815,9 @@ final class Lint {
                 continue;
             }
             if (!empty($subRule['json_refs']) || !empty($subRule['key_refs'])) {
-                self::scan_structured_bare_ids($subVal, $rel, $locator, $findings);
+                self::scan_structured_bare_ids(
+                    $subVal, $rel, $locator, $findings, (array) ($subRule['json_refs'] ?? [])
+                );
                 continue;
             }
             foreach (Pending::numeric_candidates($subVal) as [$id, $locSuffix]) {
@@ -661,13 +887,15 @@ final class Lint {
             }
         }
 
-        // (b) escaped_home — columns and the attached-meta sidecar
+        // (b) escaped_home / unrewritten_url_query_ref — columns and the attached-meta sidecar
         $meta = (array) ($front['meta'] ?? []);
         self::walk_strings($columns, 'columns', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
+            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
         });
         self::walk_strings($meta, 'meta', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
+            self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
         });
 
         // (c) the attached-meta sidecar's own id-shaped-key check
@@ -687,6 +915,49 @@ final class Lint {
             . "Elementor's _elementor_data corruption shape.",
             $home
         ));
+    }
+
+    /**
+     * DUO-3260: a `?p=`/`?page_id=`/`?attachment_id=` query-string
+     * parameter (WordPress's own internal-link id scheme, confirmed by
+     * reading wp-includes/canonical.php's redirect_canonical() directly —
+     * NOT `?page=`, WordPress's own separate pagination var) still
+     * holding a raw digit in captured state. Deliberately NOT anchored to
+     * this environment's {{home}}/home URL the way Tokens::tokenize_url_
+     * query_refs()'s own REWRITE is (that anchor exists there for
+     * SAFETY — never touch an external URL's own unrelated `?p=`) — this
+     * is a lint SIGNAL, not a rewrite, and this file's own established
+     * philosophy throughout (bare_id, escaped_home, every other class
+     * here) is a wide net with an honest caveat, not narrow precision;
+     * narrow precision is the rewrite mechanism's job. Fires regardless
+     * of whether the id currently resolves to a live entity, matching
+     * every other unrewritten-ref finding's own posture. A genuine false
+     * positive here (a third-party URL that happens to use the same
+     * common parameter name) is exactly the caveat the note states,
+     * mirroring bare_id's own "small ids coincide" framing — not
+     * something this method tries to rule out structurally.
+     */
+    private static function flag_unrewritten_url_query_ref(array &$findings, string $rel, string $locator, string $s): void {
+        if ($s === '' || (!str_contains($s, '?') && !str_contains($s, '&'))) {
+            return;
+        }
+        if (!preg_match_all('/[?&](p|page_id|attachment_id)=(\d+)/', $s, $matches, PREG_SET_ORDER)) {
+            return;
+        }
+        foreach ($matches as $i => $m) {
+            $id = (int) $m[2];
+            $hit = Pending::resolve_id($id);
+            $findings[] = self::finding('unrewritten_url_query_ref', $rel, $locator . "[url_query:$i]", $id, $hit, sprintf(
+                "a '%s=%d' query-string parameter is still a raw numeric id in captured state — WordPress's own "
+                . 'redirect_canonical() resolves this parameter to a real post regardless of post_type. This is '
+                . 'either a genuinely external URL that happens to share this common parameter name (small ids '
+                . 'coincide; this is a signal to investigate, not proof), a purely relative internal link '
+                . "(tokenize_text()'s {{home}}-anchored rewrite cannot reach a URL with no scheme/host at all — the "
+                . 'same pre-existing limitation plain permalink tokenization already has), or a declared rewrite '
+                . 'that silently did not run.',
+                $m[1], $id
+            ));
+        }
     }
 
     /**

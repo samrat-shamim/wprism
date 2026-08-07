@@ -12,13 +12,9 @@
  *     every other Apply.php-touching change in this codebase, that needs
  *     a live $wpdb and gets a live, docker-based proof instead (see
  *     sandbox/tests/regress_env_set.sh), not a FakeWpdb offline harness.
- *   - site.duo.json policy-override precedence (a manifest's env rule
- *     replaced or reclassified away by a site policy override) — no
- *     offline regress_*_policy.php test in this repo constructs a fixture
- *     site.duo.json (Policy::load()'s $repo-null path never populates
- *     $p->site at all), so this follows the same established split and
- *     leaves that path to the live test too, alongside `wp duo plan`'s
- *     env_missing rendering and `wp duo env-set` end-to-end.
+ * DUO-3255 extends this harness with the cross-manifest contradiction
+ * gate, identical-rule dedupe, first-match bulk resolution, and a real
+ * fixture site.duo.json proving the explicit site-policy escape path.
  *
  * Exit 0 and "ALL PASSED" on success; any failed check prints "FAIL: ..."
  * and the script exits 1.
@@ -171,11 +167,11 @@ check(($envOptsF['inherits_default']['autoload'] ?? null) === 'preserve',
 check(($envOptsF['overrides_default']['autoload'] ?? null) === 'no',
     "a rule's own explicit 'autoload' wins over the manifest default, not merely present alongside it");
 
-// Two manifests pinned together: env options from both are present,
-// same-named collision resolved by pin order (first pin wins — matches
-// rule_details()'s own "first manifest in pin order" precedent, since
-// env_options() walks $this->manifests in the same order Policy::load()
-// populated it, in).
+// Two non-core manifests declaring materially different rules for one
+// option refuse at load. The same class is not enough: required is part of
+// an env option's effective contract, so the empirical DUO-3232 collision
+// that previously demonstrated last-pin-wins now demonstrates the owner's
+// DUO-3255 loud-refusal ruling instead.
 write_manifest($fixtureDir, 'g1', [
     'name' => 'g1',
     'spec_version' => DUO_SPEC_VERSION,
@@ -186,14 +182,55 @@ write_manifest($fixtureDir, 'g2', [
     'spec_version' => DUO_SPEC_VERSION,
     'options' => ['shared_name' => ['class' => 'env', 'required' => false], 'only_in_g2' => ['class' => 'env', 'required' => false]],
 ]);
-$policyG = Policy::load(null, ['g1', 'g2']);
+check_throws(fn() => Policy::load(null, ['g1', 'g2']),
+    "manifests 'g1' and 'g2' declare contradictory rules for options.shared_name",
+    'same-class env declarations with different required contracts refuse at load');
+check_throws(fn() => Policy::load(null, ['g2', 'g1']),
+    'Add an explicit site.duo.json policy.options.shared_name override',
+    'refusal is pin-order independent and names the explicit site-policy resolution path');
+
+// Identical declarations are harmless and dedupe. The bulk env map now
+// resolves through the same first-non-core rule_details() path as a direct
+// lookup, rather than independently overwriting with the later pin.
+write_manifest($fixtureDir, 'g3', [
+    'name' => 'g3',
+    'spec_version' => DUO_SPEC_VERSION,
+    'options' => ['shared_name' => ['class' => 'env', 'required' => false], 'only_in_g3' => ['class' => 'env', 'required' => false]],
+]);
+write_manifest($fixtureDir, 'g4', [
+    'name' => 'g4',
+    'spec_version' => DUO_SPEC_VERSION,
+    'options' => ['shared_name' => ['class' => 'env', 'required' => false], 'only_in_g4' => ['class' => 'env', 'required' => false]],
+]);
+$policyG = Policy::load(null, ['g3', 'g4']);
 $envOptsG = $policyG->env_options();
-check(count($envOptsG) === 3, 'two pinned manifests union their env options (3 distinct names, not 4 — shared_name collides to one)');
+check(count($envOptsG) === 3, 'identical declarations dedupe while non-colliding names from both manifests survive');
+check(($policyG->option_rule_details('shared_name')['source'] ?? null) === 'g3',
+    'direct lookup resolves an identical collision to the first non-core pin');
 check(($envOptsG['shared_name']['required'] ?? null) === false,
-    'a same-named rule declared in both pinned manifests resolves to the LATER pin (g2) — env_options() walks '
-    . 'manifests in pin order and a later foreach iteration overwrites $out[$name], same as authored_options()\'s '
-    . 'own loop shape, not "first pin wins"');
-check(isset($envOptsG['only_in_g1']) && isset($envOptsG['only_in_g2']), 'non-colliding names from both manifests both survive the union');
+    'bulk env lookup returns that same resolved rule, never an independent later-pin overwrite');
+check(isset($envOptsG['only_in_g3']) && isset($envOptsG['only_in_g4']),
+    'non-colliding names from both manifests both survive the union');
+
+// A checked-in site policy override is authored intent about the collision,
+// so it bypasses the manifest contradiction gate and wins in both lookup
+// shapes on a fresh Policy::load() with no capture-time memory.
+$repo = "$fixtureDir/site-override";
+mkdir($repo, 0777, true);
+file_put_contents("$repo/site.duo.json", json_encode([
+    'manifests' => ['g1', 'g2'],
+    'policy' => [
+        'options' => [
+            'shared_name' => ['class' => 'env', 'required' => true],
+        ],
+    ],
+], JSON_PRETTY_PRINT));
+$resolved = Policy::load($repo);
+$resolvedDetails = $resolved->option_rule_details('shared_name');
+check(($resolvedDetails['source'] ?? null) === 'site.duo.json',
+    'an explicit site policy override resolves the synthetic contradiction on a fresh load');
+check(($resolved->env_options()['shared_name']['required'] ?? null) === true,
+    'bulk env enumeration uses the exact same site-resolved rule end to end');
 
 // ======================================================================
 echo "\n";

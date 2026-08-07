@@ -10,14 +10,16 @@ if (!defined('ABSPATH') && !(defined('WP_CLI') && WP_CLI)) {
 }
 
 define('DUO_AGENT_VERSION', '0.5.0');
-define('DUO_SPEC_VERSION', 1);
+define('DUO_SPEC_VERSION', 2);
 
 require_once __DIR__ . '/src/Uuid.php';
 require_once __DIR__ . '/src/OrderPreserved.php';
 require_once __DIR__ . '/src/Canon.php';
 require_once __DIR__ . '/src/OptionState.php';
+require_once __DIR__ . '/src/UserMetaState.php';
 require_once __DIR__ . '/src/Db.php';
 require_once __DIR__ . '/src/Secrets.php';
+require_once __DIR__ . '/src/PersonalData.php';
 require_once __DIR__ . '/src/Policy.php';
 require_once __DIR__ . '/src/Ledger.php';
 require_once __DIR__ . '/src/PromotionLock.php';

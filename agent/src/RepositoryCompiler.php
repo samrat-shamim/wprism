@@ -344,6 +344,19 @@ final class RepositoryCompiler {
                 $tree['options/core'] = $entity;
                 continue;
             }
+            if ($entity['type'] === 'user-meta') {
+                $stateKey = UserMetaState::key((string) ($entity['data']['login'] ?? ''));
+                if (isset($tree[$stateKey])) {
+                    $this->add(
+                        'duplicate_user_meta_login', $path, 'login',
+                        "exact login is already represented by {$tree[$stateKey]['path']}",
+                        $tree[$stateKey]['path']
+                    );
+                } else {
+                    $tree[$stateKey] = $entity;
+                }
+                continue;
+            }
             if (!$this->register_identity($uuid, $entity['type'], $path)) {
                 continue;
             }
@@ -455,11 +468,16 @@ final class RepositoryCompiler {
             $kind = 'menu';
         } elseif ($path === 'options/core.json') {
             $kind = 'options';
+        } elseif (preg_match('#^user-meta/([0-9a-f]{64})\.json$#', $path, $m)) {
+            $kind = 'user-meta';
         } elseif (preg_match('#^tables/([^/]+)/([^/]+)\.json$#', $path, $m)) {
             $kind = 'table';
         }
         if ($kind === null) {
-            $this->add('invalid_entity_kind', $path, '', 'path does not name a supported post/term/menu/options/table entity');
+            $this->add(
+                'invalid_entity_kind', $path, '',
+                'path does not name a supported post/term/menu/options/user-meta/table entity'
+            );
             return null;
         }
 
@@ -501,6 +519,27 @@ final class RepositoryCompiler {
             }
             return [
                 'type' => 'options', 'path' => $path,
+                'hash' => hash('sha256', $content), 'source_hash' => hash('sha256', $content),
+                'data' => $data,
+            ];
+        }
+
+        if ($kind === 'user-meta') {
+            $this->validate_schema($kind, $path, $data, null);
+            $login = (string) ($data['login'] ?? '');
+            try {
+                UserMetaState::assert_login($login);
+            } catch (\Throwable $t) {
+                $this->add('schema_content_mismatch', $path, 'login', $t->getMessage());
+            }
+            if ($path !== UserMetaState::path($login)) {
+                $this->add(
+                    'schema_content_mismatch', $path, 'login',
+                    'user-meta filename must be the SHA-256 canonical key of the exact login'
+                );
+            }
+            return [
+                'type' => 'user-meta', 'path' => $path,
                 'hash' => hash('sha256', $content), 'source_hash' => hash('sha256', $content),
                 'data' => $data,
             ];
@@ -632,7 +671,7 @@ final class RepositoryCompiler {
     private function validate_schema(string $kind, string $path, array $data, ?string $body): void {
         $required = match ($kind) {
             'post' => ['uuid','type','slug','title','status','date','date_gmt','modified_gmt','author','parent','menu_order','comment_status','ping_status','excerpt','meta','terms'],
-            'term' => ['uuid','taxonomy','name','slug','description','parent','relationships'],
+            'term' => ['uuid','taxonomy','name','slug','description','parent','meta','relationships'],
             // DUO-3272: 'locations' drops out of the required set the
             // moment a pinned manifest reclassifies menu_fields.locations
             // 'derived' (e.g. Polylang) -- Capture::scope_menus() omits the
@@ -644,6 +683,7 @@ final class RepositoryCompiler {
             'menu' => $this->policy->menu_field_class('locations') === 'derived'
                 ? ['uuid','name','slug','items']
                 : ['uuid','name','slug','locations','items'],
+            'user-meta' => ['login','meta'],
             'table' => ['uuid','table','columns','meta'],
             default => [],
         };
@@ -678,13 +718,30 @@ final class RepositoryCompiler {
                 }
             }
         }
-        if ($kind === 'term' && isset($data['relationships']) && !is_array($data['relationships'])) {
-            $this->add('schema_content_mismatch', $path, 'relationships', 'term relationships must be an object map');
+        if ($kind === 'term' && (!isset($data['meta']) || !is_array($data['meta'])
+            || !isset($data['relationships']) || !is_array($data['relationships']))) {
+            $this->add('schema_content_mismatch', $path, 'meta/relationships', 'term meta and relationships must be object maps');
         } elseif ($kind === 'term') {
             foreach ((array) ($data['relationships'] ?? []) as $taxonomy => $uuids) {
                 if (!is_string($taxonomy) || !is_array($uuids) || !array_is_list($uuids)) {
                     $this->add('schema_content_mismatch', $path, 'relationships', 'each term-object relationship must be a UUID list');
                 }
+            }
+        }
+        if ($kind === 'user-meta') {
+            $unknown = array_values(array_diff(array_keys($data), ['login', 'meta']));
+            if ($unknown) {
+                sort($unknown, SORT_STRING);
+                $this->add(
+                    'schema_content_mismatch', $path, '',
+                    'unknown user-meta field(s): ' . implode(', ', $unknown)
+                );
+            }
+            if (!is_string($data['login'] ?? null)) {
+                $this->add('schema_content_mismatch', $path, 'login', 'login must be a string');
+            }
+            if (!isset($data['meta']) || !is_array($data['meta'])) {
+                $this->add('schema_content_mismatch', $path, 'meta', 'meta must be an object map');
             }
         }
         if ($kind === 'menu' && isset($data['items']) && !is_array($data['items'])) {
@@ -941,7 +998,21 @@ final class RepositoryCompiler {
                         $this->validate_declared_ref($item['ref'] ?? null, $kind, $path, "items[$i].ref");
                     }
                 }
+            } elseif ($entity['type'] === 'term') {
+                $meta = (array) ($d['meta'] ?? []);
+                foreach ($meta as $key => $value) {
+                    $rule = $this->policy->meta_rule_for_term((string) $key, $meta) ?? [];
+                    if (!empty($rule['ref'])) {
+                        $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'meta.' . $key);
+                    }
+                }
             } elseif ($entity['type'] === 'options') {
+                // DUO-3263: an interpreter-classified option's ref kind (ACF's
+                // options-page fields) needs the same document-sourced
+                // sibling map meta_rule_for_post() above already gets from
+                // $meta — options have no single owning entity, so this is
+                // every present value in this SAME document, built once.
+                $allOptions = OptionState::values($d);
                 foreach (OptionState::records($d) as $name => $record) {
                     if ($record['state'] !== 'present') {
                         continue;
@@ -949,10 +1020,18 @@ final class RepositoryCompiler {
                     $value = $record['value'];
                     $details = str_contains((string) $name, '{{')
                         ? $this->policy->canonical_option_name_ref_details((string) $name)
-                        : $this->policy->option_rule_details((string) $name);
+                        : $this->policy->option_rule_details_for_option((string) $name, $allOptions);
                     $rule = $details['rule'] ?? [];
                     if (!empty($rule['ref'])) {
                         $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'options.' . $name);
+                    }
+                }
+            } elseif ($entity['type'] === 'user-meta') {
+                $meta = (array) ($d['meta'] ?? []);
+                foreach ($meta as $key => $value) {
+                    $rule = $this->policy->meta_rule_for_user((string) $key, $meta) ?? [];
+                    if (!empty($rule['ref'])) {
+                        $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'meta.' . $key);
                     }
                 }
             } elseif (isset($rows[$entity['type']])) {

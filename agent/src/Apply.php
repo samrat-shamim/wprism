@@ -19,6 +19,8 @@ final class Apply {
     private array $warnings = [];
     /** @var array<string,int> login -> user id */
     private array $userIds = [];
+    /** @var array<string,int> exact (binary) login -> user id */
+    private array $exactUserIds = [];
     private ?int $defaultAuthor = null;
     /** @var array{by_post_type: array<string,string[]>, term_object: string[]}|null
      *  memoized — see taxes_by_object_type() */
@@ -97,6 +99,7 @@ final class Apply {
             'conflict' => [], 'adopt' => [], 'collision' => [], 'delete' => [],
             'delete_conflict' => [], 'deleted' => [],
             'code_mismatch' => [], 'code_drift' => [], 'incomplete_apply' => [],
+            'missing_user' => [], 'skipped_user_meta' => [],
         ];
         $collisionCache = [];
         foreach ($tree as $uuid => $e) {
@@ -104,6 +107,22 @@ final class Apply {
             $envE = $env[$uuid] ?? null;
             $baseH = $base[$uuid]['content_hash'] ?? null;
             $row = ['uuid' => $uuid, 'type' => $e['type'], 'path' => $e['path']];
+            if ($e['type'] === 'user-meta' && $envE === null) {
+                $login = (string) ($e['data']['login'] ?? '');
+                $row['login'] = $login;
+                $behavior = $this->policy->user_meta_missing_behavior((array) ($e['data']['meta'] ?? []));
+                if ($behavior === 'warn') {
+                    $plan['skipped_user_meta'][] = $row;
+                    $warning = "user-meta {$e['path']}: exact login '$login' is absent; "
+                        . 'warn-and-skip policy left the target untouched';
+                    if (!in_array($warning, $this->warnings, true)) {
+                        $this->warnings[] = $warning;
+                    }
+                } else {
+                    $plan['missing_user'][] = $row;
+                }
+                continue;
+            }
             if ($uuid === 'options/core' && $envE !== null) {
                 $desiredRecords = OptionState::records($e['data']);
                 $envDocument = Canon::decode($envE['content']);
@@ -322,7 +341,7 @@ final class Apply {
         // an operator the truth about what a freshly-materialized
         // environment still needs, per manifest-declared class:"env"
         // options only — see Policy::env_options()'s own docblock for why
-        // meta/sub_keys env values are out of v1 scope). "Missing" means
+        // meta/sub_keys env values are out of v2 scope). "Missing" means
         // the option row is absent or an empty string on THIS environment
         // — a per-environment self-check, not a cross-environment diff
         // (env values are never captured, so the repo has no record of
@@ -820,6 +839,17 @@ final class Apply {
                 . "capture/reconcile first or --force-theirs:\n  - $list"
             );
         }
+        if ($plan['missing_user']) {
+            $list = implode("\n  - ", array_map(
+                fn($r) => "{$r['path']}: exact login '{$r['login']}' is absent",
+                $plan['missing_user']
+            ));
+            throw new \RuntimeException(
+                "duo: user-meta apply refused before target mutation — required exact login(s) are missing:\n  - $list\n"
+                . 'Create/reconcile the user outside Duo, or explicitly declare missing_user="warn" on every '
+                . 'authored key in that sidecar to warn-and-skip it.'
+            );
+        }
         foreach ($plan['delete_conflict'] as $r) {
             $this->warnings[] = "FORCED deletion conflict {$r['uuid']} ({$r['reason']})";
         }
@@ -984,6 +1014,9 @@ final class Apply {
                         // here because incomplete work is replayed.
                         $attachmentIds[] = Ledger::id_for($front['uuid'], Ledger::KIND_POST);
                     }
+                } elseif ($e['type'] === 'user-meta') {
+                    // Users are target-local and are never created/adopted.
+                    // Exact-login existence was proven during planning.
                 }
             }
 
@@ -1008,6 +1041,8 @@ final class Apply {
                     $this->finalize_menu($e['data']);
                 } elseif ($e['type'] === 'options') {
                     $this->apply_options($e['data'], !empty($opts['with_deletes']));
+                } elseif ($e['type'] === 'user-meta') {
+                    $this->finalize_user_meta($e['data']);
                 }
             }
 
@@ -1069,7 +1104,7 @@ final class Apply {
         // canonical reader used by plan/capture and prove that every entity
         // in the immutable compiled tree landed byte-semantically (same
         // type + canonical hash). Target-only entities are deliberately not
-        // failures: absence is not deletion authority in v1. When deletes
+        // failures: absence is not deletion authority in v2. When deletes
         // were explicitly requested, every compiled tombstone IS authority,
         // so its uuid must now be absent. Any mismatch throws before the
         // ledger transaction below, retaining apply_in_progress and every
@@ -1139,6 +1174,7 @@ final class Apply {
             'create', 'update', 'unchanged', 'drift', 'conflict', 'adopt',
             'collision', 'delete', 'delete_conflict', 'deleted',
             'code_mismatch', 'code_drift', 'incomplete_apply', 'regen_pending',
+            'missing_user', 'skipped_user_meta',
         ];
         $basis = [];
         foreach ($keys as $key) {
@@ -1276,10 +1312,16 @@ final class Apply {
     ): array {
         $actual = Capture::snapshot($this->repo, $forceUnresolvedRefs);
         $failures = [];
+        $skippedUserMeta = 0;
 
         foreach ($tree as $uuid => $expected) {
             $observed = $actual[$uuid] ?? null;
             if ($observed === null) {
+                if (($expected['type'] ?? '') === 'user-meta'
+                    && $this->policy->user_meta_missing_behavior((array) ($expected['data']['meta'] ?? [])) === 'warn') {
+                    $skippedUserMeta++;
+                    continue;
+                }
                 $failures[] = "{$expected['type']} {$expected['path']} ($uuid): missing after apply";
                 continue;
             }
@@ -1326,6 +1368,7 @@ final class Apply {
             'result' => 'pass',
             'live_entities' => count($tree),
             'deletions' => $verifiedDeletions,
+            'skipped_user_meta' => $skippedUserMeta,
         ];
     }
 
@@ -1446,6 +1489,7 @@ final class Apply {
             'description' => $this->encode_description($front['taxonomy'], $front['description']),
             'parent' => $parentId,
         ], ['term_id' => $termId, 'taxonomy' => $front['taxonomy']], null, null, 'apply update term taxonomy');
+        $this->reconcile_authored_term_meta($termId, (array) ($front['meta'] ?? []));
         $this->reconcile_term_relationships($termId, $front['taxonomy'], (array) ($front['relationships'] ?? []));
     }
 
@@ -1564,7 +1608,7 @@ final class Apply {
             'post_mime_type' => $front['mime'] ?? '',
         ];
         // Post-FIELD classification (task #88): a field this post_type
-        // classifies 'derived' (v1 scope: product_variation's title —
+        // classifies 'derived' (v2 scope: product_variation's title —
         // WooCommerce's own hook-free self-heal, #72's root cause) is
         // dropped from this UPDATE entirely rather than overwritten with
         // the captured byte string, once the row already exists.
@@ -1597,14 +1641,12 @@ final class Apply {
         $this->reconcile_authored_meta($id, (array) ($front['meta'] ?? []), 'post');
 
         // term relationships for owned taxonomies
-        if ($front['type'] !== 'attachment') {
-            $this->reconcile_relationships(
-                $id,
-                $front['type'],
-                (array) ($front['terms'] ?? []),
-                (array) ($front['term_orders'] ?? [])
-            );
-        }
+        $this->reconcile_relationships(
+            $id,
+            $front['type'],
+            (array) ($front['terms'] ?? []),
+            (array) ($front['term_orders'] ?? [])
+        );
 
         // attachment binary + managed meta
         if ($front['type'] === 'attachment') {
@@ -1896,11 +1938,16 @@ final class Apply {
     }
 
     private function apply_options(array $document, bool $withDeletes): void {
+        // DUO-3263: an interpreter-classified option (ACF's options-page
+        // fields) needs the same document-sourced sibling map (the shadow
+        // pointer) RepositoryAuthorization/RepositoryCompiler already build
+        // from this same document — built once, reused per name below.
+        $allOptions = OptionState::values($document);
         foreach (OptionState::records($document) as $name => $record) {
             if ($record['state'] === 'absent') {
                 continue; // explicit no-value/no-delete intent; target row is untouched
             }
-            [$realName, $rule] = $this->option_apply_target((string) $name);
+            [$realName, $rule] = $this->option_apply_target((string) $name, $allOptions);
             if ($record['state'] === 'deleted') {
                 if (!$withDeletes) {
                     throw new \RuntimeException("duo: internal invariant: option tombstone '$name' reached apply without --with-deletes");
@@ -1955,9 +2002,24 @@ final class Apply {
     }
 
     /** @return array{0:string,1:array} canonical name -> target-local name + owning rule */
-    private function option_apply_target(string $name): array {
+    private function option_apply_target(string $name, array $allOptions): array {
         if (!str_contains($name, '{{')) {
-            $rule = $this->policy->option_rule($name) ?? $this->dynamic_option_rule_for_name($name);
+            // DUO-3263: interpreter-aware, not the plain static option_rule()
+            // — an ACF options-page field (options_<name>/_options_<name>)
+            // has no exact/pattern policy entry at all; only
+            // meta_rule_for_option() consults the owning manifest's
+            // interpreter. Caught live: the plain static lookup silently
+            // returned [] here, and assert_rule_autoload() below correctly
+            // refused to guess rather than writing an unclassified row.
+            // meta_rule_for_option() itself already falls back to the same
+            // static option_rule_details() lookup option_rule() uses when no
+            // interpreter claims $name (Policy::rule_details_for_interpreter_hook()),
+            // so it is a strict superset of the plain lookup, not a
+            // replacement for it — DUO-3264's dynamic_options fallback
+            // (theme_mods_<active theme>, disjoint namespace from every
+            // ACF options-page name) chains after it for the same reason it
+            // already chained after option_rule() before this merge.
+            $rule = $this->policy->meta_rule_for_option($name, $allOptions) ?? $this->dynamic_option_rule_for_name($name);
             return [$name, $rule ?? []];
         }
         if (!preg_match('/\{\{([a-z][a-z0-9_]*):([0-9a-f-]{36})\}\}/', $name, $tm)) {
@@ -2272,6 +2334,131 @@ final class Apply {
         }
     }
 
+    /**
+     * Termmeta counterpart of reconcile_authored_meta(). Only keys the
+     * current policy still classifies authored are deletion-owned; every
+     * undeclared/runtime/env/derived target row remains byte-untouched.
+     */
+    private function reconcile_authored_term_meta(int $termId, array $frontMeta): void {
+        global $wpdb;
+        $desired = [];
+        foreach ($frontMeta as $key => $value) {
+            $rule = $this->policy->meta_rule_for_term((string) $key, $frontMeta) ?? [];
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                $value = $this->tokens->struct_apply($value, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
+                $value = $this->encode_structured($value, $rule);
+            } elseif (!empty($rule['ref'])) {
+                $value = $this->tokens->meta_tokens_to_value($value, $rule);
+            } elseif (is_string($value)) {
+                $value = $this->tokens->detokenize_text($value);
+            }
+            $desired[(string) $key] = maybe_serialize($value);
+        }
+
+        $envMeta = $wpdb->get_results($wpdb->prepare(
+            "SELECT meta_id, meta_key, meta_value FROM {$wpdb->termmeta} WHERE term_id = %d ORDER BY meta_id ASC",
+            $termId
+        ), ARRAY_A) ?: [];
+        $envFlat = [];
+        foreach ($envMeta as $row) {
+            $envFlat[$row['meta_key']] ??= $row['meta_value'];
+        }
+        foreach ($envMeta as $row) {
+            $rule = $this->policy->meta_rule_for_term($row['meta_key'], $envFlat);
+            if (($rule['class'] ?? '') === 'authored' && !array_key_exists($row['meta_key'], $desired)) {
+                Db::delete($wpdb->termmeta, ['meta_id' => $row['meta_id']], null, 'apply delete authored term meta');
+            }
+        }
+        foreach ($desired as $key => $value) {
+            $this->upsert_meta($wpdb->termmeta, 'term_id', $termId, $key, $value, 'apply authored term meta');
+        }
+    }
+
+    /**
+     * Reconcile only explicitly-authored user-meta keys for one exact login.
+     * The owning user is target-local: no creation, adoption, rename,
+     * fallback, capability change, or user deletion exists on this path.
+     */
+    private function finalize_user_meta(array $front): void {
+        global $wpdb;
+        $login = (string) ($front['login'] ?? '');
+        $userId = $this->resolve_exact_login($login);
+        if ($userId === null) {
+            throw new \RuntimeException(
+                "duo: user-meta exact login '$login' disappeared after preflight; transaction rolled back"
+            );
+        }
+        $frontMeta = (array) ($front['meta'] ?? []);
+        $desired = [];
+        foreach ($frontMeta as $key => $value) {
+            $rule = $this->policy->meta_rule_for_user((string) $key, $frontMeta) ?? [];
+            if (($rule['class'] ?? '') !== 'authored') {
+                throw new \RuntimeException(
+                    "duo: user-meta '$key' for exact login '$login' is not authorized authored at apply"
+                );
+            }
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                $value = $this->tokens->struct_apply(
+                    $value,
+                    $rule['json_refs'] ?? [],
+                    $rule['key_refs'] ?? null
+                );
+                $value = $this->encode_structured($value, $rule);
+            } elseif (!empty($rule['ref'])) {
+                // User refs need the meta decoder: unlike option refs it
+                // understands user:<login>, arrays, and storage casts.
+                $value = $this->tokens->meta_tokens_to_value($value, $rule);
+            } elseif (is_string($value)) {
+                $value = $this->tokens->detokenize_text($value);
+            }
+            $desired[(string) $key] = maybe_serialize($value);
+        }
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT umeta_id AS meta_id, meta_key, meta_value FROM {$wpdb->usermeta} "
+            . 'WHERE user_id = %d ORDER BY umeta_id ASC',
+            $userId
+        ), ARRAY_A) ?: [];
+        $flat = [];
+        foreach ($rows as $row) {
+            $flat[$row['meta_key']] ??= $row['meta_value'];
+        }
+        $kept = [];
+        foreach ($rows as $row) {
+            $rule = $this->policy->meta_rule_for_user((string) $row['meta_key'], $flat);
+            if (($rule['class'] ?? '') !== 'authored') {
+                continue;
+            }
+            $key = (string) $row['meta_key'];
+            // Canonical authored user meta is deliberately single-valued.
+            // Remove every absent owned row and all but the first existing
+            // row before upsert, so a dirty target cannot retain duplicates
+            // that would make the verification capture refuse.
+            if (!array_key_exists($key, $desired) || isset($kept[$key])) {
+                Db::delete(
+                    $wpdb->usermeta,
+                    ['umeta_id' => (int) $row['meta_id']],
+                    null,
+                    "apply delete authored user meta for exact login '$login'"
+                );
+                continue;
+            }
+            $kept[$key] = true;
+        }
+        foreach ($desired as $key => $value) {
+            $this->upsert_meta(
+                $wpdb->usermeta,
+                'user_id',
+                $userId,
+                $key,
+                $value,
+                "apply reconcile authored user meta for exact login '$login'",
+                'umeta_id'
+            );
+        }
+        wp_cache_delete($userId, 'user_meta');
+    }
+
     /** $value null writes a real SQL NULL — byte-faithful to plugins that store
      *  NULL meta_value themselves (WooCommerce's date_expires on non-expiring
      *  coupons); never a "delete the row" semantic. */
@@ -2281,17 +2468,18 @@ final class Apply {
         int $objectId,
         string $key,
         ?string $value,
-        ?string $context = null
+        ?string $context = null,
+        string $idCol = 'meta_id'
     ): void {
         global $wpdb;
         $metaId = $wpdb->get_var($wpdb->prepare(
-            "SELECT meta_id FROM $table WHERE $fkCol = %d AND meta_key = %s LIMIT 1", $objectId, $key
+            "SELECT $idCol FROM $table WHERE $fkCol = %d AND meta_key = %s LIMIT 1", $objectId, $key
         ));
         if ($metaId) {
             Db::update(
                 $table,
                 ['meta_value' => $value],
-                ['meta_id' => $metaId],
+                [$idCol => $metaId],
                 null,
                 null,
                 $context ?? 'apply update authored meta'
@@ -2538,6 +2726,22 @@ final class Apply {
             $this->userIds[$login] = $id ? (int) $id : 0;
         }
         return $this->userIds[$login] ?: null;
+    }
+
+    /** Exact byte/case login lookup for the user-meta owning-user boundary. */
+    private function resolve_exact_login(string $login): ?int {
+        global $wpdb;
+        if ($login === '') {
+            return null;
+        }
+        if (!array_key_exists($login, $this->exactUserIds)) {
+            $id = $wpdb->get_var($wpdb->prepare(
+                "SELECT ID FROM {$wpdb->users} WHERE BINARY user_login = BINARY %s LIMIT 1",
+                $login
+            ));
+            $this->exactUserIds[$login] = $id ? (int) $id : 0;
+        }
+        return $this->exactUserIds[$login] ?: null;
     }
 
     // --------------------------------------------------------------- rebuild

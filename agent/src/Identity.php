@@ -58,7 +58,7 @@ final class Identity {
     public static function assert_entities_unique(array $entities): void {
         $seen = [];
         foreach ($entities as $entity) {
-            if (($entity['type'] ?? '') === 'options') {
+            if (in_array(($entity['type'] ?? ''), ['options', 'user-meta'], true)) {
                 continue;
             }
             self::claim($seen, (string) ($entity['uuid'] ?? ''), (string) ($entity['path'] ?? $entity['type']));

@@ -12,5 +12,19 @@
       "url": "https://downloads.wordpress.org/plugin/advanced-custom-fields.6.8.7.zip",
       "sha256": "f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2"
     }
+  },
+  "contact-form-7": {
+    "5.9.8": {
+      "url": "https://downloads.wordpress.org/plugin/contact-form-7.5.9.8.zip",
+      "sha256": "357b13dab0e2b9996444664c95bd7ee7ca49fb18aced65db4c40c747543afcf4"
+    },
+    "6.0.1": {
+      "url": "https://downloads.wordpress.org/plugin/contact-form-7.6.0.1.zip",
+      "sha256": "23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6"
+    },
+    "6.1.6": {
+      "url": "https://downloads.wordpress.org/plugin/contact-form-7.6.1.6.zip",
+      "sha256": "e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e"
+    }
   }
 }
