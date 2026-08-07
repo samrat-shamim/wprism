@@ -615,6 +615,18 @@ final class RepositoryCompiler {
                     $this->add('schema_content_mismatch', $path, 'terms', 'each taxonomy relationship must be a UUID list');
                 }
             }
+            foreach ((array) ($data['term_orders'] ?? []) as $taxonomy => $orders) {
+                if (!is_string($taxonomy) || !is_array($orders) || array_is_list($orders)) {
+                    $this->add('schema_content_mismatch', $path, 'term_orders', 'each taxonomy order set must be a UUID-to-integer map');
+                    continue;
+                }
+                foreach ($orders as $uuid => $order) {
+                    if (!is_string($uuid) || !is_int($order)
+                        || !in_array($uuid, (array) ($data['terms'][$taxonomy] ?? []), true)) {
+                        $this->add('schema_content_mismatch', $path, 'term_orders', 'order entries must name a related UUID and carry an integer');
+                    }
+                }
+            }
         }
         if ($kind === 'term' && isset($data['relationships']) && !is_array($data['relationships'])) {
             $this->add('schema_content_mismatch', $path, 'relationships', 'term relationships must be an object map');

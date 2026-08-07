@@ -1080,6 +1080,16 @@ final class Capture {
         $id = (int) $p->ID;
         $isAttachment = ($p->post_type === 'attachment');
 
+        // post_password is authored behavior but repository plaintext would
+        // violate the secret boundary. Until a portable encrypted field is
+        // ratified, protected posts are an explicit unsupported shape.
+        if ((string) $p->post_password !== '') {
+            throw new \RuntimeException(
+                "duo: protected {$p->post_type} '{$p->post_name}' (post $id) has post_password; "
+                . 'spec v1 has no portable secret representation for post passwords, so capture refuses it'
+            );
+        }
+
         // meta, classified
         $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_key ASC, meta_id ASC",
@@ -1152,10 +1162,11 @@ final class Capture {
         // is unsafe: posts and terms share one auto-increment id space)
         $taxes = $this->taxesForPostType[$p->post_type] ?? [];
         $termsField = [];
+        $termOrders = [];
         if ($taxes && !$isAttachment) {
             $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
             $rels = $wpdb->get_results($wpdb->prepare(
-                "SELECT tt.taxonomy, tt.term_id FROM {$wpdb->term_relationships} tr
+                "SELECT tt.taxonomy, tt.term_id, tr.term_order FROM {$wpdb->term_relationships} tr
                  JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
                  WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
                 $id
@@ -1164,6 +1175,7 @@ final class Capture {
                 $tu = Ledger::uuid_for((int) $rel->term_id, Ledger::KIND_TERM);
                 if ($tu !== null) {
                     $termsField[$rel->taxonomy][] = $tu;
+                    $termOrders[$rel->taxonomy][$tu] = (int) $rel->term_order;
                 }
             }
             foreach ($termsField as &$list) {
@@ -1180,6 +1192,7 @@ final class Capture {
             'status' => $p->post_status,
             'date' => $p->post_date,
             'date_gmt' => $p->post_date_gmt,
+            'modified' => $p->post_modified,
             'modified_gmt' => $p->post_modified_gmt,
             'author' => $this->author_token((int) $p->post_author),
             'parent' => $parent,
@@ -1189,6 +1202,7 @@ final class Capture {
             'excerpt' => $this->tokens->tokenize_text((string) $p->post_excerpt),
             'meta' => (object) $meta,
             'terms' => (object) $termsField,
+            'term_orders' => (object) array_map(fn($orders) => (object) $orders, $termOrders),
         ];
 
         $mediaRef = null;
@@ -1330,6 +1344,7 @@ final class Capture {
                     'parent' => $parentItem > 0 ? ($itemUuidById[$parentItem] ?? null) : null,
                     'position' => (int) $ip->menu_order,
                     'title' => $ip->post_title,
+                    'description' => $this->tokens->tokenize_text((string) $ip->post_content),
                     'attr_title' => (string) $ip->post_excerpt,
                     'target' => (string) ($m['_menu_item_target'] ?? ''),
                     'classes' => $classes,
