@@ -63,6 +63,7 @@ trap cleanup EXIT
 mkdir -p "$HOST_REPO"
 cat > "$HOST_REPO/site.duo.json" <<'EOF'
 {
+  "spec_version": 1,
   "manifests": ["core"],
   "policy": {
     "options": {},
@@ -131,6 +132,7 @@ pass "dangling array element still drops just that element and exits 0 — unaff
 say "(4) NOT unscoped: a real, CORRECTLY-scoped target that this build simply hasn't minted a uuid for yet (Capture::snapshot()'s non-minting mode — plan/apply's drift check against a fresh target before its first capture). This is the exact false positive the core-manifest conformance sweep caught empirically (default_category on a never-captured env) — id_to_token() failing here is a MINTING fact, not a POLICY fact, and must not be read as unscoped."
 cat > "$HOST_REPO/site.duo.json" <<'EOF'
 {
+  "spec_version": 1,
   "manifests": ["core"],
   "policy": {
     "options": {},
