@@ -134,8 +134,27 @@ final class Capture {
             // prior state and therefore cannot infer a deletion. Compiling
             // before target reads also refuses to build new state on top of
             // an already-invalid repository revision.
+            //
+            // DUO-3263: a FRESH Policy::load(), never the shared $policy
+            // build() below will use. RepositoryCompiler::compile() primes
+            // every schema-driven interpreter from THIS tree via
+            // prime_interpreters_from_repository() (manifests/interpreters/
+            // acf.php's own field_definition() docblock: "authorization is
+            // about one immutable revision," so once primed it never falls
+            // back to a live DB query again for that interpreter instance).
+            // Interpreter instances are cached per-Policy-object and $policy
+            // is otherwise reused for the whole rest of this method — sharing
+            // it here would permanently lock every interpreter into
+            // repository-only mode using the PREVIOUS revision's content,
+            // before build() below has captured anything new at all. Caught
+            // live: a second capture that introduces a brand-new ACF field
+            // (term- or options-page-attached) the previous revision had
+            // never seen came back unclassified, even though the exact same
+            // field classified correctly on this repo's first-ever capture —
+            // proof the previous revision's own priming was leaking forward
+            // into the new one's classification instead of a fresh lookup.
             $previous = is_dir($c->repo . '/state')
-                ? RepositoryCompiler::compile($c->repo, $policy)
+                ? RepositoryCompiler::compile($c->repo, Policy::load($repo))
                 : null;
             $previousOptions = $previous?->tree()['options/core']['data'] ?? null;
             $previousUserLogins = [];
@@ -309,7 +328,14 @@ final class Capture {
         Snapshot::prune_dead_map($policy);
         $c = new self($repo, $policy);
         self::verify_engine_support($policy);
-        $repository = RepositoryCompiler::compile($repo, $policy);
+        // DUO-3263: fresh Policy::load(), same reasoning as run()'s own
+        // identical fix a few methods up — compiling the repository here
+        // must not permanently prime the SAME $policy object's interpreter
+        // instances that $c->build() below (line ~346) still needs live-DB
+        // fallback from, or a brand-new schema-driven field the repository
+        // hasn't seen yet reads as unclassified even though the live
+        // environment has it.
+        $repository = RepositoryCompiler::compile($repo, Policy::load($repo));
         $repositoryOptions = $repository->tree()['options/core']['data'] ?? null;
         $repositoryUserLogins = [];
         foreach ($repository->tree() as $entity) {

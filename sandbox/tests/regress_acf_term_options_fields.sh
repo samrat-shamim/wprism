@@ -3,19 +3,24 @@
 # page (user arm out of scope per the DUO-3262 owner ruling b197dd16 —
 # blocked on DUO-3268). Two arms, proven differently on purpose:
 #
-# TERM ARM (interpreter-classification only, no wire format yet):
+# TERM ARM (end-to-end — upgraded from interpreter-classification-only
+#   partway through this issue when DUO-3261 landed mid-flight):
 #   ACF term-attached fields used to be entirely unclassified (the ordinary
 #   unclassified-meta gate fired with no ACF-aware naming at all). This adds
 #   Acf::term_meta_rule() (pure reuse of post_meta_rule()'s shadow-key/
 #   field-definition machinery — term_meta_map()'s shape is byte-identical
 #   to post_meta_map()'s), wired through DUO-3262's own meta_rule_for_term()
-#   dispatch. DUO-3261 (the term-file `meta` wire format) is still In
-#   Progress, not Done, so this arm proves the interpreter correctly
-#   classifies the key AND that capture still hard-refuses via the
-#   PRE-EXISTING wire-format-missing gate — with the correct, precise
-#   reason, not a generic "unclassified" one. No new blocking mechanism is
-#   introduced here; this is the same loud-refusal-at-capture posture
-#   DUO-3262 itself established for user_meta.
+#   dispatch. At CLAIM time DUO-3261 (the term-file `meta` wire format) was
+#   In Progress, not Done, so this arm was originally scoped as
+#   interpreter-classification-only with a proven loud refusal at capture.
+#   DUO-3261 merged (PR #55) while this issue was still in flight — rebased
+#   onto it rather than shipping documentation that would go stale the
+#   moment it merged. Capture.php's build_term() now calls the SAME
+#   classify_meta_value() helper DUO-3266 built for posts/menu-items, with
+#   $termMeta=true routing through meta_rule_for_term() — term_meta_rule()
+#   needed zero further engine changes to compose with it. Proven fully
+#   end-to-end below: capture -> apply -> cross-environment round-trip ->
+#   recapture byte-identical, the same depth as the options arm.
 #
 # OPTIONS-PAGE ARM (end-to-end, no wire-format dependency — options already
 #   have a full v1 format): ACF's acf_add_options_page() (the admin-UI
@@ -95,7 +100,7 @@ cat > "$SITE1/site.duo.json" <<'EOF'
     "post_types": ["post", "page", "attachment", "acf-field-group", "acf-field"],
     "taxonomies": ["category"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 EOF
 cp sandbox/site-repo.gitignore.template "$SITE1/.gitignore"
@@ -150,31 +155,58 @@ TERM_ID=$(echo "$TERM_OUT" | grep -o 'term_id=[0-9]*' | cut -d= -f2)
 [ -n "$TERM_ID" ] || fail "term seed did not report a term_id"
 pass "(A) term $TERM_ID seeded with an ACF plain field and an ACF image-ref field"
 
-say "(A1) wp duo pending: the ACF term fields must surface as authored-but-schema-blocked, NOT generic 'unclassified'"
-PENDING_JSON=$(wp1 duo pending --repo=/siterepo --format=json 2>/dev/null | tail -1)
+say "(A1) capture succeeds end-to-end (DUO-3261's wire format is live on main); the ref field resolves to a real {{post:<uuid>}} token in the term's meta"
+wp1 duo capture --repo=/siterepo --format=json >/dev/null || fail "capture failed for the term arm"
+TERM_FILE=$(find "$SITE1/state/terms/category" -name '*duo3263-term*' | head -1)
+[ -n "$TERM_FILE" ] || fail "no term file captured for the seeded category"
 python3 -c "
 import json
-items = json.loads('''$PENDING_JSON''')
-for key in ('duo3263_term_plain', '_duo3263_term_plain', 'duo3263_term_img', '_duo3263_term_img'):
-    hits = [it for it in items if it.get('key') == key and it.get('section') == 'term_meta']
-    assert hits, f'{key} not found under section=term_meta in pending output: {items}'
-    reason = hits[0].get('evidence', {}).get('reason', '')
-    assert 'v1 term-file schema' in reason, f'{key}: expected the schema-blocked reason, got {reason!r} -- looks like it fell through to generic unclassified, term_meta_rule() is not being consulted'
-print('all 4 term keys correctly diagnosed as authored/schema-blocked, not generic-unclassified')
-" || fail "pending did not correctly diagnose the ACF term fields as interpreter-classified authored"
-pass "(A1) pending correctly reports 'authored term meta is unsupported by the v1 term-file schema' for all 4 keys -- proves term_meta_rule() is being consulted, not falling through to a generic unclassified message"
+d = json.load(open('$TERM_FILE'))
+meta = d.get('meta', {})
+plain = meta.get('duo3263_term_plain')
+shadow_p = meta.get('_duo3263_term_plain')
+img = meta.get('duo3263_term_img')
+shadow_i = meta.get('_duo3263_term_img')
+assert plain == 'a plain term value', f'plain field wrong: {plain!r}'
+assert shadow_p == 'field_duo3263_term_plain', f'plain shadow wrong: {shadow_p!r}'
+assert isinstance(img, str) and img.startswith('{{post:') and img.endswith('}}'), f'expected a resolved post ref token for the term image, got {img!r}'
+assert shadow_i == 'field_duo3263_term_img', f'img shadow wrong: {shadow_i!r}'
+print('plain:', plain)
+print('img token:', img)
+" || fail "captured term file did not carry the expected ACF term-meta fields"
+pass "(A1) term file's meta carries duo3263_term_plain (plain), its shadow pointer, and duo3263_term_img resolved to a real post ref token, plus its own shadow pointer -- all 4 keys, correctly classified, zero manual policy needed"
 
-say "(A2) live capture still hard-blocks (DUO-3261's wire format isn't landed) -- same loud-refusal-at-capture posture DUO-3262 established, not a new mechanism"
-if OUT=$(wp1 duo capture --repo=/siterepo --format=json 2>&1); then
-  fail "capture succeeded despite no term-file meta wire format existing -- the loud gate did not fire: $OUT"
-fi
-echo "$OUT" | grep -q "term_meta:duo3263_term_plain" || fail "capture refusal did not name duo3263_term_plain (got: $OUT)"
-echo "$OUT" | grep -q "v1 term-file schema" || fail "capture refusal did not carry the precise schema-blocked reason (got: $OUT)"
-pass "(A2) capture correctly refuses loudly, naming the exact key and the precise reason -- proves the interpreter's classification reaches the SAME pre-existing capture-time gate DUO-3261's own issue documents as 'working as designed'"
+say "(A2) commit SITE1 (term arm content), clone to SITE2, apply on the second, independent environment"
+git -C "$SITE1" add -A
+git -C "$SITE1" commit -qm "asub3263 ACF term-meta fixture" >/dev/null
+rm -rf "$SITE2"
+cp -R "$SITE1" "$SITE2"
+chmod -R a+rwX "$SITE2"
+wp2 plugin install advanced-custom-fields --activate >/dev/null || fail "ACF install failed on side 2"
+wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms,menus --default-author=admin >/dev/null \
+  || fail "apply of the term arm failed on env2"
+pass "(A2) apply succeeded on env2"
 
-say "(A3) remove the term arm's unresolvable content so PART B can proceed to a clean capture"
-wp1 term delete category "$TERM_ID" >/dev/null || fail "could not remove the blocking term"
-pass "(A3) blocking term removed"
+say "(round-trip) env2's own local term-image attachment id -- detokenization must resolve to THAT local id, not env1's copied number"
+ENV2_TERM_ID=$(wp2 term list category --name__like="Duo3263 Term" --field=term_id --format=csv 2>/dev/null | tail -1)
+[ -n "$ENV2_TERM_ID" ] || fail "term did not apply to env2"
+ENV2_TERM_PLAIN=$(wp2 eval 'echo get_field("field_duo3263_term_plain", "term_'"$ENV2_TERM_ID"'");')
+[ "$ENV2_TERM_PLAIN" = "a plain term value" ] || fail "env2 term plain field is wrong: got '$ENV2_TERM_PLAIN'"
+ENV2_TERM_IMG_ID=$(wp2 eval 'echo get_field("field_duo3263_term_img", "term_'"$ENV2_TERM_ID"'");')
+ENV2_OWN_TERM_ATT_ID=$(wp2 post list --post_type=attachment --title="Duo3263TermImg" --field=ID)
+[ -n "$ENV2_OWN_TERM_ATT_ID" ] || fail "term image attachment did not apply to env2"
+[ "$ENV2_TERM_IMG_ID" = "$ENV2_OWN_TERM_ATT_ID" ] \
+  || fail "env2's term image field ($ENV2_TERM_IMG_ID) does not match env2's own local attachment id ($ENV2_OWN_TERM_ATT_ID) -- detokenization did not resolve correctly"
+pass "round-trip proven: env2's applied term image field resolves to env2's OWN local attachment id ($ENV2_OWN_TERM_ATT_ID), not a raw copied number"
+
+say "(A3) recapture env2 and confirm byte-identical term meta (true round trip, not just 'apply didn't crash')"
+wp2 duo capture --repo=/siterepo --format=json >/dev/null || fail "recapture on env2 failed"
+TERM_FILE_2=$(find "$SITE2/state/terms/category" -name '*duo3263-term*' | head -1)
+[ -n "$TERM_FILE_2" ] || fail "no term file recaptured on env2"
+diff <(python3 -c "import json; print(json.load(open('$TERM_FILE'))['meta'])") \
+     <(python3 -c "import json; print(json.load(open('$TERM_FILE_2'))['meta'])") \
+  || fail "recaptured term meta on env2 differs from env1's original capture (not a clean round trip)"
+pass "(A3) recaptured env2 term meta is byte-identical to env1's original capture -- clean round trip"
 
 # =====================================================================
 # PART B -- options-page arm (end-to-end)
@@ -244,10 +276,20 @@ pass "(B1) options.json carries options_duo3263_tagline (plain), its shadow poin
 say "(B2) commit SITE1, clone to SITE2, apply on a second, independent environment"
 git -C "$SITE1" add -A
 git -C "$SITE1" commit -qm "asub3263 ACF options-page fixture" >/dev/null
+# SITE2 already exists from Part A's own env2 -- rm -rf first, or cp -R would
+# nest $SITE1 AS A SUBDIRECTORY of the existing $SITE2 instead of refreshing it.
+rm -rf "$SITE2"
 cp -R "$SITE1" "$SITE2"
 chmod -R a+rwX "$SITE2"
 wp2 plugin install advanced-custom-fields --activate >/dev/null || fail "ACF install failed on side 2"
-wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms,menus --default-author=admin >/dev/null \
+# --force-theirs: env2 is REUSED from Part A (already applied to, then
+# recaptured in A3), and SITE2 was just refreshed from SITE1's own latest
+# commit -- env2's sync bookkeeping correctly sees a real divergence between
+# its own A3 recapture and this fresh copy, which this test intentionally
+# wants to overwrite (env2 was never independently edited in between; there
+# is no real conflicting content to preserve, just this test's own reuse of
+# one env across two parts).
+wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms,menus --default-author=admin --force-theirs >/dev/null \
   || fail "apply failed on the target environment"
 pass "(B2) apply succeeded on env2"
 
@@ -310,13 +352,18 @@ echo "$OUT" | grep -q "repository_option_delete_not_authored" \
 echo "$OUT" | grep -q "options_duo3263_tagline" || fail "refusal did not name the affected option (got: $OUT)"
 pass "(B4) deleting an ACF options-page value fails CLOSED at the next capture, loud and named -- not silent data loss, not a wrong value applied anywhere. This is the known, documented limitation (mutual shadow-pointer dependency when both rows are simultaneously gone), not a claimed round-trip."
 
-say "(regression) an ordinary, non-ACF option and the pre-existing acf.json-declared options are unaffected"
+say "(regression) a genuinely unrelated, no-manifest-declares-it WordPress-internal option does not leak into captured state"
+# NOT siteurl/blogname -- those are legitimately captured (manifests/core.json
+# declares blogname class:authored and siteurl class:env,required:true), so
+# their presence is correct, not a leak; asserting their absence was this
+# test's own bug on an earlier run, not a real regression. 'cron' is a real,
+# always-present WordPress-core option no manifest anywhere declares.
 python3 -c "
 import json
 d = json.load(open('$OPTIONS_FILE_2'))['records']
-assert 'siteurl' not in d and 'blogname' not in d, 'an unrelated core option leaked into the captured options document'
-print('no unrelated options leaked')
+assert 'cron' not in d, 'a genuinely unrelated, undeclared WordPress-internal option leaked into captured state'
+print('no undeclared options leaked')
 " || fail "unrelated options regression check failed"
-pass "(regression) no unrelated options leaked into captured state"
+pass "(regression) no undeclared options leaked into captured state"
 
 printf '\n\033[1;32m✔ REGRESS_ACF_TERM_OPTIONS_FIELDS PASSED\033[0m\n'

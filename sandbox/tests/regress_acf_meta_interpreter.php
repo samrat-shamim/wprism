@@ -31,7 +31,11 @@ use Duo\Policy;
 use Duo\Interpreters\Acf;
 
 if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 1);
+    // DUO-3261 bumped the engine's required spec_version to 2 (the term-file
+    // `meta` wire format) after this test was first written — the real
+    // manifests/acf.json this file's end-to-end section loads now declares
+    // 2, so this constant has to match or Policy::load() refuses it outright.
+    define('DUO_SPEC_VERSION', 2);
 }
 
 $failures = 0;
