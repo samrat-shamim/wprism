@@ -25,8 +25,9 @@ namespace Duo;
  * versions, ordering indexes). Every finding says so in its own "note" —
  * the caveat travels with the finding, never left implicit.
  *
- * Five detection classes (wave 1 — sub-key option refs and id-keyed arrays
- * are task #11's wave 2, deliberately not attempted here):
+ * Seven detection classes (five from wave 1, plus DUO-3259's shortcode pair
+ * below — sub-key option refs and id-keyed arrays are task #11's wave 2,
+ * deliberately not attempted here):
  *
  *   bare_id — a numeric scalar / array element / CSV segment inside an
  *     authored post_meta or option value whose classification rule has NO
@@ -86,6 +87,15 @@ namespace Duo;
  *     the data parses and an element resolves, no "declared rule" gate
  *     needed (there is no such rule to check).
  *
+ *   unregistered_shortcode_attr / unrewritten_registered_shortcode_ref
+ *     (DUO-3259) — the shortcode-attribute twins of unregistered_block_attr
+ *     / unrewritten_registered_ref above, same two-way split (no rule at
+ *     all for an id-shaped attribute name, vs. a rule exists but the value
+ *     is still numeric — the declared rewrite never ran), scoped to
+ *     shortcode tags this engine has actually declared shortcode_attrs
+ *     for (see scan_shortcodes()'s own docblock for why an unbounded "any
+ *     shortcode on the system" scan isn't attempted).
+ *
  * Finding shape (every class): {class, path, locator, value, matches?,
  * note}. `path` is state-relative (e.g. "posts/post/<uuid>--slug.md").
  * `locator` is a JSON-ish pointer into that file (e.g. "meta.duo_related
@@ -109,10 +119,11 @@ final class Lint {
         $home = untrailingslashit((string) get_option('home'));
         $homeEscaped = str_replace('/', '\/', $home);
         $blockRules = $policy->block_attr_rules();
+        $shortcodeRules = $policy->shortcode_attr_rules();
 
         $findings = [];
         foreach (self::glob_rel($stateDir, 'posts/*/*.md') as $rel) {
-            self::scan_post_file($stateDir, $rel, $policy, $blockRules, $home, $homeEscaped, $findings);
+            self::scan_post_file($stateDir, $rel, $policy, $blockRules, $shortcodeRules, $home, $homeEscaped, $findings);
         }
         foreach (self::glob_rel($stateDir, 'terms/*/*.json') as $rel) {
             self::scan_term_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
@@ -129,7 +140,7 @@ final class Lint {
     // ------------------------------------------------------------ posts
 
     private static function scan_post_file(
-        string $stateDir, string $rel, Policy $policy, array $blockRules,
+        string $stateDir, string $rel, Policy $policy, array $blockRules, array $shortcodeRules,
         string $home, string $homeEscaped, array &$findings
     ): void {
         [$front, $body] = Canon::parse_post_file(Canon::read_file($stateDir . '/' . $rel));
@@ -165,9 +176,14 @@ final class Lint {
         });
         self::flag_escaped_home($findings, $rel, 'body', $body, $home, $homeEscaped);
 
-        // (c) unregistered_block_attr — block content only (verbatim bodies, e.g. acf-field, aren't blocks at all).
+        // (c) unregistered_block_attr / (e) shortcode findings — block/
+        // shortcode content only (verbatim bodies, e.g. acf-field, aren't
+        // block or shortcode content at all — Capture::build_post() itself
+        // skips Blocks::capture_rewrite() for them, so nothing would ever
+        // have rewritten a shortcode ref there either; same gate both scans share).
         if ($body !== '' && $policy->body_mode($postType) !== 'verbatim') {
             self::scan_blocks(parse_blocks($body), $blockRules, $rel, $home, $findings);
+            self::scan_shortcodes($body, $shortcodeRules, $rel, $findings);
         }
     }
 
@@ -322,6 +338,102 @@ final class Lint {
             }
             if (!empty($block['innerBlocks'])) {
                 self::scan_blocks($block['innerBlocks'], $blockRules, $rel, $home, $findings);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------ shortcodes
+
+    /**
+     * DUO-3259: the shortcode twin of scan_blocks() above — same two-class
+     * structure (unregistered_shortcode_attr / unrewritten_registered_
+     * shortcode_ref mirror unregistered_block_attr / unrewritten_
+     * registered_ref exactly), but scoped to shortcode TAGS this engine
+     * has actually declared shortcode_attrs for (Policy::shortcode_attr_
+     * rules()). Unlike parse_blocks(), which always fully parses a
+     * document's ENTIRE block structure for free, there is no registry-
+     * independent way to enumerate "every shortcode instance" in raw text
+     * — get_shortcode_regex() with no tagnames falls back to the LIVE
+     * $shortcode_tags global (which plugins are active at LINT time, not
+     * a policy fact). Discovering unknown reference-shaped shortcodes in
+     * the wild is a different, unbounded problem, deliberately out of
+     * scope here — the same "ground it in what shipped manifests actually
+     * declare" discipline DUO-3259's own filing already committed to.
+     *
+     * Read-only, so shortcode_parse_atts() is used directly to get a
+     * clean {name: value} map — its capture-time lossy normalizations
+     * (stripcslashes(), unicode-whitespace collapse, unclosed-HTML
+     * rejection) don't affect whether a numeric id is present, and
+     * nothing here writes a value back (unlike Shortcodes.php's own
+     * splice-based rewrite, which avoids shortcode_parse_atts() for
+     * exactly that lossiness reason).
+     */
+    private static function scan_shortcodes(string $body, array $shortcodeRules, string $rel, array &$findings): void {
+        if ($shortcodeRules === [] || !str_contains($body, '[')) {
+            return;
+        }
+        $pattern = '/' . get_shortcode_regex(array_keys($shortcodeRules)) . '/';
+        if (!preg_match_all($pattern, $body, $matches, PREG_SET_ORDER)) {
+            return;
+        }
+        foreach ($matches as $m) {
+            if ($m[1] === '[' && $m[6] === ']') {
+                continue; // escaped [[tag]] — literal text, never executes, nothing to check
+            }
+            $tag = $m[2];
+            $rules = $shortcodeRules[$tag] ?? null;
+            if ($rules === null) {
+                continue;
+            }
+            $rulesByAttr = [];
+            foreach ($rules as $r) {
+                $rulesByAttr[$r['path']] = $r;
+            }
+            $atts = shortcode_parse_atts($m[3]);
+            foreach ($atts as $attrKey => $attrVal) {
+                if (!is_string($attrKey)) {
+                    continue; // positional/bare value — no name to match a rule or heuristic against
+                }
+                $rule = $rulesByAttr[$attrKey] ?? null;
+                if ($rule === null) {
+                    // looks_like_id_KEY(), not looks_like_id_ATTR(): shortcode_
+                    // parse_atts() strtolower()s every attribute name (confirmed
+                    // by reading it directly), so a source-text camelCase name
+                    // like "userId" is ALREADY "userid" by the time it reaches
+                    // here -- looks_like_id_attr()'s /(Id|ID)s?$/ branch is tuned
+                    // for block attrs' case-PRESERVED JSON keys and can never
+                    // fire on already-lowercased text (its bare id/ids/ref checks
+                    // still would, but the suffix branch is dead code at this call
+                    // site). looks_like_id_key()'s [-_][iI][dD]s? branch is the
+                    // one actually built for a lowercased/snake_case/kebab-case
+                    // naming world (Yoast's wpseo_opengraph-image-id was its own
+                    // grounding case) -- the correct heuristic to reuse here.
+                    if (self::looks_like_id_key($attrKey)) {
+                        foreach (Pending::numeric_candidates($attrVal) as [$id, $locSuffix]) {
+                            $hit = Pending::resolve_id($id);
+                            $findings[] = self::finding(
+                                'unregistered_shortcode_attr', $rel,
+                                "shortcode.$tag.attrs.$attrKey" . $locSuffix, $id, $hit,
+                                "shortcode '$tag' has no shortcode_attrs registry rule for attribute '$attrKey'; "
+                                . "this numeric value passes through capture/apply untouched and will point at "
+                                . "the wrong entity (or nothing) once ids diverge on another environment."
+                            );
+                        }
+                    }
+                    continue;
+                }
+                foreach (Pending::numeric_candidates($attrVal) as [$id, $locSuffix]) {
+                    $hit = Pending::resolve_id($id);
+                    $findings[] = self::finding(
+                        'unrewritten_registered_shortcode_ref', $rel,
+                        "shortcode.$tag.attrs.$attrKey" . $locSuffix, $id, $hit,
+                        "shortcode '$tag' attribute '$attrKey' has a shortcode_attrs registry rule declaring it a "
+                        . "reference, but this value is still numeric in captured state — the declared rewrite to "
+                        . "a {{...}} token never ran (an unmapped/dangling id). This id is silently environment-"
+                        . "bound and will point at the wrong entity (or nothing) once ids diverge on another "
+                        . "environment."
+                    );
+                }
             }
         }
     }

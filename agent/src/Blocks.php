@@ -229,7 +229,26 @@ final class Blocks {
                     }, $s);
                 }
             }
-            return $capture ? $tokens->tokenize_text($s) : $tokens->detokenize_text($s);
+            // DUO-3259: shortcode-attribute ref rewriting, threaded
+            // through the SAME per-chunk closure wp-image-N/URL
+            // tokenization already runs on -- a shortcode instance is
+            // just more raw text sitting in innerContent, whether it's
+            // hand-typed into a Classic/Paragraph block or the entire
+            // freeform body of pre-block classic content (Blocks.php's
+            // own docblock: "Classic content parses as a single freeform
+            // block"). Ordered structural-rewrite-first, generic-text-
+            // tokenization-last on capture (mirrors Tokens::struct_
+            // capture()'s own json_refs-then-tokenize_leaves() ordering);
+            // reversed on apply (mirrors struct_apply()'s detokenize-
+            // first ordering) -- neither pass's substrings overlap the
+            // other's in practice, so this is precedent-consistency, not
+            // a correctness requirement.
+            if ($capture) {
+                $s = Shortcodes::capture_rewrite_text($s, $policy, $tokens, $forceUnresolvedRefs, $postLabel);
+                return $tokens->tokenize_text($s);
+            }
+            $s = $tokens->detokenize_text($s);
+            return Shortcodes::apply_rewrite_text($s, $policy, $tokens);
         };
 
         if (!empty($block['innerContent'])) {

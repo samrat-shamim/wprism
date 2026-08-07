@@ -652,13 +652,15 @@ final class Capture {
         $this->unclassified = [];
         $this->unscopedRefs = [];
         $this->unscopedOptionNameRefs = [];
-        // Blocks.php has no persistent instance state of its own (see its
-        // docblock), so its own unscoped-violation queue lives on $this->
-        // tokens (Tokens::$unscopedBlockRefs) instead of a Capture-level
-        // array — reset here anyway, defensively matching the other two
-        // resets above, even though a fresh Tokens instance per build (see
-        // the constructor) already guarantees this starts empty.
+        // Blocks.php/Shortcodes.php have no persistent instance state of
+        // their own (see their docblocks), so their own unscoped-violation
+        // queues live on $this->tokens (Tokens::$unscopedBlockRefs /
+        // $unscopedShortcodeRefs) instead of a Capture-level array — reset
+        // here anyway, defensively matching the other two resets above,
+        // even though a fresh Tokens instance per build (see the
+        // constructor) already guarantees this starts empty.
         $this->tokens->unscopedBlockRefs = [];
+        $this->tokens->unscopedShortcodeRefs = [];
         $entities = [];
         $media = [];
 
@@ -925,6 +927,37 @@ final class Capture {
             }
             throw new \RuntimeException(
                 "duo: unresolvable ref-typed block attribute(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
+                . implode("\n  - ", $lines)
+                . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
+                . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
+                . "Add the missing post type/taxonomy to policy scope above and re-run capture, or pass "
+                . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
+            );
+        }
+
+        // Shortcode refs' own unscoped gate (DUO-3259, task #73's mirror a
+        // second time — for `shortcode_attrs` refs, funneled through
+        // Shortcodes::queue_unscoped()): the id names a REAL row whose
+        // post_type/taxonomy simply isn't in policy scope, as opposed to a
+        // dangling reference (deleted target) or a real row of an in-scope
+        // type simply not minted on this build yet — both of those are
+        // handled by Shortcodes.php's ordinary warn-and-drop, never
+        // reaching this list. Same posture as the option/block gates
+        // above: a policy edit can actually fix this, so it aborts by
+        // default instead of silently vanishing from captured state.
+        // Accumulates across every post in this build (Tokens::
+        // $unscopedShortcodeRefs, not a per-post-reset array) the same way
+        // $this->unscopedRefs accumulates across every option above.
+        if ($this->tokens->unscopedShortcodeRefs) {
+            $lines = [];
+            foreach ($this->tokens->unscopedShortcodeRefs as $r) {
+                $scopeKey = $r['kind'] === 'term' ? 'policy.taxonomies' : 'policy.post_types';
+                $lines[] = "{$r['post']} shortcode '{$r['shortcode']}' attribute '{$r['attr']}' references {$r['kind']} id "
+                    . "{$r['id']}, which is a real '{$r['target_type']}' — but '{$r['target_type']}' is not in "
+                    . "$scopeKey, so its identity was never tracked and the reference cannot resolve";
+            }
+            throw new \RuntimeException(
+                "duo: unresolvable ref-typed shortcode attribute(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $lines)
                 . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
                 . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
@@ -2307,6 +2340,36 @@ final class Capture {
             return $tax === null ? null : (string) $tax;
         }
         return null;
+    }
+
+    /**
+     * DUO-3259: the shape-agnostic core of queue_or_warn_unscoped()/
+     * Blocks::queue_unscoped() above, extracted so a THIRD ref-carrying
+     * surface (Shortcodes.php) can reuse the identical three-way decision
+     * without a third hand-copy of it. Deliberately NOT refactored into
+     * the two existing (already-shipped, already-tested) callers — this
+     * is purely additive; queue_or_warn_unscoped() and Blocks::
+     * queue_unscoped() keep their own inline copies rather than risk a
+     * regression in working code for a DRY improvement with zero
+     * behavior change. See queue_or_warn_unscoped()'s own docblock two
+     * methods up for the full three-reasons reasoning — reproduced in
+     * miniature here: returns the real target type string when $id is
+     * genuinely UNSCOPED (a real row whose type is outside $policy's
+     * scope), or null for any of DANGLING (no real row), in-scope-but-
+     * not-yet-minted (a minting fact, not a policy fact), or $force.
+     */
+    public static function classify_unscoped_ref(int $id, string $kind, bool $force, Policy $policy): ?string {
+        if ($force) {
+            return null;
+        }
+        $targetType = self::ref_target_type($id, $kind);
+        if ($targetType === null) {
+            return null; // dangling
+        }
+        $inPolicyScope = $kind === 'term'
+            ? in_array($targetType, $policy->taxonomies(), true)
+            : in_array($targetType, $policy->post_types(), true);
+        return $inPolicyScope ? null : $targetType;
     }
 
     /**

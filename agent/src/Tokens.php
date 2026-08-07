@@ -36,6 +36,25 @@ final class Tokens {
      * non-empty — see build()'s gate for the exact posture and message.
      */
     public array $unscopedBlockRefs = [];
+    /**
+     * @var list<array{post:string,shortcode:string,attr:string,kind:string,id:int,target_type:string}>
+     * Shortcode-attribute-ref violations, the SAME shape as
+     * $unscopedBlockRefs above (task #73's triage, ported a second time
+     * this session — DUO-3259 — for Shortcodes.php): a declared
+     * shortcode_attrs ref whose id names a REAL row genuinely outside
+     * policy scope, as opposed to a merely dangling one. Shortcodes.php
+     * resolves the dangling-vs-unscoped question via the shared
+     * Capture::classify_unscoped_ref() helper (itself just the extracted
+     * core of the same decision Blocks::queue_unscoped() makes inline),
+     * since Shortcodes.php — like Blocks.php — has no persistent instance
+     * state of its own to hold this across a walk over one post's content,
+     * let alone across every post in one build; this array, like
+     * $warnings/$unscopedBlockRefs above, is the side-channel. Populated
+     * during Shortcodes::capture_rewrite_text(); Capture::build() reads it
+     * after the whole post loop completes and throws its own batched abort
+     * if non-empty — see build()'s gate for the exact posture and message.
+     */
+    public array $unscopedShortcodeRefs = [];
     /** @var array<int,string> user id -> login (capture direction) */
     private array $userLogins = [];
     /** @var array<string,int> login -> user id (apply direction) */
