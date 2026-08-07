@@ -275,29 +275,48 @@ final class Capture {
      * scope_terms(), post_meta_map() are literally the same private methods,
      * not reimplemented, so the two can never disagree about what "in
      * scope" or "classified" means. Every unclassified key is recorded as
-     * evidence instead of aborting. Never mints uuids, never writes, never
-     * throws.
-     *
-     * Only post_meta feeds the actual abort gate in build() below.
-     * spec/repo-format.md's term files carry no "meta" field at all in v0 —
-     * there is no capture pipeline that would ever persist a term-meta
-     * VALUE regardless of its classification — so hard-blocking capture on
-     * an unclassified term-meta key would be blocking on something classify
-     * can't yet make capturable (and, concretely, WooCommerce's own
-     * `product_count_product_cat` term meta would trip it on any site that
-     * scopes product_cat today). It still belongs in the review queue:
-     * classifying it now is forward-compatible groundwork, and knowing
-     * *why* a key is unclassified is useful on its own.
+     * evidence instead of aborting. Never mints uuids and never writes;
+     * malformed or ambiguous manifest ownership still fails loudly.
      *
      * @return array{
      *   scope: array<string, array{entities:int}>,
+     *   options: array<string, array{entities:int, owner_candidates:string[], value_shapes:string[], reason:string}>,
      *   post_meta: array<string, array{entities:int, post_types: string[]}>,
-     *   term_meta: array<string, array{entities:int}>
+     *   term_meta: array<string, array{entities:int, taxonomies:string[], value_shapes:string[], reason:string}>
      * }
      */
     public static function gate_scan(string $repo): array {
         $c = new self($repo, Policy::load($repo));
         $scope = $c->scope_gaps();
+
+        // A plugin manifest claims only its own option namespace. That
+        // makes a full wp_options name scan complete for the claimed
+        // surface without pretending Duo owns WordPress/core or another
+        // plugin's unrelated rows. Exact and option_patterns rules resolve
+        // candidates; a namespace match with no rule is a real unknown even
+        // if the provenance journal was disabled or installed too late.
+        global $wpdb;
+        $options = [];
+        $optionRows = $wpdb->get_results(
+            "SELECT option_name, option_value FROM {$wpdb->options} ORDER BY option_name ASC",
+            ARRAY_A
+        ) ?: [];
+        foreach ($optionRows as $row) {
+            $key = (string) $row['option_name'];
+            $owner = $c->policy->option_namespace($key);
+            if ($owner === null || $c->policy->owned_option_rule($key) !== null
+                || $c->policy->match_option_name_ref($key) !== null) {
+                continue;
+            }
+            $raw = (string) $row['option_value'];
+            $value = is_serialized($raw) ? @unserialize(trim($raw), ['allowed_classes' => false]) : $raw;
+            $options[$key] = [
+                'entities' => 1,
+                'owner_candidates' => [$owner['owner']],
+                'value_shapes' => [get_debug_type($value)],
+                'reason' => 'owner namespace matched but no exact or pattern classification exists',
+            ];
+        }
 
         $postMeta = [];
         foreach ($c->scope_posts() as $p) {
@@ -316,21 +335,37 @@ final class Capture {
 
         $termMeta = [];
         foreach ($c->scope_terms() as $t) {
-            foreach ($c->term_meta_map((int) $t->term_id) as $key => $_) {
-                if ($c->policy->term_meta_rule($key) !== null) {
+            foreach ($c->term_meta_map((int) $t->term_id) as $key => $raw) {
+                $rule = $c->policy->term_meta_rule($key);
+                if ($rule !== null && ($rule['class'] ?? '') !== 'authored') {
                     continue;
                 }
                 $termMeta[$key]['entities'] = ($termMeta[$key]['entities'] ?? 0) + 1;
+                $termMeta[$key]['taxonomies'][$t->taxonomy] = true;
+                $value = is_serialized($raw) ? @unserialize(trim($raw), ['allowed_classes' => false]) : $raw;
+                $termMeta[$key]['value_shapes'][get_debug_type($value)] = true;
+                $termMeta[$key]['reason'] = $rule === null
+                    ? 'unclassified term meta on an in-scope taxonomy'
+                    : 'authored term meta is unsupported by the v1 term-file schema; taxonomy capture is blocked';
             }
         }
 
         return [
             'scope' => $scope,
+            'options' => $options,
             'post_meta' => array_map(
                 fn($ev) => ['entities' => $ev['entities'], 'post_types' => array_keys($ev['post_types'] ?? [])],
                 $postMeta
             ),
-            'term_meta' => $termMeta,
+            'term_meta' => array_map(
+                fn($ev) => [
+                    'entities' => $ev['entities'],
+                    'taxonomies' => array_keys($ev['taxonomies'] ?? []),
+                    'value_shapes' => array_keys($ev['value_shapes'] ?? []),
+                    'reason' => $ev['reason'],
+                ],
+                $termMeta
+            ),
         ];
     }
 
@@ -532,6 +567,21 @@ final class Capture {
         }
         $menus = $this->scope_menus($mint);
 
+        // Term files have no meta field in spec v1. Unknown term-meta must
+        // therefore block, and an "authored" classification must also block
+        // explicitly rather than becoming an inert rule that appears to
+        // resolve the review item while its value is still dropped.
+        foreach ($terms as $t) {
+            foreach ($this->term_meta_map((int) $t->term_id) as $key => $_) {
+                $rule = $this->policy->term_meta_rule($key);
+                if ($rule === null) {
+                    $this->unclassified[] = "term_meta:$key (unclassified on taxonomy {$t->taxonomy})";
+                } elseif (($rule['class'] ?? '') === 'authored') {
+                    $this->unclassified[] = "term_meta:$key (authored is unsupported by the v1 term-file schema; taxonomy {$t->taxonomy} blocked)";
+                }
+            }
+        }
+
         // ---- table rows (typed snapshot; agent/src/Snapshot.php, task #75) ----
         // Declared authored_snapshot tables (Ninja Forms' nf3_forms/nf3_fields/
         // nf3_actions + their _meta twins, WooCommerce's woocommerce_attribute_
@@ -642,7 +692,7 @@ final class Capture {
             $keys = array_unique($this->unclassified);
             sort($keys);
             throw new \RuntimeException(
-                "duo: unclassified meta keys on in-scope entities (loud-and-blocking gate):\n  - "
+                "duo: incomplete state discovery on manifest-owned or in-scope surfaces (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $keys)
                 . "\nClassify them in site.duo.json policy.post_meta / policy.term_meta or a manifest."
                 . " Run: wp duo pending --repo={$this->repo} for evidence + proposals, then wp duo classify --repo={$this->repo} --set '<section>:<key>=<class>'."
@@ -1377,7 +1427,9 @@ final class Capture {
     private function build_options(bool $mint, bool $forceUnresolvedRefs = false): array {
         global $wpdb;
         $out = [];
+        $processed = [];
         foreach ($this->policy->authored_options() as $name => $rule) {
+            $processed[$name] = true;
             $raw = $wpdb->get_var($wpdb->prepare(
                 "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
                 $name
@@ -1395,6 +1447,49 @@ final class Capture {
                 continue;
             }
             $out[$name] = $v;
+        }
+
+        // Journal-independent discovery for manifest-owned option
+        // namespaces. A full name scan happens at capture time, so options
+        // created before agent activation and writes made while journaling
+        // is disabled are still seen. Namespace ownership and value
+        // classification are separate declarations: a claimed name with no
+        // exact/pattern rule is queued as unknown; an authored pattern is a
+        // real dynamic-family capture rule, not merely a lookup fallback.
+        $liveOptionNames = $this->option_name_scan();
+        foreach ($liveOptionNames as $name) {
+            $owner = $this->policy->option_namespace($name);
+            if ($owner === null) {
+                continue;
+            }
+            $rule = $this->policy->owned_option_rule($name);
+            if (isset($processed[$name]) || $this->policy->match_option_name_ref($name) !== null) {
+                continue;
+            }
+            if ($rule === null) {
+                $this->unclassified[] = "options:$name (owner candidate {$owner['owner']}; namespace matched without a classification)";
+                continue;
+            }
+            $processed[$name] = true;
+            if (($rule['class'] ?? '') !== 'authored' || !empty($rule['sub_keys'])) {
+                continue;
+            }
+            $raw = $wpdb->get_var($wpdb->prepare(
+                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                $name
+            ));
+            if ($raw === null) {
+                continue;
+            }
+            $v = maybe_unserialize($raw);
+            self::assert_plain($v, "option $name");
+            if (is_string($v)) {
+                $this->guard_secret('options', $name, $v, $rule);
+            }
+            $v = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
+            if ($v !== null) {
+                $out[$name] = $v;
+            }
         }
 
         // sub_keys (DUO-3233): NAMED sub-keys of one option blob classified
@@ -1481,7 +1576,7 @@ final class Capture {
             if (($rule['class'] ?? '') !== 'authored') {
                 continue; // future-proofing: a runtime-classified family is discovered, never captured
             }
-            foreach ($this->option_name_scan() as $name) {
+            foreach ($liveOptionNames as $name) {
                 if (!preg_match('/' . $rule['match'] . '/', $name, $m, PREG_OFFSET_CAPTURE) || !isset($m['id'])) {
                     continue;
                 }

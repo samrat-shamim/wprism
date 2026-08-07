@@ -447,6 +447,18 @@ final class Cli {
             if (!empty($ev['post_types'])) {
                 $evParts[] = 'types=' . implode(',', $ev['post_types']);
             }
+            if (!empty($ev['taxonomies'])) {
+                $evParts[] = 'taxonomies=' . implode(',', $ev['taxonomies']);
+            }
+            if (!empty($ev['owner_candidates'])) {
+                $evParts[] = 'owner=' . implode(',', $ev['owner_candidates']);
+            }
+            if (!empty($ev['value_shapes'])) {
+                $evParts[] = 'shapes=' . implode(',', $ev['value_shapes']);
+            }
+            if (!empty($ev['reason'])) {
+                $evParts[] = 'blocked=' . $ev['reason'];
+            }
             if (isset($ev['journal'])) {
                 $j = $ev['journal'];
                 $surf = implode(',', array_map(fn($k, $v) => "$k=$v", array_keys($j['surfaces']), $j['surfaces']));

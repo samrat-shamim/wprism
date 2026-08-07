@@ -92,7 +92,9 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
 
 - **`duo pending <env>`** — runs `wp duo pending --repo=<repo_path>
   --format=json` (the review-queue scan: gate items from the loud-and-
-  blocking classification check, plus journal-observed unclassified writes
+  blocking classification check (including namespace-enumerated options,
+  term-meta representation gaps, and version-pinned EAV keyspace gaps), plus
+  journal-observed unclassified writes outside an owned option namespace
   — see [DESIGN.md §3.1](../DESIGN.md#31-layered-classification-policy-vs-conflation--opacity))
   and renders it as a table: `SECTION:KEY`, `PROPOSAL` (the journal's best
   guess, or `-` when there isn't one — e.g. when the journal is off, or the
@@ -102,7 +104,10 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   numeric id it can point at a specific entity). A secret-flagged item gets
   a prominent trailing `[SECRET: hard:<label>]` / `[SECRET: suspicious]`
   marker. Exit 0 always; prints "review queue is empty" when there's
-  nothing to triage. `duo pending <env> --format=json` is a raw passthrough
+  nothing to triage. Evidence includes owner candidates, representative
+  value shapes, counts, and the reason capture is blocked where those are
+  known; the journal enriches evidence but is not required for completeness
+  on declared surfaces. `duo pending <env> --format=json` is a raw passthrough
   of the agent's own JSON (same precedent as `duo status` vs. `duo plan
   --format=json`) for scripting.
 

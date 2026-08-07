@@ -331,7 +331,9 @@ final class RepositoryAuthorization {
                 continue;
             }
             foreach ($metaTables as $metaName => $metaDecl) {
-                $class = $metaDecl['keys'][$key]['class'] ?? ($metaDecl['default_class'] ?? 'authored');
+                $class = Snapshot::meta_key_in_keyspace($metaDecl, (string) $key)
+                    ? ($metaDecl['keys'][$key]['class'] ?? ($metaDecl['default_class'] ?? 'authored'))
+                    : 'unclassified';
                 if ($class !== 'authored') {
                     $source = $policy->declared_table_details($metaName)['source'];
                     self::finding($out, 'repository_field_not_authored', $path, $uuid, "attached_meta:$metaName", (string) $key, $class, $source);

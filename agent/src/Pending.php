@@ -12,11 +12,10 @@ namespace Duo;
  *     exact scope/classification walk — the SAME walk Capture's abort gates
  *     run, collecting instead of aborting. Journal evidence, when the same
  *     meta key was also observed there, is joined on.
- *   - Options: options are whitelist-only at capture (an unlisted option is
- *     invisible — exactly finding #5's silent-loss shape), so they can ONLY
- *     be surfaced by the provenance journal ever having seen a write to
- *     them. No journal evidence -> no way to know the option exists at all;
- *     this source is journal-only by necessity, not by choice.
+ *   - Options: every manifest-declared option namespace is enumerated from
+ *     wp_options directly. The journal enriches those rows but is never a
+ *     completeness dependency. Options outside a claimed namespace remain
+ *     journal-only because no adapter has asserted ownership of them.
  *
  * A proposal is NEVER guessed here — it is always exactly the journal's own
  * capability x surface signal (Journal::propose, aggregated), or null.
@@ -46,11 +45,23 @@ final class Pending {
         foreach ($gate['scope'] as $key => $ev) {
             $items[] = self::make_item('scope', $key, $ev, null);
         }
+        foreach ($gate['options'] as $key => $ev) {
+            $items[] = self::make_item('options', $key, $ev, $journalOptions[$key] ?? null);
+            unset($journalOptions[$key]);
+        }
         foreach ($gate['post_meta'] as $key => $ev) {
             $items[] = self::make_item('post_meta', $key, $ev, $journalPostMeta[$key] ?? null);
         }
         foreach ($gate['term_meta'] as $key => $ev) {
             $items[] = self::make_item('term_meta', $key, $ev, $journalTermMeta[$key] ?? null);
+        }
+        foreach (Snapshot::keyspace_gaps($policy) as $gap) {
+            $items[] = self::make_item('table_meta', $gap['table'] . ':' . $gap['key'], [
+                'entities' => $gap['count'],
+                'owner_candidates' => [$gap['owner']],
+                'value_shapes' => $gap['value_shapes'],
+                'reason' => $gap['reason'],
+            ], null);
         }
         foreach ($journalOptions as $key => $j) {
             $items[] = self::make_item('options', $key, null, $j);
@@ -110,10 +121,7 @@ final class Pending {
     private static function make_item(string $section, string $key, ?array $gateEv, ?array $journalEv): array {
         $evidence = [];
         if ($gateEv !== null) {
-            $evidence['entities'] = $gateEv['entities'];
-            if (!empty($gateEv['post_types'])) {
-                $evidence['post_types'] = $gateEv['post_types'];
-            }
+            $evidence = $gateEv;
         }
         if ($journalEv !== null) {
             $evidence['journal'] = $journalEv;
