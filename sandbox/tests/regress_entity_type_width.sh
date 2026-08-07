@@ -19,11 +19,12 @@
 #   (2) declaration-time budget assert: a manifest declaring a table name
 #       over Snapshot::MAX_ENTITY_TYPE_LEN refuses to load, loudly, rather
 #       than silently truncating on the next capture.
-#   (3) migration repair: a hand-planted row simulating an ALREADY-
-#       truncated environment (pre-existing corrupted data, not something
-#       this test's own capture would produce going forward) gets repaired
-#       by Snapshot::repair_truncated_entity_types() -- verified directly
-#       against the database, not inferred from the absence of an error.
+#   (3) migration repair: an already-captured row (real, live-backed
+#       local_id) has its entity_type hand-corrupted back to the old
+#       truncated value, simulating an environment that captured before
+#       this fix shipped; Snapshot::repair_truncated_entity_types() must
+#       repair it -- verified directly against the database, not inferred
+#       from the absence of an error.
 #
 # Own dedicated pair, brought up and destroyed by this script -- never
 # touches r3e or any other agent's live pair.
@@ -46,6 +47,10 @@ GIT_1="git -C siterepo/${PAIR}1 -c user.name=duo-$PAIR -c user.email=$PAIR@examp
 
 cleanup() {
   bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
+  # pair.sh destroy only tears down docker state; this is a throwaway
+  # scratch pair (unlike r1b/r3e's long-lived seeded fixtures), so its
+  # host-side site-repo directories are ours to remove too.
+  rm -rf "siterepo/${PAIR}1" "siterepo/${PAIR}2" "siterepo/origin-$PAIR.git"
 }
 trap cleanup EXIT
 
@@ -74,7 +79,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
 {
   "manifests": ["core", "woocommerce"],
   "policy": {"options": {}, "post_meta": {}, "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon"], "taxonomies": ["category", "post_tag", "product_cat", "product_type"]},
-  "spec_version": 0
+  "spec_version": 1
 }
 EOF
 printf '.tmp*\n' > "siterepo/${PAIR}1/.gitignore"
@@ -120,7 +125,7 @@ cat > "$HOST_REPO/site.duo.json" <<EOF
       "$LONGNAME": {"class": "authored_snapshot", "pk": "id", "id_kind": "toolong", "columns": {}, "refs": []}
     }
   },
-  "spec_version": 0
+  "spec_version": 1
 }
 EOF
 # capture (not plan): plan is apply-side and requires a pre-existing state/
