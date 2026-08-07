@@ -26,6 +26,7 @@
     "pll_language_taxonomies": {"class": "runtime"},
     "polylang": {
       "class": "env",
+      "required": false,
       "sub_keys": {
         "nav_menus": {
           "class": "authored",

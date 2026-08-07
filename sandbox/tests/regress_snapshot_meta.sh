@@ -148,11 +148,11 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
   "manifests": ["core", "ninja-forms"],
   "policy": {
     "options": {
-      "default_category": {"class": "env"},
-      "page_for_posts": {"class": "env"},
-      "page_on_front": {"class": "env"},
-      "sticky_posts": {"class": "env"},
-      "wp_page_for_privacy_policy": {"class": "env"}
+      "default_category": {"class": "env", "required": false},
+      "page_for_posts": {"class": "env", "required": false},
+      "page_on_front": {"class": "env", "required": false},
+      "sticky_posts": {"class": "env", "required": false},
+      "wp_page_for_privacy_policy": {"class": "env", "required": false}
     },
     "post_meta": {},
     "term_meta": {},
@@ -271,11 +271,11 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
   "manifests": ["core", "ninja-forms"],
   "policy": {
     "options": {
-      "default_category": {"class": "env"},
-      "page_for_posts": {"class": "env"},
-      "page_on_front": {"class": "env"},
-      "sticky_posts": {"class": "env"},
-      "wp_page_for_privacy_policy": {"class": "env"}
+      "default_category": {"class": "env", "required": false},
+      "page_for_posts": {"class": "env", "required": false},
+      "page_on_front": {"class": "env", "required": false},
+      "sticky_posts": {"class": "env", "required": false},
+      "wp_page_for_privacy_policy": {"class": "env", "required": false}
     },
     "post_meta": {},
     "term_meta": {},

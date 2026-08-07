@@ -15,6 +15,7 @@
   "options": {
     "wpseo": {
       "class": "env",
+      "required": false,
       "sub_keys": {
         "disableadvanced_meta": {"class": "authored"}
       }

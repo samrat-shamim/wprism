@@ -10,3 +10,11 @@
 state.capture.lock
 state.capture-staging/
 state.capture-backup/
+
+# DUO-3232: env-bound value provisioning. `wp duo env-set` writes directly
+# to wp_options and is never captured, so this file has nothing to do with
+# the branchable-state contract above -- it exists purely as an optional,
+# per-environment operator scratch file (name -> value) sitting next to
+# site.duo.json on ONE environment's own checkout, never shared via git.
+# See cli/README.md and cli/src/Doctor.php's own git-tracked hygiene check.
+.duo-env-values.json

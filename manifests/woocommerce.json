@@ -62,7 +62,7 @@
     "woocommerce_cart_page_id": {"class": "authored", "ref": "post"},
     "woocommerce_checkout_page_id": {"class": "authored", "ref": "post"},
     "woocommerce_currency": {"class": "authored"},
-    "woocommerce_db_version": {"class": "env"},
+    "woocommerce_db_version": {"class": "env", "required": false},
     "woocommerce_default_country": {"class": "authored"},
     "woocommerce_myaccount_page_id": {"class": "authored", "ref": "post"},
     "woocommerce_shop_page_id": {"class": "authored", "ref": "post"},
@@ -71,7 +71,7 @@
     "woocommerce_store_city": {"class": "authored"},
     "woocommerce_store_postcode": {"class": "authored"},
     "woocommerce_terms_page_id": {"class": "authored", "ref": "post"},
-    "woocommerce_version": {"class": "env"}
+    "woocommerce_version": {"class": "env", "required": false}
   },
   "post_meta": {
     "_backorders": {"class": "authored"},

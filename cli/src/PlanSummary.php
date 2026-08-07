@@ -27,6 +27,12 @@ namespace Duo\Orchestrator;
  *     {uuid,type,post_type} — label() applies (uuid/type present), but the
  *     rendering below adds post_type since a plain uuid/type pair alone
  *     doesn't say what's actually pending.
+ *   - env_missing (DUO-3232's Apply::build_plan()): a manifest-declared
+ *     `class: "env"` option that is unset (row absent or empty string) on
+ *     THIS environment. Row shape {name, required} — no uuid/path/type at
+ *     all (label() does not apply), and never a value: env_missing exists
+ *     to checklist WHICH values still need provisioning, never to leak
+ *     what they should contain.
  */
 final class PlanSummary {
     private const BUCKETS = [
@@ -44,10 +50,13 @@ final class PlanSummary {
         $codeMismatch = $plan['code_mismatch'] ?? [];
         $incompleteApply = $plan['incomplete_apply'] ?? [];
         $regenPending = $plan['regen_pending'] ?? [];
+        $envMissing = $plan['env_missing'] ?? [];
+        $envMissingRequired = array_values(array_filter($envMissing, fn($r) => !empty($r['required'])));
         $summary = 'plan: ' . implode(', ', array_map(fn($k) => "{$counts[$k]} $k", self::BUCKETS));
         $summary .= ', ' . count($codeMismatch) . ' code_mismatch';
         $summary .= ', ' . count($incompleteApply) . ' incomplete_apply';
         $summary .= ', ' . count($regenPending) . ' regen_pending';
+        $summary .= ', ' . count($envMissing) . ' env_missing';
         $lines[] = $summary;
 
         if (!empty($plan['drift'])) {
@@ -121,6 +130,17 @@ final class PlanSummary {
             $lines[] = 'regeneration retry pending — the next duo apply will retry it automatically';
         }
 
+        if ($envMissing) {
+            $lines[] = 'ENV_MISSING (manifest-declared env-bound options not yet provisioned on this environment):';
+            foreach ($envMissing as $r) {
+                $flag = !empty($r['required']) ? 'required' : 'optional';
+                $lines[] = '  - ' . ($r['name'] ?? '?') . " ($flag)";
+            }
+            $lines[] = $envMissingRequired
+                ? 'required env value(s) missing — provision with `wp duo env-set --name=<name> --value=<value>` (or --stdin) before promoting'
+                : 'only optional env value(s) missing — safe to promote, listed for visibility';
+        }
+
         // --- fail-closed exit semantics (DUO-3221) ---
         //
         // `duo status` answers "safe to promote?" for this environment, so
@@ -149,6 +169,22 @@ final class PlanSummary {
         //                     correctness gap in this environment's derived
         //                     state all the same, and "safe to promote?"
         //                     must say no while it stands.
+        //   - env_missing   : a manifest-declared `class: "env"` option
+        //                     (DUO-3232) unset on this environment. `duo
+        //                     apply` never refuses on this — env values are
+        //                     never captured/applied at all, so there is
+        //                     nothing for apply's own preconditions to
+        //                     check. But an unset REQUIRED value (e.g. a
+        //                     payment gateway API key) means this
+        //                     environment is running with a genuine gap an
+        //                     operator must fill by hand (`wp duo env-set`),
+        //                     so status must say no until it's provisioned
+        //                     — same "known gap, not an apply-refuse case"
+        //                     shape as regen_pending/drift above. Optional
+        //                     entries (required: false) are listed for
+        //                     visibility only and never flip ok — they are
+        //                     plugin-internal bookkeeping the plugin itself
+        //                     will populate, not an operator checklist item.
         //   - blocked delete: `apply --with-deletes` refuses this row
         //                     without --force-delete-referenced. A status
         //                     reader can't know in advance whether the next
@@ -179,6 +215,7 @@ final class PlanSummary {
             && count($codeMismatch) === 0
             && !$incompleteApply
             && !$regenPending
+            && !$envMissingRequired
             && !$blocked
             && $counts['drift'] === 0;
 
