@@ -79,8 +79,15 @@ final class PlanSummary {
         $summary .= ', ' . count($skippedUserMeta) . ' skipped_user_meta';
         $lines[] = $summary;
 
+        $seenAnnotations = [];
         foreach (self::BUCKETS as $bucket) {
             foreach ($plan[$bucket] ?? [] as $row) {
+                foreach ($row['annotations'] ?? [] as $annotation) {
+                    if (!isset($seenAnnotations[$annotation])) {
+                        $lines[] = 'PLAN NOTE: ' . $annotation;
+                        $seenAnnotations[$annotation] = true;
+                    }
+                }
                 foreach ($row['widget_deletes'] ?? [] as $widget) {
                     $origin = !empty($widget['unmanaged']) ? 'unmanaged target default' : 'mapped target widget';
                     $lines[] = 'WIDGET_DELETE ' . self::label($row) . ': '

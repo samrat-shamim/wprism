@@ -48,8 +48,9 @@ merge story surfaced as the headline capability — it is the market gap.
 
 - Artifact sourcing: wp.org release archive, sha256-locked, no latest-fallback
   (DUO-3223 ruling; lockfile schema leaves room for vendored premium ZIPs).
-- natural_key identity: slug IS identity; renames are visible discontinuities
-  with plan annotation, never silent re-matching (DUO-3237 ruling).
+- natural_key identity: the key supplies deterministic bootstrap identity;
+  the ledger supplies continuity thereafter, so renames retain UUIDs and are
+  surfaced as informational observations (DUO-3237 revised ruling).
 - Manifest-layer reclassification of core options is legal and loud
   (DUO-3249 ruling: default_category derived under Polylang).
 - Forced overrides must disclose their consequences and ship an exit path
