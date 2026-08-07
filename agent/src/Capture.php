@@ -2346,7 +2346,7 @@ final class Capture {
             if (($rule['class'] ?? '') !== 'authored') {
                 continue; // future-proofing: a runtime-classified family is discovered, never captured
             }
-            foreach ($liveOptionNames as $name) {
+            foreach (array_keys($allOptionValues) as $name) {
                 if (!preg_match('/' . $rule['match'] . '/', $name, $m, PREG_OFFSET_CAPTURE) || !isset($m['id'])) {
                     continue;
                 }
