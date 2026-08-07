@@ -1957,7 +1957,8 @@ final class Apply {
     /** @return array{0:string,1:array} canonical name -> target-local name + owning rule */
     private function option_apply_target(string $name): array {
         if (!str_contains($name, '{{')) {
-            return [$name, $this->policy->option_rule($name) ?? []];
+            $rule = $this->policy->option_rule($name) ?? $this->dynamic_option_rule_for_name($name);
+            return [$name, $rule ?? []];
         }
         if (!preg_match('/\{\{([a-z][a-z0-9_]*):([0-9a-f-]{36})\}\}/', $name, $tm)) {
             throw new \RuntimeException("duo: option key '$name' contains '{{' but is not a well-formed ref token");
@@ -1972,6 +1973,31 @@ final class Apply {
             );
         }
         return [$realName, $rule];
+    }
+
+    /**
+     * DUO-3264 (fork A): fall back to a dynamic_options-declared sub_keys
+     * rule when the ordinary option_rule() lookup finds nothing —
+     * theme_mods_<active stylesheet> is the proven case. Computes this
+     * environment's own live resolver values (Policy.php stays WordPress-
+     * free by design) and delegates the match itself to
+     * Policy::dynamic_option_rule_for_name(), the same lookup
+     * RepositoryAuthorization::authorize_options() also uses — one shared
+     * place for "does this captured key match a declaration," not two.
+     *
+     * A captured document key only ever matches when it is EXACTLY the
+     * name Policy::resolve_dynamic_option() would produce for THIS target
+     * right now: deploy's own theme-reconciliation (DUO-3216) already
+     * guarantees that equality holds by the time apply's own canary-armed
+     * mutation phase runs (Apply::apply()'s refuse-gate hard-blocks a
+     * theme mismatch before this method is ever reached) — the identical
+     * invariant assign_locations()/nav_menu_locations already depends on,
+     * not a new one.
+     */
+    private function dynamic_option_rule_for_name(string $name): ?array {
+        return $this->policy->dynamic_option_rule_for_name($name, [
+            'active_stylesheet' => (string) get_option('stylesheet'),
+        ]);
     }
 
     /**
@@ -2023,11 +2049,54 @@ final class Apply {
      * merged option ends up containing ONLY the declared sub-keys, which is
      * observable (warned) rather than silently incomplete.
      *
-     * Deletion remains ownership-exact: DUO-3211's whole-row `deleted`
-     * record is authorized only for a whole authored option, never for this
-     * mixed-ownership shape. An absent sub-key therefore remains untouched;
-     * deleting it would require a future sub-key tombstone grammar rather
-     * than broadening this merge into ownership it does not have.
+     * Whole-option deletion remains ownership-exact and unrelated to the
+     * tombstone below: DUO-3211's whole-row `deleted` record is authorized
+     * only for a whole authored option, never for this mixed-ownership
+     * shape, and represents an explicit, git-visible deletion INTENT with
+     * its own record. This function draws a narrower, second distinction —
+     * about one declared sub-key's own presence, not the containing
+     * option's — covered next.
+     *
+     * Sub-key TOMBSTONE (DUO-3264): a `class: authored` sub-key that
+     * $captured does not contain is REMOVED from the live blob below, not
+     * left stale. Capture::capture_option_sub_keys() only ever omits a
+     * declared-authored sub-key from its own output for reasons that are
+     * ALL, unambiguously, "there is currently nothing valid to capture" —
+     * confirmed by reading that method directly, not assumed: the live
+     * blob's own key is genuinely absent (`!array_key_exists`), a ref value
+     * is the WordPress "unset" convention of 0, or a ref id is dangling/
+     * unscoped (warned or queued, never silently different from those two).
+     * There is no capture-time reason a declared-authored sub-key goes
+     * missing from $captured that means "still true, just not captured
+     * this run" — so its absence here is as reliable a signal as its
+     * presence, and the merge below finally treats it that way instead of
+     * only ever adding/updating (its previous, asymmetric behavior, kept
+     * for every OTHER key in $subKeys, is exactly why this fix is scoped to
+     * $subKeys members only — see the loop below).
+     *
+     * Discovered live (DUO-3264 core conformance): theme_mods_<stylesheet>
+     * 's own custom_logo/header_image_data.attachment_id sub-keys are
+     * pointers to an attachment id, and WordPress itself deletes those SAME
+     * theme_mods keys out of the live blob the instant the referenced
+     * attachment is deleted (_delete_attachment_theme_mod(), core behavior,
+     * not a Duo mechanism) — a completely ordinary action (an admin swaps
+     * or removes a site logo). Before this fix, a target that had already
+     * received the old value on an earlier apply kept serving the deleted
+     * attachment's id forever; no later apply could ever remove what it
+     * only ever knew how to add or overwrite. sub_keyed_options() (DUO-3233:
+     * Polylang's force_lang/rewrite, Yoast's wpseo fields) shares this exact
+     * code path and gets the identical fix, though its own declared
+     * sub-keys have not been observed to disappear the way an attachment-
+     * backed ref naturally can.
+     *
+     * Scoped strictly to sub-keys DECLARED `authored` in $subKeys: a
+     * `runtime`/`derived`/`env`-classed declared sub-key (theme_mods' own
+     * sidebars_widgets/wp_classic_sidebars, Polylang's first_activation/
+     * version) is never captured in the first place and is never touched by
+     * either loop below, regardless of $captured — removal must never
+     * widen ownership beyond what capture actually owns, the same
+     * invariant the original merge-only loop already upheld in the add/
+     * update direction.
      */
     private function apply_option_sub_keys(string $name, $captured, array $subKeys, string $autoload): void {
         global $wpdb;
@@ -2068,6 +2137,17 @@ final class Apply {
                 );
             }
             $live[(string) $subKey] = $this->apply_value("$name.$subKey", $subVal, $subRule);
+        }
+        foreach ($subKeys as $subKey => $subRule) {
+            if (($subRule['class'] ?? '') !== 'authored' || array_key_exists((string) $subKey, $captured)) {
+                continue;
+            }
+            if (array_key_exists((string) $subKey, $live)) {
+                unset($live[(string) $subKey]);
+                $this->warnings[] = "option $name.$subKey: removed from the live blob — capture no longer reports "
+                    . 'this declared authored sub-key (its own source value is gone on the captured environment, '
+                    . 'e.g. a referenced attachment was deleted)';
+            }
         }
         $this->upsert_option($name, $this->option_wire_value($live), $autoload);
     }

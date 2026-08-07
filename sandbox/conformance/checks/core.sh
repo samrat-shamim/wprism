@@ -2,6 +2,54 @@
 # DUO-3209: copied/invalid embedded identity blocks before state publication.
 set -euo pipefail
 
+# DUO-3264: dynamic_options.theme_mods -- proof beyond the generic
+# byte-diff already run above in run.sh (which only proves conf1's
+# captured tokens equal conf2's captured tokens; it can't see whether the
+# target's LIVE blob merged sub-keys into conf2's own pre-existing content
+# correctly, or whether a previously-active theme's own row genuinely
+# never entered state/ at all). Deliberately placed FIRST in this file,
+# before any of the DUO-3209/3210 tests below delete the shared
+# conformance-logo attachment (the "branch edit" block) -- that later
+# deletion is what exercises Apply::apply_option_sub_keys()'s sub-key
+# tombstone fix (also DUO-3264, found live via this exact interaction: a
+# stale custom_logo/header_image/header_image_data left behind on conf2
+# after conf1's own recapture correctly stopped reporting them), so this
+# block intentionally runs against the fully-populated, pre-deletion state
+# rather than duplicating that proof.
+CONF2_MODS=$(wp_conf2 option get theme_mods_twentytwentyfive --format=json)
+echo "$CONF2_MODS" | jq -e '.background_color == "3c8c3c"' >/dev/null \
+  || fail "theme_mods_twentytwentyfive.background_color did not apply correctly on conf2: $CONF2_MODS"
+echo "$CONF2_MODS" | jq -e '.custom_logo | type == "number"' >/dev/null \
+  || fail "theme_mods_twentytwentyfive.custom_logo did not re-resolve to a local attachment id on conf2: $CONF2_MODS"
+CONF2_LOGO_ID=$(echo "$CONF2_MODS" | jq -r '.custom_logo')
+[ "$(wp_conf2 post get "$CONF2_LOGO_ID" --field=post_type 2>/dev/null)" = "attachment" ] \
+  || fail "theme_mods_twentytwentyfive.custom_logo ($CONF2_LOGO_ID) does not point at a real attachment on conf2"
+echo "$CONF2_MODS" | jq -e --arg port "$CONF2_PORT" '.header_image | contains("localhost:" + $port)' >/dev/null \
+  || fail "theme_mods_twentytwentyfive.header_image was not rewritten to conf2's own domain: $CONF2_MODS"
+echo "$CONF2_MODS" | jq -e '.header_image_data.attachment_id == .custom_logo' >/dev/null \
+  || fail "theme_mods_twentytwentyfive.header_image_data.attachment_id did not re-resolve consistently with custom_logo: $CONF2_MODS"
+CONF2_CSS_ID=$(echo "$CONF2_MODS" | jq -r '.custom_css_post_id')
+[ "$(wp_conf2 post get "$CONF2_CSS_ID" --field=post_type 2>/dev/null)" = "custom_css" ] \
+  || fail "theme_mods_twentytwentyfive.custom_css_post_id ($CONF2_CSS_ID) does not point at a real custom_css post on conf2"
+[ "$(wp_conf2 post get "$CONF2_CSS_ID" --field=post_content 2>/dev/null)" = 'body { background: #3c8c3c; }' ] \
+  || fail "custom_css post content did not round-trip to conf2"
+pass "theme_mods_twentytwentyfive's declared authored sub-keys (background_color, custom_logo, header_image, header_image_data, custom_css_post_id) all apply correctly on conf2, ref-typed fields re-resolved to conf2's own local ids"
+
+echo "$CONF2_MODS" | jq -e '.sidebars_widgets.data."sidebar-1" | length > 0' >/dev/null \
+  || fail "conf2's own pre-existing sidebars_widgets did not survive the theme_mods sub-key merge untouched: $CONF2_MODS"
+echo "$CONF2_MODS" | jq -e '.wp_classic_sidebars."sidebar-1".name == "Footer"' >/dev/null \
+  || fail "conf2's own pre-existing wp_classic_sidebars did not survive the theme_mods sub-key merge untouched: $CONF2_MODS"
+pass "conf2's own runtime-excluded sub-keys (sidebars_widgets, wp_classic_sidebars) survived the merge into the live blob untouched -- sub_keys apply is a merge, never a whole-value replace"
+
+jq -e '.records | has("theme_mods_twentytwentyone") | not' "$CONF_REPO1/state/options/core.json" >/dev/null \
+  || fail "theme_mods_twentytwentyone (a previously-active theme's own row) leaked into captured state -- residue exclusion failed"
+pass "theme_mods_twentytwentyone (residue: a previously-active, now-inactive theme's own row) never entered captured state, exactly as declared"
+
+PENDING2=$(wp_conf2 duo pending --repo=/siterepo --format=json)
+[ "$PENDING2" = "[]" ] \
+  || fail "wp duo pending on conf2 is no longer empty -- sidebars_widgets/widget_* must remain exactly as silent as the pre-existing baseline (DUO-3264 ruling requirement): $PENDING2"
+pass "wp duo pending remains empty post-apply -- sidebars_widgets/widget_* loud-gate baseline is completely unaffected by dynamic_options (DUO-3264 ruling requirement)"
+
 A=$(wp_conf1 post list --post_type=page --name=branch-a --field=ID | tr -d '[:space:]')
 B=$(wp_conf1 post list --post_type=page --name=branch-b --field=ID | tr -d '[:space:]')
 UA=$(wp_conf1 post meta get "$A" _duo_uuid | tr -d '[:space:]')
