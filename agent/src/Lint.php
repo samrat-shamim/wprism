@@ -9,7 +9,7 @@ namespace Duo;
  * through a declared rewrite path: both sides just encode the same wrong
  * bytes, and the diff comes back empty). Pending::ref_hint() was this
  * check's seed — one key, one current live value. Lint::scan_tree()
- * generalizes it to a whole captured state tree, across four surfaces the
+ * generalizes it to a whole captured state tree, across every canonical surface the
  * three frontier explorations independently found broken.
  *
  * scan_tree() reads a CAPTURED state tree from disk — the canonical files
@@ -128,6 +128,9 @@ final class Lint {
         foreach (self::glob_rel($stateDir, 'terms/*/*.json') as $rel) {
             self::scan_term_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
         }
+        foreach (self::glob_rel($stateDir, 'menus/*.json') as $rel) {
+            self::scan_menu_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
+        }
         if (is_file($stateDir . '/options/core.json')) {
             self::scan_options_file($stateDir, 'options/core.json', $policy, $home, $homeEscaped, $findings);
         }
@@ -173,6 +176,80 @@ final class Lint {
         ): void {
             self::flag_escaped_home($findings, $rel, $path, $value, $home, $homeEscaped);
         });
+    }
+
+    // ------------------------------------------------------------ menus
+
+    /**
+     * Menu items are nav_menu_item posts, but canonical menu files embed
+     * them under items[] instead of ordinary per-post Markdown files. Their plugin-owned meta
+     * therefore uses the ordinary post_meta policy while the ref field has
+     * a schema-owned meaning: post_type/taxonomy refs must already be tokens;
+     * custom refs are URLs and must never be interpreted as numeric ids.
+     */
+    private static function scan_menu_file(
+        string $stateDir,
+        string $rel,
+        Policy $policy,
+        string $home,
+        string $homeEscaped,
+        array &$findings
+    ): void {
+        $front = Canon::decode(Canon::read_file($stateDir . '/' . $rel));
+        foreach ((array) ($front['items'] ?? []) as $index => $item) {
+            if (!is_array($item)) {
+                continue; // RepositoryCompiler owns malformed item shapes.
+            }
+            $type = (string) ($item['type'] ?? '');
+            $ref = $item['ref'] ?? '';
+            $prefix = "items[$index]";
+            if ($type === 'post_type' || $type === 'taxonomy') {
+                foreach (Pending::numeric_candidates($ref) as [$id, $locSuffix]) {
+                    $hit = Pending::resolve_id($id);
+                    $kind = $type === 'post_type' ? 'post' : 'term';
+                    $findings[] = self::finding(
+                        'unrewritten_registered_ref',
+                        $rel,
+                        $prefix . '.ref' . $locSuffix,
+                        $id,
+                        $hit,
+                        "menu item type '$type' declares its ref as a canonical $kind token, but this value is "
+                            . 'still numeric in captured state — the schema-owned rewrite never ran and the id '
+                            . 'is silently environment-bound.'
+                    );
+                }
+            } elseif ($type === 'custom' && is_string($ref)) {
+                // A numeric-looking custom URL is not an entity reference.
+                self::flag_escaped_home($findings, $rel, $prefix . '.ref', $ref, $home, $homeEscaped);
+            }
+
+            $meta = (array) ($item['meta'] ?? []);
+            foreach ($meta as $key => $value) {
+                $rule = $policy->meta_rule_for_post((string) $key, $meta) ?? [];
+                if (isset($rule['ref']) || !empty($rule['lint_ok'])) {
+                    continue;
+                }
+                $locator = $prefix . '.meta.' . $key;
+                if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                    self::scan_structured_bare_ids($value, $rel, $locator, $findings);
+                    continue;
+                }
+                foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
+                    $hit = Pending::resolve_id($id);
+                    if ($hit !== null) {
+                        $findings[] = self::finding(
+                            'bare_id', $rel, $locator . $locSuffix, $id, $hit, self::bare_id_note($hit)
+                        );
+                    }
+                }
+            }
+            self::walk_strings($meta, $prefix . '.meta', function (
+                string $path,
+                string $value
+            ) use (&$findings, $rel, $home, $homeEscaped): void {
+                self::flag_escaped_home($findings, $rel, $path, $value, $home, $homeEscaped);
+            });
+        }
     }
 
     // ------------------------------------------------------------ posts
