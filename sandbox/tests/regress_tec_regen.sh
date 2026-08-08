@@ -58,10 +58,12 @@
 #      dropped and why — step (8), both shapes, live.
 #
 # Self-contained: own scratch pair (created and destroyed by this script).
-# Temporarily edits the SHIPPED manifests/the-events-calendar.json's
-# verify.column to force a deterministic failure for step 2 above, then
-# restores it — a trap guarantees restoration even on a failed run, so this
-# script never leaves the working tree's manifest in a modified state.
+# Temporarily adds a nullable verifier column to the scratch target and edits
+# the SHIPPED manifests/the-events-calendar.json's verify.column to point at
+# it. The column is valid but remains NULL, forcing the intended post-regen
+# verification failure without tripping the engine's checked-read guard. The
+# manifest is then restored — a trap guarantees restoration even on a failed
+# run, so this script never leaves the working tree's manifest modified.
 set -euo pipefail
 cd "$(dirname "$0")/.."   # -> sandbox/
 
@@ -252,9 +254,10 @@ $GIT_1 add -A
 $GIT_1 commit -qm "capture: content tweak to force the update bucket"
 $GIT_1 push -q origin main
 
-say "(6b) temporarily point the SHIPPED manifest's verify at a nonexistent column (deterministic, reversible failure — restored by this script's own EXIT trap even on a failed run)"
-jq '.post_types.tribe_events.regen_dependency.verify.column = "duo_regress_nonexistent_column"' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
-jq -e '.post_types.tribe_events.regen_dependency.verify.column == "duo_regress_nonexistent_column"' "$MANIFEST" >/dev/null || fail "failed to perturb the manifest for the failure test"
+say "(6b) add a valid verifier column that remains NULL, then temporarily point the SHIPPED manifest at it (deterministic, reversible failure — restored by this script's own EXIT trap even on a failed run)"
+wp2 db query "ALTER TABLE wp_tec_occurrences ADD COLUMN duo_regress_never_matches BIGINT NULL" >/dev/null
+jq '.post_types.tribe_events.regen_dependency.verify.column = "duo_regress_never_matches"' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
+jq -e '.post_types.tribe_events.regen_dependency.verify.column == "duo_regress_never_matches"' "$MANIFEST" >/dev/null || fail "failed to perturb the manifest for the failure test"
 
 git -C "siterepo/${PAIR}2" pull -q origin main
 REV2=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
@@ -265,7 +268,7 @@ APPLY2_RC=$?
 set -e
 echo "$APPLY2"
 [ "$APPLY2_RC" -ne 0 ] || fail "expected duo apply to hard-fail on a genuine regen_dependency verification failure — it exited 0"
-grep -qi "duo_regress_nonexistent_column\|regen_dependency verification failed" <<<"$APPLY2" \
+grep -qi "duo_regress_never_matches\|regen_dependency verification failed" <<<"$APPLY2" \
   || fail "failure message doesn't name the verification failure (got: $APPLY2)"
 pass "duo apply hard-failed as required (exit $APPLY2_RC), naming the verification failure"
 
