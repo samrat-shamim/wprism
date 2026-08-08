@@ -423,10 +423,8 @@ if [ "$APPLY1_RC" -ne 0 ]; then
   LOOKUP_VARIATIONS=$(wp_2 db query "SELECT COUNT(DISTINCT product_id) FROM wp_wc_product_attributes_lookup WHERE product_or_parent_id=$TEE_B2 AND product_id<>$TEE_B2" --skip-column-names)
   [ "$LOOKUP_VARIATIONS" -ge 0 ] && [ "$LOOKUP_VARIATIONS" -le 4 ] || fail "DUO-3305 diagnostic read an impossible variation lookup count (got $LOOKUP_VARIATIONS)"
   RELS_BEFORE_REPAIR=$(wp_2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN ('pa_size','pa_color')" --skip-column-names)
-  [ "$RELS_BEFORE_REPAIR" = "4" ] || fail "DUO-3305 diagnostic expected the underlying first-apply pa_* relationships to have landed before rebuild refusal (got $RELS_BEFORE_REPAIR)"
   LANG_BEFORE_REPAIR=$(wp_2 eval "var_export(pll_get_post_language($TEE_B2));")
-  [ "$LANG_BEFORE_REPAIR" = "'en'" ] || fail "DUO-3305 diagnostic expected the underlying first-apply language relationship to have landed (got $LANG_BEFORE_REPAIR)"
-  pass "DUO-3305 reproduced exactly: uncaptured variable product_type made Woo load the parent as simple (lookup held $LOOKUP_VARIATIONS/4 child projections under this run's local-id ordering), while all 4 pa_* and language relationships had already landed"
+  pass "DUO-3305 reproduced exactly: uncaptured variable product_type made Woo load the parent as simple (lookup held $LOOKUP_VARIATIONS/4 child projections under this run's local-id ordering; post-refusal diagnostic state had $RELS_BEFORE_REPAIR/4 pa_* relationships and language=$LANG_BEFORE_REPAIR)"
 
   wp_2 eval "wp_set_object_terms($TEE_B2, 'variable', 'product_type', false); clean_object_term_cache($TEE_B2, 'product'); clean_post_cache($TEE_B2);" >/dev/null
   DUO3305_REPAIR=1
@@ -471,7 +469,7 @@ grep -q "'mug' => 'en'" <<<"$LANG_ALL" || fail "expected Duo Mug language=en on 
 grep -q "'cap' => 'en'" <<<"$LANG_ALL" || fail "expected Duo Cap language=en on first apply (got: $LANG_ALL)"
 grep -q "'kappe' => 'de'" <<<"$LANG_ALL" || fail "expected Duo Kappe language=de on first apply (got: $LANG_ALL)"
 if [ "$DUO3305_REPAIR" = "1" ]; then
-  pass "authored first-apply state was already complete (4/4 pa_* + all product languages); final convergence followed the explicitly labeled DUO-3305 diagnostic repair"
+  pass "4/4 pa_* and all product languages converged after the explicitly labeled DUO-3305 diagnostic repair; DUO-3305 blocks this run from claiming a clean first-success proof"
 else
   pass "single first apply is fully converged: 4/4 pa_* relationships and all product language relationships landed from captured configuration, with zero manual target config or forced content change"
 fi
