@@ -1,7 +1,7 @@
 # Fixture staleness sweep
 
 DUO-3274 audits the repository's gap-characterization fixtures against the
-mechanisms present on `main` at `e16fab49653fcee6f6b42f1ccc26b4e31873f30d`.
+mechanisms present on `main` at `ec485849d244a3b32f612b3299374e578c424cbf`.
 The denominator is every `sandbox/tests/{regress_,certify_,grind_,spike_}*.sh`
 or `.php` file at that revision: 103 regressions, 8 certifications, 8 grinds,
 and 7 spikes, 126 files total. The three `cli_*smoke.sh` fixtures are outside
@@ -28,7 +28,7 @@ Verdicts:
 | `grind_r1a_forms.sh` | Large buffered render checks intermittently failed despite complete HTML. | The producer-side `echo "$VAR" \| grep -q` SIGPIPE race was already replaced with here-strings and self-diagnosing byte floors. | `prior-reconciled` |
 | `grind_r1b_shop.sh` | Dynamic `pa_*` taxonomies were silently outside scope or unregistered on apply. | DUO-3229's scope gate, task #92 `taxonomy_patterns`, and the apply-side object-type fallback are asserted directly. | `prior-reconciled` |
 | `grind_r1b_shop.sh` | The first apply may leave Duo Tee's `pa_size`/`pa_color` relationships absent and require a later content change. | The global apply pass now inserts all typed-table and term phase-1 rows before any post relationship phase. The fixture asserts exactly four relationships on the first apply and deletes the self-heal/content-change workaround. Full isolated live run passed. | `aged-flip`, `aged-delete` |
-| `grind_r1b_shop.sh` | Whole-tree identity after environment-local stock/order operations was deterministic. | The run proved title/content identity, but independent runtime operations update `modified`/`modified_gmt` at different wall-clock times. The test now allows only those fields on Duo Tee and its variations; DUO-3302 owns the classification decision. | `unclear-escalate` |
+| `grind_r1b_shop.sh` | Whole-tree identity after environment-local stock/order operations was deterministic. | DUO-3302/PR #123 classifies Woo product and variation modification timestamps as derived. Raw captures retain the honest runtime observations, while the fixture compiles both complete trees through the shipped policy and requires identical entity hashes without a hand-written field allowance. | `prior-reconciled` |
 | `grind_r1b_shop.sh` | Parent `is_purchasable` diagnoses relationship convergence. | Live evidence shows it can remain false with all four relationships present; it is retained as explicitly informational Woo caching output, never a Duo gap assertion. | `current` |
 | `grind_r1c_agency.sh` | A real `elementor_active_kit` reference to an unscoped post was warned/dropped. | Task #73's exact ref gate and DUO-3229's coarser type gate now fail closed. The fixture classifies the coarse gate as runtime, then asserts the exact option-ref refusal. | `prior-reconciled` |
 | `grind_r3a_multilingual.sh` | A fresh target required manual Polylang `post_types`/`taxonomies` configuration and a content-change retry before language relationships landed. | DUO-3280 supplements taxonomy object types from the compiled `polylang.post_types` sub-key during the same apply. Manual target config, retry, and forced content changes were removed; all product languages are asserted after the first apply. | `aged-flip`, `aged-delete` |
@@ -38,7 +38,7 @@ Verdicts:
 | `grind_r3a_multilingual.sh` | `pll_insert_post(... translations ...)` can omit the seed-time `post_translations` link. | This is an explicitly report-only Polylang write-path hazard already documented in DUO-3233; the merge-conflict assertion does not depend on the link. | `current` |
 | `grind_r3b_events.sh` | TEC occurrences required a manual regeneration loop after apply. | DUO-3234 `regen_dependency` now regenerates occurrences in apply; the fixture asserts three query-visible events and zero pending markers. | `prior-reconciled` |
 | `grind_r3b_events.sh` | PMPro composite restriction rows and `meta_id` sidecars could not round-trip. | DUO-3235 `identity.mode=composite_ref` and `id_column` are asserted directly with no repair. | `prior-reconciled` |
-| `grind_r3b_events.sh` | TEC's aggregate `/events/list/` always becomes ready within the fixture's former retry budget. | Individual routes and database rows are reliable, but the aggregate view can lag under load after data is complete. No root cause is claimed; DUO-3301 owns the focused investigation. | `unclear-escalate` |
+| `grind_r3b_events.sh` | TEC's aggregate `/events/list/` needed a soft assertion or retry budget under load. | DUO-3301/PR #124 proved the apparent delay was the same producer-side SIGPIPE race: an immediate complete response contained all titles. The fixture now validates complete HTML and hard-asserts all three titles on the first buffered response. | `prior-reconciled` |
 | `grind_r3b_events.sh` | The fixture could safely hard-code a shared pair name, ports, and host paths. | Pair name, ports, worktree paths, and host assertions are injectable and validated. A complete run passed under the isolated `c3274r3b` identity without touching the pre-existing stopped `r3b` pair. | `aged-flip` |
 | `certify_deletion_matrix.sh` | WooCommerce product deletion could be forced after checking a known order-reference table. | DUO-3225 makes the product deletion capability explicitly unsupported because arbitrary extension references are not exhaustively representable. The certification now asserts that plan, apply, and forced apply all refuse before mutation. | `current` |
 | `certify_deletion_matrix.sh` | A forced Ninja Forms parent deletion left guard-survivor rows as an unresolved finding requiring manual cleanup. | DUO-3251 retained the mandatory ref-integrity refusal, added exact survivor warnings, and shipped `wp duo orphans` delete/reparent recovery. The fixture now characterizes the refusal as a safety checkpoint and proves both supported recovery actions plus clean plan/capture. | `aged-flip` |
@@ -103,10 +103,10 @@ with more specific or mixed verdicts are detailed in the ledger above.
 | `grind_code_half_ecosystem.sh` | Scenario contract: code half ecosystem. No unresolved gap characterization. | `current` |
 | `grind_first_sync_hook_recovery.sh` | Scenario contract: first sync hook recovery. No unresolved gap characterization. | `current` |
 | `grind_r1a_forms.sh` | Mechanism-specific historical assertions; see the gap ledger. | `prior-reconciled` |
-| `grind_r1b_shop.sh` | Mechanism-specific historical assertions; see the gap ledger. | `aged-flip / aged-delete / unclear-escalate` |
+| `grind_r1b_shop.sh` | Mechanism-specific historical assertions; see the gap ledger. | `aged-flip / aged-delete / prior-reconciled` |
 | `grind_r1c_agency.sh` | Mechanism-specific historical assertions; see the gap ledger. | `prior-reconciled` |
 | `grind_r3a_multilingual.sh` | Mechanism-specific historical assertions; see the gap ledger. | `aged-flip / aged-delete / prior-reconciled` |
-| `grind_r3b_events.sh` | Mechanism-specific historical assertions and isolated pair ownership; see the gap ledger. | `aged-flip / prior-reconciled / unclear-escalate` |
+| `grind_r3b_events.sh` | Mechanism-specific historical assertions and isolated pair ownership; see the gap ledger. | `aged-flip / prior-reconciled` |
 | `regress_acf_meta_interpreter.php` | Regression contract: acf meta interpreter. No unresolved gap characterization. | `current` |
 | `regress_acf_meta_interpreter.sh` | Regression contract: acf meta interpreter. No unresolved gap characterization. | `current` |
 | `regress_acf_term_options_fields.sh` | Regression contract: acf term options fields. No unresolved gap characterization. | `current` |
@@ -226,13 +226,14 @@ with more specific or mixed verdicts are detailed in the ledger above.
   descriptions survived, and all rendered checks passed after DUO-3300.
 - `grind_r1b_shop.sh`: the clean final blocker-stack run passed after
   DUO-3303/PR #118 and DUO-3304/PR #117. The first apply produced 4/4 `pa_*`
-  relationships, the strict comparison reported only the two DUO-3302
-  timestamp-bearing files while proving every other byte identical, and both
-  environments converged on the editorially merged variation price.
+  relationships. DUO-3302 keeps the real timestamp differences visible in raw
+  captures while both complete trees compile to identical policy-driven entity
+  hashes, and both environments converge on the editorially merged price.
 - `grind_r3b_events.sh`: the complete run passed under isolated pair
   `c3274r3b`, including TEC regeneration, PMPro composite references, merge,
-  render, and convergence checks. The unrelated stopped `r3b` pair remained
-  untouched.
+  render, and convergence checks. DUO-3301 now makes every single/aggregate
+  response complete-HTML-validated and hard-failing; the unrelated stopped
+  `r3b` pair remained untouched.
 - Full live certifications passed for deletion and merge. Merge proved the
   convergence-verification refusal, exact Team mismatch, retained retry
   marker, verified capture-first recovery, and clean marker clearance.
