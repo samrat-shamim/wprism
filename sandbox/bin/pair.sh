@@ -49,6 +49,64 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m%s\033[0m\n' "$*" >&2; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 
+# DUO-3277: the repo's CANONICAL checkout -- where a persistent pair's
+# bind-mounted agent/manifests sources must always live, regardless of
+# which worktree's own copy of THIS SCRIPT actually ran `up`. Per-issue
+# worktrees are always removed at close-gate; a pair whose agent/manifests
+# bind-mount source was resolved against a worktree (the historical bug --
+# `../agent` in pair.yml, relative to wherever pair.sh's own `cd
+# "$(dirname "$0")/.."` above landed) is left with a dead mount the moment
+# that worktree goes, silently, until the next `pair.sh start` fails --
+# potentially days later, by a different actor (observed live twice on the
+# r3b pair; see this issue's own filing).
+#
+# Git's own common-dir is the right primitive, not a hardcoded directory
+# name: for a LINKED worktree, `git rev-parse --git-common-dir` resolves
+# to the PRIMARY worktree's own .git (a linked worktree's .git is a FILE
+# pointing back to it, never a directory of its own); for the primary
+# worktree itself, it's simply its own .git. The identical one-liner
+# resolves correctly either way -- no special-casing "am I in a worktree"
+# at all, and no assumption about what the canonical checkout is NAMED
+# (this repo's own primary checkout is "duo-wp" in one clone on this host,
+# "duo-wp-main" in another -- a hardcoded name would only ever match one
+# of them, exactly the fragility this function exists to avoid).
+canonical_root() {
+  local common_dir
+  common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+    || fail "could not resolve this repo's canonical checkout via git (not a git repository?) -- DUO_AGENT_SRC/DUO_MANIFESTS_SRC cannot be computed"
+  dirname "$common_dir"
+}
+
+# DUO-3277: `start` (unlike `up`) never touches container config -- compose
+# start just resumes whatever bind-mount sources were baked in when the
+# container was CREATED, so a pair created before this fix shipped (or a
+# pair whose agent/manifests source directory was deleted out from under
+# it for any other reason) still hits a dead mount here even after the
+# canonicalize fix above, until someone runs `up` again to force the
+# recreate. Detect it here and say exactly what happened and how to
+# recover instead of leaving it to docker's own opaque container-start
+# failure (the issue's own acceptance criterion) -- only wp1/wp2 have
+# persistent containers `start` ever touches; cli1/cli2 are always `run
+# --rm` (see every wp_env()-style helper across this sandbox), so they
+# never have a stopped container of their own to check or resume.
+check_dead_mounts() { # check_dead_mounts <name>
+  local name="$1" container dead=()
+  for container in "duo-${name}-wp1-1" "duo-${name}-wp2-1"; do
+    docker inspect "$container" >/dev/null 2>&1 || continue   # not created yet -- nothing to check
+    local sources src
+    sources=$(docker inspect "$container" \
+      --format '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{"\n"}}{{end}}{{end}}' 2>/dev/null || true)
+    while IFS= read -r src; do
+      [ -n "$src" ] && [ ! -e "$src" ] && dead+=("$container: $src")
+    done <<< "$sources"
+  done
+  if [ "${#dead[@]}" -gt 0 ]; then
+    fail "pair '$name' has a dead bind-mount source -- the checkout its containers were created against no longer exists on disk (DUO-3277's own worktree-bind-mount hazard: a pair started with 'up' before that fix shipped, or from a worktree since removed, still has the OLD source baked in):
+$(printf '  %s\n' "${dead[@]}")
+recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used]\" from ANY checkout of this repo (worktree or canonical, doesn't matter now) -- this recreates the container against the canonical checkout's own agent/manifests (docker compose detects the config drift and recreates automatically); this pair's own database and webroot volumes are untouched either way"
+  fi
+}
+
 DB_CONTAINER=duo-shared-db
 DB_ROOT_USER=root
 DB_ROOT_PASS=root
@@ -130,6 +188,46 @@ pair_compose() { # pair_compose <name> [overlay-file ...]
   PAIR_COMPOSE=(docker compose -p "duo-${name}" -f pair.yml)
   local f
   for f in "$@"; do PAIR_COMPOSE+=(-f "$f"); done
+  # DUO-3277: every PAIR_COMPOSE invocation needs DUO_AGENT_SRC/
+  # DUO_MANIFESTS_SRC in the environment now, not just `up` -- pair.yml
+  # references them unconditionally, so `stop`/`start`/`destroy` (which
+  # never went through cmd_up's own export) would otherwise hand compose
+  # an EMPTY bind-mount source (":/var/www/html/...:ro", invalid spec) the
+  # moment it re-parses pair.yml at all, which compose does for every
+  # subcommand regardless of whether it ends up creating anything.
+  # Exported HERE, the one place every subcommand already funnels through,
+  # rather than duplicated at each call site (caught live: the first
+  # version of this fix only set them in cmd_up and `stop` broke instantly).
+  export DUO_AGENT_SRC="$(canonical_root)/agent" DUO_MANIFESTS_SRC="$(canonical_root)/manifests"
+
+  # DUO-3277 (CI caught this the first version above missed): that export
+  # only reaches pair.sh's OWN "${PAIR_COMPOSE[@]}" calls -- it dies with
+  # this process and never reaches the many OTHER scripts (sandbox/
+  # conformance/run.sh, every regress_*.sh/grind_*.sh) that invoke `pair.sh
+  # up` once as a subprocess and then make their own separate, direct
+  # `docker compose -f pair.yml ...` calls afterward (confirmed: that's how
+  # essentially every one of them actually works, not a hypothetical edge
+  # case -- see run.sh's own $COMPOSE + its wp_env() helper). Those scripts
+  # already re-export DUO_PAIR/DUO_PORT1/DUO_PORT2 themselves for the same
+  # process-boundary reason (see run.sh's comment by its own export line),
+  # but making every caller duplicate canonical_root()'s git logic too
+  # would be fragile -- easy to add a new call site and forget it, with no
+  # loud failure until that exact path runs.
+  #
+  # Persist the same two values to sandbox/.env instead, in addition to the
+  # export above: docker compose auto-loads a file by that exact name from
+  # the CWD (verified live with `env -i` stripping every inherited
+  # variable -- compose still resolved both mounts correctly from .env
+  # alone), and every caller in this codebase already `cd`s into sandbox/
+  # before making its own compose calls (this script's own line 45 above;
+  # run.sh's equivalent). One write here, in the single choke point every
+  # subcommand already funnels through, covers every current AND future
+  # caller with zero changes to any of them. Overwritten (never appended)
+  # so a stale value can never survive a worktree/checkout change; safe
+  # under concurrent pair.sh invocations against the same checkout too,
+  # since canonical_root() is a pure function of the checkout, not the pair
+  # name -- any two concurrent writers here always agree on the value.
+  printf 'DUO_AGENT_SRC=%s\nDUO_MANIFESTS_SRC=%s\n' "$DUO_AGENT_SRC" "$DUO_MANIFESTS_SRC" > .env
 }
 
 prepare_siterepo_roots() { # prepare_siterepo_roots <name>
@@ -312,10 +410,23 @@ cmd_up() {
   [ "$http_mode" = 1 ] && overlays+=(pair.http.yml)
   [ "$journal" = 1 ] && overlays+=(pair.journal.yml)
   [ -n "$codebind" ] && overlays+=(pair.codebind.yml)
-  pair_compose "$name" "${overlays[@]}"
+  pair_compose "$name" "${overlays[@]}"   # also exports DUO_AGENT_SRC/DUO_MANIFESTS_SRC, see its own comment
   export DUO_PAIR="$name" DUO_PORT1="$port1" DUO_PORT2="$port2" DUO_CODEBIND_PLUGIN="$codebind"
 
   say "pair '$name': containers up"
+  # DUO-3277: agent/manifests bind-mount sources always resolve against
+  # the canonical checkout (see pair_compose()/canonical_root()), never
+  # wherever this script itself was invoked from -- if that resolved
+  # differently than whatever config an EXISTING container for this pair
+  # was created with (e.g. a pair `up`'d from a worktree before this fix,
+  # or from a different worktree than last time), compose's own standard
+  # config-drift detection recreates it here automatically, on volumes
+  # that never move (the r3b recovery this issue's own filing already
+  # documented empirically, now happening for the RIGHT reason instead of
+  # by accident).
+  if [ "$DUO_AGENT_SRC" != "$(pwd)/agent" ]; then
+    echo "  (bind-mount source: $(dirname "$DUO_AGENT_SRC") -- this pair.sh copy is running from $(pwd))"
+  fi
   "${PAIR_COMPOSE[@]}" up -d "${force_recreate[@]}"
 
   say "pair '$name': waiting for DB-level readiness (both sides)"
@@ -403,6 +514,7 @@ cmd_start() {
   local name="${1:?usage: pair.sh start <name>}"
   validate_name "$name"
   ensure_db_up
+  check_dead_mounts "$name"
   say "pair '$name': start (state exactly as it was at stop)"
   pair_compose "$name"
   export DUO_PAIR="$name"

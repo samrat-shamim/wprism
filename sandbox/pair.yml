@@ -24,11 +24,39 @@ name: duo-${DUO_PAIR}
 # stands in for it.
 #
 # Required env vars (sandbox/bin/pair.sh sets all of these; see its usage):
-#   DUO_PAIR   pair name, e.g. "sbx1", "conf" — becomes the compose project
-#              suffix and the wp_${DUO_PAIR}{1,2} database names.
-#   DUO_PORT1  host port for wp1 (only actually published if pair.http.yml
-#              is layered in — see that file and pair.sh's --http/--headless).
-#   DUO_PORT2  host port for wp2, same caveat.
+#   DUO_PAIR         pair name, e.g. "sbx1", "conf" — becomes the compose
+#                    project suffix and the wp_${DUO_PAIR}{1,2} database names.
+#   DUO_PORT1        host port for wp1 (only actually published if
+#                    pair.http.yml is layered in — see that file and
+#                    pair.sh's --http/--headless).
+#   DUO_PORT2        host port for wp2, same caveat.
+#   DUO_AGENT_SRC    DUO-3277: host path to agent/, resolved by pair.sh
+#                    against the repo's CANONICAL checkout (git's own
+#                    common-dir, never wherever pair.sh's own script file
+#                    happens to be invoked from) — see pair.sh's
+#                    canonical_root(). Deliberately NOT a literal `../agent`
+#                    here: that resolves relative to whichever checkout
+#                    pair.sh was invoked from, which is fatal for a pair
+#                    meant to outlive a per-issue worktree (the worktree is
+#                    always removed at close-gate, silently killing the
+#                    bind-mount source out from under any pair still using
+#                    it — the exact hazard this env var exists to close).
+#   DUO_MANIFESTS_SRC  same reasoning, for manifests/. (Not to be confused
+#                    with DUO_MANIFESTS_DIR below, the CONTAINER-side path
+#                    manifests/ is mounted TO — that one is fixed and
+#                    unaffected by any of this.)
+#
+# DUO_AGENT_SRC/DUO_MANIFESTS_SRC reach compose two ways at once, deliberately:
+# pair.sh's own subcommands get them via plain `export` (pair_compose()),
+# but any OTHER script that invokes `pair.sh up` as a subprocess and then
+# makes its own separate `docker compose -f pair.yml ...` calls afterward
+# (sandbox/conformance/run.sh, every regress_*.sh/grind_*.sh — this is most
+# callers, not an edge case) never sees that export; a process boundary
+# stops it cold. pair.sh also writes sandbox/.env with the same two values
+# every time it runs, which compose auto-loads from the CWD with no export
+# needed by the caller — every script here already `cd`s into sandbox/
+# before touching compose, so this covers all of them for free. See
+# pair_compose()'s own comment for the live verification.
 #
 # Optional overrides, layered with additional -f flags (never edited into
 # this file):
@@ -67,9 +95,9 @@ services:
       WORDPRESS_DB_NAME: wp_${DUO_PAIR}1
     volumes: &vol1
       - wp1:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ${DUO_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ${DUO_AGENT_SRC}/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ${DUO_MANIFESTS_SRC}:/duo-manifests:ro
       - ./siterepo/${DUO_PAIR}1:/siterepo
     mem_limit: 1g
     cpus: "1.0"
@@ -93,9 +121,9 @@ services:
       WORDPRESS_DB_NAME: wp_${DUO_PAIR}2
     volumes: &vol2
       - wp2:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ${DUO_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ${DUO_AGENT_SRC}/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ${DUO_MANIFESTS_SRC}:/duo-manifests:ro
       - ./siterepo/${DUO_PAIR}2:/siterepo
     mem_limit: 1g
     cpus: "1.0"

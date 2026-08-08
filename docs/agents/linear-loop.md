@@ -321,13 +321,19 @@ debugging time. Follow them; extend this list when you pay for a new one.
   any content grep, and print `${#VAR}` in every failure path; `?page_id=N`
   301s under pretty permalinks, so bare curl without `-L` sees an empty
   body.
-- **Bring up long-lived/shared pairs from `duo-wp-main`, never from a
-  worktree.** `pair.sh up` pins the `../agent` and `../manifests`
-  bind-mounts to whatever checkout it was invoked from; per-issue
-  worktrees always get cleaned up at close, leaving the pair's containers
-  with dead mounts that break the NEXT `pair.sh start` (observed live
-  twice on r3b — the failure is silent until someone starts the pair days
-  later). Throwaway per-issue pairs may come up from a worktree only if
-  the same session destroys them before the worktree goes. Tooling
-  hardening tracked as a Backlog issue (canonicalize or refuse
-  worktree-relative `up` for persistent pairs).
+- **CLOSED (DUO-3277) — the "bring up shared pairs from `duo-wp-main`,
+  never a worktree" discipline this bullet used to require is now
+  enforced by the tooling itself, not by remembering to follow it.**
+  `pair.sh up` (any invocation, from any checkout) resolves the
+  `agent`/`manifests` bind-mounts against the repo's canonical checkout
+  via git's own common-dir — never wherever `pair.sh`'s own script file
+  happened to be invoked from — so a pair brought up from a worktree no
+  longer pins a mount that dies when that worktree is cleaned up at
+  close-gate (observed live twice on r3b before this fix; see the issue
+  for the live proof this closes it, including a pair recovering cleanly
+  after its own origin worktree was removed out from under it). `pair.sh
+  start` also now detects and loudly names any dead bind-mount source
+  still baked into an existing container (a pair created before this fix
+  shipped, or broken by any other means), naming the exact recovery
+  instead of docker's own opaque failure. Kept here, in the past tense,
+  as the record of why this used to require operator discipline at all.
