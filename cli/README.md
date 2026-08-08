@@ -462,6 +462,10 @@ Its optional `upload_provider` prepares encrypted local/offload before-images,
 adds signed-journal `storage_apply`, and makes `storage_restore` enforce exact
 absence plus fresh prior-inventory verification; without it, upload recovery
 is explicitly manual.
+Its optional `effect_provider` prepares the compiled lifecycle/rebuilder effect
+inventory, receipt outboxes, and pinned inverse inputs, then enables
+`effects_inverse` with fresh prior readback; without it, effect recovery is
+explicitly manual.
 Adoption probes all configured capabilities. Provider tokens and key
 material never enter the registry or command line; only hashes and the
 external key id are bound into a signed receipt. See
@@ -472,6 +476,8 @@ contract, and [docs/code-release-runtime.md](../docs/code-release-runtime.md)
 for the atomic code-release contract.
 See [docs/upload-bundle.md](../docs/upload-bundle.md) for the upload/media
 journal and provider contract.
+See [docs/effect-bundle.md](../docs/effect-bundle.md) for the manifest grammar,
+preflight isolation, runtime reconciliation, and inverse contract.
 
 ### Where the registry comes from
 

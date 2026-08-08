@@ -46,9 +46,10 @@ final class Adopt {
         $checkpoint = rtrim($sourceRoot, '/') . '/recovery/CheckpointBundle.php';
         $codeRelease = rtrim($sourceRoot, '/') . '/recovery/CodeRelease.php';
         $uploadBundle = rtrim($sourceRoot, '/') . '/recovery/UploadBundle.php';
+        $effectBundle = rtrim($sourceRoot, '/') . '/recovery/EffectBundle.php';
         if ($version === null || !is_file($agentDir . '/duo-loader.php') || !is_dir($manifestsDir)
             || !is_file($runtime) || !is_file($executor) || !is_file($checkpoint) || !is_file($codeRelease)
-            || !is_file($uploadBundle)) {
+            || !is_file($uploadBundle) || !is_file($effectBundle)) {
             return self::failure('local artifact', 'Duo source tree is incomplete: expected agent/, manifests/, and the complete recovery runtime', $version ?? 'unknown');
         }
         if (($rollbackKeyId === null) !== ($rollbackPublicKey === null)) {
@@ -261,7 +262,7 @@ final class Adopt {
             . "mkdir \"\$txn\"\n"
             . "tar --no-same-owner -xf \"\$archive\" -C \"\$stage\"\n"
             . "[ -f \"\$stage/agent/duo.php\" ] && [ -f \"\$stage/agent/duo-loader.php\" ] && [ -f \"\$stage/manifests/core.json\" ] || { echo 'duo adopt: uploaded artifact is incomplete' >&2; exit 1; }\n"
-            . "[ -f \"\$stage/recovery/rollback-control.php\" ] && [ -f \"\$stage/recovery/RecoveryExecutor.php\" ] && [ -f \"\$stage/recovery/CheckpointBundle.php\" ] && [ -f \"\$stage/recovery/CodeRelease.php\" ] && [ -f \"\$stage/recovery/UploadBundle.php\" ] || { echo 'duo adopt: recovery runtime is missing' >&2; exit 1; }\n"
+            . "[ -f \"\$stage/recovery/rollback-control.php\" ] && [ -f \"\$stage/recovery/RecoveryExecutor.php\" ] && [ -f \"\$stage/recovery/CheckpointBundle.php\" ] && [ -f \"\$stage/recovery/CodeRelease.php\" ] && [ -f \"\$stage/recovery/UploadBundle.php\" ] && [ -f \"\$stage/recovery/EffectBundle.php\" ] || { echo 'duo adopt: recovery runtime is missing' >&2; exit 1; }\n"
             . "cp -R \"\$stage/agent\" \"\$agent_new\"\n"
             . "cp \"\$stage/agent/duo-loader.php\" \"\$loader_new\"\n"
             . "cp -R \"\$stage/manifests\" \"\$manifest_new\"\n"

@@ -95,6 +95,11 @@ final class SshTransport extends Transport {
             && array_key_exists('upload_provider', $this->rollbackRecovery);
     }
 
+    public function effectProviderConfigured(): bool {
+        return is_array($this->rollbackRecovery)
+            && array_key_exists('effect_provider', $this->rollbackRecovery);
+    }
+
     /** @return ?array<string,mixed> */
     public function recoveryConfig(): ?array {
         return $this->rollbackRecovery;
@@ -142,12 +147,15 @@ final class SshTransport extends Transport {
         if (array_key_exists('upload_provider', $config)) {
             $expected[] = 'upload_provider';
         }
+        if (array_key_exists('effect_provider', $config)) {
+            $expected[] = 'effect_provider';
+        }
         sort($expected, SORT_STRING);
         $actual = array_keys($config);
         sort($actual, SORT_STRING);
         if ($actual !== $expected) {
             throw new \RuntimeException(
-                "env '$env': rollback_recovery requires adapters, exclusion_provider, timeout_seconds, and optional checkpoint_provider/code_release_provider/upload_provider"
+                "env '$env': rollback_recovery requires adapters, exclusion_provider, timeout_seconds, and optional checkpoint_provider/code_release_provider/upload_provider/effect_provider"
             );
         }
         $provider = self::validateCommand($env, $config['exclusion_provider'] ?? null, 'exclusion_provider');
@@ -196,6 +204,13 @@ final class SshTransport extends Transport {
                 $env,
                 $config['upload_provider'],
                 'upload_provider'
+            );
+        }
+        if (array_key_exists('effect_provider', $config)) {
+            $normalized['effect_provider'] = self::validateCommand(
+                $env,
+                $config['effect_provider'],
+                'effect_provider'
             );
         }
         return $normalized;

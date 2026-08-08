@@ -427,6 +427,17 @@ final class Cli {
                 : $r['derivative_basename_prefix'] . '*';
             WP_CLI::line('UPLOAD_MUTATION ' . ($r['original_path'] ?? '?') . " (derivatives: $root)");
         }
+        foreach ($plan['effects_inventory'] ?? [] as $r) {
+            $effect = (array) ($r['effect'] ?? []);
+            WP_CLI::line(sprintf(
+                'EFFECT %-11s %-12s %-20s %s:%s',
+                (string) ($r['phase'] ?? '?'),
+                (string) ($effect['mode'] ?? '?'),
+                (string) ($effect['id'] ?? '?'),
+                (string) (($effect['selector'] ?? [])['type'] ?? '?'),
+                (string) (($effect['selector'] ?? [])['value'] ?? '?')
+            ));
+        }
         foreach ($plan['warnings'] ?? [] as $w) {
             WP_CLI::warning($w);
         }
@@ -440,6 +451,7 @@ final class Cli {
         $counts .= ', ' . count($plan['missing_user'] ?? []) . ' missing_user';
         $counts .= ', ' . count($plan['skipped_user_meta'] ?? []) . ' skipped_user_meta';
         $counts .= ', ' . count($plan['uploads_inventory'] ?? []) . ' upload_mutations';
+        $counts .= ', ' . count($plan['effects_inventory'] ?? []) . ' declared_effects';
         WP_CLI::success("plan: $counts");
         if ($plan['drift']) {
             WP_CLI::warning('environment drift detected — capture-first workflow recommended');

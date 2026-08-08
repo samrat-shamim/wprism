@@ -252,6 +252,7 @@ final class RollbackControl {
                 'checkpoint_sha256' => (string) $receipt['checkpoint_sha256'],
                 'encryption_key_id' => (string) $receipt['encryption_key_id'],
                 'exclusion_token_sha256' => (string) $receipt['exclusion_token_sha256'],
+                'lifecycle_receipts_sha256' => (string) $receipt['lifecycle_receipts_sha256'],
                 'format' => self::TARGET_FORMAT,
                 'generation' => (int) $target['generation'],
                 'head_event_sha256' => (string) $target['head_event_sha256'],
@@ -345,6 +346,9 @@ final class RollbackControl {
             }
             if (UploadBundle::configured($root)) {
                 UploadBundle::assertClaimUploadBundle($root, $receipt, $event);
+            }
+            if (EffectBundle::configured($root)) {
+                EffectBundle::assertClaimEffectBundle($root, $receipt, $event);
             }
         }
 
@@ -650,6 +654,7 @@ final class RollbackControl {
                 : null,
             'encryption_key_id' => (string) $verified['receipt']['encryption_key_id'],
             'exclusion_token_sha256' => (string) $verified['receipt']['exclusion_token_sha256'],
+            'lifecycle_receipts_sha256' => (string) $verified['receipt']['lifecycle_receipts_sha256'],
             'format' => self::TARGET_FORMAT,
             'generation' => (int) $target['generation'],
             'head_event_sha256' => (string) $target['head_event_sha256'],
@@ -1099,6 +1104,7 @@ function rollback_control_main(array $argv): int {
             'checkpoint-request' => CheckpointBundle::handleRequest($root, (string) ($args['request'] ?? '')),
             'code-release-request' => CodeRelease::handleRequest($root, (string) ($args['request'] ?? '')),
             'upload-bundle-request' => UploadBundle::handleRequest($root, (string) ($args['request'] ?? '')),
+            'effect-bundle-request' => EffectBundle::handleRequest($root, (string) ($args['request'] ?? '')),
             'execute' => RecoveryExecutor::execute(
                 $root,
                 (string) ($args['adapter'] ?? ''),
@@ -1124,6 +1130,7 @@ require_once __DIR__ . '/RecoveryExecutor.php';
 require_once __DIR__ . '/CheckpointBundle.php';
 require_once __DIR__ . '/CodeRelease.php';
 require_once __DIR__ . '/UploadBundle.php';
+require_once __DIR__ . '/EffectBundle.php';
 
 if (isset($_SERVER['SCRIPT_FILENAME']) && realpath((string) $_SERVER['SCRIPT_FILENAME']) === __FILE__) {
     exit(rollback_control_main($argv));

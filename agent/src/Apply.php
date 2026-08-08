@@ -121,6 +121,7 @@ final class Apply {
             // receipts; this list itself never claims that an undeclared
             // derivative is safe.
             'uploads_inventory' => $compiled->uploads_inventory(),
+            'effects_inventory' => $compiled->effects_inventory(),
         ];
         $collisionCache = [];
         foreach ($tree as $uuid => $e) {
@@ -1521,7 +1522,7 @@ final class Apply {
             'create', 'update', 'unchanged', 'drift', 'conflict', 'adopt',
             'collision', 'delete', 'delete_conflict', 'deleted',
             'code_mismatch', 'code_drift', 'incomplete_apply', 'regen_pending',
-            'missing_user', 'skipped_user_meta', 'uploads_inventory',
+            'missing_user', 'skipped_user_meta', 'uploads_inventory', 'effects_inventory',
         ];
         $basis = [];
         foreach ($keys as $key) {

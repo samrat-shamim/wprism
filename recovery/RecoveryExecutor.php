@@ -104,6 +104,9 @@ final class RecoveryExecutor {
         if (array_key_exists('upload_provider', $config)) {
             $result['uploads'] = UploadBundle::probe($root);
         }
+        if (array_key_exists('effect_provider', $config)) {
+            $result['effects'] = EffectBundle::probe($root);
+        }
         return $result;
     }
 
@@ -131,6 +134,12 @@ final class RecoveryExecutor {
             } else {
                 $ready['automatic_upload_rollback'] = false;
                 $ready['upload_recovery'] = 'manual';
+            }
+            if (array_key_exists('effect_provider', self::config($root))) {
+                $ready['automatic_effect_rollback'] = true;
+            } else {
+                $ready['automatic_effect_rollback'] = false;
+                $ready['effect_recovery'] = 'manual';
             }
             return $ready;
         }
@@ -204,6 +213,25 @@ final class RecoveryExecutor {
         } else {
             $decorated['automatic_upload_rollback'] = false;
             $decorated['upload_recovery'] = 'manual';
+        }
+        if (array_key_exists('effect_provider', self::config($root))) {
+            $hasBoundEffects = empty($status['active'])
+                || is_string($status['lifecycle_receipts_sha256'] ?? null);
+            $decorated['automatic_effect_rollback'] = $hasBoundEffects;
+            if (!empty($status['active']) && $hasBoundEffects) {
+                $decorated['effects'] = EffectBundle::statusEvidence($root, (string) $status['receipt_id']);
+                if (!hash_equals(
+                    (string) $status['lifecycle_receipts_sha256'],
+                    (string) $decorated['effects']['metadata_sha256']
+                )) {
+                    throw new \RuntimeException('duo recovery: active receipt effect metadata hash does not match target evidence');
+                }
+            } elseif (!empty($status['active'])) {
+                $decorated['effect_recovery'] = 'manual';
+            }
+        } else {
+            $decorated['automatic_effect_rollback'] = false;
+            $decorated['effect_recovery'] = 'manual';
         }
         return $decorated;
     }
@@ -298,6 +326,9 @@ final class RecoveryExecutor {
         if (array_key_exists('upload_provider', $config)) {
             $allowed[] = 'storage_apply';
         }
+        if (array_key_exists('effect_provider', $config)) {
+            $allowed[] = 'effects_inverse';
+        }
         if (!in_array($adapter, $allowed, true) || $operationId !== $adapter) {
             throw new \RuntimeException('duo recovery: executor accepts only the exact configured adapter operation id');
         }
@@ -367,6 +398,17 @@ final class RecoveryExecutor {
                 'input_sha256' => $inputHash,
                 'ok' => true,
                 'result_sha256' => $uploads['result_sha256'],
+            ];
+        }
+        if (array_key_exists('effect_provider', $config) && $adapter === 'effects_inverse') {
+            $effects = EffectBundle::execute($root, $adapter, $inputPath, $inputHash, $status);
+            return [
+                'adapter' => $adapter,
+                'adapter_version' => $effects['adapter_version'],
+                'format' => self::ADAPTER_RESPONSE_FORMAT,
+                'input_sha256' => $inputHash,
+                'ok' => true,
+                'result_sha256' => $effects['result_sha256'],
             ];
         }
         $result = self::callAdapter($config, $adapter, [
@@ -604,7 +646,7 @@ final class RecoveryExecutor {
         $keys = array_keys($config);
         sort($keys, SORT_STRING);
         $expected = ['adapters', 'exclusion_provider', 'format', 'timeout_seconds'];
-        foreach (['checkpoint_provider', 'code_release_provider', 'upload_provider'] as $optional) {
+        foreach (['checkpoint_provider', 'code_release_provider', 'upload_provider', 'effect_provider'] as $optional) {
             if (array_key_exists($optional, $config)) {
                 $expected[] = $optional;
             }
@@ -625,6 +667,9 @@ final class RecoveryExecutor {
         }
         if (array_key_exists('upload_provider', $config)) {
             self::validateCommand($config['upload_provider'], 'upload provider');
+        }
+        if (array_key_exists('effect_provider', $config)) {
+            self::validateCommand($config['effect_provider'], 'effect provider');
         }
         if (!is_array($config['adapters'] ?? null) || array_is_list($config['adapters'])) {
             throw new \RuntimeException('duo recovery: adapters must be an object');

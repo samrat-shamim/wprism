@@ -216,6 +216,13 @@ $mismatchedUploads['artifact_hash'] = hash('sha256', Canon::encode($mismatchedUp
 put("$tmp/mismatched-uploads.json", Canon::encode($mismatchedUploads));
 try { RepositoryCompiler::read_artifact("$tmp/mismatched-uploads.json", Policy::load($a)); fail('self-hashed artifact with a foreign upload inventory was accepted'); }
 catch (RepositoryCompilationException $e) { needs($e->payload(), 'compiled_artifact_invalid'); }
+$mismatchedEffects = $one->export();
+$mismatchedEffects['effects_inventory'][0]['effect']['selector']['value'] = 'foreign-runtime-effect';
+unset($mismatchedEffects['artifact_hash']);
+$mismatchedEffects['artifact_hash'] = hash('sha256', Canon::encode($mismatchedEffects));
+put("$tmp/mismatched-effects.json", Canon::encode($mismatchedEffects));
+try { RepositoryCompiler::read_artifact("$tmp/mismatched-effects.json", Policy::load($a)); fail('self-hashed artifact with a foreign effect inventory was accepted'); }
+catch (RepositoryCompilationException $e) { needs($e->payload(), 'compiled_artifact_invalid'); }
 $siteBytes = file_get_contents("$a/site.duo.json");
 $site = Canon::decode($siteBytes);
 $site['policy']['options']['blogname'] = ['class'=>'runtime'];

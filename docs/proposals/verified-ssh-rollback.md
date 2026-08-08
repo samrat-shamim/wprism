@@ -1,12 +1,14 @@
 # Verified rollback for production SSH promotion
 
 > **Design ruling (DUO-3291, 2026-08-08; authority foundation DUO-3293,
-> checkpoint DUO-3295, code release DUO-3296).**
+> checkpoint DUO-3295, code release DUO-3296, uploads DUO-3297, effect
+> contracts DUO-3298).**
 > The protected target identity, never-reused generation fence, immutable
 > signed receipt, signed event hash chain, claimant takeover, status evidence,
 > SSH adoption wiring, encrypted checkpoint executor, and immutable atomic
-> code-release executor described below are implemented. Storage, lifecycle,
-> and end-to-end promotion integration are not. Current promotion
+> code-release executor, upload journal, and lifecycle/rebuilder effect bundle
+> described below are implemented. End-to-end promotion integration is not.
+> Current promotion
 > therefore remains operator-directed as specified in `spec/repo-format.md`;
 > a successful database import is not a verified rollback.
 
@@ -425,11 +427,13 @@ whose acceptance can be certified independently:
    database slice and does not broaden the integrated automatic-rollback claim.
 5. **DUO-3297 — Upload/filesystem mutation journal** — local and offload before-images,
    created-path receipts, attachment derivative inventory, safe restore, and
-   undeclared-path refusal.
+   undeclared-path refusal. Implemented by
+   [`../upload-bundle.md`](../upload-bundle.md).
 6. **DUO-3298 — Reversibility grammar and adapter preflight** — lifecycle, migrations,
    rebuilders, derived stores, schedules, queues, caches, mail/HTTP, and other
    external effects classified as restorable/reversible/prevented/irreversible;
-   unsupported effects block before code stage.
+   unsupported effects block before code stage. Implemented by
+   [`../effect-bundle.md`](../effect-bundle.md).
 7. **DUO-3299 — Crash-injection certification and signed evidence** — boundary injection,
    operator takeover, SSH loss, tamper cases, new/prior fresh-process verifiers,
    and a machine-readable certification bundle.
