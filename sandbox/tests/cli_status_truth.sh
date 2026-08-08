@@ -118,8 +118,8 @@ assert_exit 0 "duo capture ${PAIR}1" -- "$DUO" capture "${PAIR}1"
 
 say "(a) clean environment: duo status exits 0"
 assert_exit 0 "duo status ${PAIR}1 (clean)" -- "$DUO" status "${PAIR}1"
-echo "$OUT" | grep -q '0 code_mismatch' || fail "expected '0 code_mismatch' in a clean plan summary"
-echo "$OUT" | grep -q ', 0 conflict, 0 collision,' || fail "expected 0 conflict, 0 collision in a clean plan summary"
+grep -q '0 code_mismatch' <<<"$OUT" || fail "expected '0 code_mismatch' in a clean plan summary"
+grep -q ', 0 conflict, 0 collision,' <<<"$OUT" || fail "expected 0 conflict, 0 collision in a clean plan summary"
 pass "clean plan summary, 0 code_mismatch"
 
 say "(b) inject code_mismatch: declare a plugin active in state/options/core.json that doesn't exist in this environment's code"
@@ -129,15 +129,15 @@ jq '.records.active_plugins.value = ["fake-plugin/fake-plugin.php"]' "$CORE_JSON
 pass "state/options/core.json: active_plugins now declares fake-plugin/fake-plugin.php"
 
 assert_exit 1 "duo status ${PAIR}1 (code_mismatch)" -- "$DUO" status "${PAIR}1"
-echo "$OUT" | grep -q 'fake-plugin/fake-plugin.php' || fail "duo status did not name the missing plugin"
-echo "$OUT" | grep -qi 'CODE_MISMATCH' || fail "duo status did not surface a CODE_MISMATCH block"
-echo "$OUT" | grep -q ', 1 code_mismatch' || fail "duo status did not count 1 code_mismatch"
+grep -q 'fake-plugin/fake-plugin.php' <<<"$OUT" || fail "duo status did not name the missing plugin"
+grep -qi 'CODE_MISMATCH' <<<"$OUT" || fail "duo status did not surface a CODE_MISMATCH block"
+grep -q ', 1 code_mismatch' <<<"$OUT" || fail "duo status did not count 1 code_mismatch"
 pass "duo status exits non-zero and names the missing plugin"
 
 say "revert the code_mismatch injection; confirm code_mismatch clears"
 jq '.records.active_plugins.value = []' "$CORE_JSON" > "$CORE_JSON.tmp" && mv "$CORE_JSON.tmp" "$CORE_JSON"
 assert_exit 0 "duo status ${PAIR}1 (reverted)" -- "$DUO" status "${PAIR}1"
-echo "$OUT" | grep -q '0 code_mismatch' || fail "expected 0 code_mismatch after reverting the injected plugin"
+grep -q '0 code_mismatch' <<<"$OUT" || fail "expected 0 code_mismatch after reverting the injected plugin"
 pass "code_mismatch clears after reverting; exit 0 again"
 
 say "(c) create drift: edit a post directly on the environment, bypassing the repo entirely"
@@ -147,8 +147,8 @@ POST_ID=$("${PAIR_COMPOSE[@]}" run --rm -T cli1 wp post list --post_type=post --
 pass "post #$POST_ID title changed directly on the environment (repo's captured file untouched)"
 
 assert_exit 1 "duo status ${PAIR}1 (drift)" -- "$DUO" status "${PAIR}1"
-echo "$OUT" | grep -q ', 1 drift,' || fail "duo status did not count 1 drift"
-echo "$OUT" | grep -qi 'capture-first' || fail "duo status did not render the capture-first hint"
+grep -q ', 1 drift,' <<<"$OUT" || fail "duo status did not count 1 drift"
+grep -qi 'capture-first' <<<"$OUT" || fail "duo status did not render the capture-first hint"
 pass "duo status exits non-zero with the capture-first hint on drift"
 
 say "(d) malformed JSON from the agent still fails duo status (regression check -- isolated, no docker/live env needed)"
@@ -180,7 +180,7 @@ if OUT=$(PATH="$FAKEBIN:$PATH" "$DUO" --envs-file="$FAKE_ENVS" status malformed 
 echo "$OUT"
 rm -rf "$FAKEBIN"
 [ "$CODE" -ne 0 ] || fail "duo status malformed: expected non-zero exit on malformed JSON, got 0"
-echo "$OUT" | grep -qi 'could not parse plan JSON' || fail "expected the malformed-JSON error message"
+grep -qi 'could not parse plan JSON' <<<"$OUT" || fail "expected the malformed-JSON error message"
 pass "malformed JSON from the agent still fails duo status (exit $CODE)"
 
 printf '\n\033[1;32m✔ CLI STATUS TRUTH PASSED\033[0m\n'
