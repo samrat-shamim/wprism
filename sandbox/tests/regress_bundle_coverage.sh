@@ -90,6 +90,25 @@ code_half_line = target_prereq_line("code-half-unit") or ""
 code_half_direct = [t for t in re.split(r'\s+', code_half_line.strip()) if t]
 offline_all_transitive = (set(offline_all_direct) | set(code_half_direct)) - {"code-half-unit"}
 
+# Keep the human-facing close-gate status truthful.  The bundle is a plain
+# prerequisite list, with code-half-unit's prerequisites folded in once; the
+# exact same set is what `make -n regress-offline-all` executes.  A stale echo
+# is operationally misleading even when every recipe still runs, so treat it
+# as a coverage failure and exercise that failure in the self-test below.
+count_matches = re.findall(
+    r'regress-offline-all:\s+(\d+)\s+offline suites green',
+    open(makefile, encoding='utf-8').read(),
+)
+if len(count_matches) != 1:
+    sys.exit("Makefile must contain exactly one numeric regress-offline-all status count")
+declared_count = int(count_matches[0])
+actual_count = len(offline_all_transitive)
+if declared_count != actual_count:
+    sys.exit(
+        f"regress-offline-all reports {declared_count} suites but its prerequisite graph contains "
+        f"{actual_count} unique offline suites"
+    )
+
 live_names = set()
 try:
     start = next(i for i, l in enumerate(mk_lines) if l.startswith("regress-live-list:"))
@@ -122,17 +141,41 @@ cat > "$TMP/tests/regress_synthetic_unwired_probe.sh" <<'EOF'
 # Synthetic fixture for regress_bundle_coverage.sh's own self-test only --
 # deliberately never wired into regress-offline-all or regress-live-list.
 EOF
-if check_coverage "$TMP/tests" "$TMP/Makefile" 2>/tmp/coverage_selftest.log; then
+if check_coverage "$TMP/tests" "$TMP/Makefile" 2>"$TMP/coverage-selftest.log"; then
   fail "self-test failed: a synthetic suite with no bundle/live-list entry was NOT flagged -- this check's own detection logic is broken, do not trust the real-repo result below"
 fi
-grep -q "regress_synthetic_unwired_probe.sh" /tmp/coverage_selftest.log \
+grep -q "regress_synthetic_unwired_probe.sh" "$TMP/coverage-selftest.log" \
   || fail "self-test failed: check_coverage exited non-zero but did not name the synthetic file it should have flagged"
 pass "self-test: synthetic unwired suite correctly flagged as a gap"
 
+say "self-test: a stale offline-suite count must be rejected"
+BAD_COUNT_MAKEFILE="$TMP/Makefile.bad-count"
+read -r BAD_COUNT ACTUAL_COUNT < <(python3 - "$TMP/Makefile" "$BAD_COUNT_MAKEFILE" <<'PYEOF'
+import re, sys
+
+source, destination = sys.argv[1], sys.argv[2]
+text = open(source, encoding='utf-8').read()
+match = re.search(r'(regress-offline-all:\s+)(\d+)(\s+offline suites green)', text)
+if not match:
+    raise SystemExit('could not locate the Makefile offline-suite status line')
+declared = int(match.group(2))
+bad = declared - 1 if declared > 0 else declared + 1
+text = text[:match.start(2)] + str(bad) + text[match.end(2):]
+open(destination, 'w', encoding='utf-8').write(text)
+print(bad, declared)
+PYEOF
+)
+if check_coverage "$TMP/tests" "$BAD_COUNT_MAKEFILE" 2>"$TMP/coverage-selftest-bad-count.log"; then
+  fail "self-test failed: stale regress-offline-all count was accepted"
+fi
+grep -q "reports ${BAD_COUNT} suites.*contains ${ACTUAL_COUNT} unique offline suites" "$TMP/coverage-selftest-bad-count.log" \
+  || fail "self-test failed: stale-count refusal did not report the declared and actual counts"
+pass "self-test: stale offline-suite count correctly rejected"
+
 say "self-test: the same synthetic tree WITHOUT the extra file must be clean (no false positives from the harness itself)"
 rm -f "$TMP/tests/regress_synthetic_unwired_probe.sh"
-if ! check_coverage "$TMP/tests" "$TMP/Makefile" 2>/tmp/coverage_selftest_clean.log; then
-  fail "self-test failed: the unmodified regress-suite tree (minus the synthetic probe) reported a gap that shouldn't exist -- see /tmp/coverage_selftest_clean.log. This means either a REAL gap exists in the current repo (in which case the real check below will also correctly fail, which is fine) or this check's own logic has a false-positive bug (needs investigation either way, but don't blame the self-test)."
+if ! check_coverage "$TMP/tests" "$TMP/Makefile" 2>"$TMP/coverage-selftest-clean.log"; then
+  fail "self-test failed: the unmodified regress-suite tree (minus the synthetic probe) reported a gap that shouldn't exist -- see $TMP/coverage-selftest-clean.log. This means either a REAL gap exists in the current repo (in which case the real check below will also correctly fail, which is fine) or this check's own logic has a false-positive bug (needs investigation either way, but don't blame the self-test)."
 fi
 pass "self-test: an unmodified suite tree with a copied Makefile reports no gaps via this check's own logic"
 

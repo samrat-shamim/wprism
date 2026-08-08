@@ -38,9 +38,10 @@
 #   can't cross compose-project boundaries, which is exactly why this
 #   script's own readiness waits exist instead.
 #
-# - `up` warns (does not block) once more than 2 pairs are up at a time —
-#   three concurrent stacks is what wedged the OrbStack daemon this
-#   session. `list` surfaces the same warning for pairs already up.
+# - `up` performs the host-budget check before creating any pair database or
+#   site-repo state. A new pair over the dynamic CPU/RAM budget is refused;
+#   `DUO_PAIR_BUDGET_OVERRIDE=1` is the explicit escape hatch. `list` surfaces
+#   the same budget warning for pairs already up.
 set -euo pipefail
 cd "$(dirname "$0")/.."   # sandbox/bin/pair.sh -> sandbox/
 
@@ -73,7 +74,7 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 canonical_root() {
   local common_dir
   common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
-    || fail "could not resolve this repo's canonical checkout via git (not a git repository?) -- DUO_AGENT_SRC/DUO_MANIFESTS_SRC cannot be computed"
+    || return 1
   dirname "$common_dir"
 }
 
@@ -113,6 +114,19 @@ DB_ROOT_PASS=root
 APP_USER=wordpress
 APP_PASS=wordpress
 DB_COMPOSE=(docker compose -p duo-db -f db.yml)
+
+# Host/worktree-shared budget state.  Git linked worktrees resolve to the same
+# canonical root, so this descriptor serializes the live-pair query and the
+# first container creation across every checkout.  flock releases it when an
+# owner crashes; the lock file is never removed by a release path.
+PAIR_CANONICAL_ROOT=""
+PAIR_BUDGET_LOCK_FD=""
+PAIR_BUDGET_LOCK_MODE=""
+PAIR_BUDGET_LOCK_HELPER_PID=""
+PAIR_BUDGET_LOCK_HELPER_READ_FD=""
+PAIR_BUDGET_LOCK_HELPER_WRITE_FD=""
+PAIR_BUDGET_LOCK_HELPER_DIR=""
+PAIR_BUDGET_LIVE_PAIRS=""
 
 validate_name() { # validate_name <name>
   # Used bare both as a MySQL identifier fragment (wp_<name>1/2) and as a
@@ -198,7 +212,14 @@ pair_compose() { # pair_compose <name> [overlay-file ...]
   # Exported HERE, the one place every subcommand already funnels through,
   # rather than duplicated at each call site (caught live: the first
   # version of this fix only set them in cmd_up and `stop` broke instantly).
-  export DUO_AGENT_SRC="$(canonical_root)/agent" DUO_MANIFESTS_SRC="$(canonical_root)/manifests"
+  local root="${PAIR_CANONICAL_ROOT:-}"
+  if [ -z "$root" ]; then
+    if ! root="$(canonical_root)"; then
+      fail "could not resolve this repo's canonical checkout via git (not a git repository?) -- DUO_AGENT_SRC/DUO_MANIFESTS_SRC cannot be computed"
+    fi
+    PAIR_CANONICAL_ROOT="$root"
+  fi
+  export DUO_AGENT_SRC="$root/agent" DUO_MANIFESTS_SRC="$root/manifests"
 
   # DUO-3277 (CI caught this the first version above missed): that export
   # only reaches pair.sh's OWN "${PAIR_COMPOSE[@]}" calls -- it dies with
@@ -250,11 +271,54 @@ live_pairs() { # live_pairs — one live pair name per line
   # project-name pattern: the legacy sandbox/docker-compose.yml's own
   # project is literally named "duo-sandbox", which — being lowercase
   # letters only — would otherwise pass right through a naming-convention
-  # filter and get miscounted as one of this redesign's own pairs.
-  docker compose ls --format json 2>/dev/null \
-    | jq -r '.[] | select(.ConfigFiles | test("/pair\\.yml(,|$)")) | .Name' 2>/dev/null \
-    | grep '^duo-' \
-    | sed 's/^duo-//' || true
+  # filter and get miscounted as one of this redesign's own pairs.  Every
+  # command in this query is checked: unavailable Docker, malformed JSON, or
+  # unavailable jq is a refusal condition, never an empty list.
+  local json
+  json="$(docker compose ls --format json 2>/dev/null)" || return 1
+  [ -n "$json" ] || return 1
+  printf '%s\n' "$json" | jq -r '
+    if type != "array" then error("compose ls did not return an array")
+    else .[]
+      | select((.ConfigFiles // "") | type == "string")
+      | select((.ConfigFiles // "") | test("/pair\\.yml(,|$)"))
+      | select((.Name // "") | type == "string")
+      | select((.Name // "") | startswith("duo-"))
+      | .Name[4:]
+    end
+  '
+}
+
+wait_pair_visible() { # wait_pair_visible <name>
+  local name="$1" live
+  for _ in $(seq 1 60); do
+    if ! live="$(live_pairs)"; then
+      fail "could not verify pair '$name' became live after compose start"
+    fi
+    if printf '%s\n' "$live" | grep -Fqx -- "$name"; then
+      return 0
+    fi
+    sleep 1
+  done
+  fail "pair '$name' did not become visible in Compose after start"
+}
+
+stopped_pairs() { # stopped_pairs — one stopped pair name per line
+  local json
+  json="$(docker compose ls -a --format json 2>/dev/null)" || return 1
+  [ -n "$json" ] || return 1
+  printf '%s\n' "$json" | jq -r '
+    if type != "array" then error("compose ls did not return an array")
+    else .[]
+      | select((.ConfigFiles // "") | type == "string")
+      | select((.ConfigFiles // "") | test("/pair\\.yml(,|$)"))
+      | select((.Status // "") | type == "string")
+      | select((.Status // "") | contains("running") | not)
+      | select((.Name // "") | type == "string")
+      | select((.Name // "") | startswith("duo-"))
+      | .Name[4:]
+    end
+  '
 }
 
 pair_budget() {
@@ -271,35 +335,293 @@ pair_budget() {
   #     also cap at (docker mem - 3GiB reserve for the db's 2GiB cap +
   #     overhead) / 2GiB per pair, and take the smaller of the two budgets.
   # Floor of 1: a tiny VM still gets one pair (nothing works otherwise).
-  local cores mem_gib cpu_budget ram_budget budget
-  cores=$(docker info -f '{{.NCPU}}' 2>/dev/null || echo 4)
-  mem_gib=$(( $(docker info -f '{{.MemTotal}}' 2>/dev/null || echo 8589934592) / 1073741824 ))
+  local cores mem_bytes mem_gib cpu_budget ram_budget budget
+  cores="$(docker info -f '{{.NCPU}}' 2>/dev/null)" || return 1
+  mem_bytes="$(docker info -f '{{.MemTotal}}' 2>/dev/null)" || return 1
+  [[ "$cores" =~ ^[0-9]+$ ]] || return 1
+  [[ "$mem_bytes" =~ ^[0-9]+$ ]] || return 1
+  [ "$cores" -ge 1 ] || return 1
+  [ "$mem_bytes" -ge 1 ] || return 1
+  mem_gib=$(( mem_bytes / 1073741824 ))
   cpu_budget=$(( cores - 2 ))
   ram_budget=$(( (mem_gib - 3) / 2 ))
   budget=$(( cpu_budget < ram_budget ? cpu_budget : ram_budget ))
   [ "$budget" -lt 1 ] && budget=1
-  echo "$budget"
+  printf '%s\n' "$budget"
 }
 
-warn_if_crowded() { # warn_if_crowded [name-not-yet-counted-in-live_pairs]
-  # Loud-and-blocking, with the project's standard named escape hatch: at
-  # or over budget, `up` for a NEW pair refuses (an already-live pair may
-  # always re-up/converge — refusing that would break every re-entrant
-  # script). DUO_PAIR_BUDGET_OVERRIDE=1 proceeds while still reporting
-  # exactly what it overrode — report-not-hide, never silent.
-  local candidate="${1:-}" names total budget
-  names=$(printf '%s\n%s\n' "$(live_pairs)" "$candidate" | grep -v '^$' | sort -u || true)
-  total=$(printf '%s\n' "$names" | grep -c . || true)
-  budget=$(pair_budget)
+# Acquire the one host/worktree-shared budget lock. A self-monitoring helper
+# owns an acquired descriptor, so Docker/sleep descendants of this shell
+# cannot retain a reservation after the shell is killed. Linux's `flock`
+# utility is preferred; macOS/BSD hosts use the documented Python `fcntl.flock`
+# helper, whose control FIFO also closes on an owner crash.
+budget_lock_acquire() { # budget_lock_acquire <canonical-root>
+  local root="$1" lock_path="$1/sandbox/siterepo/.pair-budget.lock"
+  mkdir -p -- "${root}/sandbox/siterepo" \
+    || fail "could not create the shared pair-budget lock directory: ${root}/sandbox/siterepo"
+  if command -v flock >/dev/null 2>&1; then
+    local helper_dir ready_path cancel_path parent_pid parent_start helper_ready=0
+    helper_dir="$(mktemp -d "${root}/sandbox/siterepo/.pair-budget-helper.XXXXXX")" \
+      || fail "could not create the flock pair-budget helper directory"
+    ready_path="$helper_dir/ready"
+    cancel_path="$helper_dir/cancel"
+    parent_pid="$$"
+    parent_start="$(awk '{print $22}' "/proc/$parent_pid/stat" 2>/dev/null || true)"
+    PAIR_BUDGET_LOCK_MODE=flock
+    PAIR_BUDGET_LOCK_FD=""
+    PAIR_BUDGET_LOCK_HELPER_DIR="$helper_dir"
+    # The helper retries nonblocking probes. Once one succeeds, the command
+    # passed to flock owns the descriptor and waits on the unique cancel
+    # marker while checking this shell's PID and Linux start time. A recycled
+    # PID therefore cannot make an old helper act on a newer process.
+    (
+      parent_alive() {
+        if [ -n "$parent_start" ]; then
+          [ -r "/proc/$parent_pid/stat" ] || return 1
+          [ "$(awk '{print $3}' "/proc/$parent_pid/stat" 2>/dev/null || true)" != Z ] || return 1
+          [ "$(awk '{print $22}' "/proc/$parent_pid/stat" 2>/dev/null || true)" = "$parent_start" ]
+        else
+          kill -0 "$parent_pid" 2>/dev/null
+        fi
+      }
+      trap 'rm -f -- "$ready_path" "$cancel_path" 2>/dev/null || true; rmdir -- "$helper_dir" 2>/dev/null || true' EXIT
+      while parent_alive && [ ! -e "$cancel_path" ]; do
+        if flock -n "$lock_path" bash -c '
+lock_ready="$1" lock_cancel="$2" lock_parent="$3" lock_start="$4"
+: > "$lock_ready"
+while [ ! -e "$lock_cancel" ]; do
+  if [ -n "$lock_start" ]; then
+    if [ ! -r "/proc/$lock_parent/stat" ]; then
+      exit 0
+    fi
+    [ "$(cut -d" " -f3 "/proc/$lock_parent/stat" 2>/dev/null || true)" != Z ] || exit 0
+    [ "$(cut -d" " -f22 "/proc/$lock_parent/stat" 2>/dev/null || true)" = "$lock_start" ] || exit 0
+  elif ! kill -0 "$lock_parent" 2>/dev/null; then
+    exit 0
+  fi
+  sleep 0.05
+done
+' _ "$ready_path" "$cancel_path" "$parent_pid" "$parent_start"; then
+          break
+        fi
+        parent_alive || break
+        [ -e "$cancel_path" ] && break
+        sleep 0.05
+      done
+    ) &
+    PAIR_BUDGET_LOCK_HELPER_PID="$!"
+    while [ ! -f "$ready_path" ]; do
+      if ! kill -0 "$PAIR_BUDGET_LOCK_HELPER_PID" 2>/dev/null; then
+        break
+      fi
+      sleep 0.01
+    done
+    [ -f "$ready_path" ] && helper_ready=1
+    if [ "$helper_ready" -ne 1 ]; then
+      budget_lock_release
+      fail "could not acquire the shared pair-budget lock with flock: $lock_path"
+    fi
+    return 0
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    # The helper owns the file descriptor and blocks on a unique FIFO. The
+    # parent writes a cancellation byte then closes its writer on release
+    # (and implicitly closes it on a crash), while the helper also checks its
+    # direct parent's identity so it cannot leave a stale lock behind while
+    # waiting for a writer.
+    local helper_dir control_path ready_path helper_ready=0
+    helper_dir="$(mktemp -d "${root}/sandbox/siterepo/.pair-budget-helper.XXXXXX")" \
+      || fail "could not create the Python pair-budget helper directory"
+    control_path="$helper_dir/control"
+    ready_path="$helper_dir/ready"
+    if ! mkfifo "$control_path"; then
+      rmdir "$helper_dir" 2>/dev/null || true
+      fail "could not create the Python pair-budget control FIFO"
+    fi
+    PAIR_BUDGET_LOCK_MODE=python
+    PAIR_BUDGET_LOCK_HELPER_DIR="$helper_dir"
+    PAIR_BUDGET_LOCK_HELPER_WRITE_FD=8
+    # Open both ends before the helper starts. A parent-held RDWR descriptor
+    # prevents an O_NONBLOCK reader from seeing EOF during the handshake.
+    if ! exec 8<>"$control_path"; then
+      rmdir "$helper_dir" 2>/dev/null || true
+      PAIR_BUDGET_LOCK_MODE=""
+      PAIR_BUDGET_LOCK_HELPER_DIR=""
+      PAIR_BUDGET_LOCK_HELPER_WRITE_FD=""
+      fail "could not open the Python pair-budget control FIFO"
+    fi
+    python3 -c '
+import fcntl, os, select, sys
+lock_path, control_path, ready_path, parent_pid = sys.argv[1:]
+parent_pid = int(parent_pid)
+
+def parent_alive():
+    if os.getppid() != parent_pid:
+        return False
+    try:
+        with open("/proc/%d/stat" % parent_pid) as proc:
+            state = proc.read().rsplit(")", 1)[1].split()[0]
+        return state != "Z"
+    except OSError:
+        return True
+try:
+    os.close(8)
+except OSError:
+    pass
+control_fd = None
+try:
+    control_fd = os.open(control_path, os.O_RDONLY | os.O_NONBLOCK)
+    with open(lock_path, "a+") as lock:
+        while True:
+            if not parent_alive():
+                raise SystemExit(0)
+            readable, _, _ = select.select([control_fd], [], [], 0.05)
+            if readable:
+                os.read(control_fd, 1)
+                raise SystemExit(0)
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                continue
+        with open(ready_path, "w") as ready:
+            ready.write("ready\n")
+            ready.flush()
+        while parent_alive():
+            readable, _, _ = select.select([control_fd], [], [], 0.25)
+            if readable:
+                os.read(control_fd, 1)
+                break
+finally:
+    if control_fd is not None:
+        os.close(control_fd)
+    for path in (control_path, ready_path):
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+    try:
+        os.rmdir(os.path.dirname(control_path))
+    except OSError:
+        pass
+' "$lock_path" "$control_path" "$ready_path" "$$" &
+    PAIR_BUDGET_LOCK_HELPER_PID="$!"
+    while [ ! -f "$ready_path" ]; do
+      if ! kill -0 "$PAIR_BUDGET_LOCK_HELPER_PID" 2>/dev/null; then
+        break
+      fi
+      sleep 0.01
+    done
+    [ -f "$ready_path" ] && helper_ready=1
+    if [ "$helper_ready" -ne 1 ]; then
+      budget_lock_release
+      fail "could not acquire the shared pair-budget lock with Python fcntl: $lock_path"
+    fi
+    return 0
+  fi
+
+  fail "pair budget reservation requires flock or python3/fcntl; refusing without a crash-safe cross-worktree lock"
+}
+
+budget_lock_release() {
+  local fd="${PAIR_BUDGET_LOCK_FD:-}" read_fd="${PAIR_BUDGET_LOCK_HELPER_READ_FD:-}"
+  local write_fd="${PAIR_BUDGET_LOCK_HELPER_WRITE_FD:-}" helper_pid="${PAIR_BUDGET_LOCK_HELPER_PID:-}"
+  local helper_dir="${PAIR_BUDGET_LOCK_HELPER_DIR:-}"
+  case "${PAIR_BUDGET_LOCK_MODE:-}" in
+    flock)
+      # The helper, not this shell, owns the acquired flock descriptor. A
+      # private cancel marker asks either its retry loop or its lock-holding
+      # monitor to exit; no PID/path belonging to another reservation is
+      # touched.
+      if [ -n "$helper_dir" ]; then
+        : > "$helper_dir/cancel" 2>/dev/null || true
+      fi
+      [ -n "$helper_pid" ] && wait "$helper_pid" 2>/dev/null || true
+      if [ -n "$helper_dir" ]; then
+        rm -f -- "$helper_dir/ready" "$helper_dir/cancel" 2>/dev/null || true
+        rmdir -- "$helper_dir" 2>/dev/null || true
+      fi
+      ;;
+    python)
+      # Closing only our own FIFO writer asks our own helper to exit; no
+      # pathname/PID belonging to another reservation is removed or killed.
+      if [ -n "$write_fd" ]; then
+        # Send an explicit cancellation byte before closing. A Docker/sleep
+        # child may have inherited the parent's FIFO writer, in which case
+        # EOF alone would never become readable by the helper.
+        printf 'x' >&"$write_fd" 2>/dev/null || true
+        eval "exec ${write_fd}>&-" 2>/dev/null || true
+      fi
+      [ -n "$helper_pid" ] && wait "$helper_pid" 2>/dev/null || true
+      [ -n "$read_fd" ] && eval "exec ${read_fd}<&-" 2>/dev/null || true
+      if [ -n "$helper_dir" ]; then
+        rm -f -- "$helper_dir/control" "$helper_dir/ready" 2>/dev/null || true
+        rmdir -- "$helper_dir" 2>/dev/null || true
+      fi
+      ;;
+  esac
+  PAIR_BUDGET_LOCK_FD=""
+  PAIR_BUDGET_LOCK_MODE=""
+  PAIR_BUDGET_LOCK_HELPER_PID=""
+  PAIR_BUDGET_LOCK_HELPER_READ_FD=""
+  PAIR_BUDGET_LOCK_HELPER_WRITE_FD=""
+  PAIR_BUDGET_LOCK_HELPER_DIR=""
+}
+
+budget_up_cleanup() {
+  local status=$?
+  trap - EXIT INT TERM
+  budget_lock_release
+  exit "$status"
+}
+
+arm_budget_up_cleanup() {
+  trap budget_up_cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+}
+
+disarm_budget_up_cleanup() {
+  trap - EXIT INT TERM
+  budget_lock_release
+}
+
+reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
+  local candidate="$1" root live budget live_count candidate_live=0 total
+  if ! root="$(canonical_root)"; then
+    fail "could not resolve this repo's canonical checkout via git (not a git repository?) -- pair budget reservation cannot be shared safely"
+  fi
+  PAIR_CANONICAL_ROOT="$root"
+  budget_lock_acquire "$root"
+
+  if ! live="$(live_pairs)"; then
+    budget_lock_release
+    fail "could not enumerate live pair Compose projects; refusing without a verified budget"
+  fi
+  PAIR_BUDGET_LIVE_PAIRS="$live"
+  if ! budget="$(pair_budget)"; then
+    budget_lock_release
+    fail "could not query Docker host capacity; refusing without a verified budget"
+  fi
+
+  live_count="$(printf '%s\n' "$live" | awk 'NF {n++} END {print n+0}')"
+  if [ -n "$candidate" ] && printf '%s\n' "$live" | grep -Fqx -- "$candidate"; then
+    candidate_live=1
+  fi
+  total="$live_count"
+  [ "$candidate_live" -eq 1 ] || total=$((total + 1))
+
   if [ "$total" -gt "$budget" ]; then
     warn ""
-    warn "!! ${total} running pairs (budget for this host: ${budget} — 1 docker core per pair, RAM-guarded; see pair_budget())"
-    warn "!! pairs: $(printf '%s' "$names" | tr '\n' ' ')"
+    warn "!! ${live_count} running pairs (budget for this host: ${budget} — 1 docker core per pair, RAM-guarded; see pair_budget())"
+    warn "!! pairs: $(printf '%s' "$live" | tr '\n' ' ')"
     warn "!! stop pairs you're not actively using (pair.sh stop <name>) or destroy finished ones"
-    if [ -n "$candidate" ] && ! live_pairs | grep -qx "$candidate"; then
+    if [ -n "$candidate" ] && [ "$candidate_live" -eq 0 ]; then
       if [ "${DUO_PAIR_BUDGET_OVERRIDE:-0}" = "1" ]; then
         warn "!! DUO_PAIR_BUDGET_OVERRIDE=1 set — bringing up '$candidate' ANYWAY, ${total}/${budget} over budget"
       else
+        budget_lock_release
         fail "refusing to bring up new pair '$candidate' over budget (${total} > ${budget}); stop/destroy another pair first, or set DUO_PAIR_BUDGET_OVERRIDE=1 to proceed anyway"
       fi
     fi
@@ -347,6 +669,31 @@ wait_db_ready() { # wait_db_ready <name> <side (1|2)>
   fail "env ${name}${side} never reached its database"
 }
 
+wait_web_mountpoints() { # wait_web_mountpoints <name>
+  # pair.yml mounts the shared wp-content tree and then mounts the Duo MU
+  # directory/file underneath that named volume. Starting cli1/cli2 in the
+  # same compose transaction races Docker's volume initialization: a CLI
+  # container can try to create the nested file mountpoint while the first
+  # web container is still populating the volume. The web services own that
+  # initialization; wait until both can see the nested mounts before asking
+  # Compose to create the CLI services.
+  local name="$1" side all_ready mount_check
+  mount_check='test -d /var/www/html/wp-content/mu-plugins/duo && test -f /var/www/html/wp-content/mu-plugins/duo-loader.php'
+  for _ in $(seq 1 60); do
+    all_ready=1
+    for side in 1 2; do
+      if ! "${PAIR_COMPOSE[@]}" exec -T "wp$side" sh -c "$mount_check" >/dev/null 2>&1; then
+        all_ready=0
+      fi
+    done
+    if [ "$all_ready" = 1 ]; then
+      return 0
+    fi
+    sleep 1
+  done
+  fail "env ${name} web containers never exposed the nested Duo MU mountpoints"
+}
+
 install_side() { # install_side <side (1|2)> <url> <title>
   local side="$1" url="$2" title="$3" cli="cli$1"
   if "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp core is-installed >/dev/null 2>&1; then
@@ -383,6 +730,25 @@ cmd_up() {
   done
   validate_name "$name"
 
+  # Reserve the host budget before touching the shared DB, creating pair
+  # schemas, or creating bind roots.  The reservation lock remains held
+  # through web/CLI creation so a concurrent `up` cannot observe the same
+  # pre-creation live-pair list and over-commit the host.
+  arm_budget_up_cleanup
+  reserve_pair_budget "$name"
+
+  # Resolve the canonical bind sources before any shared DB or pair-directory
+  # mutation. A copied/non-Git launcher must fail closed without leaving
+  # orphan schemas behind. pair_compose only builds argv and writes the
+  # canonical-source .env; it does not contact Docker or require the codebind
+  # source directories to exist yet.
+  local overlays=()
+  [ "$http_mode" = 1 ] && overlays+=(pair.http.yml)
+  [ "$journal" = 1 ] && overlays+=(pair.journal.yml)
+  [ -n "$codebind" ] && overlays+=(pair.codebind.yml)
+  export DUO_PAIR="$name" DUO_PORT1="$port1" DUO_PORT2="$port2" DUO_CODEBIND_PLUGIN="$codebind"
+  pair_compose "$name" "${overlays[@]}"
+
   say "shared infra: MariaDB (duo-db) + duo-shared network"
   ensure_db_up
   ensure_app_user
@@ -401,19 +767,10 @@ cmd_up() {
     # host-owned, before any container that mounts it is created.
     mkdir -p "siterepo/${name}1/code/wp-content/plugins/${codebind}" \
              "siterepo/${name}2/code/wp-content/plugins/${codebind}"
-    force_recreate=(--force-recreate wp1 wp2)
+    force_recreate=(--force-recreate)
   fi
 
-  warn_if_crowded "$name"
-
-  local overlays=()
-  [ "$http_mode" = 1 ] && overlays+=(pair.http.yml)
-  [ "$journal" = 1 ] && overlays+=(pair.journal.yml)
-  [ -n "$codebind" ] && overlays+=(pair.codebind.yml)
-  pair_compose "$name" "${overlays[@]}"   # also exports DUO_AGENT_SRC/DUO_MANIFESTS_SRC, see its own comment
-  export DUO_PAIR="$name" DUO_PORT1="$port1" DUO_PORT2="$port2" DUO_CODEBIND_PLUGIN="$codebind"
-
-  say "pair '$name': containers up"
+  say "pair '$name': web containers up"
   # DUO-3277: agent/manifests bind-mount sources always resolve against
   # the canonical checkout (see pair_compose()/canonical_root()), never
   # wherever this script itself was invoked from -- if that resolved
@@ -427,7 +784,18 @@ cmd_up() {
   if [ "$DUO_AGENT_SRC" != "$(pwd)/agent" ]; then
     echo "  (bind-mount source: $(dirname "$DUO_AGENT_SRC") -- this pair.sh copy is running from $(pwd))"
   fi
-  "${PAIR_COMPOSE[@]}" up -d "${force_recreate[@]}"
+  # Keep the codebind contract's force-recreate scoped to the web services,
+  # but never create CLI services until the web containers have established
+  # pair.yml's nested MU bind mountpoints inside their named volumes.
+  "${PAIR_COMPOSE[@]}" up -d "${force_recreate[@]}" wp1 wp2
+  wait_web_mountpoints "$name"
+  "${PAIR_COMPOSE[@]}" up -d cli1 cli2
+  # Once both web and CLI containers exist, the pair is visible to the next
+  # strict compose-list query. Release before the potentially long WP
+  # install/bootstrap phase; EXIT/signal cleanup still protects failures
+  # before this point.
+  disarm_budget_up_cleanup
+  pass "web mountpoints established; CLI containers up"
 
   say "pair '$name': waiting for DB-level readiness (both sides)"
   wait_db_ready "$name" 1
@@ -470,19 +838,76 @@ cmd_up() {
   echo "  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=${name} must stay exported, or pass -p duo-${name} and set WORDPRESS_DB_NAME/etc. yourself)"
 }
 
+clear_siterepo_root() { # clear_siterepo_root <path>
+  local root="$1"
+
+  # Preserve the bind-root inode. Docker's default rprivate bind propagation
+  # pins the directory that existed when a container was created; deleting
+  # and recreating that directory makes a running ordinary web/site container
+  # see stale content forever. Codebind pairs are refused separately because
+  # their nested plugin inode would still be replaced. Remove only children
+  # in place instead. A
+  # pre-existing symlink/non-directory is not a valid disposable root and is
+  # removed before the real directory is made.
+  if [ -L "$root" ] || { [ -e "$root" ] && [ ! -d "$root" ]; }; then
+    rm -rf -- "$root"
+  fi
+  mkdir -p -- "$root"
+  chmod -R ugo+rwX -- "$root" 2>/dev/null || true
+  find "$root" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  chmod 0777 -- "$root"
+}
+
+refuse_codebind_reset() { # refuse_codebind_reset <name>
+  local name="$1" container mounts source destination existing
+
+  # pair.codebind.yml adds a nested plugin bind source whose inode is pinned
+  # independently of /siterepo/<name>. Clearing that nested directory in place
+  # would still leave a running/stopped container attached to stale code, so
+  # reset has an explicit fail-closed contract for codebind pairs. Destroy the
+  # pair and bring it back with --codebind after the clean-room reset instead.
+  if ! existing="$(docker ps -a --format '{{.Names}}' 2>/dev/null)"; then
+    fail "could not enumerate pair containers before reset; refusing without a verified codebind check"
+  fi
+  for container in "duo-${name}-wp1-1" "duo-${name}-wp2-1" \
+                   "duo-${name}-cli1-1" "duo-${name}-cli2-1"; do
+    if ! printf '%s\n' "$existing" | grep -Fqx -- "$container"; then
+      continue
+    fi
+    if ! mounts="$(docker inspect "$container" \
+      --format '{{range .Mounts}}{{.Source}}{{"\t"}}{{.Destination}}{{"\n"}}{{end}}' \
+      2>/dev/null)"; then
+      fail "could not inspect existing pair container $container before reset; refusing without a verified codebind check"
+    fi
+    while IFS=$'\t' read -r source destination; do
+      [ -n "${destination:-}" ] || continue
+      case "$destination" in
+        /var/www/html/wp-content/plugins/*)
+          fail "pair '$name' has a codebind mount on $container ($source -> $destination); reset is refused because Docker pins that nested inode. Run 'pair.sh destroy $name' then 'pair.sh up $name <port1> <port2> --codebind <plugin-dir>'"
+          ;;
+      esac
+    done <<< "$mounts"
+  done
+}
+
 cmd_reset() {
   local name="${1:?usage: pair.sh reset <name>}"
   validate_name "$name"
+  refuse_codebind_reset "$name"
   ensure_db_up
 
   say "pair '$name': reset"
   drop_pair_dbs "$name"
   create_pair_dbs "$name"
-  rm -rf "siterepo/${name}1" "siterepo/${name}2" "siterepo/origin-${name}.git"
+  clear_siterepo_root "siterepo/${name}1"
+  clear_siterepo_root "siterepo/${name}2"
+  rm -rf -- "siterepo/origin-${name}.git"
   prepare_siterepo_roots "$name"
-  pass "wp_${name}1/wp_${name}2 dropped + recreated empty; siterepo/${name}{1,2} and origin-${name}.git wiped + recreated"
-  echo "  reset covers: both databases (DROP/CREATE) and the site-repo directories"
-  echo "  (siterepo/${name}{1,2}, origin-${name}.git). It does NOT touch the wp1/wp2"
+  pass "wp_${name}1/wp_${name}2 dropped + recreated empty; siterepo/${name}{1,2} cleared in place and origin-${name}.git removed"
+  echo "  reset covers: both databases (DROP/CREATE) and the site-repo contents"
+  echo "  (siterepo/${name}{1,2}, origin-${name}.git). The two ordinary site-repo"
+  echo "  root inodes are preserved; reset refuses while a codebind mount exists"
+  echo "  because its nested plugin inode is independently pinned. It does NOT touch the wp1/wp2"
   echo "  webroot volumes and does NOT restart containers or reinstall WordPress —"
   echo "  the next wp-cli call against this pair sees an empty, uninstalled site."
   echo "  Re-run 'pair.sh up ${name} <port1> <port2> ...' (or your script's own"
@@ -513,12 +938,19 @@ cmd_start() {
   # config change means destroy + up.
   local name="${1:?usage: pair.sh start <name>}"
   validate_name "$name"
+  arm_budget_up_cleanup
+  reserve_pair_budget "$name"
+  # Keep the existing resume contract: the shared MariaDB must be healthy
+  # before a stopped pair is started. The reservation is already held, so a
+  # concurrent up/start cannot over-commit while this prerequisite runs.
   ensure_db_up
   check_dead_mounts "$name"
   say "pair '$name': start (state exactly as it was at stop)"
   pair_compose "$name"
   export DUO_PAIR="$name"
   "${PAIR_COMPOSE[@]}" start
+  wait_pair_visible "$name"
+  disarm_budget_up_cleanup
   pass "running again — same ports/config as before the stop"
 }
 
@@ -539,19 +971,21 @@ cmd_destroy() {
 cmd_list() {
   say "live sandbox pairs (duo-* compose projects, excluding duo-db)"
   local pairs
-  pairs=$(live_pairs)
+  # The reservation performs exactly one live query while holding the shared
+  # lock. Reuse that result instead of first enumerating outside the gate.
+  arm_budget_up_cleanup
+  reserve_pair_budget ""
+  pairs="$PAIR_BUDGET_LIVE_PAIRS"
+  disarm_budget_up_cleanup
   if [ -z "$pairs" ]; then
     echo "  (none)"
   else
     printf '%s\n' "$pairs" | sed 's/^/  - /'
   fi
-  warn_if_crowded ""
 
   say "stopped pairs (kept, zero footprint — resume with: pair.sh start <name>)"
   local stopped
-  stopped=$(docker compose ls -a --format json 2>/dev/null \
-    | jq -r '.[] | select((.ConfigFiles | contains("pair.yml")) and ((.Status | contains("running")) | not)) | .Name' \
-    | sed 's/^duo-//' || true)
+  stopped=$(stopped_pairs)
   if [ -z "$stopped" ]; then
     echo "  (none)"
   else
@@ -578,7 +1012,8 @@ usage:
 
   up       Bring up (or converge) a pair. Idempotent: ensures the shared
            MariaDB is up, creates this pair's two databases, brings up
-           wp1/wp2/cli1/cli2, waits for DB-level readiness on both sides,
+           wp1/wp2, waits for their nested MU mountpoints, then brings up
+           cli1/cli2 and waits for DB-level readiness on both sides,
            runs the generic WordPress bootstrap (core install, theme,
            permalinks, .htaccess) on each side if not already installed,
            then prints the wp-cli invocation pattern for the pair.
@@ -589,9 +1024,11 @@ usage:
              --http             publish wp1/wp2 on <port1>/<port2> (default)
              --headless         don't publish any host port for this pair
 
-  reset    DROP/CREATE this pair's two databases + wipe/recreate its
-           site-repo directories. Does NOT touch the webroot volumes,
-           restart containers, or reinstall WordPress.
+  reset    DROP/CREATE this pair's two databases + clear ordinary site-repo
+           contents in place. Refuses if a live/stopped codebind mount is
+           detected (destroy + up --codebind is the safe clean-room path).
+           Does NOT touch webroot volumes, restart containers, or reinstall
+           WordPress.
 
   stop     Free the pair's RAM/CPU without losing anything: containers
            stopped, webroot volumes and databases untouched. Use while

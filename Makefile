@@ -14,7 +14,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-effect-bundle \
 	regress-coverage-offline regress-coverage regress-classification-batch \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
-	regress-multisite-refusal regress-journal-bootstrap
+	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit
 
 up:
 	$(COMPOSE) up -d
@@ -517,6 +517,9 @@ regress-upload-bundle:
 regress-effect-bundle:
 	php sandbox/tests/regress_effect_bundle.php
 
+regress-pair-bootstrap-unit:
+	bash sandbox/tests/regress_pair_bootstrap_unit.sh
+
 # --- live (docker/pair.sh-dependent), now in regress-live-list ---
 regress-acf-term-options-fields:
 	bash sandbox/tests/regress_acf_term_options_fields.sh
@@ -561,26 +564,20 @@ regress-user-meta:
 	bash sandbox/tests/regress_user_meta.sh
 
 # DUO-3285: one target bundling every offline (no-docker) regress suite --
-# cheap enough to run at every close-gate, wired into CI as a required check
-# (.github/workflows/conformance.yml). 45 suites: code-half-unit's own 18
-# (already bundled, referenced not repeated), 7 that had a Makefile target
-# but were in no bundle CI ever ran (regress-capture-publish through
-# regress-order-preserving below), the 12 newly-wired offline scripts,
-# regress-option-name-refs-wiring -- a genuinely NEW suite, not merely
-# newly-wired, written closing the real gap this bundle's own first live
-# run surfaced (see that suite's own header) -- and regress-natural-key-
-# rename, DUO-3237's own offline suite, landed on main concurrently with
-# that survey, DUO-3257's queue-bound classification-batch regression, and
-# DUO-3293's external rollback-authority crash/tamper certification, and
-# DUO-3294's maintenance-exclusion/fatal-safe executor certification.
+# cheap enough to run at every local close-gate. Hosted CI is intentionally
+# disabled for this repository, so this local bundle plus independent review
+# is the merge gate. 50 suites: code-half-unit's prerequisites folded in once,
+# plus the direct offline prerequisites below. regress-bundle-coverage
+# independently computes this transitive count and rejects a stale number in
+# the status line.
 # Plain prerequisite list, same idiom
 # as code-half-unit itself -- make's default (non -j) prerequisite order
 # is the listed order, and it stops at the first failure, exactly the
-# fail-fast behavior a required CI gate wants (no point burning minutes
+# fail-fast behavior a local close-gate wants (no point burning minutes
 # on suite 21 when suite 3 already broke). Live suites are deliberately
 # NOT here -- see regress-live-list.
 #
-# DUO-3285 fast-follow and recovery closure: the bundle is now 45 suites.
+# DUO-3285 fast-follow and recovery closure: the bundle is now 50 suites.
 # regress-coverage-offline (DUO-3290's own suite,
 # asub's PR #82) had a real Makefile target the whole time but landed after
 # this bundle's own survey was authored, so it slipped in unbundled exactly
@@ -609,8 +606,8 @@ regress-offline-all: code-half-unit \
 	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch \
 	regress-coverage-offline regress-bundle-coverage regress-rollback-authority \
 	regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-upload-bundle \
-	regress-effect-bundle
-	@echo "regress-offline-all: 45 offline suites green"
+	regress-effect-bundle regress-pair-bootstrap-unit
+	@echo "regress-offline-all: 50 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
