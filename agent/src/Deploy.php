@@ -1010,7 +1010,7 @@ final class Deploy {
         CompiledRepository $compiled,
         bool $forceUnresolvedRefs
     ): array {
-        $snapshot = Capture::snapshot($repo, $forceUnresolvedRefs, $compiled, $policy);
+        $snapshot = Capture::snapshot_options_core($repo, $forceUnresolvedRefs, $compiled, $policy);
         $row = $snapshot['options/core'] ?? null;
         $hash = is_array($row) ? (string) ($row['hash'] ?? '') : '';
         $content = is_array($row) ? (string) ($row['content'] ?? '') : '';
