@@ -130,13 +130,13 @@
             },
             {
                 "path": "DESIGN.md",
-                "sha256": "a1b1b262ec1de99400b30963d6039e9884698732a2598ce105367e53c13304a0",
-                "size": 30983
+                "sha256": "e567e9c1e45b3057e5e86977b61a84bc3b34a7fb290f50762cc5cbcc5cb1a604",
+                "size": 31312
             },
             {
                 "path": "Makefile",
-                "sha256": "571fe441bcadfde18f23354adefdd14c193bac2bcc6e839f02ea408cc916f7cb",
-                "size": 33412
+                "sha256": "463b90f691ad1d593634c2e376ba1cfa3652ff25601bf3f234919e07ab6411a8",
+                "size": 34630
             },
             {
                 "path": "agent/duo-loader.php",
@@ -145,13 +145,13 @@
             },
             {
                 "path": "agent/duo.php",
-                "sha256": "d23e5cdd6d6059aca90d449a5a01b5db957928baed8048bbf6616ff898ddce69",
-                "size": 3148
+                "sha256": "249a619dcaa35bcd1629f3ed1eac158582eecd018a3905337e13eeee7f7110fe",
+                "size": 3193
             },
             {
                 "path": "agent/src/Apply.php",
-                "sha256": "518ebaf5e86f31c4eefb923afcc9ebbd11a0f8fa862b9c7d20b2e604ed8c8646",
-                "size": 184577
+                "sha256": "d2a0084bc120fa7c4dc650e917d5dc46620990a92ad5b7187e54eff4287438eb",
+                "size": 257088
             },
             {
                 "path": "agent/src/Blocks.php",
@@ -175,8 +175,8 @@
             },
             {
                 "path": "agent/src/Capture.php",
-                "sha256": "f1284c65fa8ea232d7803e1beb2261768694931d50e4635329d2136875d86cf7",
-                "size": 163461
+                "sha256": "79a248c50e694815d34e80c2e1184b0b2b81a68d47fbe5fa27b5217a573fd7f6",
+                "size": 164677
             },
             {
                 "path": "agent/src/Cli.php",
@@ -245,8 +245,8 @@
             },
             {
                 "path": "agent/src/Ledger.php",
-                "sha256": "76019ff7422b1961acd395971b9761c00d759344af844d3562bf0b93258ae92f",
-                "size": 16362
+                "sha256": "adf50a4ae41cabf8727097a40c46404cbba7b34e686efccb535674334408e1bc",
+                "size": 19196
             },
             {
                 "path": "agent/src/Lint.php",
@@ -284,9 +284,14 @@
                 "size": 2807
             },
             {
+                "path": "agent/src/PlainData.php",
+                "sha256": "ec68f35862729998a5b9eb10383931fe1f24bfab970e87ba6f7027a6cecff846",
+                "size": 4776
+            },
+            {
                 "path": "agent/src/Policy.php",
-                "sha256": "e8e040a6fcd023b4974c046dcd6858d98ec495e161263410f45026272a27f5e7",
-                "size": 164602
+                "sha256": "80ed13bb8fd095120166d610c55a22fe4e0fcdee530682f416ae4ceb94101e97",
+                "size": 190791
             },
             {
                 "path": "agent/src/PromotionLock.php",
@@ -300,8 +305,8 @@
             },
             {
                 "path": "agent/src/RepositoryAuthorization.php",
-                "sha256": "3e2dcf053de659bc056c0e9a7ec151312ae06247082b887c1180c4735a5444c2",
-                "size": 27374
+                "sha256": "be3daca4ecbc08b732ca8f7ef34523d531647a0301df5020b805e3979f863408",
+                "size": 27812
             },
             {
                 "path": "agent/src/RepositoryCompiler.php",
@@ -320,13 +325,13 @@
             },
             {
                 "path": "agent/src/SidebarState.php",
-                "sha256": "3d13e683c4c79f76e3c386de130eabe0080d12250b0aa6a4eaa09174ec7fad19",
-                "size": 24467
+                "sha256": "7df03c8800f50f7adf3483a811e4f5261086c8cfc10c2fd88c2a159075eed5ea",
+                "size": 24577
             },
             {
                 "path": "agent/src/Snapshot.php",
-                "sha256": "d820151f85938fddfc20ecc4042704a03889fe901d76a9412dfc044e1e0cedd1",
-                "size": 115247
+                "sha256": "4f9e14bfff3fe0bfd301623a6103f6d1b75da0d6133eb72c604a7da7f05e47be",
+                "size": 123736
             },
             {
                 "path": "agent/src/Tokens.php",
@@ -350,8 +355,8 @@
             },
             {
                 "path": "agent/src/WooCommerceContract.php",
-                "sha256": "40c0d7614f5810cb38c69f502d3cecbc863d921409332db7894aaf908188c7c7",
-                "size": 12815
+                "sha256": "085552ae3d185f1b914990146d42b49c9ecc5a8de877cc2cd3d258ca94599368",
+                "size": 15870
             },
             {
                 "path": "cli/README.md",
@@ -450,8 +455,8 @@
             },
             {
                 "path": "manifests/dispositions.json",
-                "sha256": "5b709ef00cd44391bb3328df09acd3d96ee162bd5a3431457a2d80eef255edd9",
-                "size": 15579
+                "sha256": "341684befb55703209ec7f89732a1167f9099a8394ddb2edb52a1d08389bf651",
+                "size": 16392
             },
             {
                 "path": "manifests/duo-agency-cpt.json",
@@ -485,8 +490,8 @@
             },
             {
                 "path": "manifests/interpreters/acf.php",
-                "sha256": "a1e6ada8995f760a68cd9c904404f5d62dc9a917426c5bb9c3fb87aa3927deaf",
-                "size": 18841
+                "sha256": "fe6c21e2e49298d6b4942fde056fb38f6b0dfcfc20726ca2b6bab22666142b20",
+                "size": 18898
             },
             {
                 "path": "manifests/ninja-forms.json",
@@ -509,14 +514,19 @@
                 "size": 3935
             },
             {
+                "path": "manifests/regenerators/woocommerce-product-lookups.php",
+                "sha256": "440c87192f63c6030a023b631d776047449dd10d5d97db40cf1803e255827f4c",
+                "size": 63024
+            },
+            {
                 "path": "manifests/the-events-calendar.json",
                 "sha256": "8f3870a6aac8be10197fb498e89a219d6c2e505e3e5ee538ee2e67a345bd5797",
                 "size": 15193
             },
             {
                 "path": "manifests/woocommerce.json",
-                "sha256": "6cd16c537eff619494022b2df04705d504b09fcf575173239b73c3a482cd30f6",
-                "size": 62927
+                "sha256": "a8d2e61f7ecf65bb8b535e640fc475e09b8e25e8aa377b7b52ddb49d7f1a3c79",
+                "size": 101899
             },
             {
                 "path": "manifests/yoast.json",
@@ -710,12 +720,12 @@
             },
             {
                 "path": "spec/repo-format.md",
-                "sha256": "e478c5c65fba54da26f3724edc86675c812630256afbe23ff2f3bdfe23de188c",
-                "size": 91299
+                "sha256": "5d08753cad167f1558298173413d42b17dab5882c5b71d5f60463be04c26642c",
+                "size": 93881
             }
         ],
-        "bundle_digest": "723a3a4df1ed9dcc0f22283fc0d69d9a79fe14c740f53af8b1d8da5fa2afee68",
-        "created_at": "2026-08-08T15:37:31Z",
+        "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+        "created_at": "2026-08-08T16:42:11Z",
         "environment": {
             "path": "environment.json",
             "sha256": "9711ef3a04f882da7e7e0271d99bf014408bea1c656510ec463456e635fedc63",
@@ -734,15 +744,15 @@
             "wordpress": "7.0.2"
         },
         "force_hatches": [],
-        "git_revision": "71292fc7698dbdbb329c85127d41f54e5b321043",
+        "git_revision": "919dd4127a64524ce7cf548b5d3d10e10695a31e",
         "harness": {
             "name": "duo-reference-certification",
             "version": 2
         },
         "ratification": {
             "path": "ratification.json",
-            "sha256": "5b709ef00cd44391bb3328df09acd3d96ee162bd5a3431457a2d80eef255edd9",
-            "size": 15579
+            "sha256": "341684befb55703209ec7f89732a1167f9099a8394ddb2edb52a1d08389bf651",
+            "size": 16392
         },
         "ratification_summary": {
             "certified_claims": [
@@ -770,8 +780,8 @@
                 "id": "core-conformance",
                 "log": {
                     "path": "logs/core-conformance.txt",
-                    "sha256": "496c6cdea4ba12f5fd0a9517c9e806bfd0fc03d1f042e8b9f0a1216d51bd73a0",
-                    "size": 28953
+                    "sha256": "26e62556c8fc925f7db2dc36797ea04c95e5e5c1931ddf22eede6fa2228c392a",
+                    "size": 26613
                 },
                 "result": {
                     "path": "results/core-conformance.json",
@@ -789,8 +799,8 @@
                 "id": "fse-conformance",
                 "log": {
                     "path": "logs/fse-conformance.txt",
-                    "sha256": "d8f6e453a9efc0ee22c3521054f14bbd1e429969cb59b71e1a19362388c18855",
-                    "size": 15258
+                    "sha256": "bba5b97d03b65cf6e90a319ebd8288ef7ef51ade7dd244063ea4dfebf0c4a09a",
+                    "size": 14182
                 },
                 "result": {
                     "path": "results/fse-conformance.json",
@@ -808,8 +818,8 @@
                 "id": "multisite-refusal",
                 "log": {
                     "path": "logs/multisite-refusal.txt",
-                    "sha256": "0ce42f2ad4111160040e684931f035220e8f83b72b14f522c1a795276ec5e141",
-                    "size": 7994
+                    "sha256": "ee72636f2c588f03bf21cc326f6f5b146b2e7b3a696e858877b9570bf981051d",
+                    "size": 7269
                 },
                 "result": {
                     "path": "results/multisite-refusal.json",
@@ -827,8 +837,8 @@
                 "id": "exact-artifact-version-matrix",
                 "log": {
                     "path": "logs/exact-artifact-version-matrix.txt",
-                    "sha256": "991a3a1fa288d4f4bc2fa26e0938097a51692b397ebf54e71c9dc275bf0590d6",
-                    "size": 136723
+                    "sha256": "2f159147d8fe96e93f4c2e299c2e07565bd9a1448fb4c7c49e1583a0360ec174",
+                    "size": 126980
                 },
                 "result": {
                     "path": "results/exact-artifact-version-matrix.json",
