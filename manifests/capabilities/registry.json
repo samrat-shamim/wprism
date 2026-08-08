@@ -1,8 +1,8 @@
 {
     "evidence": {
-        "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+        "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
         "bundle_schema": "duo-certification-bundle/v1",
-        "created_at": "2026-08-08T16:42:11Z",
+        "created_at": "2026-08-08T17:39:42Z",
         "environment_summary": {
             "active_plugins": [],
             "database_client": "11.8.8",
@@ -17,7 +17,7 @@
         },
         "force_hatches": [],
         "format": "duo-capability-evidence/v1",
-        "git_revision": "919dd4127a64524ce7cf548b5d3d10e10695a31e",
+        "git_revision": "4c1b830081143e543f394316d756a8f1eb22c941",
         "harness": {
             "name": "duo-reference-certification",
             "version": 2
@@ -46,7 +46,7 @@
     "generated_from": {
         "compatibility_sha256": "40050ad62cde35c9365d56525a6cf5c0a2a11382e3636971016895c8cba94d61",
         "dispositions_sha256": "341684befb55703209ec7f89732a1167f9099a8394ddb2edb52a1d08389bf651",
-        "evidence_sha256": "e59f83fb835d457c2ee2de9ec473054b0bd2ded0c99ea6e7dfaa0529d1f4c151"
+        "evidence_sha256": "fb3b90f4f87699635435e24a47b1391acb1cb345665b28fb70cbe08186798cc1"
     },
     "manifests": {
         "acf": {
@@ -80,7 +80,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -166,7 +166,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -259,7 +259,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -420,7 +420,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -488,7 +488,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -552,7 +552,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -626,7 +626,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -694,7 +694,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -759,7 +759,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -854,7 +854,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -958,7 +958,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -1102,7 +1102,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -1191,7 +1191,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -1271,7 +1271,7 @@
             ]
         },
         "woocommerce": {
-            "adapter_digest": "c8177ec850161d70c5e8b66f1afa46e4f78223d4c32bd82fa65f969747d5dbc6",
+            "adapter_digest": "48453dd091e6d8dae28d458e3e601146bd59caeb687fdc7f1565b1f9b2875b62",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1308,7 +1308,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -1550,7 +1550,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -1659,7 +1659,7 @@
         "fse": {
             "adapter_digest": "56220cf8e8f336a6f9ca6d4352dfcb27838fdf9a76216377d10c800dfcc4d9b0",
             "evidence": {
-                "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+                "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
