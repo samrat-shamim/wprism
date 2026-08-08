@@ -1062,6 +1062,20 @@ final class Deploy {
                 continue;
             }
             $desiredRecord = $desired[$name] ?? null;
+            // A first activation is allowed to create an authored option from
+            // explicit pre-hook absence: WooCommerce and other
+            // plugins commonly seed their defaults before the state apply
+            // leg runs. Apply will reconcile that hook-created value to the
+            // frozen desired present record. This is intentionally narrower
+            // than the exact-desired exception below: a pre-existing authored
+            // value may have been migrated by the hook, but Duo cannot infer
+            // that the migration is safe when it differs from desired. Never
+            // authorize a hook-created value against absent/deleted intent.
+            if (is_array($beforeRecord) && ($beforeRecord['state'] ?? null) === 'absent'
+                && is_array($afterRecord) && ($afterRecord['state'] ?? null) === 'present'
+                && is_array($desiredRecord) && ($desiredRecord['state'] ?? null) === 'present') {
+                continue;
+            }
             if (is_array($afterRecord) && is_array($desiredRecord)
                 && ($desiredRecord['state'] ?? null) !== 'absent'
                 && Canon::encode($afterRecord) === Canon::encode($desiredRecord)) {

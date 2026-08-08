@@ -77,6 +77,48 @@ $check(
     $recordGate->invoke(null, $beforeDocument, $safeAfter, $desiredDocument) === [],
     'managed lifecycle changes and an authored record already advanced to exact desired state must be composable'
 );
+
+$wooLikeBefore = OptionState::document([
+    'authored_setting' => OptionState::absent(),
+]);
+$wooLikeAfter = OptionState::document([
+    'authored_setting' => $present('hook-default'),
+]);
+$wooLikeDesired = OptionState::document([
+    'authored_setting' => $present('desired'),
+]);
+$check(
+    $recordGate->invoke(null, $wooLikeBefore, $wooLikeAfter, $wooLikeDesired) === [],
+    'a hook-created authored option may move from explicit pre-hook absence when frozen desired state is present'
+);
+
+$presentBefore = OptionState::document([
+    'authored_setting' => $present('old'),
+]);
+$staleDesired = OptionState::document([
+    'authored_setting' => $present('desired'),
+]);
+$staleMigratedAfter = OptionState::document([
+    'authored_setting' => $present('hook-migrated'),
+]);
+$check(
+    $recordGate->invoke(null, $presentBefore, $staleMigratedAfter, $staleDesired) === ['authored_setting'],
+    'a hook migration from a pre-existing authored value remains blocked when it differs from frozen desired state'
+);
+$absentDesired = OptionState::document([
+    'authored_setting' => OptionState::absent(),
+]);
+$check(
+    $recordGate->invoke(null, $wooLikeBefore, $wooLikeAfter, $absentDesired) === ['authored_setting'],
+    'a hook-created option cannot override frozen state=absent intent'
+);
+$deletedDesired = OptionState::document([
+    'authored_setting' => OptionState::deleted($present('previous')),
+]);
+$check(
+    $recordGate->invoke(null, $wooLikeBefore, $wooLikeAfter, $deletedDesired) === ['authored_setting'],
+    'a hook-created option cannot override frozen deletion intent'
+);
 $unsafeAfter = OptionState::document([
     'active_plugins' => $present(['new/new.php']),
     'authored_setting' => $present('hook-migrated-but-not-desired'),
