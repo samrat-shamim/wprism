@@ -39,7 +39,7 @@ expect_failure() {
     fail "expected failure for context '$contexts'"
   fi
   echo "$OUT"
-  echo "$OUT" | grep -Fq "$expected" || fail "failure did not name '$expected'"
+  grep -Fq "$expected" <<<"$OUT" || fail "failure did not name '$expected'"
 }
 reset_baseline() {
   wp1 option update blogname "$ORIGINAL_BLOGNAME" >/dev/null
@@ -193,7 +193,7 @@ if STATUS_OUT=$("$REPO_ROOT/cli/duo" --envs-file="$STATUS_ENVS" status probe 2>&
   echo "$STATUS_OUT"
   fail "duo status returned zero for an incomplete apply"
 fi
-echo "$STATUS_OUT" | grep -Fq 'INCOMPLETE_APPLY' \
+grep -Fq 'INCOMPLETE_APPLY' <<<"$STATUS_OUT" \
   || fail "duo status did not name the incomplete apply condition"
 wp1 duo apply --repo=/siterepo --revision=recount-recovered >/dev/null
 [ "$(ledger_value applied_revision)" = recount-recovered ] || fail "recount retry did not advance revision"
@@ -246,7 +246,7 @@ if OUT=$(wp1_test_manifests duo apply --repo=/siterepo --revision=bad-manifest 2
   fail "unknown required manifest rebuilder unexpectedly succeeded"
 fi
 echo "$OUT"
-echo "$OUT" | grep -Fq "required manifest rebuilder" || fail "manifest failure was not named"
+grep -Fq "required manifest rebuilder" <<<"$OUT" || fail "manifest failure was not named"
 [ "$(ledger_value applied_revision)" = baseline ] || fail "manifest rebuilder failure advanced applied_revision"
 [ "$(ledger_value apply_in_progress)" = 1 ] || fail "manifest failure did not retain retry marker"
 jq '.manifests = ["core"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"
@@ -271,9 +271,9 @@ if OUT=$(wp1_test_manifests duo apply --repo=/siterepo --revision=bad-post-apply
   fail "authored corruption after a successful rebuilder unexpectedly passed verification"
 fi
 echo "$OUT"
-echo "$OUT" | grep -Fq "post-apply convergence verification failed" \
+grep -Fq "post-apply convergence verification failed" <<<"$OUT" \
   || fail "verification failure did not name the post-apply gate"
-echo "$OUT" | grep -Fq "options/core" \
+grep -Fq "options/core" <<<"$OUT" \
   || fail "verification failure did not identify the divergent canonical entity"
 [ "$(wp1 option get blogname | tr -d '\r')" = duo-3220-corrupted-after-apply ] \
   || fail "corrupting rebuilder did not execute successfully before verification"
