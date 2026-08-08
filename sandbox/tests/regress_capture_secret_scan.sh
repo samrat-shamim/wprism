@@ -86,7 +86,7 @@ EXCEPTION=()
 for entry in "${CALL_LINES[@]}"; do
   lineno="${entry%%:*}"
   content="${entry#*:}"
-  if echo "$content" | grep -q '\$subVal'; then
+  if grep -q '\$subVal' <<<"$content"; then
     EXCEPTION+=("$lineno")
   else
     UNCONDITIONAL+=("$lineno")
@@ -98,17 +98,17 @@ for lineno in "${UNCONDITIONAL[@]}"; do
   start=$((lineno - 2))
   [ "$start" -lt 1 ] && start=1
   window=$(sed -n "${start},${lineno}p" "$CAPTURE_SRC")
-  echo "$window" | grep -q 'is_string(' \
+  grep -q 'is_string(' <<<"$window" \
     && fail "guard_secret() call at Capture.php:$lineno appears gated by a nearby is_string() check -- this is the exact shape of the DUO-3211-rebase silent reversion (see this script's header); widened deep scanning would silently stop applying to array-shaped values again:
 $window"
 done
 pass "all 4 unconditional call sites (lines ${UNCONDITIONAL[*]}) have no nearby is_string() gate"
 exc_line="${EXCEPTION[0]}"
 prev_line=$(sed -n "$((exc_line - 1))p" "$CAPTURE_SRC")
-echo "$prev_line" | grep -q 'is_string(\$subVal)' \
+grep -q 'is_string(\$subVal)' <<<"$prev_line" \
   || fail "expected the sub_keys exception at Capture.php:$exc_line to be immediately preceded by is_string(\$subVal) -- got: $prev_line"
 after_window=$(sed -n "${exc_line},$((exc_line + 15))p" "$CAPTURE_SRC")
-echo "$after_window" | grep -q 'hard_match_deep(\$subVal)' \
+grep -q 'hard_match_deep(\$subVal)' <<<"$after_window" \
   || fail "expected Secrets::hard_match_deep(\$subVal) within 15 lines after the sub_keys exception at Capture.php:$exc_line -- its own array-scan branch may have been silently deleted, leaving sub_keys array-shaped secrets unscanned"
 pass "the one deliberate sub_keys exception (line $exc_line) still has both halves of its is_string()/hard_match_deep() split intact"
 

@@ -37,9 +37,9 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 command -v jq >/dev/null || fail "jq required"
 
-PAIR=amergety
-PORT1=8944
-PORT2=8945
+PAIR="${ENTITY_TYPE_PAIR:-amergety}"
+PORT1="${ENTITY_TYPE_PORT1:-8944}"
+PORT2="${ENTITY_TYPE_PORT2:-8945}"
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
 COMPOSE="docker compose -p duo-$PAIR -f pair.yml"
 wp1() { $COMPOSE run --rm -T cli1 wp "$@"; }
@@ -98,15 +98,15 @@ pass "first capture succeeded, location row captured: $(basename "$LOC_FILE")"
 say "(1d) confirm entity_type landed FULL, not truncated, in duo_map (direct DB check, not inferred from absence of error)"
 ENTITY_TYPES=$(wp1 db query "SELECT DISTINCT entity_type FROM wp_duo_map WHERE entity_type LIKE 'woocommerce_shipping_zone%'" --skip-column-names 2>/dev/null | tr -d '\r')
 echo "$ENTITY_TYPES"
-echo "$ENTITY_TYPES" | grep -q '^woocommerce_shipping_zone_locations$' \
+grep -q '^woocommerce_shipping_zone_locations$' <<<"$ENTITY_TYPES" \
   || fail "expected the FULL 'woocommerce_shipping_zone_locations' (35 chars) in duo_map, got: $ENTITY_TYPES"
-echo "$ENTITY_TYPES" | grep -q 'woocommerce_shipping_zone_locati$' \
+grep -q 'woocommerce_shipping_zone_locati$' <<<"$ENTITY_TYPES" \
   && fail "found the OLD truncated 32-char value still present -- widening did not take effect"
 pass "entity_type is the full, untruncated table name in duo_map"
 
 say "(1e) THE ACTUAL REPORTED BUG: recapture (a second Ledger::set() for the SAME uuid) -- pre-fix this threw 'identity contradiction ... refusing to retype'"
 OUT2=$(wp1 duo capture --repo=/siterepo 2>&1) || fail "recapture failed: $OUT2"
-echo "$OUT2" | grep -qi "identity contradiction" && fail "recapture hit the identity-contradiction guard -- the bug is NOT fixed: $OUT2"
+grep -qi "identity contradiction" <<<"$OUT2" && fail "recapture hit the identity-contradiction guard -- the bug is NOT fixed: $OUT2"
 pass "recapture succeeded cleanly -- the exact scenario from team-lead's grind-r1b report is fixed"
 
 say "(2) declaration-time budget assert: a manifest declaring a table name over 64 chars refuses to load, loudly"
@@ -139,8 +139,8 @@ RC_ASSERT=$?
 set -e
 echo "$OUT_ASSERT"
 [ "$RC_ASSERT" -ne 0 ] || fail "expected capture to refuse a >64-char declared table name, but it succeeded"
-echo "$OUT_ASSERT" | grep -q "$LONGNAME" || fail "expected the refusal to name the offending table (got: $OUT_ASSERT)"
-echo "$OUT_ASSERT" | grep -qi "64" || fail "expected the refusal to mention the 64-char budget (got: $OUT_ASSERT)"
+grep -q "$LONGNAME" <<<"$OUT_ASSERT" || fail "expected the refusal to name the offending table (got: $OUT_ASSERT)"
+grep -qi "64" <<<"$OUT_ASSERT" || fail "expected the refusal to mention the 64-char budget (got: $OUT_ASSERT)"
 rm -rf "$HOST_REPO"
 pass "declaration-time assert refuses loudly, naming the table and the budget -- never silently truncates going forward"
 
@@ -163,7 +163,7 @@ BEFORE=$(wp1 db query "SELECT entity_type FROM wp_duo_map WHERE uuid='$REAL_UUID
 pass "corrupted the real row back to pre-fix state: uuid=$REAL_UUID entity_type='$TRUNCATED' (32 chars)"
 
 OUT3=$(wp1 duo capture --repo=/siterepo 2>&1) || fail "capture (which runs the repair) failed: $OUT3"
-echo "$OUT3" | grep -qi "identity contradiction" && fail "capture hit the identity-contradiction guard against the corrupted row -- repair did not run before Ledger::set(): $OUT3"
+grep -qi "identity contradiction" <<<"$OUT3" && fail "capture hit the identity-contradiction guard against the corrupted row -- repair did not run before Ledger::set(): $OUT3"
 AFTER=$(wp1 db query "SELECT entity_type FROM wp_duo_map WHERE uuid='$REAL_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$AFTER" = "woocommerce_shipping_zone_locations" ] \
   || fail "expected the corrupted row's entity_type to be repaired to the full 'woocommerce_shipping_zone_locations', got: '$AFTER'"

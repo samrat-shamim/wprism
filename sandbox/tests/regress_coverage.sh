@@ -55,22 +55,22 @@ FOUND=$(echo "$JSON" | jq -r --arg t "$PLANTED" '.tables.undeclared[] | select(.
 [ "$FOUND" = "2" ] || fail "expected the planted table ($PLANTED) in tables.undeclared with row_count=2 (got: $FOUND)"
 pass "a real, freshly-planted custom table (2 real rows) is correctly discovered and counted — proves the reverse-enumeration mechanism DUO-3257 found completely missing actually works now"
 
-say "(3) real WooCommerce tables not in manifests/woocommerce.json's own declared_tables() also surface (a genuine, incidental finding, not asserted further here — see PR body)"
+say "(3) the current WooCommerce 11.0.0 table surface is completely declared"
 WC_UNDECLARED=$(echo "$JSON" | jq -r '.tables.undeclared[] | select(.table | startswith("wp_wc") or startswith("wp_woocommerce")) | .table' | wc -l | tr -d ' ')
 echo "WooCommerce-shaped undeclared tables found: $WC_UNDECLARED"
-[ "$WC_UNDECLARED" -gt 0 ] || fail "expected at least one real WooCommerce table outside manifests/woocommerce.json's own tables{} declaration -- if this is now 0, either the manifest gained full table coverage (update this test's expectation) or discovery regressed"
-pass "coverage correctly surfaces real, previously-unknown gaps in an ALREADY-manifested plugin's own table coverage, not just a synthetic probe"
+[ "$WC_UNDECLARED" = "0" ] || fail "expected the current WooCommerce 11.0.0 table surface to be fully declared; coverage found $WC_UNDECLARED Woo-shaped gap(s)"
+pass "WooCommerce's current live table surface is fully represented; the independent synthetic probe still proves reverse-enumeration catches a genuine undeclared table"
 
 say "(4) human-readable mode runs without error and contains both sections"
 HUMAN=$(wp1 duo coverage --repo=/siterepo 2>&1)
-echo "$HUMAN" | grep -q "^OPTIONS" || fail "expected an OPTIONS section header in human-readable output"
-echo "$HUMAN" | grep -q "^TABLES" || fail "expected a TABLES section header in human-readable output"
-echo "$HUMAN" | grep -qi "never blocks capture/plan/apply" || fail "expected the explicit non-gating reassurance line"
+grep -q "^OPTIONS" <<<"$HUMAN" || fail "expected an OPTIONS section header in human-readable output"
+grep -q "^TABLES" <<<"$HUMAN" || fail "expected a TABLES section header in human-readable output"
+grep -qi "never blocks capture/plan/apply" <<<"$HUMAN" || fail "expected the explicit non-gating reassurance line"
 pass "human-readable rendering produces both sections and the explicit non-gating statement"
 
 say "(5) THE decisive check: coverage found real gaps (hundreds of invisible options, several undeclared tables) -- capture must still succeed cleanly right after, proving zero interference"
 OUT=$(wp1 duo capture --repo=/siterepo 2>&1)
-echo "$OUT" | grep -qi success || fail "expected capture to succeed immediately after a coverage run that found many gaps (got: $OUT)"
+grep -qi success <<<"$OUT" || fail "expected capture to succeed immediately after a coverage run that found many gaps (got: $OUT)"
 pass "capture succeeds normally right after coverage — coverage is proven non-gating, not just designed to be"
 
 say "(6) cleanup: drop the planted probe table so re-runs start clean"

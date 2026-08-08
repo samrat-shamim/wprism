@@ -102,8 +102,11 @@ DELETE FROM wp_posts;
 ' >/dev/null
 APPLY_BASE=$(wp2 duo apply --repo=/siterepo --default-author=admin --format=json | tail -1)
 echo "$APPLY_BASE" | jq -e '
-  .warnings == ["rebuilder fired: '\''transient delete wc_attribute_taxonomies'\'' (exit 0)"]
-' >/dev/null || fail "baseline apply emitted anything except the required successful Woo cache-rebuilder notice: $APPLY_BASE"
+  (.warnings | length) == 3 and
+  (.warnings | any(. == "rebuilder fired: '\''transient delete wc_attribute_taxonomies'\'' (exit 0)")) and
+  (.warnings | any(test("WC_Cache_Helper") and endswith("(exit 0)"))) and
+  (.warnings | any(test("WooCommerceContract::rebuild") and endswith("(exit 0)")))
+' >/dev/null || fail "baseline apply did not emit exactly the three required successful Woo cache/projection rebuilder notices: $APPLY_BASE"
 PRODUCT2=$(wp2 post list --post_type=product --name=attribute-delete-probe-product --field=ID)
 VARIATION2=$(wp2 post list --post_type=product_variation --post_parent="$PRODUCT2" --field=ID)
 [ -n "$PRODUCT2" ] && [ -n "$VARIATION2" ] || fail "variable product/variation did not converge on target"
@@ -158,7 +161,7 @@ CAPTURE_ERR=$(wp1 duo capture --repo=/siterepo 2>&1)
 CAPTURE_RC=$?
 set -e
 [ "$CAPTURE_RC" -ne 0 ] || fail "capture accepted unsupported Woo attribute deletion"
-echo "$CAPTURE_ERR" | grep -Fq 'deletion intent for table:woocommerce_attribute_taxonomies is unsupported' \
+grep -Fq 'deletion intent for table:woocommerce_attribute_taxonomies is unsupported' <<<"$CAPTURE_ERR" \
   || fail "capture refusal did not name the exact unsupported selector: $CAPTURE_ERR"
 [ ! -d "$HOST1/state/deletions" ] || [ -z "$(find "$HOST1/state/deletions" -type f -name '*.json' -print -quit)" ] \
   || fail "failed capture published a deletion tombstone"
@@ -191,9 +194,9 @@ APPLY_RC=$?
 set -e
 [ "$PLAN_RC" -ne 0 ] || fail "plan accepted a hand-authored unsupported tombstone"
 [ "$APPLY_RC" -ne 0 ] || fail "apply --with-deletes accepted a hand-authored unsupported tombstone"
-echo "$PLAN_ERR" | grep -Fq 'deletion intent for table:woocommerce_attribute_taxonomies is unsupported' \
+grep -Fq 'deletion intent for table:woocommerce_attribute_taxonomies is unsupported' <<<"$PLAN_ERR" \
   || fail "plan refusal did not name the exact unsupported selector: $PLAN_ERR"
-echo "$APPLY_ERR" | grep -Fq 'deletion intent for table:woocommerce_attribute_taxonomies is unsupported' \
+grep -Fq 'deletion intent for table:woocommerce_attribute_taxonomies is unsupported' <<<"$APPLY_ERR" \
   || fail "apply refusal did not name the exact unsupported selector: $APPLY_ERR"
 pass "offline compiler blocks plan/apply; --with-deletes and force cannot bypass missing capability"
 

@@ -163,7 +163,7 @@ NO_DELETE=$(wp2 duo apply --repo=/siterepo 2>&1)
 NO_DELETE_RC=$?
 set -e
 [ "$NO_DELETE_RC" -ne 0 ] || fail "option tombstone applied without --with-deletes"
-echo "$NO_DELETE" | grep -q -- '--with-deletes' || fail "delete refusal did not name the required safety flag"
+grep -q -- '--with-deletes' <<<"$NO_DELETE" || fail "delete refusal did not name the required safety flag"
 [ "$(wp2 option get duo_matrix_delete)" = "delete-base" ] || fail "refused delete mutated the target row"
 wp2 duo apply --repo=/siterepo --with-deletes >/dev/null
 DELETE_COUNT=$(wp2 eval 'global $wpdb; echo (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name=\"duo_matrix_delete\"");' | tail -1)
