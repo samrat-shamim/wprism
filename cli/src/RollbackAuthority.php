@@ -107,6 +107,37 @@ final class RollbackAuthority {
             }
         }
         $checkpointConfigured = $this->transport->checkpointConfigured();
+        $codeReleaseConfigured = $this->transport->codeReleaseConfigured();
+        $receiptFormat = $codeReleaseConfigured
+            ? RollbackControl::RECEIPT_FORMAT
+            : 'duo-rollback-receipt/v1';
+        if (!$codeReleaseConfigured) {
+            // V1 remains the truthful schema for manual code recovery. A V2
+            // receipt exists specifically to bind certified release metadata.
+            unset($fields['code_release_metadata_sha256']);
+        }
+        $desiredCodeRevision = null;
+        $desiredDescriptorHash = null;
+        if ($codeReleaseConfigured) {
+            if (array_key_exists('prior_code_descriptor_sha256', $fields)
+                || array_key_exists('code_release_metadata_sha256', $fields)) {
+                throw new \RuntimeException(
+                    'duo rollback: code release receipt hashes are provider-owned when certified code recovery is configured'
+                );
+            }
+            foreach (['desired_code_revision', 'desired_descriptor_sha256'] as $required) {
+                if (!is_string($fields[$required] ?? null)
+                    || preg_match('/^[a-f0-9]{64}$/', (string) $fields[$required]) !== 1) {
+                    throw new \RuntimeException("duo rollback: code release claim needs sha256 $required");
+                }
+            }
+            $desiredCodeRevision = (string) $fields['desired_code_revision'];
+            $desiredDescriptorHash = (string) $fields['desired_descriptor_sha256'];
+            unset($fields['desired_code_revision'], $fields['desired_descriptor_sha256']);
+            if (!is_string($fields['retention_until'] ?? null) || $fields['retention_until'] === '') {
+                throw new \RuntimeException('duo rollback: code release claim needs retention_until');
+            }
+        }
         if ($checkpointConfigured) {
             foreach ([
                 'checkpoint_sha256', 'created_at', 'ledger_session_sha256',
@@ -192,9 +223,28 @@ final class RollbackAuthority {
                     $fields[$owned] = (string) ($checkpoint[$owned] ?? '');
                 }
             }
+            if ($codeReleaseConfigured) {
+                $release = $this->sendCodeRelease([
+                    'action' => 'prepare',
+                    'artifact_hash' => (string) ($fields['artifact_hash'] ?? ''),
+                    'claim_epoch' => 1,
+                    'claimant' => $claimant,
+                    'desired_code_revision' => $desiredCodeRevision,
+                    'desired_descriptor_sha256' => $desiredDescriptorHash,
+                    'format' => 'duo-code-release-request/v1',
+                    'generation' => $generation,
+                    'owner' => (string) ($fields['owner'] ?? ''),
+                    'receipt_id' => $receiptId,
+                    'retention_until' => (string) ($fields['retention_until'] ?? ''),
+                    'target_id' => (string) ($status['target_id'] ?? ''),
+                    'timestamp' => $now,
+                ]);
+                $fields['prior_code_descriptor_sha256'] = (string) ($release['prior_code_descriptor_sha256'] ?? '');
+                $fields['code_release_metadata_sha256'] = (string) ($release['code_release_metadata_sha256'] ?? '');
+            }
         }
         $receipt = $fields + [
-            'format' => RollbackControl::RECEIPT_FORMAT,
+            'format' => $receiptFormat,
             'generation' => $generation,
             'receipt_id' => $receiptId,
             'signing_key_id' => $this->keyId,
@@ -365,6 +415,37 @@ final class RollbackAuthority {
         ]);
     }
 
+    /** Delete a retained prior code release only after its rollback window. */
+    public function deleteCodeRelease(?string $timestamp = null): array {
+        if (!$this->transport->codeReleaseConfigured()) {
+            throw new \RuntimeException('duo rollback: no certified code release provider is configured');
+        }
+        $status = self::status($this->transport);
+        if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
+            || ($status['active'] ?? false) !== true || empty($status['terminal'])) {
+            throw new \RuntimeException('duo rollback: code release deletion requires valid terminal authority');
+        }
+        $release = $status['code_release'] ?? null;
+        if (!is_array($release)) {
+            throw new \RuntimeException('duo rollback: target omitted immutable code release evidence');
+        }
+        return $this->sendCodeRelease([
+            'action' => 'delete',
+            'artifact_hash' => (string) $status['artifact_hash'],
+            'claim_epoch' => (int) $status['claim_epoch'],
+            'claimant' => (string) $status['claimant'],
+            'desired_code_revision' => (string) ($release['desired_code_revision'] ?? ''),
+            'desired_descriptor_sha256' => (string) ($release['desired_descriptor_sha256'] ?? ''),
+            'format' => 'duo-code-release-request/v1',
+            'generation' => (int) $status['generation'],
+            'owner' => (string) $status['owner'],
+            'receipt_id' => (string) $status['receipt_id'],
+            'retention_until' => (string) $status['retention_until'],
+            'target_id' => (string) $status['target_id'],
+            'timestamp' => $timestamp ?? self::timestamp(),
+        ]);
+    }
+
     /** @return array<string,mixed> */
     private function requiredActiveStatus(): array {
         $status = self::status($this->transport);
@@ -466,6 +547,14 @@ final class RollbackAuthority {
         return $this->sendRemote(
             RollbackControl::sign($payload, $this->keyId, $this->secretKey),
             'checkpoint-request'
+        );
+    }
+
+    /** @return array<string,mixed> */
+    private function sendCodeRelease(array $payload): array {
+        return $this->sendRemote(
+            RollbackControl::sign($payload, $this->keyId, $this->secretKey),
+            'code-release-request'
         );
     }
 

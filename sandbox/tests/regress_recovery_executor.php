@@ -82,6 +82,7 @@ function recovery_receipt(array $status, string $tokenHash): array {
         'artifact_hash' => $hash('artifact'),
         'checkpoint_sha256' => $hash('checkpoint'),
         'claim_ttl_seconds' => 30,
+        'code_release_metadata_sha256' => $hash('code-release'),
         'created_at' => '2026-01-01T00:00:00Z',
         'encryption_key_id' => 'age-key-test',
         'exclusion_token_sha256' => $tokenHash,

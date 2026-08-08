@@ -1,10 +1,12 @@
 # Verified rollback for production SSH promotion
 
-> **Design ruling (DUO-3291, 2026-08-08; authority foundation DUO-3293).**
+> **Design ruling (DUO-3291, 2026-08-08; authority foundation DUO-3293,
+> checkpoint DUO-3295, code release DUO-3296).**
 > The protected target identity, never-reused generation fence, immutable
 > signed receipt, signed event hash chain, claimant takeover, status evidence,
-> and SSH adoption wiring described in section 3 are implemented. The
-> resource-specific executors in later sections are not. Current promotion
+> SSH adoption wiring, encrypted checkpoint executor, and immutable atomic
+> code-release executor described below are implemented. Storage, lifecycle,
+> and end-to-end promotion integration are not. Current promotion
 > therefore remains operator-directed as specified in `spec/repo-format.md`;
 > a successful database import is not a verified rollback.
 
@@ -113,7 +115,8 @@ immutable after `prepared` and contains:
 - previous applied revision and the hashes of frozen prior-verifier inputs;
 - encrypted database checkpoint hash, database identity, and export evidence;
 - prior and new code descriptors plus the exact release or file before-image
-  inventory needed to restore the prior bytes;
+  inventory needed to restore the prior bytes, including the combined immutable
+  code-release metadata hash in receipt v2;
 - upload/media before-images and created-path deletion receipts;
 - lifecycle, derived-state, cache, schedule, and external-effect adapter ids,
   versions, declarations, inverse inputs, and verifier inputs;

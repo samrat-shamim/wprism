@@ -98,6 +98,9 @@ final class RecoveryExecutor {
         if (array_key_exists('checkpoint_provider', $config)) {
             $result['checkpoint'] = CheckpointBundle::probe($root);
         }
+        if (array_key_exists('code_release_provider', $config)) {
+            $result['code_release'] = CodeRelease::probe($root);
+        }
         return $result;
     }
 
@@ -109,11 +112,18 @@ final class RecoveryExecutor {
         $record = self::readExclusion($root, false);
         if ($record === null) {
             self::probe($root);
-            return $status + [
+            $ready = $status + [
                 'exclusion_state' => 'none',
                 'recovery_configured' => true,
                 'recovery_ready' => true,
             ];
+            if (array_key_exists('code_release_provider', self::config($root))) {
+                $ready['automatic_code_rollback'] = true;
+            } else {
+                $ready['automatic_code_rollback'] = false;
+                $ready['code_recovery'] = 'manual';
+            }
+            return $ready;
         }
         self::validateRecord($record);
         if (($record['state'] ?? '') === 'held') {
@@ -136,7 +146,7 @@ final class RecoveryExecutor {
         } else {
             self::assertRecordIdentity($record, $status, false);
         }
-        return $status + [
+        $decorated = $status + [
             'exclusion_reservation' => [
                 'artifact_hash' => (string) $record['artifact_hash'],
                 'claim_epoch' => (int) $record['claim_epoch'],
@@ -150,6 +160,29 @@ final class RecoveryExecutor {
             'recovery_configured' => true,
             'recovery_ready' => true,
         ];
+        if (array_key_exists('code_release_provider', self::config($root))) {
+            $hasBoundRelease = empty($status['active'])
+                || is_string($status['code_release_metadata_sha256'] ?? null);
+            $decorated['automatic_code_rollback'] = $hasBoundRelease;
+            if (!empty($status['active']) && $hasBoundRelease) {
+                $decorated['code_release'] = CodeRelease::statusEvidence(
+                    $root,
+                    (string) $status['receipt_id']
+                );
+                if (!hash_equals(
+                    (string) $status['code_release_metadata_sha256'],
+                    (string) $decorated['code_release']['metadata_sha256']
+                )) {
+                    throw new \RuntimeException('duo recovery: active receipt code release metadata hash does not match target evidence');
+                }
+            } elseif (!empty($status['active'])) {
+                $decorated['code_recovery'] = 'manual';
+            }
+        } else {
+            $decorated['automatic_code_rollback'] = false;
+            $decorated['code_recovery'] = 'manual';
+        }
+        return $decorated;
     }
 
     /** @return array<string,mixed> */
@@ -234,7 +267,12 @@ final class RecoveryExecutor {
         int $claimEpoch,
         string $inputPath
     ): array {
-        if (!in_array($adapter, self::ADAPTERS, true) || $operationId !== $adapter) {
+        $config = self::config($root);
+        $allowed = self::ADAPTERS;
+        if (array_key_exists('code_release_provider', $config)) {
+            $allowed[] = 'code_select';
+        }
+        if (!in_array($adapter, $allowed, true) || $operationId !== $adapter) {
             throw new \RuntimeException('duo recovery: executor accepts only the exact configured adapter operation id');
         }
         self::assertActor($claimant, 'executor claimant');
@@ -254,7 +292,9 @@ final class RecoveryExecutor {
             || (int) $status['claim_epoch'] !== $claimEpoch) {
             throw new \RuntimeException('duo recovery: executor claimant is stale, foreign, or terminal');
         }
-        $requiredState = $adapter === 'prior_verify' ? 'verifying_prior' : 'rolling_back';
+        $requiredState = $adapter === 'prior_verify'
+            ? 'verifying_prior'
+            : ($adapter === 'code_select' ? 'promoting' : 'rolling_back');
         if ((string) $status['state'] !== $requiredState) {
             throw new \RuntimeException("duo recovery: $adapter may run only in $requiredState");
         }
@@ -267,7 +307,18 @@ final class RecoveryExecutor {
         $record = self::requiredHeld($root);
         self::assertRecordIdentity($record, $status, false);
         self::verifyHeld($root, $record, 'verify');
-        $config = self::config($root);
+        if (array_key_exists('code_release_provider', $config)
+            && in_array($adapter, ['code_select', 'code_restore'], true)) {
+            $release = CodeRelease::execute($root, $adapter, $inputPath, $inputHash, $status);
+            return [
+                'adapter' => $adapter,
+                'adapter_version' => $release['adapter_version'],
+                'format' => self::ADAPTER_RESPONSE_FORMAT,
+                'input_sha256' => $inputHash,
+                'ok' => true,
+                'result_sha256' => $release['result_sha256'],
+            ];
+        }
         if (array_key_exists('checkpoint_provider', $config)
             && in_array($adapter, ['database_restore', 'prior_verify'], true)) {
             $checkpoint = CheckpointBundle::execute($root, $adapter, $inputPath, $inputHash, $status);
@@ -514,9 +565,14 @@ final class RecoveryExecutor {
     private static function validateConfig(array $config): void {
         $keys = array_keys($config);
         sort($keys, SORT_STRING);
-        $base = ['adapters', 'exclusion_provider', 'format', 'timeout_seconds'];
-        $withCheckpoint = ['adapters', 'checkpoint_provider', 'exclusion_provider', 'format', 'timeout_seconds'];
-        if ($keys !== $base && $keys !== $withCheckpoint) {
+        $expected = ['adapters', 'exclusion_provider', 'format', 'timeout_seconds'];
+        foreach (['checkpoint_provider', 'code_release_provider'] as $optional) {
+            if (array_key_exists($optional, $config)) {
+                $expected[] = $optional;
+            }
+        }
+        sort($expected, SORT_STRING);
+        if ($keys !== $expected) {
             throw new \RuntimeException('duo recovery: configuration has missing or unknown fields');
         }
         if (($config['format'] ?? '') !== self::CONFIG_FORMAT) {
@@ -525,6 +581,9 @@ final class RecoveryExecutor {
         self::validateCommand($config['exclusion_provider'] ?? null, 'exclusion provider');
         if (array_key_exists('checkpoint_provider', $config)) {
             self::validateCommand($config['checkpoint_provider'], 'checkpoint provider');
+        }
+        if (array_key_exists('code_release_provider', $config)) {
+            self::validateCommand($config['code_release_provider'], 'code release provider');
         }
         if (!is_array($config['adapters'] ?? null) || array_is_list($config['adapters'])) {
             throw new \RuntimeException('duo recovery: adapters must be an object');
