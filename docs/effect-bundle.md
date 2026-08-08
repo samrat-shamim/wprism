@@ -72,6 +72,12 @@ the compiled inventory. Any irreversible, malformed, incompatible, secret-
 shaped, undeclared, or unbounded effect blocks before the provider and before
 code mutation.
 
+Any `restorable` inventory row additionally requires the recovery
+`checkpoint_provider`. Duo checks this before creating effect artifacts or
+invoking the effect provider's `prepare` action, because the effect provider
+cannot restore database rows. A read-only capability probe may already have
+run while Duo established recovery readiness.
+
 For accepted rows the provider writes immutable prior evidence. Restorable
 rows name their checkpoint coverage, reversible rows bind exact inverse and
 fresh-verifier input hashes plus prior state, and prevented rows reserve a

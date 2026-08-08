@@ -243,12 +243,21 @@ final class EffectBundle {
     private static function prepare(string $root, array $payload): array {
         $inventory = ['effects' => $payload['inventory'], 'format' => self::INVENTORY_FORMAT];
         self::validateInventory($inventory);
+        $requiresCheckpoint = false;
         foreach ($inventory['effects'] as $row) {
             if (($row['effect']['mode'] ?? '') === 'irreversible') {
                 throw new \RuntimeException(
                     "duo effects: automatic profile blocked by irreversible effect '{$row['manifest']}:{$row['effect']['id']}'"
                 );
             }
+            if (($row['effect']['mode'] ?? '') === 'restorable') {
+                $requiresCheckpoint = true;
+            }
+        }
+        if ($requiresCheckpoint && !CheckpointBundle::configured($root)) {
+            throw new \RuntimeException(
+                'duo effects: restorable effects require a configured checkpoint provider (checkpoint_provider)'
+            );
         }
         $dir = self::receiptDirectory($root, (string) $payload['receipt_id']);
         self::ensureDirectory($dir, 0700);
