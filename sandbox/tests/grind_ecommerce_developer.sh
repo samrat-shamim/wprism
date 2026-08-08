@@ -409,6 +409,10 @@ $order_itemmeta = $order_item_ids
         "woocommerce_order_itemmeta"
     )
     : [];
+$customer_lookup = $checked_rows(
+    $wpdb->prepare("SELECT * FROM `{$wpdb->prefix}wc_customer_lookup` WHERE user_id = %d", (int) $order->get_customer_id()),
+    "wc_customer_lookup"
+);
 $items = [];
 foreach ($order->get_items("line_item") as $item) {
     $items[] = [
@@ -447,6 +451,7 @@ echo wp_json_encode([
     "hpos_addresses" => $checked_rows($wpdb->prepare("SELECT * FROM `{$wpdb->prefix}wc_order_addresses` WHERE order_id = %d", $order_id), "wc_order_addresses"),
     "hpos_operational" => $checked_rows($wpdb->prepare("SELECT * FROM `{$wpdb->prefix}wc_order_operational_data` WHERE order_id = %d", $order_id), "wc_order_operational_data"),
     "hpos_meta" => $checked_rows($wpdb->prepare("SELECT * FROM `{$wpdb->prefix}wc_orders_meta` WHERE order_id = %d", $order_id), "wc_orders_meta"),
+    "customer_lookup" => $customer_lookup,
     "order_stats" => $checked_rows($wpdb->prepare("SELECT * FROM `{$wpdb->prefix}wc_order_stats` WHERE order_id = %d", $order_id), "wc_order_stats"),
     "product_lookup" => $checked_rows($wpdb->prepare("SELECT * FROM `{$wpdb->prefix}wc_order_product_lookup` WHERE order_id = %d", $order_id), "wc_order_product_lookup"),
     "order_items" => $order_items,
@@ -463,6 +468,7 @@ assert_target_order_snapshot() {
     . as $snapshot |
     ([.order_items[] | select(.order_item_type == "line_item")][0].order_item_id | tonumber) as $line_item_id |
     ([.order_items[] | select(.order_item_type == "tax")][0].order_item_id | tonumber) as $tax_item_id |
+    (.customer_lookup[0].customer_id | tonumber) as $analytics_customer_id |
     .id == $expected_order and
     .status == "pending" and
     .customer_id == $expected_customer and
@@ -496,10 +502,18 @@ assert_target_order_snapshot() {
     (.hpos_meta | length) >= 1 and
     (all(.hpos_meta[]; ((.id | tonumber) > 0) and ((.order_id | tonumber) == $expected_order) and ((.meta_key | tostring | length) > 0) and ((.meta_value | type) == "string"))) and
     (any(.hpos_meta[]; .meta_key == "_duo_runtime_marker" and .meta_value == "target-order-only")) and
+    (.customer_lookup | length) == 1 and
+    ($analytics_customer_id > 0) and
+    ((.customer_lookup[0].user_id | tonumber) == $expected_customer) and
+    .customer_lookup[0].username == "runtime-customer" and
+    .customer_lookup[0].first_name == "Target" and
+    .customer_lookup[0].last_name == "Runtime" and
+    .customer_lookup[0].email == "runtime-customer@example.invalid" and
+    ((.customer_lookup[0].date_registered | tostring | length) > 0) and
     (.order_stats | length) == 1 and
     ((.order_stats[0].order_id | tonumber) == $expected_order) and
     ((.order_stats[0].status | tostring) == "wc-pending") and
-    ((.order_stats[0].customer_id | tonumber) == $expected_customer) and
+    ((.order_stats[0].customer_id | tonumber) == $analytics_customer_id) and
     ((.order_stats[0].num_items_sold | tonumber) == 1) and
     ((.order_stats[0].total_sales | tonumber) > 0) and
     ((.order_stats[0].net_total | tonumber) > 0) and
@@ -510,7 +524,7 @@ assert_target_order_snapshot() {
     ((.product_lookup[0].order_id | tonumber) == $expected_order) and
     ((.product_lookup[0].product_id | tonumber) == $expected_product) and
     ((.product_lookup[0].variation_id | tonumber) == 0) and
-    ((.product_lookup[0].customer_id | tonumber) == $expected_customer) and
+    ((.product_lookup[0].customer_id | tonumber) == $analytics_customer_id) and
     ((.product_lookup[0].product_qty | tonumber) == 1) and
     ((.product_lookup[0].product_gross_revenue | tonumber) > 0) and
     ((.product_lookup[0].product_net_revenue | tonumber) > 0) and
@@ -549,6 +563,7 @@ assert_target_order_absent() {
   assert_eq 0 "$(target_wp eval '
 global $wpdb;
 $order_id = '"$TARGET_ORDER_ID"';
+$customer_user_id = '"$TARGET_RUNTIME_CUSTOMER_ID"';
 $item_ids = array_values(array_unique(array_filter(array_map("absint", explode(",", '"$TARGET_ORDER_ITEM_IDS"')), static fn(int $id): bool => $id > 0)));
 if (!$item_ids) { throw new RuntimeException("target order item ID capture is empty"); }
 $item_id_list = implode(",", $item_ids);
@@ -575,8 +590,11 @@ if ((string) $wpdb->last_error !== "") { throw new RuntimeException("target orde
 $wpdb->last_error = "";
 $remaining += (int) $wpdb->get_var("SELECT COUNT(*) FROM `$order_itemmeta_table` AS itemmeta LEFT JOIN `$order_items_table` AS items ON items.order_item_id = itemmeta.order_item_id WHERE itemmeta.order_item_id IN ($item_id_list) AND items.order_item_id IS NULL");
 if ((string) $wpdb->last_error !== "") { throw new RuntimeException("orphan target order-item metadata absence read failed"); }
+$wpdb->last_error = "";
+$remaining += (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM `{$wpdb->prefix}wc_customer_lookup` WHERE user_id = %d", $customer_user_id));
+if ((string) $wpdb->last_error !== "") { throw new RuntimeException("target customer lookup absence read failed"); }
 echo $remaining;
-')" "$label absent HPOS/order-item rows/order-itemmeta"
+')" "$label absent HPOS/order-item/customer-lookup rows"
 }
 source_runtime_customer_snapshot() {
   local customer_id="$1"

@@ -361,7 +361,7 @@ helper_noop_rejected receipt-helper "$RECEIPT_JQ_CALL"
 helper_noop_rejected theme-helper "$THEME_RUNTIME_ASSERT"
 CLEANUP_HELPER_GOLDEN_HASH=4c9f4c61f879c794a50f94bf1b43055eeda3060b77b20020f775aa65a054e455
 ORDER_HELPER_GOLDEN_HASH=a5e218adaba2ef1c2f7dcee7078886c36fd4e743f8108aa883d1b5de3c3f0f64
-ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=1b0937ea73ae22a59397d0bf3d7126681d3d7041e49c99ff0c8de508e27ccd29
+ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=95777d9b3c8dd94e1a9c27febc42b3bff1ccbc7d47e5ce87aee5517637fcd35c
 VISIBILITY_HELPER_GOLDEN_HASH=7cc6d2e93dc5c78c222f033c0ed941e7e41afcf421ecefbf8d6a04fd89e46357
 EQ_HELPER_GOLDEN_HASH=4533ae3a46601a7646bbfc7e6258d08136783621e32487b906784be559a7d3c1
 RECEIPT_HELPER_GOLDEN_HASH=7e616cc2982e4360e5ec8cd069e2abebe0658ca65dd8dbe073deee8190afe5f1
@@ -374,8 +374,8 @@ TARGET_PLUGIN_TREE_HASH_HELPER_GOLDEN_HASH=6c9343b7af357aa093efaae96328a2315ee2c
 TARGET_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=d80740550295c2df86f1a011941531aca503a475081bfbec685f9f158d9fa1e4
 SOURCE_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=830daaccf4702c0f2dbb27efd6b4aa5b1dd936bd089d744eaa8ec14f0ff35c31
 TARGET_TEE_UNCHANGED_HELPER_GOLDEN_HASH=d2dba3b69d1c9faba4ee697313197c02616d7686e537f953c482bdaf3163bad0
-TARGET_ORDER_SNAPSHOT_HELPER_GOLDEN_HASH=8a136ecc4fad0998eb1df46ca908ff61d38dc3bf8fcbb3f9968b60e6256d501c
-TARGET_ORDER_ABSENT_HELPER_GOLDEN_HASH=f73fed99f66539e6521295e15535deffb4d9aca7740d9487a1b64b6aee6667ce
+TARGET_ORDER_SNAPSHOT_HELPER_GOLDEN_HASH=7bfecd258305c19f28e31c9058ede01bfbc844479030369fc7e14f83d03bcfb8
+TARGET_ORDER_ABSENT_HELPER_GOLDEN_HASH=25473f5c9ff32ce4ae0834dcda96c10bd5eca04a4f0577254bbf63087ad7c99d
 DELETION_PROBE_PRESENT_HELPER_GOLDEN_HASH=e24bc5069b3f4f905e12bf04fcf30c14308c9c7cc007c8a56e9052cd2490ae82
 LIVE_CHECKOUT_HELPER_GOLDEN_HASH=1ef4a9c1f02943311c2767a7f336fe24588ce0f6d7e641ca826adfb7588edea2
 DEPLOY_ARTIFACT_FILES_HELPER_GOLDEN_HASH=74c60dc1cd6c256058840f36863e0f14e8b84c994a97036642e6ba0bf3d53eb4
@@ -537,6 +537,7 @@ assert_helper_contracts order-snapshot-data "$ORDER_SNAPSHOT_DATA_HELPER_BLOCK" 
   '"hpos_addresses" => $checked_rows' 'order snapshot omits HPOS address rows' \
   '"hpos_operational" => $checked_rows' 'order snapshot omits HPOS operational rows' \
   '"hpos_meta" => $checked_rows' 'order snapshot omits HPOS order metadata' \
+  '"customer_lookup" => $customer_lookup' 'order snapshot omits the Woo customer identity mapping' \
   '"order_stats" => $checked_rows' 'order snapshot omits derived order statistics' \
   '"product_lookup" => $checked_rows' 'order snapshot omits order product lookups' \
   '"order_items" => $order_items' 'order snapshot omits order-item rows' \
@@ -579,10 +580,15 @@ assert_helper_contracts target-order-snapshot "$TARGET_ORDER_SNAPSHOT_HELPER_BLO
   '((.meta_key | tostring | length) > 0)' 'target order snapshot helper does not require nonempty HPOS metadata keys' \
   '((.meta_value | type) == "string")' 'target order snapshot helper does not require valid HPOS metadata values' \
   'any(.hpos_meta[]; .meta_key == "_duo_runtime_marker" and .meta_value == "target-order-only")' 'target order snapshot helper does not require the exact HPOS metadata marker' \
+  '(.customer_lookup | length) == 1 and' 'target order snapshot helper does not require one Woo customer lookup row' \
+  '(.customer_lookup[0].customer_id | tonumber) as $analytics_customer_id' 'target order snapshot helper does not bind the Woo analytics customer identity' \
+  '((.customer_lookup[0].user_id | tonumber) == $expected_customer)' 'target order snapshot helper does not map the Woo customer to the WordPress user' \
+  '.customer_lookup[0].username == "runtime-customer"' 'target order snapshot helper does not require the exact Woo customer username' \
+  '.customer_lookup[0].email == "runtime-customer@example.invalid"' 'target order snapshot helper does not require the exact Woo customer email' \
   '(.order_stats | length) == 1 and' 'target order snapshot helper does not require one order-stats row' \
   '((.order_stats[0].order_id | tonumber) == $expected_order)' 'target order snapshot helper does not bind order stats to the order' \
   '((.order_stats[0].status | tostring) == "wc-pending")' 'target order snapshot helper does not require pending order stats' \
-  '((.order_stats[0].customer_id | tonumber) == $expected_customer)' 'target order snapshot helper does not bind order stats to the customer' \
+  '((.order_stats[0].customer_id | tonumber) == $analytics_customer_id)' 'target order snapshot helper does not bind order stats to the Woo customer identity' \
   '((.order_stats[0].num_items_sold | tonumber) == 1)' 'target order snapshot helper does not require one sold item in order stats' \
   '((.order_stats[0].total_sales | tonumber) > 0)' 'target order snapshot helper does not require positive order-stat sales' \
   '((.order_stats[0].net_total | tonumber) > 0)' 'target order snapshot helper does not require positive order-stat net revenue' \
@@ -594,7 +600,7 @@ assert_helper_contracts target-order-snapshot "$TARGET_ORDER_SNAPSHOT_HELPER_BLO
   '((.product_lookup[0].order_id | tonumber) == $expected_order)' 'target order snapshot helper does not bind product lookup to the order' \
   '((.product_lookup[0].product_id | tonumber) == $expected_product)' 'target order snapshot helper does not bind product lookup to the expected product' \
   '((.product_lookup[0].variation_id | tonumber) == 0)' 'target order snapshot helper does not validate the product lookup variation' \
-  '((.product_lookup[0].customer_id | tonumber) == $expected_customer)' 'target order snapshot helper does not bind product lookup to the customer' \
+  '((.product_lookup[0].customer_id | tonumber) == $analytics_customer_id)' 'target order snapshot helper does not bind product lookup to the Woo customer identity' \
   '((.product_lookup[0].product_qty | tonumber) == 1)' 'target order snapshot helper does not require one product quantity' \
   '((.product_lookup[0].product_gross_revenue | tonumber) > 0)' 'target order snapshot helper does not require positive gross product revenue' \
   '((.product_lookup[0].product_net_revenue | tonumber) > 0)' 'target order snapshot helper does not require positive net product revenue' \
@@ -632,9 +638,12 @@ assert_helper_contracts target-order-absent "$TARGET_ORDER_ABSENT_HELPER_BLOCK" 
   'LEFT JOIN `$order_items_table` AS items' 'target order absent helper does not inspect orphaned order-item metadata' \
   'itemmeta.order_item_id IN ($item_id_list)' 'target order absent helper does not bind orphan checks to captured item IDs' \
   'items.order_item_id IS NULL' 'target order absent helper does not detect orphaned order-item metadata' \
+  'wc_customer_lookup' 'target order absent helper does not inspect the Woo customer identity mapping' \
+  'WHERE user_id = %d' 'target order absent helper does not bind Woo customer cleanup to the target WordPress user' \
+  'target customer lookup absence read failed' 'target order absent helper does not fail closed on Woo customer lookup reads' \
   'target order-item metadata absence read failed' 'target order absent helper does not fail closed on metadata read errors' \
   'orphan target order-item metadata absence read failed' 'target order absent helper does not fail closed on orphan reads' \
-  '"$label absent HPOS/order-item rows/order-itemmeta"' 'target order absent helper does not require direct-row and metadata absence' \
+  '"$label absent HPOS/order-item/customer-lookup rows"' 'target order absent helper does not require order, item, metadata, and Woo customer absence' \
   '"$label absent order"' 'target order absent helper does not label the absence assertion'
 assert_helper_contracts deletion-probe-present "$DELETION_PROBE_PRESENT_HELPER_BLOCK" "$DELETION_PROBE_PRESENT_HELPER_GOLDEN_HASH" \
   'local id="$1" meta_rows attribute_rows' 'deletion probe present helper does not bind ID and lookup counts' \
