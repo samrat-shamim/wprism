@@ -1045,16 +1045,17 @@ final class Deploy {
      * ordinary canonical state=absent remains non-authoritative, and this
      * transient document is never consumed as apply intent.
      *
-     * Exact authored options already arrive as bound tombstones from
-     * Capture::build_options(). Sub-key and dynamic-name options cannot use
-     * a durable whole-row deletion tombstone (Duo owns only part of their
-     * value), so their missing live projection arrives as state=absent. A
-     * theme switch is the concrete case: before switch_theme(), the dynamic
-     * theme_mods resolver names the old theme; afterward it names the frozen
-     * desired theme. Converting only desired-present/missing observations to
-     * a hash-bound transient marker gives the record gate the same proof
-     * without granting deletion authority or reviving the unsafe generic
-     * absent-to-present exception.
+     * Exact authored options already arrive as bound tombstones when their
+     * row is absent before a hook. After activation, however, a hook-created
+     * ref-bearing option may exist while its new target-local entity has no
+     * Duo identity yet; the non-minting snapshot correctly projects that row
+     * as state=absent. Elementor's elementor_active_kit is the proven case.
+     * Rebinding that post-hook missing projection makes it byte-identical to
+     * the pre-hook proof. Sub-key/dynamic options can have the same absent
+     * projection because Duo owns only part of their value. Converting only
+     * desired-present/missing observations gives the record gate the same
+     * proof without granting deletion authority or reviving the unsafe
+     * generic absent-to-present exception.
      */
     private static function bind_lifecycle_missing_options(array $observedDocument, array $desiredDocument): array {
         $observed = OptionState::records($observedDocument);

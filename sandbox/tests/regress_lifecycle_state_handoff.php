@@ -14,6 +14,7 @@ require_once $root . '/agent/src/Deploy.php';
 require_once $root . '/agent/src/Apply.php';
 
 use Duo\Apply;
+use Duo\Canon;
 use Duo\Deploy;
 use Duo\OptionState;
 
@@ -95,39 +96,48 @@ $check(
     'a hook-created authored option may move from a tombstone bound to frozen desired state'
 );
 
-$dynamicBefore = OptionState::document([
-    'theme_mods_old' => OptionState::absent(),
-    'theme_mods_new' => OptionState::absent(),
+$activeKitDesired = OptionState::document([
+    'elementor_active_kit' => $present('{{post:kit-uuid}}'),
 ]);
-$dynamicDesired = OptionState::document([
-    'theme_mods_new' => $present(['background_color' => '3c8c3c']),
+$activeKitBefore = OptionState::document([
+    'elementor_active_kit' => OptionState::deleted(
+        OptionState::records($activeKitDesired)['elementor_active_kit']
+    ),
+    'unrelated_missing' => OptionState::absent(),
 ]);
-$dynamicBound = $missingBinder->invoke(null, $dynamicBefore, $dynamicDesired);
-$dynamicBoundRecords = OptionState::records($dynamicBound);
+$activeKitAfterObserved = OptionState::document([
+    // The hook created a target-local kit, but its post identity cannot be
+    // tokenized by a non-minting pre-apply snapshot yet.
+    'elementor_active_kit' => OptionState::absent(),
+    'unrelated_missing' => OptionState::absent(),
+]);
+$activeKitAfterBound = $missingBinder->invoke(null, $activeKitAfterObserved, $activeKitDesired);
+$activeKitAfterRecords = OptionState::records($activeKitAfterBound);
 $check(
-    ($dynamicBoundRecords['theme_mods_new']['state'] ?? null) === 'deleted'
-        && !array_key_exists('classification_witness', $dynamicBoundRecords['theme_mods_new'])
+    ($activeKitAfterRecords['elementor_active_kit']['state'] ?? null) === 'deleted'
+        && !array_key_exists('classification_witness', $activeKitAfterRecords['elementor_active_kit'])
         && hash_equals(
-            $dynamicBoundRecords['theme_mods_new']['expected_hash'] ?? '',
-            OptionState::record_hash(OptionState::records($dynamicDesired)['theme_mods_new'])
+            $activeKitAfterRecords['elementor_active_kit']['expected_hash'] ?? '',
+            OptionState::record_hash(OptionState::records($activeKitDesired)['elementor_active_kit'])
         ),
-    'a missing dynamic/sub-key lifecycle projection is hash-bound without witness-only byte drift'
+    'a post-hook unresolved authored ref is hash-bound without witness-only byte drift'
 );
 $check(
-    ($dynamicBoundRecords['theme_mods_old']['state'] ?? null) === 'absent',
+    ($activeKitAfterRecords['unrelated_missing']['state'] ?? null) === 'absent',
     'a missing option outside frozen desired-present state remains ordinary non-authoritative absence'
+);
+$check(
+    Canon::encode($activeKitBefore) === Canon::encode($activeKitAfterBound),
+    'the pre-hook bound tombstone and post-hook unresolved projection are byte-identical'
 );
 $check(
     $recordGate->invoke(
         null,
-        $dynamicBound,
-        OptionState::document([
-            'theme_mods_old' => OptionState::absent(),
-            'theme_mods_new' => $present(['background_color' => 'hook-default']),
-        ]),
-        $dynamicDesired
+        $activeKitBefore,
+        $activeKitAfterBound,
+        $activeKitDesired
     ) === [],
-    'a theme lifecycle hook may create the hash-bound dynamic option before apply reconciles its authored sub-keys'
+    'a lifecycle hook may create an unresolved ref-bearing option before apply mints and reconciles its target'
 );
 $check(
     $recordGate->invoke(
