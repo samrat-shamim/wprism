@@ -20,6 +20,45 @@ OUT_ROOT="${CERT_BUNDLE_OUT:-$PWD/certification-bundles}"
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail "invalid CERT_BUNDLE_PAIR '$PAIR'"
 command -v jq >/dev/null || fail "jq required"
 command -v php >/dev/null || fail "php required"
+command -v git >/dev/null || fail "git required"
+
+# pair.sh intentionally resolves agent/manifests bind mounts through Git's
+# common directory so a long-lived pair never depends on an ephemeral linked
+# worktree.  Certification has the opposite requirement: every exercised byte
+# must come from the exact clean HEAD whose hashes enter the evidence bundle.
+# Refuse before allocating a work root or starting Docker when those roots
+# would differ, or when uncommitted/stale mount bytes would make the run
+# irreproducible.
+assert_exact_certification_checkout() {
+  local checkout_root git_dir common_dir common_root env_file
+  local expected_agent expected_manifests mounted_agent mounted_manifests
+  checkout_root="$(cd "$REPO_ROOT" && pwd -P)"
+  git_dir="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-dir 2>/dev/null)" \
+    || fail "refusing certification: cannot resolve git-dir for checkout $checkout_root"
+  common_dir="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
+    || fail "refusing certification: cannot resolve git-common-dir for checkout $checkout_root"
+  common_root="$(dirname "$common_dir")"
+  if [ ! -d "$git_dir" ] || [ "$git_dir" != "$common_dir" ] \
+      || [ "$common_root" != "$checkout_root" ] || [ -f "$REPO_ROOT/.git" ]; then
+    fail "refusing certification from a linked worktree or stale canonical mount; use a clean primary or standalone exact-HEAD clone"
+  fi
+  if [ -n "$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" ]; then
+    fail "refusing certification from a dirty checkout; use a clean primary or standalone exact-HEAD clone"
+  fi
+  expected_agent="$checkout_root/agent"
+  expected_manifests="$checkout_root/manifests"
+  env_file="$checkout_root/sandbox/.env"
+  if [ -e "$env_file" ]; then
+    mounted_agent="$(sed -n 's/^DUO_AGENT_SRC=//p' "$env_file" | head -1)"
+    mounted_manifests="$(sed -n 's/^DUO_MANIFESTS_SRC=//p' "$env_file" | head -1)"
+    if [ "$mounted_agent" != "$expected_agent" ] || [ "$mounted_manifests" != "$expected_manifests" ]; then
+      fail "refusing certification with stale canonical mount registry $env_file; remove it or refresh pair.sh from the clean checkout"
+    fi
+  fi
+  [ -d "$expected_agent" ] || fail "refusing certification: canonical agent mount source is absent: $expected_agent"
+  [ -d "$expected_manifests" ] || fail "refusing certification: canonical manifest mount source is absent: $expected_manifests"
+}
+assert_exact_certification_checkout
 
 WORK_ROOT=$(mktemp -d /tmp/duo-certbundle.XXXXXX)
 cleanup_work() {

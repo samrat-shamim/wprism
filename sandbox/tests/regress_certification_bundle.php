@@ -57,6 +57,23 @@ function remove_tree(string $path): void {
     rmdir($path);
 }
 
+echo "\n== reference runner exact-checkout guard ==\n";
+$referenceRunner = (string) file_get_contents(__DIR__ . '/certify_reference_bundle.sh');
+$guardCall = strpos($referenceRunner, "assert_exact_certification_checkout\n");
+$workAllocation = strpos($referenceRunner, 'WORK_ROOT=$(mktemp -d');
+$pairInspection = strpos($referenceRunner, 'bash bin/pair.sh list');
+check(str_contains($referenceRunner, 'rev-parse --path-format=absolute --git-dir'), 'reference certification resolves the invoking checkout git-dir');
+check(str_contains($referenceRunner, 'rev-parse --path-format=absolute --git-common-dir'), 'reference certification resolves the canonical pair mount root');
+check(str_contains($referenceRunner, '[ "$git_dir" != "$common_dir" ]'), 'reference certification refuses a linked-worktree mount mismatch');
+check(str_contains($referenceRunner, 'status --porcelain=v1 --untracked-files=all'), 'reference certification refuses uncommitted source bytes');
+check(str_contains($referenceRunner, 'DUO_AGENT_SRC='), 'reference certification validates the persisted agent mount source');
+check(str_contains($referenceRunner, 'DUO_MANIFESTS_SRC='), 'reference certification validates the persisted manifest mount source');
+check(
+    $guardCall !== false && $workAllocation !== false && $pairInspection !== false
+        && $guardCall < $workAllocation && $guardCall < $pairInspection,
+    'exact-checkout refusal runs before temporary allocation or Docker pair inspection'
+);
+
 $root = sys_get_temp_dir() . '/duo_cert_bundle_' . bin2hex(random_bytes(5));
 $repo = "$root/repo";
 $inputs = "$root/inputs";
