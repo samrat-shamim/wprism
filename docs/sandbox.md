@@ -110,11 +110,12 @@ way).
 
 ### `up` — idempotent bring-up
 
-In order: ensure the shared db is up and healthy; ensure the `wordpress`
+In order: validate the dynamic host CPU/RAM pair budget (before creating any
+pair state); ensure the shared db is up and healthy; ensure the `wordpress`
 user/grant exist; create this pair's two databases; create its site-repo
 directories (and, under `--codebind`, the plugin subdirectory the bind
-mount needs to exist before any container attaches to it — see below); warn
-if this pushes the live-pair count above 2; bring up `wp1/wp2/cli1/cli2`;
+mount needs to exist before any container attaches to it — see below); bring
+up `wp1/wp2/cli1/cli2`;
 wait for DB-level readiness on both sides; run the generic WordPress
 bootstrap (`core install`, theme, permalinks, `.htaccess`) on each side
 *unless it's already installed*; print the pair's wp-cli invocation
@@ -194,10 +195,16 @@ for production repository permissions.
 pair.sh reset <name>
 ```
 
-Drops and recreates both of the pair's databases, and wipes+recreates its
-site-repo directories (`siterepo/<name>{1,2}`, `siterepo/origin-<name>.git`)
-— the same clean-room scope `conformance/run.sh` currently hand-rolls per
-manifest run. It does **not** touch the `wp1`/`wp2` webroot named volumes,
+Drops and recreates both of the pair's databases, clears the contents of its
+site-repo directories in place (`siterepo/<name>{1,2}`), and removes
+`siterepo/origin-<name>.git` — the same clean-room scope
+`conformance/run.sh` currently hand-rolls per manifest run. The two site-repo
+root inodes are deliberately preserved so ordinary web/site bind mounts
+cannot retain a deleted-directory inode with stale content. If a live or
+stopped pair container has the additional nested codebind plugin mount,
+`reset` refuses before touching databases or files; destroy the pair and
+bring it back with the original `--codebind` flag instead. It does **not**
+touch the `wp1`/`wp2` webroot named volumes,
 does **not** restart or recreate any container, and does **not** re-run
 `core install`. This is a deliberate, narrow scope: the webroot volume was
 never the slow part (the official WordPress image's entrypoint re-templates
@@ -235,14 +242,25 @@ which (being lowercase letters only) would otherwise pass right through a
 naming-convention filter and get miscounted as one of this redesign's own
 pairs. Confirmed this was a real, not hypothetical, bug during self-test.
 
-### The concurrency warning
+### The concurrency budget
 
-`up` and `list` both warn — never block — once more than 2 pairs would be
-(or are) live at once: exactly the concurrency level that wedged the
-OrbStack daemon this session. The warning names every pair currently up and
-points at `pair.sh destroy`. There is no hard cap; the whole point of the
-per-pair-project model is that any number *can* run, this is just a nudge
-back toward the operating discipline that avoids re-triggering the incident.
+`up` and `list` use the host's dynamic CPU/RAM budget (one active pair per
+available budget unit). Before `up` creates a database, site-repo root, or
+container, it takes a crash-safe kernel file lock in the canonical checkout's
+ignored `sandbox/siterepo/.pair-budget.lock`, re-enumerates Compose projects,
+and holds that reservation through web/CLI container creation. Linux uses the
+host `flock` utility; macOS/BSD uses the host's already-used `python3` and
+`fcntl.flock` through a control FIFO. Git linked worktrees therefore share one
+budget gate. A new pair that would exceed the verified budget is refused and
+names the existing pairs; set
+`DUO_PAIR_BUDGET_OVERRIDE=1` only when the operator deliberately accepts the
+load. An already-live pair may still be re-converged. If Docker capacity,
+Compose enumeration, `jq`, or both supported lock backends (`flock` and
+Python `fcntl`) are unavailable, the command fails closed without guessing
+capacity or creating pair state. The
+kernel releases the descriptor after a crash/signal; the lock file itself is
+never removed, so a later owner cannot delete another process's reservation.
+`list` uses the same serialized strict query and surfaces the budget warning.
 
 ## The destroy-when-green convention
 
