@@ -50,14 +50,14 @@ check_wiring() { # check_wiring <path> <label> -- exits 0 (wired correctly) or 1
   [ -n "$start" ] && [ -n "$end" ] || return 2
   local body
   body=$(sed -n "${start},${end}p" "$src")
-  echo "$body" | grep -qE '\$allOptionValues\s*=\s*\$this->all_options_map\(\);' \
+  grep -qE '\$allOptionValues\s*=\s*\$this->all_options_map\(\);' <<<"$body" \
     || { echo "  [$label] no \$allOptionValues = \$this->all_options_map() assignment found in build_options()" >&2; return 1; }
   local loop_line
   loop_line=$(echo "$body" | grep -n 'option_name_ref_rules()' | head -1 | cut -d: -f1)
   [ -n "$loop_line" ] || { echo "  [$label] option_name_ref_rules() call site not found in build_options()" >&2; return 1; }
   local window
   window=$(echo "$body" | sed -n "${loop_line},$((loop_line + 6))p")
-  echo "$window" | grep -qE 'foreach\s*\(\s*array_keys\(\$allOptionValues\)\s*as\s*\$name\s*\)' \
+  grep -qE 'foreach\s*\(\s*array_keys\(\$allOptionValues\)\s*as\s*\$name\s*\)' <<<"$window" \
     || { echo "  [$label] option_name_ref_rules() consumer loop does not iterate array_keys(\$allOptionValues) -- got:
 $window" >&2; return 1; }
   return 0

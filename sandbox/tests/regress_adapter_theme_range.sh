@@ -100,12 +100,12 @@ assert r['manifest'] == 'theme-range-test', r
 assert 'declared version_range' not in r['message'] or True  # message wording checked below
 " || fail "bumped case did not produce the expected single outside_version_range/theme finding: $BUMPED_JSON"
 MSG=$(echo "$BUMPED_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)[0]['message'])")
-echo "$MSG" | grep -q "theme_version_range" || fail "message does not mention theme_version_range (got: $MSG)"
-echo "$MSG" | grep -q -- "--force-code-mismatch" || fail "message does not mention --force-code-mismatch (got: $MSG)"
+grep -q "theme_version_range" <<<"$MSG" || fail "message does not mention theme_version_range (got: $MSG)"
+grep -q -- "--force-code-mismatch" <<<"$MSG" || fail "message does not mention --force-code-mismatch (got: $MSG)"
 pass "(e) outside_version_range correctly flagged for the THEME slot — $MSG"
 
 wp1 theme activate twentytwentyone >/dev/null
-say "template slot gets the identical treatment when it differs from stylesheet (both slots symmetric, matching the existing plugin-side loop's own even-handedness)"
+say "template slot gets the identical version treatment while the independent parent-template invariant also stays loud"
 EVAL_SNIPPET_DIFF=$(cat <<PHP
 \$p = new \Duo\Policy();
 \$p->manifests = [[
@@ -121,10 +121,14 @@ DIFF_JSON=$(wp1 eval "$EVAL_SNIPPET_DIFF")
 echo "$DIFF_JSON" | python3 -c "
 import json, sys
 rows = json.load(sys.stdin)
-assert len(rows) == 1, f'expected exactly 1 finding (template slot only, stylesheet is a different, compliant theme), got {rows}'
-assert rows[0]['theme'] == 'twentytwentyfour', rows[0]
-" || fail "template-differs-from-stylesheet case did not isolate the finding to the template slot: $DIFF_JSON"
-pass "template slot flagged independently of stylesheet when the two differ"
+assert len(rows) == 2, f'expected the template version finding plus the independent parent mismatch, got {rows}'
+by_issue = {row['issue']: row for row in rows}
+assert set(by_issue) == {'outside_version_range', 'template_mismatch'}, rows
+assert by_issue['outside_version_range']['theme'] == 'twentytwentyfour', rows
+assert by_issue['template_mismatch']['theme'] == 'twentytwentyone', rows
+assert by_issue['template_mismatch']['template'] == 'twentytwentyfour', rows
+" || fail "template-differs-from-stylesheet case did not preserve both independent findings: $DIFF_JSON"
+pass "template slot version mismatch and stylesheet-parent mismatch both stay independently visible"
 
 say "restore twentytwentyfour's real version header (good hygiene, though the pair is destroyed next)"
 docker exec "$CONTAINER" sed -i "s/^Version:.*/Version: $REAL_VERSION/" /var/www/html/wp-content/themes/twentytwentyfour/style.css \

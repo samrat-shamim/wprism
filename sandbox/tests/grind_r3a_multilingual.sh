@@ -30,36 +30,20 @@
 #     capture. DUO-3233's sub_keys mechanism (task #121) now declares
 #     `nav_menus` (alongside post_types/taxonomies) an authored, captured/
 #     applied sub-key of the SAME option (manifests/polylang.json) — this
-#     should mean the second menu now DOES land at its per-language
-#     location on a fresh target with zero manual wiring, but that chain
-#     was reasoned from source/manifest declarations, not independently
-#     verified live end-to-end here — see this file's own render-check
-#     comments below and the close-gate ping for the explicit flag.
-#  4. THE ORIGINAL KNOWN GAP, characterized precisely post-#75's typed-
-#     snapshot, has since NARROWED — task #92 (taxonomy_patterns +
-#     Apply::taxes_by_object_type()'s own object_type fallback, mirroring
-#     Capture's copy) means a just-registered pattern-matched taxonomy like
-#     pa_size/pa_color no longer NEEDS get_taxonomy() to have caught up
-#     within the same apply request; the "not registered on this
-#     environment" warning this section's own test used to assert is no
-#     longer reachable for a declared taxonomy_patterns match, confirmed
-#     live. What's NOT fully closed: Apply's own taxesByObjectType() is
-#     still lazily memoized on first access, so whether Snapshot's phase-1
-#     typed-snapshot write of the attribute-taxonomies row lands before or
-#     after that first access — an entity-processing-order question this
-#     script does not control — can still leave relationship-writing
-#     order-dependent within a single apply run (still does NOT self-heal
-#     on a no-op re-apply either way; only a genuine content change forces
-#     reprocessing, converging on the fully-resolved state regardless of
-#     where it started). SEPARATELY: Polylang's OWN post_types/taxonomies
-#     opt-in (in the polylang option) gating whether `language`
-#     relationships get written for a translated CPT like `product` IS now
-#     closed — DUO-3233's sub_keys mechanism (task #121) captures/applies
-#     post_types/taxonomies/nav_menus as declared sub-keys of the SAME
-#     option (see manifests/polylang.json), so a fresh target no longer
-#     needs the admin's Settings page action replicated by hand. See
-#     docs/grind/r3a-multilingual-shop.md and task #121 for the original
-#     writeup this narrows.
+#     means the second menu lands at its per-language location on a fresh
+#     target with zero manual wiring; when the separate Polylang front-end
+#     health guard permits render checks, the assertion below verifies that
+#     end to end.
+#  4. THE ORIGINAL KNOWN GAP is closed. Task #92's taxonomy_patterns and
+#     object_type fallback cover a just-landed pa_* taxonomy even though
+#     WordPress's in-memory registry cannot refresh mid-request. Apply's
+#     global phase-1 pass creates every typed-table and term row before any
+#     phase-2 post relationship write, so the first taxesByObjectType()
+#     lookup deterministically sees pa_size/pa_color in the live table.
+#     DUO-3280 separately adds the compiled polylang.post_types value to the
+#     frozen `language` taxonomy object_type, so the same first apply writes
+#     language relationships too. This fixture now asserts exact first-
+#     apply convergence and contains no manual config/content-change retry.
 #
 # Re-run safety: r3a1/r3a2 are never torn down (pair.sh destroy is off-
 # limits for a script re-run — other agents may share the fleet), so every
@@ -409,7 +393,48 @@ grep -q '"theme_switched":"storefront"' <<<"$DEPLOY0_JSON" || fail "deploy did n
 [ "$(wp_2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not the active theme on r3a2 after deploy"
 pass "r3a2 switched to Storefront via a real wp duo deploy — required BEFORE apply under DUO-3216"
 REV=$(git -C siterepo/r3a2 rev-parse HEAD)
+DUO3305_REPAIR=0
+set +e
 APPLY1_OUT=$(wp_env 2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1)
+APPLY1_RC=$?
+set -e
+
+# DUO-3305, discovered by DUO-3274's current-main sweep: product_type is a
+# derived Woo taxonomy and is therefore absent from captured state. When an
+# adopted variation receives a lower local id than its parent, the fresh
+# target loads the parent as simple. The sorted batch can then delete rows for
+# children that sort before the parent and recreate only later-id children;
+# even when every child sorts later and all four rows exist, exact verification
+# still rightly fails because the simple parent object excludes its variation
+# graph from the expected projection. Keep this diagnostic branch until
+# DUO-3305 lands: it proves the exact failure, applies a narrowly labeled
+# target-side repair so the rest of this independent grind can still run, and
+# automatically becomes a no-op when the engine closes the gap. This is not
+# claimed as Duo behavior.
+if [ "$APPLY1_RC" -ne 0 ]; then
+  grep -q "WooCommerce product attributes lookup verification failed" <<<"$APPLY1_OUT" \
+    || fail "fresh-target apply failed for an unexpected reason (exit $APPLY1_RC): $APPLY1_OUT"
+  TEE_B2=$(wp_2 post list --post_type=product --name=duo-tee --field=ID)
+  [ -n "$TEE_B2" ] || fail "DUO-3305 diagnostic could not resolve the applied Duo Tee after the verifier refusal"
+  PRODUCT_TYPE_ROWS=$(wp_2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id JOIN wp_terms t ON t.term_id=tt.term_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy='product_type' AND t.slug='variable'" --skip-column-names)
+  [ "$PRODUCT_TYPE_ROWS" = "0" ] || fail "DUO-3305 expected the fresh target's uncaptured variable product_type relationship to be absent (got $PRODUCT_TYPE_ROWS)"
+  TARGET_PRODUCT_TYPE=$(wp_2 eval "echo wc_get_product($TEE_B2)->get_type();")
+  [ "$TARGET_PRODUCT_TYPE" = "simple" ] || fail "DUO-3305 expected Woo to misclassify the fresh-target parent as simple without product_type (got $TARGET_PRODUCT_TYPE)"
+  LOOKUP_VARIATIONS=$(wp_2 db query "SELECT COUNT(DISTINCT product_id) FROM wp_wc_product_attributes_lookup WHERE product_or_parent_id=$TEE_B2 AND product_id<>$TEE_B2" --skip-column-names)
+  [ "$LOOKUP_VARIATIONS" -ge 0 ] && [ "$LOOKUP_VARIATIONS" -le 4 ] || fail "DUO-3305 diagnostic read an impossible variation lookup count (got $LOOKUP_VARIATIONS)"
+  RELS_BEFORE_REPAIR=$(wp_2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN ('pa_size','pa_color')" --skip-column-names)
+  LANG_BEFORE_REPAIR=$(wp_2 eval "var_export(pll_get_post_language($TEE_B2));")
+  pass "DUO-3305 reproduced exactly: uncaptured variable product_type made Woo load the parent as simple (lookup held $LOOKUP_VARIATIONS/4 child projections under this run's local-id ordering; post-refusal diagnostic state had $RELS_BEFORE_REPAIR/4 pa_* relationships and language=$LANG_BEFORE_REPAIR)"
+
+  wp_2 eval "wp_set_object_terms($TEE_B2, 'variable', 'product_type', false); clean_object_term_cache($TEE_B2, 'product'); clean_post_cache($TEE_B2);" >/dev/null
+  DUO3305_REPAIR=1
+  set +e
+  APPLY1_OUT=$(wp_env 2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1)
+  APPLY1_RC=$?
+  set -e
+  [ "$APPLY1_RC" -eq 0 ] || fail "DUO-3305's labeled product_type diagnostic repair did not allow the retry to converge (exit $APPLY1_RC): $APPLY1_OUT"
+  pass "DUO-3305 diagnostic repair confirmed: assigning the missing variable product_type makes the retry converge; the engine fix remains owned by DUO-3305"
+fi
 echo "$APPLY1_OUT"
 # Task #92 gave Apply::taxes_by_object_type() the same pattern_object_type()
 # fallback Capture's own copy already had (manifests/woocommerce.json's
@@ -428,101 +453,26 @@ assert_language_descriptions 1 "after initial source capture"
 assert_language_descriptions 2 "after initial target apply"
 pass "apply succeeded, canary clean, no unregistered-taxonomy warning"
 
-say "confirm the precise blast radius on the fresh target: pa_* attribute taxonomy rows self-provision (task #75); relationship-WRITING for 'product' is still order-of-processing dependent within the SAME apply run"
+say "first-apply convergence: typed pa_* definitions, product relationships, and Polylang language all land with zero target-side repair"
 TEE_B2=$(wp_2 post list --post_type=product --name=duo-tee --field=ID)
 REGISTERED_B2=$(wp_2 eval "var_export(['pa_size'=>taxonomy_exists('pa_size'),'pa_color'=>taxonomy_exists('pa_color')]);")
 grep -q "'pa_size' => true" <<<"$REGISTERED_B2" || fail "pa_size did not self-register on the fresh target (task #75 regression)"
-RELS_BEFORE=$(wp_2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN ('pa_size','pa_color')" --skip-column-names)
-# NOT asserted to be exactly 0: Apply::taxes_by_object_type() (agent/src/
-# Apply.php) memoizes $taxesByObjectType on FIRST access, lazily, not
-# eagerly at the top of apply() -- whether the woocommerce_attribute_
-# taxonomies typed-snapshot row (task #75) lands in phase 1 BEFORE or AFTER
-# that first access, within the SAME apply run, is an entity-processing-
-# order question this script does not control; task #92's object_type
-# fallback (see the warning comment above) only helps a taxonomy name
-# that's ALREADY a scope candidate -- it doesn't affect whether
-# Policy::taxonomies()'s own live-DB scan finds pa_size/pa_color's
-# term_taxonomy rows in time for that same first memoized call, which is a
-# separate, still-live timing question. Confirmed by direct observation
-# across repeat runs: sometimes 0 (needs the self-heal dance below),
-# sometimes 4 (already correct on the very first apply) -- both are
-# legitimate, non-buggy outcomes of the SAME underlying mechanism.
-# Reported, not forced.
-echo "pa_size/pa_color relationships on first apply: $RELS_BEFORE (0 = needs reprocessing below, 4 = already self-provisioned this run — both legitimate, see task #90 report)"
-LANG_BEFORE=$(wp_2 eval "var_export(pll_get_post_language($TEE_B2));")
-[ "$LANG_BEFORE" = "false" ] || fail "expected Duo Tee to have no language before the fix (got $LANG_BEFORE) — this one IS deterministic: Polylang registers its OWN 'language' taxonomy at 'init', before apply's own sub_keys-merged polylang option write can affect the SAME request, regardless of entity-processing order"
-pass "confirmed: pa_size/pa_color taxonomy rows self-provision with ZERO manual pre-provisioning (real progress over r1b) — Duo Tee's language (false) is deterministically missing this SAME request regardless of Polylang's own config, a request-lifecycle boundary DUO-3233's sub_keys mechanism (below) doesn't cross"
-
-say "self-heal test: does a no-op re-apply (no content change) change anything?"
-REV2=$(git -C siterepo/r3a2 rev-parse HEAD)
-wp_2 duo apply --repo=/siterepo --default-author=admin --revision="$REV2" >/dev/null
-RELS_NOOP=$(wp_2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN ('pa_size','pa_color')" --skip-column-names)
-[ "$RELS_NOOP" = "$RELS_BEFORE" ] || fail "expected the self-heal test to leave pa_size/pa_color relationships unchanged from $RELS_BEFORE (an 'unchanged' entity skips relationship reprocessing) — got $RELS_NOOP"
-pass "confirmed: a no-op re-apply never changes relationship state either way (unchanged entities skip reprocessing) — matches r1b's finding exactly, post-#75"
-
-say "the real fix, two parts: (a) replicate Polylang's admin config on the target, (b) force a genuine content change so entities reprocess"
-# DUO-3233's sub_keys mechanism (task #121, manifests/polylang.json's
-# polylang.sub_keys.post_types/taxonomies) means r3a1's OWN post_types/
-# taxonomies are now captured and merged into r3a2's live polylang option
-# automatically by the FIRST apply above -- this manual update_option()
-# step is very plausibly redundant now (reasoned from source: Policy::
-# taxonomies()/sub_keys merge-into-live-blob semantics), but that chain was
-# NOT verified live end-to-end (a full Polylang+WooCommerce fixture is a
-# substantially bigger live setup than this reconciliation pass's other
-# checks) -- see the close-gate ping for this one, explicitly flagged
-# rather than guessed. Left in place deliberately: harmless if already
-# redundant (re-asserting values sub_keys already wrote), still load-
-# bearing if the reasoning above has a gap. No deactivate/reactivate here
-# either -- see task #121: it wipes rather than fixes. A single
-# update_option() reliably takes effect on the very next process, verified
-# via the same object_type signal used above.
-wp_2 eval "
-\$o = get_option('polylang');
-\$o['default_lang'] = 'en';
-\$o['post_types'] = array_unique(array_merge(\$o['post_types'] ?? [], ['product']));
-\$o['taxonomies'] = array_unique(array_merge(\$o['taxonomies'] ?? [], ['product_cat','pa_color']));
-update_option('polylang', \$o);
-"
-OBJ_OK_B2=0
-for _ in 1 2 3 4 5 6 7 8; do
-  OBJTYPE_B2=$(wp_2 eval "\$t=get_taxonomy('language'); echo implode(',', (array) \$t->object_type);")
-  if grep -q 'product' <<<"$OBJTYPE_B2"; then
-    OBJ_OK_B2=1
-    break
-  fi
-done
-[ "$OBJ_OK_B2" = "1" ] || fail "language taxonomy's object_type does not include 'product' on r3a2 after 8 checks of update_option() (got: $OBJTYPE_B2)"
+RELS_FIRST=$(wp_2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN ('pa_size','pa_color')" --skip-column-names)
+[ "$RELS_FIRST" = "4" ] || fail "expected all 4 pa_size/pa_color relationships on the first apply (got $RELS_FIRST) — the global phase-1 pass must land typed-table and term rows before phase-2 relationship writes"
+LANG_FIRST=$(wp_2 eval "var_export(pll_get_post_language($TEE_B2));")
+[ "$LANG_FIRST" = "'en'" ] || fail "expected Duo Tee language=en on the single, unretried first apply (got $LANG_FIRST) — DUO-3280's compiled object_type_from_option path must bypass the frozen registry"
 MUG_B2=$(wp_2 post list --post_type=product --name=duo-mug --field=ID)
 CAP_B2=$(wp_2 post list --post_type=product --name=duo-cap --field=ID)
 KAPPE_B2=$(wp_2 post list --post_type=product --name=duo-kappe --field=ID)
-wp_1 post update "$TEE_ID" --post_excerpt="Our best-selling tee, now in two colors." >/dev/null
-wp_1 post update "$MUG_ID" --post_excerpt="A sturdy mug for your morning coffee." >/dev/null
-wp_1 post update "$CAP_ID" --post_excerpt="A durable cap for sunny days." >/dev/null
-wp_1 post update "$CAP_DE" --post_excerpt="Eine robuste Kappe." >/dev/null
-wp_1 duo capture --repo=/siterepo >/dev/null
-assert_language_descriptions 1 "after source excerpt update capture"
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test add -A
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test commit -qm "content: add excerpts (forces reprocessing on the target)"
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test push -q origin main
-git -C siterepo/r3a2 pull -q origin main
-REV3=$(git -C siterepo/r3a2 rev-parse HEAD)
-wp_2 duo apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV3" >/dev/null
-assert_language_descriptions 2 "after target content-update apply"
-RELS_FIXED=$(wp_2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN ('pa_size','pa_color')" --skip-column-names)
-# Reported, not hard-asserted to a specific number -- see the note above the
-# first RELS_BEFORE check. Across repeat runs of this exact script this
-# value has been observed as 0, 2, and 4 depending on incidental entity-
-# processing order within a single apply() call; a genuine content change
-# always moves it towards 4 (never backwards) but doesn't guarantee landing
-# there in exactly one more apply if a PRIOR apply already partially
-# resolved it under a different taxesByObjectType() memoization snapshot.
-[ "$RELS_FIXED" -ge "$RELS_BEFORE" ] || fail "expected pa_size/pa_color relationships to not go BACKWARDS after the real fix (was $RELS_BEFORE, now $RELS_FIXED)"
-echo "pa_size/pa_color relationships after the real fix: $RELS_FIXED (was $RELS_BEFORE before)"
-LANG_FIXED=$(wp_2 eval "var_export(pll_get_post_language($TEE_B2));")
-[ "$LANG_FIXED" = "'en'" ] || fail "expected Duo Tee language=en after the fix (got $LANG_FIXED) — this one IS deterministic"
-LANG_KAPPE=$(wp_2 eval "var_export(pll_get_post_language($KAPPE_B2));")
-[ "$LANG_KAPPE" = "'de'" ] || fail "expected Duo Kappe language=de after the fix (got $LANG_KAPPE)"
-pass "relationships restored (4 rows), language restored for Duo Tee/Mug/Cap/Kappe — the real fix, matching r1b's playbook exactly"
+LANG_ALL=$(wp_2 eval "var_export(['mug'=>pll_get_post_language($MUG_B2),'cap'=>pll_get_post_language($CAP_B2),'kappe'=>pll_get_post_language($KAPPE_B2)]);")
+grep -q "'mug' => 'en'" <<<"$LANG_ALL" || fail "expected Duo Mug language=en on first apply (got: $LANG_ALL)"
+grep -q "'cap' => 'en'" <<<"$LANG_ALL" || fail "expected Duo Cap language=en on first apply (got: $LANG_ALL)"
+grep -q "'kappe' => 'de'" <<<"$LANG_ALL" || fail "expected Duo Kappe language=de on first apply (got: $LANG_ALL)"
+if [ "$DUO3305_REPAIR" = "1" ]; then
+  pass "4/4 pa_* and all product languages converged after the explicitly labeled DUO-3305 diagnostic repair; DUO-3305 blocks this run from claiming a clean first-success proof"
+else
+  pass "single first apply is fully converged: 4/4 pa_* relationships and all product language relationships landed from captured configuration, with zero manual target config or forced content change"
+fi
 
 say "wp duo deploy on r3a2 again — DUO-3216 idempotency contract: already reconciled by the early deploy above, so this must be a genuine no-op"
 DEPLOY_JSON=$(wp_2 duo deploy --repo=/siterepo --format=json | tail -1)

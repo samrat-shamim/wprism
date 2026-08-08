@@ -48,7 +48,7 @@ set -e
 [ "$MERGE_RC" -ne 0 ] || fail "expected a merge conflict on About, merge succeeded"
 CONFLICTS=$($GIT_A status --porcelain | grep '^UU' || true)
 echo "$CONFLICTS"
-echo "$CONFLICTS" | grep -q -- '--about.md' || fail "conflict is not on the About entity file"
+grep -q -- '--about.md' <<<"$CONFLICTS" || fail "conflict is not on the About entity file"
 [ "$(echo "$CONFLICTS" | wc -l | tr -d ' ')" = "1" ] || fail "expected exactly one conflicted entity"
 grep -q '<<<<<<<' siterepo/a/state/posts/page/*--about.md || fail "no conflict markers in About file"
 pass "conflict surfaced as a plain git conflict, scoped to the About entity; Hello Duo merged clean"
@@ -73,7 +73,14 @@ $GIT_B pull -q origin main
 PLAN=$(wp_b duo plan --repo=/siterepo --json | tail -1)
 echo "$PLAN" | jq -e '.drift | length == 1' >/dev/null || fail "expected exactly one drift entity in B's plan"
 echo "$PLAN" | jq -r '.drift[0].path' | grep -q -- '--team.md' || fail "drift is not the Team entity"
-wp_b duo apply --repo=/siterepo --default-author=admin | grep -qi 'drift' || fail "apply did not surface drift"
+set +e
+APPLY_OUTPUT=$(wp_b duo apply --repo=/siterepo --default-author=admin 2>&1)
+APPLY_RC=$?
+set -e
+echo "$APPLY_OUTPUT"
+[ "$APPLY_RC" -ne 0 ] || fail "apply unexpectedly promoted metadata despite drift"
+grep -qi 'post-apply convergence verification failed' <<<"$APPLY_OUTPUT" || fail "apply did not fail closed on drift"
+grep -qi 'canonical hash mismatch' <<<"$APPLY_OUTPUT" || fail "apply did not identify the drift mismatch"
 [ "$(wp_b post get "$ABOUT_B" --field=post_title)" = "About (merged)" ] || fail "B: About title not merged"
 [ "$(wp_b post get "$TEAM_B" --field=post_title)" = "Team (B-local-drift)" ] || fail "B: local drift was clobbered"
 pass "B converged on merged entities; uncaptured local edit surfaced as drift and was preserved"

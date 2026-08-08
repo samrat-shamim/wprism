@@ -98,8 +98,8 @@ CAPTURE_B_RC=$?
 set -e
 echo "$CAPTURE_B_ERR"
 [ "$CAPTURE_B_RC" -ne 0 ] || fail "capture B succeeded despite A holding the lock — two publishers interleaved"
-echo "$CAPTURE_B_ERR" | grep -qi "already publishing" || fail "capture B's refusal did not name the held capture lock: $CAPTURE_B_ERR"
-echo "$CAPTURE_B_ERR" | grep -q "/siterepo/state" || fail "capture B's refusal did not name the contended destination: $CAPTURE_B_ERR"
+grep -qi "already publishing" <<<"$CAPTURE_B_ERR" || fail "capture B's refusal did not name the held capture lock: $CAPTURE_B_ERR"
+grep -q "/siterepo/state" <<<"$CAPTURE_B_ERR" || fail "capture B's refusal did not name the contended destination: $CAPTURE_B_ERR"
 pass "capture B refused immediately and named both the lock and the destination"
 
 say "PART 1 — capture A completes normally once its pause ends"

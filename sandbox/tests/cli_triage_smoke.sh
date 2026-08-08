@@ -82,11 +82,11 @@ for _ in $(seq 1 30); do
 done
 echo "$OUT"
 [ "$ok" -eq 1 ] || fail "duo doctor e1 never went green (exit $CODE)"
-pass "duo doctor e1: 4/4 checks green"
+pass "duo doctor e1: all required checks green"
 
 say "baseline: e1's review queue starts empty"
 assert_exit 0 "duo pending e1 (baseline)" -- "$DUO" pending e1
-echo "$OUT" | grep -qi 'review queue is empty' || fail "duo pending e1 (baseline): expected an empty queue -- clean up e1's env before running this smoke test"
+grep -qi 'review queue is empty' <<<"$OUT" || fail "duo pending e1 (baseline): expected an empty queue -- clean up e1's env before running this smoke test"
 pass "e1's review queue is empty before the probe"
 
 say "fabricate an unclassified probe (post_meta on the spike-E fixture post)"
@@ -108,7 +108,7 @@ pass "probe listed with gate evidence only, no proposal, no journal"
 
 say "duo pending e1 (human table): sanity-check the rendered view too"
 assert_exit 0 "duo pending e1 (table)" -- "$DUO" pending e1
-echo "$OUT" | grep -q 'post_meta:duo_triage_probe' || fail "duo pending e1: probe row missing from the rendered table"
+grep -q 'post_meta:duo_triage_probe' <<<"$OUT" || fail "duo pending e1: probe row missing from the rendered table"
 pass "rendered table lists the probe row"
 
 say "duo classify e1 -- interactive triage, choosing runtime for the probe"
@@ -116,7 +116,7 @@ INPUT=$'r\n'
 if OUT=$(printf '%s' "$INPUT" | "$DUO" classify e1 2>&1); then CODE=0; else CODE=$?; fi
 echo "$OUT"
 [ "$CODE" -eq 0 ] || fail "duo classify e1: expected exit 0, got $CODE"
-echo "$OUT" | grep -q '1 classified, 0 skipped\.' || fail "duo classify e1: expected the '1 classified, 0 skipped.' summary line"
+grep -q '1 classified, 0 skipped\.' <<<"$OUT" || fail "duo classify e1: expected the '1 classified, 0 skipped.' summary line"
 pass "duo classify e1 accepted 'runtime' for the probe (exit $CODE)"
 
 say "the policy entry landed in site.duo.json"
@@ -126,17 +126,17 @@ pass 'site.duo.json: policy.post_meta.duo_triage_probe.class == "runtime"'
 
 say "wp duo capture e1 succeeds now that the probe key is classified"
 assert_exit 0 "duo capture e1 (post-classify)" -- "$DUO" capture e1
-echo "$OUT" | grep -qi 'captured' || fail "duo capture e1: no 'captured' summary line"
+grep -qi 'captured' <<<"$OUT" || fail "duo capture e1: no 'captured' summary line"
 pass "duo capture e1 succeeded (no more loud-and-blocking abort on the probe key)"
 
 say "duo pending e1 is empty again"
 assert_exit 0 "duo pending e1 (after classify)" -- "$DUO" pending e1
-echo "$OUT" | grep -qi 'review queue is empty' || fail "duo pending e1: expected the queue to be empty after classifying the only item"
+grep -qi 'review queue is empty' <<<"$OUT" || fail "duo pending e1: expected the queue to be empty after classifying the only item"
 pass "e1's review queue is empty again"
 
 say "duo classify e1 --accept-proposals on an empty queue exits 0 with the empty-queue message"
 assert_exit 0 "duo classify e1 --accept-proposals (empty queue)" -- "$DUO" classify e1 --accept-proposals
-echo "$OUT" | grep -qi 'review queue is empty' || fail "duo classify e1 --accept-proposals: expected the empty-queue message"
+grep -qi 'review queue is empty' <<<"$OUT" || fail "duo classify e1 --accept-proposals: expected the empty-queue message"
 pass "duo classify e1 --accept-proposals is a clean no-op on an empty queue"
 
 say "confirm the ONLY tracked change so far is site.duo.json (capture was a true no-op on state/)"

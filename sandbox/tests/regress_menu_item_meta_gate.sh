@@ -96,7 +96,7 @@ say "(a) genuinely unclassified: duo capture must refuse loudly, naming it"
 if OUT=$(wp1 duo capture --repo=/siterepo --format=json 2>&1); then
   fail "capture succeeded with an unclassified menu-item meta key present (silent-loss regression reproduced): $OUT"
 fi
-echo "$OUT" | grep -q "menu_item_meta:$KEY" \
+grep -q "menu_item_meta:$KEY" <<<"$OUT" \
   || fail "capture refused, but did not name menu_item_meta:$KEY (got: $OUT)"
 pass "(a) capture refuses loudly and names the exact unclassified menu-item meta key — the pre-fix silent-loss defect cannot reproduce"
 
