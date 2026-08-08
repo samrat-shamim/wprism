@@ -215,6 +215,6 @@ with more specific or mixed verdicts are detailed in the ledger above.
 - `grind_r1b_shop.sh`: full isolated run passed. The first apply produced
   4/4 `pa_*` relationships. Its strict comparison reported only the two
   DUO-3302 timestamp-bearing files and proved every other byte identical.
-- `make regress-offline-all`: 52 offline suites green.
+- `make regress-offline-all`: 53 offline suites green.
 - All 31 changed shell scripts pass `bash -n`; the repository has no
   executable `echo "$VAR" | grep -q` assertion remaining.
