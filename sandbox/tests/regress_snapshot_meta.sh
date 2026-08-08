@@ -260,9 +260,9 @@ SECRC=$?
 set -e
 echo "$SECOUT"
 [ "$SECRC" -ne 0 ] || fail "expected duo capture to ABORT on a hard-matched secret in an authored EAV value"
-echo "$SECOUT" | grep -q "nf3_form_meta" || fail "abort message doesn't name the table (got: $SECOUT)"
-echo "$SECOUT" | grep -q "regress_secret" || fail "abort message doesn't name the key (got: $SECOUT)"
-echo "$SECOUT" | grep -qi "stripe key" || fail "abort message doesn't name the matched pattern (got: $SECOUT)"
+grep -q "nf3_form_meta" <<<"$SECOUT" || fail "abort message doesn't name the table (got: $SECOUT)"
+grep -q "regress_secret" <<<"$SECOUT" || fail "abort message doesn't name the key (got: $SECOUT)"
+grep -qi "stripe key" <<<"$SECOUT" || fail "abort message doesn't name the matched pattern (got: $SECOUT)"
 pass "capture aborted loudly, naming the table and the key"
 
 say "(6b) same key, allow_secret:true via a site-policy table override — capture must proceed"
