@@ -1159,7 +1159,7 @@ final class Snapshot {
             if ($identityNote !== null && !in_array($identityNote, $tokens->notes, true)) {
                 $tokens->notes[] = $identityNote;
             }
-            $slug = self::slug_for($decl, $row, $localId);
+            $slug = self::slug_for($decl, $row);
             $entities[] = [
                 'uuid' => $uuid,
                 'type' => $table,
@@ -1335,11 +1335,20 @@ final class Snapshot {
         return $uuid;
     }
 
-    private static function slug_for(array $decl, array $row, int $localId): string {
+    /**
+     * Human-readable path suffix for an ordinary typed-snapshot row.
+     *
+     * A declared slug column is authored data and therefore portable. A
+     * table without one used to fall back to its auto-increment primary key,
+     * making an otherwise identical capture/apply/recapture rename files on
+     * every environment whose local ids differed. The UUID already provides
+     * per-row uniqueness, so a static suffix is the only honest fallback.
+     */
+    private static function slug_for(array $decl, array $row): string {
         $col = $decl['slug_column'] ?? null;
         $raw = $col !== null ? (string) ($row[$col] ?? '') : '';
         $slug = $raw !== '' ? sanitize_title($raw) : '';
-        return $slug !== '' ? $slug : (string) $localId;
+        return $slug !== '' ? $slug : 'record';
     }
 
     /**

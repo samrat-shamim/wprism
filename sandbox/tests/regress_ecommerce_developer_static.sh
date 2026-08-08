@@ -341,6 +341,7 @@ assert_rm_rf_targets() {
       'rm -rf -- "$SITE/code/wp-content/plugins/$EXT_SLUG"' | \
       'rm -rf -- "$SITE/code"' | \
       'rm -rf -- "$SITE/state"' | \
+      'rm -rf -- "$OTHER_SITE/.tmp-v1-recapture"' | \
       'rm -rf -- "$OTHER_SITE/.tmp-final-state"') ;;
       *)
         printf 'unexpected or over-broad rm -rf target: %s\n' "$normalized" >&2
@@ -530,6 +531,8 @@ assert_rm_mutation_rejected 'rollback code root broadening' \
   'rm -rf -- "$SITE/code"' 'rm -rf -- "$REPO_ROOT"'
 assert_rm_mutation_rejected 'rollback state root broadening' \
   'rm -rf -- "$SITE/state"' 'rm -rf -- "$REPO_ROOT"'
+assert_rm_mutation_rejected 'initial recapture state root broadening' \
+  'rm -rf -- "$OTHER_SITE/.tmp-v1-recapture"' 'rm -rf -- "$REPO_ROOT"'
 assert_rm_mutation_rejected 'final temporary state root broadening' \
   'rm -rf -- "$OTHER_SITE/.tmp-final-state"' 'rm -rf -- "$REPO_ROOT"'
 assert_helper_contracts order-snapshot-data "$ORDER_SNAPSHOT_DATA_HELPER_BLOCK" "$ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH" \

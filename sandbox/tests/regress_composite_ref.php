@@ -297,6 +297,7 @@ require __DIR__ . '/../../agent/src/Secrets.php';
 require __DIR__ . '/../../agent/src/Db.php';
 require __DIR__ . '/../../agent/src/Ledger.php';
 require __DIR__ . '/../../agent/src/Tokens.php';
+require __DIR__ . '/../../agent/src/IdentityNotes.php';
 require __DIR__ . '/../../agent/src/Snapshot.php';
 
 use Duo\Canon;
@@ -378,6 +379,50 @@ function fresh_policy(array $tablesDecl): Policy {
     $policy = new Policy();
     $policy->manifests = [['tables' => ['pmpro_memberships_pages' => $tablesDecl]]];
     return $policy;
+}
+
+function shipping_method_policy(): Policy {
+    $policy = new Policy();
+    $policy->manifests = [['tables' => [
+        'woocommerce_shipping_zone_methods' => [
+            'class' => 'authored_snapshot',
+            'id_kind' => 'wc_zone_method',
+            'pk' => 'instance_id',
+            'refs' => [['column' => 'zone_id', 'kind' => 'wc_zone']],
+            'columns' => [
+                'method_id' => ['class' => 'authored'],
+                'method_order' => ['class' => 'authored'],
+                'is_enabled' => ['class' => 'authored'],
+            ],
+        ],
+    ]]];
+    return $policy;
+}
+
+function seed_shipping_methods_table(FakeWpdb $wpdb, array $rows): void {
+    $wpdb->tables['woocommerce_shipping_zone_methods'] = [
+        'columns' => [
+            'instance_id' => 'bigint(20) unsigned',
+            'zone_id' => 'bigint(20) unsigned',
+            'method_id' => 'varchar(255)',
+            'method_order' => 'bigint(20) unsigned',
+            'is_enabled' => 'tinyint(1)',
+        ],
+        'rows' => $rows,
+    ];
+}
+
+/** @return array<string,array{path:string,content:string}> */
+function entities_by_uuid(array $entities): array {
+    $out = [];
+    foreach ($entities as $entity) {
+        $out[$entity['uuid']] = [
+            'path' => $entity['path'],
+            'content' => $entity['content'],
+        ];
+    }
+    ksort($out, SORT_STRING);
+    return $out;
 }
 
 // ======================================================================
@@ -612,6 +657,60 @@ seed_pmpro_pages_table($wpdb, [
 ]);
 $dOk = Snapshot::capture(fresh_policy(pmpro_pages_decl()), new Tokens(), true);
 check(count($dOk) === 1, 'D2: a component well within the packed-id budget captures cleanly (no false-positive refusal)');
+
+// ======================================================================
+// GROUP E — ordinary mapped-row filenames must be portable too. The live
+// ecommerce grind found this after two shipping methods received opposite
+// auto-increment instance_ids on source and target: content and UUIDs were
+// identical, but the old numeric fallback suffix renamed both files.
+// ======================================================================
+echo "\n== Group E: mapped-row path portability ==\n";
+
+const ZONE_UUID = '01980000-2000-7000-8000-000000000000';
+const FLAT_RATE_UUID = '01980000-2001-7000-8000-000000000001';
+const FREE_SHIPPING_UUID = '01980000-2002-7000-8000-000000000002';
+
+$wpdb->tables = [];
+$wpdb->identity = [
+    'wc_zone' => [7 => ZONE_UUID],
+    'wc_zone_method' => [1 => FLAT_RATE_UUID, 2 => FREE_SHIPPING_UUID],
+];
+$wpdb->identityType = [
+    'wc_zone_method' => [
+        1 => 'woocommerce_shipping_zone_methods',
+        2 => 'woocommerce_shipping_zone_methods',
+    ],
+];
+seed_shipping_methods_table($wpdb, [
+    ['instance_id' => 1, 'zone_id' => 7, 'method_id' => 'flat_rate', 'method_order' => 1, 'is_enabled' => 1],
+    ['instance_id' => 2, 'zone_id' => 7, 'method_id' => 'free_shipping', 'method_order' => 2, 'is_enabled' => 1],
+]);
+$methodsA = entities_by_uuid(Snapshot::capture(shipping_method_policy(), new Tokens(), true));
+
+$wpdb->tables = [];
+$wpdb->identity = [
+    'wc_zone' => [77 => ZONE_UUID],
+    // Same portable rows, opposite target-local instance ids.
+    'wc_zone_method' => [1 => FREE_SHIPPING_UUID, 2 => FLAT_RATE_UUID],
+];
+$wpdb->identityType = [
+    'wc_zone_method' => [
+        1 => 'woocommerce_shipping_zone_methods',
+        2 => 'woocommerce_shipping_zone_methods',
+    ],
+];
+seed_shipping_methods_table($wpdb, [
+    ['instance_id' => 1, 'zone_id' => 77, 'method_id' => 'free_shipping', 'method_order' => 2, 'is_enabled' => 1],
+    ['instance_id' => 2, 'zone_id' => 77, 'method_id' => 'flat_rate', 'method_order' => 1, 'is_enabled' => 1],
+]);
+$methodsB = entities_by_uuid(Snapshot::capture(shipping_method_policy(), new Tokens(), true));
+
+check($methodsA === $methodsB, 'E1: mapped rows recapture to identical paths and bytes when target-local primary keys are swapped');
+check(
+    ($methodsA[FLAT_RATE_UUID]['path'] ?? '') === 'tables/woocommerce_shipping_zone_methods/' . FLAT_RATE_UUID . '--record.json'
+        && ($methodsA[FREE_SHIPPING_UUID]['path'] ?? '') === 'tables/woocommerce_shipping_zone_methods/' . FREE_SHIPPING_UUID . '--record.json',
+    'E2: a table without slug_column uses the portable --record suffix, never an environment-local primary key'
+);
 
 // ======================================================================
 echo "\n";
