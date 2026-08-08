@@ -420,6 +420,61 @@ final class Capture {
     }
 
     /**
+     * Capture only the canonical options/core document for a lifecycle
+     * handoff. WordPress lifecycle hooks run before a plugin has necessarily
+     * created its own tables (and after a plugin may have removed them), so a
+     * full snapshot is the wrong boundary here: it would validate and walk
+     * unrelated posts, terms, sidebars, and typed tables merely to compare
+     * the one document whose hooks are allowed to change.
+     *
+     * This deliberately shares build_options(), the option discovery rules,
+     * ref-token safety gates, Canon encoding, and the same consistent-read
+     * transaction as snapshot(). Ledger/embedded-identity hygiene remains in
+     * place because option references resolve through that identity map. The
+     * only custom-table work here is the narrow liveness prune for
+     * option_name_refs id_kinds; unrelated typed tables and their schema/data
+     * capture stay outside this lifecycle boundary.
+     *
+     * @return array<string, array{type:string,hash:string,content:string,path:string}>
+     */
+    public static function snapshot_options_core(
+        string $repo,
+        bool $forceUnresolvedRefs = false,
+        ?CompiledRepository $compiled = null,
+        ?Policy $policy = null
+    ): array {
+        Canary::suppress_cron_spawn();
+        Ledger::ensure();
+        Identity::assert_embedded_unique();
+        Ledger::prune_dead_map();
+        // Deploy supplies the policy/artifact pair already validated under
+        // its promotion lease. Direct callers retain snapshot()'s historical
+        // load/compile fallback, but only the options entity is read below.
+        $policy ??= Policy::load($repo);
+        Snapshot::prune_option_name_ref_map($policy);
+        self::verify_options_engine_support($policy);
+        $c = new self($repo, $policy);
+        $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
+        $repositoryOptions = self::repository_options($repo, $policy, $repository);
+
+        $document = self::run_in_consistent_snapshot(function () use (
+            $c, $forceUnresolvedRefs, $repositoryOptions
+        ): array {
+            Identity::assert_embedded_unique();
+            return $c->build_options_only($forceUnresolvedRefs, $repositoryOptions);
+        });
+        $content = Canon::encode($document);
+        return [
+            'options/core' => [
+                'type' => 'options',
+                'hash' => hash('sha256', $content),
+                'content' => $content,
+                'path' => 'options/core.json',
+            ],
+        ];
+    }
+
+    /**
      * Read canonical option intent from the caller's frozen artifact when it
      * has one. Kept as a pure helper so the no-reopen invariant has a fast
      * offline regression independent of WordPress/DB snapshot mechanics.
@@ -832,6 +887,102 @@ final class Capture {
 
     // ------------------------------------------------------------------
 
+    /** Reset per-build capture state shared by full and options-only paths. */
+    private function reset_build_state(bool $forceUnresolvedRefs): void {
+        $this->unclassified = [];
+        $this->unscopedRefs = [];
+        $this->unscopedOptionNameRefs = [];
+        // Blocks.php/Shortcodes.php have no persistent instance state of
+        // their own (see their docblocks), so their unscoped queues live on
+        // Tokens rather than a Capture-level array. Reset them here too: an
+        // options-only snapshot must not inherit findings from another build.
+        $this->tokens->unscopedBlockRefs = [];
+        $this->tokens->unscopedShortcodeRefs = [];
+        $this->tokens->unscopedUrlQueryRefs = [];
+        // tokenize_text() reads these values for its unscoped URL-ref gate;
+        // set them once per build, just as the policy is set by the ctor.
+        $this->tokens->forceUnresolvedRefs = $forceUnresolvedRefs;
+    }
+
+    /**
+     * Options-only build used by lifecycle handoff snapshots. It executes
+     * the same option gates as full build(), but never enters any
+     * post/term/menu/sidebar/table path.
+     */
+    private function build_options_only(bool $forceUnresolvedRefs, ?array $previousOptions = null): array {
+        $this->reset_build_state($forceUnresolvedRefs);
+        $options = $this->build_options(false, $forceUnresolvedRefs, $previousOptions);
+        $this->assert_option_gates();
+        return $options;
+    }
+
+    /** Exact option discovery/ref safety gates shared with full build(). */
+    private function assert_option_gates(): void {
+        if ($this->unclassified) {
+            $keys = array_unique($this->unclassified);
+            sort($keys);
+            throw new \RuntimeException(
+                "duo: incomplete state discovery on manifest-owned or in-scope surfaces (loud-and-blocking gate):\n  - "
+                . implode("\n  - ", $keys)
+                . "\nClassify them in site.duo.json policy.options / policy.post_meta / policy.term_meta or a manifest."
+                . " Run: wp duo pending --repo={$this->repo} for evidence + proposals, then wp duo classify --repo={$this->repo} --set '<section>:<key>=<class>'."
+            );
+        }
+        if ($this->unscopedRefs) {
+            $lines = [];
+            foreach ($this->unscopedRefs as $r) {
+                $scopeKey = $r['kind'] === 'term' ? 'policy.taxonomies' : 'policy.post_types';
+                $lines[] = "option '{$r['option']}' references {$r['kind']} id {$r['id']}, which is a real "
+                    . "'{$r['target_type']}' — but '{$r['target_type']}' is not in $scopeKey, so its identity was "
+                    . 'never tracked and the reference cannot resolve';
+            }
+            throw new \RuntimeException(
+                "duo: unresolvable ref-typed option(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
+                . implode("\n  - ", $lines)
+                . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
+                . "target genuinely exists right now, so this is a scope gap, not permanent data loss.\n"
+                . "Add the missing post type/taxonomy to policy scope above and re-run capture, or reclassify the "
+                . "option, or pass --force-unresolved-refs to drop it anyway (same as a dangling reference)."
+            );
+        }
+        if ($this->unscopedOptionNameRefs) {
+            $lines = [];
+            foreach ($this->unscopedOptionNameRefs as $r) {
+                $lines[] = "option '{$r['option']}' embeds {$r['id_kind']} id {$r['id']}, which is a real row in "
+                    . "its declared table — but that table's rows were never minted a uuid (not pinned as "
+                    . "authored_snapshot in a currently-loaded manifest?), so the reference cannot resolve";
+            }
+            throw new \RuntimeException(
+                "duo: option_name_refs option(s) point at real, unminted table rows (loud-and-blocking gate):\n  - "
+                . implode("\n  - ", $lines)
+                . "\nThis differs from a dangling reference (no such row anywhere — dropped with a warning, "
+                . "unchanged): the row genuinely exists right now, so this is a manifest/table-pinning gap, not "
+                . "permanent data loss.\nPin the owning table as authored_snapshot and re-run capture, or pass "
+                . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
+            );
+        }
+        // URL-query refs can be discovered while tokenizing an authored
+        // option value (not only post/menu content), so this gate belongs to
+        // the shared option boundary as well as the full build.
+        if ($this->tokens->unscopedUrlQueryRefs) {
+            $lines = [];
+            foreach ($this->tokens->unscopedUrlQueryRefs as $r) {
+                $where = $r['context'] !== '' ? "{$r['context']}: " : '';
+                $lines[] = "{$where}url query ref '{$r['param']}' references post id {$r['id']}, which is a real "
+                    . "'{$r['target_type']}' — but '{$r['target_type']}' is not in policy.post_types, so its "
+                    . "identity was never tracked and the reference cannot resolve";
+            }
+            throw new \RuntimeException(
+                "duo: unresolvable url-query-typed reference(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
+                . implode("\n  - ", $lines)
+                . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
+                . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
+                . "Add the missing post type to policy scope above and re-run capture, or pass "
+                . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
+            );
+        }
+    }
+
     /** @return array{
      *   entities: array,
      *   media: array<string,array{path?:string,bytes?:string}>,
@@ -845,26 +996,7 @@ final class Capture {
         array $carriedUserLogins = []
     ): array {
         global $wpdb;
-        $this->unclassified = [];
-        $this->unscopedRefs = [];
-        $this->unscopedOptionNameRefs = [];
-        // Blocks.php/Shortcodes.php have no persistent instance state of
-        // their own (see their docblocks), so their own unscoped-violation
-        // queues live on $this->tokens (Tokens::$unscopedBlockRefs /
-        // $unscopedShortcodeRefs) instead of a Capture-level array — reset
-        // here anyway, defensively matching the other two resets above,
-        // even though a fresh Tokens instance per build (see the
-        // constructor) already guarantees this starts empty.
-        $this->tokens->unscopedBlockRefs = [];
-        $this->tokens->unscopedShortcodeRefs = [];
-        $this->tokens->unscopedUrlQueryRefs = [];
-        // DUO-3260: tokenize_text()'s own unscoped check reads $this->
-        // tokens->forceUnresolvedRefs directly (see that property's own
-        // docblock for why it's stored on the instance rather than
-        // threaded through tokenize_text()'s many call sites) — set once
-        // per build, mirroring $this->tokens->policy's own constructor-
-        // time assignment.
-        $this->tokens->forceUnresolvedRefs = $forceUnresolvedRefs;
+        $this->reset_build_state($forceUnresolvedRefs);
         $entities = [];
         $media = [];
 
@@ -1066,68 +1198,7 @@ final class Capture {
             $entities[] = $e;
         }
 
-        if ($this->unclassified) {
-            $keys = array_unique($this->unclassified);
-            sort($keys);
-            throw new \RuntimeException(
-                "duo: incomplete state discovery on manifest-owned or in-scope surfaces (loud-and-blocking gate):\n  - "
-                . implode("\n  - ", $keys)
-                . "\nClassify them in site.duo.json policy.options / policy.post_meta / policy.term_meta or a manifest."
-                . " Run: wp duo pending --repo={$this->repo} for evidence + proposals, then wp duo classify --repo={$this->repo} --set '<section>:<key>=<class>'."
-            );
-        }
-
-        // Task #73's loud-and-blocking gate: an authored, ref-typed OPTION
-        // whose value names a REAL row that simply isn't in policy scope
-        // (as opposed to a dangling reference — deleted target, handled by
-        // option_ref_tokens()'s ordinary warn-and-drop, never reaches this
-        // list). This is a scope gap a policy edit can actually fix, so —
-        // same posture as the unclassified-meta gate above — it aborts by
-        // default instead of silently vanishing from captured state.
-        if ($this->unscopedRefs) {
-            $lines = [];
-            foreach ($this->unscopedRefs as $r) {
-                $scopeKey = $r['kind'] === 'term' ? 'policy.taxonomies' : 'policy.post_types';
-                $lines[] = "option '{$r['option']}' references {$r['kind']} id {$r['id']}, which is a real "
-                    . "'{$r['target_type']}' — but '{$r['target_type']}' is not in $scopeKey, so its identity was "
-                    . 'never tracked and the reference cannot resolve';
-            }
-            throw new \RuntimeException(
-                "duo: unresolvable ref-typed option(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
-                . implode("\n  - ", $lines)
-                . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
-                . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
-                . "Add the missing post type/taxonomy to policy scope above and re-run capture, or reclassify the "
-                . "option, or pass --force-unresolved-refs to drop it anyway (same as a dangling reference)."
-            );
-        }
-
-        // option_name_refs' own unscoped gate (task #93) — same posture as
-        // task #73's option-ref gate immediately above, adapted for a table
-        // id_kind instead of a post_type/taxonomy: the embedded id names a
-        // row that genuinely exists in its declared table, just never
-        // minted a uuid (the table isn't pinned as authored_snapshot in
-        // currently-loaded manifests, most likely) — a fixable manifest
-        // gap, not permanent data loss, so it aborts by default instead of
-        // silently vanishing. --force-unresolved-refs is the identical
-        // escape hatch task #73 already established, reused rather than a
-        // second flag.
-        if ($this->unscopedOptionNameRefs) {
-            $lines = [];
-            foreach ($this->unscopedOptionNameRefs as $r) {
-                $lines[] = "option '{$r['option']}' embeds {$r['id_kind']} id {$r['id']}, which is a real row in "
-                    . "its declared table — but that table's rows were never minted a uuid (not pinned as "
-                    . "authored_snapshot in a currently-loaded manifest?), so the reference cannot resolve";
-            }
-            throw new \RuntimeException(
-                "duo: option_name_refs option(s) point at real, unminted table rows (loud-and-blocking gate):\n  - "
-                . implode("\n  - ", $lines)
-                . "\nThis differs from a dangling reference (no such row anywhere — dropped with a warning, "
-                . "unchanged): the row genuinely exists right now, so this is a manifest/table-pinning gap, not "
-                . "permanent data loss.\nPin the owning table as authored_snapshot and re-run capture, or pass "
-                . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
-            );
-        }
+        $this->assert_option_gates();
 
         // Block refs' own unscoped gate (DUO-3212, task #73's mirror for
         // "kind"/"kind_from" block_attrs refs and the wp-image-N class
@@ -1187,42 +1258,6 @@ final class Capture {
                 . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
                 . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
                 . "Add the missing post type/taxonomy to policy scope above and re-run capture, or pass "
-                . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
-            );
-        }
-
-        // URL-query-refs' own unscoped gate (DUO-3260, task #73's mirror a
-        // third time — for `?p=`/`?page_id=`/`?attachment_id=` refs,
-        // funneled through Tokens::queue_unscoped_url_query_ref()): the id
-        // names a REAL row whose post_type simply isn't in policy scope,
-        // as opposed to a dangling reference or a real row of an in-scope
-        // type simply not minted on this build yet — both of those are
-        // handled by Tokens.php's ordinary warn-and-drop, never reaching
-        // this list. Same posture as every gate above: a policy edit can
-        // actually fix this, so it aborts by default instead of silently
-        // vanishing from captured state. Always kind=post (the only kind
-        // this mechanism's three query parameters ever resolve to — see
-        // Tokens::tokenize_url_query_refs()'s own docblock), so unlike the
-        // option/block/shortcode gates above, no term/taxonomy branch is
-        // needed here. `context` may be '' (empty) — tokenize_text() is
-        // called from too many places to guarantee a meaningful label at
-        // every one (see Tokens::$unscopedUrlQueryRefs's own docblock);
-        // the message degrades gracefully rather than printing a
-        // misleading empty prefix.
-        if ($this->tokens->unscopedUrlQueryRefs) {
-            $lines = [];
-            foreach ($this->tokens->unscopedUrlQueryRefs as $r) {
-                $where = $r['context'] !== '' ? "{$r['context']}: " : '';
-                $lines[] = "{$where}url query ref '{$r['param']}' references post id {$r['id']}, which is a real "
-                    . "'{$r['target_type']}' — but '{$r['target_type']}' is not in policy.post_types, so its "
-                    . "identity was never tracked and the reference cannot resolve";
-            }
-            throw new \RuntimeException(
-                "duo: unresolvable url-query-typed reference(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
-                . implode("\n  - ", $lines)
-                . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
-                . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
-                . "Add the missing post type to policy scope above and re-run capture, or pass "
                 . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
             );
         }
@@ -2565,6 +2600,57 @@ final class Capture {
             }
         }
         return OptionState::document($out);
+    }
+
+    /**
+     * Lifecycle handoff variant of verify_engine_support(). It checks only
+     * tables that this narrow path can actually read (options, identity
+     * metadata, core rows used by ref triage, and the Duo ledger). In
+     * particular, a declared Woo/custom table is not inspected unless an
+     * option_name_refs rule makes that table part of this path's own safety
+     * check; plugin-owned typed tables remain outside the lifecycle boundary.
+     */
+    private static function verify_options_engine_support(Policy $policy): void {
+        global $wpdb;
+        $prefix = $wpdb->prefix;
+        $tables = [
+            $wpdb->postmeta, $wpdb->termmeta, $wpdb->posts, $wpdb->terms,
+            $wpdb->term_taxonomy, $wpdb->options,
+            $prefix . 'duo_map', $prefix . 'duo_state', $prefix . 'duo_kv',
+        ];
+        $refKinds = array_fill_keys(array_map(
+            static fn(array $rule): string => (string) ($rule['id_kind'] ?? ''),
+            $policy->option_name_ref_rules()
+        ), true);
+        foreach ($policy->declared_tables() as $name => $decl) {
+            if (!isset($refKinds[(string) ($decl['id_kind'] ?? '')])) {
+                continue;
+            }
+            $tables[] = $prefix . preg_replace('/[^A-Za-z0-9_]/', '', (string) $name);
+        }
+        $tables = array_values(array_unique(array_filter($tables, static fn($table): bool => (string) $table !== '')));
+        $placeholders = implode(',', array_fill(0, count($tables), '%s'));
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ($placeholders)",
+            $tables
+        ), ARRAY_A) ?: [];
+        $bad = [];
+        foreach ($rows as $row) {
+            $engine = strtoupper((string) ($row['ENGINE'] ?? ''));
+            if ($engine !== '' && $engine !== 'INNODB') {
+                $bad[] = "{$row['TABLE_NAME']} (engine: $engine)";
+            }
+        }
+        if ($bad) {
+            sort($bad);
+            throw new \RuntimeException(
+                'duo: lifecycle options snapshot refused — consistent-snapshot isolation requires InnoDB, but '
+                . "the following lifecycle-read table(s) use a different storage engine:\n  - "
+                . implode("\n  - ", $bad)
+                . "\nConvert the table(s) to InnoDB and re-run deploy."
+            );
+        }
     }
 
     /**

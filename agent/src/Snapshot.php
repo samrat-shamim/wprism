@@ -2070,6 +2070,46 @@ final class Snapshot {
     }
 
     /**
+     * Narrow dead-map hygiene for Capture::snapshot_options_core(). An
+     * option_name_refs rule embeds a declared table row id in the option NAME
+     * itself, so a stale mapping for that id_kind would mint a token for a
+     * deleted row and let Apply resolve an orphan option back to the deleted
+     * local id. The lifecycle boundary must reconcile those id_kinds, but it
+     * must not enter the full typed-table pruner: a plugin may be inactive and
+     * its declared table absent while its lifecycle hook is about to create it.
+     * Ledger::prune_dead_table_map() already has the required absent-table
+     * skip, so this method supplies only the option_name_refs intersection.
+     *
+     * Composite-ref tables are excluded for the same reason as
+     * prune_dead_map(): their packed local_id has no single source PK to join
+     * against, and no current option-name reference can resolve one safely.
+     */
+    public static function prune_option_name_ref_map(Policy $policy): void {
+        $refKinds = [];
+        foreach ($policy->option_name_ref_rules() as $rule) {
+            $kind = (string) ($rule['id_kind'] ?? '');
+            if ($kind !== '') {
+                $refKinds[$kind] = true;
+            }
+        }
+        if (!$refKinds) {
+            return;
+        }
+
+        $tables = [];
+        foreach (self::row_tables($policy) as $name => $decl) {
+            $kind = (string) ($decl['id_kind'] ?? '');
+            if (!isset($refKinds[$kind]) || self::is_composite_ref($decl)) {
+                continue;
+            }
+            $tables[$kind] = ['table' => $name, 'pk' => $decl['pk']];
+        }
+        if ($tables) {
+            Ledger::prune_dead_table_map($tables);
+        }
+    }
+
+    /**
      * Does a live row exist for (id_kind, local_id), independent of whether
      * it has been minted a uuid yet? Task #93's option_name_refs discovery
      * (Capture::build_options()) needs this to distinguish DANGLING (no

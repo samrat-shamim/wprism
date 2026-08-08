@@ -1,5 +1,7 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
+.PHONY: regress-lifecycle-options-snapshot
+
 .PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half grind-code-half-ecosystem grind-code-half-first-sync pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order code-half-unit \
 	regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy \
 	regress-env-options-policy regress-export-manifest-roundtrip regress-manifest-reclassification-policy \
@@ -292,12 +294,19 @@ regress-widgets:
 regress-promotion-unit:
 	bash sandbox/tests/regress_promotion_unit.sh
 
+# Clean-install lifecycle snapshot boundary: captures options/core without
+# entering plugin-owned typed-table validation before activation has created
+# those tables. Kept in code-half-unit because this is the host lifecycle
+# bridge, not a WooCommerce lookup/ecommerce harness.
+regress-lifecycle-options-snapshot:
+	php sandbox/tests/regress_lifecycle_options_snapshot.php
+
 # First functional code-half's fast, offline boundary suite: descriptor
 # revision enforcement, truthful status rendering, template reconciliation
 # detection, and both public host orchestration paths. Keep this separate
 # from the Docker/live promotion regression below so it is cheap to run while
 # iterating on the safety gates.
-code-half-unit: regress-repository-compiler regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-promotion-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-code-compatibility
+code-half-unit: regress-repository-compiler regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-promotion-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-lifecycle-options-snapshot regress-code-compatibility
 
 regress-repository-compiler:
 	bash sandbox/tests/regress_repository_compiler.sh
@@ -512,7 +521,7 @@ regress-user-meta:
 
 # DUO-3285: one target bundling every offline (no-docker) regress suite --
 # cheap enough to run at every close-gate, wired into CI as a required check
-# (.github/workflows/conformance.yml). 33 suites: code-half-unit's own 12
+# (.github/workflows/conformance.yml). 34 suites: code-half-unit's own 13
 # (already bundled, referenced not repeated), 7 that had a Makefile target
 # but were in no bundle CI ever ran (regress-capture-publish through
 # regress-order-preserving below), the 12 newly-wired offline scripts,
@@ -536,7 +545,7 @@ regress-offline-all: code-half-unit \
 	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
 	regress-option-name-refs-wiring regress-natural-key-rename
-	@echo "regress-offline-all: 33 offline suites green"
+	@echo "regress-offline-all: 34 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
