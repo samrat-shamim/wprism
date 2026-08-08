@@ -118,7 +118,7 @@ The live sequence covers:
 - dependency-aware extension removal while Woo/ACF and runtime order data stay;
 - exact v1 code/state plus a maintenance-held, pair-local pre-order database
   checkpoint restore performed before the public v1 promotion;
-- byte-identical final recapture, clean status, and scoped pair/database
+- derived-aware semantic final recapture, clean status, and scoped pair/database
   cleanup.
 
 The custom extension fixture checks every schema probe, CREATE, ALTER,
@@ -150,8 +150,10 @@ the dump is made, compared with the retained host copy, and rechecked
 immediately before import. The isolated control-plane import skips ordinary
 plugins, themes, and user MU code, while the following public promote stages
 the restored v1 files before lifecycle activation. This restores the v1
-canonical product record and target boundary before the final byte-identical
-recapture; the refused Woo deletion never promoted a tombstone. The rollback
+canonical product record and target boundary before the final semantic
+recapture; raw observations may differ only in manifest-declared derived fields,
+while authored/non-derived state and paths remain identical. The refused Woo
+deletion never promoted a tombstone. The rollback
 scope is intentionally honest: it restores the database and v1 repository
 inputs captured at that boundary; it is not a claim of physical erasure or a
 rollback of unrelated external systems.
