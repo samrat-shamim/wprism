@@ -48,7 +48,7 @@ set -e
 [ "$MERGE_RC" -ne 0 ] || fail "expected a merge conflict on About, merge succeeded"
 CONFLICTS=$($GIT_A status --porcelain | grep '^UU' || true)
 echo "$CONFLICTS"
-echo "$CONFLICTS" | grep -q -- '--about.md' || fail "conflict is not on the About entity file"
+grep -q -- '--about.md' <<<"$CONFLICTS" || fail "conflict is not on the About entity file"
 [ "$(echo "$CONFLICTS" | wc -l | tr -d ' ')" = "1" ] || fail "expected exactly one conflicted entity"
 grep -q '<<<<<<<' siterepo/a/state/posts/page/*--about.md || fail "no conflict markers in About file"
 pass "conflict surfaced as a plain git conflict, scoped to the About entity; Hello Duo merged clean"
