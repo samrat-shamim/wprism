@@ -1934,7 +1934,6 @@ final class Snapshot {
      * children-before-parent ordering; this helper deletes one exact row.
      */
     public static function delete_row(Policy $policy, string $uuid, string $table): void {
-        global $wpdb;
         $decl = self::row_tables($policy)[$table] ?? null;
         if ($decl === null) {
             return; // table no longer declared (manifest unpinned) — nothing safe to do
@@ -1943,6 +1942,25 @@ final class Snapshot {
         $localId = Ledger::id_for($uuid, $idKind);
         if ($localId === null) {
             return;
+        }
+        self::delete_local_row($policy, $table, $localId);
+        // Identity/base metadata is forgotten by Apply's post-rebuild ledger
+        // transaction. Doing it here would commit convergence metadata with
+        // the authored-row transaction before required rebuilds succeeded.
+    }
+
+    /**
+     * Delete an exact local row through the same typed-snapshot cascade and
+     * invalidation path as apply. Orphans uses this because a damaged row may
+     * itself have lost its duo_map identity and therefore cannot be selected
+     * by UUID; the table declaration + local primary key remain sufficient
+     * deletion authority once the operator selects that listed orphan.
+     */
+    public static function delete_local_row(Policy $policy, string $table, int $localId): void {
+        global $wpdb;
+        $decl = self::row_tables($policy)[$table] ?? null;
+        if ($decl === null) {
+            throw new \RuntimeException("duo: cannot delete row from undeclared table '$table'");
         }
         if (self::is_composite_ref($decl)) {
             // No attached-meta, no invalidate (both refused at schema-assert
@@ -1976,9 +1994,76 @@ final class Snapshot {
             self::run_invalidate($inv, $localId);
         }
         Db::delete($wpdb->prefix . $table, [$decl['pk'] => $localId], null, "apply delete typed-snapshot row $table");
-        // Identity/base metadata is forgotten by Apply's post-rebuild ledger
-        // transaction. Doing it here would commit convergence metadata with
-        // the authored-row transaction before required rebuilds succeeded.
+    }
+
+    /** Reparent one scalar typed row and any declared attached-meta mirror. */
+    public static function reparent_local_row(
+        Policy $policy,
+        string $table,
+        int $localId,
+        string $column,
+        int $targetId
+    ): void {
+        global $wpdb;
+        $decl = self::row_tables($policy)[$table] ?? null;
+        if ($decl === null) {
+            throw new \RuntimeException("duo: cannot reparent row in undeclared table '$table'");
+        }
+        if (self::is_composite_ref($decl)) {
+            throw new \RuntimeException(
+                "duo: reparenting composite_ref table '$table' changes the row's identity; delete the orphaned fact instead"
+            );
+        }
+        $ref = null;
+        foreach ($decl['refs'] ?? [] as $candidate) {
+            if (($candidate['column'] ?? '') === $column) {
+                $ref = $candidate;
+                break;
+            }
+        }
+        if ($ref === null) {
+            throw new \RuntimeException("duo: '$column' is not a declared structural ref column of '$table'");
+        }
+        Db::update(
+            $wpdb->prefix . $table,
+            [$column => $targetId],
+            [$decl['pk'] => $localId],
+            ['%d'],
+            ['%d'],
+            "orphans reparent typed-snapshot row $table"
+        );
+
+        // Some plugins mirror a row ref into an attached EAV setting (Ninja
+        // Forms' parent_id is the proving fixture). Keep that declared mirror
+        // coherent in the same transaction; raw operator SQL cannot do this
+        // safely because it does not know the manifest relationship.
+        foreach (self::meta_tables($policy) as $metaName => $metaDecl) {
+            if (($metaDecl['attached_to']['table'] ?? null) !== $table) {
+                continue;
+            }
+            $rule = $metaDecl['keys'][$column] ?? null;
+            if (($rule['ref'] ?? null) !== ($ref['kind'] ?? null)) {
+                continue;
+            }
+            $data = [$metaDecl['value_column'] => (string) $targetId];
+            if (isset($metaDecl['legacy_value_column'])) {
+                $data[$metaDecl['legacy_value_column']] = (string) $targetId;
+            }
+            Db::update(
+                $wpdb->prefix . $metaName,
+                $data,
+                [
+                    $metaDecl['attached_to']['column'] => $localId,
+                    $metaDecl['key_column'] => $column,
+                ],
+                null,
+                null,
+                "orphans reparent $metaName ref mirror"
+            );
+        }
+        foreach ($decl['invalidate'] ?? [] as $inv) {
+            self::run_invalidate($inv, $localId);
+        }
     }
 
     /**

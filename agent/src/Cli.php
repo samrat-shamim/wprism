@@ -4,7 +4,7 @@ namespace Duo;
 use WP_CLI;
 
 /**
- * wp duo <capture|plan|apply|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
+ * wp duo <capture|plan|apply|orphans|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
  */
 final class Cli {
     private static function halt_json_failure(\Throwable $t, array $assoc): void {
@@ -615,6 +615,56 @@ final class Cli {
             $summary['canary'],
             json_encode($summary['plan'])
         ));
+    }
+
+    /**
+     * List structural-ref orphans in one declared authored snapshot table,
+     * or repair one listed scalar row through Duo's typed mutation path.
+     *
+     * ## OPTIONS
+     * <table> : Declared authored_snapshot table name.
+     * --repo=<path> : Site repo root (contains site.duo.json).
+     * [--row=<local-id>] : Exact listed scalar row to mutate.
+     * [--delete] : Delete the selected row with declared cascades/invalidation.
+     * [--reparent=<column>=<target-local-id>] : Point one declared ref at a managed target.
+     * [--format=<format>] : Output format. Accepts json.
+     */
+    public function orphans($args, $assoc) {
+        $table = $args[0] ?? WP_CLI::error('<table> required');
+        try {
+            $summary = Orphans::run(
+                $assoc['repo'] ?? WP_CLI::error('--repo required'),
+                (string) $table,
+                [
+                    'row' => $assoc['row'] ?? '',
+                    'delete' => isset($assoc['delete']),
+                    'reparent' => $assoc['reparent'] ?? '',
+                ]
+            );
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        foreach ($summary['rows'] as $row) {
+            $identity = implode(',', array_map(
+                fn($k, $v) => "$k=$v",
+                array_keys($row['identity']),
+                array_values($row['identity'])
+            ));
+            $refs = implode(', ', array_map(
+                fn($ref) => "{$ref['column']}={$ref['kind']}:{$ref['local_id']}",
+                $row['orphan_refs']
+            ));
+            WP_CLI::line("ORPHAN $table.$identity ($refs)");
+        }
+        if ($summary['action'] !== null) {
+            WP_CLI::success("resolved {$summary['action']} (canary {$summary['canary']})");
+        } elseif (!$summary['rows']) {
+            WP_CLI::success("no structural-ref orphans in $table");
+        }
     }
 
     /**
