@@ -81,11 +81,23 @@ final class WooCommerceContract {
 
         // Child prices must exist before variable/grouped parents are reduced.
         $parents = [];
+        $attributeRoots = [];
         foreach ($ids as $id) {
             clean_post_cache($id);
-            $product = wc_get_product($id);
+            $product = self::load_product($id);
             if (!$product) {
                 throw new \RuntimeException("duo: WooCommerce contract cannot load product $id");
+            }
+            if ($product->is_type('variation')) {
+                $parentId = (int) $product->get_parent_id('edit');
+                $parent = $parentId > 0 ? self::load_product($parentId) : false;
+                if ($parent && $parent->is_type('variable')) {
+                    $attributeRoots[$parentId] = $parent;
+                } else {
+                    $attributeRoots[$id] = $product;
+                }
+            } else {
+                $attributeRoots[$id] = $product;
             }
             if ($product->is_type(['variable', 'grouped'])) {
                 $parents[] = $id;
@@ -96,7 +108,7 @@ final class WooCommerceContract {
         }
         foreach ($parents as $id) {
             clean_post_cache($id);
-            $product = wc_get_product($id);
+            $product = self::load_product($id);
             if (!$product) {
                 throw new \RuntimeException("duo: WooCommerce contract cannot reload parent product $id");
             }
@@ -115,12 +127,22 @@ final class WooCommerceContract {
         /** @var object $regenerator */
         $regenerator = wc_get_container()->get($regeneratorClass);
         $regenerator->initiate_regeneration(false);
-        do {
-            $more = (bool) $regenerator->do_regeneration_step(null, true);
-            if ($regenerator->get_last_regeneration_step_failed()) {
-                throw new \RuntimeException('duo: WooCommerce attribute lookup regeneration failed');
+        $lookupClass = 'Automattic\\WooCommerce\\Internal\\ProductAttributesLookup\\LookupDataStore';
+        /** @var object $lookupStore */
+        $lookupStore = wc_get_container()->get($lookupClass);
+        self::with_all_attribute_languages(function () use ($attributeRoots, $lookupStore): void {
+            foreach ($attributeRoots as $id => $product) {
+                // Pass the source-shape-classified object so a fresh target
+                // cannot reload a variable root as simple merely because
+                // Woo's derived product_type relationship is not present yet.
+                $lookupStore->create_data_for_product($product, false);
+                if ($lookupStore->get_last_create_operation_failed()) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce attribute lookup regeneration failed for product $id"
+                    );
+                }
             }
-        } while ($more);
+        });
         $regenerator->finalize_regeneration(true);
 
         $categoryClass = 'Automattic\\WooCommerce\\Internal\\Admin\\CategoryLookup';
@@ -136,18 +158,83 @@ final class WooCommerceContract {
             || version_compare((string) WC_VERSION, '12.0.0', '>=')) {
             throw new \RuntimeException('duo: WooCommerce projection rebuild requires WooCommerce [11.0.0, 12.0.0)');
         }
-        foreach (['wc_get_product', 'wc_update_product_lookup_tables', 'wc_maybe_schedule_product_sale_events', 'wc_get_container'] as $fn) {
+        foreach (['wc_get_product', 'wc_update_product_lookup_tables', 'wc_maybe_schedule_product_sale_events', 'wc_get_container', 'add_filter', 'remove_filter'] as $fn) {
             if (!function_exists($fn)) {
                 throw new \RuntimeException("duo: WooCommerce projection API $fn is unavailable");
             }
         }
         foreach ([
             'Automattic\\WooCommerce\\Internal\\ProductAttributesLookup\\DataRegenerator',
+            'Automattic\\WooCommerce\\Internal\\ProductAttributesLookup\\LookupDataStore',
             'Automattic\\WooCommerce\\Internal\\Admin\\CategoryLookup',
+            'WC_Product_Variable',
+            'WC_Product_Grouped',
         ] as $class) {
             if (!class_exists($class)) {
                 throw new \RuntimeException("duo: WooCommerce projection API $class is unavailable");
             }
+        }
+    }
+
+    /**
+     * Return the Woo product class implied by authored source shape.
+     *
+     * A fresh Duo target has not rebuilt Woo's derived product_type taxonomy
+     * relationship yet. Variation children and grouped `_children` metadata
+     * are authored evidence, so construct only the in-memory public class
+     * required for deterministic projection synthesis and never persist a
+     * guessed relationship.
+     */
+    private static function load_product(int $id): object|false {
+        global $wpdb;
+        $product = wc_get_product($id);
+        if (!$product || !is_callable([$product, 'is_type']) || !$product->is_type('simple')) {
+            return $product;
+        }
+
+        $postType = self::checked_get_var($wpdb->prepare(
+            "SELECT post_type FROM {$wpdb->posts} WHERE ID = %d LIMIT 1",
+            $id
+        ), "product source-shape read for product $id");
+        if ((string) $postType !== 'product') {
+            return $product;
+        }
+
+        $variationId = self::checked_get_var($wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = 'product_variation' ORDER BY ID LIMIT 1",
+            $id
+        ), "variation-child discovery for product $id");
+        if ($variationId !== null) {
+            return new \WC_Product_Variable($id);
+        }
+
+        $children = get_post_meta($id, '_children', true);
+        if (is_array($children) && array_filter(
+            array_map('intval', $children),
+            static fn(int $childId): bool => $childId > 0
+        ) !== []) {
+            return new \WC_Product_Grouped($id);
+        }
+
+        return $product;
+    }
+
+    /** Run pa_* term enumeration across every language, then restore hooks. */
+    private static function with_all_attribute_languages(callable $callback): mixed {
+        $filter = static function (array $args, array $taxonomies): array {
+            foreach ($taxonomies as $taxonomy) {
+                if (str_starts_with((string) $taxonomy, 'pa_')) {
+                    $args['lang'] = '';
+                    break;
+                }
+            }
+            return $args;
+        };
+        add_filter('get_terms_args', $filter, 1, 2);
+        try {
+            return $callback();
+        } finally {
+            remove_filter('get_terms_args', $filter, 1);
         }
     }
 
@@ -211,7 +298,7 @@ final class WooCommerceContract {
         $productLookupTable = $wpdb->prefix . 'wc_product_meta_lookup';
         foreach ($ids as $id) {
             clean_post_cache($id);
-            $product = wc_get_product($id);
+            $product = self::load_product($id);
             if (!$product) {
                 throw new \RuntimeException("duo: WooCommerce projection verification cannot load product $id");
             }
@@ -328,7 +415,7 @@ final class WooCommerceContract {
     private static function verify_sale_schedules(array $ids): void {
         foreach ($ids as $id) {
             clean_post_cache($id);
-            $product = wc_get_product($id);
+            $product = self::load_product($id);
             if (!$product) {
                 continue;
             }

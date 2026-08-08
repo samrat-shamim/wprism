@@ -142,15 +142,17 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   `duo status` parses and reformats; it does not print the raw JSON. Use
   `duo plan <env> --format=json` for that.
 
-- **`duo capabilities <env> [--format=json]`** — resolves the repository's
-  exact manifest pins against [the external disposition registry](../manifests/dispositions.json).
-  It reports supported versions, entity and field sections, operations,
-  lifecycle phases, deletion semantics, unsupported surfaces, default-authored
-  keyspace rulings, and certification evidence from the same bytes bound into
-  compiled adapter digests. The agent-level `wp duo capabilities --all`
-  reports the complete shipped library. This is descriptive product scope;
-  `duo status` and host deploy/promote enforce it by blocking every selected
-  status other than `certified` before target mutation.
+- **`duo capabilities <env> [--operation=<op>] [--surface=<surface>]`
+  `[--revision=<sha>] [--format=json]`** — resolves the repository's exact
+  manifest pins against [the generated capability registry](../manifests/capabilities/registry.json).
+  It evaluates the requested platform revision, target WordPress/PHP/database
+  and plugin/theme versions, operation, and exact state surface against one
+  current content-addressed evidence bundle. Output separates unmodified
+  plugin execution from branchable authored-state scope and gives structured
+  blocker codes for unsupported, experimental, expired-evidence,
+  version-mismatch, and multisite cases. The agent-level `wp duo capabilities
+  --all` reports the complete shipped library. `duo status`, host
+  deploy/promote, and `make release-gate` consume the same generated claims.
 
 - **`duo capture|plan|apply <env> [flags...]`** — pure passthrough to `wp duo
   capture|plan|apply --repo=<repo_path> [flags...]` for that environment.

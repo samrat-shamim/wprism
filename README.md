@@ -1,6 +1,12 @@
 # Duo — Branchable WordPress
 
-Duo makes a WordPress site **branchable like code** — branch, edit, merge, promote — while every plugin and theme keeps working unmodified. Authored content and configuration live canonically in a git repository; runtime data (orders, comments, sessions, caches) stays environment-local and untouched.
+<!-- BEGIN GENERATED CAPABILITY SUMMARY -->
+- **Certified authored-state adapters:** acf, contact-form-7, core, elementor, ninja-forms, polylang, woocommerce, yoast.
+- **Experimental and promotion-blocking:** paid-memberships-pro, the-events-calendar.
+- **Evidence:** bundle `9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098` (candidate); exact versions, operations, surfaces, and unsupported boundaries are in [the generated capability document](docs/capabilities.md). Plugins run unmodified; only registry-named authored state is branchable.
+<!-- END GENERATED CAPABILITY SUMMARY -->
+
+Duo makes the registry-certified authored surfaces of a WordPress site **branchable like code** — branch, edit, merge, promote — without modifying plugin or theme source. Authored content and configuration live canonically in a git repository; runtime data (orders, comments, sessions, caches) stays environment-local and untouched. Missing registry data is unsupported.
 
 **Status: v0.5.** The design is settled ([DESIGN.md](DESIGN.md), hardened by an [adversarial review](docs/design-review-v0.md)); the spikes prove the load-bearing claims:
 
@@ -9,7 +15,7 @@ Duo makes a WordPress site **branchable like code** — branch, edit, merge, pro
 - **Spike C — provenance**: the journal classifies live DB writes (admin-authored vs runtime) with WooCommerce as the stress test.
 - **Spike D — WooCommerce catalog**: full product-meta manifest (field-granular: `_stock` is runtime, `_regular_price` is authored), plus a fail-closed deletion boundary — Woo product deletion intent is refused before repository or target mutation until extension-complete reverse references and semantic effects are certifiable.
 - **Spike E — ACF interpreter**: schema-driven classification — field-group definitions type the meta values (image/relationship ids, string-cast serialized arrays), with verbatim byte-preservation for serialized field-config bodies.
-- **Conformance and ratification** ([sandbox/conformance/](sandbox/conformance/), [manifests/dispositions.json](manifests/dispositions.json)): clean-room round-trip tests are evidence, not a self-certification switch. The external registry is the product boundary: core, WooCommerce, ACF, Yoast, FSE, Elementor, Polylang, Contact Form 7, and Ninja Forms are certified; Paid Memberships Pro and The Events Calendar are experimental; Duo-only fixtures are excluded. Certified claims cite tests embedded in the content-addressed reference bundle, and registry changes invalidate adapter digests and prior evidence.
+- **Conformance and capability registry** ([sandbox/conformance/](sandbox/conformance/), [manifests/capabilities/registry.json](manifests/capabilities/registry.json)): clean-room tests produce content-addressed evidence; dispositions remain reviewed inputs, while the generated registry is the product boundary consumed by docs, CLI, readiness, and the release gate.
 - **`duo` CLI** ([cli/](cli/)): host-agnostic orchestration — `duo adopt|capture|plan|deploy|apply|promote|status|capabilities|doctor|pending|classify <env>` over local/docker/ssh transports from a committable env registry. `duo capabilities` reports the same external disposition, exact scope, unsupported surfaces, and evidence used by readiness. The [adoption path](docs/adoption.md) bootstraps the agent, manifests, and seed repo onto a pre-existing SSH host without Git or shared volumes. The opt-in code-half skeleton materializes a descriptor-verified `code/wp-content` payload, reconciles real plugin/theme lifecycle hooks, and prunes only paths Duo previously owned.
 - **The core loop (Spike F)**: unclassified write → loud block → `wp duo pending` (journal-evidenced proposals, ref hints, secret flags) → `duo classify` triage (interactive or `--accept-proposals`; secrets can never be authored silently) → clean capture → `policy-to-manifest` export that reproduces identical state when pinned. The secret guard aborts capture on key-pattern hits in authored values.
 - **Frontier maps** ([docs/frontier/](docs/frontier/)): empirically-grounded gap reports for FSE block themes, Polylang, and Elementor — including the engine work each needs before it's safe. Design proposals cover the [`code/` half](docs/proposals/code-half.md) and the future [verified production SSH rollback contract](docs/proposals/verified-ssh-rollback.md).
@@ -23,7 +29,7 @@ Duo makes a WordPress site **branchable like code** — branch, edit, merge, pro
 | [docs/adoption.md](docs/adoption.md) | Operator procedure for installing/updating Duo on an existing SSH WordPress host |
 | [spec/repo-format.md](spec/repo-format.md) | The site-repo contract: entity file formats, tokens, ledger, apply semantics |
 | [agent/](agent/) | The Duo agent — drop-in mu-plugin + `wp duo …` commands (capture, plan, apply, journal) |
-| [manifests/](manifests/) | Classification manifests plus the external certified/experimental/excluded disposition registry |
+| [manifests/](manifests/) | Classification manifests, reviewed dispositions, and the generated evidence-bound capability registry |
 | [sandbox/](sandbox/) | Dockerized two-environment WordPress sandbox + spike acceptance tests |
 
 ## Running the spikes

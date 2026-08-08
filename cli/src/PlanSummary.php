@@ -48,10 +48,10 @@ namespace Duo\Orchestrator;
  *     all (label() does not apply), and never a value: env_missing exists
  *     to checklist WHICH values still need provisioning, never to leak
  *     what they should contain.
- *   - adapter_dispositions (DUO-3224): selected manifests whose external
- *     registry status is experimental or excluded. Row shape
- *     {name,status,reason}; status is never green and host promotion refuses
- *     the same compiled disposition before lease/checkpoint/mutation.
+ *   - adapter_dispositions (stable wire key; DUO-3224/DUO-3227): selected
+ *     manifests whose generated capability verdict is blocked. Row shape
+ *     {name,status,code,reason}; host promotion consumes the same compiled
+ *     claim before lease/checkpoint/mutation.
  */
 final class PlanSummary {
     private const BUCKETS = [
@@ -261,12 +261,12 @@ final class PlanSummary {
         }
 
         if ($adapterDispositions) {
-            $lines[] = 'ADAPTER_DISPOSITION (a pinned manifest is not certified for promotion):';
+            $lines[] = 'CAPABILITY_REGISTRY (a pinned manifest/revision/target is not certified for promotion):';
             foreach ($adapterDispositions as $r) {
                 $lines[] = '  - ' . ($r['name'] ?? '?') . ' [' . ($r['status'] ?? 'unreviewed')
-                    . ']: ' . ($r['reason'] ?? 'not certified');
+                    . '] [' . ($r['code'] ?? 'not_certified') . ']: ' . ($r['reason'] ?? 'not certified');
             }
-            $lines[] = 'experimental and excluded adapters cannot make readiness green or enter host promotion';
+            $lines[] = 'experimental, unsupported, version-mismatched, or expired-evidence claims cannot make readiness green';
         }
 
         // --- fail-closed exit semantics (DUO-3221) ---

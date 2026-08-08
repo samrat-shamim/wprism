@@ -186,7 +186,7 @@ final class WoocommerceProductLookups {
 
         foreach ($liveIds as $id) {
             $this->heartbeat($heartbeat);
-            $product = \wc_get_product($id);
+            $product = $this->load_product($id);
             if (!$product) {
                 throw new \RuntimeException("duo: WooCommerce product lookup regeneration could not load live product $id");
             }
@@ -203,7 +203,7 @@ final class WoocommerceProductLookups {
                     $this->heartbeat($heartbeat);
                     $this->invalidate_product_caches($parentId);
                 }
-                $parent = $parentId > 0 ? \wc_get_product($parentId) : false;
+                $parent = $parentId > 0 ? $this->load_product($parentId) : false;
                 if ($parent && $this->is_variable($parent)) {
                     $variableRoots[$parentId] = $parent;
                     $attributeRoots[$parentId] = $parent;
@@ -225,7 +225,7 @@ final class WoocommerceProductLookups {
                     }
                     $this->heartbeat($heartbeat);
                     $this->invalidate_product_caches($childId);
-                    $child = \wc_get_product($childId);
+                    $child = $this->load_product($childId);
                     if ($child) {
                         $products[$childId] = $child;
                         $priceIds[$childId] = true;
@@ -271,7 +271,7 @@ final class WoocommerceProductLookups {
             foreach ($this->find_grouped_parent_ids($childId) as $parentId) {
                 $this->heartbeat($heartbeat);
                 $this->invalidate_product_caches($parentId);
-                $parent = \wc_get_product($parentId);
+                $parent = $this->load_product($parentId);
                 if (!$parent || !$this->is_grouped($parent)) {
                     continue;
                 }
@@ -300,7 +300,7 @@ final class WoocommerceProductLookups {
         // variation to deletionIds.
         foreach (array_unique(array_merge($deletedParents, $reparentedParents)) as $parentId) {
             $this->heartbeat($heartbeat);
-            $parent = \wc_get_product($parentId);
+            $parent = $this->load_product($parentId);
             if ($parent && $this->is_variable($parent)) {
                 $variableRoots[$parentId] = $parent;
                 $attributeRoots[$parentId] = $parent;
@@ -311,7 +311,7 @@ final class WoocommerceProductLookups {
                     }
                     $this->heartbeat($heartbeat);
                     $this->invalidate_product_caches($childId);
-                    $child = \wc_get_product($childId);
+                    $child = $this->load_product($childId);
                     if ($child) {
                         $products[$childId] = $child;
                         $priceIds[$childId] = true;
@@ -426,17 +426,23 @@ final class WoocommerceProductLookups {
         // is synchronous.  Calling on_product_changed() here would enqueue
         // Action Scheduler work and make apply's convergence boundary false.
         $attributeStore = $this->attribute_lookup_store();
-        foreach ($attributeRoots as $rootId => $root) {
-            $this->heartbeat($heartbeat);
-            $attributeStore->create_data_for_product((int) $rootId, false);
-            if (is_callable([$attributeStore, 'get_last_create_operation_failed'])
-                && $attributeStore->get_last_create_operation_failed()) {
-                throw new \RuntimeException(
-                    "duo: WooCommerce product attributes lookup generation reported failure for product $rootId"
-                );
+        $this->with_all_attribute_languages(function () use ($attributeRoots, $attributeStore, $heartbeat): void {
+            foreach ($attributeRoots as $rootId => $root) {
+                $this->heartbeat($heartbeat);
+                // Pass the already-classified object. A fresh Duo target does
+                // not yet have Woo's derived product_type relationship, so an
+                // id-only call would make Woo reload a variable root as a
+                // simple product and omit every variation row.
+                $attributeStore->create_data_for_product($root, false);
+                if (is_callable([$attributeStore, 'get_last_create_operation_failed'])
+                    && $attributeStore->get_last_create_operation_failed()) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce product attributes lookup generation reported failure for product $rootId"
+                    );
+                }
+                $this->heartbeat($heartbeat);
             }
-            $this->heartbeat($heartbeat);
-        }
+        });
 
         // Sale actions are operational state derived from the exact sale-date
         // inputs on the affected products. Woo's public helper is
@@ -482,7 +488,7 @@ final class WoocommerceProductLookups {
             }
             $this->heartbeat($heartbeat);
             $this->invalidate_product_caches($rootId);
-            $freshRoot = \wc_get_product($rootId);
+            $freshRoot = $this->load_product($rootId);
             if (!$freshRoot || !$this->is_grouped($freshRoot)) {
                 throw new \RuntimeException(
                     "duo: grouped product $rootId disappeared before public grouped price synchronization"
@@ -498,7 +504,7 @@ final class WoocommerceProductLookups {
                 }
                 $this->heartbeat($heartbeat);
                 $this->invalidate_product_caches($childId);
-                $child = \wc_get_product($childId);
+                $child = $this->load_product($childId);
                 if ($child) {
                     $products[$childId] = $child;
                     if ($this->is_variable($child)) {
@@ -862,13 +868,90 @@ final class WoocommerceProductLookups {
     }
 
     private function assert_runtime_contract(): void {
-        if (!function_exists('wc_get_product') || !class_exists('WC_Data_Store') || !function_exists('wc_get_container')
+        if (!function_exists('wc_get_product')
+            || !class_exists('WC_Data_Store')
+            || !class_exists('WC_Product_Variable')
+            || !class_exists('WC_Product_Grouped')
+            || !function_exists('wc_get_container')
+            || !function_exists('add_filter')
+            || !function_exists('remove_filter')
             || !function_exists('wc_maybe_schedule_product_sale_events')
             || !function_exists('as_unschedule_all_actions')
             || !function_exists('as_next_scheduled_action')) {
             throw new \RuntimeException(
                 'duo: WooCommerce product lookup regenerator requires WooCommerce 11.x public data-store and sale-schedule APIs'
             );
+        }
+    }
+
+    /**
+     * Load the public Woo product class implied by authored source shape.
+     *
+     * Woo stores `product_type` as a derived taxonomy relationship. On a
+     * fresh target that row does not exist until Woo hooks run, but Duo must
+     * rebuild projections before its receipt can advance. Variation children
+     * and grouped `_children` metadata are authored, deterministic evidence
+     * for the only two parent classes whose lookup synthesis differs from a
+     * simple product. Construct the public class in memory; never persist a
+     * guessed product_type relationship.
+     */
+    private function load_product(int $id): object|false {
+        global $wpdb;
+        $product = \wc_get_product($id);
+        if (!$product || !is_callable([$product, 'is_type']) || !$product->is_type('simple')) {
+            return $product;
+        }
+
+        $postType = $this->checked_get_var($wpdb->prepare(
+            "SELECT post_type FROM {$wpdb->posts} WHERE ID = %d LIMIT 1",
+            $id
+        ), "product source-shape read for product $id");
+        if ((string) $postType !== 'product') {
+            return $product;
+        }
+
+        $variationId = $this->checked_get_var($wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = 'product_variation' ORDER BY ID LIMIT 1",
+            $id
+        ), "variation-child discovery for product $id");
+        if ($variationId !== null) {
+            return new \WC_Product_Variable($id);
+        }
+
+        $children = get_post_meta($id, '_children', true);
+        if (is_array($children) && array_filter(
+            array_map('intval', $children),
+            static fn(int $childId): bool => $childId > 0
+        ) !== []) {
+            return new \WC_Product_Grouped($id);
+        }
+
+        return $product;
+    }
+
+    /**
+     * Keep third-party language filters from dropping valid attribute terms.
+     *
+     * Polylang treats an explicit empty `lang` query arg as all languages.
+     * WordPress and WooCommerce safely ignore that otherwise-unknown arg.
+     * Scope the filter to pa_* queries made by Woo's public lookup store and
+     * always remove it, including when public regeneration throws.
+     */
+    private function with_all_attribute_languages(callable $callback): mixed {
+        $filter = static function (array $args, array $taxonomies): array {
+            foreach ($taxonomies as $taxonomy) {
+                if (str_starts_with((string) $taxonomy, 'pa_')) {
+                    $args['lang'] = '';
+                    break;
+                }
+            }
+            return $args;
+        };
+        add_filter('get_terms_args', $filter, 1, 2);
+        try {
+            return $callback();
+        } finally {
+            remove_filter('get_terms_args', $filter, 1);
         }
     }
 
@@ -1081,7 +1164,7 @@ final class WoocommerceProductLookups {
             }
             $this->heartbeat($heartbeat);
             $this->invalidate_product_caches($childId);
-            $child = \wc_get_product($childId);
+            $child = $this->load_product($childId);
             if ($child) {
                 $products[$childId] = $child;
                 $priceIds[$childId] = true;
@@ -1098,7 +1181,7 @@ final class WoocommerceProductLookups {
                         }
                         $this->heartbeat($heartbeat);
                         $this->invalidate_product_caches($variationId);
-                        $variation = \wc_get_product($variationId);
+                        $variation = $this->load_product($variationId);
                         if ($variation) {
                             $products[$variationId] = $variation;
                             $priceIds[$variationId] = true;
@@ -1359,11 +1442,13 @@ final class WoocommerceProductLookups {
             return (string) $expected === (string) $actual;
         }
         if ($column === 'total_sales') {
-            // Woo stores this BIGINT lookup column as 0 when the source meta
-            // is absent. Never cast malformed source text to zero: only
-            // numeric values may take the numeric comparison path.
+            // Woo's BIGINT lookup column is nullable with a zero default.
+            // Its public refresh stores NULL for a variation whose source
+            // meta is absent, while other product paths can read back zero.
+            // Never cast malformed source text to zero: only an absent
+            // source or numeric values may take the normalization path.
             if ($expected === '') {
-                return $actual === ''
+                return $actual === null || $actual === ''
                     || (is_numeric($actual) && abs((float) $actual) < 0.000001);
             }
             if (!is_numeric($expected) || !is_numeric($actual)) {
@@ -1397,7 +1482,7 @@ final class WoocommerceProductLookups {
         $type = (string) $root->get_type();
         if ($type === 'variation') {
             $parentId = (int) $root->get_parent_id('edit');
-            $parent = $parentId > 0 ? \wc_get_product($parentId) : false;
+            $parent = $parentId > 0 ? $this->load_product($parentId) : false;
             if (!$parent || !$this->is_variable($parent)) {
                 return $rows;
             }
@@ -1449,7 +1534,7 @@ final class WoocommerceProductLookups {
             if (isset($deletionIds[(int) $childId])) {
                 continue;
             }
-            $child = \wc_get_product((int) $childId);
+            $child = $this->load_product((int) $childId);
             if (!$child) {
                 continue;
             }
@@ -1511,6 +1596,9 @@ final class WoocommerceProductLookups {
                     : $taxonomy,
                 'hide_empty' => false,
                 'fields' => 'id=>slug',
+                // Polylang interprets an explicit empty language as an
+                // unfiltered term query; core safely ignores the extra arg.
+                'lang' => '',
             ]);
             if (is_wp_error($terms)) {
                 throw new \RuntimeException("duo: failed to read WooCommerce attribute terms for $taxonomy");

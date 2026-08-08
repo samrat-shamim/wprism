@@ -29,10 +29,13 @@ docs/grind/r3a-multilingual-shop.md. Headlines:
   written for a translated CPT at all. Deterministic on every fresh target;
   manual replication is the only mitigation. Not #92's territory (that fixes
   Duo's own taxonomy scope; this is the plugin's internal config).
-- **#128 (filed, open)**: a front-end 500 with Polylang's language config
-  found empty — Duo ruled out of the causal chain by evidence (apply never
-  ran before onset; the field is opaque-verbatim throughout), root cause not
-  reached. Honestly recorded as not-ours-but-unresolved.
+- **#128 (later DUO-3300, resolved)**: a one-run front-end 500 was recorded
+  with Polylang's language config empty. DUO-3300's fresh pinned-stack,
+  action-boundary sweep found no command that reproduced the state: source
+  and target locale descriptions remained valid and EN/DE renders returned
+  200. The fixture's silent database repair was removed in favor of raw
+  description invariants and hard HTTP checks, so any recurrence now stops at
+  the nearest phase instead of losing the evidence.
 - **#122 (filed and closed)**: `product_count_<taxonomy>` term-meta cache →
   `runtime` via the shared meta_patterns mechanism (which already covers
   term_meta — no new machinery needed).
@@ -154,6 +157,6 @@ surgically-staged commit on main under the project owner's identity
 - **#124/#125/#126** — typed-snapshot grammar: derived tables with hard
   availability dependencies; composite PKs; sidecar PK name override.
 - **#127** — deep secret scanning on the original capture path.
-- **#128** — the open Polylang front-end 500 (not-Duo by evidence; needs
-  dedicated instrumentation).
+- **#128 / DUO-3300** — resolved by the pinned-stack fixture ruling and hard
+  language-description/render regressions; no Duo mutator reproduced.
 - Distribution sweep for "free but not wp.org" plugins (PMPro pattern).

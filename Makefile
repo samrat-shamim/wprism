@@ -17,7 +17,8 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-coverage-offline regress-coverage regress-classification-batch \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions \
-	regress-post-field-classification regress-woocommerce-contract
+	regress-post-field-classification regress-capability-registry regress-woocommerce-contract \
+	capability-registry-generate release-gate
 
 up:
 	$(COMPOSE) up -d
@@ -264,6 +265,17 @@ regress-certification-bundle:
 
 regress-manifest-dispositions:
 	bash sandbox/tests/regress_manifest_dispositions.sh
+
+regress-capability-registry:
+	bash sandbox/tests/regress_capability_registry.sh
+
+capability-registry-generate:
+	php scripts/capability-registry.php generate
+
+# Product release gate: current content-addressed evidence, exact generated
+# registry, and every generated public compatibility claim must agree.
+release-gate:
+	php scripts/capability-registry.php check
 
 regress-multisite-refusal:
 	bash sandbox/tests/regress_multisite_refusal.sh
@@ -612,7 +624,7 @@ regress-user-meta:
 # DUO-3285: one target bundling every offline (no-docker) regress suite --
 # cheap enough to run at every local close-gate. Hosted CI is intentionally
 # disabled for this repository, so this local bundle plus independent review
-# is the merge gate. 63 suites: code-half-unit's prerequisites folded in once,
+# is the merge gate. 64 suites: code-half-unit's prerequisites folded in once,
 # plus the direct offline prerequisites below, including the SSH rollback,
 # WooCommerce adapter/lookup/deletion/effect, post-field classification, and
 # ecommerce static contracts. regress-bundle-coverage independently computes
@@ -644,7 +656,7 @@ regress-user-meta:
 # suites, followed by lifecycle/rebuilder effect contracts and DUO-3299's
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all: code-half-unit \
-	regress-capture-publish regress-adapter-contract regress-manifest-dispositions regress-certification-bundle regress-interpreter-policy \
+	regress-capture-publish regress-adapter-contract regress-manifest-dispositions regress-capability-registry regress-certification-bundle regress-interpreter-policy \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan \
 	regress-order-preserving \
 	regress-block-refs regress-composite-ref regress-doctor-env-values \
@@ -659,7 +671,7 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-regen-engine regress-rebuilder-scope regress-pair-bootstrap-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity \
 	regress-ssh-rollback-certification regress-woocommerce-contract
-	@echo "regress-offline-all: 63 offline suites green"
+	@echo "regress-offline-all: 64 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
