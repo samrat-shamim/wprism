@@ -423,14 +423,14 @@ behavior, a live query result), not what was assumed.
   regeneration markers. PMPro's composite-ref restriction row exists
   immediately, points at r3b2's own Studio Access level and Studio Members
   Only page, and requires no manual repair.
-- **Render checks (buffered curl throughout — `curl | grep -q` under
-  `pipefail` is a banned pattern precisely because curl's own exit 23
-  breaks it; every check here buffers to a variable first)**: r3b2's
-  single event page renders the correct title *and* venue name; **each of
-  the 3 events' own single-event pages** render correctly (the hard,
-  reliable assertion — see the honest flakiness note below for why the
-  driver script deliberately does not gate on the aggregate list view
-  instead); **zero** occurrences of r3b1's host string (`localhost:8852`)
+- **Render checks (complete buffered responses throughout)**: every HTTP
+  response must be at least 4096 bytes and contain a closing `</html>`
+  before its content is inspected. Content checks use here-strings rather
+  than a producer pipeline under `pipefail`: r3b2's single event page
+  renders the correct title *and* venue name; **each of the 3 events' own
+  single-event pages** render correctly, and the first complete
+  `/events/list/` response contains all three event titles; **zero**
+  occurrences of r3b1's host string (`localhost:8852`)
   anywhere in r3b2's rendered pages, including inside the membership
   confirmation text, which correctly detokenized its internal link to
   r3b2's own host (`http://localhost:8853/event/community-meetup/`) —
@@ -438,27 +438,17 @@ behavior, a live query result), not what was assumed.
   correctly end to end, not just for post bodies. The restricted page
   correctly blocks an anonymous visitor using the captured restriction row,
   with no manual repair step.
-- **A genuine, honestly-reported render-check flakiness, distinct from
-  either engine gap and NOT hidden behind a quietly-widened assertion**:
-  the *aggregate* `/events/list/` view occasionally needed considerably
-  longer than expected — repeatedly observed to exceed even a 60-second
-  retry budget in this round's own authoring process — to reflect all
-  three titles, even though the underlying data (`wp_tec_occurrences`,
-  `wp post list`) was already confirmed complete and correct well before
-  the HTTP check ran, and `wp_tec_kv_cache` was confirmed *empty* at the
-  time (ruling out a stale cache-table row as the literal cause). Root
-  cause not fully pinned down — the leading hypothesis, stated as a
-  hypothesis, is load-sensitivity under this session's own documented
-  concurrent-sandbox-pair contention (task #74's "OrbStack wedges under
-  concurrent load" finding — as many as 6 pairs were live across the fleet
-  while this round ran), not anything Duo-specific. Rather than either
-  chase an unbounded retry budget or silently drop the check, the driver
-  script's HARD assertion was changed to each event's own single page
-  (proven reliable every run) with the aggregate list view kept as a
-  SOFT, reported-but-non-blocking check — the more precise proof (every
-  event individually confirmed rendering) was available and reliable, so
-  gating the whole grind's pass/fail on the noisier aggregate view would
-  have been the wrong trade.
+- **DUO-3301 closes the aggregate-view ambiguity as a harness defect, not
+  a TEC readiness defect.** An isolated pair running TEC 6.17.2 and PMPro
+  3.8.3 reproduced the old checker reporting `Community Meetup` missing.
+  An immediate request returned a complete 79,953-byte document containing
+  all three titles (each three times), while the fixture already had three
+  posts, three occurrences, and zero pending regeneration markers. The old
+  `echo "$LIST_HTML" | grep -q "$t"` check let `grep -q` exit after its
+  match and could leave `echo` to receive SIGPIPE; `pipefail` then made a
+  present title look absent. All render assertions now require a complete
+  response and inspect it via here-strings. The aggregate first-complete-
+  response check is hard; no widened or unbounded retry masks failures.
 - **Runtime isolation, both directions**: r3b2 has zero
   `pmpro_memberships_users` rows and no `dana.rivera` user after the whole
   round-trip — r3b1's real signup never propagated. r3b1's own signup (and
@@ -495,10 +485,11 @@ as a single option; the real orders table name) — each verified
 empirically before being treated as fact, per the brief's own explicit
 instruction not to assume.
 
-**(d) Harness/render-check finding:** a real, load-sensitive rendering
-delay on TEC's list view under concurrent sandbox contention, not fully
-root-caused, mitigated defensively in the driver script and reported
-honestly rather than hidden behind a quietly-widened assertion.
+**(d) Harness/render-check finding — closed by DUO-3301:** the apparent
+load-sensitive TEC list-view delay was a producer-side SIGPIPE race in an
+`echo | grep -q` pipeline under `pipefail`. Complete-response validation,
+here-string content checks, and a hard aggregate assertion now make the
+driver report the rendered state truthfully.
 
 ## Files changed
 

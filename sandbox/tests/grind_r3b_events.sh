@@ -48,6 +48,13 @@ say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
+assert_complete_html() {
+  local body="$1" label="$2" bytes
+  bytes=${#body}
+  [ "$bytes" -ge 4096 ] || fail "$label returned an implausibly short HTML response ($bytes bytes)"
+  grep -qi '</html>' <<<"$body" || fail "$label returned incomplete HTML (no closing </html>; $bytes bytes)"
+}
+
 export DUO_PAIR=r3b
 PAIR_COMPOSE=(docker compose -p duo-r3b -f pair.yml -f pair.journal.yml)
 R3B1=http://localhost:8852
@@ -227,7 +234,7 @@ echo "SEED_COMPLETE " . json_encode([
 PHPEOF
 SEED_OUT=$(wp1 eval-file /siterepo/.tmp-seed.php)
 echo "$SEED_OUT"
-echo "$SEED_OUT" | grep -q SEED_COMPLETE || fail "seed script did not complete"
+grep -q SEED_COMPLETE <<<"$SEED_OUT" || fail "seed script did not complete"
 pass "r3b1 seeded: venue, organizer, 3 events (one venue+organizer, one bare, one venue-only), PMPro's 9 system pages, 2 membership levels with real pricing + confirmation text containing an internal link, Studio Members Only page restricted to Studio Access, a real member signup (dana.rivera)"
 
 say "core loop: capture (both graduated manifests already pinned — capture should succeed immediately)"
@@ -287,8 +294,8 @@ GATE_OUT=$(wp1 duo capture --repo=/siterepo 2>&1)
 GATE_RC=$?
 set -e
 [ "$GATE_RC" -ne 0 ] || fail "expected the unscoped-ref gate to abort capture"
-echo "$GATE_OUT" | grep -q "unresolvable ref-typed option(s) point at real, out-of-scope entities" || fail "wrong error (got: $GATE_OUT)"
-echo "$GATE_OUT" | grep -q "pmpro_checkout_page_id" || fail "gate did not name the option"
+grep -q "unresolvable ref-typed option(s) point at real, out-of-scope entities" <<<"$GATE_OUT" || fail "wrong error (got: $GATE_OUT)"
+grep -q "pmpro_checkout_page_id" <<<"$GATE_OUT" || fail "gate did not name the option"
 pass "loud-and-blocking gate fired correctly, naming the option, the raw id, and the real target type"
 trap - EXIT
 restore_checkout
@@ -323,7 +330,7 @@ git clone -q siterepo/origin-r3b.git siterepo/r3b2
 # grind_r1b_shop.sh/grind_r3a_multilingual.sh already have.
 wp2 duo deploy --repo=/siterepo
 PLAN_TXT=$(wp2 duo plan --repo=/siterepo)
-echo "$PLAN_TXT" | grep -q 'COLLISION' || fail "expected installer-created page/post/term collisions in the plan"
+grep -q 'COLLISION' <<<"$PLAN_TXT" || fail "expected installer-created page/post/term collisions in the plan"
 REV=$(git -C siterepo/r3b2 rev-parse HEAD)
 wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" \
   | tee /tmp/r3b_apply1.txt
@@ -360,7 +367,7 @@ TEC_B1_NOW=$(wp1 db query "SELECT COUNT(*) FROM wp_tec_occurrences" --skip-colum
 VISIBLE_COUNT=$(wp2 post list --post_type=tribe_events --post_status=any --format=count)
 [ "$VISIBLE_COUNT" = "3" ] || fail "expected all 3 applied events immediately visible to WP_Query with no manual step (got $VISIBLE_COUNT)"
 PLAN_AFTER=$(wp2 duo plan --repo=/siterepo)
-echo "$PLAN_AFTER" | grep -q ', 0 regen_pending' || fail "expected zero regen_pending markers outstanding after a clean apply (plan said: $(echo "$PLAN_AFTER" | grep -o '[0-9]* regen_pending'))"
+grep -q ', 0 regen_pending' <<<"$PLAN_AFTER" || fail "expected zero regen_pending markers outstanding after a clean apply (plan said: $(grep -o '[0-9]* regen_pending' <<<"$PLAN_AFTER"))"
 wp2 rewrite flush >/dev/null
 pass "confirmed fixed: DUO-3234's regen_dependency contract transparently regenerated wp_tec_occurrences as part of apply itself — 3/3 events visible immediately, tec_occurrences consistent with source ($TEC_ROWS rows), zero regen_pending markers outstanding, no manual step required. This WAS the round's central finding; DUO-3234 is why it no longer holds."
 
@@ -375,49 +382,39 @@ RESTRICT_MATCH_B2=$(wp2 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_page
 [ "$RESTRICT_MATCH_B2" = "1" ] || fail "captured restriction did not resolve to r3b2's own Studio Access level ($LEVEL2_ID_B2) and Studio Members Only page ($STUDIO_ID_B2)"
 pass "confirmed fixed: the composite_ref row exists immediately after apply and points at r3b2's own Studio Access level + Studio Members Only page; no PMPro repair call was needed"
 
-say "render checks (buffered curl — never curl | grep under pipefail) + negative host-leak assertion"
-EVENT_HTML=$(curl -s "$R3B2/event/fall-open-house/")
-echo "$EVENT_HTML" | grep -q "Fall Open House" || fail "event title did not render on r3b2"
-echo "$EVENT_HTML" | grep -qi "Riverside Commons Workshop Hall" || fail "venue name did not render on the event page"
-# The HARD assertion is each event's own single page (below) — reliable
-# every run. The aggregate /events/list/ view is checked too, but SOFT
-# (reported, never failed): observed directly while authoring this
-# script, it intermittently takes considerably longer than expected to
-# reflect all 3 titles even though the underlying DATA
-# (`wp_tec_occurrences`, `wp post list`) is already confirmed complete
-# well before this HTTP check runs, and `wp_tec_kv_cache` was confirmed
-# EMPTY at the time (ruling out a stale cache-table row as the literal
-# cause) — root cause not fully pinned down; the leading hypothesis,
-# stated as a hypothesis and not fact, is load-sensitivity under this
-# session's own documented concurrent-sandbox-pair contention (task #74's
-# "OrbStack wedges under concurrent load" finding — as many as 6 pairs
-# were live fleet-wide while this round ran), not anything Duo-specific.
-# Failing the whole grind on a secondary aggregate-view timing artifact,
-# when the per-event render (the thing that actually matters) is already
-# independently proven reliable, would be the wrong trade — see
-# docs/grind/r3b-events-memberships.md's render-check section.
-EVENT2_HTML=$(curl -s "$R3B2/event/community-meetup/")
-echo "$EVENT2_HTML" | grep -q "Community Meetup" || fail "Community Meetup's OWN single event page did not render on r3b2"
-EVENT3_HTML=$(curl -s "$R3B2/event/annual-gala/")
-echo "$EVENT3_HTML" | grep -q "Annual Gala" || fail "Annual Gala's OWN single event page did not render on r3b2"
-pass "all 3 events individually confirmed rendering correctly by their own single-event pages (the reliable check)"
-LIST_HTML=$(curl -s "$R3B2/events/list/")
-LIST_MISSING=""
+say "complete-response render checks + negative host-leak assertion"
+# DUO-3301 reproduced the former aggregate "delay" on an isolated pair:
+# the checker reported a missing title, while an immediate complete
+# 79,953-byte response contained all three titles. The cause was the
+# producer-side SIGPIPE race in `echo "$LIST_HTML" | grep -q` under
+# pipefail, not TEC/cache/query readiness. Buffer the response, prove it is
+# complete, then inspect it through here-strings so every page is a hard,
+# truthful assertion with no retry budget to hide a defect.
+EVENT_HTML=$(curl -fsSL --max-time 30 "$R3B2/event/fall-open-house/")
+assert_complete_html "$EVENT_HTML" "Fall Open House single-event page"
+grep -qF "Fall Open House" <<<"$EVENT_HTML" || fail "event title did not render on r3b2"
+grep -qiF "Riverside Commons Workshop Hall" <<<"$EVENT_HTML" || fail "venue name did not render on the event page"
+EVENT2_HTML=$(curl -fsSL --max-time 30 "$R3B2/event/community-meetup/")
+assert_complete_html "$EVENT2_HTML" "Community Meetup single-event page"
+grep -qF "Community Meetup" <<<"$EVENT2_HTML" || fail "Community Meetup's own single-event page did not render on r3b2"
+EVENT3_HTML=$(curl -fsSL --max-time 30 "$R3B2/event/annual-gala/")
+assert_complete_html "$EVENT3_HTML" "Annual Gala single-event page"
+grep -qF "Annual Gala" <<<"$EVENT3_HTML" || fail "Annual Gala's own single-event page did not render on r3b2"
+pass "all 3 complete single-event responses render their own title correctly"
+LIST_HTML=$(curl -fsSL --max-time 30 "$R3B2/events/list/")
+assert_complete_html "$LIST_HTML" "/events/list/ aggregate page"
 for t in "Fall Open House" "Community Meetup" "Annual Gala"; do
-  echo "$LIST_HTML" | grep -q "$t" || LIST_MISSING="$LIST_MISSING '$t'"
+  grep -qF "$t" <<<"$LIST_HTML" || fail "/events/list/ aggregate view missing '$t' from a complete ${#LIST_HTML}-byte response"
 done
-if [ -n "$LIST_MISSING" ]; then
-  printf '\033[1;33mnote: /events/list/ aggregate view currently missing:%s (informational only — see the render-check note above; each event'"'"'s own page already confirmed rendering)\033[0m\n' "$LIST_MISSING"
-else
-  pass "/events/list/ aggregate view also shows all 3 (no delay this run)"
-fi
-STUDIO_HTML=$(curl -s "$R3B2/studio-members-only/")
+pass "/events/list/ first complete response shows all 3 events"
+STUDIO_HTML=$(curl -fsSL --max-time 30 "$R3B2/studio-members-only/")
+assert_complete_html "$STUDIO_HTML" "Studio Members Only page"
 LEAK_COUNT=$(printf '%s%s%s%s' "$EVENT_HTML" "$EVENT2_HTML" "$EVENT3_HTML" "$STUDIO_HTML" | grep -c "localhost:8852" || true)
 [ "$LEAK_COUNT" = "0" ] || fail "found $LEAK_COUNT leaked side-1 host string(s) in r3b2's rendered pages"
-echo "$STUDIO_HTML" | grep -qi "tool access, storage lockers" && fail "captured restriction did not block the authored content from an anonymous visitor"
+grep -qiF "tool access, storage lockers" <<<"$STUDIO_HTML" && fail "captured restriction did not block the authored content from an anonymous visitor"
 CONFIRMATION_B2=$(wp2 db query "SELECT confirmation FROM wp_pmpro_membership_levels WHERE name='Community'" --skip-column-names)
-echo "$CONFIRMATION_B2" | grep -q "localhost:8853" || fail "confirmation text internal link did not detokenize to r3b2's own host"
-echo "$CONFIRMATION_B2" | grep -q "localhost:8852" && fail "confirmation text leaked r3b1's host"
+grep -q "localhost:8853" <<<"$CONFIRMATION_B2" || fail "confirmation text internal link did not detokenize to r3b2's own host"
+grep -q "localhost:8852" <<<"$CONFIRMATION_B2" && fail "confirmation text leaked r3b1's host"
 pass "TEC event pages render correctly on r3b2; zero side-1 host leaks anywhere; the captured restriction blocks anonymous access with no manual repair; the membership confirmation text's internal link correctly re-bound to r3b2's own host (http://localhost:8853/...), not r3b1's"
 
 # A front-end request with no Customizer CSS can materialize WordPress's
@@ -430,7 +427,7 @@ say "runtime isolation: r3b1's real member signup never propagates to r3b2, and 
 MEMBERS_B2=$(wp2 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_users" --skip-column-names)
 [ "$MEMBERS_B2" = "0" ] || fail "expected zero pmpro_memberships_users rows on r3b2 (got $MEMBERS_B2) — r3b1's signup must stay local"
 USERS_B2=$(wp2 user list --field=user_login)
-echo "$USERS_B2" | grep -q dana.rivera && fail "r3b1's member user leaked onto r3b2" || true
+grep -q dana.rivera <<<"$USERS_B2" && fail "r3b1's member user leaked onto r3b2" || true
 MEMBERS_B1=$(wp1 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_users" --skip-column-names)
 [ "$MEMBERS_B1" = "1" ] || fail "expected r3b1's own signup to remain intact (got $MEMBERS_B1)"
 TEC_B1=$(wp1 db query "SELECT COUNT(*) FROM wp_tec_occurrences" --skip-column-names)
