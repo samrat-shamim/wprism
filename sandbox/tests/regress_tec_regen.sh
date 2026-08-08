@@ -46,11 +46,11 @@
 #            deliberately absent — proving this file's own field, not
 #            DUO-3206's, is what's doing the surfacing there).
 #        (b) STATUS FAIL-CLOSED — `cli/duo status <env>` (cli/src/
-#            PlanSummary.php, DUO-3221's decision-matrix) exits non-zero
-#            while a regen_pending marker is outstanding and clean (exit
-#            0) once it resolves — step (7c-status)/(7d-status), isolated
-#            from every other ok=false condition so the proof is
-#            unambiguous about which signal is doing the work.
+#            PlanSummary.php, DUO-3221's decision-matrix) reports the
+#            outstanding regen_pending marker and removes that signal once
+#            it resolves — step (7c-status)/(7d-status). TEC's current
+#            experimental adapter disposition independently keeps status
+#            non-promotable before and after this marker-specific proof.
 #   5. ORPHAN SWEEP (design review's second, minor addition): a
 #      regen_pending marker whose post type is no longer declared, or
 #      whose uuid no longer resolves to a local post, gets actively
@@ -364,16 +364,16 @@ echo "$ISO_PLAN" | jq -e --arg u "$CAPTURED_UUID" '.regen_pending | any(.uuid ==
   || fail "expected plan.regen_pending to name the hand-planted marker even with incomplete_apply empty — plan: $ISO_PLAN"
 pass "confirmed: plan.regen_pending surfaces the marker on its own, with zero DUO-3206 involvement (incomplete_apply is empty, regen_pending is not)"
 
-say "(7c-status) THE ISOLATED duo-status PROOF: regen_pending alone — no conflict, no collision, no code_mismatch, no incomplete_apply — must still flip 'duo status' to not-safe-to-promote"
+say "(7c-status) duo status must surface REGEN_PENDING explicitly (in addition to TEC's independent experimental-adapter promotion gate)"
 set +e
 STATUS_OUT=$("$DUO_CLI" status "$ENV_NAME" 2>&1)
 STATUS_RC=$?
 set -e
 echo "$STATUS_OUT"
 [ "$STATUS_RC" -ne 0 ] || fail "expected 'duo status $ENV_NAME' to exit non-zero while a regen_pending marker is outstanding — it exited 0"
-grep -qi "regen_pending\|REGEN_PENDING" <<<"$STATUS_OUT" \
-  || fail "duo status output doesn't mention regen_pending (output: $STATUS_OUT)"
-pass "duo status correctly reports not-safe-to-promote (exit $STATUS_RC), naming regen_pending — isolated from every other ok=false condition"
+grep -q "REGEN_PENDING (" <<<"$STATUS_OUT" \
+  || fail "duo status output doesn't surface the outstanding REGEN_PENDING section (output: $STATUS_OUT)"
+pass "duo status reports not-safe-to-promote (exit $STATUS_RC) and surfaces the outstanding REGEN_PENDING section explicitly"
 
 say "(7d) apply anyway (no content changed, nothing forces a normal retry) — regen_pending:<uuid> alone must still trigger regen_dependencies() and repair the row"
 ISO_APPLY=$(wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
@@ -387,12 +387,17 @@ ISO_MARKER_AFTER=$(wp2 db query "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'regen
 [ "$ISO_MARKER_AFTER" = "0" ] || fail "expected the manually-planted marker to be cleared after the isolated repair (still present)"
 pass "ISOLATION PROOF confirmed: tec_occurrences row regenerated and marker cleared with NO apply_in_progress involvement whatsoever — regen_pending:<uuid> is independently load-bearing, not merely redundant with DUO-3206"
 
-say "(7d-status) duo status returns to clean now that the marker resolved"
+say "(7d-status) the REGEN_PENDING status signal clears after repair; TEC's separate experimental-adapter gate remains"
 STATUS_CLEAN_RC=0
 STATUS_CLEAN_OUT=$("$DUO_CLI" status "$ENV_NAME" 2>&1) || STATUS_CLEAN_RC=$?
 echo "$STATUS_CLEAN_OUT"
-[ "$STATUS_CLEAN_RC" -eq 0 ] || fail "expected 'duo status $ENV_NAME' to exit 0 now that regen_pending has cleared (exit $STATUS_CLEAN_RC)"
-pass "duo status confirms clean (exit 0) — the before/after status proof is complete"
+[ "$STATUS_CLEAN_RC" -ne 0 ] || fail "expected TEC's experimental adapter disposition to keep 'duo status $ENV_NAME' non-promotable"
+if grep -q "REGEN_PENDING (" <<<"$STATUS_CLEAN_OUT"; then
+  fail "duo status still reports an outstanding REGEN_PENDING section after the marker resolved (output: $STATUS_CLEAN_OUT)"
+fi
+grep -q "ADAPTER_DISPOSITION (" <<<"$STATUS_CLEAN_OUT" \
+  || fail "expected the remaining nonzero status to identify TEC's independent adapter-disposition gate (output: $STATUS_CLEAN_OUT)"
+pass "REGEN_PENDING cleared from status after repair; the remaining nonzero result is identified as TEC's independent experimental-adapter gate"
 
 say "(8) ORPHAN-SWEEP PROOF (design review addition 2): a regen_pending marker that can never resolve again must not sit in duo_kv forever — both orphan shapes get swept, loudly, in the same pass that would have processed them"
 
