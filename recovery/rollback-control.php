@@ -235,6 +235,8 @@ final class RollbackControl {
                 'claim_expires_at' => (string) $target['claim_expires_at'],
                 'claim_ttl_seconds' => (int) $receipt['claim_ttl_seconds'],
                 'claimant' => (string) $target['claimant'],
+                'checkpoint_sha256' => (string) $receipt['checkpoint_sha256'],
+                'encryption_key_id' => (string) $receipt['encryption_key_id'],
                 'exclusion_token_sha256' => (string) $receipt['exclusion_token_sha256'],
                 'format' => self::TARGET_FORMAT,
                 'generation' => (int) $target['generation'],
@@ -243,6 +245,7 @@ final class RollbackControl {
                 'open_operations' => count($verified['open_operations']),
                 'owner' => (string) $receipt['owner'],
                 'receipt_id' => (string) $receipt['receipt_id'],
+                'retention_until' => (string) $receipt['retention_until'],
                 'sequence' => (int) $target['sequence'],
                 'state' => (string) $target['state'],
                 'target_id' => (string) $target['target_id'],
@@ -319,6 +322,9 @@ final class RollbackControl {
         }
         if (RecoveryExecutor::configured($root)) {
             RecoveryExecutor::assertClaimExclusion($root, $receipt, $event);
+            if (CheckpointBundle::configured($root)) {
+                CheckpointBundle::assertClaimCheckpoint($root, $receipt, $event);
+            }
         }
 
         $receiptId = (string) $receipt['receipt_id'];
@@ -617,6 +623,8 @@ final class RollbackControl {
             'claim_expires_at' => (string) $target['claim_expires_at'],
             'claim_ttl_seconds' => (int) $verified['receipt']['claim_ttl_seconds'],
             'claimant' => (string) $target['claimant'],
+            'checkpoint_sha256' => (string) $verified['receipt']['checkpoint_sha256'],
+            'encryption_key_id' => (string) $verified['receipt']['encryption_key_id'],
             'exclusion_token_sha256' => (string) $verified['receipt']['exclusion_token_sha256'],
             'format' => self::TARGET_FORMAT,
             'generation' => (int) $target['generation'],
@@ -625,6 +633,7 @@ final class RollbackControl {
             'open_operations' => count($verified['open_operations']),
             'owner' => (string) $target['owner'],
             'receipt_id' => (string) $target['active_receipt'],
+            'retention_until' => (string) $verified['receipt']['retention_until'],
             'sequence' => (int) $target['sequence'],
             'state' => (string) $target['state'],
             'target_id' => (string) $target['target_id'],
@@ -1056,6 +1065,7 @@ function rollback_control_main(array $argv): int {
             'configure-recovery' => RecoveryExecutor::configureFromFile($root, (string) ($args['config'] ?? '')),
             'recovery-probe' => RecoveryExecutor::probe($root),
             'exclusion-request' => RecoveryExecutor::handleExclusionRequest($root, (string) ($args['request'] ?? '')),
+            'checkpoint-request' => CheckpointBundle::handleRequest($root, (string) ($args['request'] ?? '')),
             'execute' => RecoveryExecutor::execute(
                 $root,
                 (string) ($args['adapter'] ?? ''),
@@ -1078,6 +1088,7 @@ function rollback_control_main(array $argv): int {
 }
 
 require_once __DIR__ . '/RecoveryExecutor.php';
+require_once __DIR__ . '/CheckpointBundle.php';
 
 if (isset($_SERVER['SCRIPT_FILENAME']) && realpath((string) $_SERVER['SCRIPT_FILENAME']) === __FILE__) {
     exit(rollback_control_main($argv));

@@ -2,8 +2,9 @@
 
 The recovery runtime under `<repo_path>/.duo/control/recovery-runtime/` is a
 PHP CLI that does not load WordPress. A production host supplies its own
-maintenance-exclusion provider and four recovery adapters. Duo invokes each as
-an argv array through `proc_open`; it never constructs a shell command.
+maintenance-exclusion provider, a checkpoint provider, and four recovery
+adapters. Duo invokes each as an argv array through `proc_open`; it never
+constructs a shell command.
 
 This is the fail-closed execution substrate. It does not make the current
 in-place `duo promote` path automatically recoverable. That claim remains
@@ -24,6 +25,7 @@ Put this in the gitignored `.duo-envs.json` SSH environment beside
       "prior_verify": ["/opt/duo/bin/prior-verify"],
       "storage_restore": ["/opt/duo/bin/storage-restore"]
     },
+    "checkpoint_provider": ["/opt/duo/bin/checkpoint-provider"],
     "exclusion_provider": ["/opt/duo/bin/exclude-site", "production"],
     "timeout_seconds": 30
   }
@@ -31,9 +33,11 @@ Put this in the gitignored `.duo-envs.json` SSH environment beside
 ```
 
 Executable paths must be absolute. Adoption writes only these paths and the
-timeout to the protected target root, then probes the provider and all four
-adapters. Tokens and credentials must not appear in configuration or argv;
-the provider owns any credentials it needs.
+timeout to the protected target root, then probes both providers and all four
+adapters. `checkpoint_provider` is optional for hosts that only install the
+DUO-3294 executor substrate; it is required before encrypted database recovery
+can be claimed. Tokens, database credentials, and encryption key material must
+not appear in configuration or argv; providers own any credentials they need.
 
 ## Exclusion provider protocol
 
@@ -99,6 +103,11 @@ Provider- or layout-specific behavior belongs behind these commands. Missing
 executables, timeouts, malformed/noncanonical evidence, incomplete scopes,
 token mismatch, stale claimants, and unprepared inputs fail before execution
 or release.
+
+When `checkpoint_provider` is configured, Duo routes `database_restore` and
+`prior_verify` through the stricter checkpoint protocol instead of the generic
+adapter contract. See [checkpoint-bundle.md](checkpoint-bundle.md). Code and
+storage continue through their named generic adapters.
 
 ## Operator probes
 

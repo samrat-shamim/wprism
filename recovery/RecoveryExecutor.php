@@ -33,6 +33,11 @@ final class RecoveryExecutor {
     }
 
     /** @return array<string,mixed> */
+    public static function configuration(string $root): array {
+        return self::config($root);
+    }
+
+    /** @return array<string,mixed> */
     public static function configureFromFile(string $root, string $path): array {
         self::assertAbsoluteRegularFile($path, 'configuration');
         $config = self::readCanonical($path, 'configuration');
@@ -82,7 +87,7 @@ final class RecoveryExecutor {
                 'target_id' => (string) $status['target_id'],
             ], 'ready');
         }
-        return [
+        $result = [
             'adapters' => $adapters,
             'format' => self::CONFIG_FORMAT,
             'ok' => true,
@@ -90,6 +95,10 @@ final class RecoveryExecutor {
             'provider_version' => (string) $provider['provider_version'],
             'scopes' => self::scopeMap(),
         ];
+        if (array_key_exists('checkpoint_provider', $config)) {
+            $result['checkpoint'] = CheckpointBundle::probe($root);
+        }
+        return $result;
     }
 
     /** @return array<string,mixed> */
@@ -258,7 +267,20 @@ final class RecoveryExecutor {
         $record = self::requiredHeld($root);
         self::assertRecordIdentity($record, $status, false);
         self::verifyHeld($root, $record, 'verify');
-        $result = self::callAdapter(self::config($root), $adapter, [
+        $config = self::config($root);
+        if (array_key_exists('checkpoint_provider', $config)
+            && in_array($adapter, ['database_restore', 'prior_verify'], true)) {
+            $checkpoint = CheckpointBundle::execute($root, $adapter, $inputPath, $inputHash, $status);
+            return [
+                'adapter' => $adapter,
+                'adapter_version' => $checkpoint['adapter_version'],
+                'format' => self::ADAPTER_RESPONSE_FORMAT,
+                'input_sha256' => $inputHash,
+                'ok' => true,
+                'result_sha256' => $checkpoint['result_sha256'],
+            ];
+        }
+        $result = self::callAdapter($config, $adapter, [
             'action' => 'execute',
             'adapter' => $adapter,
             'attempt' => $attempt,
@@ -490,11 +512,20 @@ final class RecoveryExecutor {
     }
 
     private static function validateConfig(array $config): void {
-        self::assertExactKeys($config, ['adapters', 'exclusion_provider', 'format', 'timeout_seconds'], 'configuration');
+        $keys = array_keys($config);
+        sort($keys, SORT_STRING);
+        $base = ['adapters', 'exclusion_provider', 'format', 'timeout_seconds'];
+        $withCheckpoint = ['adapters', 'checkpoint_provider', 'exclusion_provider', 'format', 'timeout_seconds'];
+        if ($keys !== $base && $keys !== $withCheckpoint) {
+            throw new \RuntimeException('duo recovery: configuration has missing or unknown fields');
+        }
         if (($config['format'] ?? '') !== self::CONFIG_FORMAT) {
             throw new \RuntimeException('duo recovery: unsupported configuration format');
         }
         self::validateCommand($config['exclusion_provider'] ?? null, 'exclusion provider');
+        if (array_key_exists('checkpoint_provider', $config)) {
+            self::validateCommand($config['checkpoint_provider'], 'checkpoint provider');
+        }
         if (!is_array($config['adapters'] ?? null) || array_is_list($config['adapters'])) {
             throw new \RuntimeException('duo recovery: adapters must be an object');
         }

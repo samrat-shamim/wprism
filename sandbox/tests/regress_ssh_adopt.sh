@@ -101,7 +101,7 @@ pass "pre-existing WordPress target starts without Duo"
 php -r '$pair=sodium_crypto_sign_keypair(); file_put_contents($argv[1], base64_encode(sodium_crypto_sign_secretkey($pair))."\n");' "$TMP/rollback-signing.key"
 chmod 0600 "$TMP/rollback-signing.key"
 ssh_fixture 'mkdir -p /home/duo/recovery-fixture && chmod 700 /home/duo/recovery-fixture'
-scp -F "$TMP/ssh_config" sandbox/tests/fixtures/recovery-exclusion-provider.php sandbox/tests/fixtures/recovery-adapter.php \
+scp -F "$TMP/ssh_config" sandbox/tests/fixtures/recovery-exclusion-provider.php sandbox/tests/fixtures/recovery-adapter.php sandbox/tests/fixtures/checkpoint-provider.php \
   duo-adopt-fixture:/home/duo/recovery-fixture/ >/dev/null
 ssh_fixture 'chmod 700 /home/duo/recovery-fixture/*.php'
 
@@ -121,6 +121,7 @@ cat >"$TMP/envs.json" <<EOF
           "prior_verify": ["/usr/local/bin/php", "/home/duo/recovery-fixture/recovery-adapter.php"],
           "storage_restore": ["/usr/local/bin/php", "/home/duo/recovery-fixture/recovery-adapter.php"]
         },
+        "checkpoint_provider": ["/usr/local/bin/php", "/home/duo/recovery-fixture/checkpoint-provider.php"],
         "exclusion_provider": ["/usr/local/bin/php", "/home/duo/recovery-fixture/recovery-exclusion-provider.php", "/home/duo/recovery-fixture/provider-state.json"],
         "timeout_seconds": 5
       },
@@ -158,8 +159,11 @@ ssh_fixture 'mv /var/www/html/wp-config.php /var/www/html/wp-config.broken; prin
 ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php recovery-probe --root=/home/duo/site/.duo/control' \
   | grep -q '"provider_id":"ssh-fixture-provider"' \
   || fail "raw recovery probe depended on the WordPress bootstrap"
+ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php recovery-probe --root=/home/duo/site/.duo/control' \
+  | grep -q '"provider_id":"ssh-checkpoint-fixture"' \
+  || fail "raw checkpoint probe depended on the WordPress bootstrap"
 ssh_fixture 'rm /var/www/html/wp-config.php; mv /var/www/html/wp-config.broken /var/www/html/wp-config.php'
-pass "configured exclusion and all four recovery adapters probe over raw SSH with WordPress broken"
+pass "configured exclusion, checkpoint provider, and all four recovery adapters probe over raw SSH with WordPress broken"
 
 if STATUS_OUT="$("$DUO" --envs-file="$TMP/envs.json" status target 2>&1)"; then STATUS_CODE=0; else STATUS_CODE=$?; fi
 grep -q '\[PASS\] rollback authority: ready (no active generation)' <<<"$STATUS_OUT" \
