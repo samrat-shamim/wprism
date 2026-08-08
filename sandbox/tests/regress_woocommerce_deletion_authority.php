@@ -78,6 +78,7 @@ final class WooDeletionFakeWpdb {
     public bool $engineIntrospectionError = false;
     public bool $optionScanError = false;
     public bool $metadataProbeError = false;
+    public bool $ledgerReadError = false;
     public int $insert_id = 0;
     /** @var list<string> */
     public array $lockingQueries = [];
@@ -166,6 +167,10 @@ final class WooDeletionFakeWpdb {
             return isset($this->shippingMethodRows[$id]) ? $id : null;
         }
         if (preg_match("/SELECT local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $sql, $m)) {
+            if ($this->ledgerReadError) {
+                $this->last_error = 'simulated ledger lookup failure';
+                return null;
+            }
             return $this->uuidToId[$m[2] . ':' . $m[1]] ?? null;
         }
         if (preg_match("/SELECT uuid FROM wp_duo_map WHERE id_kind = '([^']+)' AND local_id = (\\d+)/", $sql, $m)) {
@@ -751,6 +756,16 @@ $canonicalSettingsDocument = OptionState::document([
 $preservedMethodIds = Snapshot::option_name_ref_preserved_ids($policy, $canonicalSettingsDocument);
 check(($preservedMethodIds['wc_zone_method'] ?? []) === [3],
     'dead wc_zone_method row preserves the mapped id for its surviving numeric settings option and canonical tombstone');
+$fakeWpdb->ledgerReadError = true;
+$ledgerReadFailedClosed = false;
+try {
+    Snapshot::option_name_ref_preserved_ids($policy, $canonicalSettingsDocument);
+} catch (Throwable $e) {
+    $ledgerReadFailedClosed = str_contains($e->getMessage(), 'ledger read failed: identity lookup by UUID');
+}
+$fakeWpdb->ledgerReadError = false;
+check($ledgerReadFailedClosed,
+    'option-name identity preservation refuses before pruning when its ledger lookup fails');
 check($optionRepaired['count'] === 0 && $optionRepaired['error'] === null,
     'supported option repair still converges after dead-row identity preservation');
 $restoredMethod = [

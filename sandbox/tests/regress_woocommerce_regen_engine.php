@@ -137,6 +137,8 @@ putenv('DUO_MANIFESTS_DIR=' . $fixtureDir);
 final class WooEngineFakeWpdb {
     public string $prefix = 'wp_';
     public string $posts = 'wp_posts';
+    public string $last_error = '';
+    public string $failReadContaining = '';
     public int $catalogScanCalls = 0;
     public array $map = [];
     public array $postsRows = [];
@@ -154,6 +156,7 @@ final class WooEngineFakeWpdb {
     }
 
     public function query(string $query): int|false {
+        $this->last_error = '';
         if (preg_match("/INSERT INTO wp_duo_kv .*VALUES \\('((?:[^'\\\\]|\\\\.)*)', '((?:[^'\\\\]|\\\\.)*)'\\)/", $query, $m)) {
             $this->kv[stripslashes($m[1])] = stripslashes($m[2]);
             return 1;
@@ -165,7 +168,18 @@ final class WooEngineFakeWpdb {
         return 1;
     }
 
+    private function readFails(string $query): bool {
+        if ($this->failReadContaining === '' || !str_contains($query, $this->failReadContaining)) {
+            return false;
+        }
+        $this->last_error = 'injected bookkeeping read failure';
+        return true;
+    }
+
     public function get_results(string $query, $output = null): array {
+        if ($this->readFails($query)) {
+            return [];
+        }
         if (str_contains($query, 'INNER JOIN wp_posts') || str_contains($query, 'duo_map m')) {
             $this->catalogScanCalls++;
         }
@@ -180,13 +194,38 @@ final class WooEngineFakeWpdb {
     }
 
     public function get_row(string $query, $output = null): ?array {
+        if ($this->readFails($query)) {
+            return null;
+        }
         if (preg_match('/FROM wp_posts WHERE ID = (\d+)/', $query, $m)) {
             return $this->postsRows[(int) $m[1]] ?? null;
         }
         return null;
     }
 
+    public function get_col(string $query): array {
+        if ($this->readFails($query)) {
+            return [];
+        }
+        if (preg_match("/FROM wp_posts WHERE post_parent = (\\d+) AND post_type = 'product_variation'/", $query, $m)) {
+            $parentId = (int) $m[1];
+            $ids = [];
+            foreach ($this->postsRows as $id => $row) {
+                if ((int) ($row['post_parent'] ?? 0) === $parentId
+                    && (string) ($row['post_type'] ?? '') === 'product_variation') {
+                    $ids[] = (int) $id;
+                }
+            }
+            sort($ids, SORT_NUMERIC);
+            return $ids;
+        }
+        return [];
+    }
+
     public function get_var(string $query): mixed {
+        if ($this->readFails($query)) {
+            return null;
+        }
         if (preg_match("/SELECT v FROM wp_duo_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
             return $this->kv[stripslashes($m[1])] ?? null;
         }
@@ -240,6 +279,8 @@ $wpdb->map = [
 ];
 $wpdb->postsRows[204] = ['post_type' => 'product_variation', 'post_parent' => 201];
 $wpdb->postsRows[205] = ['post_type' => 'product_variation', 'post_parent' => 201];
+$wpdb->postsRows[101] = ['post_type' => 'product', 'post_parent' => 0];
+$wpdb->postsRows[102] = ['post_type' => 'product_variation', 'post_parent' => 100];
 $wpdb->lookupRows = [101 => true, 102 => true, 103 => true, 104 => true, 105 => true];
 
 require __DIR__ . '/../../agent/src/Canon.php';
@@ -259,6 +300,8 @@ $regen = $applyReflection->getMethod('regen_dependencies');
 $regen->setAccessible(true);
 $captureReparent = $applyReflection->getMethod('capture_regen_reparent_context');
 $captureReparent->setAccessible(true);
+$captureDelete = $applyReflection->getMethod('capture_regen_delete_context');
+$captureDelete->setAccessible(true);
 
 $tree = [
     $u1 => ['type' => 'post', 'data' => ['type' => 'product']],
@@ -311,6 +354,34 @@ sort($capturedRoots, SORT_NUMERIC);
 $check($capturedRoots === [201, 202, 203], 'pre-mutation reparent receipt accumulates A/B/C roots');
 unset($wpdb->kv['regen_reparent_context:' . $captureVariation]);
 
+// Database errors while capturing pre-mutation receipts must refuse the
+// transaction before a missing row can be mistaken for a harmless no-op.
+$wpdb->failReadContaining = 'FROM wp_posts WHERE ID = 204';
+try {
+    $captureReparent->invoke($apply, [['uuid' => $captureVariation]], $captureTree);
+    $check(false, 'reparent source-row read failure is surfaced');
+} catch (\Throwable $e) {
+    $check(str_contains($e->getMessage(), 'regeneration bookkeeping read failed: reparent source post 204'),
+        'reparent source-row read failure is surfaced');
+}
+$check(!isset($wpdb->kv['regen_reparent_context:' . $captureVariation]),
+    'failed reparent source read creates no durable receipt');
+$wpdb->failReadContaining = '';
+$wpdb->last_error = '';
+
+$wpdb->failReadContaining = 'FROM wp_posts WHERE ID = 102';
+try {
+    $captureDelete->invoke($apply, [['type' => 'post', 'uuid' => $u2]]);
+    $check(false, 'delete source-row read failure is surfaced');
+} catch (\Throwable $e) {
+    $check(str_contains($e->getMessage(), 'regeneration bookkeeping read failed: delete source post 102'),
+        'delete source-row read failure is surfaced');
+}
+$check(!isset($wpdb->kv['regen_delete_context:' . $u2]),
+    'failed delete source read creates no durable receipt');
+$wpdb->failReadContaining = '';
+$wpdb->last_error = '';
+
 // Adopted rows have no Ledger mapping until the transaction's adopt phase.
 // A plan-validated env_id is the only safe pre-mutation identity fallback;
 // arbitrary authored ids must never enter this path.
@@ -351,6 +422,42 @@ $check(\Duo\Regenerators\FakeBatch::$calls === $before, 'always_on_write=false s
 unset($wpdb->lookupRows[104]);
 $invoke($work($u4), $tree);
 $check(\Duo\Regenerators\FakeBatch::$calls === $before + 1, 'always_on_write=false dispatches when verification is missing');
+
+// Read errors at the declarative verification boundary are not equivalent to
+// a missing row: the adapter must not run on an uncertain database view.
+$before = \Duo\Regenerators\FakeBatch::$calls;
+$wpdb->failReadContaining = 'SHOW TABLES LIKE';
+try {
+    $invoke($work($u4), $tree);
+    $check(false, 'verification-table read failure is surfaced');
+} catch (\Throwable $e) {
+    $check(str_contains($e->getMessage(), 'regeneration bookkeeping read failed: verify table lookup'),
+        'verification-table read failure is surfaced');
+}
+$check(\Duo\Regenerators\FakeBatch::$calls === $before,
+    'verification-table read failure does not dispatch a regenerator');
+$wpdb->failReadContaining = '';
+$wpdb->last_error = '';
+
+// Marker inventory is durable retry authority. A failed inventory read must
+// retain the marker and refuse the pass instead of treating it as empty.
+$markerReadKey = 'regen_pending:' . $u1;
+$wpdb->kv[$markerReadKey] = 'product';
+$before = \Duo\Regenerators\FakeBatch::$calls;
+$wpdb->failReadContaining = 'SELECT k, v FROM wp_duo_kv';
+try {
+    $invoke([], [], []);
+    $check(false, 'pending-marker inventory read failure is surfaced');
+} catch (\Throwable $e) {
+    $check(str_contains($e->getMessage(), 'ledger read failed: key/value prefix inventory'),
+        'pending-marker inventory read failure is surfaced');
+}
+$check(isset($wpdb->kv[$markerReadKey]), 'failed marker inventory read retains the durable retry marker');
+$check(\Duo\Regenerators\FakeBatch::$calls === $before,
+    'failed marker inventory read dispatches no regenerator');
+$wpdb->failReadContaining = '';
+$wpdb->last_error = '';
+unset($wpdb->kv[$markerReadKey]);
 
 // Batch-owned orphan markers must not sit forever after their ledger mapping
 // disappears; the engine drops them and records the reason in warnings.

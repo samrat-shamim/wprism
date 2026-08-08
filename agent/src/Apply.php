@@ -4136,6 +4136,37 @@ final class Apply {
     private const REGEN_DELETE_CONTEXT_PREFIX = 'regen_delete_context:';
     private const REGEN_REPARENT_CONTEXT_PREFIX = 'regen_reparent_context:';
 
+    private function regen_checked_get_var(mixed $sql, string $context): mixed {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $value = $wpdb->get_var($sql);
+        if ($value === false || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: regeneration bookkeeping read failed: $context");
+        }
+        return $value;
+    }
+
+    private function regen_checked_get_row(mixed $sql, string $context): ?array {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $row = $wpdb->get_row($sql, ARRAY_A);
+        if (($row !== null && !is_array($row)) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: regeneration bookkeeping read failed: $context");
+        }
+        return $row;
+    }
+
+    /** @return array<int,mixed> */
+    private function regen_checked_get_col(mixed $sql, string $context): array {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_col($sql);
+        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: regeneration bookkeeping read failed: $context");
+        }
+        return $rows;
+    }
+
     /**
      * Preserve the previous parent of an existing batch-owned post before raw
      * SQL moves its post_parent. Plugin adapters decide whether that parent is
@@ -4183,10 +4214,10 @@ final class Apply {
             if ($id === null) {
                 continue; // create: no previous parent to repair
             }
-            $row = $wpdb->get_row($wpdb->prepare(
+            $row = $this->regen_checked_get_row($wpdb->prepare(
                 "SELECT post_type, post_parent FROM {$wpdb->posts} WHERE ID = %d",
                 $id
-            ), ARRAY_A);
+            ), "reparent source post $id");
             if (!is_array($row) || (string) ($row['post_type'] ?? '') !== $postType) {
                 continue;
             }
@@ -4366,10 +4397,10 @@ final class Apply {
                 }
                 continue;
             }
-            $row = $wpdb->get_row($wpdb->prepare(
+            $row = $this->regen_checked_get_row($wpdb->prepare(
                 "SELECT post_type, post_parent FROM {$wpdb->posts} WHERE ID = %d",
                 $id
-            ), ARRAY_A);
+            ), "delete source post $id");
             if ($row === null) {
                 // A previous apply may have committed the post delete and
                 // then failed during rebuild.  Reuse the durable pre-delete
@@ -4403,10 +4434,10 @@ final class Apply {
             $parentId = (int) ($row['post_parent'] ?? 0);
             $childIds = [];
             if ($postType === 'product') {
-                $childIds = array_map('intval', $wpdb->get_col($wpdb->prepare(
+                $childIds = array_map('intval', $this->regen_checked_get_col($wpdb->prepare(
                     "SELECT ID FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = 'product_variation' ORDER BY ID ASC",
                     $id
-                )) ?: []);
+                ), "delete child inventory for post $id"));
                 // A parent delete can coexist with a still-managed child
                 // post in a partial revision.  Only children that are also
                 // explicit tombstones belong to this deletion receipt;
@@ -5158,9 +5189,15 @@ final class Apply {
         $table = preg_replace('/[^A-Za-z0-9_]/', '', (string) $verify['table']);
         $col = preg_replace('/[^A-Za-z0-9_]/', '', (string) $verify['column']);
         $prefixed = $wpdb->prefix . $table;
-        if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
+        if (!$this->regen_checked_get_var(
+            $wpdb->prepare('SHOW TABLES LIKE %s', $prefixed),
+            "verify table $table"
+        )) {
             return false;
         }
-        return (bool) $wpdb->get_var($wpdb->prepare("SELECT 1 FROM `$prefixed` WHERE `$col` = %d LIMIT 1", $localId));
+        return (bool) $this->regen_checked_get_var(
+            $wpdb->prepare("SELECT 1 FROM `$prefixed` WHERE `$col` = %d LIMIT 1", $localId),
+            "verify row in $table"
+        );
     }
 }
