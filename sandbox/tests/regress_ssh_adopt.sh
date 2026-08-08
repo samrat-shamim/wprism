@@ -98,6 +98,9 @@ if ssh_fixture "cd /var/www/html && wp eval 'echo class_exists(\"\\Duo\\Capture\
 fi
 pass "pre-existing WordPress target starts without Duo"
 
+php -r '$pair=sodium_crypto_sign_keypair(); file_put_contents($argv[1], base64_encode(sodium_crypto_sign_secretkey($pair))."\n");' "$TMP/rollback-signing.key"
+chmod 0600 "$TMP/rollback-signing.key"
+
 cat >"$TMP/envs.json" <<EOF
 {
   "envs": {
@@ -105,6 +108,8 @@ cat >"$TMP/envs.json" <<EOF
       "transport": "ssh",
       "host": "duo-adopt-fixture",
       "ssh_config": "$TMP/ssh_config",
+      "rollback_key_id": "fixture-key-1",
+      "rollback_signing_key": "$TMP/rollback-signing.key",
       "wp_path": "/var/www/html",
       "repo_path": "/home/duo/site"
     }
@@ -116,7 +121,7 @@ say "adopt the pre-existing target through the product command"
 if OUT="$("$DUO" --envs-file="$TMP/envs.json" adopt target 2>&1)"; then CODE=0; else CODE=$?; fi
 echo "$OUT"
 [ "$CODE" -eq 0 ] || fail "first duo adopt failed with exit $CODE"
-grep -q 'adopt: installed agent 0.5.0 + manifest library; created seed site.duo.json' <<<"$OUT" \
+grep -q 'adopt: installed agent 0.5.0 + manifest library + rollback authority; created seed site.duo.json' <<<"$OUT" \
   || fail "first adopt did not report the installed version and seed creation"
 grep -q '\[PASS\] duo agent present' <<<"$OUT" || fail "doctor did not pass agent presence"
 grep -q '\[PASS\] repo path has site.duo.json (/home/duo/site)' <<<"$OUT" \
@@ -125,7 +130,29 @@ ssh_fixture "test -f /var/www/html/wp-content/mu-plugins/duo/duo.php && test -f 
 [ "$(ssh_fixture "cd /var/www/html && wp eval 'echo \\Duo\\Policy::manifests_dir();'")" = "/var/www/html/wp-content/mu-plugins/manifests" ] \
   || fail "fresh process did not select the installed sibling manifest library"
 ssh_fixture 'test ! -e /duo-manifests' || fail "adopt unexpectedly required the root-owned fallback"
-pass "agent, loader, manifest library, seed repo, and doctor all verify through SSH"
+ssh_fixture 'test -f /home/duo/site/.duo/control/recovery-runtime/rollback-control.php && test -f /home/duo/site/.duo/control/public-keys/fixture-key-1.pub && test -f /home/duo/site/.duo/control/target.json' \
+  || fail "adopt did not provision the external rollback authority"
+[ "$(ssh_fixture 'stat -c %a /home/duo/site/.duo/control')" = "700" ] \
+  || fail "rollback control root is not protected mode 0700"
+TARGET_ID="$(ssh_fixture "php -r 'echo json_decode(file_get_contents(\"/home/duo/site/.duo/control/target.json\"),true)[\"target_id\"];'")"
+[ "${#TARGET_ID}" -eq 32 ] || fail "rollback authority did not establish a stable target identity"
+ssh_fixture 'test ! -e /home/duo/site/.duo/control/rollback-signing.key && test ! -e /home/duo/site/.duo/control/private-keys' \
+  || fail "adoption copied private signing material to the target"
+pass "agent, manifests, seed repo, public-key-only rollback authority, and doctor verify through SSH"
+
+if STATUS_OUT="$("$DUO" --envs-file="$TMP/envs.json" status target 2>&1)"; then STATUS_CODE=0; else STATUS_CODE=$?; fi
+grep -q '\[PASS\] rollback authority: ready (no active generation)' <<<"$STATUS_OUT" \
+  || fail "status did not verify and render the external rollback authority"
+ssh_fixture 'cp /home/duo/site/.duo/control/target.json /home/duo/site/.duo/control/target.valid.json && printf " " >> /home/duo/site/.duo/control/target.json'
+if BAD_STATUS="$("$DUO" --envs-file="$TMP/envs.json" status target 2>&1)"; then BAD_STATUS_CODE=0; else BAD_STATUS_CODE=$?; fi
+[ "$BAD_STATUS_CODE" -ne 0 ] && grep -q '\[FAIL\] rollback authority: invalid' <<<"$BAD_STATUS" \
+  || fail "tampered authority did not make status non-green"
+if FENCE_OUT="$("$DUO" --envs-file="$TMP/envs.json" promote target 2>&1)"; then FENCE_CODE=0; else FENCE_CODE=$?; fi
+[ "$FENCE_CODE" -ne 0 ] && grep -q 'rollback authority is invalid; refusing target mutation' <<<"$FENCE_OUT" \
+  || fail "promotion did not fail closed at the external authority fence"
+ssh_fixture 'test ! -d /home/duo/site/.duo/artifacts && mv /home/duo/site/.duo/control/target.valid.json /home/duo/site/.duo/control/target.json' \
+  || fail "authority refusal occurred after promotion created artifacts"
+pass "status detects tampering and promotion refuses before its first target mutation"
 
 say "prove update/idempotence without overwriting site policy"
 ssh_fixture "php -r '\$p=\"/home/duo/site/site.duo.json\"; \$d=json_decode(file_get_contents(\$p),true); \$d[\"adoption_probe\"]=\"retain\"; file_put_contents(\$p,json_encode(\$d));'"
@@ -140,7 +167,9 @@ grep -q 'retained existing site.duo.json' <<<"$OUT" || fail "rerun did not repor
   || fail "rerun did not update the stale agent to the orchestrator's exact version"
 [ "$(ssh_fixture "php -r 'echo json_decode(file_get_contents(\"/home/duo/site/site.duo.json\"),true)[\"adoption_probe\"] ?? \"missing\";'")" = "retain" ] \
   || fail "rerun overwrote existing site.duo.json"
-pass "rerun updates stale code/manifests while retaining the operator's site policy"
+[ "$(ssh_fixture "php -r 'echo json_decode(file_get_contents(\"/home/duo/site/.duo/control/target.json\"),true)[\"target_id\"];'")" = "$TARGET_ID" ] \
+  || fail "rerun replaced the stable rollback target identity"
+pass "rerun updates stale code/manifests while retaining site policy and rollback target identity"
 
 say "roll back the installed release when fresh policy verification fails"
 ssh_fixture 'cp /home/duo/site/site.duo.json /home/duo/site/site.duo.valid.json'
@@ -148,6 +177,7 @@ ssh_fixture "sed -i \"s/DUO_AGENT_VERSION', '0.5.0/DUO_AGENT_VERSION', '0.0.0/\"
 ssh_fixture "printf '%s\n' '{invalid-json' > /home/duo/site/site.duo.json"
 BEFORE_AGENT="$(ssh_fixture 'cksum /var/www/html/wp-content/mu-plugins/duo/duo.php')"
 BEFORE_MANIFEST="$(ssh_fixture 'cksum /var/www/html/wp-content/mu-plugins/manifests/core.json')"
+BEFORE_RUNTIME="$(ssh_fixture 'cksum /home/duo/site/.duo/control/recovery-runtime/rollback-control.php')"
 BEFORE_SITE="$(ssh_fixture 'cksum /home/duo/site/site.duo.json')"
 if OUT="$("$DUO" --envs-file="$TMP/envs.json" adopt target 2>&1)"; then CODE=0; else CODE=$?; fi
 echo "$OUT"
@@ -158,6 +188,8 @@ grep -q 'adopt failed during policy verification' <<<"$OUT" \
   || fail "policy-verification failure did not restore the previous agent"
 [ "$(ssh_fixture 'cksum /var/www/html/wp-content/mu-plugins/manifests/core.json')" = "$BEFORE_MANIFEST" ] \
   || fail "policy-verification failure did not restore the previous manifests"
+[ "$(ssh_fixture 'cksum /home/duo/site/.duo/control/recovery-runtime/rollback-control.php')" = "$BEFORE_RUNTIME" ] \
+  || fail "policy-verification failure did not restore the previous rollback runtime"
 [ "$(ssh_fixture 'cksum /home/duo/site/site.duo.json')" = "$BEFORE_SITE" ] \
   || fail "policy-verification failure changed the existing site policy"
 ssh_fixture 'mv /home/duo/site/site.duo.valid.json /home/duo/site/site.duo.json'

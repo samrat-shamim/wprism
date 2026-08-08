@@ -7,8 +7,9 @@ the site's pre-existing plugin state is already classified.
 
 ## Prerequisites
 
-The machine running `duo` needs PHP 8+, `ssh`, `scp`, and `tar`. The target
-needs a working `wp` command, `tar`, and a WordPress install. It does **not**
+The machine running `duo` needs PHP 8+ with Sodium, `ssh`, `scp`, and `tar`.
+The target needs PHP 8+ with Sodium and `fsync()`, a working `wp` command,
+`tar`, and a WordPress install. It does **not**
 need Git. The SSH account must be able to write:
 
 - WordPress's actual `WPMU_PLUGIN_DIR` (discovered with `wp eval`, never
@@ -31,6 +32,29 @@ gitignored `.duo-envs.json`:
 }
 ```
 
+For signed rollback receipts, put the controller key in the machine-local
+`.duo-envs.json` overlay and keep it mode `0600`:
+
+```json
+{
+  "envs": {
+    "production": {
+      "transport": "ssh",
+      "host": "deploy@wp.example.com",
+      "wp_path": "/var/www/html",
+      "repo_path": "/home/deploy/site-repo",
+      "rollback_key_id": "production-2026-01",
+      "rollback_signing_key": ".keys/production-rollback.ed25519"
+    }
+  }
+}
+```
+
+The key file contains canonical base64 of an Ed25519 secret key. Relative
+paths resolve from the registry file. Adoption derives and transfers only the
+public key; the secret never enters the archive, SSH command, or target.
+Rotation adds a new key id because installed key ids are immutable.
+
 If the environment needs a dedicated SSH configuration, set `ssh_config` to
 that file. Relative paths resolve from the registry file that defines the
 environment. The same file is passed to both `ssh -F` and `scp -F`, so port,
@@ -52,7 +76,7 @@ identity, proxy, and host-key policy stay identical:
 
 ## Install or update
 
-Run from a Duo source checkout whose `cli/`, `agent/`, and `manifests/`
+Run from a Duo source checkout whose `cli/`, `agent/`, `manifests/`, and `recovery/`
 directories belong to the release you intend to install:
 
 ```sh
@@ -64,19 +88,24 @@ Adoption performs these operations:
 
 1. verifies SSH reachability and an installed WordPress;
 2. discovers `WPMU_PLUGIN_DIR` through the target's own `wp` command;
-3. sends one archive containing this checkout's complete `agent/` and
-   `manifests/` trees;
+3. sends one archive containing this checkout's complete `agent/`,
+   `manifests/`, and public recovery-runtime trees;
 4. stages and rollback-protects the live paths, then installs:
    - `WPMU_PLUGIN_DIR/duo/` (the agent),
    - `WPMU_PLUGIN_DIR/duo-loader.php` (the required top-level loader),
-   - `WPMU_PLUGIN_DIR/manifests/` (the manifest library);
-5. creates `repo_path/site.duo.json` only when it is absent, initially pinning
+   - `WPMU_PLUGIN_DIR/manifests/` (the manifest library),
+   - `repo_path/.duo/control/recovery-runtime/` (outside managed code);
+5. creates or verifies the protected `repo_path/.duo/control/` root and its
+   stable target identity, and installs the configured public verification
+   key without copying controller secrets;
+6. creates `repo_path/site.duo.json` only when it is absent, initially pinning
    `core` with post/page/attachment and category/post_tag scope;
-6. starts fresh wp-cli processes to prove the remote `DUO_AGENT_VERSION`
+7. starts fresh wp-cli processes to prove the remote `DUO_AGENT_VERSION`
    exactly matches this checkout and that `Policy::load()` can read the seed
    plus installed manifest library;
-7. discards the prior release's rollback copies only after those checks pass;
-8. runs the normal `duo doctor` checks. The command is successful only when
+8. verifies the recovery runtime can read and validate the external target;
+9. discards the prior release's rollback copies only after those checks pass;
+10. runs the normal `duo doctor` checks. The command is successful only when
    every blocking doctor check passes.
 
 An existing `site.duo.json` is never overwritten. Re-running the command is
@@ -89,6 +118,14 @@ overlapping operators. If the host process is killed so abruptly that
 `.duo-adopt-lock` remains, adoption fails loudly and requires operator
 inspection rather than guessing whether the interrupted release should be
 committed or restored.
+
+The control root holds `target.json`, `target.lock`, immutable public keys,
+and the installed runtime. Receipts and signed event chains live beside it at
+`repo_path/.duo/rollback/<receipt-id>/`; re-adoption updates only the runtime
+and preserves the stable identity and all generations. This is the authority
+substrate, not automatic resource rollback: the current in-place promotion
+still uses the operator recovery procedure until the resource executors in
+the verified rollback design are implemented.
 
 ## Why the manifest directory is installed beside the agent
 
