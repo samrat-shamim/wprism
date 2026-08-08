@@ -2388,7 +2388,9 @@ git -C "$SITE" add -A
 git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'state: intentional product branch edit against target drift'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
-CONFLICT_PLAN="$(plan_json 2>&1 || true)"
+if ! CONFLICT_PLAN="$(plan_json)"; then
+  fail 'conflict plan command failed before returning machine-readable JSON'
+fi
 echo "$CONFLICT_PLAN" | jq -e --arg uuid "$TEE_UUID" --arg path "$CONFLICT_PRODUCT_PATH" '(.conflict // []) | length == 1 and .[0].uuid == $uuid and .[0].path == $path' >/dev/null || fail "plan did not expose exactly the tee conflict ($TEE_UUID, $CONFLICT_PRODUCT_PATH): $CONFLICT_PLAN"
 CONFLICT_TEE_BEFORE="$(target_tee_snapshot "$TEE_UUID")"
 CONFLICT_TEE_STATE_BEFORE="$(target_db_scalar "SELECT CONCAT(entity_type, '|', content_hash) FROM wp_duo_state WHERE uuid = '$TEE_UUID'")"

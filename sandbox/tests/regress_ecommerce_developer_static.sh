@@ -1146,6 +1146,10 @@ if grep -Fq 'canonicalize_json "$PRODUCT_FILE"' "$SCRIPT"; then
   fail 'canonical tee Markdown record is incorrectly routed through the plain JSON canonicalizer'
 fi
 grep -Fq 'length == 1 and .[0].uuid == $uuid and .[0].path == $path' "$SCRIPT" || fail 'conflict plan is not bound to exactly the tee UUID/path'
+grep -Fq 'CONFLICT_PLAN="$(plan_json)"' "$SCRIPT" || fail 'conflict plan does not keep machine-readable JSON isolated on stdout'
+if grep -Fq 'CONFLICT_PLAN="$(plan_json 2>&1' "$SCRIPT"; then
+  fail 'conflict plan contaminates machine-readable JSON with Docker/WP-CLI stderr'
+fi
 grep -Fq '"authored_hash"' "$SCRIPT" || fail 'target tee authored-content hash diagnostic missing'
 grep -Fq '"meta" => $meta' "$SCRIPT" || fail 'target tee authored metadata snapshot missing'
 grep -Fq '"terms" => $terms' "$SCRIPT" || fail 'target tee term-relation snapshot missing'
