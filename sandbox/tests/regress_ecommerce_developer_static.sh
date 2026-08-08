@@ -1140,6 +1140,11 @@ grep -Fq 'target_tee_snapshot()' "$SCRIPT" || fail 'deterministic target tee sna
 grep -Fq 'assert_target_tee_unchanged()' "$SCRIPT" || fail 'target tee conflict snapshot equality assertion missing'
 grep -Fq 'TEE_UUID=' "$SCRIPT" || fail 'canonical tee UUID binding missing'
 grep -Fq 'CONFLICT_PRODUCT_PATH=' "$SCRIPT" || fail 'canonical tee path binding missing'
+grep -Fq 'Canon::parse_post_file(Duo\Canon::read_file($path))' "$SCRIPT" || fail 'canonical tee branch edit does not parse the Markdown post envelope'
+grep -Fq 'Duo\Canon::write_file($path, Duo\Canon::post_file($front, $body))' "$SCRIPT" || fail 'canonical tee branch edit does not preserve/re-encode the Markdown post envelope'
+if grep -Fq 'canonicalize_json "$PRODUCT_FILE"' "$SCRIPT"; then
+  fail 'canonical tee Markdown record is incorrectly routed through the plain JSON canonicalizer'
+fi
 grep -Fq 'length == 1 and .[0].uuid == $uuid and .[0].path == $path' "$SCRIPT" || fail 'conflict plan is not bound to exactly the tee UUID/path'
 grep -Fq '"authored_hash"' "$SCRIPT" || fail 'target tee authored-content hash diagnostic missing'
 grep -Fq '"meta" => $meta' "$SCRIPT" || fail 'target tee authored metadata snapshot missing'

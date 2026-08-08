@@ -2374,8 +2374,16 @@ if DRIFT_STATUS="$(status 2>&1)"; then
 fi
 echo "$DRIFT_STATUS"
 grep -Eqi 'drift' <<<"$DRIFT_STATUS" || fail 'status did not report ordinary state drift'
-sed -i 's/"title": "Duo Grind Tee"/"title": "Duo Grind Tee (branch change)"/' "$PRODUCT_FILE"
-canonicalize_json "$PRODUCT_FILE"
+DUO_CANON="$REPO_ROOT/agent/src/Canon.php" php -r '
+require getenv("DUO_CANON");
+$path = $argv[1];
+[$front, $body] = Duo\Canon::parse_post_file(Duo\Canon::read_file($path));
+if (($front["title"] ?? null) !== "Duo Grind Tee") {
+    throw new RuntimeException("unexpected canonical tee title before branch edit");
+}
+$front["title"] = "Duo Grind Tee (branch change)";
+Duo\Canon::write_file($path, Duo\Canon::post_file($front, $body));
+' "$PRODUCT_FILE"
 git -C "$SITE" add -A
 git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'state: intentional product branch edit against target drift'
 git -C "$SITE" push -qu origin main
