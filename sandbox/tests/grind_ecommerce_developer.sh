@@ -1214,7 +1214,7 @@ cat > "$SITE/site.duo.json" <<'JSON'
       "duo_commerce_extension_deactivations": {"class": "runtime"},
       "duo_commerce_extension_gateway_secret": {"class": "env", "required": true},
       "duo_commerce_extension_schema": {"class": "runtime"},
-      "duo_commerce_extension_settings": {"class": "authored"},
+      "duo_commerce_extension_settings": {"class": "authored", "autoload": "preserve"},
       "duo_commerce_extension_trace": {"class": "runtime"}
     },
     "post_meta": {},

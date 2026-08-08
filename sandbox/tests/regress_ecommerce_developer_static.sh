@@ -364,7 +364,7 @@ ORDER_HELPER_GOLDEN_HASH=a5e218adaba2ef1c2f7dcee7078886c36fd4e743f8108aa883d1b5d
 ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=1b0937ea73ae22a59397d0bf3d7126681d3d7041e49c99ff0c8de508e27ccd29
 VISIBILITY_HELPER_GOLDEN_HASH=7cc6d2e93dc5c78c222f033c0ed941e7e41afcf421ecefbf8d6a04fd89e46357
 EQ_HELPER_GOLDEN_HASH=4533ae3a46601a7646bbfc7e6258d08136783621e32487b906784be559a7d3c1
-RECEIPT_HELPER_GOLDEN_HASH=3b354c80a07dd833fb252a4963048c205a8844df6762c993535fcd63ed5e8044
+RECEIPT_HELPER_GOLDEN_HASH=7e616cc2982e4360e5ec8cd069e2abebe0658ca65dd8dbe073deee8190afe5f1
 THEME_HELPER_GOLDEN_HASH=92f7178cab9469fee55245f405839ce130c1fc9e8e113ada4ab8cfa560f5810e
 PHASE_ORDER_HELPER_GOLDEN_HASH=b8be7ab1221ac36f7ee6128ce24341d86ae46d66d7f0623ee567d3202b4e9aff
 ABSENT_HELPER_GOLDEN_HASH=74e54e8d9c00ba9d83634d57f7d56248999adf428426ab97d95e48dfb5a05616
@@ -959,7 +959,7 @@ fi
 grep -Fq 'env-set target --name=duo_commerce_extension_gateway_secret' "$SCRIPT" || fail 'target env secret is not provisioned through public duo env-set'
 grep -Fq '"manifests": ["core", "woocommerce", "acf"]' "$SCRIPT" || fail 'scenario does not pin only externally ratified shipped manifests'
 grep -Fq '"duo_commerce_extension_gateway_secret": {"class": "env", "required": true}' "$SCRIPT" || fail 'custom extension secret is not classified by site-local policy'
-grep -Fq '"duo_commerce_extension_settings": {"class": "authored"}' "$SCRIPT" || fail 'custom extension authored state is not classified by site-local policy'
+grep -Fq '"duo_commerce_extension_settings": {"class": "authored", "autoload": "preserve"}' "$SCRIPT" || fail 'custom extension authored state does not declare the required portable autoload contract'
 grep -Fq '"duo_commerce_extension_schema": {"class": "runtime"}' "$SCRIPT" || fail 'custom extension schema marker is not kept runtime-local'
 if grep -Eq '"manifests"[^]]*"duo-commerce-extension"' "$SCRIPT"; then
   fail 'custom extension is incorrectly presented as a shipped manifest ratification claim'
