@@ -1062,7 +1062,13 @@ final class Deploy {
             $observedRecord = $observed[$name] ?? null;
             if (($desiredRecord['state'] ?? null) === 'present'
                 && ($observedRecord === null || ($observedRecord['state'] ?? null) === 'absent')) {
-                $observed[$name] = OptionState::deleted($desiredRecord, true);
+                // The immutable desired document is already available to the
+                // record gate, so this transient marker needs only its hash.
+                // Omitting a classification witness also makes a ref-bearing
+                // post-hook projection that remains unresolved byte-identical
+                // to the pre-hook bound tombstone instead of manufacturing a
+                // false lifecycle change from witness metadata alone.
+                $observed[$name] = OptionState::deleted($desiredRecord);
             }
         }
         return OptionState::document($observed);

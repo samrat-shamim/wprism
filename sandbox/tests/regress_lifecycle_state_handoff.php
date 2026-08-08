@@ -106,11 +106,12 @@ $dynamicBound = $missingBinder->invoke(null, $dynamicBefore, $dynamicDesired);
 $dynamicBoundRecords = OptionState::records($dynamicBound);
 $check(
     ($dynamicBoundRecords['theme_mods_new']['state'] ?? null) === 'deleted'
+        && !array_key_exists('classification_witness', $dynamicBoundRecords['theme_mods_new'])
         && hash_equals(
             $dynamicBoundRecords['theme_mods_new']['expected_hash'] ?? '',
             OptionState::record_hash(OptionState::records($dynamicDesired)['theme_mods_new'])
         ),
-    'a missing dynamic/sub-key lifecycle projection is cryptographically bound to frozen desired state'
+    'a missing dynamic/sub-key lifecycle projection is hash-bound without witness-only byte drift'
 );
 $check(
     ($dynamicBoundRecords['theme_mods_old']['state'] ?? null) === 'absent',
