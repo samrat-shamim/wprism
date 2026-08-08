@@ -227,10 +227,22 @@ $GIT_B pull -q origin main
 PLAN=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
 echo "$PLAN" | jq -e '.drift | length == 1' >/dev/null || fail "expected exactly one drift entity in B's plan"
 echo "$PLAN" | jq -r '.drift[0].path' | grep -q -- '--team.md' || fail "drift is not the Team entity"
-wp2 duo apply --repo=/siterepo --default-author=admin | grep -qi 'drift' || fail "apply did not surface drift"
+set +e
+APPLY_B=$(wp2 duo apply --repo=/siterepo --default-author=admin 2>&1)
+APPLY_B_RC=$?
+set -e
+echo "$APPLY_B"
+[ "$APPLY_B_RC" -ne 0 ] || fail "apply with preserved local drift unexpectedly passed the mandatory post-apply convergence gate"
+grep -Fq 'post-apply convergence verification failed' <<<"$APPLY_B" \
+  || fail "apply failure did not name the mandatory post-apply convergence gate"
+grep -q -- '--team.md' <<<"$APPLY_B" \
+  || fail "post-apply convergence failure did not identify the intentionally drifted Team entity"
 [ "$(wp2 post get "$ABOUT_ID_B" --field=post_title)" = "About (merged)" ] || fail "B: About title not merged"
 [ "$(wp2 post get "$TEAM_ID_B" --field=post_title)" = "Team (B-local-drift)" ] || fail "B: local drift was clobbered"
-pass "B converged on merged entities; uncaptured local edit surfaced as drift and was preserved"
+RETRY_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
+jq -e '.incomplete_apply | length == 1' <<<"$RETRY_PLAN" >/dev/null \
+  || fail "failed convergence verification did not retain the mandatory retry marker"
+pass "B applied the non-drifted merge without clobbering Team, then failed closed before a false-green ledger advance"
 
 say "PART 1 — capture-first: fold B's drift into the repo, propagate to A"
 wp2 duo capture --repo=/siterepo >/dev/null
@@ -238,7 +250,13 @@ $GIT_B add -A && $GIT_B commit -qm "B: capture local Team edit" && $GIT_B push -
 $GIT_A pull -q origin main
 wp1 duo apply --repo=/siterepo --default-author=admin >/dev/null
 [ "$(wp1 post get "$TEAM_ID" --field=post_title)" = "Team (B-local-drift)" ] || fail "A: Team drift did not propagate after capture"
-pass "PART 1 complete: conflict, resolution, drift preservation, and capture-first propagation all proven"
+RETRY_B=$(wp2 duo apply --repo=/siterepo --default-author=admin --format=json | tail -1)
+jq -e '.verification.verifier == "canonical-recapture/v1" and .verification.result == "pass"' <<<"$RETRY_B" >/dev/null \
+  || fail "B's capture-first retry did not pass fresh-process canonical verification"
+CLEAN_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
+jq -e '.incomplete_apply | length == 0' <<<"$CLEAN_PLAN" >/dev/null \
+  || fail "verified capture-first retry did not clear the incomplete-apply marker"
+pass "PART 1 complete: conflict, fail-closed drift preservation, capture-first recovery, and verified propagation all proven"
 
 # ============================================================================
 # PART 2 — EXTENSION: typed-snapshot table entity merge
