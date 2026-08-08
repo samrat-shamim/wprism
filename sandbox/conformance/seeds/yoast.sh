@@ -111,4 +111,19 @@ PHP
 $COMPOSE run --rm -T cli1 wp eval-file /siterepo/.tmp-yoast-options-seed.php
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-yoast-options-seed.php
 
+# Yoast 28.0 lazily replaces wpseo_titles.company_logo_meta=false with an
+# image-metadata cache on the first frontend render. Warm that real path on
+# conf1 before capture, matching Elementor's generated-state precedent, so
+# both environments round-trip the same canonical shape. The cache's nested
+# attachment id is declared by manifests/yoast.json; leaving the source cold
+# would instead make the target's first ordinary page view look like drift.
+CONF1_PORT="${CONF1_PORT:-8806}"
+YOAST_FRONT=$(curl -fsSL "http://localhost:${CONF1_PORT}/conformance-yoast-post/") \
+  || fail "conf1 front-end render of the seeded Yoast post failed"
+[ "${#YOAST_FRONT}" -ge 1000 ] \
+  || fail "conf1 seeded Yoast post response was suspiciously short (${#YOAST_FRONT} bytes)"
+if grep -qiE 'fatal error|uncaught' <<<"$YOAST_FRONT"; then
+  fail "conf1 seeded Yoast post contains a PHP fatal error marker"
+fi
+
 echo "yoast seed: cat_a=$CAT_A cat_b=$CAT_B post=$POST_ID og_image=$OG_ID company_logo=$COMPANY_LOGO_ID person_logo=$PERSON_LOGO_ID og_default=$OG_DEFAULT_ID"

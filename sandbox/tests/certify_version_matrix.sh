@@ -7,15 +7,16 @@
 # backed by real evidence at ITS OWN edges, not just the one version every
 # other fixture happens to exercise.
 #
-# First six real plugins: ACF, Contact Form 7, Elementor, Ninja Forms,
-# Polylang, and WooCommerce. ACF proved the artifact-sourcing mechanism itself; the others prove the matrix
-# accepts genuinely different plugin content shapes rather than replaying one
-# ACF fixture. The remaining pinned manifest stays separately
-# scope-accounted on DUO-3223.
+# First seven real plugins: ACF, Contact Form 7, Elementor, Ninja Forms,
+# Polylang, WooCommerce, and Yoast SEO. ACF proved the artifact-sourcing
+# mechanism itself; the others prove the matrix accepts genuinely different
+# plugin content shapes rather than replaying one ACF fixture. This closes the
+# last pinned-manifest boundary that DUO-3223 had explicitly scope-accounted.
 #
 # For EACH boundary version (ACF 6.0.0/6.8.7; CF7 6.0.1/6.1.6; Elementor
 # 4.0.0/4.2.2; Ninja Forms 3.4.34.2/3.14.11; Polylang 3.5/3.8.6;
-# WooCommerce 11.0.0 (the only stable in-range 11.x release) — all real
+# WooCommerce 11.0.0 (the only stable in-range 11.x release); Yoast SEO
+# 28.0/28.2 — all real
 # wp.org releases, confirmed against the plugin-info API, never invented): fresh state, install ONLY from
 # a digest-verified artifact (never a bare slug install that silently pulls
 # current), seed real plugin content through that plugin's own API, capture,
@@ -252,6 +253,34 @@ check_woocommerce_content() {
   . conformance/checks/woocommerce.sh
 }
 
+seed_yoast_content() {
+  # Reuse the standalone Yoast fixture verbatim: two categories, authored
+  # post SEO metadata, term metadata, four media attachments, and the
+  # wpseo_titles/wpseo_social sub-key references, all written through the
+  # same public Yoast APIs exercised by real settings saves.
+  wp_conf1() { wp1 "$@"; }
+  wp_env() {
+    local env="$1"; shift
+    case "$env" in
+      conf1) wp1 "$@" ;;
+      conf2) wp2 "$@" ;;
+      *) fail "unknown Yoast seed environment: $env" ;;
+    esac
+  }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local CONF1_PORT="$PORT1"
+  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  . conformance/seeds/yoast.sh
+  unset -f wp_conf1 wp_env
+}
+
+check_yoast_content() {
+  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  local CONF1_PORT="$PORT1"
+  local CONF2_PORT="$PORT2"
+  . conformance/checks/yoast.sh
+}
+
 reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # core/theme installed and the site "installed" (unlike `pair.sh reset`,
   # which drops the database entirely and leaves the site UNINSTALLED until
@@ -263,7 +292,7 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   local cli="$1"
   "$cli" site empty --yes >/dev/null
   local plugin
-  for plugin in advanced-custom-fields contact-form-7 elementor ninja-forms polylang woocommerce; do
+  for plugin in advanced-custom-fields contact-form-7 elementor ninja-forms polylang woocommerce wordpress-seo; do
     "$cli" plugin deactivate "$plugin" >/dev/null 2>&1 || true
     "$cli" plugin delete "$plugin" >/dev/null 2>&1 || true
   done
@@ -304,6 +333,18 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
       }
     }
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\''woocommerce_%'\'' OR option_name LIKE '\''wc_%'\'' OR option_name LIKE '\''_transient_wc_%'\'' OR option_name LIKE '\''_site_transient_wc_%'\'' OR option_name LIKE '\''action_scheduler_%'\'' OR option_name IN ('\''schema-ActionScheduler_StoreSchema'\'', '\''schema-ActionScheduler_LoggerSchema'\'')");
+  ' >/dev/null
+  # Yoast keeps its indexables/migration schema and wpseo option families on
+  # ordinary plugin deletion. Remove both so each boundary executes that
+  # release's own install/migration path and cannot inherit a newer schema.
+  "$cli" eval '
+    global $wpdb;
+    $like = $wpdb->prefix . "yoast\\_%";
+    foreach ($wpdb->get_col($wpdb->prepare("SHOW TABLES LIKE %s", $like)) as $table) {
+      $safe = str_replace("`", "``", $table);
+      $wpdb->query("DROP TABLE IF EXISTS `{$safe}`");
+    }
+    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\''wpseo%'\'' OR option_name LIKE '\''yoast_%'\'' OR option_name LIKE '\''_transient_%yoast%'\'' OR option_name LIKE '\''_site_transient_%yoast%'\''");
   ' >/dev/null
   "$cli" db query "TRUNCATE TABLE wp_duo_map" >/dev/null 2>&1 || true
   "$cli" db query "TRUNCATE TABLE wp_duo_state" >/dev/null 2>&1 || true
@@ -733,6 +774,78 @@ EOF
   pass "byte-identical recapture at woocommerce $WOO_VERSION — the only currently available in-range boundary is proven without duplicate execution"
 done
 
+# Yoast's published 28.x line has two real stable boundaries: 28.0 is the
+# first release admitted by the manifest's exact 28.0 minimum, and 28.2 is
+# the newest release below 29.0.0. Exercise both exact
+# artifacts; a current-slug install would prove neither boundary.
+for YOAST_VERSION in 28.0 28.2; do
+  say "boundary: wordpress-seo $YOAST_VERSION"
+
+  reset_env wp1
+  reset_env wp2
+  rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
+  git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
+  mkdir -p "siterepo/${PAIR}1"
+
+  say "fetch + verify wordpress-seo $YOAST_VERSION (never a bare slug install — always a digest-checked artifact)"
+  ARTIFACT_1=$(fetch_artifact wordpress-seo "$YOAST_VERSION" cli1)
+  ARTIFACT_2=$(fetch_artifact wordpress-seo "$YOAST_VERSION" cli2)
+  pass "verified sha256-pinned artifact resolved for both sides: $ARTIFACT_1"
+
+  wp1 plugin install "$ARTIFACT_1" --activate >/dev/null
+  INSTALLED_1=$(wp1 plugin get wordpress-seo --field=version)
+  [ "$INSTALLED_1" = "$YOAST_VERSION" ] || fail "side 1 installed version mismatch: expected $YOAST_VERSION, got $INSTALLED_1"
+  pass "side 1: wordpress-seo $YOAST_VERSION installed from verified artifact, active"
+
+  cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
+{
+  "manifests": ["core", "yoast"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+  cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+  "${GIT1[@]}" init -q -b main
+  "${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "policy: wordpress-seo $YOAST_VERSION version-boundary certification"
+  "${GIT1[@]}" push -qu origin main
+
+  seed_yoast_content
+  wp1 duo capture --repo=/siterepo
+  pass "captured on side 1 (wordpress-seo $YOAST_VERSION)"
+  wp1 duo lint --repo=/siterepo
+  pass "lint: 0 findings"
+
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "capture: wordpress-seo $YOAST_VERSION content"
+  "${GIT1[@]}" push -q origin main
+
+  git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
+  wp2 plugin install "$ARTIFACT_2" >/dev/null
+  INSTALLED_2=$(wp2 plugin get wordpress-seo --field=version)
+  [ "$INSTALLED_2" = "$YOAST_VERSION" ] || fail "side 2 installed version mismatch: expected $YOAST_VERSION, got $INSTALLED_2"
+
+  wp2 duo deploy --repo=/siterepo
+  REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
+  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at wordpress-seo $YOAST_VERSION"
+  pass "deploy + apply succeeded on side 2 (wordpress-seo $YOAST_VERSION, canary clean)"
+
+  check_yoast_content
+
+  wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
+  DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
+  rm -rf "siterepo/${PAIR}2/.tmp-final"
+  [ -z "$DIFF_OUT" ] || fail "byte-identity broken at wordpress-seo $YOAST_VERSION: $DIFF_OUT"
+  pass "byte-identical recapture at wordpress-seo $YOAST_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
+done
+
 # Team-lead's own requirement: the loop above proves every IN-RANGE boundary
 # certifies — it does not by itself prove the pin is honest, i.e. that an
 # OUT-OF-range version is actually refused rather than silently accepted.
@@ -1059,6 +1172,60 @@ grep -q "woocommerce/woocommerce.php" <<<"$DEPLOY_OUT" || fail "refusal did not 
 grep -q "10.9.4" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: woocommerce 10.9.4 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative"
+
+say "negative control: wordpress-seo 27.9 (real wp.org release, closest stable below manifests/yoast.json's min 28.0) must be REFUSED, not silently accepted"
+reset_env wp1
+rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
+git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
+mkdir -p "siterepo/${PAIR}1"
+
+# Capture a valid admitted 28.0 state, then replace only the installed code
+# with 27.9. That isolates Deploy::code_mismatch() from unsupported old-code
+# seed/schema behavior and proves the manifest boundary itself is enforced.
+IN_RANGE_ARTIFACT=$(fetch_artifact wordpress-seo 28.0 cli1)
+wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "yoast"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: wordpress-seo negative-control pin"
+"${GIT1[@]}" push -qu origin main
+seed_yoast_content
+wp1 duo capture --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: valid Yoast state for negative control"
+"${GIT1[@]}" push -q origin main
+
+wp1 plugin deactivate wordpress-seo >/dev/null
+wp1 plugin delete wordpress-seo >/dev/null
+OUT_OF_RANGE_ARTIFACT=$(fetch_artifact wordpress-seo 27.9 cli1)
+wp1 plugin install "$OUT_OF_RANGE_ARTIFACT" >/dev/null
+INSTALLED_OOR=$(wp1 plugin get wordpress-seo --field=version)
+[ "$INSTALLED_OOR" = "27.9" ] || fail "negative control: expected wordpress-seo 27.9 installed, got $INSTALLED_OOR"
+
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse wordpress-seo 27.9 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
+  || fail "deploy refused, but not for the expected outside_version_range reason (got: $DEPLOY_OUT)"
+grep -q "wordpress-seo/wp-seo.php" <<<"$DEPLOY_OUT" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
+grep -q "27.9" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
+printf '%s\n' "$DEPLOY_OUT"
+pass "confirmed: wordpress-seo 27.9 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative"
 
 say "cleanup"
 bash bin/pair.sh destroy "$PAIR"
