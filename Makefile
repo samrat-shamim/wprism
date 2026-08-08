@@ -14,7 +14,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-effect-bundle regress-ssh-rollback-certification \
 	regress-coverage-offline regress-coverage regress-classification-batch \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
-	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions
+	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-woocommerce-contract
 
 up:
 	$(COMPOSE) up -d
@@ -526,6 +526,9 @@ regress-ssh-rollback-certification:
 regress-pair-bootstrap-unit:
 	bash sandbox/tests/regress_pair_bootstrap_unit.sh
 
+regress-woocommerce-contract:
+	php sandbox/tests/regress_woocommerce_contract.php
+
 # --- live (docker/pair.sh-dependent), now in regress-live-list ---
 regress-acf-term-options-fields:
 	bash sandbox/tests/regress_acf_term_options_fields.sh
@@ -575,7 +578,7 @@ regress-user-meta:
 # DUO-3285: one target bundling every offline (no-docker) regress suite --
 # cheap enough to run at every local close-gate. Hosted CI is intentionally
 # disabled for this repository, so this local bundle plus independent review
-# is the merge gate. 50 suites: code-half-unit's prerequisites folded in once,
+# is the merge gate. 53 suites: code-half-unit's prerequisites folded in once,
 # plus the direct offline prerequisites below. regress-bundle-coverage
 # independently computes this transitive count and rejects a stale number in
 # the status line.
@@ -616,8 +619,8 @@ regress-offline-all: code-half-unit \
 	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch \
 	regress-coverage-offline regress-bundle-coverage regress-rollback-authority \
 	regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-upload-bundle \
-	regress-effect-bundle regress-ssh-rollback-certification regress-pair-bootstrap-unit
-	@echo "regress-offline-all: 52 offline suites green"
+	regress-effect-bundle regress-ssh-rollback-certification regress-pair-bootstrap-unit regress-woocommerce-contract
+	@echo "regress-offline-all: 53 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

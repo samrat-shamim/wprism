@@ -291,6 +291,22 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # events.sh's own reset_env_state() convention, adapted for a single side.
   local cli="$1"
   "$cli" site empty --yes >/dev/null
+  # site empty can leave default_category pointing at a term it deleted. A
+  # later plugin installer may reuse that numeric id for another taxonomy
+  # (WooCommerce product_visibility exposed this), turning harmless stale
+  # residue into a real out-of-scope reference. Rebind the core option to the
+  # actual category that site empty retained/recreated before installing the
+  # next exact artifact.
+  "$cli" eval '
+    $category = get_term_by("slug", "uncategorized", "category");
+    if (!$category) {
+      $created = wp_insert_term("Uncategorized", "category", ["slug" => "uncategorized"]);
+      if (is_wp_error($created)) { throw new RuntimeException($created->get_error_message()); }
+      $category = get_term((int) $created["term_id"], "category");
+    }
+    if (!$category || is_wp_error($category)) { throw new RuntimeException("version-matrix reset could not restore default category"); }
+    update_option("default_category", (int) $category->term_id);
+  ' >/dev/null
   local plugin
   for plugin in advanced-custom-fields contact-form-7 elementor ninja-forms polylang woocommerce wordpress-seo; do
     "$cli" plugin deactivate "$plugin" >/dev/null 2>&1 || true

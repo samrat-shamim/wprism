@@ -18,6 +18,7 @@ require_once __DIR__ . '/src/Canon.php';
 require_once __DIR__ . '/src/OptionState.php';
 require_once __DIR__ . '/src/UserMetaState.php';
 require_once __DIR__ . '/src/Db.php';
+require_once __DIR__ . '/src/WooCommerceContract.php';
 require_once __DIR__ . '/src/Secrets.php';
 require_once __DIR__ . '/src/PersonalData.php';
 require_once __DIR__ . '/src/ManifestDispositions.php';

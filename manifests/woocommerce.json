@@ -16,7 +16,22 @@
     "thumbnail_id": {"class": "authored", "ref": "post"}
   },
   "rebuilders": [
-    {"command": "transient delete wc_attribute_taxonomies"}
+    {
+      "command": "eval 'echo wp_json_encode(\\Duo\\WooCommerceContract::rebuild());'",
+      "effects": [
+        {"id": "woocommerce-price-meta", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "postmeta"}},
+        {"id": "woocommerce-product-lookup", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "wc_product_meta_lookup"}},
+        {"id": "woocommerce-attribute-lookup", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "wc_product_attributes_lookup"}},
+        {"id": "woocommerce-category-lookup", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "wc_category_lookup"}},
+        {"id": "woocommerce-scheduled-actions", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "actionscheduler_actions"}},
+        {"id": "woocommerce-scheduled-action-groups", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "actionscheduler_groups"}},
+        {"id": "woocommerce-scheduled-action-logs", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "actionscheduler_logs"}},
+        {"id": "woocommerce-rebuild-options", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "options"}}
+      ]
+    }
+  ],
+  "option_namespaces": [
+    {"match": "^(?:action_scheduler|wc|woocommerce)_"}
   ],
   "option_name_refs": [
     {
@@ -55,11 +70,16 @@
     "woocommerce_attribute_taxonomies (task #75, GRADUATED from the intent-marker era)": "Re-DESCRIBE'd live for this task, not reused from the R1-B report's summary alone (though it confirms that report byte-for-byte): attribute_id (bigint PK auto_increment), attribute_name (varchar(200), a plain non-unique-constrained MUL index at the DB level — but WooCommerce's OWN admin/wc-cli create path refuses a duplicate name at the application layer, which is what makes it a genuinely stable, human-chosen natural key in practice, per docs/grind/r1b-shop.md's finding), attribute_label/attribute_type/attribute_orderby/attribute_public (plain scalars, no ids anywhere). Zero FK-shaped columns — the simplest possible authored_snapshot fixture, deliberately chosen as this task's SECONDARY proof precisely because it stresses the OTHER half of the typed-snapshot design (identity.mode=natural_key, a table with no _duo_uuid-equivalent AND no FK to resolve) that nf3_forms's mapped-identity, FK-bearing shape doesn't exercise. Uuid::v5(Uuid::NAMESPACE_DUO, \"woocommerce_attribute_taxonomies:<attribute_name>\") mints a uuid deterministically from the name alone — re-derivable even after a full duo_map loss, closing exactly the manual pre-provisioning gap docs/grind/r1b-shop.md's own acceptance criteria named ('zero manual pre-provisioning step'): applying a captured pa_size/pa_color definition to a target that has never seen it creates the woocommerce_attribute_taxonomies row for real (through Snapshot.php's phase-1/phase-2 insert), which is what makes pa_size/pa_color get_taxonomy()-registered on init without a human running `wp wc product_attribute create` by hand first. The wc_attribute_taxonomies TRANSIENT cache hazard (docs/grind/r1b-shop.md: surviving a raw table write, causing a real 'slug already in use' error against an empty table) is closed by the top-level `rebuilders` entry above (`transient delete wc_attribute_taxonomies`, WooCommerce's own cache key, confirmed by that report) — a BLANKET, not row-id-keyed, invalidation, unlike nf3_upgrades' per-form cache, so the pre-existing rebuilders mechanism covers it with zero new engine code (see manifests/ninja-forms.json's note for the row-id-keyed case Snapshot.php's `invalidate` mechanism exists for instead). Term DATA (pa_size/pa_color's own Small/Medium/Large etc.) still round-trips through the pre-existing generic taxonomy machinery, unchanged — this note is only about the CUSTOM TABLE that registers the taxonomy for real, closing the 'sharper failure is on the target' finding docs/grind/r1b-shop.md documented. `attribute_public` is declared `lint_ok: true`: a 0/1 boolean flag, confirmed live to trip wp duo lint's bare_id check against this fixture's own placeholder attachment (post id 1) the first time this was wired end-to-end — the same 'reviewed, genuinely not a ref' exemption as this manifest's own `queryId` entry above and ninja-forms.json's BIT(1) columns.",
     "woocommerce_attribute_taxonomies natural_key rename semantics (DUO-3237 revised ruling)": "attribute_name is the declared natural_key bootstrap column and row slug. A never-seen row derives UUIDv5 from `woocommerce_attribute_taxonomies:<attribute_name>`; after first capture, Duo consults duo_map first, so a WooCommerce attribute slug rename is an ordinary update/file rename that retains the existing UUID. UUIDv5(current attribute_name) differing from that retained UUID is expected after a rename and is reported as an informational capture/plan note; Duo never forces re-derivation. WooCommerce's `wp wc product_attribute update --name=<label>` may regenerate attribute_name when `--slug` is omitted, and that rename still retains identity when ledger continuity exists. A fresh environment independently capturing the already-renamed row with neither ledger nor repository history derives UUIDv5 from the new slug and therefore gets a different UUID; existing table adopt flows are the reconciliation path for that documented bootstrap/continuity boundary.",
     "woocommerce_attribute_taxonomies deletion boundary (DUO-3288)": "Deletion is deliberately unsupported: this manifest MUST NOT declare `table:woocommerce_attribute_taxonomies` in `deletions` until the engine can model WooCommerce's semantic delete. Re-read and live-probed against WooCommerce 11.0.0: `wc_delete_attribute()` derives `pa_<attribute_name>`, deletes the definition row, deletes every taxonomy term through `wp_delete_term()` (thereby removing term_taxonomy/term_relationship rows and possibly the term), fires `woocommerce_attribute_deleted`, schedules `woocommerce_flush_rewrite_rules`, deletes the `wc_attribute_taxonomies` transient, and invalidates the `woocommerce-attributes` object-cache group; registered taxonomy state changes only in a fresh process. Woo's hooks also invalidate product/variation version strings and regenerate variation summaries. A real variable-product probe showed Woo intentionally leaves `_product_attributes`, `attribute_pa_<slug>`, and `wc_product_attributes_lookup` rows behind, while Duo's generic raw table delete plus the existing transient rebuilder additionally leaves the taxonomy terms and relationships behind and fires none of those hooks. The reverse references are derived strings or serialized/key-shaped data (`term_taxonomy.taxonomy`, `_product_attributes`, variation meta keys, and lookup-table `taxonomy`), so v1 deletion guards—which compare a target UUID's numeric ledger id to one scalar column—cannot represent them. Table cascades only model declared attached-meta sidecars and cannot invoke Woo's API-level effects. The loud missing-capability refusal is therefore the safe contract; `--with-deletes` and `--force-delete-referenced` do not bypass it. See `sandbox/tests/regress_woo_attribute_deletion.sh`.",
+    "product deletion boundary (DUO-3225)": "Product deletion is deliberately unsupported in the WooCommerce 11.x contract. The former post:product capability guarded core comments, child posts, and wc_order_product_lookup, but that was not a closed reverse-reference inventory: downloadable permissions, subscription extensions, payment/order-item metadata, and arbitrary extension custom tables can reference a product through scalar, meta, serialized, or plugin-owned keyspaces. A broad compatibility claim cannot prove those absent, and forcing the old guard could leave a live order or extension record orphaned. The manifest therefore declares no post:product deletion capability. Capture/plan/apply refuse product tombstones before mutation, and neither --with-deletes nor --force-delete-referenced broadens authority. This is the issue's explicit supported-subset reduction: authored product creation/update is certified; product deletion requires an adapter-specific semantic delete contract in a future version.",
+    "flagship closure (DUO-3225)": "This entry supersedes earlier historical statements that _price had no rebuilder, product deletion was partially supported, or shipping/tax declarations were intent-only. The version-pinned WooCommerce 11.x adapter now owns discovery for action_scheduler_*, wc_*, and woocommerce_* options: every exact option observed on the clean populated 11.0.0 fixture is classified authored/runtime/env, shipping instance settings retain typed option-name identity, and any future unreviewed name becomes loud pending. Every Woo 11.0 core table observed by coverage has an explicit disposition; merchant tax classes join the previously-shipped shipping/tax snapshots, while orders, customers, sessions, reviews, downloads, tokens, logs, queues, analytics, API keys, and webhooks remain runtime. Duo\\WooCommerceContract reconstructs and verifies effective leaf/parent _price rows, product/attribute/category lookup tables, stock-display lookup state, attribute cache invalidation, and per-product sale schedules in Apply's rebuilder phase. Conformance deliberately corrupts each derived table and proves repair, then exercises Store API filtering, catalog visibility, variation selection, and cart insertion. Only exact Woo 11.x core behavior is certified: extension pricing hooks, extension-owned authored surfaces, and semantic product deletion remain unsupported rather than borrowing the core claim.",
     "shipping zones & tax rates (custom tables, no engine path at all) — SUPERSEDED by task #93 below": "Kept verbatim as the empirical trail that motivated task #93 (this project's convention: append, don't erase history) — see the task #93 note for the real, shipped grammar. wc_shipping_zones/wc_shipping_zone_locations/wc_shipping_zone_methods and wc_tax_rates/wc_tax_rate_locations hold 100% of a shop's shipping-zone and tax-rate configuration — real merchant-authored business rules with zero post/option representation. Stated plainly, verified by reading the engine, not assumed: Capture.php has NO code path that reads ANY custom table into canonical state, for ANY manifest, ever — `Policy::table_rule()` (the only consumer of a manifest's \"tables\" section) is called exactly once in this codebase, from Journal.php's ground_truth(), purely to score provenance-journal proposals ('managed', i.e. deliberately-out-of-scope, rather than 'unclassified'). It has no effect whatsoever on what `duo capture`/`duo apply` do. So every table below is added to this manifest as an intent marker only — the same honest, no-implementation-behind-it convention manifests/woocommerce.json already established for woocommerce_attribute_taxonomies before this round touched it — NOT a claim of coverage. Empirically characterized column shapes (DESCRIBE against a live WooCommerce 11.0.0 install), precise enough to write the eventual typed-snapshot acceptance criteria from: `wc_shipping_zones` (zone_id PK auto_increment, zone_name, zone_order — no FK-shaped columns of its own, but IS a referenced parent: zone_id is a natural candidate for its own ledger id_kind since two child tables point at it) / `wc_shipping_zone_locations` (location_id PK, zone_id FK -> shipping_zones, location_code a semantic string like 'US' or 'US:CA' — not a ref, location_type) / `wc_shipping_zone_methods` (zone_id FK, instance_id PK auto_increment, method_id a plain string like 'flat_rate'/'free_shipping', method_order, is_enabled). `wc_tax_rates` (tax_rate_id PK auto_increment — a referenced parent for one child table, no FK columns of its own — tax_rate_country/state/rate/name/priority/compound/shipping/order/class, all plain scalars) / `wc_tax_rate_locations` (location_id PK, tax_rate_id FK -> tax_rates, location_code, location_type). The genuinely novel sub-problem, sharper than 'declare column-level refs on a custom table' (DESIGN.md's own framing for typed snapshot): shipping METHOD instance SETTINGS (title/cost/tax_status for flat_rate; min_amount for free_shipping) are NOT columns on wc_shipping_zone_methods at all — they live in `wp_options`, under a name the method instance's own auto-increment id is baked into: `woocommerce_<method_id>_<instance_id>_settings` (confirmed empirically live: creating a flat_rate method on a fresh zone minted `woocommerce_flat_rate_1_settings`; a free_shipping method on the same zone minted `woocommerce_free_shipping_2_settings` — instance_id 1 and 2, this environment's own auto-increment sequence). Three compounding problems, not one: (a) the option's NAME, not just its value, contains an environment-local id, so no `ref`-on-value declaration (the only kind this manifest format has) can fix it; (b) that id is minted by an entirely different table's auto-increment counter, so resolving it needs a ledger lookup keyed by a DIFFERENT entity's identity, a cross-table dependency no current option rule can express; (c) `options` capture is whitelist-only by exact key (`Policy::authored_options()`, read by `Capture::build_options()`) with NO pattern-matching path at all, confirmed by reading the function directly — unlike `attribute_pa_*` above, `option_patterns` exists as a manifest key and IS consulted by `Policy::option_rule()`, but `authored_options()` never calls it, so even a matching option_patterns rule would never cause `build_options()` to discover and read the row; the instance id being unpredictable in advance (it's minted per zone/method, per environment, in creation order) means there is no fixed option NAME a static rule could list either. This shape needs new engine capability on three axes at once (id-in-option-name resolution, cross-table ledger dependency, and a discovery mechanism replacing the exact-key whitelist) before it can even become a manifest-authoring problem — not attempted here; characterized instead so the acceptance criteria in docs/grind/r1b-shop.md are grounded in what was actually found, not guessed."
   },
   "option_patterns": [
     {"class": "runtime", "match": "^woocommerce_maybe_regenerate_images"},
-    {"class": "runtime", "match": "^_wc_session_"}
+    {"class": "runtime", "match": "^_wc_session_"},
+    {"class": "env", "match": "^(?:action_scheduler_(?:hybrid_store_demarkation|migration_status)|wc_downloads_approved_directories_mode|wc_feature_woocommerce_additional_variation_images_enabled|woocommerce_admin_install_timestamp|woocommerce_allow_tracking|woocommerce_attribute_lookup_(?:direct_updates|enabled|optimized_updates)|woocommerce_custom_orders_table_(?:created|enabled)|woocommerce_db_version|woocommerce_email_(?:from_address|reply_to_address)|woocommerce_feature_(?:abandoned_cart_recovery|block_email_editor|blueprint|cost_of_goods_sold|customer_review_request|deferred_transactional_emails|destroy-empty-sessions|email_improvements|mcp_integration|order_attribution|product_instance_caching|rate_limit_checkout|remote_logging|rest_api_caching)_enabled|woocommerce_file_download_method|woocommerce_force_ssl_checkout|woocommerce_hpos_(?:datastore_caching|fts_index)_enabled|woocommerce_maxmind_geolocation_settings|woocommerce_order_stats_has_fulfillment_column|woocommerce_paypal_settings|woocommerce_schema_version|woocommerce_shipping_debug_mode|woocommerce_stock_email_recipient|woocommerce_store_id|woocommerce_version)$"},
+    {"class": "runtime", "match": "^woocommerce_(?:admin_notices|email_improvements_(?:disabled_count|first_disabled_at|last_disabled_at)|inbox_variant_assignment|newly_installed|queue_flush_rewrite_rules|remote_variant_assignment|task_list_tracked_completed_(?:actions|tasks)|unforce_ssl_checkout)$"},
+    {"class": "authored", "match": "^woocommerce_(?:address_autocomplete_enabled|allow_bulk_remove_personal_data|analytics_enabled|anonymize_(?:completed|refunded)_orders|calc_discounts_sequentially|calc_taxes|cart_redirect_after_add|cart_save_for_later_enabled|checkout_address_2_field|checkout_company_field|checkout_highlight_required_fields|checkout_order_received_endpoint|checkout_pay_endpoint|checkout_phone_field|checkout_privacy_policy_text|currency_pos|default_customer_address|delete_inactive_accounts|demo_store|dimension_unit|downloads_(?:add_hash_to_filename|count_partial|deliver_inline|grant_access_after_payment|redirect_fallback_allowed|require_login)|email_(?:auto_sync_with_theme|background_color|base_color|body_background_color|font_family|footer_text|footer_text_color|header_alignment|header_image|header_image_width|reply_to_enabled|reply_to_name|text_color)|enable_(?:ajax_add_to_cart|checkout_login_reminder|coupons|guest_checkout|myaccount_registration|review_rating|reviews|shipping_calc|signup_and_login_from_checkout)|erasure_request_removes_(?:download|order)_data|hide_out_of_stock_items|hold_stock_minutes|logout_endpoint|manage_stock|myaccount_(?:add_payment_method|delete_payment_method|downloads|edit_account|edit_address|lost_password|orders|payment_methods|set_default_payment_method|view_order)_endpoint|notify_(?:backorder|low_stock|low_stock_amount|no_stock|no_stock_amount)|permalinks|pos_(?:refund_returns_policy|store_address|store_email|store_phone)|price_(?:decimal_sep|display_suffix|num_decimals|thousand_sep)|prices_include_tax|product_match_featured_image_by_sku|product_wishlist_enabled|registration_(?:generate_password|generate_username|privacy_policy_text)|review_rating_(?:required|verification_label|verification_required)|ship_to_(?:countries|destination)|shipping_(?:cost_requires_address|hide_rates_when_free|tax_class)|show_marketplace_suggestions|single_image_width|specific_(?:allowed|ship_to)_countries|stock_format|tax_(?:based_on|classes|display_cart|display_shop|round_at_subtotal|total_display)|thumbnail_image_width|trash_(?:cancelled|failed|pending)_orders|weight_unit)$"}
   ],
   "options": {
     "woocommerce_all_except_countries": {"class": "authored"},
@@ -69,13 +89,24 @@
     "woocommerce_currency": {"class": "authored"},
     "woocommerce_db_version": {"class": "env", "required": false},
     "woocommerce_default_country": {"class": "authored"},
+    "woocommerce_hold_stock_minutes": {"class": "authored", "lint_ok": true},
     "woocommerce_myaccount_page_id": {"class": "authored", "ref": "post"},
+    "woocommerce_notify_low_stock_amount": {"class": "authored", "lint_ok": true},
+    "woocommerce_notify_no_stock_amount": {"class": "authored", "lint_ok": true},
+    "woocommerce_placeholder_image": {"class": "authored", "ref": "post"},
+    "woocommerce_price_num_decimals": {"class": "authored", "lint_ok": true},
+    "woocommerce_refund_returns_page_id": {"class": "authored", "ref": "post"},
+    "woocommerce_single_image_width": {"class": "authored", "lint_ok": true},
     "woocommerce_shop_page_id": {"class": "authored", "ref": "post"},
     "woocommerce_store_address": {"class": "authored"},
     "woocommerce_store_address_2": {"class": "authored"},
     "woocommerce_store_city": {"class": "authored"},
     "woocommerce_store_postcode": {"class": "authored"},
     "woocommerce_terms_page_id": {"class": "authored", "ref": "post"},
+    "woocommerce_thumbnail_image_width": {"class": "authored", "lint_ok": true},
+    "woocommerce_trash_cancelled_orders": {"class": "authored", "lint_ok": true},
+    "woocommerce_trash_failed_orders": {"class": "authored", "lint_ok": true},
+    "woocommerce_trash_pending_orders": {"class": "authored", "lint_ok": true},
     "woocommerce_version": {"class": "env", "required": false}
   },
   "post_meta": {
@@ -142,30 +173,44 @@
     "shop_coupon": {"class": "authored"},
     "shop_order": {"class": "runtime"}
   },
-  "deletions": {
-    "post:product": {
-      "cascades": ["postmeta", "post_revisions", "term_relationships"],
-      "guards": [
-        {"column": "comment_post_ID", "id_kind": "post", "reason": "comments reference this product", "table": "comments"},
-        {"column": "post_parent", "exclude_where": {"post_type": "revision"}, "id_kind": "post", "reason": "child posts reference this product", "source_id_kind": "post", "source_pk": "ID", "table": "posts"},
-        {"column": "product_id", "id_kind": "post", "reason": "orders reference this product", "table": "wc_order_product_lookup"}
-      ]
-    }
-  },
   "tables": {
     "actionscheduler_actions": {"class": "runtime"},
     "actionscheduler_claims": {"class": "runtime"},
     "actionscheduler_groups": {"class": "runtime"},
     "actionscheduler_logs": {"class": "runtime"},
+    "wc_admin_note_actions": {"class": "runtime"},
+    "wc_admin_notes": {"class": "runtime"},
+    "wc_category_lookup": {"class": "derived"},
     "wc_customer_lookup": {"class": "runtime"},
+    "wc_download_log": {"class": "runtime"},
+    "wc_email_unsubscribes": {"class": "runtime"},
     "wc_order_addresses": {"class": "runtime"},
+    "wc_order_coupon_lookup": {"class": "runtime"},
     "wc_order_operational_data": {"class": "runtime"},
     "wc_order_product_lookup": {"class": "runtime"},
     "wc_order_stats": {"class": "runtime"},
+    "wc_order_tax_lookup": {"class": "runtime"},
     "wc_orders": {"class": "runtime"},
     "wc_orders_meta": {"class": "runtime"},
+    "wc_product_attributes_lookup": {"class": "derived"},
+    "wc_product_download_directories": {"class": "runtime"},
     "wc_product_meta_lookup": {"class": "derived"},
+    "wc_rate_limits": {"class": "runtime"},
     "wc_reserved_stock": {"class": "runtime"},
+    "wc_tax_rate_classes": {
+      "class": "authored_snapshot",
+      "columns": {
+        "name": {"class": "authored"},
+        "slug": {"class": "authored"}
+      },
+      "id_kind": "wc_tax_class",
+      "identity": {"column": "slug", "mode": "natural_key"},
+      "pk": "tax_rate_class_id",
+      "refs": [],
+      "slug_column": "slug"
+    },
+    "wc_webhooks": {"class": "runtime"},
+    "woocommerce_api_keys": {"class": "runtime"},
     "woocommerce_attribute_taxonomies": {
       "class": "authored_snapshot",
       "columns": {
@@ -181,8 +226,12 @@
       "refs": [],
       "slug_column": "attribute_name"
     },
+    "woocommerce_downloadable_product_permissions": {"class": "runtime"},
+    "woocommerce_log": {"class": "runtime"},
     "woocommerce_order_itemmeta": {"class": "runtime"},
     "woocommerce_order_items": {"class": "runtime"},
+    "woocommerce_payment_tokenmeta": {"class": "runtime"},
+    "woocommerce_payment_tokens": {"class": "runtime"},
     "woocommerce_sessions": {"class": "runtime"},
     "woocommerce_shipping_zone_locations": {
       "class": "authored_snapshot",

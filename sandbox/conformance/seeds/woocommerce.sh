@@ -58,7 +58,7 @@ rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-make-woo-category-image.php
 wp_conf1 term meta update "$CAT_ID" thumbnail_id "$THUMB_ID" >/dev/null
 
 PID=$(wp_conf1 wc product create --name='Conformance Widget' --type=simple \
-  --regular_price=19.99 --sale_price=14.99 --sku=CONF-WIDGET-1 \
+  --regular_price=19.99 --sale_price=14.99 --date_on_sale_to=2030-01-01T00:00:00 --sku=CONF-WIDGET-1 \
   --manage_stock=true --stock_quantity=25 --virtual=false \
   --tax_status=taxable --backorders=no --sold_individually=false \
   --status=publish --user=admin --porcelain)
@@ -113,9 +113,15 @@ update_option(\$flat->get_instance_option_key(), \$flat->instance_settings);
 \$free->instance_settings['min_amount'] = '50.00';
 update_option(\$free->get_instance_option_key(), \$free->instance_settings);
 " >/dev/null
+wp_conf1 eval '
+$result = WC_Tax::create_tax_class("Conformance Reduced Rate");
+if (is_wp_error($result)) { throw new RuntimeException($result->get_error_message()); }
+' >/dev/null
+TAX_CLASS_ID=$(wp_conf1 db query "SELECT tax_rate_class_id FROM wp_wc_tax_rate_classes WHERE slug='conformance-reduced-rate'" --skip-column-names)
+[ -n "$TAX_CLASS_ID" ] || { echo "failed to create Conformance Reduced Rate tax class" >&2; exit 1; }
 TAX_ID=$(wp_conf1 wc tax create --country=US --state=CA --rate=7.2500 \
   --name='Conformance CA Sales Tax' --priority=1 --shipping=true --order=1 \
-  --class=standard --porcelain --user=admin)
+  --class=conformance-reduced-rate --porcelain --user=admin)
 
 # HPOS orders are runtime by contract. A source-only order must therefore
 # stay source-only after promotion; the target hook creates its own distinct
@@ -129,4 +135,23 @@ SOURCE_ORDER_ID=$(wp_conf1 eval "
 echo \$order->get_id();
 ")
 
-echo "woocommerce seed: category=$CAT_ID thumbnail=$THUMB_ID product=$PID coupon=$COUPON_ID variable_product=$VPID (attrs size=$SIZE_ATTR_ID color=$COLOR_ATTR_ID) zone=$ZONE_ID methods=$FLAT_INSTANCE,$FREE_INSTANCE tax=$TAX_ID source_runtime_order=$SOURCE_ORDER_ID"
+# Reviews, sessions, and arbitrary queued jobs are commerce runtime. Populate
+# all three on the source so promotion evidence proves they do not leak to the
+# target; the target hook creates independent session/queue counterparts whose
+# survival is checked after apply.
+SOURCE_REVIEW_ID=$(wp_conf1 comment create --comment_post_ID="$PID" \
+  --comment_content='Source-only runtime review' --comment_author='Source Reviewer' \
+  --comment_author_email='source-review@example.test' --comment_type=review \
+  --comment_approved=1 --porcelain)
+wp_conf1 comment meta update "$SOURCE_REVIEW_ID" rating 5 >/dev/null
+wp_conf1 eval '
+global $wpdb;
+$wpdb->replace($wpdb->prefix . "woocommerce_sessions", [
+  "session_key" => "duo-source-runtime-session",
+  "session_value" => "a:1:{s:5:\"probe\";s:6:\"source\";}",
+  "session_expiry" => time() + 7200,
+], ["%s", "%s", "%d"]);
+as_schedule_single_action(time() + 7200, "duo_woo_source_runtime_probe", [], "duo-woo-runtime");
+' >/dev/null
+
+echo "woocommerce seed: category=$CAT_ID thumbnail=$THUMB_ID product=$PID coupon=$COUPON_ID variable_product=$VPID (attrs size=$SIZE_ATTR_ID color=$COLOR_ATTR_ID) zone=$ZONE_ID methods=$FLAT_INSTANCE,$FREE_INSTANCE tax_class=$TAX_CLASS_ID tax=$TAX_ID source_runtime_order=$SOURCE_ORDER_ID source_runtime_review=$SOURCE_REVIEW_ID"
