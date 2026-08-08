@@ -1,7 +1,7 @@
 # Fixture staleness sweep
 
 DUO-3274 audits the repository's gap-characterization fixtures against the
-mechanisms present on `main` at `d973e0027caabc3f4522679a71167386cf6e5236`.
+mechanisms present on `main` at `d2a83a1375b828e73cde013d4e8020242b02315f`.
 The denominator is every `sandbox/tests/{regress_,certify_,grind_,spike_}*.sh`
 or `.php` file at that revision: 115 regressions, 8 certifications, 9 grinds,
 and 7 spikes, 139 files total. The three `cli_*smoke.sh` fixtures are outside
@@ -41,7 +41,7 @@ Verdicts:
 | `grind_r3b_events.sh` | TEC's aggregate `/events/list/` needed a soft assertion or retry budget under load. | DUO-3301/PR #124 proved the apparent delay was the same producer-side SIGPIPE race: an immediate complete response contained all titles. The fixture now validates complete HTML and hard-asserts all three titles on the first buffered response. | `prior-reconciled` |
 | `grind_r3b_events.sh` | The fixture could safely hard-code a shared pair name, ports, and host paths. | Pair name, ports, worktree paths, and host assertions are injectable and validated. A complete run passed under the isolated `c3274r3b` identity without touching the pre-existing stopped `r3b` pair. | `aged-flip` |
 | `certify_deletion_matrix.sh` | WooCommerce product deletion could be forced after checking a known order-reference table. | DUO-3225 makes the product deletion capability explicitly unsupported because arbitrary extension references are not exhaustively representable. The certification now asserts that plan, apply, and forced apply all refuse before mutation. | `current` |
-| `certify_deletion_matrix.sh` | A forced Ninja Forms parent deletion left guard-survivor rows as an unresolved finding requiring manual cleanup. | DUO-3251 retained the mandatory ref-integrity refusal, added exact survivor warnings, and shipped `wp duo orphans` delete/reparent recovery. The fixture now characterizes the refusal as a safety checkpoint and proves both supported recovery actions plus clean plan/capture. | `aged-flip` |
+| `certify_deletion_matrix.sh` | A forced Ninja Forms parent deletion left guard-survivor rows as an unresolved finding requiring manual cleanup. | DUO-3328/PR #128 narrowed the honest shipped-schema contract: indexed child-row deletion and attached-metadata cascades remain supported, while unindexed `nf3_forms` parent guards cannot provide the required lock boundary. Source capture and hand-authored plan/apply now refuse the parent intent atomically, so the orphan-recovery premise no longer arises. | `prior-reconciled` |
 | `certify_merge.sh`, `spike_b_merge.sh` | A preserved target-local Team edit merely emitted a generic drift message while the rest of the merge could be treated as complete. | Current apply performs mandatory fresh-process canonical verification, fails closed on the exact Team hash mismatch, leaves an `incomplete_apply` retry marker, and clears it only after capture-first recovery verifies cleanly. Both full live flows passed. | `aged-flip` |
 | `regress_woocommerce_contract.php`, `grind_r1b_shop.sh` | The DUO-3225 offline option inventory is complete for the exact WooCommerce 11.0.0 full-shop fixture. | A clean post-rebase R1-B run found five namespace-owned options with no exact classification. DUO-3303/PR #118 classified all five exact authored options plus the later `wc_pending_batch_processes` runtime row, extended the inventory regression, passed exact-commit Woo conformance, and completed the full R1-B blocker stack. | `prior-reconciled` |
 | `regress_woocommerce_contract.php`, `grind_r1b_shop.sh` | The reconciled WooCommerce 11.0.0 option inventory remained complete after the exact-reference certification workflow landed. | The next clean full-shop capture found `woocommerce_hooked_blocks_version` and `woocommerce_pickup_location_settings`. DUO-3311/PR #127 classified both as exact authored, reference-free options, extended the inventory regression, passed the full latest-main R1-B stack with no unclassified Woo namespace rows, and certified the exact standalone commit. | `prior-reconciled` |
@@ -72,16 +72,16 @@ echo "$VALUE" | grep -q PATTERN
 With `set -o pipefail`, a successful early `grep -q` can close the pipe while
 `echo` is still writing, turning a successful match into status 141. The
 replacement is a here-string (`grep -q PATTERN <<<"$VALUE"`), which has no
-live producer process to race. This sweep replaced 182 such producer
-pipelines across 30 scripts. The only remaining literal occurrence is the
+live producer process to race. This sweep replaced 171 such producer
+pipelines across 29 scripts. The only remaining literal occurrence is the
 explanatory comment in `grind_r1a_forms.sh`; non-quiet consumers such as
 `grep -c` and `grep -o` remain pipelines because they consume the complete
 input.
 
 Every safety-only script was committed independently. Bash syntax and
-`git diff --check` passed for all 29 shell scripts changed on this closeout
+`git diff --check` passed for all 28 shell scripts changed on this closeout
 branch; the separately landed `grind_r1c_agency.sh` reconciliation accounts
-for the thirtieth script in the sweep total.
+for the twenty-ninth script in the sweep total.
 
 ## Exhaustive corpus index
 
@@ -250,9 +250,12 @@ with more specific or mixed verdicts are detailed in the ledger above.
   render, and convergence checks. DUO-3301 now makes every single/aggregate
   response complete-HTML-validated and hard-failing; the unrelated stopped
   `r3b` pair remained untouched.
-- Full live certifications passed for deletion and merge. Merge proved the
-  convergence-verification refusal, exact Team mismatch, retained retry
-  marker, verified capture-first recovery, and clean marker clearance.
+- Full live certifications passed for deletion and merge. On the audited
+  `d2a83a1` baseline, deletion proved Woo product refusal, Ninja Forms child
+  cascades plus atomic parent refusal, and unguarded PMPro composite-row
+  deletion before destroying its pair. Merge proved the convergence-
+  verification refusal, exact Team mismatch, retained retry marker, verified
+  capture-first recovery, and clean marker clearance.
 - Full live CLI smoke/status/triage and Spike A/B/G flows passed. Spike B
   proved fail-closed local-drift preservation; Spike G proved both lifecycle
   mismatch directions, missing-code refusal, version-range refusal and forced
@@ -262,11 +265,14 @@ with more specific or mixed verdicts are detailed in the ledger above.
   menu-item metadata, option reconciliation and reference scope, snapshot
   metadata, TEC regeneration, user metadata, widgets, Woo attribute deletion,
   `pa_*` attributes, shipping zones, coverage, and status truth.
-- Exact current-main WooCommerce conformance passed, as did the deletion
-  matrix and reference-bundle certification (digest
-  `7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595`).
-  `php scripts/capability-registry.php check` was clean.
+- Exact WooCommerce conformance and reference-bundle certification passed for
+  the last certified source revision `fed287fc73072c4b183ee3b209de5564366708d2`
+  (digest `7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595`).
+  On the audited `d2a83a1` baseline, `php scripts/capability-registry.php check`
+  correctly reports that bundle expired after #126/#128 changed bound inputs;
+  DUO-3306 owns the fresh live recertification and import. This fixture-only
+  branch neither changes those inputs nor manufactures replacement evidence.
 - `make regress-offline-all`: 64 offline suites green.
-- All 29 branch-changed shell scripts pass `bash -n`; `git diff --check` is
+- All 28 branch-changed shell scripts pass `bash -n`; `git diff --check` is
   clean. No executable `echo "$VAR" | grep -q` assertion remains (only the
   explanatory comment in `grind_r1a_forms.sh`).
