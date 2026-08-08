@@ -20,8 +20,9 @@
 # override. See the two post-apply proofs below: both authored facts now
 # capture and converge without manual repair.
 #
-# Own dedicated sandbox/bin/pair.sh pair (r3b1 :8852 / r3b2 :8853, journal
-# on). Own site repo (sandbox/siterepo/{origin-r3b.git,r3b1,r3b2}).
+# Own dedicated sandbox/bin/pair.sh pair (defaults: r3b1 :8852 / r3b2
+# :8853, journal on). Pair name and ports are injectable for isolated
+# verification. Own site repo under sandbox/siterepo/.
 #
 # Re-run safety: r3b1/r3b2 are never torn down via `pair.sh destroy`/
 # `docker compose down` (off-limits — other agents share the shared db and
@@ -55,18 +56,25 @@ assert_complete_html() {
   grep -qi '</html>' <<<"$body" || fail "$label returned incomplete HTML (no closing </html>; $bytes bytes)"
 }
 
-export DUO_PAIR=r3b
-PAIR_COMPOSE=(docker compose -p duo-r3b -f pair.yml -f pair.journal.yml)
-R3B1=http://localhost:8852
-R3B2=http://localhost:8853
+PAIR="${R3B_PAIR:-r3b}"
+PORT1="${R3B_PORT1:-8852}"
+PORT2="${R3B_PORT2:-8853}"
+[[ "$PAIR" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || fail "invalid pair name '$PAIR'"
+export DUO_PAIR="$PAIR"
+PAIR_COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.journal.yml)
+R3B1="http://localhost:$PORT1"
+R3B2="http://localhost:$PORT2"
+HOST1="siterepo/${PAIR}1"
+HOST2="siterepo/${PAIR}2"
+ORIGIN="siterepo/origin-${PAIR}.git"
 
 wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
-GIT_1="git -C siterepo/r3b1 -c user.name=duo-r3b1 -c user.email=r3b1@example.test"
-GIT_2="git -C siterepo/r3b2 -c user.name=duo-r3b2 -c user.email=r3b2@example.test"
+GIT_1="git -C $HOST1 -c user.name=duo-$PAIR-1 -c user.email=$PAIR-1@example.test"
+GIT_2="git -C $HOST2 -c user.name=duo-$PAIR-2 -c user.email=$PAIR-2@example.test"
 
-say "boot pair r3b (r3b1 :8852 / r3b2 :8853), idempotent"
-bash bin/pair.sh up r3b 8852 8853 --http --journal
+say "boot pair $PAIR (${PAIR}1 :$PORT1 / ${PAIR}2 :$PORT2), idempotent"
+bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --http --journal
 pass "pair up (shared db, own containers, WordPress core installed on both sides if not already)"
 
 install_plugins() { # install_plugins <cli-fn>
@@ -130,10 +138,11 @@ reset_env_state wp2
 pass "both envs content-clean; TEC + PMPro remain active"
 
 say "fresh site repo (own origin, own clones)"
-rm -rf siterepo/origin-r3b.git siterepo/r3b1/.git siterepo/r3b2 siterepo/r3b1/state siterepo/r3b1/site.duo.json
-git init --bare -b main siterepo/origin-r3b.git >/dev/null
-mkdir -p siterepo/r3b1
-cat > siterepo/r3b1/site.duo.json <<'EOF'
+rm -rf "$ORIGIN" "$HOST1/.git" "$HOST1/state" "$HOST1/site.duo.json"
+find "$HOST2" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+git init --bare -b main "$ORIGIN" >/dev/null
+mkdir -p "$HOST1" "$HOST2"
+cat > "$HOST1/site.duo.json" <<'EOF'
 {
   "manifests": ["core", "the-events-calendar", "paid-memberships-pro"],
   "policy": {
@@ -145,16 +154,16 @@ cat > siterepo/r3b1/site.duo.json <<'EOF'
   "spec_version": 2
 }
 EOF
-cp site-repo.gitignore.template siterepo/r3b1/.gitignore
+cp site-repo.gitignore.template "$HOST1/.gitignore"
 $GIT_1 init -q -b main
-$GIT_1 remote add origin ../origin-r3b.git
+$GIT_1 remote add origin "../origin-${PAIR}.git"
 $GIT_1 add -A
 $GIT_1 commit -qm "policy: events + memberships site, both new manifests pinned from the start"
 $GIT_1 push -qu origin main
 pass "site repo initialized, both graduated manifests pinned (the interactive classify-loop discovery that produced them happened once, recorded in the report; a fresh site never has to repeat it)"
 
-say "seed real content on r3b1: venue+organizer, 3 events, PMPro system pages, 2 membership levels, one restricted page, a real member signup"
-cat > siterepo/r3b1/.tmp-seed.php <<'PHPEOF'
+say "seed real content on ${PAIR}1: venue+organizer, 3 events, PMPro system pages, 2 membership levels, one restricted page, a real member signup"
+cat > "$HOST1/.tmp-seed.php" <<'PHPEOF'
 <?php
 $venue_id = tribe_venues()->set_args([
     'venue' => 'Riverside Commons Workshop Hall', 'address' => '100 River Street',
@@ -308,16 +317,16 @@ pass "lint: 0 findings"
 
 say "capture-twice determinism"
 wp1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2
-diff -r siterepo/r3b1/state siterepo/r3b1/.tmp-state2 || fail "capture is not deterministic"
-rm -rf siterepo/r3b1/.tmp-state2
+diff -r "$HOST1/state" "$HOST1/.tmp-state2" || fail "capture is not deterministic"
+rm -rf "$HOST1/.tmp-state2"
 pass "capture-twice diff is empty"
 
 $GIT_1 add -A
 $GIT_1 commit -qm "capture: events + memberships site on r3b1"
 $GIT_1 push -q origin main
 
-say "round-trip: clone into r3b2, deploy, plan, apply (adopt installer collisions)"
-git clone -q siterepo/origin-r3b.git siterepo/r3b2
+say "round-trip: clone into ${PAIR}2, deploy, plan, apply (adopt installer collisions)"
+git clone -q "$ORIGIN" "$HOST2"
 # DUO-3216/DUO-3250: deploy runs BEFORE plan/apply, matching the documented
 # deploy-before-apply contract (docs/proposals/code-half.md §3.4) and the
 # exact ordering grind_r1b_shop.sh's own PR #14 fix established for this
@@ -331,7 +340,7 @@ git clone -q siterepo/origin-r3b.git siterepo/r3b2
 wp2 duo deploy --repo=/siterepo
 PLAN_TXT=$(wp2 duo plan --repo=/siterepo)
 grep -q 'COLLISION' <<<"$PLAN_TXT" || fail "expected installer-created page/post/term collisions in the plan"
-REV=$(git -C siterepo/r3b2 rev-parse HEAD)
+REV=$(git -C "$HOST2" rev-parse HEAD)
 wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" \
   | tee /tmp/r3b_apply1.txt
 grep -q 'canary clean' /tmp/r3b_apply1.txt || fail "apply canary not clean"
@@ -339,8 +348,8 @@ pass "deploy + apply succeeded on r3b2 (canary clean)"
 
 say "byte-identical recapture across environments"
 wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
-DIFF_OUT=$(diff -rq siterepo/r3b1/state siterepo/r3b2/.tmp-final || true)
-rm -rf siterepo/r3b2/.tmp-final
+DIFF_OUT=$(diff -rq "$HOST1/state" "$HOST2/.tmp-final" || true)
+rm -rf "$HOST2/.tmp-final"
 [ -z "$DIFF_OUT" ] || fail "byte-identity broken: $DIFF_OUT"
 pass "byte-identical: posts, terms, options, AND typed-snapshot table entities (pmpro_membership_levels, pmpro_membership_levelmeta, pmpro_memberships_pages)"
 
@@ -409,13 +418,13 @@ done
 pass "/events/list/ first complete response shows all 3 events"
 STUDIO_HTML=$(curl -fsSL --max-time 30 "$R3B2/studio-members-only/")
 assert_complete_html "$STUDIO_HTML" "Studio Members Only page"
-LEAK_COUNT=$(printf '%s%s%s%s' "$EVENT_HTML" "$EVENT2_HTML" "$EVENT3_HTML" "$STUDIO_HTML" | grep -c "localhost:8852" || true)
+LEAK_COUNT=$(printf '%s%s%s%s' "$EVENT_HTML" "$EVENT2_HTML" "$EVENT3_HTML" "$STUDIO_HTML" | grep -c "localhost:$PORT1" || true)
 [ "$LEAK_COUNT" = "0" ] || fail "found $LEAK_COUNT leaked side-1 host string(s) in r3b2's rendered pages"
 grep -qiF "tool access, storage lockers" <<<"$STUDIO_HTML" && fail "captured restriction did not block the authored content from an anonymous visitor"
 CONFIRMATION_B2=$(wp2 db query "SELECT confirmation FROM wp_pmpro_membership_levels WHERE name='Community'" --skip-column-names)
-grep -q "localhost:8853" <<<"$CONFIRMATION_B2" || fail "confirmation text internal link did not detokenize to r3b2's own host"
-grep -q "localhost:8852" <<<"$CONFIRMATION_B2" && fail "confirmation text leaked r3b1's host"
-pass "TEC event pages render correctly on r3b2; zero side-1 host leaks anywhere; the captured restriction blocks anonymous access with no manual repair; the membership confirmation text's internal link correctly re-bound to r3b2's own host (http://localhost:8853/...), not r3b1's"
+grep -q "localhost:$PORT2" <<<"$CONFIRMATION_B2" || fail "confirmation text internal link did not detokenize to ${PAIR}2's own host"
+grep -q "localhost:$PORT1" <<<"$CONFIRMATION_B2" && fail "confirmation text leaked ${PAIR}1's host"
+pass "TEC event pages render correctly on ${PAIR}2; zero side-1 host leaks anywhere; the captured restriction blocks anonymous access with no manual repair; the membership confirmation text's internal link correctly re-bound to ${PAIR}2's own host ($R3B2/...), not ${PAIR}1's"
 
 # A front-end request with no Customizer CSS can materialize WordPress's
 # custom_css_post_id=-1 sentinel. It is runtime lookup residue, not authored
@@ -456,7 +465,7 @@ $GIT_1 merge origin/price-r3b2 >/tmp/r3b_merge.txt 2>&1
 MERGE_RC=$?
 set -e
 [ "$MERGE_RC" -ne 0 ] || fail "expected a merge conflict on the Community level's billing_amount"
-LEVELFILE=$(ls siterepo/r3b1/state/tables/pmpro_membership_levels/*community.json)
+LEVELFILE=$(ls "$HOST1"/state/tables/pmpro_membership_levels/*community.json)
 grep -q '<<<<<<<' "$LEVELFILE" || fail "no conflict markers found on the typed-snapshot table entity file"
 pass "conflict surfaced as a plain git conflict on the table entity's billing_amount field — the SAME entity-per-file discipline posts/terms already get, now proven for the new typed-snapshot table machinery"
 
@@ -474,13 +483,13 @@ $GIT_1 push -q origin main
 pass "conflict resolved editorially (split the difference: 10.99), committed, pushed"
 
 say "apply the merged price to both environments; confirm convergence"
-REV1=$(git -C siterepo/r3b1 rev-parse HEAD)
+REV1=$(git -C "$HOST1" rev-parse HEAD)
 wp1 duo apply --repo=/siterepo --default-author=admin --revision="$REV1" >/dev/null
 [ "$(wp1 db query "SELECT billing_amount FROM wp_pmpro_membership_levels WHERE id=$LEVEL1_ID_B1" --skip-column-names)" = "10.99000000" ] || fail "r3b1 did not converge"
 
-git -C siterepo/r3b2 checkout -q main
-git -C siterepo/r3b2 pull -q origin main
-REV2=$(git -C siterepo/r3b2 rev-parse HEAD)
+git -C "$HOST2" checkout -q main
+git -C "$HOST2" pull -q origin main
+REV2=$(git -C "$HOST2" rev-parse HEAD)
 wp2 duo apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV2" >/dev/null
 [ "$(wp2 db query "SELECT billing_amount FROM wp_pmpro_membership_levels WHERE id=$LEVEL1_ID_B2" --skip-column-names)" = "10.99000000" ] || fail "r3b2 did not converge"
 pass "both environments converged on the editorially-merged price (\$10.99)"
