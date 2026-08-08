@@ -112,11 +112,11 @@ final class Ledger {
         global $wpdb;
         $table = $wpdb->prefix . 'duo_map';
         $width = self::ID_KIND_WIDTH;
-        $len = $wpdb->get_var($wpdb->prepare(
+        $len = self::checked_get_var($wpdb->prepare(
             'SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS '
             . "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'id_kind'",
             $table
-        ));
+        ), 'schema width lookup for duo_map.id_kind');
         if ($len !== null && (int) $len < $width) {
             Db::query(
                 "ALTER TABLE `$table` MODIFY COLUMN id_kind VARCHAR($width) NOT NULL",
@@ -139,11 +139,11 @@ final class Ledger {
         $p = $wpdb->prefix;
         $w = self::ENTITY_TYPE_WIDTH;
         foreach (['duo_map', 'duo_state'] as $table) {
-            $len = $wpdb->get_var($wpdb->prepare(
+            $len = self::checked_get_var($wpdb->prepare(
                 'SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS '
                 . "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'entity_type'",
                 $p . $table
-            ));
+            ), "schema width lookup for $table.entity_type");
             if ($len !== null && (int) $len < $w) {
                 Db::query(
                     "ALTER TABLE `{$p}{$table}` MODIFY COLUMN entity_type VARCHAR($w) NOT NULL",

@@ -62,6 +62,7 @@ final class LifecycleOptionsFakeWpdb {
     public string $options = 'wp_options';
     public string $users = 'wp_users';
     public string $last_error = '';
+    public string $schemaProbeErrorColumn = '';
     /** @var array<string,array{option_value:string,autoload:string}> */
     public array $optionRows = [];
     /** @var array<string,bool> */
@@ -187,7 +188,14 @@ final class LifecycleOptionsFakeWpdb {
         }
         // Ledger migration checks see an already-current schema; all ordinary
         // identity/reference lookups are intentionally empty.
-        if (str_contains($sql, 'CHARACTER_MAXIMUM_LENGTH')) return '64';
+        if (str_contains($sql, 'CHARACTER_MAXIMUM_LENGTH')) {
+            if ($this->schemaProbeErrorColumn !== ''
+                && str_contains($sql, "COLUMN_NAME = '{$this->schemaProbeErrorColumn}'")) {
+                $this->last_error = 'simulated schema-width probe failure';
+                return null;
+            }
+            return '64';
+        }
         if (str_contains($sql, 'SHOW TABLES LIKE')) {
             return isset($this->existingTables[(string) ($args[0] ?? '')])
                 ? (string) ($args[0] ?? '')
@@ -324,6 +332,30 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
     echo "FAIL: $message\n";
     $failures++;
 };
+
+// An uncertain INFORMATION_SCHEMA read cannot be interpreted as an
+// already-current ledger. Long Woo table names require the widened schema,
+// so ensure() must stop before it can leave a legacy VARCHAR(32) in service.
+foreach ([
+    'entity_type' => 'schema width lookup for duo_map.entity_type',
+    'id_kind' => 'schema width lookup for duo_map.id_kind',
+] as $column => $context) {
+    $wpdb->queries = [];
+    $wpdb->schemaProbeErrorColumn = $column;
+    $schemaProbeRefused = false;
+    try {
+        \Duo\Ledger::ensure();
+    } catch (Throwable $e) {
+        $schemaProbeRefused = str_contains($e->getMessage(), 'ledger read failed: ' . $context);
+    }
+    $check($schemaProbeRefused, "ledger schema migration refuses a failed $column width probe");
+    $check(
+        !array_filter($wpdb->queries, static fn(string $sql): bool => str_starts_with($sql, 'ALTER TABLE')),
+        "failed $column width probe cannot issue a guessed schema migration"
+    );
+    $wpdb->last_error = '';
+}
+$wpdb->schemaProbeErrorColumn = '';
 
 $present = static fn($value, string $autoload = 'yes'): array => OptionState::present($value, $autoload);
 
