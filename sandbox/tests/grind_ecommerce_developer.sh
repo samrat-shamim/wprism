@@ -353,7 +353,7 @@ foreach ($paths as $path) {
     }
 }
 echo \Duo\Canon::encode($diff);
-' | tail -1
+'
 }
 target_plugin_tree_hash() {
   target_php '
@@ -2617,10 +2617,24 @@ pass "code, active dependency/theme lifecycle, authored setting, runtime table s
 
 say "final recapture/status and exact clean-room cleanup"
 target_wp duo capture --repo=/siterepo --out=/siterepo/.tmp-final-state >/dev/null
-FINAL_RAW_DIFF="$(diff -rq "$OTHER_SITE/state" "$OTHER_SITE/.tmp-final-state" || true)"
+if FINAL_RAW_DIFF="$(diff -rq "$OTHER_SITE/state" "$OTHER_SITE/.tmp-final-state")"; then
+  FINAL_RAW_DIFF_STATUS=0
+else
+  FINAL_RAW_DIFF_STATUS=$?
+fi
+[ "$FINAL_RAW_DIFF_STATUS" -le 1 ] \
+  || fail "could not compare final raw state trees (diff exit $FINAL_RAW_DIFF_STATUS)"
 FINAL_SEMANTIC_DIFF="$(final_compiled_state_diff)"
+if [ -n "$FINAL_RAW_DIFF" ]; then
+  if diff -ru "$OTHER_SITE/state" "$OTHER_SITE/.tmp-final-state" >&2; then
+    fail "raw diff summary reported changes but the unified diff was empty"
+  else
+    FINAL_RAW_DIFF_STATUS=$?
+    [ "$FINAL_RAW_DIFF_STATUS" -eq 1 ] \
+      || fail "could not render final raw state diagnostics (diff exit $FINAL_RAW_DIFF_STATUS)"
+  fi
+fi
 if [ "$FINAL_SEMANTIC_DIFF" != "[]" ]; then
-  diff -ru "$OTHER_SITE/state" "$OTHER_SITE/.tmp-final-state" >&2 || true
   fail "final target recapture changed authored or identity-bearing state: $FINAL_SEMANTIC_DIFF"
 fi
 if [ -n "$FINAL_RAW_DIFF" ]; then
