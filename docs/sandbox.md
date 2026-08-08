@@ -285,8 +285,9 @@ what git tracks *inside* the nested fixture repo. Copy
 site-repo.gitignore.template siterepo/<pair>N/.gitignore`, from `sandbox/`
 as cwd) rather than hand-rolling a `printf`: a narrower, independently
 hand-typed pattern is exactly what caused DUO-3244 (missing
-`state.capture.lock` — agent/src/Publish.php's capture-lock artifact,
-DUO-3213 — hit a real, structural "local changes would be overwritten by
+`state.capture.lock` — one of agent/src/Publish.php's capture-publication
+artifacts alongside staging, backup, intent, and receipt records — hit a real,
+structural "local changes would be overwritten by
 merge" failure the first time a test captured on both sides of a pair
 before a `git pull` on the second side). If the pattern this template
 covers ever needs to change, change it once, there, not across every

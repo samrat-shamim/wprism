@@ -188,6 +188,9 @@ final class CaptureAtomicityFakeWpdb {
 
     public function get_var(string $sql) {
         $this->last_error = '';
+        if (preg_match("/SELECT v FROM wp_duo_kv WHERE k = '([^']*)'/i", $sql, $m)) {
+            return $this->kv[$m[1]] ?? null;
+        }
         if (stripos($sql, 'INFORMATION_SCHEMA.COLUMNS') !== false) {
             if (stripos($sql, "COLUMN_NAME = 'entity_type'") !== false) {
                 return 64;
@@ -325,6 +328,132 @@ assert_capture_atomicity($ambiguousCommit instanceof RuntimeException, 'an ambig
 assert_capture_atomicity($ambiguousCommit !== null && str_contains($ambiguousCommit->getMessage(), 'commit outcome uncertain'), 'an ambiguous COMMIT names the uncertain outcome');
 assert_capture_atomicity($callbackRuns === 1 && $wpdb->starts === 1, 'an ambiguous COMMIT never retries the callback');
 assert_capture_atomicity($wpdb->commits === 1 && $wpdb->rollbacks === 0, 'an ambiguous COMMIT never rolls back after COMMIT returned');
+
+// The production publication sequence keeps the database transaction open
+// across the retained-backup swap, writes the intent-bound commit marker as
+// its final DML, then advances the on-disk intent immediately before COMMIT.
+// Exercise that exact ordering with the real private wrapper + real Publish
+// implementation instead of source-text assertions.
+$publicationKey = new ReflectionMethod(Capture::class, 'publication_marker_key');
+$publicationKey->setAccessible(true);
+$publicationMarker = new ReflectionMethod(Capture::class, 'publication_marker');
+$publicationMarker->setAccessible(true);
+$publicationStatus = new ReflectionMethod(Capture::class, 'publication_commit_status');
+$publicationStatus->setAccessible(true);
+$protocolRoot = sys_get_temp_dir() . '/duo_capture_atomicity_protocol_' . bin2hex(random_bytes(4));
+$protocolState = $protocolRoot . '/state';
+register_shutdown_function(static function () use ($protocolRoot): void {
+    if (is_dir($protocolRoot)) {
+        Duo\Publish::rrmdir($protocolRoot);
+    }
+});
+Duo\Canon::write_file($protocolState . '/revision.txt', "old\n");
+Duo\Canon::write_file(Duo\Publish::stage_dir($protocolState) . '/revision.txt', "candidate\n");
+$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
+$wpdb->kv = ['prior' => 'keep'];
+$phase = [];
+$result = $consistentSnapshot->invokeArgs(null, [
+    static function () use (
+        $protocolState, $publicationKey, $publicationMarker, &$phase
+    ): array {
+        $intent = Duo\Publish::begin_intent($protocolState, Duo\Publish::stage_dir($protocolState));
+        $phase['filesystem_swapped'] = true;
+        Duo\Publish::swap($protocolState, true);
+        $intent = Duo\Publish::mark_swapped($protocolState, $intent);
+        $intent = Duo\Publish::mark_commit_ready($protocolState, $intent);
+        $key = $publicationKey->invoke(null, $protocolState);
+        $marker = $publicationMarker->invoke(null, $protocolState, $intent);
+        Ledger::kv_set($key, $marker);
+        $phase['state_dir'] = $protocolState;
+        $phase['intent'] = $intent;
+        return $intent;
+    },
+    &$phase,
+]);
+$diskIntent = Duo\Canon::decode((string) file_get_contents(Duo\Publish::intent_path($protocolState)));
+assert_capture_atomicity($wpdb->starts === 1 && $wpdb->commits === 1 && $wpdb->rollbacks === 0, 'filesystem publication and commit marker share one committed snapshot');
+assert_capture_atomicity(($diskIntent['phase'] ?? null) === 'committing', 'durable intent advances immediately before database COMMIT');
+assert_capture_atomicity(is_dir(Duo\Publish::backup_dir($protocolState)), 'previous tree remains retained after COMMIT until receipt cleanup');
+assert_capture_atomicity($publicationStatus->invoke(null, $protocolState, $diskIntent) === true, 'transaction-bound database marker proves the exact on-disk intent committed');
+$markerKey = $publicationKey->invoke(null, $protocolState);
+assert_capture_atomicity(
+    $markerKey === $publicationKey->invoke(null, $protocolRoot . '/./state'),
+    'destination marker identity is stable across equivalent lexical paths'
+);
+$validMarker = $wpdb->kv[$markerKey];
+$malformedMarker = Duo\Canon::decode($validMarker);
+$malformedMarker['intent_id'] = 'not-an-intent-id';
+unset($malformedMarker['record_sha256']);
+$malformedMarker['record_sha256'] = hash('sha256', Duo\Canon::encode($malformedMarker));
+$wpdb->kv[$markerKey] = Duo\Canon::encode($malformedMarker);
+$malformedMarkerFailure = null;
+try {
+    $publicationStatus->invoke(null, $protocolState, $diskIntent);
+} catch (Throwable $e) {
+    $malformedMarkerFailure = $e;
+}
+assert_capture_atomicity(
+    $malformedMarkerFailure instanceof RuntimeException
+        && str_contains($malformedMarkerFailure->getMessage(), 'malformed database commit marker fields'),
+    'self-hashed but malformed database commit marker fails closed'
+);
+$wpdb->kv[$markerKey] = $validMarker;
+$recovery = Duo\Publish::recover(
+    $protocolState,
+    static fn(array $intent): bool => $publicationStatus->invoke(null, $protocolState, $intent)
+);
+assert_capture_atomicity(file_get_contents($protocolState . '/revision.txt') === "candidate\n", 'marker-backed recovery keeps the committed candidate');
+assert_capture_atomicity(!is_dir(Duo\Publish::backup_dir($protocolState)) && !is_file(Duo\Publish::intent_path($protocolState)), 'marker-backed recovery finalizes backup and intent artifacts');
+
+// A deterministic failure after swap but before COMMIT must roll back the DB
+// marker and leave a hash-bound filesystem backup for the next lock holder.
+Duo\Publish::rrmdir($protocolRoot);
+Duo\Canon::write_file($protocolState . '/revision.txt', "stable\n");
+Duo\Canon::write_file(Duo\Publish::stage_dir($protocolState) . '/revision.txt', "refused\n");
+$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
+$wpdb->kv = ['prior' => 'keep'];
+$phase = [];
+$preCommitFailure = null;
+putenv('DUO_TEST_MODE=1');
+putenv('DUO_TEST_PUBLISH_FAIL_PHASE=commit-attempt');
+try {
+    $consistentSnapshot->invokeArgs(null, [
+        static function () use (
+            $protocolState, $publicationKey, $publicationMarker, &$phase
+        ): array {
+            $intent = Duo\Publish::begin_intent($protocolState, Duo\Publish::stage_dir($protocolState));
+            $phase['filesystem_swapped'] = true;
+            Duo\Publish::swap($protocolState, true);
+            $intent = Duo\Publish::mark_swapped($protocolState, $intent);
+            $intent = Duo\Publish::mark_commit_ready($protocolState, $intent);
+            Ledger::kv_set(
+                $publicationKey->invoke(null, $protocolState),
+                $publicationMarker->invoke(null, $protocolState, $intent)
+            );
+            $phase['state_dir'] = $protocolState;
+            $phase['intent'] = $intent;
+            return $intent;
+        },
+        &$phase,
+    ]);
+} catch (ReflectionException $e) {
+    throw $e;
+} catch (Throwable $e) {
+    $preCommitFailure = $e;
+} finally {
+    putenv('DUO_TEST_PUBLISH_FAIL_PHASE');
+    putenv('DUO_TEST_MODE');
+}
+$diskIntent = Duo\Canon::decode((string) file_get_contents(Duo\Publish::intent_path($protocolState)));
+assert_capture_atomicity($preCommitFailure instanceof RuntimeException && str_contains($preCommitFailure->getMessage(), 'commit-attempt'), 'deterministic pre-COMMIT fault propagates without retry');
+assert_capture_atomicity($wpdb->rollbacks === 1 && $wpdb->commits === 0, 'deterministic pre-COMMIT fault rolls back the database snapshot');
+assert_capture_atomicity(($diskIntent['phase'] ?? null) === 'ready', 'pre-COMMIT exception does not falsely record that COMMIT was attempted');
+assert_capture_atomicity($publicationStatus->invoke(null, $protocolState, $diskIntent) === false, 'rolled-back transaction leaves no current-intent commit proof');
+Duo\Publish::recover(
+    $protocolState,
+    static fn(array $intent): bool => $publicationStatus->invoke(null, $protocolState, $intent)
+);
+assert_capture_atomicity(file_get_contents($protocolState . '/revision.txt') === "stable\n", 'next recovery restores the exact previous tree after rolled-back publication');
 
 // A real unsupported deletion must roll back the mutations that preceded the
 // capability check: a dead-map prune, an identity mint, a state hash, and a

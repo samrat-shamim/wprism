@@ -641,6 +641,160 @@ echo "\n== P8: staged-candidate compile gate (DUO-3236) ==\n";
 }
 
 // ======================================================================
+// P9 — cross-resource publication intent/receipt recovery
+// ======================================================================
+echo "\n== P9: transaction-bound capture publication recovery ==\n";
+{
+    $publishCandidate = static function (string $stateDir, array $files): array {
+        write_tree(Publish::stage_dir($stateDir), $files);
+        $intent = Publish::begin_intent($stateDir, Publish::stage_dir($stateDir));
+        Publish::swap($stateDir, true);
+        $intent = Publish::mark_swapped($stateDir, $intent);
+        $intent = Publish::mark_commit_ready($stateDir, $intent);
+        return Publish::mark_committing($stateDir, $intent);
+    };
+
+    // A client that died around COMMIT can be reconciled from the marker
+    // written in that same DB transaction. A prior marker (false) restores
+    // the exact old tree; a matching durable marker (true) keeps the new one.
+    $root = fresh_root('protocol_rollback');
+    $stateDir = "$root/state";
+    write_tree($stateDir, ['revision.txt' => "old\n", 'only-old.txt' => "keep\n"]);
+    $intent = $publishCandidate($stateDir, ['revision.txt' => "candidate\n"]);
+    $log = Publish::recover($stateDir, static fn(array $found): bool => false);
+    check(str_contains(implode("\n", $log), 'rolled back'), 'P9a: absent/prior DB marker reports a filesystem rollback');
+    check(read_tree($stateDir) === ['only-old.txt' => "keep\n", 'revision.txt' => "old\n"], 'P9a: absent/prior DB marker restores the complete previous tree');
+    check(!is_dir(Publish::backup_dir($stateDir)) && !is_file(Publish::intent_path($stateDir)), 'P9a: rollback consumes only its own backup/intent artifacts');
+
+    $root = fresh_root('protocol_commit');
+    $stateDir = "$root/state";
+    write_tree($stateDir, ['revision.txt' => "old\n"]);
+    $intent = $publishCandidate($stateDir, ['revision.txt' => "committed\n", 'new.txt' => "yes\n"]);
+    $log = Publish::recover($stateDir, static fn(array $found): bool => true);
+    check(str_contains(implode("\n", $log), 'commit marker proved'), 'P9b: matching durable DB marker reports committed recovery');
+    check(read_tree($stateDir) === ['new.txt' => "yes\n", 'revision.txt' => "committed\n"], 'P9b: matching durable DB marker retains the exact candidate tree');
+    check(!is_dir(Publish::backup_dir($stateDir)) && !is_file(Publish::intent_path($stateDir)), 'P9b: marker-backed recovery finalizes retained artifacts');
+    check(is_file(Publish::receipt_path($stateDir)), 'P9b: marker-backed recovery writes durable audit receipt');
+
+    // First publication has no backup. Rollback removes the candidate;
+    // commit retains it. This is deliberately separate from existing-state
+    // recovery because deleting state/ is safe only when previous_sha256 is
+    // the protocol's empty-tree digest.
+    $root = fresh_root('protocol_first_rollback');
+    $stateDir = "$root/state";
+    $intent = $publishCandidate($stateDir, ['first.txt' => "candidate\n"]);
+    Publish::recover($stateDir, static fn(array $found): bool => false);
+    check(!is_dir($stateDir), 'P9c: uncommitted first publication removes its candidate instead of inventing an old tree');
+
+    $root = fresh_root('protocol_first_commit');
+    $stateDir = "$root/state";
+    $intent = $publishCandidate($stateDir, ['first.txt' => "committed\n"]);
+    Publish::recover($stateDir, static fn(array $found): bool => true);
+    check(read_tree($stateDir) === ['first.txt' => "committed\n"], 'P9c: committed first publication retains its candidate without requiring a backup');
+
+    // A clean run intentionally retains its receipt as audit history. A new
+    // intent must supersede, not be paired with, that receipt; rolling the
+    // new attempt back leaves the old receipt intact.
+    $root = fresh_root('protocol_stale_receipt');
+    $stateDir = "$root/state";
+    $firstIntent = $publishCandidate($stateDir, ['revision.txt' => "one\n"]);
+    $firstReceipt = Publish::write_receipt($stateDir, $firstIntent);
+    Publish::cleanup_committed($stateDir, $firstReceipt);
+    write_tree(Publish::stage_dir($stateDir), ['revision.txt' => "two\n"]);
+    $secondIntent = Publish::begin_intent($stateDir, Publish::stage_dir($stateDir));
+    Publish::recover($stateDir, static fn(array $found): bool => false);
+    $retainedReceipt = Canon::decode((string) file_get_contents(Publish::receipt_path($stateDir)));
+    check(($retainedReceipt['intent_id'] ?? null) === ($firstIntent['id'] ?? null), 'P9d: a newer refused intent does not destroy the prior audit receipt');
+    check(read_tree($stateDir) === ['revision.txt' => "one\n"], 'P9d: stale prior receipt cannot promote or block the newer prepared candidate rollback');
+    check(!is_dir(Publish::stage_dir($stateDir)) && !is_file(Publish::intent_path($stateDir)), 'P9d: newer prepared candidate artifacts are removed cleanly');
+
+    // Receipt-only history must also ignore an abandoned pre-intent staging
+    // tree after a normal human edit of state/. It cannot claim that later
+    // tree merely because some protocol artifact happens to exist.
+    write_tree($stateDir, ['revision.txt' => "human-edit\n"]);
+    write_tree(Publish::stage_dir($stateDir), ['partial.txt' => "abandoned\n"]);
+    Publish::recover($stateDir, static fn(array $found): bool => false);
+    check(read_tree($stateDir) === ['revision.txt' => "human-edit\n"], 'P9e: receipt-only audit history never blocks or rewrites a later state edit');
+    check(!is_dir(Publish::stage_dir($stateDir)), 'P9e: receipt-only audit history does not claim a later abandoned staging tree');
+
+    // Every destructive recovery is hash-bound. Tampering with either the
+    // sealed record or a candidate tree fails closed and preserves all
+    // evidence for inspection.
+    $root = fresh_root('protocol_tampered_record');
+    $stateDir = "$root/state";
+    write_tree($stateDir, ['revision.txt' => "old\n"]);
+    write_tree(Publish::stage_dir($stateDir), ['revision.txt' => "candidate\n"]);
+    $intent = Publish::begin_intent($stateDir, Publish::stage_dir($stateDir));
+    $tampered = Canon::decode((string) file_get_contents(Publish::intent_path($stateDir)));
+    $tampered['candidate_sha256'] = str_repeat('0', 64);
+    Canon::write_file(Publish::intent_path($stateDir), Canon::encode($tampered));
+    $recordFailure = null;
+    try {
+        Publish::recover($stateDir, static fn(array $found): bool => false);
+    } catch (Throwable $t) {
+        $recordFailure = $t;
+    }
+    check($recordFailure instanceof RuntimeException && str_contains($recordFailure->getMessage(), 'tampered intent'), 'P9f: modified durable intent is refused by its canonical self-hash');
+    check(is_dir(Publish::stage_dir($stateDir)) && read_tree($stateDir) === ['revision.txt' => "old\n"], 'P9f: sealed-record refusal leaves both published and staged evidence untouched');
+
+    $root = fresh_root('protocol_tampered_tree');
+    $stateDir = "$root/state";
+    write_tree($stateDir, ['revision.txt' => "old\n"]);
+    $intent = $publishCandidate($stateDir, ['revision.txt' => "candidate\n"]);
+    Canon::write_file("$stateDir/revision.txt", "out-of-band\n");
+    $treeFailure = null;
+    try {
+        Publish::recover($stateDir, static fn(array $found): bool => false);
+    } catch (Throwable $t) {
+        $treeFailure = $t;
+    }
+    check($treeFailure instanceof RuntimeException && str_contains($treeFailure->getMessage(), 'does not match'), 'P9g: changed candidate tree refuses destructive rollback');
+    check(read_tree($stateDir) === ['revision.txt' => "out-of-band\n"] && is_dir(Publish::backup_dir($stateDir)), 'P9g: tree-hash refusal preserves the candidate, backup, and recovery evidence');
+
+    // A filesystem receipt cannot be manufactured before the durable intent
+    // records the COMMIT boundary, and even a correctly formed receipt cannot
+    // overrule the database callback used by Capture recovery.
+    $root = fresh_root('protocol_receipt_boundary');
+    $stateDir = "$root/state";
+    write_tree($stateDir, ['revision.txt' => "old\n"]);
+    write_tree(Publish::stage_dir($stateDir), ['revision.txt' => "candidate\n"]);
+    $intent = Publish::begin_intent($stateDir, Publish::stage_dir($stateDir));
+    Publish::swap($stateDir, true);
+    $intent = Publish::mark_swapped($stateDir, $intent);
+    $intent = Publish::mark_commit_ready($stateDir, $intent);
+    $earlyReceiptFailure = null;
+    try {
+        Publish::write_receipt($stateDir, $intent);
+    } catch (Throwable $t) {
+        $earlyReceiptFailure = $t;
+    }
+    check($earlyReceiptFailure instanceof RuntimeException && str_contains($earlyReceiptFailure->getMessage(), 'COMMIT-attempt'), 'P9h: receipt cannot be written before the durable COMMIT-attempt boundary');
+    $intent = Publish::mark_committing($stateDir, $intent);
+    $receipt = Publish::write_receipt($stateDir, $intent);
+    $receiptContradiction = null;
+    try {
+        Publish::recover($stateDir, static fn(array $found): bool => false);
+    } catch (Throwable $t) {
+        $receiptContradiction = $t;
+    }
+    check($receiptContradiction instanceof RuntimeException && str_contains($receiptContradiction->getMessage(), 'receipt exists'), 'P9h: matching receipt plus absent DB commit marker fails closed as contradictory evidence');
+    check(is_dir(Publish::backup_dir($stateDir)) && is_file(Publish::intent_path($stateDir)), 'P9h: contradictory receipt/DB evidence preserves every recovery artifact');
+
+    // Cleanup validates the matching intent before deleting the retained old
+    // tree. Losing that intent cannot turn an unknown directory into deletion
+    // authority merely because a receipt file survives.
+    unlink(Publish::intent_path($stateDir));
+    $missingIntentFailure = null;
+    try {
+        Publish::cleanup_committed($stateDir, $receipt);
+    } catch (Throwable $t) {
+        $missingIntentFailure = $t;
+    }
+    check($missingIntentFailure instanceof RuntimeException && str_contains($missingIntentFailure->getMessage(), 'no matching intent'), 'P9i: retained-artifact cleanup refuses without its matching intent');
+    check(is_dir(Publish::backup_dir($stateDir)), 'P9i: missing-intent refusal occurs before deleting the retained tree');
+}
+
+// ======================================================================
 echo "\n";
 if ($failures > 0) {
     echo "FAIL: $failures check(s) failed\n";
