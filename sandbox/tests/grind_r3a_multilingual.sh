@@ -402,13 +402,15 @@ set -e
 # DUO-3305, discovered by DUO-3274's current-main sweep: product_type is a
 # derived Woo taxonomy and is therefore absent from captured state. When an
 # adopted variation receives a lower local id than its parent, the fresh
-# target loads the parent as simple. The sorted batch then creates that early
-# child's lookup rows, processes the parent (deleting all child rows for the
-# root), and recreates only the later-id children. Exact verification rightly
-# hard-fails at 3/4. Keep this diagnostic branch until DUO-3305 lands: it
-# proves the exact failure, applies a narrowly labeled target-side repair so
-# the rest of this independent grind can still run, and automatically becomes
-# a no-op when the engine closes the gap. This is not claimed as Duo behavior.
+# target loads the parent as simple. The sorted batch can then delete rows for
+# children that sort before the parent and recreate only later-id children;
+# even when every child sorts later and all four rows exist, exact verification
+# still rightly fails because the simple parent object excludes its variation
+# graph from the expected projection. Keep this diagnostic branch until
+# DUO-3305 lands: it proves the exact failure, applies a narrowly labeled
+# target-side repair so the rest of this independent grind can still run, and
+# automatically becomes a no-op when the engine closes the gap. This is not
+# claimed as Duo behavior.
 if [ "$APPLY1_RC" -ne 0 ]; then
   grep -q "WooCommerce product attributes lookup verification failed" <<<"$APPLY1_OUT" \
     || fail "fresh-target apply failed for an unexpected reason (exit $APPLY1_RC): $APPLY1_OUT"
@@ -416,13 +418,15 @@ if [ "$APPLY1_RC" -ne 0 ]; then
   [ -n "$TEE_B2" ] || fail "DUO-3305 diagnostic could not resolve the applied Duo Tee after the verifier refusal"
   PRODUCT_TYPE_ROWS=$(wp_2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id JOIN wp_terms t ON t.term_id=tt.term_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy='product_type' AND t.slug='variable'" --skip-column-names)
   [ "$PRODUCT_TYPE_ROWS" = "0" ] || fail "DUO-3305 expected the fresh target's uncaptured variable product_type relationship to be absent (got $PRODUCT_TYPE_ROWS)"
+  TARGET_PRODUCT_TYPE=$(wp_2 eval "echo wc_get_product($TEE_B2)->get_type();")
+  [ "$TARGET_PRODUCT_TYPE" = "simple" ] || fail "DUO-3305 expected Woo to misclassify the fresh-target parent as simple without product_type (got $TARGET_PRODUCT_TYPE)"
   LOOKUP_VARIATIONS=$(wp_2 db query "SELECT COUNT(DISTINCT product_id) FROM wp_wc_product_attributes_lookup WHERE product_or_parent_id=$TEE_B2 AND product_id<>$TEE_B2" --skip-column-names)
-  [ "$LOOKUP_VARIATIONS" = "3" ] || fail "DUO-3305 expected the local-id ordering defect to leave exactly 3/4 variation lookup projections (got $LOOKUP_VARIATIONS)"
+  [ "$LOOKUP_VARIATIONS" -ge 0 ] && [ "$LOOKUP_VARIATIONS" -le 4 ] || fail "DUO-3305 diagnostic read an impossible variation lookup count (got $LOOKUP_VARIATIONS)"
   RELS_BEFORE_REPAIR=$(wp_2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN ('pa_size','pa_color')" --skip-column-names)
   [ "$RELS_BEFORE_REPAIR" = "4" ] || fail "DUO-3305 diagnostic expected the underlying first-apply pa_* relationships to have landed before rebuild refusal (got $RELS_BEFORE_REPAIR)"
   LANG_BEFORE_REPAIR=$(wp_2 eval "var_export(pll_get_post_language($TEE_B2));")
   [ "$LANG_BEFORE_REPAIR" = "'en'" ] || fail "DUO-3305 diagnostic expected the underlying first-apply language relationship to have landed (got $LANG_BEFORE_REPAIR)"
-  pass "DUO-3305 reproduced exactly: uncaptured variable product_type + child-before-parent local-id ordering left 3/4 lookup projections, while all 4 pa_* and language relationships had already landed"
+  pass "DUO-3305 reproduced exactly: uncaptured variable product_type made Woo load the parent as simple (lookup held $LOOKUP_VARIATIONS/4 child projections under this run's local-id ordering), while all 4 pa_* and language relationships had already landed"
 
   wp_2 eval "wp_set_object_terms($TEE_B2, 'variable', 'product_type', false); clean_object_term_cache($TEE_B2, 'product'); clean_post_cache($TEE_B2);" >/dev/null
   DUO3305_REPAIR=1
