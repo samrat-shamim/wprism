@@ -4,8 +4,8 @@ declare(strict_types=1);
 /**
  * Offline WooCommerce rollback-effect contract regression.
  *
- * The committed Woo manifest owns lifecycle, checked whole-catalog projection,
- * attribute/shipping/tax cache rebuilders, and product/variation lookup
+ * The committed Woo manifest owns lifecycle, bounded attribute/shipping/tax
+ * cache rebuilders, and product/variation lookup plus sale-action
  * regeneration. This test pins the exact database-checkpoint and external-
  * cache surfaces for all of them.
  *
@@ -230,6 +230,18 @@ function woo_effect_product_attribute_refresh_hooks(string $prefix): array {
     ];
 }
 
+/** @return list<array<string,mixed>> */
+function woo_effect_sale_schedule_hooks(string $prefix): array {
+    return [
+        woo_effect_hook($prefix . '-sale-pre-schedule-filter', 'pre_as_schedule_single_action'),
+        woo_effect_hook($prefix . '-sale-stored-action-hook', 'action_scheduler_stored_action'),
+        woo_effect_hook($prefix . '-sale-canceled-action-hook', 'action_scheduler_canceled_action'),
+        woo_effect_hook($prefix . '-sale-stored-action-class-filter', 'action_scheduler_stored_action_class'),
+        woo_effect_hook($prefix . '-sale-stored-action-instance-filter', 'action_scheduler_stored_action_instance'),
+        woo_effect_hook($prefix . '-sale-failed-fetch-action-hook', 'action_scheduler_failed_fetch_action'),
+    ];
+}
+
 /**
  * The product adapter writes/repairs these database surfaces and clears
  * product caches. Woo 11's dynamic cache families and callback boundaries
@@ -246,6 +258,10 @@ function woo_effect_product_regenerator(string $postType): array {
         woo_effect_db_table($prefix . '-postmeta', 'postmeta'),
         woo_effect_db_table($prefix . '-meta-lookup', 'wc_product_meta_lookup'),
         woo_effect_db_table($prefix . '-attributes-lookup', 'wc_product_attributes_lookup'),
+        woo_effect_db_table($prefix . '-sale-actions', 'actionscheduler_actions'),
+        woo_effect_db_table($prefix . '-sale-action-groups', 'actionscheduler_groups'),
+        woo_effect_db_table($prefix . '-sale-action-logs', 'actionscheduler_logs'),
+        ...woo_effect_sale_schedule_hooks($prefix),
         ...woo_effect_product_transient_options($prefix),
         woo_effect_irreversible($prefix . '-attributes-cache', 'cache', 'namespace', 'woocommerce-attributes'),
         woo_effect_product_cache_aggregate($prefix . '-cache-provider-resource'),
@@ -300,19 +316,6 @@ function woo_effect_shipping_tax_rebuilder(): array {
 }
 
 /** @return list<array<string,mixed>> */
-function woo_effect_catalog_projection_rebuilder(): array {
-    return [
-        woo_effect_db_table('woocommerce-price-meta', 'postmeta'),
-        woo_effect_db_table('woocommerce-product-lookup', 'wc_product_meta_lookup'),
-        woo_effect_db_table('woocommerce-attribute-lookup', 'wc_product_attributes_lookup'),
-        woo_effect_db_table('woocommerce-category-lookup', 'wc_category_lookup'),
-        woo_effect_db_table('woocommerce-scheduled-actions', 'actionscheduler_actions'),
-        woo_effect_db_table('woocommerce-scheduled-action-groups', 'actionscheduler_groups'),
-        woo_effect_db_table('woocommerce-scheduled-action-logs', 'actionscheduler_logs'),
-        woo_effect_db_table('woocommerce-rebuild-options', 'options'),
-    ];
-}
-
 /** @return array<string,mixed> */
 function woo_effect_policy_for_manifest(array $manifest): Policy {
     return Policy::from_snapshot([
@@ -378,7 +381,6 @@ $manifestPath = dirname(__DIR__, 2) . '/manifests/woocommerce.json';
 $wooManifest = json_decode((string) file_get_contents($manifestPath), true, 512, JSON_THROW_ON_ERROR);
 $attributeCommand = 'transient delete wc_attribute_taxonomies';
 $cacheCommand = (string) ($wooManifest['rebuilders'][1]['command'] ?? '');
-$projectionCommand = (string) ($wooManifest['rebuilders'][2]['command'] ?? '');
 $expectedWooRows = [[
     'manifest' => 'woocommerce',
     'phase' => 'lifecycle',
@@ -401,14 +403,6 @@ foreach (woo_effect_shipping_tax_rebuilder() as $effect) {
         'effect' => $effect,
     ];
 }
-foreach (woo_effect_catalog_projection_rebuilder() as $effect) {
-    $expectedWooRows[] = [
-        'manifest' => 'woocommerce',
-        'phase' => 'rebuild',
-        'source' => $projectionCommand,
-        'effect' => $effect,
-    ];
-}
 foreach (['product', 'product_variation'] as $postType) {
     foreach (woo_effect_product_regenerator($postType) as $effect) {
         $expectedWooRows[] = [
@@ -425,10 +419,10 @@ usort($expectedWooRows, static fn(array $a, array $b): int => strcmp(
 ));
 woo_effect_check($wooRows === $expectedWooRows, 'Woo manifest compiles the exact lifecycle, rebuild, and regenerator inventory');
 woo_effect_check(
-    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 44
-        && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 73
-        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 117,
-    'Woo inventory exposes exact transient/version rows, keeps every unproven boundary irreversible, and uses unique effect IDs'
+    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 42
+        && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 85
+        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 127,
+    'Woo inventory exposes exact transient/version, bounded sale-action, and Action Scheduler hook boundaries, keeps every unproven boundary irreversible, and uses unique effect IDs'
 );
 woo_effect_check(
     ($wooManifest['rebuilders'][0]['command'] ?? null) === $attributeCommand
@@ -438,8 +432,18 @@ woo_effect_check(
         && str_contains($cacheCommand, 'get_transient_version("shipping", true)')
         && str_contains($cacheCommand, 'get_transient_version("shipping", false)')
         && str_contains($cacheCommand, 'freshShippingVersion !== $shippingVersion')
-        && str_contains($projectionCommand, 'WooCommerceContract::rebuild'),
-    'Woo rebuild commands execute the checked catalog projection and exact cache namespaces with a fresh-read persistence proof'
+        && !str_contains(implode(' ', array_map(
+            static fn(array $rebuilder): string => (string) ($rebuilder['command'] ?? ''),
+            (array) ($wooManifest['rebuilders'] ?? [])
+        )), 'WooCommerceContract::rebuild')
+        && ($wooManifest['rebuilders'][0]['triggers'] ?? []) === ['table:woocommerce_attribute_taxonomies']
+        && in_array('option:woocommerce_calc_taxes', (array) ($wooManifest['rebuilders'][1]['triggers'] ?? []), true),
+    'Woo rebuild commands are bounded by exact authored surfaces and the cache command proves fresh-read persistence'
+);
+woo_effect_check(
+    str_contains((string) ($wooManifest['notes']['category lookup boundary (WooCommerce 11.0.0)'] ?? ''), 'outside the automatic convergence guarantee')
+        && !str_contains((string) ($wooManifest['notes']['category lookup boundary (WooCommerce 11.0.0)'] ?? ''), 'automatic Duo repair'),
+    'Woo manifest states category lookup as an explicit manual boundary rather than automatic authority'
 );
 foreach (['product', 'product_variation'] as $postType) {
     $rows = array_values(array_filter(
@@ -599,6 +603,7 @@ foreach (['product', 'product_variation'] as $postType) {
         array_merge(
             woo_effect_product_fixed_transient_hooks($postType === 'product' ? 'woocommerce-product' : 'woocommerce-variation'),
             woo_effect_product_attribute_refresh_hooks($postType === 'product' ? 'woocommerce-product' : 'woocommerce-variation'),
+            woo_effect_sale_schedule_hooks($postType === 'product' ? 'woocommerce-product' : 'woocommerce-variation'),
             [
                 woo_effect_hook('expected-product-read', 'woocommerce_product_read'),
                 woo_effect_hook('expected-product-delete', 'woocommerce_delete_product_transients'),

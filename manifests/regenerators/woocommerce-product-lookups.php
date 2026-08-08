@@ -444,7 +444,27 @@ final class WoocommerceProductLookups {
             }
         });
 
+        // Sale actions are operational state derived from the exact sale-date
+        // inputs on the affected products. Woo's public helper is
+        // product-scoped and idempotently clears/recreates the two Action
+        // Scheduler hooks; invoke it only for the bounded live/root/deletion
+        // set assembled above, with a lease heartbeat around every call.
+        $saleProducts = $products + $variableRoots + $groupedRoots + $attributeRoots;
+        $saleIds = [];
+        foreach (array_merge(
+            array_keys($saleProducts),
+            array_keys($deletionIds)
+        ) as $id) {
+            $id = (int) $id;
+            if ($id > 0) {
+                $saleIds[$id] = $id;
+            }
+        }
+        ksort($saleIds, SORT_NUMERIC);
+        $this->schedule_sale_events(array_values($saleIds), $deletionIds, $saleProducts, $heartbeat);
+
         $this->verify_exact_state($products, $variableRoots, $attributeRoots, $deletionIds, $heartbeat);
+        $this->verify_sale_schedules(array_values($saleIds), $deletionIds, $saleProducts, $heartbeat);
     }
 
     /**
@@ -502,6 +522,131 @@ final class WoocommerceProductLookups {
         if ($heartbeat !== null) {
             $heartbeat();
         }
+    }
+
+    /**
+     * Reconcile per-product sale actions through Woo's public bounded API.
+     * Deleted ids use Action Scheduler's public unschedule boundary because
+     * Woo's maybe-schedule helper returns before clearing actions when the
+     * product no longer exists.
+     *
+     * @param list<int> $saleIds
+     * @param array<int,int> $deletionIds
+     * @param array<int,mixed> $products
+     */
+    private function schedule_sale_events(
+        array $saleIds,
+        array $deletionIds,
+        array $products,
+        ?callable $heartbeat = null
+    ): void {
+        foreach ($saleIds as $id) {
+            $id = (int) $id;
+            if ($id <= 0) {
+                continue;
+            }
+            $this->heartbeat($heartbeat);
+            if (isset($deletionIds[$id])) {
+                foreach (['wc_product_start_scheduled_sale', 'wc_product_end_scheduled_sale'] as $hook) {
+                    $cleared = \as_unschedule_all_actions($hook, ['product_id' => $id], 'woocommerce-sales');
+                    if ($cleared === false) {
+                        throw new \RuntimeException(
+                            "duo: WooCommerce sale-action cleanup failed for deleted product $id"
+                        );
+                    }
+                    $this->heartbeat($heartbeat);
+                }
+                continue;
+            }
+            $product = $products[$id] ?? null;
+            if (!is_object($product)) {
+                $product = \wc_get_product($id);
+            }
+            if (!is_object($product)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce sale scheduling could not load affected product $id"
+                );
+            }
+            \wc_maybe_schedule_product_sale_events($id, $product);
+            $this->heartbeat($heartbeat);
+        }
+    }
+
+    /**
+     * Verify both exact hook presence/absence and the timestamp derived from
+     * the product's current sale dates. This is intentionally a bounded
+     * Action Scheduler read; no catalog-wide scheduled-sale scan is used.
+     *
+     * @param list<int> $saleIds
+     * @param array<int,int> $deletionIds
+     * @param array<int,mixed> $products
+     */
+    private function verify_sale_schedules(
+        array $saleIds,
+        array $deletionIds,
+        array $products,
+        ?callable $heartbeat = null
+    ): void {
+        foreach ($saleIds as $id) {
+            $id = (int) $id;
+            if ($id <= 0) {
+                continue;
+            }
+            $this->heartbeat($heartbeat);
+            $product = isset($deletionIds[$id]) ? false : ($products[$id] ?? null);
+            if ($product === null) {
+                $product = \wc_get_product($id);
+            }
+            $expected = [
+                'wc_product_start_scheduled_sale' => null,
+                'wc_product_end_scheduled_sale' => null,
+            ];
+            if (is_object($product)) {
+                if (!is_callable([$product, 'get_date_on_sale_from'])
+                    || !is_callable([$product, 'get_date_on_sale_to'])) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce sale scheduling verification API is unavailable for product $id"
+                    );
+                }
+                $expected['wc_product_start_scheduled_sale'] = $this->future_sale_timestamp(
+                    $product->get_date_on_sale_from('edit')
+                );
+                $expected['wc_product_end_scheduled_sale'] = $this->future_sale_timestamp(
+                    $product->get_date_on_sale_to('edit')
+                );
+            } elseif (!isset($deletionIds[$id])) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce sale scheduling verification could not load affected product $id"
+                );
+            }
+
+            foreach ($expected as $hook => $timestamp) {
+                $actual = \as_next_scheduled_action($hook, ['product_id' => $id], 'woocommerce-sales');
+                $this->heartbeat($heartbeat);
+                $hasActual = $actual !== false && $actual !== null;
+                if ($timestamp === null) {
+                    if ($hasActual) {
+                        throw new \RuntimeException(
+                            "duo: WooCommerce sale schedule verification found unexpected $hook for product $id"
+                        );
+                    }
+                    continue;
+                }
+                if (!$hasActual || (int) $actual !== $timestamp) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce sale schedule verification mismatch for product $id ($hook)"
+                    );
+                }
+            }
+        }
+    }
+
+    private function future_sale_timestamp(mixed $date): ?int {
+        if (!is_object($date) || !is_callable([$date, 'getTimestamp'])) {
+            return null;
+        }
+        $timestamp = (int) $date->getTimestamp();
+        return $timestamp > time() ? $timestamp : null;
     }
 
     /**
@@ -729,9 +874,12 @@ final class WoocommerceProductLookups {
             || !class_exists('WC_Product_Grouped')
             || !function_exists('wc_get_container')
             || !function_exists('add_filter')
-            || !function_exists('remove_filter')) {
+            || !function_exists('remove_filter')
+            || !function_exists('wc_maybe_schedule_product_sale_events')
+            || !function_exists('as_unschedule_all_actions')
+            || !function_exists('as_next_scheduled_action')) {
             throw new \RuntimeException(
-                'duo: WooCommerce product lookup regenerator requires WooCommerce 11.x public data-store APIs'
+                'duo: WooCommerce product lookup regenerator requires WooCommerce 11.x public data-store and sale-schedule APIs'
             );
         }
     }

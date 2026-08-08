@@ -27,7 +27,35 @@ require __DIR__ . '/../../agent/src/OptionState.php';
 require __DIR__ . '/../../agent/src/PlainData.php';
 require __DIR__ . '/../../agent/src/Policy.php';
 require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
-require __DIR__ . '/../../manifests/interpreters/acf.php';
+
+// Production mounts manifest code independently from the agent source tree
+// (`/duo-manifests` versus the MU-plugin directory). Load the real
+// interpreter from a deliberately isolated directory so a relative reach
+// back into ../../agent cannot reappear unnoticed.
+$splitInterpreterRoot = sys_get_temp_dir() . '/duo_acf_split_mount_' . bin2hex(random_bytes(4));
+mkdir($splitInterpreterRoot . '/interpreters', 0777, true);
+$splitInterpreter = $splitInterpreterRoot . '/interpreters/acf.php';
+if (!copy(__DIR__ . '/../../manifests/interpreters/acf.php', $splitInterpreter)) {
+    throw new RuntimeException('cannot stage split-mount ACF interpreter fixture');
+}
+foreach (['acf.json', 'core.json'] as $manifestName) {
+    if (!copy(
+        __DIR__ . '/../../manifests/' . $manifestName,
+        $splitInterpreterRoot . '/' . $manifestName
+    )) {
+        throw new RuntimeException("cannot stage split-mount $manifestName fixture");
+    }
+}
+putenv('DUO_MANIFESTS_DIR=' . $splitInterpreterRoot);
+register_shutdown_function(static function () use ($splitInterpreterRoot, $splitInterpreter): void {
+    putenv('DUO_MANIFESTS_DIR');
+    @unlink($splitInterpreter);
+    @unlink($splitInterpreterRoot . '/acf.json');
+    @unlink($splitInterpreterRoot . '/core.json');
+    @rmdir($splitInterpreterRoot . '/interpreters');
+    @rmdir($splitInterpreterRoot);
+});
+require $splitInterpreter;
 
 use Duo\Policy;
 use Duo\Interpreters\Acf;

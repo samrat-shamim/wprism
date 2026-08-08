@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/PlainData.php';
+require_once __DIR__ . '/Canon.php';
 
 /**
  * Capture: environment DB -> canonical state tree.
@@ -84,23 +85,14 @@ final class Capture {
      */
     public static function run(string $repo, ?string $outDir = null, bool $forceUnresolvedRefs = false): array {
         Canary::suppress_cron_spawn();
-        // Policy's v1 single-site boundary must run before Ledger::ensure()
-        // or any pruning: an unsupported multisite request is a clean
+        // Policy's v1 single-site boundary must run before any destination
+        // lock or Ledger work: an unsupported multisite request is a clean
         // refusal, not a request that may initialize or rewrite Duo state
         // before eventually discovering it cannot be certified.
         $policy = Policy::load($repo);
-        Ledger::ensure();
-        Identity::assert_embedded_unique();
-        Ledger::prune_dead_map();
-        $observedDeletedTables = Snapshot::observed_deleted_mapped_uuids($policy);
-        $observedDeletedWidgets = SidebarState::observed_deleted_mapped_uuids($policy);
-        SidebarState::prune_dead_map($policy);
-        $c = new self($repo, $policy);
-
         $intoRepo = ($outDir === null);
-        $stateDir = $intoRepo ? $c->repo . '/state' : rtrim($outDir, '/');
-
-        self::verify_engine_support($policy);
+        $repoPath = rtrim($repo, '/');
+        $stateDir = $intoRepo ? $repoPath . '/state' : rtrim($outDir, '/');
 
         // DUO-3213: a capture lock serializes concurrent publishers to this
         // SAME destination (Publish::lock() fails cleanly, non-blocking, if
@@ -110,7 +102,15 @@ final class Capture {
         // publishers interleaving any part of it is exactly what the lock
         // exists to rule out.
         $lock = Publish::lock($stateDir);
+        $testPhaseMarked = false;
         try {
+            // The destination lock is deliberately acquired BEFORE even
+            // Ledger::ensure(): schema migration and every row mutation below
+            // belong to the same destination's serialized publication.
+            Ledger::ensure();
+            $c = new self($repo, $policy);
+            self::verify_engine_support($policy);
+
             // DUO-3223 (concurrency-scenario harness): the SAME deterministic
             // test-pause idiom DUO-3217 established for PromotionLock
             // (agent/src/Apply.php's own DUO_TEST_MODE/DUO_TEST_PROMOTION_
@@ -127,6 +127,12 @@ final class Capture {
             // explicitly opts into both env vars; production capture is
             // unchanged.
             if (getenv('DUO_TEST_MODE') === '1') {
+                // This marker is intentionally outside the consistent
+                // snapshot: a second process must be able to observe it
+                // while this process is paused inside the held flock(). It is
+                // test-only and is deleted in finally so a refused/failed
+                // capture cannot leave a duo_kv residue behind.
+                $testPhaseMarked = true;
                 Ledger::kv_set('capture_test_phase', 'locked');
                 $pauseMs = (int) (getenv('DUO_TEST_CAPTURE_PAUSE_MS') ?: 0);
                 if ($pauseMs > 0 && $pauseMs <= 10000) {
@@ -137,7 +143,18 @@ final class Capture {
             // behind MUST happen before this run builds anything of its
             // own — see Publish::recover()'s docblock for why holding the
             // lock is what makes "leftover staging/backup dir" unambiguous.
-            $recoveryWarnings = Publish::recover($stateDir);
+            $recoveryWarnings = Publish::recover(
+                $stateDir,
+                static function (array $intent) use ($stateDir): bool {
+                    return self::publication_commit_status($stateDir, $intent);
+                }
+            );
+            try {
+                self::clear_publication_marker_if_clean($stateDir);
+            } catch (\Throwable $markerCleanupFailure) {
+                $recoveryWarnings[] = 'capture recovery completed, but its stale database commit marker could not be removed: '
+                    . $markerCleanupFailure->getMessage();
+            }
             // The previous compiled revision is the only authority from
             // which a deletion intent can be created. A first capture has no
             // prior state and therefore cannot infer a deletion. Compiling
@@ -191,145 +208,143 @@ final class Capture {
                     $previousUserLogins[] = (string) ($entity['data']['login'] ?? '');
                 }
             }
-            // A typed method row may disappear before its instance-settings
-            // option. Keep the option-name identity alive through this
-            // capture so build_options() can still emit the paired canonical
-            // option tombstone instead of dropping the live row as unmapped.
-            Snapshot::prune_dead_map($policy, $previousOptions);
-
             // The one consistent-snapshot transaction: every SELECT build()
-            // issues, plus the _duo_uuid/duo_map identity-minting writes
-            // alongside them, see one coherent point-in-time view. Retries
-            // on its own (see run_in_consistent_snapshot()) if a concurrent
-            // WordPress write collides with one of THIS build's own writes.
+            // issues, plus dead-map pruning, the _duo_uuid/duo_map identity-
+            // minting writes, and deletion capability validation, see one
+            // coherent point-in-time view. Retries on its own (see
+            // run_in_consistent_snapshot()) if a concurrent WordPress write
+            // collides with one of THIS build's own writes. In particular,
+            // an unsupported deletion must roll back every row mutation made
+            // while assembling the refused candidate.
+            $publicationPhase = [];
             $build = self::run_in_consistent_snapshot(function () use (
-                $c, $policy, $repo, $forceUnresolvedRefs, $observedDeletedTables, $previousOptions,
-                $previousUserLogins, $observedDeletedWidgets
+                $c, $policy, $repo, $forceUnresolvedRefs, $previous, $previousOptions,
+                $previousUserLogins, $intoRepo, $stateDir, &$publicationPhase
             ): array {
+                // All map/state mutations which can happen while deciding
+                // whether this candidate is publishable are transactionally
+                // coupled to Deletion::capture_tombstones() below. A refusal
+                // therefore cannot strand a newly-minted identity or a
+                // pruned map row in the environment.
                 Identity::assert_embedded_unique();
+                Ledger::prune_dead_map();
+                $observedDeletedTables = Snapshot::observed_deleted_mapped_uuids($policy);
+                $observedDeletedWidgets = SidebarState::observed_deleted_mapped_uuids($policy);
+                SidebarState::prune_dead_map($policy);
+                // A typed method row may disappear before its instance-
+                // settings option. Keep the option-name identity alive
+                // through this capture so build_options() can still emit the
+                // paired canonical option tombstone instead of dropping the
+                // live row as unmapped.
+                Snapshot::prune_dead_map($policy, $previousOptions);
                 Snapshot::assert_mapped_history_present($policy, $repo, $observedDeletedTables);
                 SidebarState::assert_mapped_history_present($repo, $observedDeletedWidgets);
                 $candidate = $c->build(true, $forceUnresolvedRefs, $previousOptions, $previousUserLogins);
                 Identity::assert_entities_unique($candidate['entities']);
-                return $candidate;
-            });
-            $build['deletions'] = Deletion::capture_tombstones(
-                $previous,
-                $build['entities'],
-                $policy
-            );
+                $candidate['deletions'] = Deletion::capture_tombstones(
+                    $previous,
+                    $candidate['entities'],
+                    $policy
+                );
 
-            // Build + validate the COMPLETE candidate in an isolated
-            // staging location — 'state/' itself is never touched until
-            // Publish::swap() below, so a failure here (disk-full mid-
-            // write, a crash, anything) leaves the previously-published
-            // tree completely untouched.
-            $staging = Publish::stage_dir($stateDir);
-            Publish::write_entities($staging, array_merge($build['entities'], $build['deletions']));
-            // Lint against the STAGED candidate (relocated from the old
-            // post-publish call — strictly more correct: the warning now
-            // reflects the tree about to be published, not one already
-            // live) — still warn-only, unchanged semantics. Upgrading this
-            // to a hard gate is DUO-3208's "repository semantic compiler"
-            // territory, deliberately decoupled from this issue — see the
-            // DUO-3213 issue comments/PR body.
-            $lint = Lint::scan_tree($staging, $c->policy);
-            if ($lint) {
-                $build['warnings'][] = count($lint)
-                    . ' suspicious unrewritten ref(s) in captured state — run: wp duo lint --repo=' . $c->repo;
-            }
-
-            if ($intoRepo) {
-                // Media blobs are copied here — BEFORE the compile gate and
-                // the state-tree swap below, not after (unlike before
-                // DUO-3236). They are content-addressed and idempotent
-                // (Publish.php's own class docblock: "unrelated to the
-                // state-tree swap"), so moving this earlier changes nothing
-                // about their own safety, but it is WHY the compile gate
-                // below can validate this run's own new media references at
-                // all: RepositoryCompiler resolves media against the real
-                // repo/media directory (RepositoryCompiler::compile_staged()'s
-                // docblock), and a reference to a blob this same run just
-                // discovered would otherwise still be missing from disk at
-                // gate time. A refused candidate can leave an orphan blob
-                // copied here with no (published) entity referencing it —
-                // already a normal, anticipated condition this system
-                // tolerates (RepositoryCompiler::catalog_media_directory()'s
-                // own "safe orphan blobs" docblock), not a new risk.
-                foreach ($build['media'] as $file => $source) {
-                    $dst = $c->repo . '/media/' . $file;
-                    if (!is_file($dst)) {
-                        $bytes = array_key_exists('bytes', $source)
-                            ? $source['bytes']
-                            : Canon::read_file($source['path']);
-                        Canon::write_file($dst, $bytes);
+                // Keep the transaction open through every candidate-side
+                // publication step. A staging/lint/media/compile failure
+                // therefore rolls back all identity/map DML above rather
+                // than leaving a candidate identity behind a refused tree.
+                $staging = Publish::stage_dir($stateDir);
+                Publish::write_entities($staging, array_merge($candidate['entities'], $candidate['deletions']));
+                $lint = Lint::scan_tree($staging, $c->policy);
+                if ($lint) {
+                    $candidate['warnings'][] = count($lint)
+                        . ' suspicious unrewritten ref(s) in captured state — run: wp duo lint --repo=' . $c->repo;
+                }
+                if ($intoRepo) {
+                    // Media is content-addressed and idempotent. A rejected
+                    // candidate may leave an orphan blob, but no candidate
+                    // identity/map DML can commit until the transaction below
+                    // reaches its post-swap COMMIT.
+                    foreach ($candidate['media'] as $file => $source) {
+                        $dst = $c->repo . '/media/' . $file;
+                        if (!is_file($dst)) {
+                            $bytes = array_key_exists('bytes', $source)
+                                ? $source['bytes']
+                                : Canon::read_file($source['path']);
+                            Canon::write_file($dst, $bytes);
+                        }
                     }
+                    RepositoryCompiler::compile_staged($staging, $c->repo, $c->policy);
                 }
-                // DUO-3236: the staged candidate must itself compile before
-                // it is ever promoted to state/ — the same blocking
-                // diagnostics RepositoryCompiler::compile() already
-                // produces for an already-published tree, just fired one
-                // step earlier, before a bad tree can become the checked-in
-                // canonical state. Scoped to $intoRepo: a --out= capture
-                // never touches the checked-in state/ at all (explicitly
-                // non-authoritative — same carve-out as the ledger/code-
-                // version bookkeeping below), so there is no canonical
-                // state for an invalid --out= candidate to corrupt.
-                // RepositoryCompilationException propagates uncaught, same
-                // as every other loud-and-blocking gate in this method; the
-                // staging dir is simply abandoned in place — the next
-                // capture's own Publish::recover() discards it
-                // unconditionally (see that method's own docblock), and
-                // 'state/' is untouched since swap() below never runs.
-                RepositoryCompiler::compile_staged($staging, $c->repo, $c->policy);
-            }
 
-            // The only step that ever touches 'state/': an atomic two-step
-            // rename swap (agent/src/Publish.php). Before this line, a
-            // crash changes nothing an outside reader (git, a human) can
-            // observe; after it returns, 'state/' is unconditionally the
-            // complete new tree.
-            Publish::swap($stateDir);
-
-            if ($intoRepo) {
-                // Ledger/base hashes advance only AFTER the swap above
-                // succeeded — "in the same success protocol as tree
-                // publication" (the issue's own non-negotiable constraint):
-                // a crash before this point leaves duo_state exactly as it
-                // was, which is safe (plan/drift then sees the untouched
-                // repo state as unchanged, since 'state/' itself was never
-                // touched either); a crash AFTER 'state/' updates but
-                // BEFORE this completes just leaves duo_state briefly
-                // stale, which fails toward "more drift visible," never
-                // toward silently missing a real change.
-                foreach ($build['entities'] as $e) {
-                    // task #88: hash the entity's derived-aware basis when it has
-                    // one (posts only, today — see build()'s post-entity
-                    // construction above); every other entity type has no
-                    // 'hash_basis' key and falls back to hashing its literal
-                    // content, unchanged from before this task.
-                    Ledger::set_state_hash($e['uuid'], $e['type'], hash('sha256', $e['hash_basis'] ?? $e['content']));
+                // The intent is durable before either rename. The old tree
+                // remains in capture-backup until COMMIT is acknowledged;
+                // this is explicit compensation for the fact that a
+                // filesystem rename and a DB COMMIT cannot be instantaneous
+                // two-phase commit.
+                $intent = Publish::begin_intent($stateDir, $staging);
+                $publicationPhase['filesystem_swapped'] = true;
+                Publish::swap($stateDir, true);
+                $intent = Publish::mark_swapped($stateDir, $intent);
+                if ($intoRepo) {
+                    foreach ($candidate['entities'] as $e) {
+                        Ledger::set_state_hash(
+                            $e['uuid'],
+                            $e['type'],
+                            hash('sha256', $e['hash_basis'] ?? $e['content'])
+                        );
+                    }
+                    Ledger::prune_state(array_merge(
+                        array_column($candidate['entities'], 'uuid'),
+                        array_column($candidate['deletions'], 'uuid')
+                    ));
+                    Deploy::record_code_versions($c->policy);
                 }
-                Ledger::prune_state(array_merge(
-                    array_column($build['entities'], 'uuid'),
-                    array_column($build['deletions'], 'uuid')
-                ));
-                // DUO-3231: a real (into-repo) capture is, same as a
-                // successful `duo deploy`, a moment Duo legitimately
-                // observed this environment's code — record it as a
-                // code_drift() baseline too, not just deploy. Skipped for
-                // --out= (determinism-check) captures for the same reason
-                // the ledger writes above are already gated on $intoRepo:
-                // that mode is explicitly non-authoritative. Independent of
-                // the publish lock/staging mechanism above (duo_kv is a
-                // separate piece of state from state/), so its exact
-                // position relative to unlock() below is not
-                // safety-critical — kept inside the same block as the other
-                // "capture legitimately completed" bookkeeping for
-                // readability.
-                Deploy::record_code_versions($c->policy);
+                $intent = Publish::mark_commit_ready($stateDir, $intent);
+                // Final DML in this transaction: a destination-scoped,
+                // self-hashed proof that COMMIT makes this exact intent
+                // durable. Recovery uses its absence/mismatch to roll back
+                // an uncommitted filesystem swap, and its presence to finish
+                // a receipt-write crash without replaying capture.
+                Ledger::kv_set(
+                    self::publication_marker_key($stateDir),
+                    self::publication_marker($stateDir, $intent)
+                );
+                $publicationPhase['state_dir'] = $stateDir;
+                $publicationPhase['intent'] = $intent;
+                // Carry only the durable intent across COMMIT. It is removed
+                // by cleanup_committed() after the receipt is written.
+                $candidate['_publication_intent'] = $intent;
+                return $candidate;
+            }, $publicationPhase);
+
+            // The transaction wrapper has now returned only after COMMIT
+            // succeeded. Publish a durable receipt before releasing the
+            // capture lock. If receipt publication fails, recovery refuses
+            // to guess whether COMMIT was durable and never retries.
+            if (isset($build['_publication_intent'])) {
+                $receipt = Publish::write_receipt($stateDir, $build['_publication_intent']);
+                try {
+                    Publish::cleanup_committed($stateDir, $receipt);
+                    self::clear_publication_marker_if_clean($stateDir);
+                } catch (\Throwable $cleanupFailure) {
+                    // Receipt durability makes this cleanup idempotent. Keep
+                    // the successful capture successful; the next run will
+                    // retry cleanup while holding the same destination lock.
+                    $build['warnings'][] = 'capture committed; retained publication cleanup will retry on the next run: '
+                        . $cleanupFailure->getMessage();
+                }
+                unset($build['_publication_intent']);
             }
         } finally {
+            if ($testPhaseMarked) {
+                try {
+                    Ledger::kv_delete('capture_test_phase');
+                } catch (\Throwable $markerFailure) {
+                    // The marker is only a live-test aid. Never mask the
+                    // capture's real outcome with a best-effort cleanup
+                    // failure, and never let it make a successful publish
+                    // fail after the tree and authoritative ledger commit.
+                }
+            }
             Publish::unlock($lock);
         }
 
@@ -800,6 +815,7 @@ final class Capture {
         $tables = [
             $wpdb->posts, $wpdb->postmeta, $wpdb->terms, $wpdb->term_taxonomy,
             $wpdb->term_relationships, $wpdb->termmeta, $wpdb->options, $wpdb->users,
+            $wpdb->usermeta,
             $prefix . 'duo_map', $prefix . 'duo_state', $prefix . 'duo_kv',
         ];
         foreach (array_keys($policy->declared_tables()) as $name) {
@@ -850,22 +866,84 @@ final class Capture {
      * a fresh snapshot." Any OTHER \Throwable — every existing loud-and-
      * blocking gate in build() included — is a real, deterministic failure
      * and is never retried; retrying it would just burn attempts
-     * reproducing the identical failure.
+     * reproducing the identical failure. A transient error reported by the
+     * post-COMMIT checkpoint is also never retried: COMMIT has already
+     * returned, so its outcome may be durable and replaying the callback could
+     * duplicate a committed identity/state mutation.
      */
-    private static function run_in_consistent_snapshot(callable $fn) {
-        global $wpdb;
+    private static function run_in_consistent_snapshot(callable $fn, ?array &$phase = null) {
+        $phase ??= [];
         $attempt = 0;
         while (true) {
             $attempt++;
-            Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT', 'capture transaction start');
-            self::check_transient_db_error('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+            $transactionOpen = false;
+            $commitAttempted = false;
+            // A retry is safe only before the filesystem swap boundary. The
+            // callback sets this immediately before swap(); once true, a
+            // transient DB error must fail closed instead of rebuilding or
+            // replaying a candidate against a tree that may already be new.
+            $phase['filesystem_swapped'] = false;
             try {
+                Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT', 'capture transaction start');
+                // Mark the transaction open immediately after query() returns:
+                // the following checkpoint can still report a transient
+                // driver error even though START succeeded and therefore
+                // needs a rollback before retrying.
+                $transactionOpen = true;
+                self::check_transient_db_error('START TRANSACTION WITH CONSISTENT SNAPSHOT');
                 $result = $fn();
+                if (isset($phase['state_dir'], $phase['intent'])
+                    && is_string($phase['state_dir']) && is_array($phase['intent'])) {
+                    // The durable `committing` marker is written before the
+                    // client issues COMMIT. Recovery may therefore restore a
+                    // swapped tree in `ready`/`swapped` states, but must
+                    // refuse to guess once this marker exists.
+                    $phase['intent'] = Publish::mark_committing($phase['state_dir'], $phase['intent']);
+                }
+                $commitAttempted = true;
                 Db::commit('capture transaction commit');
-                self::check_transient_db_error('COMMIT');
+                // A successful COMMIT closes the transaction even if its
+                // post-query error checkpoint reports a stale driver message;
+                // never issue ROLLBACK after that commit. If the checkpoint
+                // does report an error, the commit outcome is ambiguous: the
+                // callback must not be retried because the database may have
+                // accepted its writes already.
+                $transactionOpen = false;
+                try {
+                    self::check_transient_db_error('COMMIT');
+                } catch (\Throwable $commitCheck) {
+                    throw new \RuntimeException(
+                        'duo: capture commit outcome uncertain — COMMIT returned, but its database error '
+                        . 'checkpoint failed; refusing to retry because the candidate may already be durable',
+                        0,
+                        $commitCheck
+                    );
+                }
                 return $result;
             } catch (TransientDbException $e) {
-                Db::rollback('capture transaction rollback');
+                if ($commitAttempted) {
+                    // Db::commit() can throw when the server accepted or
+                    // rejected COMMIT; the client cannot distinguish those
+                    // outcomes. Never retry or issue a compensating
+                    // rollback after crossing that boundary.
+                    throw new \RuntimeException(
+                        'duo: capture commit outcome uncertain — COMMIT did not return a definitive success; '
+                        . 'refusing to retry because candidate DML may already be durable',
+                        0,
+                        $e
+                    );
+                }
+                if ($transactionOpen) {
+                    Db::rollback('capture transaction rollback');
+                }
+                if (!empty($phase['filesystem_swapped'])) {
+                    throw new \RuntimeException(
+                        'duo: capture failed after filesystem publication began — refusing to retry the candidate; '
+                        . 'the next run must reconcile its durable intent/backup artifacts',
+                        0,
+                        $e
+                    );
+                }
                 if ($attempt >= self::MAX_DB_ATTEMPTS) {
                     throw new \RuntimeException(
                         "duo: capture failed after $attempt attempt(s) — repeated transient database contention "
@@ -876,7 +954,17 @@ final class Capture {
                 usleep(200_000 * $attempt); // 200ms, 400ms, ... — short: this targets brief lock contention, not an outage
                 continue;
             } catch (\Throwable $t) {
-                Db::rollback('capture transaction rollback');
+                if ($commitAttempted) {
+                    throw new \RuntimeException(
+                        'duo: capture commit outcome uncertain — COMMIT returned no definitive success; '
+                        . 'refusing to retry because candidate DML may already be durable',
+                        0,
+                        $t
+                    );
+                }
+                if ($transactionOpen) {
+                    Db::rollback('capture transaction rollback');
+                }
                 throw $t;
             }
         }
@@ -912,6 +1000,101 @@ final class Capture {
             throw new TransientDbException("duo: transient DB contention at $where");
         }
         throw new \RuntimeException("duo: unexpected SQL error at $where");
+    }
+
+    /** Resolve lexical/symlink variants to one stable destination identity. */
+    private static function publication_destination_sha256(string $stateDir): string {
+        $parent = realpath(dirname($stateDir));
+        if ($parent === false) {
+            throw new \RuntimeException('duo: cannot resolve capture publication destination parent: ' . dirname($stateDir));
+        }
+        return hash('sha256', rtrim($parent, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . basename($stateDir));
+    }
+
+    /** Destination-scoped marker key stays well below duo_kv.k's 191-byte limit. */
+    private static function publication_marker_key(string $stateDir): string {
+        return 'capture_publication:' . self::publication_destination_sha256($stateDir);
+    }
+
+    /**
+     * Exact/self-hashed DB commit proof. It is written as the final DML in
+     * the capture transaction; rollback therefore removes it automatically.
+     */
+    private static function publication_marker(string $stateDir, array $intent): string {
+        $record = [
+            'format' => 'duo-capture-commit-marker/v1',
+            'state_sha256' => self::publication_destination_sha256($stateDir),
+            'intent_id' => (string) ($intent['id'] ?? ''),
+            'candidate_sha256' => (string) ($intent['candidate_sha256'] ?? ''),
+            'previous_sha256' => (string) ($intent['previous_sha256'] ?? ''),
+        ];
+        $record['record_sha256'] = hash('sha256', Canon::encode($record));
+        return Canon::encode($record);
+    }
+
+    /**
+     * Return true only for a valid marker belonging to THIS intent. A missing
+     * or prior-run marker is a definitive rollback signal; malformed or
+     * current-but-mismatched data is fail-closed corruption.
+     */
+    private static function publication_commit_status(string $stateDir, array $intent): bool {
+        $raw = Ledger::kv_get(self::publication_marker_key($stateDir));
+        if ($raw === null || $raw === '') {
+            return false;
+        }
+        try {
+            $record = Canon::decode($raw);
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('duo: capture recovery found malformed database commit marker', 0, $e);
+        }
+        if (!is_array($record)) {
+            throw new \RuntimeException('duo: capture recovery found a non-object database commit marker');
+        }
+        $expectedKeys = ['format', 'state_sha256', 'intent_id', 'candidate_sha256', 'previous_sha256', 'record_sha256'];
+        $keys = array_keys($record);
+        sort($keys, SORT_STRING);
+        $sortedExpected = $expectedKeys;
+        sort($sortedExpected, SORT_STRING);
+        if ($keys !== $sortedExpected || ($record['format'] ?? null) !== 'duo-capture-commit-marker/v1') {
+            throw new \RuntimeException('duo: capture recovery found an unsupported database commit marker shape');
+        }
+        $seal = (string) $record['record_sha256'];
+        unset($record['record_sha256']);
+        if (!preg_match('/^[a-f0-9]{64}$/', $seal)
+            || !hash_equals($seal, hash('sha256', Canon::encode($record)))) {
+            throw new \RuntimeException('duo: capture recovery found a tampered database commit marker');
+        }
+        if (!is_string($record['state_sha256'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/', $record['state_sha256']) !== 1
+            || !is_string($record['intent_id'] ?? null)
+            || preg_match('/^[a-f0-9]{32}$/', $record['intent_id']) !== 1
+            || !is_string($record['candidate_sha256'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/', $record['candidate_sha256']) !== 1
+            || !is_string($record['previous_sha256'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/', $record['previous_sha256']) !== 1) {
+            throw new \RuntimeException('duo: capture recovery found malformed database commit marker fields');
+        }
+        if (($record['state_sha256'] ?? null) !== self::publication_destination_sha256($stateDir)) {
+            throw new \RuntimeException('duo: capture recovery found a commit marker for a different destination');
+        }
+        if (($record['intent_id'] ?? null) !== ($intent['id'] ?? null)) {
+            return false; // a prior capture's marker; not proof for this intent
+        }
+        if (($record['candidate_sha256'] ?? null) !== ($intent['candidate_sha256'] ?? null)
+            || ($record['previous_sha256'] ?? null) !== ($intent['previous_sha256'] ?? null)) {
+            throw new \RuntimeException('duo: capture recovery found a current-intent commit marker with mismatched digests');
+        }
+        return true;
+    }
+
+    /** Commit proof is needed only while filesystem recovery artifacts exist. */
+    private static function clear_publication_marker_if_clean(string $stateDir): void {
+        if (is_file(Publish::intent_path($stateDir))
+            || is_dir(Publish::stage_dir($stateDir))
+            || is_dir(Publish::backup_dir($stateDir))) {
+            return;
+        }
+        Ledger::kv_delete(self::publication_marker_key($stateDir));
     }
 
     // ------------------------------------------------------------------

@@ -13,12 +13,16 @@ sandbox/.env
 .duo/
 .claude/worktrees/
 
-# DUO-3213: capture's staging/backup/lock artifacts (agent/src/Publish.php)
-# — siblings of any published state dir (state.capture-staging, state.
-# capture-backup, state.capture.lock); git must never see one, even
-# transiently mid-capture.
+# DUO-3213: capture's staging/backup/lock and durable protocol artifacts
+# (agent/src/Publish.php)
+# — siblings of any published state dir; git must never see one, even
+# transiently mid-capture or during recovery.
 state.capture-staging/
 state.capture-backup/
+state.capture-intent
+state.capture-receipt
+state.capture-intent.tmp.*
+state.capture-receipt.tmp.*
 state.capture.lock
 
 # DUO-3232: see sandbox/site-repo.gitignore.template's own note — belt-and-

@@ -144,6 +144,13 @@ final class Apply {
                 $e['data'],
                 $envE
             );
+            if ($uuid === 'options/core') {
+                // Carry only the exact option records whose canonical state
+                // differs from the captured target. A retry row is widened
+                // back to all desired records in rebuild_surfaces(), because
+                // its prior authored mutation may already be target-equal.
+                $row['rebuild_option_names'] = $this->option_rebuild_names($e['data'], $envE);
+            }
             if ($e['type'] === SidebarState::ENTITY_TYPE && $envE !== null) {
                 $envFront = Canon::decode($envE['content']);
                 $hasUnmanaged = false;
@@ -509,6 +516,60 @@ final class Apply {
             $this->warnings[] = $inactiveWarning;
         }
         return $plan;
+    }
+
+    /**
+     * Return only option names whose canonical records changed. The options
+     * document format and record envelope are deliberately compared by
+     * OptionState::record_hash(), so unrelated option records do not widen a
+     * scoped rebuilder's authority.
+     *
+     * @return list<string>
+     */
+    private function option_rebuild_names(array $desiredDocument, ?array $env): array {
+        $desired = OptionState::records($desiredDocument);
+        if ($env === null) {
+            $names = [];
+            foreach ($desired as $name => $record) {
+                if (($record['state'] ?? null) === 'absent') {
+                    continue;
+                }
+                if (($record['state'] ?? null) === 'present'
+                    && isset($this->policy)
+                    && (($this->policy->option_rule((string) $name)['class'] ?? null) === 'managed')) {
+                    continue;
+                }
+                $names[] = (string) $name;
+            }
+            sort($names, SORT_STRING);
+            return $names;
+        }
+        $envDocument = Canon::decode((string) ($env['content'] ?? ''));
+        $observed = OptionState::records($envDocument);
+        $names = [];
+        // Target-only records are intentionally absent from this projection:
+        // omission is not deletion authority, and apply_options() preserves
+        // them untouched. Only desired records can be authored/deleted by
+        // this revision.
+        foreach ($desired as $name => $record) {
+            if (($record['state'] ?? null) === 'absent') {
+                continue;
+            }
+            if (($record['state'] ?? null) === 'present'
+                && isset($this->policy)
+                && (($this->policy->option_rule((string) $name)['class'] ?? null) === 'managed')) {
+                continue;
+            }
+            if (!array_key_exists($name, $observed)
+                || !hash_equals(
+                    OptionState::record_hash($record),
+                    OptionState::record_hash($observed[$name])
+                )) {
+                $names[] = (string) $name;
+            }
+        }
+        sort($names, SORT_STRING);
+        return $names;
     }
 
     /**
@@ -1671,6 +1732,7 @@ final class Apply {
     private function run(array $opts, CompiledRepository $compiled): array {
         global $wpdb;
         $tree = $compiled->tree();
+        $retryingIncompleteApply = Ledger::kv_get('apply_in_progress') !== null;
         $plan = $this->build_plan($opts, $compiled);
 
         if ($plan['collision']) {
@@ -1777,6 +1839,18 @@ final class Apply {
             $this->deletion_rank($b) <=> $this->deletion_rank($a)
             ?: ($a['uuid'] <=> $b['uuid'])
         );
+        // A previous apply can have committed authored rows and failed after
+        // a tombstone target was already absent. Include those immutable
+        // tombstones in the retry surface set so bounded derived-state
+        // rebuilders still clear/verify their rows on the next attempt.
+        $rebuildDeleteWork = $deleteWork;
+        if ($retryingIncompleteApply) {
+            $rebuildDeleteWork = array_merge($rebuildDeleteWork, $plan['deleted']);
+            usort($rebuildDeleteWork, fn(array $a, array $b): int =>
+                $this->deletion_rank($b) <=> $this->deletion_rank($a)
+                ?: ((string) ($a['uuid'] ?? '') <=> (string) ($b['uuid'] ?? ''))
+            );
+        }
 
         if (!empty($opts['with_deletes'])) {
             $blocked = array_filter($deleteWork, fn($r) => isset($r['blocked']));
@@ -2011,9 +2085,7 @@ final class Apply {
         // failed run — see that method's own docblock for why plan's content
         // hash alone (unchanged after a regen-verify failure, since derived
         // tables are excluded from the hash basis) can't carry this signal.
-        $didMutate = count($work) > 0
-            || (!empty($opts['with_deletes']) && count($deleteWork) > 0);
-        $this->rebuild($attachmentIds, $didMutate, $work, $tree, $regenContext);
+        $this->rebuild($attachmentIds, $work, $tree, $regenContext, $rebuildDeleteWork);
 
         // DUO-3220: never infer convergence from the absence of a thrown
         // mutation/rebuilder error. Re-capture the target through the same
@@ -4466,18 +4538,20 @@ final class Apply {
     /**
      * @param array<int,array{uuid:string,type:string,path?:string}> $work
      *   this run's applied entities (create+adopt+update+forced-conflict) —
-     *   DUO-3234's regen_dependencies() needs the full batch, not just
-     *   $didWork's boolean collapse of it.
+     *   DUO-3234's regen_dependencies() needs the full batch.
      * @param array<string,array> $tree the full compiled repository tree,
      *   keyed by uuid — needed to resolve a $work entry's post_type
      *   ($tree[$uuid]['data']['type']).
+     * @param array<int,array> $deleteWork actual deletes plus immutable
+     *   tombstones included when an incomplete apply is being retried; these
+     *   rows contribute exact deletion surfaces but are never re-deleted.
      */
     private function rebuild(
         array $attachmentIds,
-        bool $didWork,
         array $work = [],
         array $tree = [],
-        array $regenContext = []
+        array $regenContext = [],
+        array $deleteWork = []
     ): void {
         global $wpdb;
 
@@ -4485,10 +4559,10 @@ final class Apply {
         // dependency — run FIRST, deliberately, since it is the only step in
         // this method that can hard-fail the whole apply; no point spending
         // time on term recounts/attachment metadata/rebuilders first if this
-        // is about to throw. Runs regardless of $didWork: a prior run's
-        // still-outstanding regen_pending: marker must be retried even when
-        // THIS run's own $work is empty (see regen_dependencies()'s own
-        // docblock for why $didWork/an empty $work cannot gate this step).
+        // is about to throw. It runs regardless of authored work because a
+        // prior run's still-outstanding regen_pending marker must be retried
+        // even when this run's $work is empty (see regen_dependencies()'s own
+        // docblock).
         $this->regen_dependencies($work, $tree, $regenContext);
 
         // Future-post cron is derived operational state. Raw SQL deliberately
@@ -4599,53 +4673,56 @@ final class Apply {
             }
         }
 
-        // manifest-declared rebuilders: the hooks we deliberately skip are also
-        // what maintain plugin derived state (indexables, lookup tables) —
-        // manifests declare the regeneration command instead.
-        if ($didWork) {
-            foreach ($this->policy->rebuilders() as $r) {
-                $cmd = (string) ($r['command'] ?? '');
-                if ($cmd === '') {
-                    continue;
+        // Manifest-declared rebuilders: the hooks we deliberately skip are
+        // also what maintain plugin derived state (indexables, lookup tables)
+        // — manifests declare the regeneration command instead. Rebuilders
+        // with exact triggers are narrowed to the canonical surfaces touched
+        // by this request; legacy declarations without triggers remain
+        // selected for backward compatibility. An empty surface set is a
+        // no-op, including a read-only apply.
+        $surfaces = $this->rebuild_surfaces($work, $tree, $deleteWork);
+        foreach ($this->policy->rebuilders_for($surfaces) as $r) {
+            $cmd = (string) ($r['command'] ?? '');
+            if ($cmd === '') {
+                continue;
+            }
+            if (!class_exists('\WP_CLI')) {
+                throw new \RuntimeException("duo: required manifest rebuilder unavailable outside wp-cli: '$cmd'");
+            }
+            try {
+                $res = \WP_CLI::runcommand($cmd, ['launch' => true, 'return' => 'all', 'exit_error' => false]);
+                if ((int) $res->return_code !== 0) {
+                    // DUO-3282: the launch layer (a genuinely separate
+                    // process boundary from the rest of apply — see
+                    // 'launch' => true above) can fail for reasons a
+                    // bare exit code doesn't explain on its own (a
+                    // fatal in the eval'd command, a missing wp-cli
+                    // sub-command). Surfacing stdout/stderr here is the
+                    // difference between a one-line "exited 255" a
+                    // human has to go reproduce by hand, and the actual
+                    // error message that already existed and was being
+                    // silently discarded.
+                    $out = trim((string) ($res->stdout ?? ''));
+                    $err = trim((string) ($res->stderr ?? ''));
+                    throw new \RuntimeException(
+                        "duo: required manifest rebuilder '$cmd' exited {$res->return_code}"
+                        . ($out !== '' ? "\nstdout: $out" : '')
+                        . ($err !== '' ? "\nstderr: $err" : '')
+                    );
                 }
-                if (!class_exists('\WP_CLI')) {
-                    throw new \RuntimeException("duo: required manifest rebuilder unavailable outside wp-cli: '$cmd'");
+                // DUO-3282: unconditional per-declaration confirmation
+                // that Apply's own WP_CLI::runcommand() launch actually
+                // invoked this rebuilder — the layer that was
+                // previously unverifiable from outside (a caller could
+                // only ever infer it indirectly, e.g. by querying a
+                // rebuilder's own side-effect table after the fact, as
+                // DUO-3267's grind script did before this fix existed).
+                $this->warnings[] = "rebuilder fired: '$cmd' (exit 0)";
+            } catch (\Throwable $t) {
+                if (str_starts_with($t->getMessage(), 'duo: required manifest rebuilder')) {
+                    throw $t;
                 }
-                try {
-                    $res = \WP_CLI::runcommand($cmd, ['launch' => true, 'return' => 'all', 'exit_error' => false]);
-                    if ((int) $res->return_code !== 0) {
-                        // DUO-3282: the launch layer (a genuinely separate
-                        // process boundary from the rest of apply — see
-                        // 'launch' => true above) can fail for reasons a
-                        // bare exit code doesn't explain on its own (a
-                        // fatal in the eval'd command, a missing wp-cli
-                        // sub-command). Surfacing stdout/stderr here is the
-                        // difference between a one-line "exited 255" a
-                        // human has to go reproduce by hand, and the actual
-                        // error message that already existed and was being
-                        // silently discarded.
-                        $out = trim((string) ($res->stdout ?? ''));
-                        $err = trim((string) ($res->stderr ?? ''));
-                        throw new \RuntimeException(
-                            "duo: required manifest rebuilder '$cmd' exited {$res->return_code}"
-                            . ($out !== '' ? "\nstdout: $out" : '')
-                            . ($err !== '' ? "\nstderr: $err" : '')
-                        );
-                    }
-                    // DUO-3282: unconditional per-declaration confirmation
-                    // that Apply's own WP_CLI::runcommand() launch actually
-                    // invoked this rebuilder — the layer that was
-                    // previously unverifiable from outside (a caller could
-                    // only ever infer it indirectly, e.g. by querying a
-                    // rebuilder's own side-effect table after the fact, as
-                    // DUO-3267's grind script did before this fix existed).
-                    $this->warnings[] = "rebuilder fired: '$cmd' (exit 0)";
-                } catch (\Throwable $t) {
-                    if (str_starts_with($t->getMessage(), 'duo: required manifest rebuilder')) {
-                        throw $t;
-                    }
-                    throw new \RuntimeException("duo: required manifest rebuilder '$cmd' failed", 0, $t);
-                }
+                throw new \RuntimeException("duo: required manifest rebuilder '$cmd' failed", 0, $t);
             }
         }
 
@@ -4653,6 +4730,103 @@ final class Apply {
         if (wp_cache_flush() === false) {
             throw new \RuntimeException('duo: required object-cache flush failed');
         }
+    }
+
+    /**
+     * Derive exact canonical surfaces from authored work and deletion rows.
+     * This is deliberately a pure projection: it never reads target ids and
+     * never turns an id into a selector. The resulting keys are only compared
+     * with manifest trigger literals by Policy::rebuilders_for().
+     *
+     * @param array<int,array> $work
+     * @param array<string,array> $tree
+     * @param array<int,array> $deleteWork
+     * @return list<string>
+     */
+    private function rebuild_surfaces(array $work, array $tree, array $deleteWork = []): array {
+        $surfaces = [];
+        foreach ($work as $entry) {
+            $uuid = (string) ($entry['uuid'] ?? '');
+            $entity = $uuid !== '' ? ($tree[$uuid] ?? null) : null;
+            if (is_array($entity)) {
+                foreach ($this->entity_rebuild_surfaces($entity, $entry) as $surface) {
+                    $surfaces[$surface] = true;
+                }
+            }
+        }
+        foreach ($deleteWork as $row) {
+            foreach ($this->deletion_rebuild_surfaces($row) as $surface) {
+                $surfaces[$surface] = true;
+            }
+        }
+        $out = array_keys($surfaces);
+        sort($out, SORT_STRING);
+        return $out;
+    }
+
+    /** @return list<string> */
+    private function entity_rebuild_surfaces(array $entity, array $entry = []): array {
+        $entityType = (string) ($entity['type'] ?? '');
+        $data = (array) ($entity['data'] ?? []);
+        if ($entityType === 'post') {
+            $postType = (string) ($data['type'] ?? '');
+            return [$postType !== '' ? 'post:' . $postType : 'entity:post'];
+        }
+        if ($entityType === 'term') {
+            $taxonomy = (string) ($data['taxonomy'] ?? '');
+            return [$taxonomy !== '' ? 'term:' . $taxonomy : 'entity:term'];
+        }
+        if ($entityType === 'menu') {
+            return ['term:nav_menu'];
+        }
+        if ($entityType === 'options') {
+            $records = OptionState::records($data);
+            $names = !empty($entry['retry'])
+                ? array_keys($records)
+                : (array) ($entry['rebuild_option_names'] ?? []);
+            $out = [];
+            foreach ($names as $option) {
+                $option = (string) $option;
+                if ($option === '' || !isset($records[$option])) {
+                    continue;
+                }
+                $record = $records[$option];
+                if (($record['state'] ?? null) === 'absent') {
+                    continue;
+                }
+                if (($record['state'] ?? null) === 'present'
+                    && isset($this->policy)
+                    && (($this->policy->option_rule($option)['class'] ?? null) === 'managed')) {
+                    continue;
+                }
+                $out[] = 'option:' . $option;
+            }
+            return $out;
+        }
+        if ($entityType === 'user-meta' || $entityType === SidebarState::ENTITY_TYPE) {
+            return ['entity:' . ($entityType !== '' ? $entityType : 'unknown')];
+        }
+        if ($entityType !== '') {
+            // Snapshot row entities use their concrete table name as `type`.
+            // Keeping the name literal preserves exact table-level trigger
+            // matching without granting any command authority over it.
+            return ['table:' . $entityType];
+        }
+        return ['entity:unknown'];
+    }
+
+    /** @return list<string> */
+    private function deletion_rebuild_surfaces(array $row): array {
+        $kind = (string) ($row['deletion_kind'] ?? $row['kind'] ?? '');
+        $type = (string) ($row['deletion_type'] ?? $row['type'] ?? '');
+        return match ($kind) {
+            'post' => [$type !== '' ? 'post:' . $type : 'entity:post'],
+            'term' => [$type !== '' ? 'term:' . $type : 'entity:term'],
+            'menu' => ['term:nav_menu'],
+            'table' => [$type !== '' ? 'table:' . $type : 'entity:table'],
+            'option', 'options' => [$type !== '' ? 'option:' . $type : 'entity:options'],
+            default => ['entity:' . ($kind !== '' ? $kind : ($type !== '' ? $type : 'unknown'))],
+        };
     }
 
     /**

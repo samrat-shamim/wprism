@@ -323,6 +323,11 @@ namespace {
         public function get_variation(): bool { return $this->variation; }
     }
 
+    final class FakeSaleDate {
+        public function __construct(private int $timestamp) {}
+        public function getTimestamp(): int { return $this->timestamp; }
+    }
+
     class FakeProduct {
         public function __construct(
             private int $id,
@@ -358,6 +363,12 @@ namespace {
         }
         public function get_attributes(): array { return $this->attributes; }
         public function is_in_stock(): bool { return $this->stock; }
+        public function get_date_on_sale_from(string $context = 'view'): ?FakeSaleDate {
+            return fake_sale_date($this->id, '_sale_price_dates_from');
+        }
+        public function get_date_on_sale_to(string $context = 'view'): ?FakeSaleDate {
+            return fake_sale_date($this->id, '_sale_price_dates_to');
+        }
         public function get_status(): string { return $this->status; }
         public function get_catalog_visibility(): string { return $this->catalogVisibility; }
         public function set_parent(int $parent): void { $this->parent = $parent; }
@@ -653,6 +664,13 @@ namespace {
     $fakeGroupedChildren = [];
     $fakeSyncFailures = ['variable' => [], 'grouped' => []];
     $fakeMetaRestoreFailures = [];
+    $fakeSaleSchedules = [
+        'wc_product_start_scheduled_sale' => [],
+        'wc_product_end_scheduled_sale' => [],
+    ];
+    $fakeSaleScheduleCalls = [];
+    $fakeSaleUnscheduleCalls = [];
+    $fakeSaleVerificationFailure = false;
     $fakeFilters = [];
     $fakeTermQueries = [];
 
@@ -678,6 +696,49 @@ namespace {
             $product->set_attributes([]);
         }
         return $fakeProductCache[$id] = $product;
+    }
+    function fake_sale_date(int $id, string $key): ?FakeSaleDate {
+        global $fakeMeta;
+        $value = (string) ($fakeMeta[$id][$key][0] ?? '');
+        return $value === '' || (int) $value <= 0 ? null : new FakeSaleDate((int) $value);
+    }
+    function wc_maybe_schedule_product_sale_events($id, $product = null): void {
+        global $fakeSaleSchedules, $fakeSaleScheduleCalls;
+        $id = (int) $id;
+        $fakeSaleScheduleCalls[] = $id;
+        foreach (array_keys($fakeSaleSchedules) as $hook) {
+            unset($fakeSaleSchedules[$hook][$id]);
+        }
+        if (!is_object($product)) {
+            $product = wc_get_product($id);
+        }
+        if (!is_object($product)) {
+            return;
+        }
+        $dates = [
+            'wc_product_start_scheduled_sale' => $product->get_date_on_sale_from('edit'),
+            'wc_product_end_scheduled_sale' => $product->get_date_on_sale_to('edit'),
+        ];
+        foreach ($dates as $hook => $date) {
+            if ($date instanceof FakeSaleDate && $date->getTimestamp() > time()) {
+                $fakeSaleSchedules[$hook][$id] = $date->getTimestamp();
+            }
+        }
+    }
+    function as_unschedule_all_actions(string $hook, array $args = [], string $group = ''): int {
+        global $fakeSaleSchedules, $fakeSaleUnscheduleCalls;
+        $id = (int) ($args['product_id'] ?? 0);
+        $fakeSaleUnscheduleCalls[] = $id;
+        $had = isset($fakeSaleSchedules[$hook][$id]);
+        unset($fakeSaleSchedules[$hook][$id]);
+        return $had ? 1 : 0;
+    }
+    function as_next_scheduled_action(string $hook, array $args = [], string $group = ''): int|false {
+        global $fakeSaleSchedules, $fakeSaleVerificationFailure;
+        if ($fakeSaleVerificationFailure) {
+            return false;
+        }
+        return $fakeSaleSchedules[$hook][(int) ($args['product_id'] ?? 0)] ?? false;
     }
     function delete_transient(string $key): bool {
         global $fakeDeletedTransients;
@@ -844,6 +905,41 @@ namespace {
         echo ($condition ? 'ok: ' : 'FAIL: ') . $message . "\n";
         if (!$condition) { $failures++; }
     };
+
+    // Sale scheduling is a bounded product batch, not a catalog-wide scan.
+    // Exercise a future end date, an unrelated no-date product, heartbeat
+    // calls, exact Action Scheduler readback, and a verifier fault that must
+    // fail closed before the retry is allowed to pass.
+    $futureSale = time() + 3600;
+    $fakeMeta[13]['_sale_price_dates_to'] = [(string) $futureSale];
+    $saleCallStart = count($fakeSaleScheduleCalls);
+    $heartbeats = 0;
+    $adapter->regenerate_batch([13], [], static function () use (&$heartbeats): void {
+        $heartbeats++;
+    });
+    $saleCalls = array_slice($fakeSaleScheduleCalls, $saleCallStart);
+    $check(in_array(13, $saleCalls, true), 'product batch invokes Woo sale scheduling for the affected product only');
+    $check(($fakeSaleSchedules['wc_product_end_scheduled_sale'][13] ?? null) === $futureSale,
+        'future sale end action is present at the exact authored timestamp');
+    $check($heartbeats > 0, 'product sale scheduling batch renews its heartbeat around bounded work');
+    $unrelatedCallStart = count($fakeSaleScheduleCalls);
+    $adapter->regenerate_batch([14], []);
+    $unrelatedCalls = array_slice($fakeSaleScheduleCalls, $unrelatedCallStart);
+    $check($unrelatedCalls === [14], 'an unrelated no-date product is the only sale-scheduling candidate in its batch');
+    $check(as_next_scheduled_action('wc_product_end_scheduled_sale', ['product_id' => 14], 'woocommerce-sales') === false,
+        'no-date product has no unexpected sale action');
+    $fakeSaleVerificationFailure = true;
+    $saleVerificationFailedClosed = false;
+    try {
+        $adapter->regenerate_batch([13], []);
+    } catch (\Throwable $failure) {
+        $saleVerificationFailedClosed = str_contains($failure->getMessage(), 'sale schedule verification mismatch');
+    }
+    $fakeSaleVerificationFailure = false;
+    $check($saleVerificationFailedClosed, 'sale schedule verification refuses a failed Action Scheduler readback');
+    $adapter->regenerate_batch([13], []);
+    $check(($fakeSaleSchedules['wc_product_end_scheduled_sale'][13] ?? null) === $futureSale,
+        'sale scheduling retry restores the exact future action after a verification failure');
 
     $groupedDiscovery = new \ReflectionMethod($adapter, 'find_grouped_parent_ids');
     $groupedDiscovery->setAccessible(true);
@@ -1139,7 +1235,13 @@ namespace {
         'post_type' => 'product',
         'child_ids' => [],
     ]];
+    $fakeSaleSchedules['wc_product_end_scheduled_sale'][41] = time() + 3600;
+    $deleteSaleCallStart = count($fakeSaleUnscheduleCalls);
     $adapter->regenerate_batch([], $groupedDeleteContext);
+    $deleteSaleCalls = array_slice($fakeSaleUnscheduleCalls, $deleteSaleCallStart);
+    $check(in_array(41, $deleteSaleCalls, true), 'deleted product sale actions are cleared through the bounded id context');
+    $check(as_next_scheduled_action('wc_product_end_scheduled_sale', ['product_id' => 41], 'woocommerce-sales') === false,
+        'deleted product has no residual end-sale action after bounded cleanup');
     $check(!isset($fakeMetaLookup[41]), 'grouped deletion removes the deleted child meta lookup row');
     $check($fakeMeta[40]['_price'] === ['21', '21'] && $fakeMetaLookup[40]['min_price'] === '21',
         'grouped deletion resynthesizes the root from remaining children');

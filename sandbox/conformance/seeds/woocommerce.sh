@@ -96,7 +96,12 @@ wp_conf1 wc product_variation create "$VPID" \
   --attributes="[{\"id\":$SIZE_ATTR_ID,\"option\":\"Large\"},{\"id\":$COLOR_ATTR_ID,\"option\":\"Blue\"}]" \
   --regular_price=12.99 --sku=CONF-VAR-L-BLUE --manage_stock=true --stock_quantity=8 --user=admin --porcelain >/dev/null
 
+# Merchant checkout settings are authored state. COD's settings blob contains
+# no secrets in this fixture; the target check verifies exact values through
+# both get_option() and WooCommerce's payment-gateway API.
 wp_conf1 option update woocommerce_calc_taxes yes >/dev/null
+wp_conf1 option update woocommerce_cod_settings --format=json \
+  '{"enabled":"yes","title":"Conformance COD Desk","description":"Pay at the conformance desk.","instructions":"Use code CONF-COD-7 at pickup.","enable_for_methods":[],"enable_for_virtual":"yes"}' >/dev/null
 ZONE_ID=$(wp_conf1 wc shipping_zone create --name='Conformance United States' --order=1 --user=admin --porcelain)
 wp_conf1 eval "\$z = new WC_Shipping_Zone($ZONE_ID); \$z->add_location('US', 'country'); \$z->save();" >/dev/null
 FLAT_INSTANCE=$(wp_conf1 wc shipping_zone_method create "$ZONE_ID" --method_id=flat_rate --enabled=true --order=1 --user=admin --porcelain)

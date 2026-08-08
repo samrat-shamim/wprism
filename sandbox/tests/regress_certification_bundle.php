@@ -57,6 +57,58 @@ function remove_tree(string $path): void {
     rmdir($path);
 }
 
+echo "\n== reference runner exact-checkout guard ==\n";
+$referenceRunner = (string) file_get_contents(__DIR__ . '/certify_reference_bundle.sh');
+$guardCall = strpos($referenceRunner, "assert_exact_certification_checkout\n");
+$workAllocation = strpos($referenceRunner, 'WORK_ROOT=$(mktemp -d');
+$pairInspection = strpos($referenceRunner, 'bash bin/pair.sh list');
+check(str_contains($referenceRunner, 'rev-parse --path-format=absolute --git-dir'), 'reference certification resolves the invoking checkout git-dir');
+check(str_contains($referenceRunner, 'rev-parse --path-format=absolute --git-common-dir'), 'reference certification resolves the canonical pair mount root');
+check(str_contains($referenceRunner, '[ "$git_dir" != "$common_dir" ]'), 'reference certification refuses a linked-worktree mount mismatch');
+check(str_contains($referenceRunner, 'status --porcelain=v1 --untracked-files=all'), 'reference certification refuses uncommitted source bytes');
+check(str_contains($referenceRunner, 'DUO_AGENT_SRC='), 'reference certification validates the persisted agent mount source');
+check(str_contains($referenceRunner, 'DUO_MANIFESTS_SRC='), 'reference certification validates the persisted manifest mount source');
+check(
+    $guardCall !== false && $workAllocation !== false && $pairInspection !== false
+        && $guardCall < $workAllocation && $guardCall < $pairInspection,
+    'exact-checkout refusal runs before temporary allocation or Docker pair inspection'
+);
+
+echo "\n== version-matrix cross-user repository permissions ==\n";
+$versionMatrix = (string) file_get_contents(__DIR__ . '/certify_version_matrix.sh');
+check(
+    substr_count($versionMatrix, "sh -c 'umask 000; exec wp \"\$@\"' sh \"\$@\"") === 2,
+    'both version-matrix WP-CLI sides create disposable output with a host-cleanable umask'
+);
+check(
+    str_contains($versionMatrix, 'chmod 0777 "$root"'),
+    'every allowlisted reset restores uid-33 write access without replacing the bind root'
+);
+check(
+    str_contains($versionMatrix, 'chmod 0777 "siterepo/${PAIR}2"'),
+    'every clone can restore uid-33 write access to the recreated target repository root'
+);
+check(
+    str_contains($versionMatrix, '"siterepo/${PAIR}1"|"siterepo/${PAIR}2") ;;'),
+    'matrix cleanup is allowlisted to the two disposable repository roots'
+);
+check(
+    str_contains($versionMatrix, 'find "$root" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +'),
+    'matrix resets clear repository children while preserving live bind-root inodes'
+);
+check(
+    !str_contains($versionMatrix, 'rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1"'),
+    'matrix resets never remove the live source bind root'
+);
+check(
+    preg_match_all('/^\s*reset_case_repositories\s*$/m', $versionMatrix) === 14,
+    'all positive and negative matrix cases use the shared cross-user reset boundary'
+);
+check(
+    preg_match_all('/^\s*clone_case_target\s*$/m', $versionMatrix) === 7,
+    'all positive round-trip cases use the shared cross-user target-clone boundary'
+);
+
 $root = sys_get_temp_dir() . '/duo_cert_bundle_' . bin2hex(random_bytes(5));
 $repo = "$root/repo";
 $inputs = "$root/inputs";
