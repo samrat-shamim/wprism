@@ -316,7 +316,8 @@ function woo_effect_catalog_projection_rebuilder(): array {
 /** @return array<string,mixed> */
 function woo_effect_policy_for_manifest(array $manifest): Policy {
     return Policy::from_snapshot([
-        'format' => 'duo-policy-snapshot/v2',
+        'format' => 'duo-policy-snapshot/v3',
+        'capabilities' => null,
         'dispositions' => null,
         'site' => [
             'manifests' => [(string) ($manifest['name'] ?? 'woocommerce')],
