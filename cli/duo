@@ -24,6 +24,7 @@ require __DIR__ . '/src/CodeDeploy.php';
 require __DIR__ . '/src/PlanSummary.php';
 require __DIR__ . '/src/Pending.php';
 require __DIR__ . '/src/Triage.php';
+require __DIR__ . '/src/ClassificationBatch.php';
 
 use Duo\Orchestrator\Doctor;
 use Duo\Orchestrator\Adopt;
@@ -33,6 +34,7 @@ use Duo\Orchestrator\PlanSummary;
 use Duo\Orchestrator\Registry;
 use Duo\Orchestrator\Transport;
 use Duo\Orchestrator\Triage;
+use Duo\Orchestrator\ClassificationBatch;
 
 function duo_usage(): string {
     return <<<TXT
@@ -53,7 +55,7 @@ Usage:
   duo env-set <env> --name=<name> (--value=<value> | --stdin)
   duo promote <env> [extra apply flags...]
   duo pending <env>
-  duo classify <env> [--accept-proposals]
+  duo classify <env> [--accept-proposals|--export-batch=<path>|--apply-batch=<path>]
   duo coverage <env> [--format=json]
   duo -h | --help
 
@@ -151,6 +153,12 @@ Verbs:
                           human). Exit 0 if the queue was empty or fully
                           handled; non-zero if any secret-authored items had
                           to be skipped.
+    --export-batch=<path> Write a value-redacted, queue-bound review artifact.
+                          Refuses to overwrite an existing path. Fill every
+                          decisions[].class, then apply the same artifact.
+    --apply-batch=<path>  Apply a fully-reviewed batch only when its env and
+                          pending-queue SHA-256 still match. Stale or partial
+                          batches refuse before any remote policy write.
   coverage <env>          Names and counts what this site actually has versus
                           what Duo can see (options, custom tables) —
                           deliberately NOT a gate: never blocks capture/plan/
@@ -762,12 +770,15 @@ function cmd_pending(Transport $t, array $extra): int {
  */
 const CLASSIFY_SET_MODE = 'joined';
 
-/** @param list<array{section:string,key:string,class:string,ref?:string}> $decisions */
+/** @param list<array{section:string,key:string,class:string,ref?:string,cast?:string}> $decisions */
 function build_classify_args(array $decisions, bool $needAllowSecret): array {
     $specs = array_map(function (array $d): string {
         $spec = "{$d['section']}:{$d['key']}={$d['class']}";
         if (isset($d['ref'])) {
             $spec .= ",ref={$d['ref']}";
+        }
+        if (isset($d['cast'])) {
+            $spec .= ",cast={$d['cast']}";
         }
         return $spec;
     }, $decisions);
@@ -783,25 +794,130 @@ function build_classify_args(array $decisions, bool $needAllowSecret): array {
 }
 
 function cmd_classify(Transport $t, array $extra): int {
-    $unknown = array_values(array_diff($extra, ['--accept-proposals']));
+    $acceptProposals = in_array('--accept-proposals', $extra, true);
+    $exportBatch = null;
+    $applyBatch = null;
+    $unknown = [];
+    foreach ($extra as $arg) {
+        if ($arg === '--accept-proposals') {
+            continue;
+        }
+        if (str_starts_with($arg, '--export-batch=')) {
+            if ($exportBatch !== null) {
+                fwrite(STDERR, "duo: classify: --export-batch may be provided only once\n");
+                return 1;
+            }
+            $exportBatch = substr($arg, strlen('--export-batch='));
+            continue;
+        }
+        if (str_starts_with($arg, '--apply-batch=')) {
+            if ($applyBatch !== null) {
+                fwrite(STDERR, "duo: classify: --apply-batch may be provided only once\n");
+                return 1;
+            }
+            $applyBatch = substr($arg, strlen('--apply-batch='));
+            continue;
+        }
+        $unknown[] = $arg;
+    }
     if ($unknown) {
         fwrite(STDERR, 'duo: classify: unknown flag(s): ' . implode(' ', $unknown) . "\n");
         return 1;
     }
-    $acceptProposals = in_array('--accept-proposals', $extra, true);
+    $modes = (int) $acceptProposals + (int) ($exportBatch !== null) + (int) ($applyBatch !== null);
+    if ($modes > 1) {
+        fwrite(STDERR, "duo: classify: choose exactly one of --accept-proposals, --export-batch, or --apply-batch\n");
+        return 1;
+    }
 
     $res = fetch_pending($t);
     if (!$res['ok']) {
         return $res['exit'];
+    }
+    // Applying a previously-exported artifact must validate even when the
+    // live queue is now empty: "someone else cleared it" is still a queue
+    // change, not permission to silently report this stale batch as applied.
+    if ($applyBatch !== null) {
+        return cmd_classify_apply_batch($t, $res['items'], $applyBatch);
     }
     if (!$res['items']) {
         echo "review queue is empty\n";
         return 0;
     }
 
+    if ($exportBatch !== null) {
+        return cmd_classify_export_batch($t, $res['items'], $exportBatch);
+    }
     return $acceptProposals
         ? cmd_classify_accept_proposals($t, $res['items'])
         : cmd_classify_interactive($t, $res['items']);
+}
+
+/** @param list<array<string,mixed>> $items */
+function cmd_classify_export_batch(Transport $t, array $items, string $path): int {
+    if ($path === '') {
+        fwrite(STDERR, "duo: classify: --export-batch requires a path\n");
+        return 1;
+    }
+    try {
+        $encoded = ClassificationBatch::encode(ClassificationBatch::template($t->name(), $items));
+        if ($path === '-') {
+            echo $encoded;
+            return 0;
+        }
+        if (file_exists($path) || is_link($path)) {
+            throw new \RuntimeException("duo: refusing to overwrite existing classification batch: $path");
+        }
+        $parent = dirname($path);
+        if (!is_dir($parent)) {
+            throw new \RuntimeException("duo: classification batch directory does not exist: $parent");
+        }
+        if (file_put_contents($path, $encoded, LOCK_EX) === false) {
+            throw new \RuntimeException("duo: could not write classification batch: $path");
+        }
+        echo "classification batch exported: $path\n";
+        echo "queue sha256: " . ClassificationBatch::queueHash($items) . "\n";
+        echo "review every decisions[].class, then run: duo classify {$t->name()} --apply-batch=$path\n";
+        return 0;
+    } catch (\Throwable $e) {
+        fwrite(STDERR, $e->getMessage() . "\n");
+        return 1;
+    }
+}
+
+/** @param list<array<string,mixed>> $items */
+function cmd_classify_apply_batch(Transport $t, array $items, string $path): int {
+    if ($path === '') {
+        fwrite(STDERR, "duo: classify: --apply-batch requires a path\n");
+        return 1;
+    }
+    try {
+        $validated = ClassificationBatch::validate(
+            ClassificationBatch::load($path),
+            $t->name(),
+            $items
+        );
+    } catch (\Throwable $e) {
+        fwrite(STDERR, $e->getMessage() . "\n");
+        return 1;
+    }
+    $args = build_classify_args($validated['decisions'], $validated['needAllowSecret']);
+    $exit = $t->streamWp(array_merge(['duo', 'classify', '--repo=' . $t->repoPath()], $args));
+    if ($exit !== 0) {
+        return $exit;
+    }
+    printf("%d reviewed classification(s) applied from %s.\n", count($validated['decisions']), $path);
+    $remaining = fetch_pending($t);
+    if (!$remaining['ok']) {
+        return $remaining['exit'];
+    }
+    if ($remaining['items']) {
+        fwrite(STDERR, 'duo: classification exposed or retained ' . count($remaining['items'])
+            . " pending item(s); export and review the next queue before capture.\n");
+        return 2;
+    }
+    echo "review queue is empty\n";
+    return 0;
 }
 
 function cmd_classify_interactive(Transport $t, array $items): int {

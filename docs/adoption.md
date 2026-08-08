@@ -117,14 +117,123 @@ release descriptor that gives standalone doctor such an expectation remains
 a named future distribution concern; presence is not presented as a
 standalone freshness guarantee.
 
-After installation, follow the classification funnel. `duo adopt` deliberately
-does not auto-classify an old site's unknown/plugin-owned state:
+## First-capture runbook
+
+Before capture, record checksums for state that must remain local to the
+source runtime (plugin tokens, caches, derived indexes, custom-table rows).
+The exact query is plugin-specific; keep both the command and its output with
+the change record. Then measure the site and export a review batch:
 
 ```sh
+cli/duo coverage production --format=json > production-coverage.json
 cli/duo pending production
-cli/duo classify production
+cli/duo classify production --export-batch=production-review.json
+```
+
+`coverage` is a survey, not a green gate. Reconcile its active plugin owners,
+option counts, and custom-table counts with the inventory you expect. A plugin
+with uncovered state needs a manifest/schema issue; it cannot be made safe by
+classifying an unrelated option. The exported JSON contains the pending
+command's redacted evidence but never live values. Review every decision:
+
+```json
+{
+  "section": "options",
+  "key": "legacy_banner",
+  "class": "authored",
+  "ref": null,
+  "cast": null,
+  "allow_secret": false
+}
+```
+
+Use `runtime` for environment-local operational state, `derived` for state the
+declared regeneration path rebuilds, `env` for separately provisioned values,
+and `authored` only for portable intent. `managed` is reserved for lifecycle-
+managed options. Attach `ref`/`cast` only when the value's schema justifies it.
+An authored secret requires the row's explicit `allow_secret: true`; that is a
+reviewed escape hatch, not a recommendation to store secrets in Git.
+
+Apply the complete batch and immediately check for a next queue:
+
+```sh
+cli/duo classify production --apply-batch=production-review.json
+cli/duo pending production
+```
+
+The artifact is bound to the environment and the exact pending evidence by
+SHA-256. If a write arrives after export, apply refuses before changing
+`site.duo.json`; export and review a new batch. Partial batches and surfaces
+that actually require a manifest or table schema refuse for the same reason.
+One successful batch can expose another layer, so "review queue is empty"—not
+the batch command alone—is the capture gate.
+
+Capture only after the queue is empty, then repeat the runtime checksums:
+
+```sh
 cli/duo capture production
 ```
 
-Those commands retain Duo's normal loud, blocking posture for anything the
-seeded core policy does not yet explain.
+Any changed runtime checksum is a failed adoption, even when capture exits 0.
+Keep the source repo as the canonical artifact; do not copy its WordPress
+database to prove portability.
+
+## Prove a second environment before promotion
+
+Install matching plugin/theme code on an independent target and run `duo
+adopt` there. Transfer only the source site repo over the normal SSH release
+channel. Record target runtime checksums, then plan and apply:
+
+```sh
+cli/duo plan target --adopt-by-slug=posts,terms,menus --default-author=admin
+cli/duo apply target --adopt-by-slug=posts,terms,menus --default-author=admin
+cli/duo capture target
+diff -ru source-state-copy/ target-state-copy/
+cli/duo plan target --adopt-by-slug=posts,terms,menus --default-author=admin
+```
+
+The acceptance result is all four facts together: apply's convergence canary
+passes; source and target canonical `state/` trees are byte-identical after
+target recapture; the source runtime checksums did not change during capture;
+and the target runtime checksums did not change during apply. A clean final
+plan is the final receipt. The `--adopt-by-slug` allowance is for independently
+created WordPress defaults with the same natural key; inspect every collision
+before granting it and narrow the listed entity kinds where possible.
+
+## Repository certification transcript
+
+The reproducible two-host transcript lives in
+`sandbox/tests/certify_ssh_adoption_roundtrip.sh` and runs as:
+
+```sh
+make certify-ssh-adoption-roundtrip
+```
+
+It builds two hosts with separate WordPress volumes and databases, exposes
+only SSH, adopts both through the product CLI, measures coverage, proves that
+a post-export write makes the batch stale without changing policy, captures
+the source, transfers only the repo through SSH, applies it to the target,
+and byte-diffs the two recaptures. Its named success receipts are:
+
+```text
+Warning: adopted env post 1 as 019fdf2e-5e44-7677-89d1-c5917d7234f9 (posts/post/019fdf2e-5e44-7677-89d1-c5917d7234f9--hello-world.md)
+Warning: adopted env post 4 as 019fdf2e-5e45-741f-9565-cc3c412f0453 (posts/page/019fdf2e-5e45-741f-9565-cc3c412f0453--adoption-handbook.md)
+Warning: adopted env post 2 as 019fdf2e-5e45-753f-8cec-f79df00ac07c (posts/page/019fdf2e-5e45-753f-8cec-f79df00ac07c--sample-page.md)
+Warning: adopted env post 3 as 019fdf2e-5e45-77cd-b9f2-5a2b0fc1dc34 (posts/page/019fdf2e-5e45-77cd-b9f2-5a2b0fc1dc34--privacy-policy.md)
+Warning: adopted env term 1 as 019fdf2e-5e45-7c2e-a076-e65d389686b4 (terms/category/019fdf2e-5e45-7c2e-a076-e65d389686b4--uncategorized.json)
+ok: fresh, complete reviewed batch applies once; stale batch is mutation-free
+ok: source canonical state captured and source runtime checksum preserved
+ok: cross-environment apply converged authored state and preserved target runtime state
+ok: target recapture is byte-identical to source and the final plan is clean
+✔ CERTIFY_SSH_ADOPTION_ROUNDTRIP PASSED
+```
+
+Those five warnings are expected and reviewed in this fixture: each is the
+explicit receipt for `--adopt-by-slug=posts,terms` attaching an independently
+created WordPress default or same-slug page to the source UUID. They are not
+suppressed as harmless output; an unexpected slug or entity kind is a reason
+to stop before granting that adoption flag.
+
+This transcript complements the phase-1 aged-site fixture (10+ active plugins,
+three deliberately unmanifested owners). It tests the remaining cross-host
+boundary rather than replacing that inventory evidence with a toy claim.
