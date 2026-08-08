@@ -323,6 +323,7 @@ final class Apply {
         foreach (['delete', 'delete_conflict'] as $bucket) {
             foreach ($plan[$bucket] as &$row) {
                 $blocks = [];
+                $guardRefs = [];
                 foreach ($deletionCaps[$row['uuid']]['guards'] ?? [] as $guard) {
                     $result = $this->count_guard_refs($guard, $row['uuid'], $deleteUuids, $compiled->deletions());
                     if ($result['error'] !== null) {
@@ -330,10 +331,18 @@ final class Apply {
                     } elseif ($result['count'] > 0) {
                         $blocks[] = ($guard['reason'] ?? "referenced by {$guard['table']}.{$guard['column']}")
                             . " — {$result['count']} row(s)";
+                        $guardRefs[] = [
+                            'table' => (string) $guard['table'],
+                            'rows' => $result['rows'],
+                            'repairable' => isset($this->snapshotRowTables()[(string) $guard['table']]),
+                        ];
                     }
                 }
                 if ($blocks) {
                     $row['blocked'] = implode('; ', $blocks);
+                }
+                if ($guardRefs) {
+                    $row['guard_refs'] = $guardRefs;
                 }
             }
             unset($row);
@@ -673,7 +682,7 @@ final class Apply {
         };
     }
 
-    /** @return array{count:int,error:?string} */
+    /** @return array{count:int,error:?string,rows:string[]} */
     private function count_guard_refs(
         array $guard,
         string $targetUuid,
@@ -684,13 +693,14 @@ final class Apply {
         $table = $wpdb->prefix . preg_replace('/[^A-Za-z0-9_]/', '', $guard['table']);
         $column = preg_replace('/[^A-Za-z0-9_]/', '', $guard['column']);
         if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table))) {
-            return ['count' => 0, 'error' => "required guard table '{$guard['table']}' is absent"];
+            return ['count' => 0, 'error' => "required guard table '{$guard['table']}' is absent", 'rows' => []];
         }
         $localId = Ledger::id_for($targetUuid, (string) $guard['id_kind']);
         if ($localId === null) {
             return [
                 'count' => 0,
                 'error' => "required {$guard['id_kind']} identity mapping is absent for guard {$guard['table']}.{$guard['column']}",
+                'rows' => [],
             ];
         }
 
@@ -735,12 +745,74 @@ final class Apply {
                 array_push($args, ...$allowed);
             }
         }
-        $sql = "SELECT COUNT(*) FROM `$table` WHERE " . implode(' AND ', $where);
-        $count = $wpdb->get_var($wpdb->prepare($sql, ...$args));
+        // Preserve the pre-enumeration behavior for an empty guard result:
+        // a table with no stable key is irrelevant when it has zero
+        // surviving refs. Stable identity becomes mandatory only when a
+        // force warning would actually need to enumerate rows.
+        $countSql = "SELECT COUNT(*) FROM `$table` WHERE " . implode(' AND ', $where);
+        $count = $wpdb->get_var($wpdb->prepare($countSql, ...$args));
         if ($wpdb->last_error) {
-            return ['count' => 0, 'error' => "guard query failed for {$guard['table']}.{$guard['column']}: {$wpdb->last_error}"];
+            return ['count' => 0, 'error' => "guard query failed for {$guard['table']}.{$guard['column']}: {$wpdb->last_error}", 'rows' => []];
         }
-        return ['count' => (int) $count, 'error' => null];
+        if ((int) $count === 0) {
+            return ['count' => 0, 'error' => null, 'rows' => []];
+        }
+        $identityCols = $sourcePk !== '' ? [$sourcePk] : [];
+        if (!$identityCols) {
+            $primary = $wpdb->get_results("SHOW KEYS FROM `$table` WHERE Key_name = 'PRIMARY'", ARRAY_A) ?: [];
+            usort($primary, fn(array $a, array $b): int =>
+                ((int) ($a['Seq_in_index'] ?? 0)) <=> ((int) ($b['Seq_in_index'] ?? 0))
+            );
+            $identityCols = array_values(array_filter(array_map(
+                fn(array $r): string => preg_replace('/[^A-Za-z0-9_]/', '', (string) ($r['Column_name'] ?? '')),
+                $primary
+            )));
+        }
+        if (!$identityCols) {
+            return [
+                'count' => 0,
+                'error' => "guard table '{$guard['table']}' has no stable row identity; refusing an unenumerated force-delete warning",
+                'rows' => [],
+            ];
+        }
+        $select = implode(', ', array_map(fn(string $c): string => "`$c`", $identityCols));
+        $order = implode(', ', array_map(fn(string $c): string => "`$c` ASC", $identityCols));
+        $sql = "SELECT $select FROM `$table` WHERE " . implode(' AND ', $where) . " ORDER BY $order";
+        $found = $wpdb->get_results($wpdb->prepare($sql, ...$args), ARRAY_A);
+        if ($wpdb->last_error) {
+            return ['count' => 0, 'error' => "guard query failed for {$guard['table']}.{$guard['column']}: {$wpdb->last_error}", 'rows' => []];
+        }
+        $rows = array_map(function (array $foundRow) use ($guard, $identityCols): string {
+            $identity = implode(',', array_map(
+                fn(string $c): string => "$c=" . (string) ($foundRow[$c] ?? ''),
+                $identityCols
+            ));
+            return (string) $guard['table'] . '.' . $identity;
+        }, $found ?: []);
+        return ['count' => count($rows), 'error' => null, 'rows' => $rows];
+    }
+
+    /** Make --force-delete-referenced name every survivor and its supported exit path. */
+    private function warn_forced_guard_refs(array $row, string $prefix): void {
+        if (empty($row['guard_refs'])) {
+            // Schema/mapping guard failures do not represent enumerable
+            // survivor rows. Retain the historical forced-warning shape for
+            // those error findings instead of silently dropping the warning.
+            $this->warnings[] = "$prefix {$row['type']} {$row['uuid']} ({$row['blocked']})";
+            return;
+        }
+        foreach ($row['guard_refs'] ?? [] as $finding) {
+            $table = (string) $finding['table'];
+            $rows = (array) $finding['rows'];
+            $count = count($rows);
+            $message = "$prefix {$row['type']} {$row['uuid']}: $count rows in $table will be orphaned; ";
+            if (!empty($finding['repairable'])) {
+                $message .= "wp duo plan/capture on $table will refuse until resolved (wp duo orphans $table). ";
+            } else {
+                $message .= "$table is not a declared authored-snapshot table and must be resolved through its owning content workflow. ";
+            }
+            $this->warnings[] = $message . 'Surviving rows: ' . implode(', ', $rows);
+        }
     }
 
     /** Same-slug env entity: managed w/ different uuid (hard collision) or unmanaged (adoptable). */
@@ -901,6 +973,7 @@ final class Apply {
         $continuation = (string) ($opts['promotion_owner'] ?? '') !== '';
         self::assert_expected_artifact($promotionArtifact, $opts, $continuation);
         PromotionLock::acquire($promotionOwner, $promotionArtifact, 'apply', null, $continuation);
+        $a = null;
         try {
             // The artifact was first validated before target contact. Repeat
             // that association under the lease so a concurrent checkout or
@@ -942,6 +1015,25 @@ final class Apply {
             } catch (\Throwable $_releaseFailure) {
                 // The original failure is the actionable cause. A lost lease
                 // is already fail-closed and expires without human cleanup.
+            }
+            // Forced guarded deletion can make the mandatory fresh-process
+            // convergence recapture refuse on the intentionally orphaned
+            // survivors. The mutation is already committed at that point,
+            // so do not lose the operator's informed-force warning merely
+            // because the truthful convergence error prevents a summary.
+            // Keep this scoped to that escape hatch; unrelated failures
+            // retain their original type/message behavior.
+            $forcedDeleteWarnings = $a === null ? [] : array_values(array_filter(
+                $a->warnings,
+                fn(string $warning): bool => str_starts_with($warning, 'FORCED delete')
+            ));
+            if ($forcedDeleteWarnings) {
+                throw new \RuntimeException(
+                    implode("\n", array_map(fn(string $w): string => 'Warning: ' . $w, $forcedDeleteWarnings))
+                    . "\n" . $t->getMessage(),
+                    0,
+                    $t
+                );
             }
             throw $t;
         }
@@ -1117,7 +1209,7 @@ final class Apply {
                 );
             }
             foreach ($blocked as $r) {
-                $this->warnings[] = "FORCED delete of guarded {$r['type']} {$r['uuid']} ({$r['blocked']})";
+                $this->warn_forced_guard_refs($r, 'FORCED delete of guarded');
             }
         }
 
@@ -1448,6 +1540,7 @@ final class Apply {
             (string) $row['deletion_type']
         );
         $blocks = [];
+        $guardRefs = [];
         foreach ($capability['guards'] ?? [] as $guard) {
             $result = $this->count_guard_refs($guard, (string) $row['uuid'], $deleteUuids, $deletions);
             if ($result['error'] !== null) {
@@ -1455,6 +1548,11 @@ final class Apply {
             } elseif ($result['count'] > 0) {
                 $blocks[] = ($guard['reason'] ?? "referenced by {$guard['table']}.{$guard['column']}")
                     . " — {$result['count']} row(s)";
+                $guardRefs[] = [
+                    'table' => (string) $guard['table'],
+                    'rows' => $result['rows'],
+                    'repairable' => isset($this->snapshotRowTables()[(string) $guard['table']]),
+                ];
             }
         }
         if (!$blocks) {
@@ -1466,7 +1564,8 @@ final class Apply {
                 "duo: delete guard changed before mutation for {$row['type']} {$row['uuid']}: $reason"
             );
         }
-        $this->warnings[] = "FORCED delete after final guard recheck {$row['type']} {$row['uuid']} ($reason)";
+        $row['guard_refs'] = $guardRefs;
+        $this->warn_forced_guard_refs($row, 'FORCED delete after final guard recheck');
     }
 
     /**

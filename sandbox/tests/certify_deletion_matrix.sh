@@ -47,7 +47,9 @@
 # Each part: guard-refusal (loud, naming the referencing rows) where a
 # guard exists, --force-delete-referenced override behavior, tombstone
 # convergence on the target, and cascade completeness verified against
-# the declared block.
+# the declared block. PART 2 also proves the supported force -> refusal ->
+# `duo orphans` delete/reparent -> clean-plan exit path, with journal and
+# canary evidence.
 #
 # TWO real, isolated WordPress environments (own dedicated pair, never
 # any other agent's), matching certify_merge.sh's convention: both sides
@@ -67,7 +69,7 @@ command -v jq >/dev/null || fail "jq required"
 
 PORT1="${DELMATRIX_PORT1:-8868}"
 PORT2="${DELMATRIX_PORT2:-8869}"
-COMPOSE="docker compose -p duo-delmatrix -f pair.yml"
+COMPOSE="docker compose -p duo-delmatrix -f pair.yml -f pair.journal.yml"
 export DUO_PAIR=delmatrix
 wp1() { $COMPOSE run --rm -T cli1 wp "$@"; }
 wp2() { $COMPOSE run --rm -T cli2 wp "$@"; }
@@ -76,7 +78,7 @@ GIT_B="git -C siterepo/delmatrix2 -c user.name=duo-b -c user.email=b@example.tes
 
 say "clean-room via pair.sh (own pair, isolated — headless)"
 bash bin/pair.sh reset delmatrix
-bash bin/pair.sh up delmatrix "$PORT1" "$PORT2" --headless
+bash bin/pair.sh up delmatrix "$PORT1" "$PORT2" --headless --journal
 
 say "install + activate woocommerce, ninja-forms, paid-memberships-pro on both sides (symmetric — certifies deletion, not deploy reconciliation)"
 wp1 plugin install woocommerce --activate >/dev/null
@@ -289,7 +291,7 @@ FORM_B=$(wp2 db query --skip-column-names "SELECT id FROM wp_nf3_forms WHERE tit
 [ -n "$FORM_B" ] || fail "form did not converge on B"
 echo "form: A=$FORM_A B=$FORM_B"
 
-say "PART 2 — on B ONLY: attach a field, an action, form-level meta (the cascade), and a submission — then run a throwaway 'wp duo capture --out=/tmp' on B to properly mint B's OWN ledger entries for field/action without touching git or A's own view of the world"
+say "PART 2 — on B ONLY: attach guarded rows + ref mirrors, a repair-parent form, and a submission; then mint B's OWN ledger identities without touching A"
 NF_B_SEED=$(wp2 eval "
 global \$wpdb;
 \$now = current_time('mysql');
@@ -301,24 +303,37 @@ global \$wpdb;
   'label' => 'Name', 'created_at' => \$now, 'updated_at' => \$now,
 ]);
 \$field_id = \$wpdb->insert_id;
+\$wpdb->insert(\$wpdb->prefix . 'nf3_field_meta', [
+  'parent_id' => \$field_id, 'key' => 'parent_id', 'value' => '$FORM_B',
+  'meta_key' => 'parent_id', 'meta_value' => '$FORM_B',
+]);
 \$wpdb->insert(\$wpdb->prefix . 'nf3_actions', [
   'parent_id' => $FORM_B, 'type' => 'successmessage', 'key' => 'action_key_1',
   'title' => 'Success Message', 'label' => 'Success Message', 'active' => 1,
   'created_at' => \$now, 'updated_at' => \$now,
 ]);
 \$action_id = \$wpdb->insert_id;
+\$wpdb->insert(\$wpdb->prefix . 'nf3_action_meta', [
+  'parent_id' => \$action_id, 'key' => 'parent_id', 'value' => '$FORM_B',
+  'meta_key' => 'parent_id', 'meta_value' => '$FORM_B',
+]);
+\$wpdb->insert(\$wpdb->prefix . 'nf3_forms', [
+  'title' => 'Orphan Repair Parent', 'key' => 'orphan_repair_parent',
+  'created_at' => \$now, 'updated_at' => \$now,
+]);
+\$repair_form_id = \$wpdb->insert_id;
 \$sub_id = wp_insert_post(['post_type' => 'nf_sub', 'post_status' => 'publish', 'post_title' => 'Submission']);
 update_post_meta(\$sub_id, '_form_id', $FORM_B);
-echo \"\$field_id|\$action_id|\$sub_id\";
+echo \"\$field_id|\$action_id|\$repair_form_id|\$sub_id\";
 ")
-IFS='|' read -r FIELD_B ACTION_B SUB_B <<< "$NF_B_SEED"
-[ -n "$FIELD_B" ] && [ -n "$ACTION_B" ] && [ -n "$SUB_B" ] || fail "B-local field/action/submission seed did not produce all three ids (got: $NF_B_SEED)"
+IFS='|' read -r FIELD_B ACTION_B REPAIR_FORM_B SUB_B <<< "$NF_B_SEED"
+[ -n "$FIELD_B" ] && [ -n "$ACTION_B" ] && [ -n "$REPAIR_FORM_B" ] && [ -n "$SUB_B" ] || fail "B-local seed did not produce field/action/repair-form/submission ids (got: $NF_B_SEED)"
 wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-mint-b-local >/dev/null
 rm -rf "siterepo/delmatrix2/.tmp-mint-b-local"
 MINTED_FIELD=$(wp2 db query --skip-column-names "SELECT uuid FROM wp_duo_map WHERE id_kind='nf3_field' AND local_id=$FIELD_B" | tr -d '\r')
 MINTED_ACTION=$(wp2 db query --skip-column-names "SELECT uuid FROM wp_duo_map WHERE id_kind='nf3_action' AND local_id=$ACTION_B" | tr -d '\r')
 [ -n "$MINTED_FIELD" ] && [ -n "$MINTED_ACTION" ] || fail "throwaway capture did not mint B's own ledger entries for field/action (field uuid: '$MINTED_FIELD', action uuid: '$MINTED_ACTION')"
-pass "form=$FORM_B; B-local: field=$FIELD_B (uuid $MINTED_FIELD), action=$ACTION_B (uuid $MINTED_ACTION), submission=$SUB_B — field/action minted into B's own ledger, none of this ever pushed to A or committed"
+pass "form=$FORM_B; B-local field=$FIELD_B, action=$ACTION_B, repair parent=$REPAIR_FORM_B, submission=$SUB_B — local identities minted, none pushed to A"
 
 say "PART 2 — on A: delete the form (clean — A never had any field/action/meta attached, so this is a straightforward tombstone, no orphan-ref concern), capture, propagate"
 wp1 db query "DELETE FROM wp_nf3_forms WHERE id=$FORM_A"
@@ -359,11 +374,25 @@ echo "$APPLY2_ERR" | grep -qiE 'referential guard|deletion conflict' \
   || fail "failure did not mention a referential guard or deletion conflict: $APPLY2_ERR"
 pass "apply refused the guarded delete"
 
-say "PART 2 — apply with --force-theirs --force-delete-referenced succeeds with a loud FORCED warning"
+say "PART 2 — force commits the guarded mutation, emits the informed warning, then truthfully fails mandatory convergence on the new orphans"
+set +e
 FORCE2_OUT=$(wp2 duo apply --repo=/siterepo --with-deletes --force-theirs --force-delete-referenced --default-author=admin 2>&1)
+FORCE2_RC=$?
+set -e
 echo "$FORCE2_OUT"
+[ "$FORCE2_RC" -ne 0 ] || fail "forced apply reported convergence despite deliberately orphaning declared structural refs"
 echo "$FORCE2_OUT" | grep -qi 'FORCED' || fail "no FORCED warning printed: $FORCE2_OUT"
-pass "forced delete applied with a loud warning"
+echo "$FORCE2_OUT" | grep -Fqi "1 rows in nf3_fields will be orphaned; wp duo plan/capture on nf3_fields will refuse until resolved (wp duo orphans nf3_fields)" \
+  || fail "forced warning did not give nf3_fields count/table/exit path: $FORCE2_OUT"
+echo "$FORCE2_OUT" | grep -Fqi "Surviving rows: nf3_fields.id=$FIELD_B" \
+  || fail "forced warning did not enumerate the surviving field row: $FORCE2_OUT"
+echo "$FORCE2_OUT" | grep -Fqi "Surviving rows: nf3_actions.id=$ACTION_B" \
+  || fail "forced warning did not enumerate the surviving action row: $FORCE2_OUT"
+echo "$FORCE2_OUT" | grep -Fqi "postmeta.meta_id=" \
+  || fail "forced warning did not enumerate the surviving submission-meta row: $FORCE2_OUT"
+echo "$FORCE2_OUT" | grep -qi "unmanaged nf3_form ref" \
+  || fail "forced apply did not retain the mandatory convergence refusal after its informed warning: $FORCE2_OUT"
+pass "forced mutation committed, warned with exact survivors/exit path, then failed closed at mandatory convergence"
 
 say "PART 2 — acceptance: form gone; attached_meta CASCADE removed automatically; the GUARDED field/action/submission — none of them ever scheduled for their own deletion, purely live guard references — all survive the forced delete completely untouched"
 # The precise cascade-vs-guard distinction the manifest declares:
@@ -413,12 +442,52 @@ set -e
 echo "$RETRY2"
 [ "$RETRY2_RC" -ne 0 ] || fail "expected plan to refuse due to the now-dangling nf3_actions/nf3_fields parent_id ref -- if this now succeeds cleanly, the engine's behavior changed and this whole finding needs re-examination, not silent deletion of this assertion"
 echo "$RETRY2" | grep -qi "unmanaged nf3_form ref" || fail "refusal was for an unexpected reason: $RETRY2"
-pass "PART 2 complete: form removed, cascade (form_meta) cleaned up, guarded rows (field/action/submission) survive orphaned exactly as declared -- AND the orphaned-guard-survivor consequence for subsequent plan/capture calls is confirmed live and flagged, not silently absorbed"
+pass "forced consequence confirmed: plan refuses on the surviving structural-ref orphans"
 
-say "PART 2 -> PART 3 handoff: clean up the orphaned guard survivors on B (the operator action the finding above says is needed to restore normal plan/capture operation) so PART 3 runs against a healthy environment"
-wp2 db query "DELETE FROM wp_nf3_fields WHERE id=$FIELD_B; DELETE FROM wp_nf3_actions WHERE id=$ACTION_B"
-wp2 duo plan --repo=/siterepo --format=json >/dev/null || fail "plan still refuses after removing the orphaned rows — the finding above was misdiagnosed"
-pass "orphaned rows removed; plan/capture operate normally again on B"
+say "PART 2 — wp duo orphans lists exact broken refs, then resolves one row by declared-cascade delete and one by declared-ref reparent (no operator SQL)"
+ORPHAN_FIELDS=$(wp2 duo orphans nf3_fields --repo=/siterepo --format=json | tail -1)
+ORPHAN_ACTIONS=$(wp2 duo orphans nf3_actions --repo=/siterepo --format=json | tail -1)
+echo "$ORPHAN_FIELDS" | jq -e --argjson id "$FIELD_B" --argjson parent "$FORM_B" \
+  '.rows == [{identity:{id:$id},orphan_refs:[{column:"parent_id",kind:"nf3_form",local_id:$parent}],local_id:$id}]' >/dev/null \
+  || fail "orphans did not list the exact field row/ref: $ORPHAN_FIELDS"
+echo "$ORPHAN_ACTIONS" | jq -e --argjson id "$ACTION_B" --argjson parent "$FORM_B" \
+  '.rows == [{identity:{id:$id},orphan_refs:[{column:"parent_id",kind:"nf3_form",local_id:$parent}],local_id:$id}]' >/dev/null \
+  || fail "orphans did not list the exact action row/ref: $ORPHAN_ACTIONS"
+
+DELETE_ORPHAN=$(wp2 duo orphans nf3_fields --repo=/siterepo --row="$FIELD_B" --delete --format=json | tail -1)
+echo "$DELETE_ORPHAN" | jq -e '.action | startswith("delete nf3_fields.id=")' >/dev/null \
+  || fail "Duo orphan delete did not report its action: $DELETE_ORPHAN"
+echo "$DELETE_ORPHAN" | jq -e '.canary == "clean" and (.rows | length) == 0' >/dev/null \
+  || fail "Duo orphan delete was not canary-clean/resolved: $DELETE_ORPHAN"
+
+REPARENT_ORPHAN=$(wp2 duo orphans nf3_actions --repo=/siterepo --row="$ACTION_B" --reparent="parent_id=$REPAIR_FORM_B" --format=json | tail -1)
+echo "$REPARENT_ORPHAN" | jq -e '.action | startswith("reparent nf3_actions.id=")' >/dev/null \
+  || fail "Duo orphan reparent did not report its action: $REPARENT_ORPHAN"
+echo "$REPARENT_ORPHAN" | jq -e '.canary == "clean" and (.rows | length) == 0' >/dev/null \
+  || fail "Duo orphan reparent was not canary-clean/resolved: $REPARENT_ORPHAN"
+
+FIELD_GONE=$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_fields WHERE id=$FIELD_B" | tr -d '\r')
+FIELD_META_GONE=$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_field_meta WHERE parent_id=$FIELD_B" | tr -d '\r')
+ACTION_PARENT=$(wp2 db query --skip-column-names "SELECT parent_id FROM wp_nf3_actions WHERE id=$ACTION_B" | tr -d '\r')
+ACTION_META_PARENT=$(wp2 db query --skip-column-names "SELECT meta_value FROM wp_nf3_action_meta WHERE parent_id=$ACTION_B AND meta_key='parent_id'" | tr -d '\r')
+[ "$FIELD_GONE" = "0" ] && [ "$FIELD_META_GONE" = "0" ] || fail "Duo orphan delete missed the field or its declared sidecar"
+[ "$ACTION_PARENT" = "$REPAIR_FORM_B" ] && [ "$ACTION_META_PARENT" = "$REPAIR_FORM_B" ] \
+  || fail "Duo orphan reparent did not update both the action ref and its declared meta mirror"
+JOURNALED=$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_duo_journal WHERE tbl IN ('nf3_fields','nf3_field_meta','nf3_actions','nf3_action_meta') AND surface='cli'" | tr -d '\r')
+[ "$JOURNALED" -ge "4" ] || fail "Duo orphan resolution was not journaled across row/sidecar mutations (found $JOURNALED observations)"
+
+RECOVERY_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | tail -1) \
+  || fail "plan still refuses after Duo resolved both orphaned rows"
+SETTLE=$(wp2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json | tail -1)
+echo "$SETTLE" | jq -e '.canary == "clean" and .verification.result == "pass"' >/dev/null \
+  || fail "post-resolution apply did not complete the retained convergence receipt: $SETTLE"
+FINAL_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
+echo "$FINAL_PLAN" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0' >/dev/null \
+  || fail "post-resolution retry plan was not settled: $FINAL_PLAN"
+wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-post-orphan-resolution >/dev/null \
+  || fail "capture still refuses after Duo resolved both orphaned rows"
+rm -rf "siterepo/delmatrix2/.tmp-post-orphan-resolution"
+pass "PART 2 complete: force -> refusal -> exact orphan listing -> journaled/canary-clean delete+reparent -> clean plan/capture"
 
 # ============================================================================
 # PART 3 — Paid Memberships Pro: table:pmpro_memberships_pages, EMPTY guards
