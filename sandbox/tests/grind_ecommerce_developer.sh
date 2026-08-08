@@ -2481,7 +2481,9 @@ assert_target_order_unchanged 'target-only order survives extension removal'
 assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock survives extension removal'
 assert_runtime_isolation 'extension removal' 1
 REMOVE_ARTIFACT="$(artifact_for_promote_output "$REMOVE_OUT")"
-assert_receipt "$REMOVE_ARTIFACT" 'extension removal promote' "$V2_REVISION"
+REMOVE_REVISION="$(jq -r '.code.code_revision' "$REMOVE_ARTIFACT")"
+assert_receipt "$REMOVE_ARTIFACT" 'extension removal promote' "$REMOVE_REVISION"
+[ "$REMOVE_REVISION" != "$V2_REVISION" ] || fail 'extension removal did not publish a distinct code revision'
 pass "dependency-aware lifecycle retired only custom code; WooCommerce, ACF, catalog, target-only order and stock survived"
 
 say "exact rollback: restore v1 repository, promote it, then import the pair-local v1 DB checkpoint"
