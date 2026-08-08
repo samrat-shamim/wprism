@@ -2,7 +2,7 @@
 
 The recovery runtime under `<repo_path>/.duo/control/recovery-runtime/` is a
 PHP CLI that does not load WordPress. A production host supplies its own
-maintenance-exclusion provider, optional checkpoint, code-release, and upload
+maintenance-exclusion provider, optional checkpoint, code-release, upload, and effect
 providers, and four recovery adapters. Duo invokes each as an argv array through `proc_open`; it never
 constructs a shell command.
 
@@ -28,6 +28,7 @@ Put this in the gitignored `.duo-envs.json` SSH environment beside
     "checkpoint_provider": ["/opt/duo/bin/checkpoint-provider"],
     "code_release_provider": ["/opt/duo/bin/code-release-provider"],
     "upload_provider": ["/opt/duo/bin/upload-provider"],
+    "effect_provider": ["/opt/duo/bin/effect-provider"],
     "exclusion_provider": ["/opt/duo/bin/exclude-site", "production"],
     "timeout_seconds": 30
   }
@@ -45,6 +46,10 @@ not appear in configuration or argv; providers own any credentials they need.
 `upload_provider` is optional; without it, upload recovery is explicitly
 manual. When present it must prepare encrypted local/offload evidence before
 the receipt can be claimed.
+`effect_provider` is optional; without it, lifecycle/rebuilder effect recovery
+is explicitly manual. When present it prepares the compiled bounded inventory,
+prior inverse inputs, and receipt outboxes before receipt publication. See
+[effect-bundle.md](effect-bundle.md).
 
 ## Exclusion provider protocol
 
@@ -120,6 +125,9 @@ protocol. See [code-release-runtime.md](code-release-runtime.md). Storage
 uses the generic adapter only without `upload_provider`. With the provider,
 Duo adds `storage_apply` in `promoting` and routes it and `storage_restore`
 through the bounded upload journal. See [upload-bundle.md](upload-bundle.md).
+With `effect_provider`, Duo adds `effects_inverse` in `rolling_back` and routes
+it through immutable lifecycle/rebuilder evidence plus a fresh provider-process
+readback. It is intentionally not one of the four generic adapters.
 
 ## Operator probes
 

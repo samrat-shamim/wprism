@@ -79,6 +79,7 @@ final class PlanSummary {
         $missingUser = $plan['missing_user'] ?? [];
         $skippedUserMeta = $plan['skipped_user_meta'] ?? [];
         $uploadsInventory = $plan['uploads_inventory'] ?? [];
+        $effectsInventory = $plan['effects_inventory'] ?? [];
         $envMissingRequired = array_values(array_filter($envMissing, fn($r) => !empty($r['required'])));
         $summary = 'plan: ' . implode(', ', array_map(fn($k) => "{$counts[$k]} $k", self::BUCKETS));
         $summary .= ', ' . count($codeMismatch) . ' code_mismatch';
@@ -90,6 +91,7 @@ final class PlanSummary {
         $summary .= ', ' . count($missingUser) . ' missing_user';
         $summary .= ', ' . count($skippedUserMeta) . ' skipped_user_meta';
         $summary .= ', ' . count($uploadsInventory) . ' upload_mutations';
+        $summary .= ', ' . count($effectsInventory) . ' declared_effects';
         $lines[] = $summary;
 
         foreach ($uploadsInventory as $row) {
@@ -98,6 +100,14 @@ final class PlanSummary {
                 . (string) ($row['derivative_basename_prefix'] ?? '?') . '*';
             $lines[] = 'UPLOAD_MUTATION ' . ($row['original_path'] ?? '?')
                 . " (derivatives: $root)";
+        }
+
+        foreach ($effectsInventory as $row) {
+            $effect = (array) ($row['effect'] ?? []);
+            $selector = (array) ($effect['selector'] ?? []);
+            $lines[] = 'EFFECT ' . ($row['phase'] ?? '?') . ' '
+                . ($effect['mode'] ?? '?') . ' ' . ($effect['id'] ?? '?') . ' '
+                . ($selector['type'] ?? '?') . ':' . ($selector['value'] ?? '?');
         }
 
         $seenAnnotations = [];

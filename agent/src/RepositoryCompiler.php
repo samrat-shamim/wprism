@@ -29,6 +29,11 @@ final class CompiledRepository {
         if (!is_array($payload['tree'] ?? null)) {
             throw new \RuntimeException('duo: compiled repository payload has no typed tree');
         }
+        $payload['effects_inventory'] ??= [];
+        if (!is_array($payload['effects_inventory'])
+            || !array_is_list($payload['effects_inventory'])) {
+            throw new \RuntimeException('duo: compiled repository payload has no effects inventory');
+        }
         $payload['uploads_inventory'] = self::derive_uploads_inventory($payload['tree']);
         $payload['format'] = self::FORMAT;
         $payload['artifact_hash'] = self::content_hash($payload);
@@ -144,6 +149,11 @@ final class CompiledRepository {
      */
     public function uploads_inventory(): array {
         return (array) ($this->artifact['uploads_inventory'] ?? []);
+    }
+
+    /** Complete manifest-bound lifecycle/rebuild effect declaration. */
+    public function effects_inventory(): array {
+        return (array) ($this->artifact['effects_inventory'] ?? []);
     }
 
     /** @return list<array<string,string>> */
@@ -336,6 +346,15 @@ final class RepositoryCompiler {
             throw self::artifact_exception(
                 'compiled_artifact_manifest_mismatch', $path,
                 'compiled manifest/interpreter set does not match active pins'
+            );
+        }
+        if (!hash_equals(
+            Canon::encode($artifact->effects_inventory()),
+            Canon::encode($policy->effects_inventory())
+        )) {
+            throw self::artifact_exception(
+                'compiled_artifact_invalid', $path,
+                'compiled effect inventory does not match the active manifest contracts'
             );
         }
         $policyHasCode = $policy->code_config() !== null;
@@ -670,6 +689,10 @@ final class RepositoryCompiler {
             // still tamper-evident via CompiledRepository::create()'s own
             // artifact_hash over the complete payload.
             'resolved_adapters' => self::resolved_adapters($this->policy),
+            // DUO-3298: immutable and target-independent. The recovery
+            // provider resolves target before-images/adapters only after this
+            // complete declaration has blocked unknown/irreversible effects.
+            'effects_inventory' => $this->policy->effects_inventory(),
             'revision_hash' => $revision,
             'media_catalog' => $this->mediaCatalog,
             'media' => $this->media,

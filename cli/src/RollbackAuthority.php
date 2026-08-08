@@ -109,6 +109,7 @@ final class RollbackAuthority {
         $checkpointConfigured = $this->transport->checkpointConfigured();
         $codeReleaseConfigured = $this->transport->codeReleaseConfigured();
         $uploadProviderConfigured = $this->transport->uploadProviderConfigured();
+        $effectProviderConfigured = $this->transport->effectProviderConfigured();
         $receiptFormat = $codeReleaseConfigured
             ? RollbackControl::RECEIPT_FORMAT
             : 'duo-rollback-receipt/v1';
@@ -120,6 +121,7 @@ final class RollbackAuthority {
         $desiredCodeRevision = null;
         $desiredDescriptorHash = null;
         $uploadInventory = null;
+        $effectInventory = null;
         if ($uploadProviderConfigured) {
             if (array_key_exists('uploads_inventory_sha256', $fields)) {
                 throw new \RuntimeException('duo rollback: uploads_inventory_sha256 is provider-owned when certified upload recovery is configured');
@@ -134,6 +136,21 @@ final class RollbackAuthority {
             }
         } elseif (array_key_exists('upload_inventory', $fields)) {
             throw new \RuntimeException('duo rollback: upload_inventory requires a certified upload provider');
+        }
+        if ($effectProviderConfigured) {
+            if (array_key_exists('lifecycle_receipts_sha256', $fields)) {
+                throw new \RuntimeException('duo rollback: lifecycle_receipts_sha256 is provider-owned when certified effect recovery is configured');
+            }
+            if (!is_array($fields['effect_inventory'] ?? null) || !array_is_list($fields['effect_inventory'])) {
+                throw new \RuntimeException('duo rollback: certified effect recovery needs the compiled effect_inventory');
+            }
+            $effectInventory = $fields['effect_inventory'];
+            unset($fields['effect_inventory']);
+            if (!is_string($fields['retention_until'] ?? null) || $fields['retention_until'] === '') {
+                throw new \RuntimeException('duo rollback: effect recovery claim needs retention_until');
+            }
+        } elseif (array_key_exists('effect_inventory', $fields)) {
+            throw new \RuntimeException('duo rollback: effect_inventory requires a certified effect provider');
         }
         if ($codeReleaseConfigured) {
             if (array_key_exists('prior_code_descriptor_sha256', $fields)
@@ -275,6 +292,23 @@ final class RollbackAuthority {
                     'timestamp' => $now,
                 ]);
                 $fields['uploads_inventory_sha256'] = (string) ($uploads['uploads_inventory_sha256'] ?? '');
+            }
+            if ($effectProviderConfigured) {
+                $effects = $this->sendEffectBundle([
+                    'action' => 'prepare',
+                    'artifact_hash' => (string) ($fields['artifact_hash'] ?? ''),
+                    'claim_epoch' => 1,
+                    'claimant' => $claimant,
+                    'format' => 'duo-effect-bundle-request/v1',
+                    'generation' => $generation,
+                    'inventory' => $effectInventory,
+                    'owner' => (string) ($fields['owner'] ?? ''),
+                    'receipt_id' => $receiptId,
+                    'retention_until' => (string) ($fields['retention_until'] ?? ''),
+                    'target_id' => (string) ($status['target_id'] ?? ''),
+                    'timestamp' => $now,
+                ]);
+                $fields['lifecycle_receipts_sha256'] = (string) ($effects['lifecycle_receipts_sha256'] ?? '');
             }
         }
         $receipt = $fields + [
@@ -617,6 +651,14 @@ final class RollbackAuthority {
         return $this->sendRemote(
             RollbackControl::sign($payload, $this->keyId, $this->secretKey),
             'upload-bundle-request'
+        );
+    }
+
+    /** @return array<string,mixed> */
+    private function sendEffectBundle(array $payload): array {
+        return $this->sendRemote(
+            RollbackControl::sign($payload, $this->keyId, $this->secretKey),
+            'effect-bundle-request'
         );
     }
 

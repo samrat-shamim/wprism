@@ -110,6 +110,7 @@ final class Policy {
             self::validate_dynamic_options($manifest);
             self::validate_option_storage($manifest, "manifest '$name'");
             self::validate_adapter_contract($manifest);
+            self::validate_effect_contracts($manifest);
             self::validate_discovery_contract($manifest);
             $p->manifests[] = $manifest;
         }
@@ -179,6 +180,7 @@ final class Policy {
             self::validate_object_type_option_refs($manifest);
             self::validate_option_storage($manifest, "frozen manifest '$name'");
             self::validate_adapter_contract($manifest);
+            self::validate_effect_contracts($manifest);
             self::validate_discovery_contract($manifest);
             $p->manifests[] = $manifest;
         }
@@ -2656,6 +2658,264 @@ final class Policy {
             }
         }
         return $out;
+    }
+
+    /**
+     * Complete target-independent effect declaration for the automatic
+     * rollback profile. Missing lifecycle/rebuilder/regenerator declarations
+     * are represented as explicit irreversible rows instead of disappearing:
+     * manual promotion remains available, while receipt preparation must
+     * refuse before code stage. The manifest digest already binds these bytes;
+     * this projection gives the recovery controller a stable, minimal input.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function effects_inventory(): array {
+        // Engine-owned rebuild effects are declarations too. Database rows
+        // are covered by the encrypted checkpoint; the external object cache
+        // needs a real provider inverse/readback and therefore cannot hide
+        // behind the fact that its contents are derived.
+        $out = [
+            [
+                'manifest' => 'core', 'phase' => 'rebuild', 'source' => 'future-post-schedule',
+                'effect' => [
+                    'id' => 'core-future-post-schedule', 'kind' => 'database', 'mode' => 'restorable',
+                    'selector' => ['scope' => 'database_checkpoint', 'type' => 'option', 'value' => 'cron'],
+                ],
+            ],
+            [
+                'manifest' => 'core', 'phase' => 'rebuild', 'source' => 'taxonomy-counts',
+                'effect' => [
+                    'id' => 'core-taxonomy-counts', 'kind' => 'database', 'mode' => 'restorable',
+                    'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'term_taxonomy'],
+                ],
+            ],
+            [
+                'manifest' => 'core', 'phase' => 'rebuild', 'source' => 'object-cache-flush',
+                'effect' => [
+                    'id' => 'core-object-cache', 'kind' => 'cache', 'mode' => 'reversible',
+                    'selector' => ['scope' => 'external', 'type' => 'namespace', 'value' => 'wordpress-object-cache'],
+                    'adapter' => [
+                        'id' => 'core-object-cache', 'version' => '1.0.0',
+                        'inverse' => 'flush-prior-generation',
+                        'inverse_inputs' => ['namespace', 'prior_generation'],
+                        'verifier' => 'fresh-cache-generation',
+                        'verifier_inputs' => ['namespace', 'expected_generation'],
+                    ],
+                ],
+            ],
+            [
+                'manifest' => 'core', 'phase' => 'rebuild', 'source' => 'attachment-metadata',
+                'effect' => [
+                    'id' => 'core-attachment-metadata-db', 'kind' => 'database', 'mode' => 'restorable',
+                    'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'postmeta'],
+                ],
+            ],
+            [
+                'manifest' => 'core', 'phase' => 'rebuild', 'source' => 'attachment-metadata',
+                'effect' => [
+                    'id' => 'core-attachment-derivatives', 'kind' => 'filesystem', 'mode' => 'reversible',
+                    'selector' => ['scope' => 'external', 'type' => 'provider_resource', 'value' => 'compiled-upload-inventory'],
+                    'adapter' => [
+                        'id' => 'upload-bundle', 'version' => '1.0.0',
+                        'inverse' => 'storage-restore',
+                        'inverse_inputs' => ['uploads_inventory_sha256', 'prior_inventory_sha256'],
+                        'verifier' => 'fresh-storage-readback',
+                        'verifier_inputs' => ['uploads_inventory_sha256', 'prior_inventory_sha256'],
+                    ],
+                ],
+            ],
+        ];
+        foreach ($this->manifests as $manifest) {
+            $name = (string) ($manifest['name'] ?? '?');
+            $adapter = isset($manifest['plugin']) ? (string) $manifest['plugin']
+                : (isset($manifest['theme']) ? (string) $manifest['theme'] : null);
+            if ($adapter !== null) {
+                $effects = $manifest['lifecycle_effects'] ?? null;
+                if (!is_array($effects) || $effects === []) {
+                    $effects = [self::missing_effect($name . '-lifecycle', 'plugin_lifecycle', $adapter)];
+                }
+                foreach ($effects as $effect) {
+                    $out[] = ['manifest' => $name, 'phase' => 'lifecycle', 'source' => $adapter, 'effect' => $effect];
+                }
+            }
+            foreach ((array) ($manifest['rebuilders'] ?? []) as $i => $rebuilder) {
+                $source = (string) ($rebuilder['command'] ?? "rebuilders[$i]");
+                $effects = $rebuilder['effects'] ?? null;
+                if (!is_array($effects) || $effects === []) {
+                    $effects = [self::missing_effect($name . "-rebuilder-$i", 'provider_resource', $source)];
+                }
+                foreach ($effects as $effect) {
+                    $out[] = ['manifest' => $name, 'phase' => 'rebuild', 'source' => $source, 'effect' => $effect];
+                }
+            }
+            foreach ((array) ($manifest['post_types'] ?? []) as $postType => $declaration) {
+                $regen = is_array($declaration) ? ($declaration['regen_dependency'] ?? null) : null;
+                if (!is_array($regen)) {
+                    continue;
+                }
+                $effects = $regen['effects'] ?? null;
+                if (!is_array($effects) || $effects === []) {
+                    $effects = [self::missing_effect($name . '-regenerator-' . $postType, 'provider_resource', (string) $postType)];
+                }
+                foreach ($effects as $effect) {
+                    $out[] = ['manifest' => $name, 'phase' => 'regenerator', 'source' => (string) $postType, 'effect' => $effect];
+                }
+            }
+        }
+        usort($out, static fn(array $a, array $b): int => strcmp(
+            implode("\0", [$a['phase'], $a['manifest'], (string) $a['effect']['id']]),
+            implode("\0", [$b['phase'], $b['manifest'], (string) $b['effect']['id']])
+        ));
+        return $out;
+    }
+
+    /** @return array<string,mixed> */
+    private static function missing_effect(string $id, string $type, string $value): array {
+        return [
+            'id' => preg_replace('/[^a-z0-9._:-]+/', '-', strtolower($id)),
+            'kind' => 'external',
+            'mode' => 'irreversible',
+            'selector' => ['scope' => 'external', 'type' => $type, 'value' => $value],
+        ];
+    }
+
+    /** Validate the bounded reversibility grammar without target contact. */
+    private static function validate_effect_contracts(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        $groups = [];
+        if (array_key_exists('lifecycle_effects', $manifest)) {
+            $groups['lifecycle_effects'] = $manifest['lifecycle_effects'];
+        }
+        foreach ((array) ($manifest['rebuilders'] ?? []) as $i => $rebuilder) {
+            if (is_array($rebuilder) && array_key_exists('effects', $rebuilder)) {
+                $groups["rebuilders[$i].effects"] = $rebuilder['effects'];
+            }
+        }
+        foreach ((array) ($manifest['post_types'] ?? []) as $postType => $declaration) {
+            $regen = is_array($declaration) ? ($declaration['regen_dependency'] ?? null) : null;
+            if (is_array($regen) && array_key_exists('effects', $regen)) {
+                $groups["post_types.$postType.regen_dependency.effects"] = $regen['effects'];
+            }
+        }
+        $seen = [];
+        foreach ($groups as $where => $effects) {
+            if (!is_array($effects) || !array_is_list($effects) || $effects === []) {
+                throw new \RuntimeException("duo: manifest '$name' $where must be a non-empty list");
+            }
+            foreach ($effects as $i => $effect) {
+                self::validate_effect($effect, "manifest '$name' {$where}[$i]");
+                $id = (string) $effect['id'];
+                if (isset($seen[$id])) {
+                    throw new \RuntimeException("duo: manifest '$name' repeats effect id '$id' in {$where}[$i] and {$seen[$id]}");
+                }
+                $seen[$id] = "{$where}[$i]";
+            }
+        }
+    }
+
+    private static function validate_effect(mixed $effect, string $where): void {
+        if (!is_array($effect) || array_is_list($effect)) {
+            throw new \RuntimeException("duo: $where must be an object");
+        }
+        $mode = $effect['mode'] ?? null;
+        $kind = $effect['kind'] ?? null;
+        $expected = ['id', 'kind', 'mode', 'selector'];
+        if ($mode === 'reversible') {
+            $expected[] = 'adapter';
+        } elseif ($mode === 'prevented') {
+            $expected[] = 'prevention';
+        }
+        $actual = array_keys($effect); sort($actual, SORT_STRING); sort($expected, SORT_STRING);
+        if ($actual !== $expected) {
+            throw new \RuntimeException("duo: $where has missing or unknown fields for mode " . var_export($mode, true));
+        }
+        if (!is_string($effect['id'] ?? null)
+            || preg_match('/^[a-z][a-z0-9._:-]{0,127}$/', (string) $effect['id']) !== 1) {
+            throw new \RuntimeException("duo: $where.id must be a bounded lowercase identifier");
+        }
+        if (!in_array($kind, ['database', 'filesystem', 'schedule', 'cache', 'queue', 'mail', 'http', 'external'], true)
+            || !in_array($mode, ['restorable', 'reversible', 'prevented', 'irreversible'], true)) {
+            throw new \RuntimeException("duo: $where kind/mode is unsupported");
+        }
+        $selector = $effect['selector'] ?? null;
+        if (!is_array($selector) || array_is_list($selector)) {
+            throw new \RuntimeException("duo: $where.selector must be an object");
+        }
+        $keys = array_keys($selector); sort($keys, SORT_STRING);
+        if ($keys !== ['scope', 'type', 'value']) {
+            throw new \RuntimeException("duo: $where.selector requires exactly scope, type, and value");
+        }
+        $scope = $selector['scope'] ?? null;
+        $type = $selector['type'] ?? null;
+        $value = $selector['value'] ?? null;
+        if (!in_array($scope, ['database_checkpoint', 'external'], true)
+            || !in_array($type, ['table', 'option', 'path', 'hook', 'namespace', 'queue', 'mail_subject', 'url_prefix', 'provider_resource', 'plugin_lifecycle'], true)
+            || !is_string($value) || $value === '' || strlen($value) > 512
+            || preg_match('/[\x00-\x1f\x7f*]/', $value) === 1
+            || preg_match('/secret|credential|password|authorization|signed.?url|access.?token|api.?key/i', $value) === 1) {
+            throw new \RuntimeException("duo: $where.selector is empty, unbounded, secret-shaped, or unsupported");
+        }
+        if ($type === 'path' && (str_starts_with($value, '/') || str_contains($value, '\\')
+            || in_array('.', explode('/', $value), true) || in_array('..', explode('/', $value), true))) {
+            throw new \RuntimeException("duo: $where.selector path must be relative and traversal-free");
+        }
+        if ($type === 'url_prefix' && (!str_starts_with($value, 'https://') || str_contains($value, '?'))) {
+            throw new \RuntimeException("duo: $where.selector url_prefix must be bounded HTTPS without a query string");
+        }
+        if ($kind === 'database' && ($scope !== 'database_checkpoint' || !in_array($type, ['table', 'option'], true))) {
+            throw new \RuntimeException("duo: $where database effects must name a checkpoint-covered table or option");
+        }
+        if ($kind !== 'database' && $scope !== 'external') {
+            throw new \RuntimeException("duo: $where non-database effects must be explicitly external");
+        }
+        if ($mode === 'restorable' && $scope !== 'database_checkpoint') {
+            throw new \RuntimeException("duo: $where restorable effects require database_checkpoint coverage");
+        }
+        if ($mode === 'prevented') {
+            if (!in_array($kind, ['mail', 'http', 'queue'], true) || ($effect['prevention'] ?? null) !== 'receipt_outbox') {
+                throw new \RuntimeException("duo: $where prevented effects require mail/http/queue receipt_outbox isolation");
+            }
+        }
+        if ($mode === 'reversible') {
+            self::validate_effect_adapter($effect['adapter'] ?? null, "$where.adapter");
+        }
+        if ($type === 'plugin_lifecycle' && $mode !== 'irreversible') {
+            throw new \RuntimeException("duo: $where plugin_lifecycle is an honest unsupported selector and must be irreversible");
+        }
+    }
+
+    private static function validate_effect_adapter(mixed $adapter, string $where): void {
+        if (!is_array($adapter) || array_is_list($adapter)) {
+            throw new \RuntimeException("duo: $where must be an object");
+        }
+        $keys = array_keys($adapter); sort($keys, SORT_STRING);
+        $expected = ['id', 'inverse', 'inverse_inputs', 'verifier', 'verifier_inputs', 'version'];
+        if ($keys !== $expected) {
+            throw new \RuntimeException("duo: $where requires version-pinned inverse and verifier inputs");
+        }
+        foreach (['id', 'inverse', 'verifier'] as $key) {
+            if (!is_string($adapter[$key]) || preg_match('/^[A-Za-z0-9._:-]{1,128}$/', $adapter[$key]) !== 1) {
+                throw new \RuntimeException("duo: $where.$key is malformed");
+            }
+        }
+        if (!is_string($adapter['version'])
+            || preg_match('/^[0-9]+(?:\.[0-9A-Za-z-]+)+$/', $adapter['version']) !== 1) {
+            throw new \RuntimeException("duo: $where.version must be exact, never latest/wildcard/unbounded");
+        }
+        foreach (['inverse_inputs', 'verifier_inputs'] as $key) {
+            $inputs = $adapter[$key];
+            if (!is_array($inputs) || !array_is_list($inputs) || $inputs === []
+                || count(array_unique($inputs)) !== count($inputs)) {
+                throw new \RuntimeException("duo: $where.$key must be a non-empty unique input list");
+            }
+            foreach ($inputs as $input) {
+                if (!is_string($input) || preg_match('/^[a-z][a-z0-9_]{0,63}$/', $input) !== 1
+                    || preg_match('/secret|credential|password|authorization|token|api_?key/i', $input) === 1) {
+                    throw new \RuntimeException("duo: $where.$key contains a malformed receipt input name");
+                }
+            }
+        }
     }
 
     /**

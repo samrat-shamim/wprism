@@ -108,8 +108,8 @@ Adoption performs these operations:
 5. creates or verifies the protected `repo_path/.duo/control/` root and its
    stable target identity, and installs the configured public verification
    key without copying controller secrets; when `rollback_recovery` is set it
-   installs the path-only configuration and probes the exclusion/checkpoint
-   providers plus all four isolated adapters;
+   installs the path-only configuration and probes the exclusion, checkpoint,
+   code-release, upload, and effect providers plus all four isolated adapters;
 6. creates `repo_path/site.duo.json` only when it is absent, initially pinning
    `core` with post/page/attachment and category/post_tag scope;
 7. starts fresh wp-cli processes to prove the remote `DUO_AGENT_VERSION`
