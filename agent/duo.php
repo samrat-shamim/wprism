@@ -51,7 +51,18 @@ require_once __DIR__ . '/src/Lint.php';
 
 // Provenance journal is opt-in: define('DUO_JOURNAL', true) in wp-config.php
 // (or export DUO_JOURNAL=1 in the environment).
-if ((defined('DUO_JOURNAL') && DUO_JOURNAL) || getenv('DUO_JOURNAL') === '1') {
+// The control-plane loader runs at WP-CLI's after_wp_config_load boundary,
+// before WordPress has defined get_option()/add_filter()/add_action(). It is
+// deliberately isolated from normal MU/plugin bootstrap, so provenance
+// observation cannot be installed there. Fail closed until the ordinary WP
+// runtime has all journal APIs available; the normal opt-in path is unchanged.
+$duoJournalEnabled = (defined('DUO_JOURNAL') && DUO_JOURNAL) || getenv('DUO_JOURNAL') === '1';
+$duoControlPlane = defined('DUO_CONTROL_PLANE') && DUO_CONTROL_PLANE === true;
+if ($duoJournalEnabled
+    && !$duoControlPlane
+    && function_exists('get_option')
+    && function_exists('add_filter')
+    && function_exists('add_action')) {
     \Duo\Journal::boot();
 }
 

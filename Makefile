@@ -11,7 +11,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
 	regress-snapshot-meta regress-ssh-adopt regress-tec-regen regress-user-meta \
 	regress-option-name-refs-wiring regress-offline-all regress-live-list regress-code-compatibility \
-	regress-coverage-offline regress-coverage
+	regress-coverage-offline regress-coverage regress-journal-bootstrap
 
 up:
 	$(COMPOSE) up -d
@@ -301,12 +301,17 @@ regress-promotion-unit:
 regress-lifecycle-options-snapshot:
 	php sandbox/tests/regress_lifecycle_options_snapshot.php
 
+# Fatal-safe control-plane bootstrap: DUO_JOURNAL must not call WordPress
+# option/filter APIs before after_wp_config_load has loaded the normal runtime.
+regress-journal-bootstrap:
+	php sandbox/tests/regress_journal_bootstrap.php
+
 # First functional code-half's fast, offline boundary suite: descriptor
 # revision enforcement, truthful status rendering, template reconciliation
 # detection, and both public host orchestration paths. Keep this separate
 # from the Docker/live promotion regression below so it is cheap to run while
 # iterating on the safety gates.
-code-half-unit: regress-repository-compiler regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-promotion-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-lifecycle-options-snapshot regress-code-compatibility
+code-half-unit: regress-repository-compiler regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-promotion-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-lifecycle-options-snapshot regress-journal-bootstrap regress-code-compatibility
 
 regress-repository-compiler:
 	bash sandbox/tests/regress_repository_compiler.sh
@@ -521,7 +526,7 @@ regress-user-meta:
 
 # DUO-3285: one target bundling every offline (no-docker) regress suite --
 # cheap enough to run at every close-gate, wired into CI as a required check
-# (.github/workflows/conformance.yml). 34 suites: code-half-unit's own 13
+# (.github/workflows/conformance.yml). 39 suites: code-half-unit's own 18
 # (already bundled, referenced not repeated), 7 that had a Makefile target
 # but were in no bundle CI ever ran (regress-capture-publish through
 # regress-order-preserving below), the 12 newly-wired offline scripts,
@@ -545,7 +550,7 @@ regress-offline-all: code-half-unit \
 	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
 	regress-option-name-refs-wiring regress-natural-key-rename
-	@echo "regress-offline-all: 34 offline suites green"
+	@echo "regress-offline-all: 39 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
