@@ -158,7 +158,7 @@ CAPTURE_ERR=$(wp1 duo capture --repo=/siterepo 2>&1)
 CAPTURE_RC=$?
 set -e
 [ "$CAPTURE_RC" -ne 0 ] || fail "capture accepted unsupported Woo attribute deletion"
-echo "$CAPTURE_ERR" | grep -Fq 'deletion intent for table:woocommerce_attribute_taxonomies is unsupported' \
+grep -Fq 'deletion intent for table:woocommerce_attribute_taxonomies is unsupported' <<<"$CAPTURE_ERR" \
   || fail "capture refusal did not name the exact unsupported selector: $CAPTURE_ERR"
 [ ! -d "$HOST1/state/deletions" ] || [ -z "$(find "$HOST1/state/deletions" -type f -name '*.json' -print -quit)" ] \
   || fail "failed capture published a deletion tombstone"
@@ -191,9 +191,9 @@ APPLY_RC=$?
 set -e
 [ "$PLAN_RC" -ne 0 ] || fail "plan accepted a hand-authored unsupported tombstone"
 [ "$APPLY_RC" -ne 0 ] || fail "apply --with-deletes accepted a hand-authored unsupported tombstone"
-echo "$PLAN_ERR" | grep -Fq 'deletion intent for table:woocommerce_attribute_taxonomies is unsupported' \
+grep -Fq 'deletion intent for table:woocommerce_attribute_taxonomies is unsupported' <<<"$PLAN_ERR" \
   || fail "plan refusal did not name the exact unsupported selector: $PLAN_ERR"
-echo "$APPLY_ERR" | grep -Fq 'deletion intent for table:woocommerce_attribute_taxonomies is unsupported' \
+grep -Fq 'deletion intent for table:woocommerce_attribute_taxonomies is unsupported' <<<"$APPLY_ERR" \
   || fail "apply refusal did not name the exact unsupported selector: $APPLY_ERR"
 pass "offline compiler blocks plan/apply; --with-deletes and force cannot bypass missing capability"
 
