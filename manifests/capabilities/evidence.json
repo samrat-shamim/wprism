@@ -355,8 +355,8 @@
             },
             {
                 "path": "agent/src/WooCommerceContract.php",
-                "sha256": "085552ae3d185f1b914990146d42b49c9ecc5a8de877cc2cd3d258ca94599368",
-                "size": 15870
+                "sha256": "a5d8f4ff00bd34dd6c930391ef2e85dda7c35dd0bf685f08f152857f1432c73f",
+                "size": 19604
             },
             {
                 "path": "cli/README.md",
@@ -515,8 +515,8 @@
             },
             {
                 "path": "manifests/regenerators/woocommerce-product-lookups.php",
-                "sha256": "440c87192f63c6030a023b631d776047449dd10d5d97db40cf1803e255827f4c",
-                "size": 63024
+                "sha256": "66afd15288c9fbc1deaeda0c53d3eaa9385643d7527a26cbcbfe8a8fc04b76db",
+                "size": 66762
             },
             {
                 "path": "manifests/the-events-calendar.json",
@@ -525,8 +525,8 @@
             },
             {
                 "path": "manifests/woocommerce.json",
-                "sha256": "a8d2e61f7ecf65bb8b535e640fc475e09b8e25e8aa377b7b52ddb49d7f1a3c79",
-                "size": 101899
+                "sha256": "47291ca18eccea12d0d9e037bdbb976bc3bb9efd9df744c5ba46845dd32dbb8f",
+                "size": 102362
             },
             {
                 "path": "manifests/yoast.json",
@@ -724,8 +724,8 @@
                 "size": 93881
             }
         ],
-        "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
-        "created_at": "2026-08-08T16:42:11Z",
+        "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
+        "created_at": "2026-08-08T17:39:42Z",
         "environment": {
             "path": "environment.json",
             "sha256": "9711ef3a04f882da7e7e0271d99bf014408bea1c656510ec463456e635fedc63",
@@ -744,7 +744,7 @@
             "wordpress": "7.0.2"
         },
         "force_hatches": [],
-        "git_revision": "919dd4127a64524ce7cf548b5d3d10e10695a31e",
+        "git_revision": "4c1b830081143e543f394316d756a8f1eb22c941",
         "harness": {
             "name": "duo-reference-certification",
             "version": 2
@@ -780,8 +780,8 @@
                 "id": "core-conformance",
                 "log": {
                     "path": "logs/core-conformance.txt",
-                    "sha256": "26e62556c8fc925f7db2dc36797ea04c95e5e5c1931ddf22eede6fa2228c392a",
-                    "size": 26613
+                    "sha256": "57f58ba2d71bf56091568d393fa9593447d3ebdb739d9e472c62d410d61dfab2",
+                    "size": 27179
                 },
                 "result": {
                     "path": "results/core-conformance.json",
@@ -799,8 +799,8 @@
                 "id": "fse-conformance",
                 "log": {
                     "path": "logs/fse-conformance.txt",
-                    "sha256": "bba5b97d03b65cf6e90a319ebd8288ef7ef51ade7dd244063ea4dfebf0c4a09a",
-                    "size": 14182
+                    "sha256": "14cdb5d360edaac1a398cddf5fd2bc6a78a8b797f72a761c81dfd9c2bfef1e32",
+                    "size": 14432
                 },
                 "result": {
                     "path": "results/fse-conformance.json",
@@ -818,8 +818,8 @@
                 "id": "multisite-refusal",
                 "log": {
                     "path": "logs/multisite-refusal.txt",
-                    "sha256": "ee72636f2c588f03bf21cc326f6f5b146b2e7b3a696e858877b9570bf981051d",
-                    "size": 7269
+                    "sha256": "6fd10b35cbe3168fc18ab6e69aa40dd9e37ea8372362b112f7e528b860d37421",
+                    "size": 7433
                 },
                 "result": {
                     "path": "results/multisite-refusal.json",
@@ -837,8 +837,8 @@
                 "id": "exact-artifact-version-matrix",
                 "log": {
                     "path": "logs/exact-artifact-version-matrix.txt",
-                    "sha256": "2f159147d8fe96e93f4c2e299c2e07565bd9a1448fb4c7c49e1583a0360ec174",
-                    "size": 126980
+                    "sha256": "a1c926ba6f54bbc61f553846357078c22132feaad9e15d25292f0d1701c1c585",
+                    "size": 129633
                 },
                 "result": {
                     "path": "results/exact-artifact-version-matrix.json",
