@@ -126,16 +126,16 @@ RC1=$?
 set -e
 echo "$OUT1"
 [ "$RC1" -ne 0 ] || fail "expected duo capture to ABORT (unscoped ref-typed option) — got exit 0"
-echo "$OUT1" | grep -q "wp_page_for_privacy_policy" || fail "abort message doesn't name the option (got: $OUT1)"
-echo "$OUT1" | grep -q "$PAGE_ID" || fail "abort message doesn't name the raw unresolved id (got: $OUT1)"
-echo "$OUT1" | grep -qi "page" || fail "abort message doesn't name the missing post type (got: $OUT1)"
-echo "$OUT1" | grep -q "force-unresolved-refs" || fail "abort message doesn't mention the escape hatch (got: $OUT1)"
+grep -q "wp_page_for_privacy_policy" <<<"$OUT1" || fail "abort message doesn't name the option (got: $OUT1)"
+grep -q "$PAGE_ID" <<<"$OUT1" || fail "abort message doesn't name the raw unresolved id (got: $OUT1)"
+grep -qi "page" <<<"$OUT1" || fail "abort message doesn't name the missing post type (got: $OUT1)"
+grep -q "force-unresolved-refs" <<<"$OUT1" || fail "abort message doesn't mention the escape hatch (got: $OUT1)"
 pass "capture aborted loudly, naming the option, the raw id, the missing post type, and the escape hatch"
 
 say "(1b) same case, escape hatch: --force-unresolved-refs proceeds, drops it like a dangling ref"
 OUT1B=$(wp1 duo capture --repo="$REPO" --out="$OUT" --force-unresolved-refs 2>&1)
 echo "$OUT1B"
-echo "$OUT1B" | grep -qi "success" || fail "expected --force-unresolved-refs to let capture succeed (got: $OUT1B)"
+grep -qi "success" <<<"$OUT1B" || fail "expected --force-unresolved-refs to let capture succeed (got: $OUT1B)"
 # NOT has()|not: wp_page_for_privacy_policy is policy-declared authored
 # (manifests/core.json), so Capture::build_options()'s own $required pass
 # (independent of any previous-document reconciliation -- confirmed by
@@ -155,8 +155,8 @@ say "(2) DANGLING (regression, must be UNCHANGED): wp_page_for_privacy_policy ->
 wp1 option update wp_page_for_privacy_policy 999999999 >/dev/null
 OUT2=$(wp1 duo capture --repo="$REPO" --out="$OUT" 2>&1)
 echo "$OUT2"
-echo "$OUT2" | grep -qi "success" || fail "expected a genuinely dangling ref to still warn-and-drop, not abort (got: $OUT2)"
-echo "$OUT2" | grep -q "999999999" || fail "expected the ordinary dangling warning naming the id (got: $OUT2)"
+grep -qi "success" <<<"$OUT2" || fail "expected a genuinely dangling ref to still warn-and-drop, not abort (got: $OUT2)"
+grep -q "999999999" <<<"$OUT2" || fail "expected the ordinary dangling warning naming the id (got: $OUT2)"
 # Same record shape as (1b) above, same reason: a dropped scalar ref
 # always ends up {"state":"absent"} via the $required fallback, dangling
 # or unscoped-forced makes no difference to THIS shape (only to which
@@ -174,14 +174,14 @@ RC3=$?
 set -e
 echo "$OUT3"
 [ "$RC3" -ne 0 ] || fail "expected duo capture to ABORT (unscoped ref-typed ARRAY option) — got exit 0"
-echo "$OUT3" | grep -q "sticky_posts" || fail "abort message doesn't name sticky_posts (got: $OUT3)"
+grep -q "sticky_posts" <<<"$OUT3" || fail "abort message doesn't name sticky_posts (got: $OUT3)"
 pass "array-ref option gets the identical loud-and-blocking treatment as the scalar case (acceptance criterion 3)"
 
 say "(3b) same array case, DANGLING element (regression, must be UNCHANGED)"
 wp1 eval "update_option('sticky_posts', [888888888]);" >/dev/null
 OUT3B=$(wp1 duo capture --repo="$REPO" --out="$OUT" 2>&1)
 echo "$OUT3B"
-echo "$OUT3B" | grep -qi "success" || fail "expected a dangling array element to still warn-and-drop (got: $OUT3B)"
+grep -qi "success" <<<"$OUT3B" || fail "expected a dangling array element to still warn-and-drop (got: $OUT3B)"
 # Sweep note (unlike (1b)/(2) above, this one does NOT need the {state:
 # absent} fix): option_ref_tokens()'s array-ref branch (confirmed by
 # reading it directly) ALWAYS returns an array, even when every element
@@ -270,7 +270,7 @@ wp1 option update wp_page_for_privacy_policy "$PAGE_ID" >/dev/null
 mkdir -p "$HOST_REPO/state"
 SNAP_OUT=$(wp1 eval "try { \Duo\Capture::snapshot('$REPO'); echo 'OK'; } catch (\Throwable \$e) { echo 'THROWN: ' . \$e->getMessage(); }" 2>&1 | tail -1)
 echo "$SNAP_OUT"
-echo "$SNAP_OUT" | grep -q '^OK' || fail "Capture::snapshot() (non-minting) incorrectly treated an in-scope-but-unminted page as UNSCOPED (got: $SNAP_OUT)"
+grep -q '^OK' <<<"$SNAP_OUT" || fail "Capture::snapshot() (non-minting) incorrectly treated an in-scope-but-unminted page as UNSCOPED (got: $SNAP_OUT)"
 pass "non-minting snapshot correctly leaves an in-scope, not-yet-minted entity alone — scope is decided by policy membership, never by minting state"
 
 pass "task #73 regression: dangling-vs-unscoped distinction demonstrated in both directions (scalar + array), the escape hatch, and the minting-vs-scope false positive"
