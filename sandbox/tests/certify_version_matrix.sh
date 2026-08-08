@@ -43,11 +43,28 @@ PORT1="${VMATRIX_PORT1:-8870}"
 PORT2="${VMATRIX_PORT2:-8871}"
 export DUO_PAIR="$PAIR"
 PAIR_COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
-wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
-wp2() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
+wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
+wp2() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
 GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-vmatrix1 -c user.email=vmatrix1@example.test)
 
 . bin/fetch-artifact.sh
+
+# Every boundary replaces both host-side Git working trees while the pair's
+# CLI processes run as uid 33.  Recreating those roots with the host's normal
+# 0755 umask blocks capture's root lock; letting uid 33 use its normal 0022
+# umask also leaves nested temporary trees the host cannot recursively clean.
+# Keep this cooperation strictly inside disposable matrix repositories.
+reset_case_repositories() {
+  rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
+  git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
+  mkdir -p "siterepo/${PAIR}1"
+  chmod 0777 "siterepo/${PAIR}1"
+}
+
+clone_case_target() {
+  git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
+  chmod 0777 "siterepo/${PAIR}2"
+}
 
 say "boot pair $PAIR (${PAIR}1 :$PORT1 / ${PAIR}2 :$PORT2), idempotent"
 # Elementor's contract includes real frontend and generated-CSS checks, so
@@ -385,9 +402,7 @@ for ACF_VERSION in 6.0.0 6.8.7; do
 
   reset_env wp1
   reset_env wp2
-  rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
-  git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-  mkdir -p "siterepo/${PAIR}1"
+  reset_case_repositories
 
   say "fetch + verify acf $ACF_VERSION (never a bare slug install — always a digest-checked artifact)"
   ARTIFACT_1=$(fetch_artifact advanced-custom-fields "$ACF_VERSION" cli1)
@@ -430,7 +445,7 @@ EOF
   "${GIT1[@]}" commit -qm "capture: acf $ACF_VERSION content"
   "${GIT1[@]}" push -q origin main
 
-  git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
+  clone_case_target
   wp2 plugin install "$ARTIFACT_2" >/dev/null
   INSTALLED_2=$(wp2 plugin get advanced-custom-fields --field=version)
   [ "$INSTALLED_2" = "$ACF_VERSION" ] || fail "side 2 installed version mismatch: expected $ACF_VERSION, got $INSTALLED_2"
@@ -459,9 +474,7 @@ for NINJA_VERSION in 3.4.34.2 3.14.11; do
 
   reset_env wp1
   reset_env wp2
-  rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
-  git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-  mkdir -p "siterepo/${PAIR}1"
+  reset_case_repositories
 
   say "fetch + verify ninja-forms $NINJA_VERSION (never a bare slug install — always a digest-checked artifact)"
   ARTIFACT_1=$(fetch_artifact ninja-forms "$NINJA_VERSION" cli1)
@@ -502,7 +515,7 @@ EOF
   "${GIT1[@]}" commit -qm "capture: ninja-forms $NINJA_VERSION content"
   "${GIT1[@]}" push -q origin main
 
-  git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
+  clone_case_target
   wp2 plugin install "$ARTIFACT_2" >/dev/null
   INSTALLED_2=$(wp2 plugin get ninja-forms --field=version)
   [ "$INSTALLED_2" = "$NINJA_VERSION" ] || fail "side 2 installed version mismatch: expected $NINJA_VERSION, got $INSTALLED_2"
@@ -528,9 +541,7 @@ for ELEMENTOR_VERSION in 4.0.0 4.2.2; do
 
   reset_env wp1
   reset_env wp2
-  rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
-  git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-  mkdir -p "siterepo/${PAIR}1"
+  reset_case_repositories
 
   say "fetch + verify elementor $ELEMENTOR_VERSION (never a bare slug install — always a digest-checked artifact)"
   ARTIFACT_1=$(fetch_artifact elementor "$ELEMENTOR_VERSION" cli1)
@@ -573,7 +584,7 @@ EOF
   "${GIT1[@]}" commit -qm "capture: elementor $ELEMENTOR_VERSION content"
   "${GIT1[@]}" push -q origin main
 
-  git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
+  clone_case_target
   wp2 plugin install "$ARTIFACT_2" >/dev/null
   INSTALLED_2=$(wp2 plugin get elementor --field=version)
   [ "$INSTALLED_2" = "$ELEMENTOR_VERSION" ] || fail "side 2 installed version mismatch: expected $ELEMENTOR_VERSION, got $INSTALLED_2"
@@ -598,9 +609,7 @@ for CF7_VERSION in 6.0.1 6.1.6; do
 
   reset_env wp1
   reset_env wp2
-  rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
-  git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-  mkdir -p "siterepo/${PAIR}1"
+  reset_case_repositories
 
   say "fetch + verify contact-form-7 $CF7_VERSION (never a bare slug install — always a digest-checked artifact)"
   ARTIFACT_1=$(fetch_artifact contact-form-7 "$CF7_VERSION" cli1)
@@ -643,7 +652,7 @@ EOF
   "${GIT1[@]}" commit -qm "capture: contact-form-7 $CF7_VERSION content"
   "${GIT1[@]}" push -q origin main
 
-  git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
+  clone_case_target
   wp2 plugin install "$ARTIFACT_2" >/dev/null
   INSTALLED_2=$(wp2 plugin get contact-form-7 --field=version)
   [ "$INSTALLED_2" = "$CF7_VERSION" ] || fail "side 2 installed version mismatch: expected $CF7_VERSION, got $INSTALLED_2"
@@ -666,9 +675,7 @@ for POLYLANG_VERSION in 3.5 3.8.6; do
 
   reset_env wp1
   reset_env wp2
-  rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
-  git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-  mkdir -p "siterepo/${PAIR}1"
+  reset_case_repositories
 
   say "fetch + verify polylang $POLYLANG_VERSION (never a bare slug install — always a digest-checked artifact)"
   ARTIFACT_1=$(fetch_artifact polylang "$POLYLANG_VERSION" cli1)
@@ -709,7 +716,7 @@ EOF
   "${GIT1[@]}" commit -qm "capture: polylang $POLYLANG_VERSION content"
   "${GIT1[@]}" push -q origin main
 
-  git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
+  clone_case_target
   wp2 plugin install "$ARTIFACT_2" >/dev/null
   INSTALLED_2=$(wp2 plugin get polylang --field=version)
   [ "$INSTALLED_2" = "$POLYLANG_VERSION" ] || fail "side 2 installed version mismatch: expected $POLYLANG_VERSION, got $INSTALLED_2"
@@ -737,9 +744,7 @@ for WOO_VERSION in 11.0.0; do
 
   reset_env wp1
   reset_env wp2
-  rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
-  git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-  mkdir -p "siterepo/${PAIR}1"
+  reset_case_repositories
 
   say "fetch + verify woocommerce $WOO_VERSION (never a bare slug install — always a digest-checked artifact)"
   ARTIFACT_1=$(fetch_artifact woocommerce "$WOO_VERSION" cli1)
@@ -781,7 +786,7 @@ EOF
   "${GIT1[@]}" commit -qm "capture: woocommerce $WOO_VERSION content"
   "${GIT1[@]}" push -q origin main
 
-  git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
+  clone_case_target
   wp2 plugin install "$ARTIFACT_2" >/dev/null
   INSTALLED_2=$(wp2 plugin get woocommerce --field=version)
   [ "$INSTALLED_2" = "$WOO_VERSION" ] || fail "side 2 installed version mismatch: expected $WOO_VERSION, got $INSTALLED_2"
@@ -811,9 +816,7 @@ for YOAST_VERSION in 28.0 28.2; do
 
   reset_env wp1
   reset_env wp2
-  rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
-  git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-  mkdir -p "siterepo/${PAIR}1"
+  reset_case_repositories
 
   say "fetch + verify wordpress-seo $YOAST_VERSION (never a bare slug install — always a digest-checked artifact)"
   ARTIFACT_1=$(fetch_artifact wordpress-seo "$YOAST_VERSION" cli1)
@@ -854,7 +857,7 @@ EOF
   "${GIT1[@]}" commit -qm "capture: wordpress-seo $YOAST_VERSION content"
   "${GIT1[@]}" push -q origin main
 
-  git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
+  clone_case_target
   wp2 plugin install "$ARTIFACT_2" >/dev/null
   INSTALLED_2=$(wp2 plugin get wordpress-seo --field=version)
   [ "$INSTALLED_2" = "$YOAST_VERSION" ] || fail "side 2 installed version mismatch: expected $YOAST_VERSION, got $INSTALLED_2"
@@ -889,9 +892,7 @@ done
 # refusal fires before any target mutation is attempted.
 say "negative control: acf 5.12.6 (real wp.org release, genuinely below manifests/acf.json's own declared min 6.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
-rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
-git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-mkdir -p "siterepo/${PAIR}1"
+reset_case_repositories
 
 OUT_OF_RANGE_ARTIFACT=$(fetch_artifact advanced-custom-fields 5.12.6 cli1)
 wp1 plugin install "$OUT_OF_RANGE_ARTIFACT" --activate >/dev/null
@@ -943,9 +944,7 @@ pass "confirmed: acf 5.12.6 (real, installed, genuinely below the declared min) 
 
 say "negative control: contact-form-7 5.9.8 (real wp.org release, genuinely below manifests/contact-form-7.json's own declared min 6.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
-rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
-git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-mkdir -p "siterepo/${PAIR}1"
+reset_case_repositories
 
 OUT_OF_RANGE_ARTIFACT=$(fetch_artifact contact-form-7 5.9.8 cli1)
 wp1 plugin install "$OUT_OF_RANGE_ARTIFACT" --activate >/dev/null
@@ -990,9 +989,7 @@ pass "confirmed: contact-form-7 5.9.8 (real, installed, genuinely below the decl
 
 say "negative control: elementor 3.35.9 (real wp.org release, genuinely below manifests/elementor.json's own declared min 4.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
-rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
-git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-mkdir -p "siterepo/${PAIR}1"
+reset_case_repositories
 
 OUT_OF_RANGE_ARTIFACT=$(fetch_artifact elementor 3.35.9 cli1)
 wp1 plugin install "$OUT_OF_RANGE_ARTIFACT" --activate >/dev/null
@@ -1037,9 +1034,7 @@ pass "confirmed: elementor 3.35.9 (real, installed, genuinely below the declared
 
 say "negative control: ninja-forms 3.3.21.4 (real wp.org release, genuinely below manifests/ninja-forms.json's corrected min 3.4.34.2) must be REFUSED, not silently accepted"
 reset_env wp1
-rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
-git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-mkdir -p "siterepo/${PAIR}1"
+reset_case_repositories
 
 # Build valid canonical state with the certified upper-bound artifact first.
 # The below-range release fatals during activation on the repository's PHP
@@ -1093,9 +1088,7 @@ pass "confirmed: ninja-forms 3.3.21.4 (real, installed, genuinely below the corr
 
 say "negative control: polylang 3.4.5 (real wp.org release, genuinely below manifests/polylang.json's corrected min 3.5) must be REFUSED, not silently accepted"
 reset_env wp1
-rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
-git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-mkdir -p "siterepo/${PAIR}1"
+reset_case_repositories
 
 # Build valid canonical state at the certified upper boundary, then replace
 # only the installed plugin bytes. The refusal therefore proves the version
@@ -1147,9 +1140,7 @@ pass "confirmed: polylang 3.4.5 (real, installed, genuinely below the corrected 
 
 say "negative control: woocommerce 10.9.4 (real wp.org release, closest stable below manifests/woocommerce.json's min 11.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
-rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
-git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-mkdir -p "siterepo/${PAIR}1"
+reset_case_repositories
 
 # Build a valid, representative WooCommerce state tree with the admitted
 # 11.0.0 artifact, then swap only the installed code to 10.9.4. This keeps
@@ -1203,9 +1194,7 @@ pass "confirmed: woocommerce 10.9.4 (real, installed, closest stable below the d
 
 say "negative control: wordpress-seo 27.9 (real wp.org release, closest stable below manifests/yoast.json's min 28.0) must be REFUSED, not silently accepted"
 reset_env wp1
-rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
-git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-mkdir -p "siterepo/${PAIR}1"
+reset_case_repositories
 
 # Capture a valid admitted 28.0 state, then replace only the installed code
 # with 27.9. That isolates Deploy::code_mismatch() from unsupported old-code

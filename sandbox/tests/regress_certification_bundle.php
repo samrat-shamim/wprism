@@ -74,6 +74,29 @@ check(
     'exact-checkout refusal runs before temporary allocation or Docker pair inspection'
 );
 
+echo "\n== version-matrix cross-user repository permissions ==\n";
+$versionMatrix = (string) file_get_contents(__DIR__ . '/certify_version_matrix.sh');
+check(
+    substr_count($versionMatrix, "sh -c 'umask 000; exec wp \"\$@\"' sh \"\$@\"") === 2,
+    'both version-matrix WP-CLI sides create disposable output with a host-cleanable umask'
+);
+check(
+    str_contains($versionMatrix, 'chmod 0777 "siterepo/${PAIR}1"'),
+    'every reset can restore uid-33 write access to the recreated source repository root'
+);
+check(
+    str_contains($versionMatrix, 'chmod 0777 "siterepo/${PAIR}2"'),
+    'every clone can restore uid-33 write access to the recreated target repository root'
+);
+check(
+    preg_match_all('/^\s*reset_case_repositories\s*$/m', $versionMatrix) === 14,
+    'all positive and negative matrix cases use the shared cross-user reset boundary'
+);
+check(
+    preg_match_all('/^\s*clone_case_target\s*$/m', $versionMatrix) === 7,
+    'all positive round-trip cases use the shared cross-user target-clone boundary'
+);
+
 $root = sys_get_temp_dir() . '/duo_cert_bundle_' . bin2hex(random_bytes(5));
 $repo = "$root/repo";
 $inputs = "$root/inputs";
