@@ -617,6 +617,12 @@ pre-promotion revision before that sequence; database import alone is never a
 complete code-and-state rollback. A failed export is not a checkpoint and gets
 no import instruction.
 
+The future automatic production-SSH rollback contract is designed separately
+in `docs/proposals/verified-ssh-rollback.md`. It does not change this v0
+operator-directed behavior: automatic rollback requires an authority receipt
+outside the restored database, complete code/upload/resource inverses,
+traffic exclusion, and fresh-process verification of the prior revision.
+
 Deploy and apply also share one target-authoritative lease in the target
 database. The `duo_kv.promotion_lock` record names a random orchestrator owner,
 the compiled artifact hash, current phase, and bounded expiry. Only
