@@ -203,7 +203,7 @@ set -e
 [ "$MERGE_RC" -ne 0 ] || fail "expected a merge conflict on About, merge succeeded — conflict-detection regressed"
 CONFLICTS=$($GIT_A status --porcelain | grep '^UU' || true)
 echo "$CONFLICTS"
-echo "$CONFLICTS" | grep -q -- '--about.md' || fail "conflict is not on the About entity file"
+grep -q -- '--about.md' <<<"$CONFLICTS" || fail "conflict is not on the About entity file"
 [ "$(echo "$CONFLICTS" | wc -l | tr -d ' ')" = "1" ] || fail "expected exactly one conflicted entity"
 grep -q '<<<<<<<' siterepo/mergecert1/state/posts/page/*--about.md || fail "no conflict markers in About file"
 pass "conflict surfaced as a plain git conflict, scoped to the About entity; Hello Duo merged clean"
@@ -282,7 +282,7 @@ set -e
 [ "$MERGE_RC2" -ne 0 ] || fail "expected a merge conflict on the attribute's label, merge succeeded — table-entity conflict-detection regressed"
 CONFLICTS2=$($GIT_A status --porcelain | grep '^UU' || true)
 echo "$CONFLICTS2"
-echo "$CONFLICTS2" | grep -q 'state/tables/woocommerce_attribute_taxonomies/' || fail "conflict is not on the attribute table-entity file"
+grep -q 'state/tables/woocommerce_attribute_taxonomies/' <<<"$CONFLICTS2" || fail "conflict is not on the attribute table-entity file"
 [ "$(echo "$CONFLICTS2" | wc -l | tr -d ' ')" = "1" ] || fail "expected exactly one conflicted entity"
 ATTR_FILE=$(ls siterepo/mergecert1/state/tables/woocommerce_attribute_taxonomies/*--mergecert-size.json)
 grep -q '<<<<<<<' "$ATTR_FILE" || fail "no conflict markers in the attribute table-entity file"
