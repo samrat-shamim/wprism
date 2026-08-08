@@ -102,7 +102,7 @@ echo "$PLAN" | jq -e \
 if APPLY_FAIL=$(wp2 duo apply --repo=/siterepo --format=json 2>&1); then
   fail "apply should refuse the case-divergent required login"
 fi
-echo "$APPLY_FAIL" | grep -q "exact login 'case.editor' is absent" || fail "missing-user refusal did not name exact login"
+grep -q "exact login 'case.editor' is absent" <<<"$APPLY_FAIL" || fail "missing-user refusal did not name exact login"
 [ "$(wp2 user meta get "$TARGET_EDITOR" agency_color)" = "blue" ] || fail "required-login refusal happened after mutation"
 pass "missing exact login blocks before mutation; warn-only login remains explicitly skipped"
 
@@ -146,7 +146,7 @@ wp1 user meta update "$SOURCE_PII" contact_email editor@example.test >/dev/null
 if PII_FAIL=$(wp1 duo capture --repo=/siterepo --format=json 2>&1); then
   fail "PII-bearing authored user meta should refuse without allow_pii"
 fi
-echo "$PII_FAIL" | grep -q "PII guard tripped" || fail "PII refusal did not identify the gate"
+grep -q "PII guard tripped" <<<"$PII_FAIL" || fail "PII refusal did not identify the gate"
 
 tmp_policy=$(mktemp)
 jq '.policy.user_meta.contact_email.allow_pii = true' "$SITE1/site.duo.json" > "$tmp_policy"
@@ -155,7 +155,7 @@ wp1 user meta update "$SOURCE_PII" api_token ghp_abcdefghijklmnopqrstuvwxyz12345
 if SECRET_FAIL=$(wp1 duo capture --repo=/siterepo --format=json 2>&1); then
   fail "secret-bearing authored user meta should refuse without allow_secret"
 fi
-echo "$SECRET_FAIL" | grep -q "secret guard tripped" || fail "secret refusal did not identify the gate"
+grep -q "secret guard tripped" <<<"$SECRET_FAIL" || fail "secret refusal did not identify the gate"
 pass "PII and hard-secret scanning are both active on user-meta values"
 
 printf '\nREGRESS_USER_META PASSED\n'
