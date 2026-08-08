@@ -272,9 +272,41 @@ try {
     submit($root, signed_request('claim', $e2, $r2, $secret));
     append_event($root, $r2, $secret, 'rollback_pending', 'state_transition', 'advance', 1, 'worker-c', 1, '2026-01-01T00:01:01Z');
     append_event($root, $r2, $secret, 'rolling_back', 'state_transition', 'advance', 1, 'worker-c', 1, '2026-01-01T00:01:02Z');
-    append_event($root, $r2, $secret, 'verifying_prior', 'state_transition', 'advance', 1, 'worker-c', 1, '2026-01-01T00:01:03Z');
-    append_event($root, $r2, $secret, 'rolled_back', 'state_transition', 'advance', 1, 'worker-c', 1, '2026-01-01T00:01:04Z');
-    ok_test(RollbackControl::status($root)['state'] === 'rolled_back', 'rollback path reaches the only other terminal green state');
+    $databaseInput = hash('sha256', 'database-restore-input');
+    append_event($root, $r2, $secret, 'rolling_back', 'prepared', 'database_restore', 1, 'worker-c', 1, '2026-01-01T00:01:03Z', $databaseInput);
+    append_event($root, $r2, $secret, 'rolling_back', 'completed', 'database_restore', 1, 'worker-c', 1, '2026-01-01T00:01:04Z', $databaseInput);
+    append_event($root, $r2, $secret, 'verifying_prior', 'state_transition', 'advance', 1, 'worker-c', 1, '2026-01-01T00:01:05Z');
+
+    $beforeMissingVerify = RollbackControl::status($root);
+    refuses(
+        fn() => append_event($root, $r2, $secret, 'rolled_back', 'state_transition', 'advance', 1, 'worker-c', 1, '2026-01-01T00:01:06Z'),
+        'terminal rollback refuses zero completed prior verification operations'
+    );
+    ok_test(
+        RollbackControl::canonical(RollbackControl::status($root)) === RollbackControl::canonical($beforeMissingVerify),
+        'missing prior verification refusal is mutation-free and preserves the exact authority head'
+    );
+
+    $priorInput = hash('sha256', 'prior-verify-input');
+    append_event($root, $r2, $secret, 'verifying_prior', 'prepared', 'prior_verify', 1, 'worker-c', 1, '2026-01-01T00:01:07Z', $priorInput);
+    append_event($root, $r2, $secret, 'verifying_prior', 'completed', 'prior_verify', 1, 'worker-c', 1, '2026-01-01T00:01:08Z', $priorInput);
+
+    $beforeTakeoverVerify = RollbackControl::status($root);
+    $verifyTakeover = event($r2, (int) $beforeTakeoverVerify['sequence'] + 1, (string) $beforeTakeoverVerify['head_event_sha256'], 'verifying_prior', 'takeover', 'operator-takeover', 1, 'worker-e', 2, '2026-01-01T00:01:39Z');
+    submit($root, signed_request('append', $verifyTakeover, null, $secret));
+    $beforeStaleVerify = RollbackControl::status($root);
+    refuses(
+        fn() => append_event($root, $r2, $secret, 'rolled_back', 'state_transition', 'advance', 1, 'worker-e', 2, '2026-01-01T00:01:40Z'),
+        'terminal rollback refuses prior verification completed only by an earlier claim epoch'
+    );
+    ok_test(
+        RollbackControl::canonical(RollbackControl::status($root)) === RollbackControl::canonical($beforeStaleVerify),
+        'stale-epoch prior verification refusal is mutation-free and preserves the exact authority head'
+    );
+    append_event($root, $r2, $secret, 'verifying_prior', 'prepared', 'prior_verify', 2, 'worker-e', 2, '2026-01-01T00:01:41Z', $priorInput);
+    append_event($root, $r2, $secret, 'verifying_prior', 'completed', 'prior_verify', 2, 'worker-e', 2, '2026-01-01T00:01:42Z', $priorInput);
+    append_event($root, $r2, $secret, 'rolled_back', 'state_transition', 'advance', 1, 'worker-e', 2, '2026-01-01T00:01:43Z');
+    ok_test(RollbackControl::status($root)['state'] === 'rolled_back', 'completed current-epoch verification and declared restore proof admit rolled_back');
     $audit = RollbackControl::auditEvidence($root);
     ok_test(($audit['format'] ?? '') === 'duo-rollback-audit/v1'
         && ($audit['state'] ?? '') === 'rolled_back'

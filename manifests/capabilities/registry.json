@@ -1,8 +1,8 @@
 {
     "evidence": {
-        "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+        "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
         "bundle_schema": "duo-certification-bundle/v1",
-        "created_at": "2026-08-08T19:01:05Z",
+        "created_at": "2026-08-08T20:22:27Z",
         "environment_summary": {
             "active_plugins": [],
             "database_client": "11.8.8",
@@ -17,7 +17,7 @@
         },
         "force_hatches": [],
         "format": "duo-capability-evidence/v1",
-        "git_revision": "5bc15bd8ac646e7f8b3436a46301dc858aa04ed0",
+        "git_revision": "ec485849d244a3b32f612b3299374e578c424cbf",
         "harness": {
             "name": "duo-reference-certification",
             "version": 2
@@ -46,7 +46,7 @@
     "generated_from": {
         "compatibility_sha256": "40050ad62cde35c9365d56525a6cf5c0a2a11382e3636971016895c8cba94d61",
         "dispositions_sha256": "341684befb55703209ec7f89732a1167f9099a8394ddb2edb52a1d08389bf651",
-        "evidence_sha256": "744b81aab06d00b4ae81388c0bb917f61a565f63e5547cfffc26fdbffb71d8ed"
+        "evidence_sha256": "61f3a37bab481412dc984d0a7ae14bff764a8053c0f8b53ebf633ade61c9321e"
     },
     "manifests": {
         "acf": {
@@ -80,7 +80,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -166,7 +166,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -259,7 +259,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -420,7 +420,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -488,7 +488,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -552,7 +552,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -626,7 +626,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -694,7 +694,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -759,7 +759,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -854,7 +854,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -958,7 +958,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -1102,7 +1102,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -1191,7 +1191,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -1308,7 +1308,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -1550,7 +1550,7 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",
@@ -1659,7 +1659,7 @@
         "fse": {
             "adapter_digest": "56220cf8e8f336a6f9ca6d4352dfcb27838fdf9a76216377d10c800dfcc4d9b0",
             "evidence": {
-                "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+                "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "current",

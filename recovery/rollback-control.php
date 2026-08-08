@@ -465,7 +465,15 @@ final class RollbackControl {
             }
         }
         self::assertClaimExpiry($event, (int) $receipt['claim_ttl_seconds']);
-        self::validateNextEvent($event, (string) $target['state'], $verified['open_operations'], $isTakeover);
+        self::validateNextEvent(
+            $event,
+            (string) $target['state'],
+            $verified['open_operations'],
+            $verified['completed_operations'],
+            $verified['completed_operation_history'],
+            $verified['required_operations'],
+            $isTakeover
+        );
 
         $dir = self::receiptDirectory($root, (string) $receipt['receipt_id']);
         $eventPath = self::eventPath($dir, (int) $event['sequence'], $eventHash);
@@ -478,7 +486,16 @@ final class RollbackControl {
         return self::statusUnlocked($root, $next);
     }
 
-    /** @return array{receipt:array<string,mixed>,open_operations:array<string,array<string,mixed>>,last_timestamp:int} */
+    /**
+     * @return array{
+     *   receipt:array<string,mixed>,
+     *   open_operations:array<string,array<string,mixed>>,
+     *   completed_operations:array<string,array<string,mixed>>,
+     *   completed_operation_history:array<string,array<string,mixed>>,
+     *   required_operations:array<string,bool>,
+     *   last_timestamp:int
+     * }
+     */
     private static function verifyActive(string $root, array $target): array {
         $receiptId = (string) $target['active_receipt'];
         $dir = self::receiptDirectory($root, $receiptId);
@@ -506,6 +523,9 @@ final class RollbackControl {
         $claimExpires = null;
         $lastTimestamp = 0;
         $open = [];
+        $completed = [];
+        $completedHistory = [];
+        $required = [];
         foreach ($files as $index => $path) {
             $sequence = $index + 1;
             $signedEvent = self::readCanonical($path, "event $sequence");
@@ -542,10 +562,18 @@ final class RollbackControl {
                     || (string) $event['claimant'] !== $claimant) {
                     throw new \RuntimeException("duo rollback: event $sequence was written by a fenced claimant");
                 }
-                self::validateNextEvent($event, (string) $state, $open, $takeover);
+                self::validateNextEvent(
+                    $event,
+                    (string) $state,
+                    $open,
+                    $completed,
+                    $completedHistory,
+                    $required,
+                    $takeover
+                );
             }
             self::assertClaimExpiry($event, (int) $receipt['claim_ttl_seconds']);
-            self::applyOperation($event, $open);
+            self::applyOperation($event, $open, $completed, $completedHistory, $required);
             $previous = $hash;
             $state = (string) $event['state'];
             $claimant = (string) $event['claimant'];
@@ -576,7 +604,14 @@ final class RollbackControl {
             $committed = self::verifyCommittedPrefix($root, $target, $receipt, $files, $expectedCount);
             return $committed + ['receipt' => $receipt];
         }
-        return ['receipt' => $receipt, 'open_operations' => $open, 'last_timestamp' => $lastTimestamp];
+        return [
+            'receipt' => $receipt,
+            'open_operations' => $open,
+            'completed_operations' => $completed,
+            'completed_operation_history' => $completedHistory,
+            'required_operations' => $required,
+            'last_timestamp' => $lastTimestamp,
+        ];
     }
 
     /**
@@ -585,23 +620,51 @@ final class RollbackControl {
      * state while still preserving that event for idempotent retry.
      *
      * @param list<string> $files
-     * @return array{open_operations:array<string,array<string,mixed>>,last_timestamp:int}
+     * @return array{
+     *   open_operations:array<string,array<string,mixed>>,
+     *   completed_operations:array<string,array<string,mixed>>,
+     *   completed_operation_history:array<string,array<string,mixed>>,
+     *   required_operations:array<string,bool>,
+     *   last_timestamp:int
+     * }
      */
     private static function verifyCommittedPrefix(string $root, array $target, array $receipt, array $files, int $count): array {
         $open = [];
+        $completed = [];
+        $completedHistory = [];
+        $required = [];
         $last = 0;
         foreach (array_slice($files, 0, $count) as $path) {
             $signed = self::readCanonical($path, 'committed event');
             $event = self::verifySigned($root, $signed, 'committed event');
             self::assertEventReceiptMatch($event, $receipt);
-            self::applyOperation($event, $open);
+            self::applyOperation($event, $open, $completed, $completedHistory, $required);
             $last = self::timeValue((string) $event['timestamp']);
         }
-        return ['open_operations' => $open, 'last_timestamp' => $last];
+        return [
+            'open_operations' => $open,
+            'completed_operations' => $completed,
+            'completed_operation_history' => $completedHistory,
+            'required_operations' => $required,
+            'last_timestamp' => $last,
+        ];
     }
 
-    /** @param array<string,array<string,mixed>> $open */
-    private static function validateNextEvent(array $event, string $currentState, array $open, bool $takeover): void {
+    /**
+     * @param array<string,array<string,mixed>> $open
+     * @param array<string,array<string,mixed>> $completed
+     * @param array<string,array<string,mixed>> $completedHistory
+     * @param array<string,bool> $required
+     */
+    private static function validateNextEvent(
+        array $event,
+        string $currentState,
+        array $open,
+        array $completed,
+        array $completedHistory,
+        array $required,
+        bool $takeover
+    ): void {
         $status = (string) $event['operation_status'];
         $nextState = (string) $event['state'];
         if ($takeover) {
@@ -613,6 +676,21 @@ final class RollbackControl {
             }
             if ($open) {
                 throw new \RuntimeException('duo rollback: state transition refused with incomplete resource operations');
+            }
+            if ($currentState === 'verifying_prior' && $nextState === 'rolled_back') {
+                $priorVerify = $completed['prior_verify'] ?? null;
+                if (!is_array($priorVerify)
+                    || (int) $priorVerify['claim_epoch'] !== (int) $event['claim_epoch']) {
+                    throw new \RuntimeException(
+                        'duo rollback: rolled_back requires a completed prior_verify in the current claim epoch'
+                    );
+                }
+                if (isset($required['database_restore'])
+                    && !is_array($completedHistory['database_restore'] ?? null)) {
+                    throw new \RuntimeException(
+                        'duo rollback: rolled_back requires a completed declared database_restore'
+                    );
+                }
             }
             return;
         }
@@ -632,17 +710,41 @@ final class RollbackControl {
         }
     }
 
-    /** @param array<string,array<string,mixed>> &$open */
-    private static function applyOperation(array $event, array &$open): void {
+    /**
+     * @param array<string,array<string,mixed>> &$open
+     * @param array<string,array<string,mixed>> &$completed
+     * @param array<string,array<string,mixed>> &$completedHistory
+     * @param array<string,bool> &$required
+     */
+    private static function applyOperation(
+        array $event,
+        array &$open,
+        array &$completed,
+        array &$completedHistory,
+        array &$required
+    ): void {
         $status = (string) $event['operation_status'];
+        if ($status === 'takeover') {
+            // Verification authority is claimant-epoch scoped. A successor
+            // must produce its own prior-world verification before terminal
+            // admission, while completed restore history remains durable.
+            $completed = [];
+            return;
+        }
         if (!in_array($status, ['prepared', 'completed'], true)) {
             return;
         }
         $key = self::operationKey($event);
         if ($status === 'prepared') {
             $open[$key] = $event;
+            if ((string) $event['operation_id'] === 'database_restore') {
+                $required['database_restore'] = true;
+            }
         } else {
             unset($open[$key]);
+            $operation = (string) $event['operation_id'];
+            $completed[$operation] = $event;
+            $completedHistory[$operation] = $event;
         }
     }
 

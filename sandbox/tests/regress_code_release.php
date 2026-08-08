@@ -123,7 +123,11 @@ try {
     $status = cr_authority($root, cr_event($receipt, $status, 'rolling_back', 'completed', 'code_restore', '2020-01-01T00:00:07Z', $restoreHash, $restored['result_sha256']), null, $keyId, $secret);
     cr_ok(trim((string) file_get_contents($pointer)) === 'release-prior', 'rollback retry atomically reselects and verifies every prior descriptor hash');
     $status = cr_authority($root, cr_event($receipt, $status, 'verifying_prior', 'state_transition', 'prior-verification', '2020-01-01T00:00:08Z', $h('verify'), str_repeat('0', 64)), null, $keyId, $secret);
-    $status = cr_authority($root, cr_event($receipt, $status, 'rolled_back', 'state_transition', 'rollback-complete', '2020-01-01T00:00:09Z', $h('done'), str_repeat('0', 64)), null, $keyId, $secret);
+    $priorInput = $tmp . '/prior-verify.json'; cr_write($priorInput, RollbackControl::canonical(['checkpoint_sha256' => $receipt['checkpoint_sha256'], 'operation' => 'prior_verify']) . "\n"); $priorHash = (string) hash_file('sha256', $priorInput);
+    $status = cr_authority($root, cr_event($receipt, $status, 'verifying_prior', 'prepared', 'prior_verify', '2020-01-01T00:00:09Z', $priorHash, str_repeat('0', 64)), null, $keyId, $secret);
+    $priorResult = RecoveryExecutor::execute($root, 'prior_verify', 'prior_verify', 1, 'worker-a', 1, $priorInput);
+    $status = cr_authority($root, cr_event($receipt, $status, 'verifying_prior', 'completed', 'prior_verify', '2020-01-01T00:00:10Z', $priorHash, $priorResult['result_sha256']), null, $keyId, $secret);
+    $status = cr_authority($root, cr_event($receipt, $status, 'rolled_back', 'state_transition', 'rollback-complete', '2020-01-01T00:00:11Z', $h('done'), str_repeat('0', 64)), null, $keyId, $secret);
     $delete = $prepare; $delete['action'] = 'delete'; $delete['timestamp'] = '2020-01-01T23:59:59Z';
     cr_refuses(fn() => cr_signed($root, $delete, 'release', $keyId, $secret), 'retained prior release cannot be deleted before rollback window');
     $delete['timestamp'] = '2020-01-02T00:00:00Z'; cr_refuses(fn() => cr_signed($root, $delete, 'release', $keyId, $secret), 'selected prior release cannot be deleted even after retention');
