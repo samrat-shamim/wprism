@@ -2,6 +2,13 @@
 *.log
 sandbox/siterepo/
 sandbox/tmp/
+
+# DUO-3277: pair.sh writes this so docker compose auto-loads
+# DUO_AGENT_SRC/DUO_MANIFESTS_SRC (resolved against THIS checkout's own
+# canonical root) for any subsequent compose call made by any script from
+# sandbox/ — never committed, since the paths it holds are host- and
+# checkout-specific.
+sandbox/.env
 .duo-envs.json
 .duo/
 .claude/worktrees/

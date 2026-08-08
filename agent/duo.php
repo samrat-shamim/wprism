@@ -34,6 +34,7 @@ require_once __DIR__ . '/src/Shortcodes.php';
 require_once __DIR__ . '/src/Canary.php';
 require_once __DIR__ . '/src/IdentityNotes.php';
 require_once __DIR__ . '/src/Snapshot.php';
+require_once __DIR__ . '/src/Orphans.php';
 require_once __DIR__ . '/src/TransientDbException.php';
 require_once __DIR__ . '/src/Publish.php';
 require_once __DIR__ . '/src/Capture.php';

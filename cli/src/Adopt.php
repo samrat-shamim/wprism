@@ -31,12 +31,27 @@ final class Adopt {
     /**
      * @return array{exit:int, phase:string, stdout:string, stderr:string, version:string, repo_created:bool}
      */
-    public static function install(SshTransport $transport, string $sourceRoot): array {
+    public static function install(
+        SshTransport $transport,
+        string $sourceRoot,
+        ?string $rollbackKeyId = null,
+        ?string $rollbackPublicKey = null,
+        ?array $recoveryConfig = null
+    ): array {
         $agentDir = rtrim($sourceRoot, '/') . '/agent';
         $manifestsDir = rtrim($sourceRoot, '/') . '/manifests';
         $version = self::agentVersion($agentDir . '/duo.php');
-        if ($version === null || !is_file($agentDir . '/duo-loader.php') || !is_dir($manifestsDir)) {
-            return self::failure('local artifact', 'Duo source tree is incomplete: expected agent/duo.php, agent/duo-loader.php, and manifests/', $version ?? 'unknown');
+        $runtime = rtrim($sourceRoot, '/') . '/recovery/rollback-control.php';
+        $executor = rtrim($sourceRoot, '/') . '/recovery/RecoveryExecutor.php';
+        if ($version === null || !is_file($agentDir . '/duo-loader.php') || !is_dir($manifestsDir)
+            || !is_file($runtime) || !is_file($executor)) {
+            return self::failure('local artifact', 'Duo source tree is incomplete: expected agent/, manifests/, and the complete recovery runtime', $version ?? 'unknown');
+        }
+        if (($rollbackKeyId === null) !== ($rollbackPublicKey === null)) {
+            return self::failure('local artifact', 'rollback key id and public key must be supplied together', $version);
+        }
+        if ($recoveryConfig !== null && $rollbackKeyId === null) {
+            return self::failure('local artifact', 'recovery configuration requires a rollback verification key', $version);
         }
 
         $reachable = $transport->captureRaw('echo duo-reachable');
@@ -64,7 +79,7 @@ final class Adopt {
         try {
             $archive = self::runLocal(
                 'tar -C ' . escapeshellarg(rtrim($sourceRoot, '/'))
-                . ' -cf ' . escapeshellarg($localArchive) . ' agent manifests'
+                . ' -cf ' . escapeshellarg($localArchive) . ' agent manifests recovery'
             );
             if ($archive['exit'] !== 0) {
                 return self::fromTransport('local artifact', $archive, $version);
@@ -79,7 +94,10 @@ final class Adopt {
                 $remoteArchive,
                 $muDir,
                 $transport->repoPath(),
-                $token
+                $token,
+                $rollbackKeyId,
+                $rollbackPublicKey,
+                $recoveryConfig
             ));
             if ($install['exit'] !== 0) {
                 return self::fromTransport('remote install', $install, $version);
@@ -111,7 +129,17 @@ final class Adopt {
                 return self::fromTransport('policy verification', $policy, $version);
             }
 
-            $commit = $transport->captureRaw(self::commitScript($muDir, $token));
+            $authority = $transport->captureRaw(
+                'php ' . escapeshellarg(rtrim($transport->repoPath(), '/') . '/.duo/control/recovery-runtime/rollback-control.php')
+                . ' status --root=' . escapeshellarg(rtrim($transport->repoPath(), '/') . '/.duo/control')
+            );
+            if ($authority['exit'] !== 0) {
+                self::rollback($transport, $muDir, $transport->repoPath(), $token, $authority);
+                $swapped = false;
+                return self::fromTransport('rollback authority verification', $authority, $version);
+            }
+
+            $commit = $transport->captureRaw(self::commitScript($muDir, $transport->repoPath(), $token));
             if ($commit['exit'] !== 0) {
                 self::rollback($transport, $muDir, $transport->repoPath(), $token, $commit);
                 $swapped = false;
@@ -141,7 +169,15 @@ final class Adopt {
         }
     }
 
-    private static function installScript(string $archive, string $muDir, string $repo, string $token): string {
+    private static function installScript(
+        string $archive,
+        string $muDir,
+        string $repo,
+        string $token,
+        ?string $rollbackKeyId,
+        ?string $rollbackPublicKey,
+        ?array $recoveryConfig
+    ): string {
         $agent = rtrim($muDir, '/') . '/duo';
         $loader = rtrim($muDir, '/') . '/duo-loader.php';
         $manifest = rtrim($muDir, '/') . '/manifests';
@@ -150,6 +186,7 @@ final class Adopt {
             throw new \RuntimeException('could not encode adoption site-repo seed');
         }
         $seed .= "\n";
+        $recovery = $recoveryConfig === null ? null : \Duo\Recovery\RollbackControl::canonical($recoveryConfig) . "\n";
 
         $q = static fn(string $value): string => escapeshellarg($value);
         $stage = '/tmp/duo-adopt-' . $token;
@@ -159,6 +196,11 @@ final class Adopt {
         $agentOld = rtrim($muDir, '/') . '/.duo-old-' . $token;
         $loaderOld = rtrim($muDir, '/') . '/.duo-loader-old-' . $token;
         $manifestOld = rtrim($muDir, '/') . '/.duo-manifests-old-' . $token;
+        $control = rtrim($repo, '/') . '/.duo/control';
+        $duoState = rtrim($repo, '/') . '/.duo';
+        $runtime = $control . '/recovery-runtime';
+        $runtimeNew = $control . '/.recovery-runtime-new-' . $token;
+        $runtimeOld = $control . '/.recovery-runtime-old-' . $token;
         $site = rtrim($repo, '/') . '/site.duo.json';
         $siteNew = rtrim($repo, '/') . '/.site.duo.new-' . $token;
         $txn = rtrim($muDir, '/') . '/.duo-adopt-txn-' . $token;
@@ -178,53 +220,75 @@ final class Adopt {
             . 'agent_old=' . $q($agentOld) . "\n"
             . 'loader_old=' . $q($loaderOld) . "\n"
             . 'manifest_old=' . $q($manifestOld) . "\n"
+            . 'control=' . $q($control) . "\n"
+            . 'duo_state=' . $q($duoState) . "\n"
+            . 'runtime=' . $q($runtime) . "\n"
+            . 'runtime_new=' . $q($runtimeNew) . "\n"
+            . 'runtime_old=' . $q($runtimeOld) . "\n"
             . 'site_new=' . $q($siteNew) . "\n"
             . 'txn=' . $q($txn) . "\n"
             . 'lock=' . $q($lock) . "\n"
-            . "had_agent=0; had_loader=0; had_manifest=0; touched_agent=0; touched_loader=0; touched_manifest=0; seed_created=0; lock_acquired=0; success=0\n"
+            . "had_agent=0; had_loader=0; had_manifest=0; had_runtime=0; touched_agent=0; touched_loader=0; touched_manifest=0; touched_runtime=0; seed_created=0; lock_acquired=0; success=0\n"
             . "finish() {\n"
             . "  status=\$?\n"
             . "  if [ \"\$success\" -ne 1 ]; then\n"
             . "    if [ \"\$touched_agent\" -eq 1 ]; then rm -rf \"\$agent\"; [ \"\$had_agent\" -eq 0 ] || mv \"\$agent_old\" \"\$agent\"; fi\n"
             . "    if [ \"\$touched_loader\" -eq 1 ]; then rm -f \"\$loader\"; [ \"\$had_loader\" -eq 0 ] || mv \"\$loader_old\" \"\$loader\"; fi\n"
             . "    if [ \"\$touched_manifest\" -eq 1 ]; then rm -rf \"\$manifest\"; [ \"\$had_manifest\" -eq 0 ] || mv \"\$manifest_old\" \"\$manifest\"; fi\n"
+            . "    if [ \"\$touched_runtime\" -eq 1 ]; then rm -rf \"\$runtime\"; [ \"\$had_runtime\" -eq 0 ] || mv \"\$runtime_old\" \"\$runtime\"; fi\n"
             . "    [ \"\$seed_created\" -eq 0 ] || rm -f \"\$site\"\n"
             . "  fi\n"
-            . "  rm -rf \"\$stage\" \"\$agent_new\" \"\$loader_new\" \"\$manifest_new\" \"\$site_new\"\n"
+            . "  rm -rf \"\$stage\" \"\$agent_new\" \"\$loader_new\" \"\$manifest_new\" \"\$runtime_new\" \"\$site_new\"\n"
             . "  if [ \"\$success\" -ne 1 ]; then rm -rf \"\$txn\"; [ \"\$lock_acquired\" -eq 0 ] || rmdir \"\$lock\"; fi\n"
             . "  rm -f \"\$archive\"\n"
             . "  exit \"\$status\"\n"
             . "}\n"
             . "trap finish EXIT\n"
-            . "for path in \"\$agent\" \"\$loader\" \"\$manifest\" \"\$site\"; do [ ! -L \"\$path\" ] || { echo \"duo adopt: refusing symlink destination: \$path\" >&2; exit 1; }; done\n"
+            . "for path in \"\$agent\" \"\$loader\" \"\$manifest\" \"\$site\" \"\$duo_state\" \"\$control\" \"\$runtime\"; do [ ! -L \"\$path\" ] || { echo \"duo adopt: refusing symlink destination: \$path\" >&2; exit 1; }; done\n"
             . "[ ! -e \"\$agent\" ] || [ -d \"\$agent\" ] || { echo \"duo adopt: expected directory destination: \$agent\" >&2; exit 1; }\n"
             . "[ ! -e \"\$loader\" ] || [ -f \"\$loader\" ] || { echo \"duo adopt: expected file destination: \$loader\" >&2; exit 1; }\n"
             . "[ ! -e \"\$manifest\" ] || [ -d \"\$manifest\" ] || { echo \"duo adopt: expected directory destination: \$manifest\" >&2; exit 1; }\n"
             . "[ ! -e \"\$site\" ] || [ -f \"\$site\" ] || { echo \"duo adopt: expected file destination: \$site\" >&2; exit 1; }\n"
+            . "[ ! -e \"\$duo_state\" ] || [ -d \"\$duo_state\" ] || { echo \"duo adopt: expected directory destination: \$duo_state\" >&2; exit 1; }\n"
+            . "[ ! -e \"\$control\" ] || [ -d \"\$control\" ] || { echo \"duo adopt: expected directory destination: \$control\" >&2; exit 1; }\n"
+            . "[ ! -e \"\$runtime\" ] || [ -d \"\$runtime\" ] || { echo \"duo adopt: expected directory destination: \$runtime\" >&2; exit 1; }\n"
             . "mkdir -p \"\$stage\" " . $q($muDir) . " \"\$repo\"\n"
             . "if ! mkdir \"\$lock\"; then echo 'duo adopt: another adoption is active or requires operator recovery (.duo-adopt-lock exists)' >&2; exit 1; fi; lock_acquired=1\n"
             . "mkdir \"\$txn\"\n"
             . "tar --no-same-owner -xf \"\$archive\" -C \"\$stage\"\n"
             . "[ -f \"\$stage/agent/duo.php\" ] && [ -f \"\$stage/agent/duo-loader.php\" ] && [ -f \"\$stage/manifests/core.json\" ] || { echo 'duo adopt: uploaded artifact is incomplete' >&2; exit 1; }\n"
+            . "[ -f \"\$stage/recovery/rollback-control.php\" ] && [ -f \"\$stage/recovery/RecoveryExecutor.php\" ] || { echo 'duo adopt: recovery runtime is missing' >&2; exit 1; }\n"
             . "cp -R \"\$stage/agent\" \"\$agent_new\"\n"
             . "cp \"\$stage/agent/duo-loader.php\" \"\$loader_new\"\n"
             . "cp -R \"\$stage/manifests\" \"\$manifest_new\"\n"
+            . "mkdir -p \"\$control\"; chmod 700 \"\$control\"; cp -R \"\$stage/recovery\" \"\$runtime_new\"\n"
             . "if [ ! -e \"\$site\" ]; then printf '%s' " . $q($seed) . " > \"\$site_new\"; mv \"\$site_new\" \"\$site\"; seed_created=1; : > \"\$txn/seed_created\"; fi\n"
             . "if [ -e \"\$agent\" ]; then mv \"\$agent\" \"\$agent_old\"; had_agent=1; : > \"\$txn/had_agent\"; fi; touched_agent=1; mv \"\$agent_new\" \"\$agent\"\n"
             . "if [ -e \"\$loader\" ]; then mv \"\$loader\" \"\$loader_old\"; had_loader=1; : > \"\$txn/had_loader\"; fi; touched_loader=1; mv \"\$loader_new\" \"\$loader\"\n"
             . "if [ -e \"\$manifest\" ]; then mv \"\$manifest\" \"\$manifest_old\"; had_manifest=1; : > \"\$txn/had_manifest\"; fi; touched_manifest=1; mv \"\$manifest_new\" \"\$manifest\"\n"
+            . "if [ -e \"\$runtime\" ]; then mv \"\$runtime\" \"\$runtime_old\"; had_runtime=1; : > \"\$txn/had_runtime\"; fi; touched_runtime=1; mv \"\$runtime_new\" \"\$runtime\"\n"
+            . "php \"\$runtime/rollback-control.php\" init --root=\"\$control\" >/dev/null\n"
+            . ($rollbackKeyId !== null
+                ? "php \"\$runtime/rollback-control.php\" install-key --root=\"\$control\" --key-id=" . $q($rollbackKeyId) . ' --public-key=' . $q((string) $rollbackPublicKey) . " >/dev/null\n"
+                : '')
+            . ($recovery !== null
+                ? "printf '%s' " . $q($recovery) . " > \"\$stage/recovery-config.json\"; chmod 600 \"\$stage/recovery-config.json\"\n"
+                    . "php \"\$runtime/rollback-control.php\" configure-recovery --root=\"\$control\" --config=\"\$stage/recovery-config.json\" >/dev/null\n"
+                    . "php \"\$runtime/rollback-control.php\" recovery-probe --root=\"\$control\" >/dev/null\n"
+                : '')
             . "success=1\n"
             . "if [ \"\$seed_created\" -eq 1 ]; then echo duo-repo-created; else echo duo-repo-retained; fi\n"
             . "echo duo-install-complete\n";
     }
 
-    private static function commitScript(string $muDir, string $token): string {
+    private static function commitScript(string $muDir, string $repo, string $token): string {
         $q = static fn(string $value): string => escapeshellarg($value);
         $root = rtrim($muDir, '/');
         return 'set -eu; rm -rf '
             . $q($root . '/.duo-old-' . $token) . ' '
             . $q($root . '/.duo-loader-old-' . $token) . ' '
             . $q($root . '/.duo-manifests-old-' . $token) . ' '
+            . $q(rtrim($repo, '/') . '/.duo/control/.recovery-runtime-old-' . $token) . ' '
             . $q($root . '/.duo-adopt-txn-' . $token)
             . '; rmdir ' . $q($root . '/.duo-adopt-lock');
     }
@@ -239,6 +303,8 @@ final class Adopt {
         $agentOld = $root . '/.duo-old-' . $token;
         $loaderOld = $root . '/.duo-loader-old-' . $token;
         $manifestOld = $root . '/.duo-manifests-old-' . $token;
+        $runtime = rtrim($repo, '/') . '/.duo/control/recovery-runtime';
+        $runtimeOld = rtrim($repo, '/') . '/.duo/control/.recovery-runtime-old-' . $token;
         $site = rtrim($repo, '/') . '/site.duo.json';
 
         return 'set -eu' . "\n"
@@ -246,6 +312,7 @@ final class Adopt {
             . 'rm -rf ' . $q($agent) . '; if [ -f "$txn/had_agent" ]; then mv ' . $q($agentOld) . ' ' . $q($agent) . '; fi' . "\n"
             . 'rm -f ' . $q($loader) . '; if [ -f "$txn/had_loader" ]; then mv ' . $q($loaderOld) . ' ' . $q($loader) . '; fi' . "\n"
             . 'rm -rf ' . $q($manifest) . '; if [ -f "$txn/had_manifest" ]; then mv ' . $q($manifestOld) . ' ' . $q($manifest) . '; fi' . "\n"
+            . 'rm -rf ' . $q($runtime) . '; if [ -f "$txn/had_runtime" ]; then mv ' . $q($runtimeOld) . ' ' . $q($runtime) . '; fi' . "\n"
             . 'if [ -f "$txn/seed_created" ]; then rm -f ' . $q($site) . '; fi' . "\n"
             . 'rm -rf "$txn"' . "\n"
             . 'rmdir ' . $q($root . '/.duo-adopt-lock');

@@ -36,7 +36,8 @@ duo deploy  <env> [--force-code-mismatch] [--force-code-drift]
 duo env-set <env> --name=<name> (--value=<value> | --stdin)
 duo promote <env> [extra apply flags...]
 duo pending <env>
-duo classify <env> [--accept-proposals]
+duo classify <env> [--accept-proposals|--export-batch=<path>|--apply-batch=<path>]
+duo coverage <env> [--format=json]
 duo -h | --help
 ```
 
@@ -350,6 +351,32 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   duo classify e1 --accept-proposals
   ```
 
+- **`duo classify <env> --export-batch=<path>` / `--apply-batch=<path>`** —
+  reviewed bulk triage for an aged site's first queue, where historical writes
+  cannot have journal proposals. Export writes a value-redacted JSON artifact:
+  every row retains the pending evidence and has editable `class`, `ref`,
+  `cast`, and `allow_secret` fields. It refuses to overwrite an existing file.
+  Fill every `decisions[].class`, review any ref/cast and secret override, then
+  apply the same path. Apply fetches the live queue again and verifies the
+  artifact's environment and SHA-256 binding before opening the one batched
+  remote policy write. A partial review, changed queue, unsupported
+  manifest/schema surface, malformed rule, or unacknowledged authored secret
+  is a mutation-free refusal. If a valid decision exposes a new pending item,
+  apply reports that next queue and exits 2; export and review a new batch.
+
+  ```sh
+  duo coverage production --format=json > coverage.json
+  duo classify production --export-batch=production-review.json
+  $EDITOR production-review.json
+  duo classify production --apply-batch=production-review.json
+  duo pending production
+  ```
+
+  The queue hash deliberately binds evidence as well as identities. Do not
+  hand-edit `queue_sha256`: when the site changes, export a fresh artifact so
+  the reviewed facts and the applied decisions stay the same transaction in
+  the operator's reasoning.
+
   <sub>Implementation note: all decisions travel in a single semicolon-
   joined `--set` value (`--set 'post_meta:foo=runtime;options:bar=authored,ref=post'`),
   never as repeated `--set=<spec>` flags — wp-cli's assoc-arg parser keeps
@@ -398,7 +425,7 @@ Per-transport required keys:
 |---|---|---|
 | `local` | `wp_path`, `repo_path` | — |
 | `docker` | `compose_file`, `service`, `repo_path` | `profile` |
-| `ssh` | `host`, `wp_path`, `repo_path` | `ssh_config` |
+| `ssh` | `host`, `wp_path`, `repo_path` | `ssh_config`, paired `rollback_key_id` + `rollback_signing_key`, `rollback_recovery` |
 
 A missing required key is a loud, specific error naming the environment,
 the key, and the transport — never a guess.
@@ -407,6 +434,30 @@ the key, and the transport — never a guess.
 relative to the registry file that defined the environment. This is the
 single place to configure a non-default port, identity, proxy jump, and
 host-key policy without embedding shell options in `host`.
+
+`rollback_key_id` and `rollback_signing_key` are optional as a pair. The key
+path resolves relative to the registry file, must be a regular mode-`0600`
+file, and contains canonical base64 Ed25519 secret-key bytes. Keep it in the
+gitignored machine-local overlay. `duo adopt` derives and installs only its
+public key under `<repo_path>/.duo/control/public-keys/`; a key id is immutable,
+so rotation uses a new id. The controller secret is never copied to the host.
+
+SSH adoption also installs the database-independent recovery runtime under
+`<repo_path>/.duo/control/recovery-runtime/` and creates one stable external
+target identity. `duo status` verifies the active signed receipt and complete
+event hash chain. An invalid chain or any active nonterminal state is
+non-green; only `committed` and `rolled_back` active generations are green.
+`duo deploy` and `duo promote` refuse target mutation while that external
+authority is invalid or nonterminal. A host adopted before this runtime emits
+a manual-recovery warning and retains the existing operator-directed behavior.
+
+`rollback_recovery` configures a target-owned exclusion provider plus exact
+`code_restore`, `database_restore`, `prior_verify`, and `storage_restore` argv
+adapters. Adoption probes all exclusion scopes and adapters. Provider tokens
+never enter the registry or command line; only their SHA-256 digest is bound
+into a signed receipt. See
+[docs/recovery-runtime.md](../docs/recovery-runtime.md) for the protocol and
+the boundary between this executor and future automatic rollback.
 
 ### Where the registry comes from
 

@@ -456,12 +456,31 @@ final class Capture {
         $c = new self($repo, $policy);
         $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
         $repositoryOptions = self::repository_options($repo, $policy, $repository);
+        $repositoryValues = $repositoryOptions === null ? [] : OptionState::values($repositoryOptions);
+        // DUO-3292: lifecycle snapshots straddle the theme switch itself.
+        // Resolving an active-theme-bound option from the live PRE-switch stylesheet on
+        // the first side and the desired POST-switch stylesheet on the
+        // second side changes the canonical namespace mid-handoff: the
+        // target theme_mods row appears as an unrelated authored mutation.
+        // Pin that resolver to the frozen artifact instead. This is an
+        // internal comparison boundary only; ordinary capture continues to
+        // resolve against the live active stylesheet and therefore keeps
+        // inactive theme_mods rows as residue, exactly as before.
+        $dynamicResolverValues = [];
+        if (isset($repositoryValues['stylesheet'])) {
+            $dynamicResolverValues['active_stylesheet'] = (string) $repositoryValues['stylesheet'];
+        }
 
         $document = self::run_in_consistent_snapshot(function () use (
-            $c, $forceUnresolvedRefs, $repositoryOptions
+            $c, $forceUnresolvedRefs, $repositoryOptions, $dynamicResolverValues
         ): array {
             Identity::assert_embedded_unique();
-            return $c->build_options_only($forceUnresolvedRefs, $repositoryOptions);
+            return $c->build_options_only(
+                $forceUnresolvedRefs,
+                $repositoryOptions,
+                $dynamicResolverValues,
+                true
+            );
         });
         $content = Canon::encode($document);
         return [
@@ -909,9 +928,20 @@ final class Capture {
      * the same option gates as full build(), but never enters any
      * post/term/menu/sidebar/table path.
      */
-    private function build_options_only(bool $forceUnresolvedRefs, ?array $previousOptions = null): array {
+    private function build_options_only(
+        bool $forceUnresolvedRefs,
+        ?array $previousOptions = null,
+        array $dynamicResolverValues = [],
+        bool $bindMissingDynamicDesired = false
+    ): array {
         $this->reset_build_state($forceUnresolvedRefs);
-        $options = $this->build_options(false, $forceUnresolvedRefs, $previousOptions);
+        $options = $this->build_options(
+            false,
+            $forceUnresolvedRefs,
+            $previousOptions,
+            $dynamicResolverValues,
+            $bindMissingDynamicDesired
+        );
         $this->assert_option_gates();
         return $options;
     }
@@ -2296,7 +2326,9 @@ final class Capture {
     private function build_options(
         bool $mint,
         bool $forceUnresolvedRefs = false,
-        ?array $previousDocument = null
+        ?array $previousDocument = null,
+        array $dynamicResolverValues = [],
+        bool $bindMissingDynamicDesired = false
     ): array {
         $out = [];
         $processed = [];
@@ -2403,7 +2435,9 @@ final class Capture {
         // recognize such a row explicitly (none does yet in this codebase).
         foreach ($this->policy->dynamic_options() as $key => $decl) {
             $resolvedValue = match ($decl['resolver']) {
-                'active_stylesheet' => (string) get_option('stylesheet'),
+                'active_stylesheet' => array_key_exists('active_stylesheet', $dynamicResolverValues)
+                    ? (string) $dynamicResolverValues['active_stylesheet']
+                    : (string) get_option('stylesheet'),
                 default => throw new \RuntimeException(
                     "duo: dynamic_options.$key declares unsupported resolver '{$decl['resolver']}'"
                 ),
@@ -2566,6 +2600,24 @@ final class Capture {
         // non-ref-token name actually needs it below.
         $previousOptionValues = null;
         foreach ($previousDocument === null ? [] : OptionState::records($previousDocument) as $name => $record) {
+            // DUO-3292: the lifecycle-only resolver override above may
+            // deliberately inspect a desired dynamic row while it is still inactive on
+            // the target. When that row is absent, or exists with none of
+            // its authored sub-keys populated, bind the missing canonical
+            // record to the exact frozen desired value. The existing deploy
+            // gate can then permit switch_theme() to initialize the row and
+            // Apply to merge the frozen sub-keys, while a pre-existing row
+            // changed to any non-desired value remains fail-closed. Ordinary
+            // capture never enables this: inactive dynamic rows remain
+            // uncaptured environment-local residue.
+            $bindDynamic = $bindMissingDynamicDesired
+                && ($record['state'] ?? null) === 'present'
+                && $this->policy->dynamic_option_rule_for_prefix((string) $name) !== null
+                && !isset($out[$name]);
+            if ($bindDynamic) {
+                $out[$name] = OptionState::deleted($record);
+                continue;
+            }
             if (isset($out[$name]) || isset($liveCanonicalNames[$name])) {
                 continue; // still live (possibly omitted because a ref dropped) or replaced by a present record
             }

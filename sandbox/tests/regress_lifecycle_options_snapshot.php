@@ -402,6 +402,76 @@ $check(
     'narrow/full snapshots remain canonical-hash identical with a stale option-name identity'
 );
 
+// 2c. A lifecycle snapshot spans the switch from the target's currently
+// active theme to the artifact's desired theme. The dynamic option resolver
+// must remain pinned to that frozen desired stylesheet on BOTH sides of the
+// hook window; otherwise the canonical name itself changes mid-handoff.
+$dynamicPolicy = $policy(false);
+$dynamicPolicy->manifests[0]['dynamic_options'] = [
+    'theme_mods' => [
+        'prefix' => 'theme_mods_',
+        'resolver' => 'active_stylesheet',
+        'autoload' => 'preserve',
+        'sub_keys' => [
+            'background_color' => ['class' => 'authored'],
+            'sidebars_widgets' => ['class' => 'runtime'],
+        ],
+    ],
+];
+$desiredThemeMods = $present(['background_color' => 'desired-green']);
+$dynamicDesired = OptionState::document([
+    'authored_setting' => $present('site-value'),
+    'active_plugins' => $present(['fixture/fixture.php']),
+    'template' => $present('target-theme'),
+    'stylesheet' => $present('target-theme'),
+    'theme_mods_target-theme' => $desiredThemeMods,
+]);
+$dynamicCompiled = CompiledRepository::create([
+    'tree' => ['options/core' => ['type' => 'options', 'path' => 'options/core.json', 'data' => $dynamicDesired]],
+    'deletions' => [],
+    'revision_hash' => str_repeat('c', 64),
+    'manifest_hash' => str_repeat('d', 64),
+]);
+$wpdb->optionRows = [
+    'authored_setting' => ['option_value' => 'site-value', 'autoload' => 'yes'],
+    'active_plugins' => ['option_value' => serialize(['fixture/fixture.php']), 'autoload' => 'yes'],
+    'template' => ['option_value' => 'source-theme', 'autoload' => 'yes'],
+    'stylesheet' => ['option_value' => 'source-theme', 'autoload' => 'yes'],
+    'theme_mods_source-theme' => [
+        'option_value' => serialize(['background_color' => 'source-blue']),
+        'autoload' => 'yes',
+    ],
+    'theme_mods_target-theme' => [
+        'option_value' => serialize([
+            'background_color' => 'stale-red',
+            'sidebars_widgets' => ['time' => 1234],
+        ]),
+        'autoload' => 'yes',
+    ],
+];
+$dynamicSnapshot = Capture::snapshot_options_core('/unused', false, $dynamicCompiled, $dynamicPolicy);
+$dynamicRecords = OptionState::records(Canon::decode($dynamicSnapshot['options/core']['content']));
+$check(
+    ($dynamicRecords['theme_mods_target-theme']['value']['background_color'] ?? null) === 'stale-red',
+    'lifecycle snapshot resolves theme_mods from the frozen desired stylesheet before switch_theme'
+);
+$check(
+    !array_key_exists('theme_mods_source-theme', $dynamicRecords),
+    'lifecycle snapshot excludes the live source-theme residue from its fixed handoff domain'
+);
+
+unset($wpdb->optionRows['theme_mods_target-theme']);
+$missingDynamicSnapshot = Capture::snapshot_options_core('/unused', false, $dynamicCompiled, $dynamicPolicy);
+$missingDynamicRecords = OptionState::records(Canon::decode($missingDynamicSnapshot['options/core']['content']));
+$check(
+    ($missingDynamicRecords['theme_mods_target-theme']['state'] ?? null) === 'deleted'
+        && hash_equals(
+            (string) ($missingDynamicRecords['theme_mods_target-theme']['expected_hash'] ?? ''),
+            OptionState::record_hash($desiredThemeMods)
+        ),
+    'a missing desired theme_mods row is cryptographically bound to frozen desired state'
+);
+
 // 3. The existing lifecycle record gate still rejects an authored hook
 // mutation that is neither managed nor exactly the frozen desired value.
 $recordGate = (new ReflectionClass(Deploy::class))->getMethod('unexpected_lifecycle_state_changes');
@@ -414,6 +484,31 @@ $after = OptionState::document([
 ]);
 $unexpected = $recordGate->invoke(null, $before, $after, $desired);
 $check($unexpected === ['authored_setting'], 'unexpected authored option hook changes remain fail-closed');
+
+$themeHookAfter = OptionState::document([
+    'theme_mods_target-theme' => $present(['background_color' => 'hook-default']),
+]);
+$themeDesired = OptionState::document([
+    'theme_mods_target-theme' => $desiredThemeMods,
+]);
+$check(
+    $recordGate->invoke(
+        null,
+        OptionState::document(['theme_mods_target-theme' => $missingDynamicRecords['theme_mods_target-theme']]),
+        $themeHookAfter,
+        $themeDesired
+    ) === [],
+    'bound first-switch theme_mods initialization is accepted for later exact apply reconciliation'
+);
+$check(
+    $recordGate->invoke(
+        null,
+        OptionState::document(['theme_mods_target-theme' => $present(['background_color' => 'stale-red'])]),
+        OptionState::document(['theme_mods_target-theme' => $present(['background_color' => 'unrelated-edit'])]),
+        $themeDesired
+    ) === ['theme_mods_target-theme'],
+    'an unrelated mutation of an existing authored theme_mods value remains fail-closed'
+);
 
 // A namespace-owned option with no classification still trips the shared
 // discovery gate on the narrow lifecycle path (not only during full capture).

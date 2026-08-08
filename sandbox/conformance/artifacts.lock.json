@@ -78,5 +78,19 @@
       "url": "https://downloads.wordpress.org/plugin/woocommerce.11.0.0.zip",
       "sha256": "ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666"
     }
+  },
+  "wordpress-seo": {
+    "27.9": {
+      "url": "https://downloads.wordpress.org/plugin/wordpress-seo.27.9.zip",
+      "sha256": "eaca8321b8816da3541427b0b6774a5266a0f4ba8f9503f01ae056c0d8282052"
+    },
+    "28.0": {
+      "url": "https://downloads.wordpress.org/plugin/wordpress-seo.28.0.zip",
+      "sha256": "348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f"
+    },
+    "28.2": {
+      "url": "https://downloads.wordpress.org/plugin/wordpress-seo.28.2.zip",
+      "sha256": "f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23"
+    }
   }
 }

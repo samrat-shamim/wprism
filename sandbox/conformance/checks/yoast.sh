@@ -24,6 +24,7 @@
 # is exported by run.sh (default below matches the legacy conf1/conf2 port
 # for any standalone invocation).
 set -euo pipefail
+CONF1_PORT="${CONF1_PORT:-8806}"
 CONF2_PORT="${CONF2_PORT:-8807}"
 
 API_OUT=$($COMPOSE run --rm -T cli2 wp eval '
@@ -75,10 +76,18 @@ IFS='|' read -r PRIMARY_NAME OG_IMAGE_OK COMPANY_OK PERSON_OK OG_DEFAULT_OK <<< 
 pass "conf2 resolves primary-category, per-term OG image, and site-wide logo/default-image refs via Yoast's own runtime APIs, all using conf2's own local ids"
 
 echo "conf2 front-end rendering check: the actual <title>/meta description tag a search engine or social share sees"
-FRONT=$(curl -fs "http://localhost:${CONF2_PORT}/conformance-yoast-post/") \
+FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/conformance-yoast-post/") \
   || fail "conf2 conformance-yoast-post did not return 200"
+[ "${#FRONT}" -ge 1000 ] \
+  || fail "conf2 conformance-yoast-post response was suspiciously short (${#FRONT} bytes)"
+if grep -qiE 'fatal error|uncaught' <<<"$FRONT"; then
+  fail "conf2 conformance-yoast-post contains a PHP fatal error marker"
+fi
 grep -q 'Conformance Yoast Post' <<<"$FRONT" \
   || fail "conf2's rendered page title does not include the authored Yoast SEO title (_yoast_wpseo_title)"
 grep -qi 'A meta description written for the Yoast conformance seed' <<<"$FRONT" \
   || fail "conf2's rendered <meta name=\"description\"> does not carry the authored _yoast_wpseo_metadesc"
-pass "conf2's live front-end rendering carries the authored Yoast SEO title and meta description"
+if grep -Fq "http://localhost:${CONF1_PORT}" <<<"$FRONT"; then
+  fail "conf2's rendered Yoast page leaks the conf1 host"
+fi
+pass "conf2's live front-end rendering carries the authored Yoast SEO title/description with no fatal marker or conf1 host leak"
