@@ -26,7 +26,6 @@ require __DIR__ . '/../../agent/src/Canon.php';
 require __DIR__ . '/../../agent/src/OptionState.php';
 require __DIR__ . '/../../agent/src/PlainData.php';
 require __DIR__ . '/../../agent/src/Policy.php';
-require __DIR__ . '/../../agent/src/PlainData.php';
 require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
 
 // Production mounts manifest code independently from the agent source tree
