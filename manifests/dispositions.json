@@ -161,7 +161,7 @@
     },
     "woocommerce": {
       "capabilities": {
-        "deletion_semantics": {"supported": [], "unsupported": ["post:product", "table:woocommerce_attribute_taxonomies"]},
+        "deletion_semantics": {"supported": [], "unsupported": ["post:product", "post:product_variation", "table:woocommerce_attribute_taxonomies", "table:woocommerce_shipping_zone_locations", "table:woocommerce_shipping_zone_methods", "table:woocommerce_shipping_zones", "table:woocommerce_tax_rate_locations", "table:woocommerce_tax_rates"]},
         "entity_sections": ["post_types", "tables", "taxonomy_patterns"],
         "field_sections": ["options", "option_patterns", "option_name_refs", "post_meta", "meta_patterns", "term_meta", "block_attrs"],
         "lifecycle_phases": ["retire", "activate", "verify"],
@@ -174,7 +174,9 @@
       "supported_versions": {"plugin": "woocommerce/woocommerce.php", "range": {"max": "12.0.0", "min": "11.0.0"}},
       "unsupported": [
         {"operation": "delete", "reason": "Product reverse references can live in downloads, subscriptions, order metadata, serialized values, and extension-owned custom tables that the v1 guard grammar cannot close safely.", "surface": "post_types.product"},
+        {"operation": "delete", "reason": "Variation reverse references and parent/group relationships share the same open WooCommerce extension boundary as products.", "surface": "post_types.product_variation"},
         {"operation": "delete", "reason": "The v1 guard/cascade grammar cannot express WooCommerce global-attribute semantic deletion.", "surface": "tables.woocommerce_attribute_taxonomies"},
+        {"operation": "delete", "reason": "Shipping-zone and tax-rate rows require version-pinned WooCommerce API, cache, child-row, and option-name effects that are not a closed semantic delete contract.", "surface": "tables.woocommerce_shipping_zone_locations|woocommerce_shipping_zone_methods|woocommerce_shipping_zones|woocommerce_tax_rate_locations|woocommerce_tax_rates"},
         {"operation": "capture", "reason": "Orders, customers, sessions, stock reservations, and Action Scheduler rows remain runtime-sovereign.", "surface": "tables.runtime"}
       ]
     },
