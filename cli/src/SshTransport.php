@@ -80,6 +80,11 @@ final class SshTransport extends Transport {
         return $this->rollbackRecovery !== null;
     }
 
+    public function checkpointConfigured(): bool {
+        return is_array($this->rollbackRecovery)
+            && array_key_exists('checkpoint_provider', $this->rollbackRecovery);
+    }
+
     /** @return ?array<string,mixed> */
     public function recoveryConfig(): ?array {
         return $this->rollbackRecovery;
@@ -118,11 +123,15 @@ final class SshTransport extends Transport {
     /** @param array<string,mixed> $config @return array<string,mixed> */
     private static function validateRecoveryConfig(string $env, array $config): array {
         $expected = ['adapters', 'exclusion_provider', 'timeout_seconds'];
+        if (array_key_exists('checkpoint_provider', $config)) {
+            $expected[] = 'checkpoint_provider';
+            sort($expected, SORT_STRING);
+        }
         $actual = array_keys($config);
         sort($actual, SORT_STRING);
         if ($actual !== $expected) {
             throw new \RuntimeException(
-                "env '$env': rollback_recovery requires exactly adapters, exclusion_provider, timeout_seconds"
+                "env '$env': rollback_recovery requires adapters, exclusion_provider, timeout_seconds, and optional checkpoint_provider"
             );
         }
         $provider = self::validateCommand($env, $config['exclusion_provider'] ?? null, 'exclusion_provider');
@@ -146,12 +155,20 @@ final class SshTransport extends Transport {
         if (!is_int($timeout) || $timeout < 1 || $timeout > 60) {
             throw new \RuntimeException("env '$env': rollback_recovery.timeout_seconds must be 1..60");
         }
-        return [
+        $normalized = [
             'adapters' => $validated,
             'exclusion_provider' => $provider,
             'format' => 'duo-recovery-config/v1',
             'timeout_seconds' => $timeout,
         ];
+        if (array_key_exists('checkpoint_provider', $config)) {
+            $normalized['checkpoint_provider'] = self::validateCommand(
+                $env,
+                $config['checkpoint_provider'],
+                'checkpoint_provider'
+            );
+        }
+        return $normalized;
     }
 
     /** @return list<string> */

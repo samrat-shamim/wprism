@@ -106,6 +106,24 @@ final class RollbackAuthority {
                 throw new \RuntimeException("duo rollback: claim caller may not set controller-owned '$owned'");
             }
         }
+        $checkpointConfigured = $this->transport->checkpointConfigured();
+        if ($checkpointConfigured) {
+            foreach ([
+                'checkpoint_sha256', 'created_at', 'ledger_session_sha256',
+                'prior_verifier_inputs_sha256', 'runtime_fingerprints_sha256',
+            ] as $owned) {
+                if (array_key_exists($owned, $fields)) {
+                    throw new \RuntimeException(
+                        "duo rollback: $owned is checkpoint-provider-owned when checkpoint recovery is configured"
+                    );
+                }
+            }
+            foreach (['encryption_key_id', 'retention_until'] as $required) {
+                if (!is_string($fields[$required] ?? null) || $fields[$required] === '') {
+                    throw new \RuntimeException("duo rollback: checkpoint claim needs $required");
+                }
+            }
+        }
         $status = self::status($this->transport);
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true) {
             throw new \RuntimeException('duo rollback: target authority runtime is unavailable or invalid');
@@ -152,6 +170,28 @@ final class RollbackAuthority {
                 'timestamp' => $now,
             ]);
             $fields['exclusion_token_sha256'] = (string) $exclusion['token_sha256'];
+            if ($checkpointConfigured) {
+                $checkpoint = $this->sendCheckpoint([
+                    'action' => 'prepare',
+                    'artifact_hash' => (string) ($fields['artifact_hash'] ?? ''),
+                    'claim_epoch' => 1,
+                    'claimant' => $claimant,
+                    'encryption_key_id' => (string) $fields['encryption_key_id'],
+                    'format' => 'duo-checkpoint-request/v1',
+                    'generation' => $generation,
+                    'owner' => (string) ($fields['owner'] ?? ''),
+                    'receipt_id' => $receiptId,
+                    'retention_until' => (string) $fields['retention_until'],
+                    'target_id' => (string) ($status['target_id'] ?? ''),
+                    'timestamp' => $now,
+                ]);
+                foreach ([
+                    'checkpoint_sha256', 'created_at', 'ledger_session_sha256',
+                    'prior_verifier_inputs_sha256', 'runtime_fingerprints_sha256',
+                ] as $owned) {
+                    $fields[$owned] = (string) ($checkpoint[$owned] ?? '');
+                }
+            }
         }
         $receipt = $fields + [
             'format' => RollbackControl::RECEIPT_FORMAT,
@@ -299,6 +339,32 @@ final class RollbackAuthority {
         return $this->sendExclusion($this->exclusionPayload('release', $status, $timestamp ?? self::timestamp()));
     }
 
+    /** Delete an elapsed checkpoint only after verified terminal authority. */
+    public function deleteCheckpoint(?string $timestamp = null): array {
+        if (!$this->transport->checkpointConfigured()) {
+            throw new \RuntimeException('duo rollback: no checkpoint provider is configured');
+        }
+        $status = self::status($this->transport);
+        if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
+            || ($status['active'] ?? false) !== true || empty($status['terminal'])) {
+            throw new \RuntimeException('duo rollback: checkpoint deletion requires valid terminal authority');
+        }
+        return $this->sendCheckpoint([
+            'action' => 'delete',
+            'artifact_hash' => (string) $status['artifact_hash'],
+            'claim_epoch' => (int) $status['claim_epoch'],
+            'claimant' => (string) $status['claimant'],
+            'encryption_key_id' => (string) $status['encryption_key_id'],
+            'format' => 'duo-checkpoint-request/v1',
+            'generation' => (int) $status['generation'],
+            'owner' => (string) $status['owner'],
+            'receipt_id' => (string) $status['receipt_id'],
+            'retention_until' => (string) $status['retention_until'],
+            'target_id' => (string) $status['target_id'],
+            'timestamp' => $timestamp ?? self::timestamp(),
+        ]);
+    }
+
     /** @return array<string,mixed> */
     private function requiredActiveStatus(): array {
         $status = self::status($this->transport);
@@ -392,6 +458,14 @@ final class RollbackAuthority {
         return $this->sendRemote(
             RollbackControl::sign($payload, $this->keyId, $this->secretKey),
             'exclusion-request'
+        );
+    }
+
+    /** @return array<string,mixed> */
+    private function sendCheckpoint(array $payload): array {
+        return $this->sendRemote(
+            RollbackControl::sign($payload, $this->keyId, $this->secretKey),
+            'checkpoint-request'
         );
     }
 

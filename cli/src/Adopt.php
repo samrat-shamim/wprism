@@ -43,8 +43,9 @@ final class Adopt {
         $version = self::agentVersion($agentDir . '/duo.php');
         $runtime = rtrim($sourceRoot, '/') . '/recovery/rollback-control.php';
         $executor = rtrim($sourceRoot, '/') . '/recovery/RecoveryExecutor.php';
+        $checkpoint = rtrim($sourceRoot, '/') . '/recovery/CheckpointBundle.php';
         if ($version === null || !is_file($agentDir . '/duo-loader.php') || !is_dir($manifestsDir)
-            || !is_file($runtime) || !is_file($executor)) {
+            || !is_file($runtime) || !is_file($executor) || !is_file($checkpoint)) {
             return self::failure('local artifact', 'Duo source tree is incomplete: expected agent/, manifests/, and the complete recovery runtime', $version ?? 'unknown');
         }
         if (($rollbackKeyId === null) !== ($rollbackPublicKey === null)) {
@@ -257,7 +258,7 @@ final class Adopt {
             . "mkdir \"\$txn\"\n"
             . "tar --no-same-owner -xf \"\$archive\" -C \"\$stage\"\n"
             . "[ -f \"\$stage/agent/duo.php\" ] && [ -f \"\$stage/agent/duo-loader.php\" ] && [ -f \"\$stage/manifests/core.json\" ] || { echo 'duo adopt: uploaded artifact is incomplete' >&2; exit 1; }\n"
-            . "[ -f \"\$stage/recovery/rollback-control.php\" ] && [ -f \"\$stage/recovery/RecoveryExecutor.php\" ] || { echo 'duo adopt: recovery runtime is missing' >&2; exit 1; }\n"
+            . "[ -f \"\$stage/recovery/rollback-control.php\" ] && [ -f \"\$stage/recovery/RecoveryExecutor.php\" ] && [ -f \"\$stage/recovery/CheckpointBundle.php\" ] || { echo 'duo adopt: recovery runtime is missing' >&2; exit 1; }\n"
             . "cp -R \"\$stage/agent\" \"\$agent_new\"\n"
             . "cp \"\$stage/agent/duo-loader.php\" \"\$loader_new\"\n"
             . "cp -R \"\$stage/manifests\" \"\$manifest_new\"\n"

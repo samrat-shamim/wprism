@@ -417,6 +417,9 @@ whose acceptance can be certified independently:
 4. **DUO-3295 — Encrypted checkpoint bundle and verified database restore** — prior
    canonical verifier inputs, export validation, KMS integration, exact import
    row repair, ledger/session verification, retention, and audit tombstones.
+   Implemented by the target-owned checkpoint protocol in
+   [`../checkpoint-bundle.md`](../checkpoint-bundle.md); it supplies only the
+   database slice and does not broaden the integrated automatic-rollback claim.
 5. **DUO-3297 — Upload/filesystem mutation journal** — local and offload before-images,
    created-path receipts, attachment derivative inventory, safe restore, and
    undeclared-path refusal.
