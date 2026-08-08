@@ -114,7 +114,7 @@ ENV_MISSING_INITIAL=$(wp1 duo plan --repo=/siterepo --format=json 2>/dev/null | 
 pass "env_missing empty on a fresh install"
 
 STATUS_INITIAL_OUT=$("$DUO_CLI" status "$ENV_NAME" 2>&1) && STATUS_INITIAL_EXIT=0 || STATUS_INITIAL_EXIT=$?
-echo "$STATUS_INITIAL_OUT" | grep -q '0 env_missing' || fail "duo status should report 0 env_missing initially"
+grep -q '0 env_missing' <<<"$STATUS_INITIAL_OUT" || fail "duo status should report 0 env_missing initially"
 [ "$STATUS_INITIAL_EXIT" -eq 0 ] || fail "duo status should exit 0 on a clean fresh install, got $STATUS_INITIAL_EXIT"
 pass "duo status: 0 env_missing, exit 0"
 
@@ -126,8 +126,8 @@ ENV_MISSING_AFTER_DELETE=$(wp1 duo plan --repo=/siterepo --format=json 2>/dev/nu
 pass "env_missing correctly reports admin_email (required:true) after it's deleted"
 
 STATUS_MISSING_OUT=$("$DUO_CLI" status "$ENV_NAME" 2>&1) && STATUS_MISSING_EXIT=0 || STATUS_MISSING_EXIT=$?
-echo "$STATUS_MISSING_OUT" | grep -q 'ENV_MISSING' || fail "duo status should render the ENV_MISSING block"
-echo "$STATUS_MISSING_OUT" | grep -q 'admin_email (required)' || fail "duo status should list admin_email as required"
+grep -q 'ENV_MISSING' <<<"$STATUS_MISSING_OUT" || fail "duo status should render the ENV_MISSING block"
+grep -q 'admin_email (required)' <<<"$STATUS_MISSING_OUT" || fail "duo status should list admin_email as required"
 [ "$STATUS_MISSING_EXIT" -ne 0 ] || fail "duo status should exit non-zero while a required env value is missing"
 pass "duo status: ENV_MISSING rendered, exit non-zero ($STATUS_MISSING_EXIT)"
 
@@ -215,10 +215,10 @@ $GIT_1 add -A
 $GIT_1 commit -qm "site.duo.json restored" --allow-empty >/dev/null
 
 DOCTOR_CLEAN_OUT=$("$DUO_CLI" doctor "$ENV_NAME" 2>&1) || true
-echo "$DOCTOR_CLEAN_OUT" | grep -q 'duo-env-values.json' || fail "doctor did not report a .duo-env-values.json line at all"
-if echo "$DOCTOR_CLEAN_OUT" | grep -q '\[PASS\] .duo-env-values.json not git-tracked'; then
+grep -q 'duo-env-values.json' <<<"$DOCTOR_CLEAN_OUT" || fail "doctor did not report a .duo-env-values.json line at all"
+if grep -q '\[PASS\] .duo-env-values.json not git-tracked' <<<"$DOCTOR_CLEAN_OUT"; then
   pass "doctor: .duo-env-values.json check PASSes cleanly (no such file yet, git available)"
-elif echo "$DOCTOR_CLEAN_OUT" | grep -q '\[WARN\] .duo-env-values.json not git-tracked — could not verify'; then
+elif grep -q '\[WARN\] .duo-env-values.json not git-tracked — could not verify' <<<"$DOCTOR_CLEAN_OUT"; then
   pass "doctor: .duo-env-values.json check honestly WARNs 'could not verify' (this sandbox image has no git binary — confirmed, not a bug: see this file's own header)"
 else
   fail "unexpected .duo-env-values.json doctor line: $(echo "$DOCTOR_CLEAN_OUT" | grep 'duo-env-values.json')"
@@ -228,10 +228,10 @@ echo '{"admin_email":"leaked@example.test"}' > "siterepo/${PAIR}1/.duo-env-value
 $GIT_1 add -f .duo-env-values.json
 $GIT_1 commit -qm "oops committed secrets (this script's own negative-path fixture, never a real leak)"
 DOCTOR_TRACKED_OUT=$("$DUO_CLI" doctor "$ENV_NAME" 2>&1) && DOCTOR_TRACKED_EXIT=0 || DOCTOR_TRACKED_EXIT=$?
-if echo "$DOCTOR_TRACKED_OUT" | grep -q '\[FAIL\] .duo-env-values.json not git-tracked — .duo-env-values.json is committed'; then
+if grep -q '\[FAIL\] .duo-env-values.json not git-tracked — .duo-env-values.json is committed' <<<"$DOCTOR_TRACKED_OUT"; then
   [ "$DOCTOR_TRACKED_EXIT" -ne 0 ] || fail "doctor exit should be non-zero once .duo-env-values.json is tracked"
   pass "doctor: BLOCKING failure once .duo-env-values.json is git-tracked, non-zero exit ($DOCTOR_TRACKED_EXIT)"
-elif echo "$DOCTOR_TRACKED_OUT" | grep -q "could not verify"; then
+elif grep -q "could not verify" <<<"$DOCTOR_TRACKED_OUT"; then
   pass "doctor: still the honest no-git advisory (git unavailable in this environment, so the tracked case genuinely cannot be exercised live here — the check's own git-presence branch mirrors the already-proven repo-path-check pattern immediately above it in cli/src/Doctor.php, not re-proven by this script)"
 else
   fail "unexpected .duo-env-values.json doctor line after tracking: $(echo "$DOCTOR_TRACKED_OUT" | grep 'duo-env-values.json')"
