@@ -1,10 +1,12 @@
 # Verified rollback for production SSH promotion
 
-> **Design ruling (DUO-3291, 2026-08-08).** This document defines a future
-> contract. It does not change the current promotion implementation. Today,
-> `duo promote` takes a database checkpoint and fails closed, but recovery is
-> still the operator-directed procedure in `spec/repo-format.md`. In
-> particular, a successful database import is not a verified rollback.
+> **Design ruling (DUO-3291, 2026-08-08; authority foundation DUO-3293).**
+> The protected target identity, never-reused generation fence, immutable
+> signed receipt, signed event hash chain, claimant takeover, status evidence,
+> and SSH adoption wiring described in section 3 are implemented. The
+> resource-specific executors in later sections are not. Current promotion
+> therefore remains operator-directed as specified in `spec/repo-format.md`;
+> a successful database import is not a verified rollback.
 
 ## 1. Claim and scope
 

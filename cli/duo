@@ -18,6 +18,8 @@ require __DIR__ . '/src/Transport.php';
 require __DIR__ . '/src/LocalTransport.php';
 require __DIR__ . '/src/DockerTransport.php';
 require __DIR__ . '/src/SshTransport.php';
+require dirname(__DIR__) . '/recovery/rollback-control.php';
+require __DIR__ . '/src/RollbackAuthority.php';
 require __DIR__ . '/src/Adopt.php';
 require __DIR__ . '/src/Doctor.php';
 require __DIR__ . '/src/CodeDeploy.php';
@@ -31,6 +33,7 @@ use Duo\Orchestrator\Adopt;
 use Duo\Orchestrator\CodeDeploy;
 use Duo\Orchestrator\Pending;
 use Duo\Orchestrator\PlanSummary;
+use Duo\Orchestrator\RollbackAuthority;
 use Duo\Orchestrator\Registry;
 use Duo\Orchestrator\Transport;
 use Duo\Orchestrator\Triage;
@@ -304,7 +307,19 @@ function cmd_adopt(Transport $t, array $extra): int {
     }
 
     echo "adopt phase: preflight + staged install\n";
-    $result = Adopt::install($t, dirname(__DIR__));
+    $keyId = null;
+    $publicKey = null;
+    if ($t->rollbackConfigured()) {
+        try {
+            $authority = new RollbackAuthority($t);
+            $keyId = $authority->keyId();
+            $publicKey = $authority->publicKeyBase64();
+        } catch (\Throwable $e) {
+            fwrite(STDERR, 'duo: adopt: ' . $e->getMessage() . "\n");
+            return 1;
+        }
+    }
+    $result = Adopt::install($t, dirname(__DIR__), $keyId, $publicKey);
     if ($result['exit'] !== 0) {
         fwrite(STDERR, "duo: adopt failed during {$result['phase']}\n");
         print_transport_detail($result);
@@ -312,7 +327,7 @@ function cmd_adopt(Transport $t, array $extra): int {
     }
 
     $repoAction = $result['repo_created'] ? 'created seed site.duo.json' : 'retained existing site.duo.json';
-    echo "adopt: installed agent {$result['version']} + manifest library; $repoAction\n";
+    echo "adopt: installed agent {$result['version']} + manifest library + rollback authority; $repoAction\n";
     echo "adopt phase: doctor\n";
     return cmd_doctor($t);
 }
@@ -325,19 +340,76 @@ function cmd_status(Transport $t): int {
         if ($msg !== '') {
             fwrite(STDERR, $msg . "\n");
         }
+        render_rollback_authority_status($t);
         return $r['exit'] !== 0 ? $r['exit'] : 1;
     }
     $plan = json_decode(trim($r['stdout']), true);
     if (!is_array($plan)) {
         fwrite(STDERR, "duo: status: could not parse plan JSON for '{$t->name()}'\n");
         fwrite(STDERR, "raw output:\n{$r['stdout']}\n");
+        render_rollback_authority_status($t);
         return 1;
     }
     $summary = PlanSummary::render($plan);
     foreach ($summary['lines'] as $line) {
         echo $line . "\n";
     }
-    return $summary['ok'] ? 0 : 1;
+    $authorityOk = render_rollback_authority_status($t);
+    return $summary['ok'] && $authorityOk ? 0 : 1;
+}
+
+/** Render externally verified rollback authority state for SSH targets. */
+function render_rollback_authority_status(Transport $t): bool {
+    if (!$t instanceof \Duo\Orchestrator\SshTransport) {
+        return true;
+    }
+    $status = RollbackAuthority::status($t);
+    if (($status['available'] ?? false) !== true) {
+        echo "[WARN] rollback authority: unavailable (manual recovery only)\n";
+        return true;
+    }
+    if (($status['ok'] ?? false) !== true) {
+        $detail = trim((string) ($status['error'] ?? 'verification failed'));
+        echo "[FAIL] rollback authority: invalid — $detail\n";
+        return false;
+    }
+    if (($status['active'] ?? false) !== true) {
+        echo "[PASS] rollback authority: ready (no active generation)\n";
+        return true;
+    }
+    $state = (string) ($status['state'] ?? 'unknown');
+    $generation = (int) ($status['generation'] ?? 0);
+    $receipt = (string) ($status['receipt_id'] ?? 'unknown');
+    if (!empty($status['terminal'])) {
+        echo "[PASS] rollback authority: generation $generation $state receipt=$receipt\n";
+        return true;
+    }
+    echo "[FAIL] rollback authority: generation $generation $state receipt=$receipt (recovery required)\n";
+    return false;
+}
+
+/** Refuse a new SSH mutation while external authority is corrupt or nonterminal. */
+function rollback_authority_fence(Transport $t, string $verb): bool {
+    if (!$t instanceof \Duo\Orchestrator\SshTransport) {
+        return true;
+    }
+    $status = RollbackAuthority::status($t);
+    if (($status['available'] ?? false) !== true) {
+        return true;
+    }
+    if (($status['ok'] ?? false) !== true) {
+        $detail = trim((string) ($status['error'] ?? 'verification failed'));
+        fwrite(STDERR, "duo: $verb: rollback authority is invalid; refusing target mutation: $detail\n");
+        return false;
+    }
+    if (($status['active'] ?? false) === true && empty($status['terminal'])) {
+        fwrite(
+            STDERR,
+            "duo: $verb: rollback generation {$status['generation']} is still {$status['state']}; recovery must reach committed or rolled_back first\n"
+        );
+        return false;
+    }
+    return true;
 }
 
 function cmd_passthrough(Transport $t, string $verb, array $extra): int {
@@ -410,6 +482,9 @@ function cmd_deploy(Transport $t, array $extra): int {
         $deployExtra = deploy_force_flags($extra, 'deploy');
     } catch (\Throwable $e) {
         fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
+        return 1;
+    }
+    if (!rollback_authority_fence($t, 'deploy')) {
         return 1;
     }
 
@@ -506,6 +581,9 @@ function cmd_promote(Transport $t, array $extra): int {
             fwrite(STDERR, "duo: promote owns its repository, compiled artifact/hash, code-materialization, and target lease flags; remove '$arg'\n");
             return 1;
         }
+    }
+    if (!rollback_authority_fence($t, 'promote')) {
+        return 1;
     }
 
     $repo = rtrim($t->repoPath(), '/');

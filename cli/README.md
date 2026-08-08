@@ -425,7 +425,7 @@ Per-transport required keys:
 |---|---|---|
 | `local` | `wp_path`, `repo_path` | — |
 | `docker` | `compose_file`, `service`, `repo_path` | `profile` |
-| `ssh` | `host`, `wp_path`, `repo_path` | `ssh_config` |
+| `ssh` | `host`, `wp_path`, `repo_path` | `ssh_config`, paired `rollback_key_id` + `rollback_signing_key` |
 
 A missing required key is a loud, specific error naming the environment,
 the key, and the transport — never a guess.
@@ -434,6 +434,22 @@ the key, and the transport — never a guess.
 relative to the registry file that defined the environment. This is the
 single place to configure a non-default port, identity, proxy jump, and
 host-key policy without embedding shell options in `host`.
+
+`rollback_key_id` and `rollback_signing_key` are optional as a pair. The key
+path resolves relative to the registry file, must be a regular mode-`0600`
+file, and contains canonical base64 Ed25519 secret-key bytes. Keep it in the
+gitignored machine-local overlay. `duo adopt` derives and installs only its
+public key under `<repo_path>/.duo/control/public-keys/`; a key id is immutable,
+so rotation uses a new id. The controller secret is never copied to the host.
+
+SSH adoption also installs the database-independent recovery runtime under
+`<repo_path>/.duo/control/recovery-runtime/` and creates one stable external
+target identity. `duo status` verifies the active signed receipt and complete
+event hash chain. An invalid chain or any active nonterminal state is
+non-green; only `committed` and `rolled_back` active generations are green.
+`duo deploy` and `duo promote` refuse target mutation while that external
+authority is invalid or nonterminal. A host adopted before this runtime emits
+a manual-recovery warning and retains the existing operator-directed behavior.
 
 ### Where the registry comes from
 

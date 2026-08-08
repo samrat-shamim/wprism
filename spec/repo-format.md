@@ -617,11 +617,16 @@ pre-promotion revision before that sequence; database import alone is never a
 complete code-and-state rollback. A failed export is not a checkpoint and gets
 no import instruction.
 
-The future automatic production-SSH rollback contract is designed separately
-in `docs/proposals/verified-ssh-rollback.md`. It does not change this v0
-operator-directed behavior: automatic rollback requires an authority receipt
-outside the restored database, complete code/upload/resource inverses,
-traffic exclusion, and fresh-process verification of the prior revision.
+The automatic production-SSH rollback contract is designed separately in
+`docs/proposals/verified-ssh-rollback.md`. Its external authority foundation
+is implemented: SSH adoption installs a database-independent runtime under
+`.duo/control`, provisions public verification keys, preserves a never-reused
+target generation, and verifies immutable signed receipts plus append-only
+signed event chains. Status and new SSH mutations fail closed for corrupt or
+nonterminal active generations. This does not change the current v0
+operator-directed recovery behavior: automatic rollback still requires the
+resource executors for traffic exclusion, encrypted database restore,
+code/upload/resource inverses, and fresh-process prior-revision verification.
 
 Deploy and apply also share one target-authoritative lease in the target
 database. The `duo_kv.promotion_lock` record names a random orchestrator owner,

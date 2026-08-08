@@ -6,6 +6,8 @@ final class SshTransport extends Transport {
     private string $host;
     private string $wpPath;
     private ?string $configFile;
+    private ?string $rollbackKeyId;
+    private ?string $rollbackSigningKey;
 
     public function __construct(string $name, array $cfg) {
         parent::__construct($name, $cfg);
@@ -18,11 +20,44 @@ final class SshTransport extends Transport {
         $this->configFile = is_string($config)
             ? self::resolvePath((string) ($cfg['_dir'] ?? '.'), $config)
             : null;
+
+        $keyId = $cfg['rollback_key_id'] ?? null;
+        $keyPath = $cfg['rollback_signing_key'] ?? null;
+        if (($keyId === null) !== ($keyPath === null)) {
+            throw new \RuntimeException(
+                "env '$name': rollback_key_id and rollback_signing_key must be configured together"
+            );
+        }
+        if ($keyId !== null && (!is_string($keyId)
+            || strlen($keyId) < 1 || strlen($keyId) > 64
+            || preg_match('/^[A-Za-z0-9._-]+$/', $keyId) !== 1)) {
+            throw new \RuntimeException("env '$name': rollback_key_id must match [A-Za-z0-9._-]{1,64}");
+        }
+        if ($keyPath !== null && (!is_string($keyPath) || $keyPath === '')) {
+            throw new \RuntimeException("env '$name': rollback_signing_key must be a non-empty path string");
+        }
+        $this->rollbackKeyId = is_string($keyId) ? $keyId : null;
+        $this->rollbackSigningKey = is_string($keyPath)
+            ? self::resolvePath((string) ($cfg['_dir'] ?? '.'), $keyPath)
+            : null;
     }
 
     public function describe(): string {
         $config = $this->configFile !== null ? " ssh_config={$this->configFile}" : '';
-        return "ssh    host={$this->host} wp_path={$this->wpPath} repo_path={$this->repoPath}{$config}";
+        $rollback = $this->rollbackKeyId !== null ? " rollback_key_id={$this->rollbackKeyId}" : '';
+        return "ssh    host={$this->host} wp_path={$this->wpPath} repo_path={$this->repoPath}{$config}{$rollback}";
+    }
+
+    public function rollbackConfigured(): bool {
+        return $this->rollbackKeyId !== null && $this->rollbackSigningKey !== null;
+    }
+
+    public function rollbackKeyId(): ?string {
+        return $this->rollbackKeyId;
+    }
+
+    public function rollbackSigningKeyPath(): ?string {
+        return $this->rollbackSigningKey;
     }
 
     protected function wpCommand(array $wpArgs): string {
