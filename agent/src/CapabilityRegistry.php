@@ -399,6 +399,8 @@ final class CapabilityRegistry {
                 $passingTests[$test['id']] = true;
             }
         }
+        $evidenceStatus = (string) $data['evidence']['status'];
+        $bundleDigest = (string) $data['evidence']['bundle_digest'];
 
         $manifestByName = [];
         foreach ($manifests as $manifest) {
@@ -431,7 +433,19 @@ final class CapabilityRegistry {
             if (($claim['status'] ?? null) !== ($disposition['status'] ?? null)) {
                 throw new \RuntimeException("duo: $label status for '$name' disagrees with its disposition");
             }
-            if (($claim['status'] ?? null) === 'certified') {
+            if (($claim['evidence']['status'] ?? null) !== $evidenceStatus
+                || ($claim['evidence']['bundle_digest'] ?? null) !== $bundleDigest
+                || ($claim['evidence']['tests'] ?? null) !== ($disposition['evidence']['tests'] ?? [])) {
+                throw new \RuntimeException("duo: $label evidence binding for '$name' is malformed");
+            }
+            // A candidate is the intentional re-certification bootstrap: it
+            // projects the newly reviewed citations before those future test
+            // IDs can exist in a fresh bundle, while report() still emits the
+            // hard evidence_not_current blocker. Requiring the old bundle to
+            // contain those new IDs makes re-certification circular. Current
+            // evidence has no such allowance: every certified citation must
+            // name a passing test in the exact imported bundle.
+            if ($evidenceStatus === 'current' && ($claim['status'] ?? null) === 'certified') {
                 foreach ($claim['evidence']['tests'] ?? [] as $test) {
                     if (!isset($passingTests[$test])) {
                         throw new \RuntimeException(
@@ -464,7 +478,12 @@ final class CapabilityRegistry {
                     !== ($data['manifests'][$profile['manifest']]['adapter_digest'] ?? null)) {
                 throw new \RuntimeException("duo: $label profile '$name' is malformed");
             }
-            if (($profile['status'] ?? null) === 'certified') {
+            if (($profile['evidence']['status'] ?? null) !== $evidenceStatus
+                || ($profile['evidence']['bundle_digest'] ?? null) !== $bundleDigest
+                || ($profile['evidence']['tests'] ?? null) !== ($source['evidence']['tests'] ?? [])) {
+                throw new \RuntimeException("duo: $label evidence binding for profile '$name' is malformed");
+            }
+            if ($evidenceStatus === 'current' && ($profile['status'] ?? null) === 'certified') {
                 foreach ($profile['evidence']['tests'] ?? [] as $test) {
                     if (!isset($passingTests[$test])) {
                         throw new \RuntimeException(

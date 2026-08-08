@@ -3,120 +3,140 @@
         "artifacts": [
             {
                 "name": "advanced-custom-fields",
+                "role": "refusal-fixture",
                 "sha256": "66499016b3864e507139be16319ef9c5026a399a4b1e7630c75eee4bfe3122a6",
                 "url": "https://downloads.wordpress.org/plugin/advanced-custom-fields.5.12.6.zip",
                 "version": "5.12.6"
             },
             {
                 "name": "advanced-custom-fields",
+                "role": "certified-boundary",
                 "sha256": "b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341",
                 "url": "https://downloads.wordpress.org/plugin/advanced-custom-fields.6.0.0.zip",
                 "version": "6.0.0"
             },
             {
                 "name": "advanced-custom-fields",
+                "role": "certified-boundary",
                 "sha256": "f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2",
                 "url": "https://downloads.wordpress.org/plugin/advanced-custom-fields.6.8.7.zip",
                 "version": "6.8.7"
             },
             {
                 "name": "contact-form-7",
+                "role": "refusal-fixture",
                 "sha256": "357b13dab0e2b9996444664c95bd7ee7ca49fb18aced65db4c40c747543afcf4",
                 "url": "https://downloads.wordpress.org/plugin/contact-form-7.5.9.8.zip",
                 "version": "5.9.8"
             },
             {
                 "name": "contact-form-7",
+                "role": "certified-boundary",
                 "sha256": "23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6",
                 "url": "https://downloads.wordpress.org/plugin/contact-form-7.6.0.1.zip",
                 "version": "6.0.1"
             },
             {
                 "name": "contact-form-7",
+                "role": "certified-boundary",
                 "sha256": "e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e",
                 "url": "https://downloads.wordpress.org/plugin/contact-form-7.6.1.6.zip",
                 "version": "6.1.6"
             },
             {
                 "name": "elementor",
+                "role": "refusal-fixture",
                 "sha256": "90a41a7b76980e611619ff19daf4e89dc170c7608da18fcb8bb1fed266eb40cc",
                 "url": "https://downloads.wordpress.org/plugin/elementor.3.35.9.zip",
                 "version": "3.35.9"
             },
             {
                 "name": "elementor",
+                "role": "certified-boundary",
                 "sha256": "75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2",
                 "url": "https://downloads.wordpress.org/plugin/elementor.4.0.0.zip",
                 "version": "4.0.0"
             },
             {
                 "name": "elementor",
+                "role": "certified-boundary",
                 "sha256": "4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db",
                 "url": "https://downloads.wordpress.org/plugin/elementor.4.2.2.zip",
                 "version": "4.2.2"
             },
             {
                 "name": "ninja-forms",
+                "role": "refusal-fixture",
                 "sha256": "54fc48a030a85d4929fe4c3dc364affdd996e1add175f42a5d1f90c08a43682f",
                 "url": "https://downloads.wordpress.org/plugin/ninja-forms.3.3.21.4.zip",
                 "version": "3.3.21.4"
             },
             {
                 "name": "ninja-forms",
+                "role": "certified-boundary",
                 "sha256": "a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687",
                 "url": "https://downloads.wordpress.org/plugin/ninja-forms.3.4.34.2.zip",
                 "version": "3.4.34.2"
             },
             {
                 "name": "ninja-forms",
+                "role": "certified-boundary",
                 "sha256": "82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73",
                 "url": "https://downloads.wordpress.org/plugin/ninja-forms.3.14.11.zip",
                 "version": "3.14.11"
             },
             {
                 "name": "polylang",
+                "role": "refusal-fixture",
                 "sha256": "adf4ac84fe0f10a326a7e6cad9453075bfe02eb99286f9c8f57259787914c9ab",
                 "url": "https://downloads.wordpress.org/plugin/polylang.3.4.5.zip",
                 "version": "3.4.5"
             },
             {
                 "name": "polylang",
+                "role": "certified-boundary",
                 "sha256": "3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1",
                 "url": "https://downloads.wordpress.org/plugin/polylang.3.5.zip",
                 "version": "3.5"
             },
             {
                 "name": "polylang",
+                "role": "certified-boundary",
                 "sha256": "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa",
                 "url": "https://downloads.wordpress.org/plugin/polylang.3.8.6.zip",
                 "version": "3.8.6"
             },
             {
                 "name": "woocommerce",
+                "role": "refusal-fixture",
                 "sha256": "6e58fc3ba9b18d1c9aee6b0227d3c3c09e4fe2c1332823bd2e0ac54ffcff64a9",
                 "url": "https://downloads.wordpress.org/plugin/woocommerce.10.9.4.zip",
                 "version": "10.9.4"
             },
             {
                 "name": "woocommerce",
+                "role": "certified-boundary",
                 "sha256": "ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666",
                 "url": "https://downloads.wordpress.org/plugin/woocommerce.11.0.0.zip",
                 "version": "11.0.0"
             },
             {
                 "name": "wordpress-seo",
+                "role": "refusal-fixture",
                 "sha256": "eaca8321b8816da3541427b0b6774a5266a0f4ba8f9503f01ae056c0d8282052",
                 "url": "https://downloads.wordpress.org/plugin/wordpress-seo.27.9.zip",
                 "version": "27.9"
             },
             {
                 "name": "wordpress-seo",
+                "role": "certified-boundary",
                 "sha256": "348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f",
                 "url": "https://downloads.wordpress.org/plugin/wordpress-seo.28.0.zip",
                 "version": "28.0"
             },
             {
                 "name": "wordpress-seo",
+                "role": "certified-boundary",
                 "sha256": "f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23",
                 "url": "https://downloads.wordpress.org/plugin/wordpress-seo.28.2.zip",
                 "version": "28.2"
@@ -125,8 +145,8 @@
         "bound_inputs": [
             {
                 "path": ".github/workflows/conformance.yml",
-                "sha256": "7414b89fb9ecf246796f2161df3df17f43d59c498d3bb0dc34a9fbf89fac6b75",
-                "size": 2889
+                "sha256": "5cec1a3d8a629d99e1abad2daf727e8b18cc4923a6a1d01f1291157118711263",
+                "size": 2911
             },
             {
                 "path": "DESIGN.md",
@@ -135,8 +155,8 @@
             },
             {
                 "path": "Makefile",
-                "sha256": "d9e6fa2c7ee6935e39081a0ed9c095fbaec9f45d444c4732e00f0924b9116dde",
-                "size": 35171
+                "sha256": "d95cfb8f856a7974d00cf6d97540fc0b59312458cbf5da537767f1b143536154",
+                "size": 35307
             },
             {
                 "path": "agent/duo-loader.php",
@@ -170,8 +190,8 @@
             },
             {
                 "path": "agent/src/CapabilityRegistry.php",
-                "sha256": "667c6bf230fb1d63d7738b083c620ebacfdb987f482a630274f507cf881637e5",
-                "size": 22907
+                "sha256": "8ea00fe648ac9bb77c8a70511deb6dd1ba9ef332600495ddea979f8d36900343",
+                "size": 24407
             },
             {
                 "path": "agent/src/Capture.php",
@@ -235,8 +255,8 @@
             },
             {
                 "path": "agent/src/Journal.php",
-                "sha256": "5c3dfaf0a63256acd918b3ab3688775b3f59ce93a5e219f1abbe1d49504def21",
-                "size": 10997
+                "sha256": "5a814bd335b21b3dd7f32218bd1b2a76b87d441b564c2ded5acf77cefae38c97",
+                "size": 11398
             },
             {
                 "path": "agent/src/JsonRefs.php",
@@ -245,8 +265,8 @@
             },
             {
                 "path": "agent/src/Ledger.php",
-                "sha256": "adf50a4ae41cabf8727097a40c46404cbba7b34e686efccb535674334408e1bc",
-                "size": 19196
+                "sha256": "b1564e49a49c2314d27d28541d77d2b42d273ffdd673bacc224fbad8914319fb",
+                "size": 19538
             },
             {
                 "path": "agent/src/Lint.php",
@@ -370,8 +390,8 @@
             },
             {
                 "path": "cli/src/Adopt.php",
-                "sha256": "ed7e2db6b90f7abd231250af58fd500bff5a9c3d827dc948db033a8a9754f95a",
-                "size": 22358
+                "sha256": "11eaf3be8fdaacdb6b9a8dfec284ed0959ad27cdc72e97c01ca9c8d986cde565",
+                "size": 23646
             },
             {
                 "path": "cli/src/ClassificationBatch.php",
@@ -420,13 +440,13 @@
             },
             {
                 "path": "cli/src/SshTransport.php",
-                "sha256": "fe46a8239de1b1e3fcded6d050aee09d11469d25c0eb1f4c84cb2a97f8e83db4",
-                "size": 13100
+                "sha256": "ea72f2bc17658d489a5f80931e643679cf53b9e5193412c5a90cb67d37649982",
+                "size": 13129
             },
             {
                 "path": "cli/src/Transport.php",
-                "sha256": "29afccd38efa48f25423c21f7cf0e7619fbe2b9e857d25f50886b6a2b273245d",
-                "size": 5098
+                "sha256": "50638e0e49f68cccf94551ce444e9743cf9e918fa9028b3f79978cc0e62e0dbd",
+                "size": 5784
             },
             {
                 "path": "cli/src/Triage.php",
@@ -460,8 +480,8 @@
             },
             {
                 "path": "manifests/dispositions.json",
-                "sha256": "ed4988dcb51e1c43540b2c6ab15c60af14f8696db1a0d7ac96c6241b0930dd90",
-                "size": 17066
+                "sha256": "f4d10cc56f6e4c5bfdc21c9a741da957524003ca5378376f358c53d5d6d80adf",
+                "size": 17375
             },
             {
                 "path": "manifests/duo-agency-cpt.json",
@@ -540,8 +560,8 @@
             },
             {
                 "path": "sandbox/bin/certification-bundle.php",
-                "sha256": "27b622999fd275e41ef78e5564efd9e1b81ef66ddba82af75a5b3afd245a9af5",
-                "size": 18582
+                "sha256": "4ec0fd3cad6a8fe90dce2194401d576ba24ccd5705259cd5350b14848a97fd51",
+                "size": 18687
             },
             {
                 "path": "sandbox/bin/fetch-artifact.sh",
@@ -550,8 +570,8 @@
             },
             {
                 "path": "sandbox/bin/pair.sh",
-                "sha256": "59552d4f4f1c6c2f56272eed3f1b1b17e5175cbd99822cc0b004c0e784345e23",
-                "size": 47573
+                "sha256": "f8c45599707826e7c9fa39c97c985dbf2def0bb987449a00ddb83ee4842daab6",
+                "size": 49295
             },
             {
                 "path": "sandbox/bin/ssh-rollback-certification.php",
@@ -565,8 +585,8 @@
             },
             {
                 "path": "sandbox/conformance/artifacts.lock.json",
-                "sha256": "8c3c74173c053c2d2242ad4df817d0f3565cbbdba6bb9bb5240ca93029f0ff05",
-                "size": 3862
+                "sha256": "d4d519e0e4617b3a364e7b64f7eae66288b85180984814f9bd97ddcd0c2e2c92",
+                "size": 4561
             },
             {
                 "path": "sandbox/conformance/checks/_retry_helper.sh",
@@ -650,8 +670,8 @@
             },
             {
                 "path": "sandbox/conformance/run.sh",
-                "sha256": "477cca09198197576102c1a9803c7aa85daf2278f2552c9edc0f2cd3539fbf59",
-                "size": 25099
+                "sha256": "633814679cb711b188289a87f9e7eaf4689ef2ef446f039ec823061048411598",
+                "size": 27610
             },
             {
                 "path": "sandbox/conformance/seeds/acf.sh",
@@ -705,8 +725,8 @@
             },
             {
                 "path": "sandbox/tests/certify_reference_bundle.sh",
-                "sha256": "48a2e9f8b6d0c305063d14f6e0f49923d7e43bd07b4f404b667293ce0f296e0e",
-                "size": 14701
+                "sha256": "f12ec531745212f63e30d1163b95010d97d068e7a18e1f6b008d83c3ab769535",
+                "size": 15481
             },
             {
                 "path": "sandbox/tests/certify_version_matrix.sh",
@@ -720,8 +740,8 @@
             },
             {
                 "path": "scripts/capability-registry.php",
-                "sha256": "21100b2566a7da4650d77ab6fe8f097feddc8572d82f9c66b4e7dc715b3cfb14",
-                "size": 21608
+                "sha256": "646b56227f4406f4ef63ec91a254e57d4e145cd2392655e07ac13e75cc0775ff",
+                "size": 21731
             },
             {
                 "path": "spec/repo-format.md",
@@ -729,8 +749,8 @@
                 "size": 95183
             }
         ],
-        "bundle_digest": "2cab0e843bc42c67bc82976aaceea2b9e95f7d3d5e71f90b698d3425cf8fe595",
-        "created_at": "2026-08-09T03:23:30Z",
+        "bundle_digest": "4af650d071ad425e1a8cea53323cfbddc337a061c361f6a2c00ca83ee96c879c",
+        "created_at": "2026-08-09T04:46:22Z",
         "environment": {
             "path": "environment.json",
             "sha256": "9711ef3a04f882da7e7e0271d99bf014408bea1c656510ec463456e635fedc63",
@@ -749,15 +769,15 @@
             "wordpress": "7.0.2"
         },
         "force_hatches": [],
-        "git_revision": "5bce60222d4cbabced548b156e6cd181cfb2c5a5",
+        "git_revision": "785b7b57419b658fecb1ac30bc9c37f4dc429e5d",
         "harness": {
             "name": "duo-reference-certification",
-            "version": 2
+            "version": 3
         },
         "ratification": {
             "path": "ratification.json",
-            "sha256": "ed4988dcb51e1c43540b2c6ab15c60af14f8696db1a0d7ac96c6241b0930dd90",
-            "size": 17066
+            "sha256": "f4d10cc56f6e4c5bfdc21c9a741da957524003ca5378376f358c53d5d6d80adf",
+            "size": 17375
         },
         "ratification_summary": {
             "certified_claims": [
@@ -778,39 +798,191 @@
         "tests": [
             {
                 "diff": {
-                    "path": "diffs/core-conformance.json",
-                    "sha256": "ca02a3bd4128513b8910a70fbc6f0a65b699f2dc397a4dc5646e5d1fb8ee19e0",
-                    "size": 94
+                    "path": "diffs/conformance-core.json",
+                    "sha256": "3754ca620133d2f2f15ceda854975f9169e771a6d6fefd890d30022338c0551b",
+                    "size": 144
                 },
-                "id": "core-conformance",
+                "id": "conformance-core",
                 "log": {
-                    "path": "logs/core-conformance.txt",
-                    "sha256": "b1c64190acf6c148af7d13c23920e309ded3fd1334c7c2acf3603dfd10023162",
-                    "size": 27761
+                    "path": "logs/conformance-core.txt",
+                    "sha256": "498f384a6c89eb4328b05bb7250bc2e8175bb937b1558fab709e97d3436da965",
+                    "size": 28321
                 },
                 "result": {
-                    "path": "results/core-conformance.json",
-                    "sha256": "f20d8210586382f9476c76a1f9507c8fc9a1e41b76616fe4afb02f60576a5ce8",
+                    "path": "results/conformance-core.json",
+                    "sha256": "2065ce738d51dd9f870c9788ce5844d86e5fbb5afe737ff4ca07932c4f596afd",
                     "size": 358
                 },
                 "verdict": "pass"
             },
             {
                 "diff": {
-                    "path": "diffs/fse-conformance.json",
-                    "sha256": "ca02a3bd4128513b8910a70fbc6f0a65b699f2dc397a4dc5646e5d1fb8ee19e0",
-                    "size": 94
+                    "path": "diffs/conformance-fse.json",
+                    "sha256": "a8654992822d94a361993372f33d5b736d26be1353ac15922b2aabbf3b90599e",
+                    "size": 143
                 },
-                "id": "fse-conformance",
+                "id": "conformance-fse",
                 "log": {
-                    "path": "logs/fse-conformance.txt",
-                    "sha256": "2ccfb7166a69ee1b7cf46cdcc16bcd03ebaef0bee74e85eaf865c611ead9a024",
-                    "size": 14698
+                    "path": "logs/conformance-fse.txt",
+                    "sha256": "cc8097eec5c918c18429500ab09f6be810adf281948d2bc3b355a46326fbbd13",
+                    "size": 15100
                 },
                 "result": {
-                    "path": "results/fse-conformance.json",
-                    "sha256": "176668fc452513ad905bd9036debd2d7e724ac00fcbc84f4b0e6e23d3e61fd9a",
-                    "size": 343
+                    "path": "results/conformance-fse.json",
+                    "sha256": "6656d5ff437221f14a2a00063d4a42c3509d69ad375a18bfe44c3b578c7a37a3",
+                    "size": 357
+                },
+                "verdict": "pass"
+            },
+            {
+                "diff": {
+                    "path": "diffs/conformance-acf.json",
+                    "sha256": "cabb0826e1195db3cd4c2a19f7ae20ffa62c432af50fdf9c8848fd983fac7012",
+                    "size": 143
+                },
+                "id": "conformance-acf",
+                "log": {
+                    "path": "logs/conformance-acf.txt",
+                    "sha256": "4a56960cd2c4ce21478e281dfdf25b714d7c9cb964efa9cff98658516751b878",
+                    "size": 12872
+                },
+                "result": {
+                    "path": "results/conformance-acf.json",
+                    "sha256": "b0d615207ffad69ee5b7cd52ca8223bc9c41c706540865f30587300468e3ee29",
+                    "size": 357
+                },
+                "verdict": "pass"
+            },
+            {
+                "diff": {
+                    "path": "diffs/conformance-contact-form-7.json",
+                    "sha256": "4dbf24e9b9ddde891bf66bc2a2376eec7edd265e995dccd5ec4092d738ddc447",
+                    "size": 154
+                },
+                "id": "conformance-contact-form-7",
+                "log": {
+                    "path": "logs/conformance-contact-form-7.txt",
+                    "sha256": "022d7f6d6ac7cd843383b48396a99e5462ce3befbe39803e91fd170d086fbe29",
+                    "size": 13828
+                },
+                "result": {
+                    "path": "results/conformance-contact-form-7.json",
+                    "sha256": "1fe92039ee8505c51684e4ad2bda32792f888ba0decbf8c4df166b66383d1aa7",
+                    "size": 368
+                },
+                "verdict": "pass"
+            },
+            {
+                "diff": {
+                    "path": "diffs/conformance-elementor.json",
+                    "sha256": "6cd273d1a78881dbf3715a44db53595cbd75065b2b4bbb24bae59cfff7fe2c34",
+                    "size": 149
+                },
+                "id": "conformance-elementor",
+                "log": {
+                    "path": "logs/conformance-elementor.txt",
+                    "sha256": "c6d66948aa4766dc3b46be052f96fc209a97b4f20e9331a821def6a40680fcdd",
+                    "size": 13482
+                },
+                "result": {
+                    "path": "results/conformance-elementor.json",
+                    "sha256": "ff4335ce5faf8769c041cc65ba8a65cf5901d9657dd8f61abea4a637ef320395",
+                    "size": 363
+                },
+                "verdict": "pass"
+            },
+            {
+                "diff": {
+                    "path": "diffs/conformance-ninja-forms.json",
+                    "sha256": "9382579a06d5d108e8159e0542d83dcd174b079ec759f65087f6ff1f7c97dd76",
+                    "size": 151
+                },
+                "id": "conformance-ninja-forms",
+                "log": {
+                    "path": "logs/conformance-ninja-forms.txt",
+                    "sha256": "1fccaf58ee45ccb61a1e3dd7c3952d7b3ff761a149714835028fb2729736302d",
+                    "size": 16857
+                },
+                "result": {
+                    "path": "results/conformance-ninja-forms.json",
+                    "sha256": "b12141a0e921ba13291bdb2fe801a2e36f4360fefb5d93ac8846c1c6d9e15bec",
+                    "size": 365
+                },
+                "verdict": "pass"
+            },
+            {
+                "diff": {
+                    "path": "diffs/conformance-polylang.json",
+                    "sha256": "a9178ade5252802bf95ba75428841ea06e4bb0234a0dcdbc200ab1448fac86cd",
+                    "size": 148
+                },
+                "id": "conformance-polylang",
+                "log": {
+                    "path": "logs/conformance-polylang.txt",
+                    "sha256": "f223df886ee4ecb1eca4c067b9400072bc5961e07514011797f42af74f46be3e",
+                    "size": 19045
+                },
+                "result": {
+                    "path": "results/conformance-polylang.json",
+                    "sha256": "55ae19764233f52a8adc0d638fd8b757856a01b601bf0dca0316bd8992967899",
+                    "size": 362
+                },
+                "verdict": "pass"
+            },
+            {
+                "diff": {
+                    "path": "diffs/conformance-woocommerce.json",
+                    "sha256": "7d6d73ec8d2572c84ef732ae011b831e52a1beff1c0863755bba42129844da8b",
+                    "size": 151
+                },
+                "id": "conformance-woocommerce",
+                "log": {
+                    "path": "logs/conformance-woocommerce.txt",
+                    "sha256": "a4254b13f9092675376d803fef064dd703d3102864cf6f6e9c942ccb45c0ad1a",
+                    "size": 21830
+                },
+                "result": {
+                    "path": "results/conformance-woocommerce.json",
+                    "sha256": "2da027810515a08253ef8af5db3e11e87b4d9135f1e3cdc99dfd97eedeed7a0b",
+                    "size": 365
+                },
+                "verdict": "pass"
+            },
+            {
+                "diff": {
+                    "path": "diffs/conformance-yoast.json",
+                    "sha256": "4e5f518064a300e4d4c05d229c9fe2d5f8d744f04525151e79f4ed6320d3af17",
+                    "size": 145
+                },
+                "id": "conformance-yoast",
+                "log": {
+                    "path": "logs/conformance-yoast.txt",
+                    "sha256": "dc2124c0b81013bfeb8e06328e658015571987172dd3e5d794088cae72c03d63",
+                    "size": 15416
+                },
+                "result": {
+                    "path": "results/conformance-yoast.json",
+                    "sha256": "932413af403093533f1db7233172d28f2a122cd916a382dec6a0b7b13bac0d0c",
+                    "size": 359
+                },
+                "verdict": "pass"
+            },
+            {
+                "diff": {
+                    "path": "diffs/conformance-paid-memberships-pro.json",
+                    "sha256": "45fb5bb5a2ee522b5afe21fa32a159e6cc4f90f4dd7f9b0c815ce5ceeb5d888a",
+                    "size": 160
+                },
+                "id": "conformance-paid-memberships-pro",
+                "log": {
+                    "path": "logs/conformance-paid-memberships-pro.txt",
+                    "sha256": "560caa76cee77f0425d4d50a50d28a898e7c829b6eb2a6572ac86f77d07b4608",
+                    "size": 13216
+                },
+                "result": {
+                    "path": "results/conformance-paid-memberships-pro.json",
+                    "sha256": "829ae0d469392a654904164a0e6ae88e10d1be1ef6b91f6739a248c39a6b1b33",
+                    "size": 374
                 },
                 "verdict": "pass"
             },
@@ -823,8 +995,8 @@
                 "id": "multisite-refusal",
                 "log": {
                     "path": "logs/multisite-refusal.txt",
-                    "sha256": "04af1fadee0a2f7eb951c0652bbfab0fc2813a645e9ed5dcd00ecde14ffb884c",
-                    "size": 7611
+                    "sha256": "c4a17f680fa8b6dc83eb7d63894441df4d2d9d9144e65198bf0c05431c69983c",
+                    "size": 7968
                 },
                 "result": {
                     "path": "results/multisite-refusal.json",
@@ -842,8 +1014,8 @@
                 "id": "exact-artifact-version-matrix",
                 "log": {
                     "path": "logs/exact-artifact-version-matrix.txt",
-                    "sha256": "1774bdb380d278387614811e89bb1feeaeabb8c4a46e1184659f371eb01cfb6f",
-                    "size": 132845
+                    "sha256": "98a84216d7a4d270e5a4e9b7bec10ed233a8d7a5450be786ef28295ef51b92f2",
+                    "size": 134447
                 },
                 "result": {
                     "path": "results/exact-artifact-version-matrix.json",

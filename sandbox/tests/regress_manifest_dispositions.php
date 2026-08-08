@@ -90,7 +90,20 @@ foreach ($data['manifests'] as $name => $entry) {
 }
 
 echo "\n== evidence references and policy readiness ==\n";
-$knownBundleTests = ['core-conformance', 'fse-conformance', 'exact-artifact-version-matrix'];
+$knownBundleTests = [
+    'conformance-acf',
+    'conformance-contact-form-7',
+    'conformance-core',
+    'conformance-elementor',
+    'conformance-fse',
+    'conformance-ninja-forms',
+    'conformance-paid-memberships-pro',
+    'conformance-polylang',
+    'conformance-woocommerce',
+    'conformance-yoast',
+    'exact-artifact-version-matrix',
+    'multisite-refusal',
+];
 foreach ($data['manifests'] as $name => $entry) {
     if ($entry['status'] !== 'certified') { continue; }
     foreach ($entry['evidence']['tests'] as $test) {
@@ -102,6 +115,25 @@ foreach ($data['profiles'] as $name => $entry) {
         check(in_array($test, $knownBundleTests, true), "$name profile cites a current reference-bundle test");
     }
 }
+foreach (['acf', 'contact-form-7', 'elementor', 'ninja-forms', 'polylang', 'woocommerce', 'yoast'] as $name) {
+    check(
+        ($data['manifests'][$name]['evidence']['tests'] ?? null)
+            === ["conformance-$name", 'exact-artifact-version-matrix'],
+        "$name cites its own live conformance and the exact-version matrix"
+    );
+}
+check(
+    ($data['manifests']['core']['evidence']['tests'] ?? null) === ['conformance-core', 'multisite-refusal'],
+    'core cites live conformance and the multisite refusal evidence it claims'
+);
+check(
+    ($data['profiles']['fse']['evidence']['tests'] ?? null) === ['conformance-fse'],
+    'FSE cites its named live conformance evidence'
+);
+check(
+    ($data['manifests']['paid-memberships-pro']['evidence']['tests'] ?? null) === ['conformance-paid-memberships-pro'],
+    'PMPro conformance is bundle-bound while its disposition remains experimental'
+);
 $corePolicy = Policy::load(null, ['core']);
 $coreBlockers = $corePolicy->adapter_readiness_blockers();
 if (($capabilityRegistry->data()['evidence']['status'] ?? null) === 'current') {

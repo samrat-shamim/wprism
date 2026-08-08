@@ -345,12 +345,16 @@ were confirmed still running, untouched, throughout.
 
 ## Reference certification evidence bundles
 
-`make certify-reference-bundle` runs the release reference path: core and FSE
-conformance through the real deploy/apply flow, an executable WordPress
-multisite clean-refusal check, and the exact-artifact version matrix (including
-Ninja Forms' typed-table graph). The harness owns one disposable pair at a
-time, destroys it after each green leg, and leaves a failed pair available for
-inspection. Override its isolated resources with `CERT_BUNDLE_PAIR`,
+`make certify-reference-bundle` runs the release reference path: named live
+conformance for every shipped conformance manifest (including the experimental
+Paid Memberships Pro adapter), an executable WordPress multisite clean-refusal
+check, and the exact-artifact version matrix (including Ninja Forms' typed-table
+graph). Each `sandbox/conformance/run.sh` invocation exports a
+`conformance-<manifest>` result/diff fragment for direct bundle import; certified
+plugin claims cite that adapter-specific result plus the version matrix. PMPro's
+result is retained without promoting its still-unbound experimental claim. The
+harness owns one disposable pair at a time and destroys it after every attempted
+leg. Override its isolated resources with `CERT_BUNDLE_PAIR`,
 `CERT_BUNDLE_PORT1`, and `CERT_BUNDLE_PORT2` when the defaults are occupied.
 
 Every run publishes a content-addressed directory below the ignored
@@ -361,6 +365,11 @@ verdicts, diffs, full logs, and SHA-256 digests for
 the repository inputs that define the run. A Git revision is recorded for
 diagnostics, but verification is bound to the actual input bytes rather than a
 mutable branch name.
+
+Every exact plugin artifact is also labeled by purpose. `certified-boundary`
+means the artifact is an admitted supported version; `refusal-fixture` means it
+is deliberately below range and exists only to prove loud refusal. Missing or
+unknown roles make bundle construction fail closed.
 
 The builder and verifier emit one JSON verdict on stdout and human diagnostics
 on stderr. Exit `0` means valid and green, `1` means a failed or corrupt bundle,
