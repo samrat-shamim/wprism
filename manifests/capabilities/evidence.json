@@ -610,8 +610,8 @@
             },
             {
                 "path": "sandbox/conformance/checks/woocommerce.sh",
-                "sha256": "0825227c191f71da3ab9c98c2265d6310b42740dfa502bea360904e6ffc9d246",
-                "size": 13404
+                "sha256": "6ebce1839982ca1212abe8ece70abd0884f14d62d3ad254c5441bf32558728d4",
+                "size": 13621
             },
             {
                 "path": "sandbox/conformance/checks/yoast.sh",
@@ -720,12 +720,12 @@
             },
             {
                 "path": "spec/repo-format.md",
-                "sha256": "5d08753cad167f1558298173413d42b17dab5882c5b71d5f60463be04c26642c",
-                "size": 93881
+                "sha256": "01458d19628d7cd3ed8c68d8403aeabbe33734a55ec06a4a498fe8c90c1dd7d6",
+                "size": 94454
             }
         ],
-        "bundle_digest": "9702bc9e0403ce9d6cd587321fa5c453bad40b8991d6c5a1837bf2f574e13098",
-        "created_at": "2026-08-08T17:39:42Z",
+        "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
+        "created_at": "2026-08-08T19:01:05Z",
         "environment": {
             "path": "environment.json",
             "sha256": "9711ef3a04f882da7e7e0271d99bf014408bea1c656510ec463456e635fedc63",
@@ -744,7 +744,7 @@
             "wordpress": "7.0.2"
         },
         "force_hatches": [],
-        "git_revision": "4c1b830081143e543f394316d756a8f1eb22c941",
+        "git_revision": "5bc15bd8ac646e7f8b3436a46301dc858aa04ed0",
         "harness": {
             "name": "duo-reference-certification",
             "version": 2
@@ -780,8 +780,8 @@
                 "id": "core-conformance",
                 "log": {
                     "path": "logs/core-conformance.txt",
-                    "sha256": "57f58ba2d71bf56091568d393fa9593447d3ebdb739d9e472c62d410d61dfab2",
-                    "size": 27179
+                    "sha256": "f430c35a0b4d805918b475564080522293a7000e4807f4b883b088bf358b6234",
+                    "size": 28067
                 },
                 "result": {
                     "path": "results/core-conformance.json",
@@ -799,8 +799,8 @@
                 "id": "fse-conformance",
                 "log": {
                     "path": "logs/fse-conformance.txt",
-                    "sha256": "14cdb5d360edaac1a398cddf5fd2bc6a78a8b797f72a761c81dfd9c2bfef1e32",
-                    "size": 14432
+                    "sha256": "78f143331fa1e9c171725b214783d9079e0dd910eb39de1de0183a34fecca515",
+                    "size": 14846
                 },
                 "result": {
                     "path": "results/fse-conformance.json",
@@ -818,8 +818,8 @@
                 "id": "multisite-refusal",
                 "log": {
                     "path": "logs/multisite-refusal.txt",
-                    "sha256": "6fd10b35cbe3168fc18ab6e69aa40dd9e37ea8372362b112f7e528b860d37421",
-                    "size": 7433
+                    "sha256": "f4b2fdfff86d250aa341061c4aaf481fd4bc881784cc5eb21b5678c473d32f27",
+                    "size": 7714
                 },
                 "result": {
                     "path": "results/multisite-refusal.json",
@@ -837,8 +837,8 @@
                 "id": "exact-artifact-version-matrix",
                 "log": {
                     "path": "logs/exact-artifact-version-matrix.txt",
-                    "sha256": "a1c926ba6f54bbc61f553846357078c22132feaad9e15d25292f0d1701c1c585",
-                    "size": 129633
+                    "sha256": "62cfe8ca5f244b57f6f4e93cc6a303baf14fa88876d3533a388800808455f033",
+                    "size": 133644
                 },
                 "result": {
                     "path": "results/exact-artifact-version-matrix.json",
