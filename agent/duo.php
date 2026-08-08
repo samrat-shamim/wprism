@@ -31,6 +31,7 @@ require_once __DIR__ . '/src/Deletion.php';
 require_once __DIR__ . '/src/JsonRefs.php';
 require_once __DIR__ . '/src/Tokens.php';
 require_once __DIR__ . '/src/Blocks.php';
+require_once __DIR__ . '/src/PlainData.php';
 require_once __DIR__ . '/src/SidebarState.php';
 require_once __DIR__ . '/src/Shortcodes.php';
 require_once __DIR__ . '/src/Canary.php';

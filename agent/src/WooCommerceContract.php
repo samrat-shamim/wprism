@@ -72,7 +72,6 @@ final class WooCommerceContract {
 
         $categoryClass = 'Automattic\\WooCommerce\\Internal\\Admin\\CategoryLookup';
         $categoryClass::instance()->regenerate();
-        delete_transient('wc_attribute_taxonomies');
 
         self::verify($ids);
         return ['products' => count($ids), 'parents' => count($parents)];

@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/PlainData.php';
+
 /**
  * Capture: environment DB -> canonical state tree.
  *
@@ -92,7 +94,6 @@ final class Capture {
         Ledger::prune_dead_map();
         $observedDeletedTables = Snapshot::observed_deleted_mapped_uuids($policy);
         $observedDeletedWidgets = SidebarState::observed_deleted_mapped_uuids($policy);
-        Snapshot::prune_dead_map($policy); // declared-table id_kinds get the same dead-map hygiene as post/term/tt
         SidebarState::prune_dead_map($policy);
         $c = new self($repo, $policy);
 
@@ -190,6 +191,11 @@ final class Capture {
                     $previousUserLogins[] = (string) ($entity['data']['login'] ?? '');
                 }
             }
+            // A typed method row may disappear before its instance-settings
+            // option. Keep the option-name identity alive through this
+            // capture so build_options() can still emit the paired canonical
+            // option tombstone instead of dropping the live row as unmapped.
+            Snapshot::prune_dead_map($policy, $previousOptions);
 
             // The one consistent-snapshot transaction: every SELECT build()
             // issues, plus the _duo_uuid/duo_map identity-minting writes
@@ -362,7 +368,6 @@ final class Capture {
         // artifact under the promotion lease. Direct diagnostic callers do
         // not own that boundary and retain the historical load-on-entry path.
         $policy ??= Policy::load($repo);
-        Snapshot::prune_dead_map($policy);
         SidebarState::prune_dead_map($policy);
         $c = new self($repo, $policy);
         self::verify_engine_support($policy);
@@ -380,6 +385,7 @@ final class Capture {
         // manifest-expansion scenario before this fix.
         $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
         $repositoryOptions = self::repository_options($repo, $policy, $repository);
+        Snapshot::prune_dead_map($policy, $repositoryOptions);
         $repositoryUserLogins = [];
         foreach ($repository->tree() as $entity) {
             if (($entity['type'] ?? '') === 'user-meta') {
@@ -455,11 +461,11 @@ final class Capture {
         // its promotion lease. Direct callers retain snapshot()'s historical
         // load/compile fallback, but only the options entity is read below.
         $policy ??= Policy::load($repo);
-        Snapshot::prune_option_name_ref_map($policy);
         self::verify_options_engine_support($policy);
         $c = new self($repo, $policy);
         $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
         $repositoryOptions = self::repository_options($repo, $policy, $repository);
+        Snapshot::prune_option_name_ref_map($policy, $repositoryOptions);
         $repositoryValues = $repositoryOptions === null ? [] : OptionState::values($repositoryOptions);
         // DUO-3292: lifecycle snapshots straddle the theme switch itself.
         // Resolving an active-theme-bound option from the live PRE-switch stylesheet on
@@ -570,7 +576,7 @@ final class Capture {
                 continue;
             }
             $raw = (string) $row['option_value'];
-            $value = is_serialized($raw) ? @unserialize(trim($raw), ['allowed_classes' => false]) : $raw;
+            $value = PlainData::decode($raw, "option $key");
             $options[$key] = [
                 'entities' => 1,
                 'owner_candidates' => [$owner['owner']],
@@ -632,7 +638,7 @@ final class Capture {
             }
             $type = substr($name, 7);
             $raw = (string) $row['option_value'];
-            $value = is_serialized($raw) ? @unserialize(trim($raw), ['allowed_classes' => false]) : $raw;
+            $value = PlainData::decode($raw, "option $name");
             if (!is_array($value)) {
                 $widgets[$type] = [
                     'entities' => 1, 'value_shapes' => [get_debug_type($value)],
@@ -678,7 +684,7 @@ final class Capture {
                 }
                 $termMeta[$key]['entities'] = ($termMeta[$key]['entities'] ?? 0) + 1;
                 $termMeta[$key]['taxonomies'][$t->taxonomy] = true;
-                $value = is_serialized($raw) ? @unserialize(trim($raw), ['allowed_classes' => false]) : $raw;
+                $value = PlainData::decode($raw, "term meta $key");
                 $termMeta[$key]['value_shapes'][get_debug_type($value)] = true;
                 $termMeta[$key]['reason'] = 'unclassified term meta on an in-scope taxonomy';
             }
@@ -1629,13 +1635,10 @@ final class Capture {
             return $this->tokens->tokenize_text((string) $t->description);
         }
         $raw = (string) $t->description;
-        $decoded = @unserialize($raw, ['allowed_classes' => false]);
-        if ($decoded === false && $raw !== serialize(false)) {
-            throw new \RuntimeException(
-                "duo: taxonomy '{$t->taxonomy}' declares description_refs but term {$t->slug}'s description"
-                . ' does not unserialize as PHP data: ' . var_export($raw, true)
-            );
-        }
+        $decoded = PlainData::decode(
+            $raw,
+            "taxonomy '{$t->taxonomy}' term {$t->slug}'s description"
+        );
         if (!is_array($decoded)) {
             throw new \RuntimeException(
                 "duo: taxonomy '{$t->taxonomy}' declares description_refs but term {$t->slug}'s description"
@@ -1894,7 +1897,18 @@ final class Capture {
         $locByTerm = [];
         if (!$locationsDerived) {
             $stylesheet = (string) get_option('stylesheet');
-            $mods = get_option('theme_mods_' . $stylesheet);
+            // WordPress' get_option() path uses maybe_unserialize(), whose
+            // legacy unserialize() call can construct target-controlled PHP
+            // objects before this capture ever sees the value. Read the
+            // exact row instead, then cross the shared plain-data boundary
+            // with object hooks disabled while retaining WordPress's false
+            // default for a missing row.
+            $name = 'theme_mods_' . $stylesheet;
+            $raw = $wpdb->get_var($wpdb->prepare(
+                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                $name
+            ));
+            $mods = $raw === null ? false : PlainData::decode($raw, "option '$name'");
             if (is_array($mods) && !empty($mods['nav_menu_locations'])) {
                 foreach ($mods['nav_menu_locations'] as $loc => $tid) {
                     $locByTerm[(int) $tid][] = (string) $loc;
@@ -1946,7 +1960,10 @@ final class Capture {
                     $ref = $this->tokens->tokenize_text((string) ($m['_menu_item_url'] ?? ''));
                 }
                 $parentItem = (int) ($m['_menu_item_menu_item_parent'] ?? 0);
-                $classes = maybe_unserialize($m['_menu_item_classes'] ?? '');
+                $classes = PlainData::decode(
+                    $m['_menu_item_classes'] ?? '',
+                    "menu '{$mt->slug}' item $iid _menu_item_classes"
+                );
                 $classes = is_array($classes)
                     ? array_values(array_filter(array_map('strval', $classes), fn($s) => $s !== ''))
                     : [];
@@ -2112,8 +2129,8 @@ final class Capture {
         if (count($values) > 1) {
             throw new \RuntimeException("duo: multi-value authored meta '$key' on $ownerLabel unsupported in v0");
         }
-        $v = maybe_unserialize($values[0]);
-        self::assert_plain($v, "$ownerLabel meta $key");
+        $v = PlainData::decode($values[0], "$ownerLabel meta $key");
+        PlainData::assert($v, "$ownerLabel meta $key");
         // DUO-3214: unconditional, not gated on is_string($v) — an
         // authored value that decoded to an array (a serialized settings
         // blob) must be scanned too; guard_secret() deep-scans internally
@@ -2261,8 +2278,8 @@ final class Capture {
                 . 'refusing to choose one row'
             );
         }
-        $value = maybe_unserialize($values[0]);
-        self::assert_plain($value, "user '$login' meta $key");
+        $value = PlainData::decode($values[0], "user '$login' meta $key");
+        PlainData::assert($value, "user '$login' meta $key");
         $this->guard_secret('user_meta', $key, $value, $rule, " on exact login '$login'");
         $this->guard_personal_data($key, $value, $rule, $login);
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
@@ -2344,8 +2361,8 @@ final class Capture {
                 continue;
             }
             $liveCanonicalNames[$name] = true;
-            $v = maybe_unserialize($row['option_value']);
-            self::assert_plain($v, "option $name");
+            $v = PlainData::decode($row['option_value'], "option $name");
+            PlainData::assert($v, "option $name");
             // DUO-3214: unconditional — see the identical comment in
             // build_post()'s post_meta loop above.
             $this->guard_secret('options', $name, $v, $rule);
@@ -2387,8 +2404,8 @@ final class Capture {
                 continue;
             }
             $liveCanonicalNames[$name] = true;
-            $v = maybe_unserialize($row['option_value']);
-            self::assert_plain($v, "option $name");
+            $v = PlainData::decode($row['option_value'], "option $name");
+            PlainData::assert($v, "option $name");
             // DUO-3214: unconditional — see the identical comment in
             // build_post()'s post_meta loop above. This call site auto-
             // merged past the DUO-3211 rebase's own conflict marker without
@@ -2468,17 +2485,30 @@ final class Capture {
         // capture, not per-option), tested against every declared pattern;
         // $forceUnresolvedRefs reuses task #73's exact escape hatch rather
         // than inventing a second flag.
-        foreach ($this->policy->option_name_ref_rules() as $rule) {
-            if (($rule['class'] ?? '') !== 'authored') {
-                continue; // future-proofing: a runtime-classified family is discovered, never captured
+        // The complete option_name_ref_rules() declaration set is resolved
+        // once per concrete live name below; do not reintroduce per-rule
+        // first/last-match loops here.
+        foreach (array_keys($allOptionValues) as $name) {
+            // Resolve every declared option-name rule through the shared
+            // Policy matcher, even runtime/derived rules which this capture
+            // path will not emit. That is what makes cross-kind and
+            // cross-class overlaps fail closed instead of being hidden by a
+            // first/last declaration choice.
+            $details = $this->policy->option_name_ref_match_details((string) $name);
+            if ($details === null || ($details['rule']['class'] ?? '') !== 'authored') {
+                continue; // runtime-classified families are discovered, never captured
             }
-            foreach (array_keys($allOptionValues) as $name) {
-                if (!preg_match('/' . $rule['match'] . '/', $name, $m, PREG_OFFSET_CAPTURE) || !isset($m['id'])) {
-                    continue;
-                }
-                $id = (int) $m['id'][0];
-                $offset = $m['id'][1];
-                $length = strlen($m['id'][0]);
+            $rule = $details['rule'];
+            $m = $details['matches'];
+            $rawId = $m['id'][0] ?? null;
+            $id = Policy::strict_positive_local_id($rawId);
+            if ($id === null) {
+                throw new \RuntimeException(
+                    "duo: option '$name' captures an invalid local id in option_name_refs; refusing capture"
+                );
+            }
+            $offset = (int) $m['id'][1];
+            $length = strlen((string) $m['id'][0]);
                 $token = $this->tokens->id_to_token($id, $rule['id_kind']);
                 if ($token === null) {
                     // task #73's dangling-vs-unscoped distinction, mirrored
@@ -2526,8 +2556,8 @@ final class Capture {
                     continue;
                 }
                 $liveCanonicalNames[$key] = true;
-                $v = maybe_unserialize($row['option_value']);
-                self::assert_plain($v, "option $name");
+                $v = PlainData::decode($row['option_value'], "option $name");
+                PlainData::assert($v, "option $name");
                 // Deep secret scan, not the shallow is_string() guard the
                 // ordinary options loop above uses: this value is typically
                 // an ARRAY (a settings blob — title/cost/tax_status for
@@ -2564,7 +2594,6 @@ final class Capture {
                 $v = $this->tokens->struct_capture($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
                 OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
                 $out[$key] = OptionState::present($v, $row['autoload']);
-            }
         }
 
         // docs/proposals/code-half.md §3.1: active_plugins/template/
@@ -2585,8 +2614,8 @@ final class Capture {
                 continue;
             }
             $liveCanonicalNames[$managedOption] = true;
-            $v = maybe_unserialize($row['option_value']);
-            self::assert_plain($v, "option $managedOption");
+            $v = PlainData::decode($row['option_value'], "option $managedOption");
+            PlainData::assert($v, "option $managedOption");
             $v = $managedOption === 'active_plugins'
                 ? array_values(array_map('strval', (array) $v))
                 : (string) $v;
@@ -2739,8 +2768,8 @@ final class Capture {
             return; // option doesn't exist live at all -- nothing to carve a sub-key out of
         }
         $liveCanonicalNames[$name] = true;
-        $live = maybe_unserialize($row['option_value']);
-        self::assert_plain($live, "option $name");
+        $live = PlainData::decode($row['option_value'], "option $name");
+        PlainData::assert($live, "option $name");
         if (!is_array($live)) {
             throw new \RuntimeException(
                 "duo: option '$name' declares sub_keys but its live value is not array-shaped (got "
@@ -2828,7 +2857,7 @@ final class Capture {
      * authored value aborts capture — naming the key, the label, and the
      * escape hatch (a rule may declare "allow_secret": true, in site policy
      * or a manifest, for a confirmed false positive). Fails fast on the
-     * first match, like assert_plain() above — this is a hard security
+     * first match, like PlainData::assert() above — this is a hard security
      * abort, not the batched loud-and-blocking classification gate.
      *
      * DUO-3214: $v is untyped (was `string $v`) and this now calls
@@ -2841,7 +2870,7 @@ final class Capture {
      * the wave-1 security subset — see their own docblocks for the
      * identical reasoning). Widening the method and dropping the gate at
      * both call sites reuses that same proven mechanism instead of a third
-     * reimplementation. assert_plain() already ran on $v before every call
+     * reimplementation. PlainData::assert() already ran on $v before every call
      * site reaches this (it throws on any PHP object anywhere in the
      * structure), so hard_match_deep()'s array/string/other-scalar walk
      * covers every shape $v can actually have here.
@@ -3086,7 +3115,7 @@ final class Capture {
      * to opaque-string capture: a manifest declaring json_refs/key_refs for
      * a key is asserting its shape, and silently degrading would silently
      * reopen exactly the id-leak gap this mechanism exists to close —
-     * matching assert_plain()'s own "throw, never guess" posture below.
+     * matching PlainData::assert()'s own "throw, never guess" posture below.
      */
     private function decode_structured($v, array $rule, string $ctx) {
         if (!empty($rule['json_encoded'])) {
@@ -3109,16 +3138,4 @@ final class Capture {
         return $v;
     }
 
-    private static function assert_plain($v, string $ctx): void {
-        if (is_object($v)) {
-            throw new \RuntimeException(
-                "duo: non-plain serialized data (PHP object) in $ctx — needs the verbatim-preservation path (post-v0)"
-            );
-        }
-        if (is_array($v)) {
-            foreach ($v as $x) {
-                self::assert_plain($x, $ctx);
-            }
-        }
-    }
 }

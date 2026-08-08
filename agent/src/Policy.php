@@ -113,6 +113,7 @@ final class Policy {
             self::validate_sub_keys($manifest);
             self::validate_object_type_option_refs($manifest);
             self::validate_dynamic_options($manifest);
+            self::validate_option_name_refs($manifest);
             self::validate_option_storage($manifest, "manifest '$name'");
             self::validate_adapter_contract($manifest);
             self::validate_effect_contracts($manifest);
@@ -123,6 +124,7 @@ final class Policy {
             $p->manifests,
             $p->site['policy']['options'] ?? []
         );
+        self::validate_no_overlapping_option_name_refs($p->manifests);
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_manifest_pins($pins, $p);
         return $p;
@@ -184,6 +186,7 @@ final class Policy {
             self::validate_scope_classes($manifest, "frozen manifest '$name'", false);
             self::validate_sub_keys($manifest);
             self::validate_object_type_option_refs($manifest);
+            self::validate_option_name_refs($manifest);
             self::validate_option_storage($manifest, "frozen manifest '$name'");
             self::validate_adapter_contract($manifest);
             self::validate_effect_contracts($manifest);
@@ -201,6 +204,7 @@ final class Policy {
             $p->manifests,
             $p->site['policy']['options'] ?? []
         );
+        self::validate_no_overlapping_option_name_refs($p->manifests);
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_manifest_pins($pins, $p);
         return $p;
@@ -1151,9 +1155,11 @@ final class Policy {
      * option_patterns for DISCOVERY (confirmed by reading it — r1b-shop.md's
      * own finding). option_name_refs entries drive their OWN discovery scan
      * because these rows are otherwise invisible to every existing option
-     * mechanism.
+     * mechanism. Consumers must resolve a concrete name through
+     * option_name_ref_match_details(); that resolver rejects malformed names
+     * and every concrete overlap rather than applying pin/declaration order.
      *
-     * @return array<int, array{match:string, id_kind:string, class:string, json_refs?:array, key_refs?:array}>
+     * @return array<int, array{match:string, id_kind:string, class:string, malformed_match?:string, json_refs?:array, key_refs?:array}>
      */
     public function option_name_ref_rules(): array {
         $out = [];
@@ -1166,51 +1172,170 @@ final class Policy {
     }
 
     /**
+     * Resolve one live option name against the complete option-name-ref
+     * grammar.  This is deliberately one resolver rather than separate
+     * first-match loops in capture, preservation, and apply: two declarations
+     * owning the same name (including declarations for different id_kinds)
+     * are ambiguous and must never be selected by pin/declaration order.
+     *
+     * `malformed_match` is an optional manifest-owned sibling namespace for
+     * names which look like this rule's family but contain an invalid local
+     * id (Woo's leading-zero instance ids are the first shipped example).
+     * A malformed candidate is refused even when another broad declaration
+     * would otherwise happen to match it.
+     *
+     * @return ?array{rule:array,matches:array,source:string}
+     */
+    public function option_name_ref_match_details(string $realOptionName): ?array {
+        $matches = [];
+        $malformed = [];
+        foreach ($this->manifests as $manifest) {
+            foreach ($manifest['option_name_refs'] ?? [] as $index => $rule) {
+                $rule = self::with_option_autoload($rule, $manifest);
+                $pattern = '/' . (string) ($rule['match'] ?? '') . '/';
+                $captured = [];
+                if (preg_match($pattern, $realOptionName, $captured, PREG_OFFSET_CAPTURE) === 1) {
+                    if (!isset($captured['id'][0], $captured['id'][1])) {
+                        throw new \RuntimeException(
+                            "duo: option_name_refs rule for option '$realOptionName' did not expose its named id capture"
+                        );
+                    }
+                    if (self::strict_positive_local_id($captured['id'][0]) === null) {
+                        throw new \RuntimeException(
+                            "duo: option '$realOptionName' captures an invalid local id in option_name_refs; "
+                            . 'leading-zero, zero, and overflow spellings are refused'
+                        );
+                    }
+                    $matches[] = [
+                        'rule' => $rule,
+                        'matches' => $captured,
+                        'source' => (string) ($manifest['name'] ?? '?'),
+                        'index' => (int) $index,
+                    ];
+                }
+                $malformedPattern = $rule['malformed_match'] ?? null;
+                if (is_string($malformedPattern) && $malformedPattern !== ''
+                    && preg_match('/' . $malformedPattern . '/', $realOptionName) === 1) {
+                    $malformed[] = [
+                        'rule' => $rule,
+                        'source' => (string) ($manifest['name'] ?? '?'),
+                        'index' => (int) $index,
+                    ];
+                }
+            }
+        }
+        if ($malformed) {
+            $owners = array_map(
+                static fn(array $entry): string => (string) $entry['source'],
+                $malformed
+            );
+            throw new \RuntimeException(
+                "duo: option '$realOptionName' matches a malformed option_name_refs namespace "
+                . '(invalid local id; refusing capture/apply) declared by ' . implode(', ', array_unique($owners))
+            );
+        }
+        if (count($matches) > 1) {
+            $owners = array_map(
+                static fn(array $entry): string => (string) $entry['source'],
+                $matches
+            );
+            throw new \RuntimeException(
+                "duo: option '$realOptionName' matches multiple option_name_refs rules (ambiguous ownership; "
+                . 'refusing pin-order resolution): ' . implode(', ', $owners)
+            );
+        }
+        if (!$matches) {
+            return null;
+        }
+        return $matches[0];
+    }
+
+    /** @return int|null only an exact positive decimal local id is accepted. */
+    public static function strict_positive_local_id($value): ?int {
+        if (!is_string($value) || !preg_match('/^[1-9][0-9]*$/D', $value)) {
+            return null;
+        }
+        $digits = ltrim($value, '0');
+        $id = (int) $digits;
+        // Reject overflow rather than letting a huge decimal string saturate
+        // to PHP_INT_MAX and accidentally resolve a different row.
+        return $id > 0 && (string) $id === $digits ? $id : null;
+    }
+
+    /**
      * Resolve a canonical option name containing one identity token against
      * option_name_refs without consulting a target ledger. Replacing the
      * token with a representative positive integer lets the declaration's
      * existing numeric-name regex decide ownership, while checking id_kind
      * separately prevents a hand-edited token of the wrong keyspace from
-     * borrowing that authorization.
+     * borrowing that authorization. The shared concrete-name resolver also
+     * rejects same-kind and cross-kind overlaps.
      *
      * @return array{rule:?array, source:?string}
      */
     public function canonical_option_name_ref_details(string $name): array {
-        if (!preg_match('/\{\{([a-z][a-z0-9_]*):[0-9a-f-]{36}\}\}/', $name, $m)) {
+        $tokenCount = preg_match_all(
+            '/\{\{([a-z][a-z0-9_]*):[0-9a-f-]{36}\}\}/',
+            $name,
+            $tokens,
+            PREG_SET_ORDER
+        );
+        if ($tokenCount === false || $tokenCount === 0) {
             return ['rule' => null, 'source' => null];
         }
-        $representative = str_replace($m[0], '1', $name);
-        foreach ($this->manifests as $manifest) {
-            foreach ($manifest['option_name_refs'] ?? [] as $rule) {
-                if (($rule['id_kind'] ?? '') === $m[1]
-                    && preg_match('/' . $rule['match'] . '/', $representative)) {
-                    return [
-                        'rule' => self::with_option_autoload($rule, $manifest),
-                        'source' => (string) ($manifest['name'] ?? '?'),
-                    ];
+        if ($tokenCount !== 1) {
+            throw new \RuntimeException(
+                "duo: canonical option key '$name' contains multiple embedded identity tokens; refusing ambiguity"
+            );
+        }
+        $token = $tokens[0][0] ?? '';
+        $tokenKind = (string) ($tokens[0][1] ?? '');
+        $representative = str_replace($token, '1', $name);
+        $details = $this->option_name_ref_match_details($representative);
+        if ($details === null) {
+            $knownKind = false;
+            foreach ($this->option_name_ref_rules() as $rule) {
+                if ((string) ($rule['id_kind'] ?? '') === $tokenKind) {
+                    $knownKind = true;
+                    break;
                 }
             }
+            if ($knownKind) {
+                throw new \RuntimeException(
+                    "duo: canonical option token for id_kind '$tokenKind' is not owned by exactly one authored "
+                    . 'option_name_refs rule'
+                );
+            }
+            return ['rule' => null, 'source' => null];
         }
-        return ['rule' => null, 'source' => null];
+        if ((string) ($details['rule']['id_kind'] ?? '') !== $tokenKind
+            || ($details['rule']['class'] ?? '') !== 'authored') {
+            throw new \RuntimeException(
+                "duo: canonical option key '$name' has an identity token whose id_kind does not match its "
+                . 'sole authored option_name_refs owner'
+            );
+        }
+        return [
+            'rule' => $details['rule'],
+            'source' => $details['source'],
+            'matches' => $details['matches'],
+            'token_kind' => $tokenKind,
+        ];
     }
 
     /**
-     * The first option_name_refs rule whose `match` regex matches
+     * The sole option_name_refs rule whose `match` regex matches
      * $realOptionName (a name with any embedded id already in its REAL,
      * numeric form — never a token) — or null. Shared by Capture's
-     * discovery pass (matching a live wp_options row's actual name) and
-     * Apply's apply-direction path (matching the DETOKENIZED name, i.e.
-     * after splicing the resolved local id back in) — same regex, same
-     * semantics, both directions, so capture and apply can never disagree
-     * about which rows this mechanism owns.
+     * discovery pass (matching a live wp_options row's actual name),
+     * Snapshot preservation, and Apply's apply-direction path (matching the
+     * DETOKENIZED name, i.e. after splicing the resolved local id back in).
+     * Ambiguous or malformed names throw, so capture and apply cannot
+     * disagree about which rows this mechanism owns.
      */
     public function match_option_name_ref(string $realOptionName): ?array {
-        foreach ($this->option_name_ref_rules() as $rule) {
-            if (preg_match('/' . $rule['match'] . '/', $realOptionName)) {
-                return $rule;
-            }
-        }
-        return null;
+        $details = $this->option_name_ref_match_details($realOptionName);
+        return $details['rule'] ?? null;
     }
 
     /** @return array<string, object> */
@@ -1723,23 +1848,94 @@ final class Policy {
     }
 
     /**
-     * v2-supported post FIELD classification surface (task #88). A field
+     * Return the optional batch/refresh contract for a post regeneration
+     * dependency.
+     *
+     * The original regen_dependency contract is intentionally still the
+     * default: callers get one id at a time and only a missing verification
+     * row triggers regenerate().  A manifest may opt into the newer batch
+     * boundary with either
+     *
+     *     "batch": {"enabled": true, "always_on_write": true}
+     *
+     * or the equivalent "refresh" spelling.  The latter exists because the
+     * useful distinction for derived lookup tables is that a row can exist
+     * and still be stale.  Both spellings are normalized here so the engine
+     * has one contract and plugin code remains in the manifest regenerator.
+     * A bare true is shorthand for an enabled, always-on-write batch.
+     *
+     * @return array{enabled:bool,always_on_write:bool}|null
+     */
+    public function regen_batch(string $postType): ?array {
+        $decl = $this->regen_dependency($postType);
+        if ($decl === null) {
+            return null;
+        }
+        $raw = $decl['batch'] ?? ($decl['refresh'] ?? null);
+        if ($raw === null && array_key_exists('always_on_write', $decl)) {
+            $raw = ['enabled' => true, 'always_on_write' => $decl['always_on_write']];
+        }
+        if ($raw === null || $raw === false) {
+            return null;
+        }
+        if ($raw === true) {
+            return ['enabled' => true, 'always_on_write' => true];
+        }
+        if (!is_array($raw)) {
+            // Load-time validation catches this; keep this method defensive
+            // for frozen/third-party Policy instances constructed by tests.
+            return null;
+        }
+        $config = [
+            'enabled' => array_key_exists('enabled', $raw) ? (bool) $raw['enabled'] : true,
+            'always_on_write' => array_key_exists('always_on_write', $raw)
+                ? (bool) $raw['always_on_write']
+                : true,
+        ];
+        return $config['enabled'] ? $config : null;
+    }
+
+    /** Compatibility alias for callers that prefer the explicit name. */
+    public function regen_batch_dependency(string $postType): ?array {
+        return $this->regen_batch($postType);
+    }
+
+    /** @return array<string,array{enabled:bool,always_on_write:bool}> */
+    public function regen_batch_post_types(): array {
+        $out = [];
+        foreach ($this->manifests as $m) {
+            foreach ($m['post_types'] ?? [] as $postType => $_decl) {
+                if (isset($out[$postType])) {
+                    continue;
+                }
+                $batch = $this->regen_batch((string) $postType);
+                if ($batch !== null && !empty($batch['enabled'])) {
+                    $out[(string) $postType] = $batch;
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * v2-supported post FIELD classification surface (task #88 origin,
+     * extended by the evidence-backed Woo timestamp case). A field
      * name must appear here before ANY manifest may declare it under
      * `post_types.<type>.fields.<field>` — validate_field_classes() below
      * enforces this at load() time, loudly, rather than silently ignoring
-     * an unsupported declaration. Deliberately just 'title': it is the
-     * only field with a proven self-healing precedent (WooCommerce's
-     * product_variation, task #72's root cause). 'slug' is excluded on
-     * purpose even though it's a plausible next case — a post's slug
-     * participates in its canonical FILENAME and in collision/identity
-     * checks (Apply::find_collision()), so "derived" would need to answer
-     * questions (does the filename track the live value? does identity?)
-     * this task never had to face. status/dates/menu_order/comment_status/
-     * ping_status/excerpt have no self-healing precedent at all yet.
-     * Widening this list is a deliberate, separate decision per field, not
-     * a mechanical extension of the mechanism.
+     * an unsupported declaration. `title` is derived for Woo variation
+     * self-healing; `modified`/`modified_gmt` are derived for Woo products
+     * and variations because WooCommerce-mediated saves own those timestamps
+     * even when the authored product inputs did not change. 'slug' remains
+     * excluded on purpose: a post's slug participates in its canonical
+     * FILENAME and in collision/identity checks (Apply::find_collision()),
+     * so "derived" would need to answer questions (does the filename track
+     * the live value? does identity?) this mechanism does not answer.
+     * status/menu_order/comment_status/ping_status/excerpt have no proven
+     * self-healing precedent. Widening this list is a deliberate, separate
+     * decision per field, not a mechanical extension of the mechanism.
      */
-    private const DERIVABLE_FIELDS = ['title'];
+    private const DERIVABLE_FIELDS = ['title', 'modified', 'modified_gmt'];
 
     /** @see DERIVABLE_FIELDS */
     private const FIELD_CLASSES = ['derived'];
@@ -1754,18 +1950,21 @@ final class Policy {
      * FILE carries unconditionally (Capture::build_post()'s $front /
      * Apply::finalize_post()'s $wpdb->update() payload — title, slug,
      * status, dates, parent, menu_order, comment_status, ping_status,
-     * excerpt) — fields no manifest could classify at all before task #88,
+     * excerpt) — fields no manifest could classify at all before task #88
+     * introduced this mechanism,
      * unlike meta/options which have supported `class: derived` from v0.
      *
-     * The proven case: WC_Product_Variation_Data_Store_CPT::read() (task
-     * #72's confirmed root cause) silently recomputes a variation's
-     * post_title from the parent's attribute order + the variation's own
-     * current attribute values on EVERY wc_get_product() load, writing it
-     * via a raw $wpdb->update() specifically to dodge wp_update_post()/
-     * save_post — hook-free, invisible to Apply's canary, no post_modified
-     * bump. Two environments that have received a different number/timing
-     * of ordinary WooCommerce-mediated reads can transiently disagree on
-     * this ONE field's bytes while every authored input is identical.
+     * The proven cases are WooCommerce-owned fields:
+     * WC_Product_Variation_Data_Store_CPT::read() (task #72's confirmed root
+     * cause) silently recomputes a variation's post_title from the parent's
+     * attribute order + the variation's own current attribute values on
+     * EVERY wc_get_product() load, writing it via a raw $wpdb->update()
+     * specifically to dodge wp_update_post()/save_post — hook-free and
+     * invisible to Apply's canary. Separately, ordinary WooCommerce product
+     * and variation saves update post_modified/post_modified_gmt as a
+     * persistence timestamp even when only runtime stock or another plugin-
+     * owned value changed. Two environments can therefore disagree on these
+     * bytes while every authored input is identical.
      *
      * Manifest-only, first declaring manifest wins — same precedence as
      * body_mode()/post_type_phase() immediately above, for the identical
@@ -1782,7 +1981,9 @@ final class Policy {
      * otherwise, matching how every post type captures fully today with
      * zero manifest declarations. See DERIVABLE_FIELDS for what a manifest
      * may actually declare — anything else fails loudly at load() time,
-     * never silently here.
+     * never silently here. Capture still records a derived field verbatim;
+     * Canon strips it only from the hash basis, and Apply omits its mapped
+     * database column only for an existing row.
      */
     public function field_class(string $postType, string $field): string {
         return $this->field_rule_details($postType, $field)['class'];
@@ -1880,10 +2081,11 @@ final class Policy {
      * for a bad manifest declaration): a manifest naming an unsupported
      * field, or an unsupported class for a supported field, fails EVERY
      * command that loads this manifest (capture/plan/apply/lint/pending),
-     * not just the specific post_type/field it misdeclares — task #88's
-     * "start scope tight" instruction, enforced structurally rather than
-     * left as a convention. Called from load() for every manifest, so a
-     * bad declaration can never reach field_class()'s per-post lookup.
+     * not just the specific post_type/field it misdeclares — the original
+     * task #88 "start scope tight" instruction, extended only by the
+     * evidence-backed Woo timestamp case, is enforced structurally rather
+     * than left as a convention. Called from load() for every manifest, so
+     * a bad declaration can never reach field_class()'s per-post lookup.
      */
     private static function validate_field_classes(array $manifest): void {
         $name = (string) ($manifest['name'] ?? '?');
@@ -1892,8 +2094,9 @@ final class Policy {
                 if (!in_array($field, self::DERIVABLE_FIELDS, true)) {
                     throw new \RuntimeException(
                         "duo: manifest '$name' declares post_types.$postType.fields.$field, but only "
-                        . implode(', ', self::DERIVABLE_FIELDS) . ' may be field-classified in v2 (task #88 '
-                        . 'scoped this deliberately tight — see Policy::DERIVABLE_FIELDS\' docblock)'
+                        . implode(', ', self::DERIVABLE_FIELDS) . ' may be field-classified in v2 (the '
+                        . 'evidence-backed allowlist remains deliberately tight — see '
+                        . 'Policy::DERIVABLE_FIELDS\' docblock)'
                     );
                 }
                 $class = $rule['class'] ?? null;
@@ -1941,6 +2144,70 @@ final class Policy {
                     . var_export($class, true) . ' but only ' . implode(', ', self::MENU_FIELD_CLASSES)
                     . ' is supported for menu fields in v2'
                 );
+            }
+        }
+    }
+
+    /** Validate option-name reference patterns before capture/apply uses them. */
+    private static function validate_option_name_refs(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        $rules = $manifest['option_name_refs'] ?? [];
+        if (!is_array($rules) || !array_is_list($rules)) {
+            throw new \RuntimeException("duo: manifest '$name' option_name_refs must be a list");
+        }
+        foreach ($rules as $i => $rule) {
+            if (!is_array($rule)
+                || !in_array($rule['class'] ?? null, self::CLASSES, true)
+                || !is_string($rule['id_kind'] ?? null)
+                || !preg_match('/^[a-z][a-z0-9_]*$/', (string) $rule['id_kind'])
+                || !is_string($rule['match'] ?? null)
+                || (string) $rule['match'] === ''
+                || @preg_match('/' . $rule['match'] . '/', '') === false) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' option_name_refs[$i] must declare class, id_kind, and a valid match regex"
+                );
+            }
+            if (substr_count((string) $rule['match'], '(?<id>') !== 1) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' option_name_refs[$i].match must contain exactly one named (?<id>...) capture"
+                );
+            }
+            if (array_key_exists('malformed_match', $rule)
+                && (!is_string($rule['malformed_match'])
+                    || $rule['malformed_match'] === ''
+                    || @preg_match('/' . $rule['malformed_match'] . '/', '') === false)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' option_name_refs[$i].malformed_match must be a non-empty valid regex"
+                );
+            }
+        }
+    }
+
+    /**
+     * Identical option-name-ref regexes are unconditionally ambiguous.  The
+     * full regex-intersection problem is not decidable in this grammar, so
+     * runtime consumers also use option_name_ref_match_details() and reject
+     * every concrete live/canonical name matched by multiple declarations.
+     */
+    private static function validate_no_overlapping_option_name_refs(array $manifests): void {
+        $seen = [];
+        foreach ($manifests as $manifest) {
+            foreach ($manifest['option_name_refs'] ?? [] as $index => $rule) {
+                $pattern = (string) ($rule['match'] ?? '');
+                if ($pattern === '') {
+                    continue;
+                }
+                if (isset($seen[$pattern])) {
+                    $prior = $seen[$pattern];
+                    throw new \RuntimeException(
+                        "duo: option_name_refs rules '{$prior['manifest']}[{$prior['index']}]' and "
+                        . "'" . (string) ($manifest['name'] ?? '?') . "[$index]' have identical overlapping match regexes"
+                    );
+                }
+                $seen[$pattern] = [
+                    'manifest' => (string) ($manifest['name'] ?? '?'),
+                    'index' => (int) $index,
+                ];
             }
         }
     }
@@ -2006,12 +2273,16 @@ final class Policy {
      * call site" posture as validate_field_classes() immediately above,
      * mirrored for its own key shape rather than extended, for the same
      * reason regenerators() doesn't share code with interpreters(). Checks
-     * SHAPE only (required keys present, correct scalar types) — same as
-     * validate_field_classes() never touches interpreter files, this never
-     * touches the regenerator PHP file or class; that stays regenerators()'s
-     * lazy-load-on-first-use job, so a manifest pinning a regen_dependency
-     * declaration it never actually exercises this run pays no file-system
-     * cost merely for being loaded.
+     * SHAPE only (required keys present, correct scalar types, and a strict
+     * top-level key set) — same as validate_field_classes() never touches
+     * interpreter files, this never touches the regenerator PHP file or
+     * class; that stays regenerators()'s lazy-load-on-first-use job, so a
+     * manifest pinning a regen_dependency declaration it never actually
+     * exercises this run pays no file-system cost merely for being loaded.
+     * The optional `effects` list is deliberately admitted here, but its
+     * entries remain solely the responsibility of validate_effect_contracts()
+     * below; keeping those schemas in one validator prevents two subtly
+     * different effect grammars from drifting apart.
      */
     private static function validate_regen_dependencies(array $manifest): void {
         $name = (string) ($manifest['name'] ?? '?');
@@ -2019,6 +2290,11 @@ final class Policy {
             $regen = $decl['regen_dependency'] ?? null;
             if ($regen === null) {
                 continue;
+            }
+            if (!is_array($regen) || array_is_list($regen)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$postType.regen_dependency must be an object"
+                );
             }
             $regenerator = $regen['regenerator'] ?? null;
             if (!is_string($regenerator) || $regenerator === '') {
@@ -2032,6 +2308,69 @@ final class Policy {
                 throw new \RuntimeException(
                     "duo: manifest '$name' post_types.$postType.regen_dependency needs "
                     . "verify: {table: <non-empty string>, column: <non-empty string>}"
+                );
+            }
+
+            $unknown = array_diff(
+                array_keys($regen),
+                ['regenerator', 'verify', 'batch', 'refresh', 'always_on_write', 'effects']
+            );
+            if ($unknown) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$postType.regen_dependency contains unknown key(s): "
+                    . implode(', ', $unknown)
+                );
+            }
+            if (array_key_exists('batch', $regen) && array_key_exists('refresh', $regen)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$postType.regen_dependency cannot declare both 'batch' and 'refresh'"
+                );
+            }
+            if (array_key_exists('always_on_write', $regen)
+                && (array_key_exists('batch', $regen) || array_key_exists('refresh', $regen))) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$postType.regen_dependency.always_on_write is ambiguous beside batch/refresh"
+                );
+            }
+
+            // DUO-329x: batch/refresh is deliberately opt-in.  Existing
+            // declarations (TEC included) retain the missing-row,
+            // regenerate(int) behavior above.  Accept both names as a small
+            // compatibility affordance for manifest authors: "refresh"
+            // describes the always-on-write intent, while "batch" names the
+            // callable boundary.  The engine normalizes either spelling via
+            // regen_batch().
+            foreach (['batch', 'refresh'] as $batchKey) {
+                if (!array_key_exists($batchKey, $regen)) {
+                    continue;
+                }
+                $batch = $regen[$batchKey];
+                if ($batch !== true && $batch !== false && !is_array($batch)) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' post_types.$postType.regen_dependency.$batchKey must be "
+                        . 'a boolean or object'
+                    );
+                }
+                if (is_array($batch)) {
+                    $unknownBatch = array_diff(array_keys($batch), ['enabled', 'always_on_write']);
+                    if ($unknownBatch) {
+                        throw new \RuntimeException(
+                            "duo: manifest '$name' post_types.$postType.regen_dependency.$batchKey contains unknown key(s): "
+                            . implode(', ', $unknownBatch)
+                        );
+                    }
+                    foreach (['enabled', 'always_on_write'] as $flag) {
+                        if (array_key_exists($flag, $batch) && !is_bool($batch[$flag])) {
+                            throw new \RuntimeException(
+                                "duo: manifest '$name' post_types.$postType.regen_dependency.$batchKey.$flag must be boolean"
+                            );
+                        }
+                    }
+                }
+            }
+            if (array_key_exists('always_on_write', $regen) && !is_bool($regen['always_on_write'])) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$postType.regen_dependency.always_on_write must be boolean"
                 );
             }
         }
@@ -2884,19 +3223,31 @@ final class Policy {
         if (!is_array($selector) || array_is_list($selector)) {
             throw new \RuntimeException("duo: $where.selector must be an object");
         }
-        $keys = array_keys($selector); sort($keys, SORT_STRING);
-        if ($keys !== ['scope', 'type', 'value']) {
-            throw new \RuntimeException("duo: $where.selector requires exactly scope, type, and value");
-        }
         $scope = $selector['scope'] ?? null;
         $type = $selector['type'] ?? null;
         $value = $selector['value'] ?? null;
+        $keys = array_keys($selector); sort($keys, SORT_STRING);
+        $expectedSelectorKeys = ['scope', 'type', 'value'];
+        if ($type === 'provider_resource' && array_key_exists('members', $selector)) {
+            $expectedSelectorKeys[] = 'members';
+        }
+        sort($expectedSelectorKeys, SORT_STRING);
+        if ($keys !== $expectedSelectorKeys) {
+            throw new \RuntimeException(
+                $type === 'provider_resource'
+                    ? "duo: $where.selector requires exactly scope, type, value, and optional members"
+                    : "duo: $where.selector requires exactly scope, type, and value"
+            );
+        }
         if (!in_array($scope, ['database_checkpoint', 'external'], true)
             || !in_array($type, ['table', 'option', 'path', 'hook', 'namespace', 'queue', 'mail_subject', 'url_prefix', 'provider_resource', 'plugin_lifecycle'], true)
             || !is_string($value) || $value === '' || strlen($value) > 512
             || preg_match('/[\x00-\x1f\x7f*]/', $value) === 1
             || preg_match('/secret|credential|password|authorization|signed.?url|access.?token|api.?key/i', $value) === 1) {
             throw new \RuntimeException("duo: $where.selector is empty, unbounded, secret-shaped, or unsupported");
+        }
+        if ($type === 'provider_resource' && array_key_exists('members', $selector)) {
+            self::validate_provider_resource_members($selector['members'], $value, "$where.selector.members");
         }
         if ($type === 'path' && (str_starts_with($value, '/') || str_contains($value, '\\')
             || in_array('.', explode('/', $value), true) || in_array('..', explode('/', $value), true))) {
@@ -2924,6 +3275,78 @@ final class Policy {
         }
         if ($type === 'plugin_lifecycle' && $mode !== 'irreversible') {
             throw new \RuntimeException("duo: $where plugin_lifecycle is an honest unsupported selector and must be irreversible");
+        }
+    }
+
+    /**
+     * Validate a declarative provider-resource aggregate without knowing the
+     * provider. Exact members are literal concrete resources; templates may
+     * use only the two core bounded placeholder types. Runtime reconciliation
+     * expands these same templates against one concrete selector value.
+     */
+    private static function validate_provider_resource_members(mixed $members, string $aggregate, string $where): void {
+        if (!is_array($members) || array_is_list($members)) {
+            throw new \RuntimeException("duo: $where must be an object");
+        }
+        $keys = array_keys($members); sort($keys, SORT_STRING);
+        if ($keys !== ['exact', 'templates']) {
+            throw new \RuntimeException("duo: $where requires exactly exact and templates lists");
+        }
+        foreach (['exact', 'templates'] as $key) {
+            if (!is_array($members[$key]) || !array_is_list($members[$key])) {
+                throw new \RuntimeException("duo: $where.$key must be a list");
+            }
+        }
+        if ($members['exact'] === [] && $members['templates'] === []) {
+            throw new \RuntimeException("duo: $where must declare at least one exact member or template");
+        }
+        $seen = [];
+        foreach ($members['exact'] as $i => $member) {
+            if (!is_string($member) || $member === '' || strlen($member) > 512
+                || $member === $aggregate
+                || preg_match('/[\x00-\x1f\x7f*?<>{}]/', $member) === 1
+                || preg_match('/secret|credential|password|authorization|signed.?url|access.?token|api.?key/i', $member) === 1) {
+                throw new \RuntimeException("duo: $where.exact[$i] is malformed, broad, or secret-shaped");
+            }
+            $identity = 'exact:' . $member;
+            if (isset($seen[$identity])) {
+                throw new \RuntimeException("duo: $where contains duplicate member '$member'");
+            }
+            $seen[$identity] = true;
+        }
+        foreach ($members['templates'] as $i => $template) {
+            if (!is_string($template) || $template === '' || strlen($template) > 512
+                || preg_match('/[\x00-\x1f\x7f*?<>]/', $template) === 1
+                || preg_match('/secret|credential|password|authorization|signed.?url|access.?token|api.?key/i', $template) === 1) {
+                throw new \RuntimeException("duo: $where.templates[$i] is malformed, broad, or secret-shaped");
+            }
+            $placeholderCount = 0;
+            preg_match_all('/\{([^{}]*)\}/', $template, $matches, PREG_OFFSET_CAPTURE);
+            $cursor = 0;
+            foreach ($matches[0] as $matchIndex => $wholeMatch) {
+                $offset = (int) $wholeMatch[1];
+                $literal = substr($template, $cursor, $offset - $cursor);
+                if (str_contains($literal, '{') || str_contains($literal, '}')) {
+                    throw new \RuntimeException("duo: $where.templates[$i] has unmatched braces");
+                }
+                $placeholder = (string) ($matches[1][$matchIndex][0] ?? '');
+                if (!in_array($placeholder, ['positive_uint', 'slug'], true)) {
+                    throw new \RuntimeException("duo: $where.templates[$i] has an unknown placeholder");
+                }
+                $placeholderCount++;
+                $cursor = $offset + strlen((string) $wholeMatch[0]);
+            }
+            if (str_contains(substr($template, $cursor), '{') || str_contains(substr($template, $cursor), '}')) {
+                throw new \RuntimeException("duo: $where.templates[$i] has unmatched braces");
+            }
+            if ($placeholderCount === 0) {
+                throw new \RuntimeException("duo: $where.templates[$i] must contain a typed placeholder");
+            }
+            $identity = 'template:' . $template;
+            if (isset($seen[$identity])) {
+                throw new \RuntimeException("duo: $where contains duplicate template '$template'");
+            }
+            $seen[$identity] = true;
         }
     }
 
@@ -3063,6 +3486,87 @@ final class Policy {
                     throw new \RuntimeException(
                         "duo: manifest deletion capability '$selector' guard[$i] must declare table, column, and id_kind"
                     );
+                }
+                $hasMetaKey = array_key_exists('meta_key', $guard);
+                $hasMetaRef = array_key_exists('ref', $guard);
+                if ($hasMetaKey !== $hasMetaRef) {
+                    throw new \RuntimeException(
+                        "duo: manifest deletion capability '$selector' guard[$i] metadata guards must declare meta_key and ref together"
+                    );
+                }
+                $hasOptionNameRef = array_key_exists('option_name_ref', $guard);
+                if ($hasOptionNameRef && $guard['option_name_ref'] !== true) {
+                    throw new \RuntimeException(
+                        "duo: manifest deletion capability '$selector' guard[$i].option_name_ref must be true when declared"
+                    );
+                }
+                if ($hasOptionNameRef && ($hasMetaKey || $hasMetaRef)) {
+                    throw new \RuntimeException(
+                        "duo: manifest deletion capability '$selector' guard[$i] cannot combine option_name_ref with a metadata guard"
+                    );
+                }
+                if ($hasOptionNameRef
+                    && ((string) $guard['table'] !== 'options' || (string) $guard['column'] !== 'option_name')) {
+                    throw new \RuntimeException(
+                        "duo: manifest deletion capability '$selector' guard[$i].option_name_ref must target options.option_name"
+                    );
+                }
+                if ($hasOptionNameRef) {
+                    if (isset($guard['source_id_kind'], $guard['source_pk'])
+                        || !empty($guard['where'])
+                        || !empty($guard['exclude_where'])) {
+                        throw new \RuntimeException(
+                            "duo: manifest deletion capability '$selector' guard[$i].option_name_ref cannot declare table-row source or predicate qualifiers"
+                        );
+                    }
+                    $hasRule = false;
+                    foreach ($this->option_name_ref_rules() as $optionNameRule) {
+                        if ((string) ($optionNameRule['id_kind'] ?? '') === (string) $guard['id_kind']
+                            && ($optionNameRule['class'] ?? '') === 'authored') {
+                            $hasRule = true;
+                            break;
+                        }
+                    }
+                    if (!$hasRule) {
+                        throw new \RuntimeException(
+                            "duo: manifest deletion capability '$selector' guard[$i].option_name_ref has no loaded authored option_name_refs rule for id_kind '{$guard['id_kind']}'"
+                        );
+                    }
+                }
+                if ($hasOptionNameRef
+                    && isset($guard['identity_column'])
+                    && !preg_match('/^[A-Za-z0-9_]+$/', (string) $guard['identity_column'])) {
+                    throw new \RuntimeException(
+                        "duo: manifest deletion capability '$selector' guard[$i].identity_column must be a column name"
+                    );
+                }
+                if ($hasMetaKey) {
+                    if ((string) $guard['table'] !== 'postmeta'
+                        || !preg_match('/^[A-Za-z0-9_]+$/', (string) $guard['meta_key'])
+                        || !preg_match('/^[a-z][a-z0-9_]*(?:\[\])?$/', (string) $guard['ref'])
+                        || rtrim((string) $guard['ref'], '[]') !== (string) $guard['id_kind']) {
+                        throw new \RuntimeException(
+                            "duo: manifest deletion capability '$selector' guard[$i] metadata guard must target postmeta with a ref matching id_kind"
+                        );
+                    }
+                    if (!isset($guard['source_id_kind'], $guard['source_pk'])
+                        || !preg_match('/^[a-z][a-z0-9_]*$/', (string) $guard['source_id_kind'])
+                        || !preg_match('/^[A-Za-z0-9_]+$/', (string) $guard['source_pk'])) {
+                        throw new \RuntimeException(
+                            "duo: manifest deletion capability '$selector' guard[$i] metadata guard must declare source_id_kind and source_pk for owner exclusion"
+                        );
+                    }
+                    if (isset($guard['cast']) && !in_array((string) $guard['cast'], self::CASTS, true)) {
+                        throw new \RuntimeException(
+                            "duo: manifest deletion capability '$selector' guard[$i].cast must be string or csv"
+                        );
+                    }
+                    if (isset($guard['identity_column'])
+                        && !preg_match('/^[A-Za-z0-9_]+$/', (string) $guard['identity_column'])) {
+                        throw new \RuntimeException(
+                            "duo: manifest deletion capability '$selector' guard[$i].identity_column must be a column name"
+                        );
+                    }
                 }
                 foreach (['where', 'exclude_where'] as $predicate) {
                     $values = $guard[$predicate] ?? [];

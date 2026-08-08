@@ -15,8 +15,18 @@ $duo_test_home = 'https://source.example.test';
 function get_option(string $name) { global $duo_test_home; return $name === 'home' ? $duo_test_home : null; }
 function wp_upload_dir($time = null, bool $create = false): array { global $duo_test_home; return ['baseurl' => $duo_test_home . '/wp-content/uploads']; }
 function untrailingslashit(string $value): string { return rtrim($value, '/\\'); }
-function is_serialized($value): bool {
-    return is_string($value) && preg_match('/^(?:a|O|s|i|d|b|N):/', trim($value)) === 1;
+function is_serialized($value, $strict = true): bool {
+    if (!is_string($value)) return false;
+    $value = trim($value);
+    if ($value === 'N;') return true;
+    if (strlen($value) < 4 || $value[1] !== ':') return false;
+    if ($strict) {
+        $last = $value[strlen($value) - 1];
+        if ($last !== ';' && $last !== '}') return false;
+    }
+    $token = $value[0];
+    if ($token === 's') return !$strict || (($value[2] ?? '') === '"');
+    return in_array($token, ['a', 'O', 'C', 'E', 'd', 'i', 'b'], true);
 }
 function maybe_unserialize($value) {
     if (!is_serialized($value)) return $value;

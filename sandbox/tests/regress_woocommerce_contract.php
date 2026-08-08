@@ -85,8 +85,12 @@ foreach (['wc_product_meta_lookup', 'wc_product_attributes_lookup', 'wc_category
 woo_ok(($declaredTables['wc_tax_rate_classes']['class'] ?? '') === 'authored_snapshot', 'merchant tax classes are portable authored state');
 
 $rebuilders = $policy->rebuilders();
-woo_ok(count($rebuilders) === 1 && str_contains((string) $rebuilders[0]['command'], 'WooCommerceContract::rebuild'), 'manifest declares the checked Woo projection rebuilder');
-woo_ok(count($rebuilders[0]['effects'] ?? []) === 8, 'rebuilder declares all database mutation surfaces for rollback checkpoints');
+$projectionRebuilders = array_values(array_filter(
+    $rebuilders,
+    static fn(array $row): bool => str_contains((string) ($row['command'] ?? ''), 'WooCommerceContract::rebuild')
+));
+woo_ok(count($rebuilders) === 3 && count($projectionRebuilders) === 1, 'manifest composes the checked Woo projection with bounded attribute and shipping/tax cache rebuilders');
+woo_ok(count($projectionRebuilders[0]['effects'] ?? []) === 8, 'checked projection rebuilder declares all database mutation surfaces for rollback checkpoints');
 woo_ok(is_file($root . '/agent/src/WooCommerceContract.php'), 'Woo projection implementation ships with the agent');
 woo_ok($policy->deletion_capability('post:product') === null, 'product deletion is fail-closed until every extension reverse reference is representable');
 $wooDisposition = $dispositions['manifests']['woocommerce'] ?? [];

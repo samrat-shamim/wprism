@@ -300,8 +300,14 @@ final class Ledger {
      *
      * @param array<string, array{table: string, pk: string}> $tables
      *   id_kind => {table: UNPREFIXED table name, pk: primary key column}
+     * @param array<string, int[]> $preserveLocalIds
+     *   ids which are still referenced by an authored option-name namespace
+     *   (or by a frozen canonical option document). Those references remain
+     *   meaningful even when the owning typed row has already disappeared;
+     *   pruning their map entry would make capture drop a live settings row
+     *   before the deletion planner can pair it with its option tombstone.
      */
-    public static function prune_dead_table_map(array $tables): void {
+    public static function prune_dead_table_map(array $tables, array $preserveLocalIds = []): void {
         global $wpdb;
         $p = $wpdb->prefix;
         foreach ($tables as $idKind => $decl) {
@@ -310,9 +316,22 @@ final class Ledger {
             if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $p . $table))) {
                 continue; // plugin's table not present on this environment — nothing to reconcile
             }
+            $keep = [];
+            foreach ((array) ($preserveLocalIds[$idKind] ?? []) as $id) {
+                // Callers derive these from strict numeric option-name
+                // captures or Ledger itself; re-check here because this is
+                // the final SQL boundary and an invalid value must never
+                // widen the DELETE predicate or become executable SQL.
+                if (is_int($id) && $id > 0) {
+                    $keep[$id] = true;
+                }
+            }
+            $keepClause = $keep
+                ? ' AND m.local_id NOT IN (' . implode(',', array_keys($keep)) . ')'
+                : '';
             Db::query($wpdb->prepare(
                 "DELETE m FROM {$p}duo_map m LEFT JOIN `{$p}{$table}` src ON src.`{$pk}` = m.local_id
-                 WHERE m.id_kind = %s AND src.`{$pk}` IS NULL",
+                 WHERE m.id_kind = %s AND src.`{$pk}` IS NULL$keepClause",
                 $idKind
             ), "ledger prune dead $table identities");
         }

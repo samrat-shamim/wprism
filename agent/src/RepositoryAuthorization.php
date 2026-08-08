@@ -202,8 +202,14 @@ final class RepositoryAuthorization {
                 continue;
             }
             $details = $policy->field_rule_details($postType, $field);
-            $dedicatedDerivedTitle = $field === 'title' && $details['class'] === 'derived';
-            if ($details['class'] !== 'authored' && !$dedicatedDerivedTitle) {
+            // Post front-matter is the one derived-field surface Policy
+            // explicitly supports.  Policy::validate_field_classes() owns
+            // the closed field-name/class allowlist, so accepting only the
+            // manifest-resolved 'derived' class here permits Woo's captured
+            // title/timestamps without opening derived/runtime post_meta or
+            // options to the repository.  Any other class remains refused.
+            $manifestDerivedPostField = $details['class'] === 'derived';
+            if ($details['class'] !== 'authored' && !$manifestDerivedPostField) {
                 self::finding($out, 'repository_field_not_authored', $path, $uuid, 'post_field', $field, $details['class'], $details['source']);
             }
         }
