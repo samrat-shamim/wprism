@@ -480,13 +480,13 @@ pass "(e) apply --force-code-mismatch: succeeds, canary clean"
 # override, not just the machine-readable summary.
 say "(e) deploy/apply --force-code-mismatch also report the overridden finding in HUMAN-mode output, not just --format=json (DUO-3240 — the same gap code_drift's own 'FORCED past code_drift' warning was built to avoid, now closed for code_mismatch too)"
 DEPLOY_FORCED_HUMAN=$(wp_g2 duo deploy --repo=/siterepo --force-code-mismatch 2>&1)
-echo "$DEPLOY_FORCED_HUMAN" | grep -q "FORCED past code_mismatch" \
+grep -q "FORCED past code_mismatch" <<<"$DEPLOY_FORCED_HUMAN" \
   || fail "forced deploy did not report the overridden outside_version_range finding in human-mode output (got: $DEPLOY_FORCED_HUMAN)"
 pass "(e) deploy --force-code-mismatch: human-mode output reports the overridden finding"
 
 REV=$(git -C siterepo/g2 rev-parse HEAD)
 APPLY_FORCED_HUMAN=$(wp_g2 duo apply --repo=/siterepo --adopt-by-slug=terms --revision="$REV" --force-code-mismatch 2>&1)
-echo "$APPLY_FORCED_HUMAN" | grep -q "FORCED past code_mismatch" \
+grep -q "FORCED past code_mismatch" <<<"$APPLY_FORCED_HUMAN" \
   || fail "forced apply did not report the overridden outside_version_range finding in human-mode output (got: $APPLY_FORCED_HUMAN)"
 pass "(e) apply --force-code-mismatch: human-mode output reports the overridden finding"
 
