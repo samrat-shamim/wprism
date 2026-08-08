@@ -1,7 +1,7 @@
 # Fixture staleness sweep
 
 DUO-3274 audits the repository's gap-characterization fixtures against the
-mechanisms present on `main` at `6bebb96e9c7ebed1c8eca91e141164a6a65444d4`.
+mechanisms present on `main` at `e16fab49653fcee6f6b42f1ccc26b4e31873f30d`.
 The denominator is every `sandbox/tests/{regress_,certify_,grind_,spike_}*.sh`
 or `.php` file at that revision: 103 regressions, 8 certifications, 8 grinds,
 and 7 spikes, 126 files total. The three `cli_*smoke.sh` fixtures are outside
@@ -34,21 +34,28 @@ Verdicts:
 | `grind_r3a_multilingual.sh` | A fresh target required manual Polylang `post_types`/`taxonomies` configuration and a content-change retry before language relationships landed. | DUO-3280 supplements taxonomy object types from the compiled `polylang.post_types` sub-key during the same apply. Manual target config, retry, and forced content changes were removed; all product languages are asserted after the first apply. | `aged-flip`, `aged-delete` |
 | `grind_r3a_multilingual.sh` | `pa_*` relationships may miss the first apply. | The same global typed-table/term phase-1 ordering as R1-B yields exactly four relationships on the unretried first apply. | `aged-flip`, `aged-delete` |
 | `grind_r3a_multilingual.sh` | The dedicated German menu is only report-only on a fresh target. | DUO-3233 `sub_keys` captures/applies `polylang.nav_menus`; the healthy-front-end branch now hard-asserts `Hauptmenu`. | `aged-flip` |
-| `grind_r3a_multilingual.sh` | Polylang language-term descriptions can become empty and make the front end call `set_locale(NULL)`. | Reproduced live on both source and target, including HTTP 500. No Duo apply had touched the source when observed. Root ownership remains unknown and is filed as DUO-3300. | `unclear-escalate` |
+| `grind_r3a_multilingual.sh` | Polylang language-term descriptions can become empty and make the front end call `set_locale(NULL)`. | DUO-3300/PR #121 now seeds valid descriptions, asserts them through source/target capture and apply, and makes the rendered checks pipe-safe. The complete current-main R3-A run passed without the former HTTP 500. | `prior-reconciled` |
 | `grind_r3a_multilingual.sh` | `pll_insert_post(... translations ...)` can omit the seed-time `post_translations` link. | This is an explicitly report-only Polylang write-path hazard already documented in DUO-3233; the merge-conflict assertion does not depend on the link. | `current` |
 | `grind_r3b_events.sh` | TEC occurrences required a manual regeneration loop after apply. | DUO-3234 `regen_dependency` now regenerates occurrences in apply; the fixture asserts three query-visible events and zero pending markers. | `prior-reconciled` |
 | `grind_r3b_events.sh` | PMPro composite restriction rows and `meta_id` sidecars could not round-trip. | DUO-3235 `identity.mode=composite_ref` and `id_column` are asserted directly with no repair. | `prior-reconciled` |
 | `grind_r3b_events.sh` | TEC's aggregate `/events/list/` always becomes ready within the fixture's former retry budget. | Individual routes and database rows are reliable, but the aggregate view can lag under load after data is complete. No root cause is claimed; DUO-3301 owns the focused investigation. | `unclear-escalate` |
+| `grind_r3b_events.sh` | The fixture could safely hard-code a shared pair name, ports, and host paths. | Pair name, ports, worktree paths, and host assertions are injectable and validated. A complete run passed under the isolated `c3274r3b` identity without touching the pre-existing stopped `r3b` pair. | `aged-flip` |
 | `certify_deletion_matrix.sh` | WooCommerce product deletion could be forced after checking a known order-reference table. | DUO-3225 makes the product deletion capability explicitly unsupported because arbitrary extension references are not exhaustively representable. The certification now asserts that plan, apply, and forced apply all refuse before mutation. | `current` |
 | `certify_deletion_matrix.sh` | A forced Ninja Forms parent deletion left guard-survivor rows as an unresolved finding requiring manual cleanup. | DUO-3251 retained the mandatory ref-integrity refusal, added exact survivor warnings, and shipped `wp duo orphans` delete/reparent recovery. The fixture now characterizes the refusal as a safety checkpoint and proves both supported recovery actions plus clean plan/capture. | `aged-flip` |
+| `certify_merge.sh`, `spike_b_merge.sh` | A preserved target-local Team edit merely emitted a generic drift message while the rest of the merge could be treated as complete. | Current apply performs mandatory fresh-process canonical verification, fails closed on the exact Team hash mismatch, leaves an `incomplete_apply` retry marker, and clears it only after capture-first recovery verifies cleanly. Both full live flows passed. | `aged-flip` |
 | `regress_woocommerce_contract.php`, `grind_r1b_shop.sh` | The DUO-3225 offline option inventory is complete for the exact WooCommerce 11.0.0 full-shop fixture. | A clean post-rebase R1-B run found five namespace-owned options with no exact classification. DUO-3303/PR #118 classified all five exact authored options plus the later `wc_pending_batch_processes` runtime row, extended the inventory regression, passed exact-commit Woo conformance, and completed the full R1-B blocker stack. | `prior-reconciled` |
 | `regress_option_subkeys.sh` | The first apply leaves Polylang language relationships as drift and a retry/content change repairs them. | DUO-3280 is asserted on the single first apply; the no-op reapply must have zero drift. The later content update now proves ordinary preservation, not repair. | `prior-reconciled` |
 | `regress_option_subkeys.sh` | Deep lint catches IDs below language-slug keys in `nav_menus`. | The script explicitly does not assert this; the existing blind spot is filed as DUO-3241. | `unclear-escalate` |
 | `regress_option_ref_scope.sh` | In-scope-but-unminted references behave like ordinary dangling IDs. | The current script asserts the real scope-aware refusal/non-minting snapshot contract; reconciled in PR #51 (`926518c`). | `prior-reconciled` |
-| `regress_coverage.sh` | Coverage may report unattributed or previously unknown plugin surfaces. | This is the feature's advisory output, and the regression asserts it never gates capture/apply. It is not an implementation-gap claim. | `current` |
+| `regress_coverage.sh` | The current WooCommerce installation should still expose a real undeclared `wp_wc*`/`wp_woocommerce*` table gap. | The WooCommerce 11.0.0 surface is now completely declared. The fixture expects zero Woo-shaped gaps while retaining an independently planted two-row table to prove reverse enumeration and advisory, non-gating behavior. | `aged-flip` |
 | `regress_adapter_theme_range.sh` | A synthetic desired template that differs from the active stylesheet produces only a template-slot version finding. | Current deploy policy independently reports both the template's out-of-range version and the active stylesheet's parent-template mismatch. The fixture now asserts both findings instead of treating the newer invariant as noise. | `aged-flip` |
 | `regress_snapshot_meta.sh` | A typed-table-only policy could leave stock posts/pages/categories silently outside scope, and its no-op apply had exactly two unchanged entities. | DUO-3229 requires explicit whole-surface dispositions, so the fixture records runtime exclusions for the stock core rows in both policy variants. The no-op assertion now checks the semantic contract (nonempty unchanged set, zero create/update/applied) instead of an incidental entity total. | `aged-flip` |
-| `regress_woo_attribute_deletion.sh` | Woo global-attribute deletion is supported by generic row deletion. | The current contract is a deliberate loud refusal because semantic deletion is not representable; DUO-3288 records that boundary. | `current` |
+| `regress_woo_attribute_deletion.sh` | Woo global-attribute deletion is supported by generic row deletion, and its lifecycle exposes only one rebuild obligation. | The current contract deliberately refuses semantic deletion and reports all three certified Woo rebuild obligations. The live regression asserts the exact current inventory. | `prior-reconciled`, `aged-flip` |
+| `regress_tec_regen.sh` | A fault-injection fixture could mutate the shared certified manifest tree and rely on an older capability-status shape. | The fault manifest now lives in a private `DUO_MANIFESTS_DIR`; the regression asserts the registry-bound current status contract and passed without contaminating certified manifests. | `aged-flip` |
+| `regress_pa_attributes.sh` | A minimal scratch repository without `spec_version`, state, or whole-surface dispositions was sufficient to reach the taxonomy-pattern scope assertion. | The current repository compiler correctly fails closed earlier. The fixture now supplies a valid spec-v2 empty repository and explicit runtime dispositions, preserving the intended undeclared-taxonomy assertion. | `aged-flip` |
+| `regress_shipping_zones.sh` | An uncaptured mapped table row could be treated like an ordinary dangling local ID during a non-minting snapshot. | DUO-3209 requires durable mapped identity and fails closed with identity-import guidance. The fixture now asserts that refusal and removes only the exact untracked probe UUID before its clean source capture. | `aged-flip` |
+| `cli_smoke.sh`, `cli_triage_smoke.sh` | `duo doctor` has exactly four checks, and a source numeric post ID can validate the target row. | The smoke flow now requires all eight named doctor checks and resolves the target post by canonical slug before checking its target-local ID. Both CLI flows passed live. | `aged-flip` |
+| `spike_g_code.sh` | Installed-but-inactive desired code and canonical deactivation immediately produce an empty `code_mismatch` set. | Current lifecycle policy reports the exact `inactive_in_environment` or `unexpected_active_plugin` finding until `duo deploy` runs activation/deactivation hooks. The full code, missing-code, version-range, forced-override, and idempotency spike passed. | `aged-flip` |
 | `regress_promotion.sh`, `regress_effect_bundle.php` | Mail/HTTP lifecycle observations can certify prevention. | The effect contract deliberately treats report-only observation as insufficient; prevention/restoration evidence is the asserted boundary. | `current` |
 | `regress_manifest_dispositions.php`, `regress_multisite_refusal.sh` | Explicit unsupported surfaces are stale implementation gaps. | These are reviewed product boundaries with fail-closed assertions, not expected-to-fail placeholders. | `current` |
 
@@ -71,7 +78,9 @@ explanatory comment in `grind_r1a_forms.sh`; non-quiet consumers such as
 input.
 
 Every safety-only script was committed independently. Bash syntax and
-`git diff --check` passed for every changed script.
+`git diff --check` passed for all 29 shell scripts changed on this closeout
+branch; the separately landed `grind_r1c_agency.sh` reconciliation accounts
+for the thirtieth script in the sweep total.
 
 ## Exhaustive corpus index
 
@@ -84,7 +93,7 @@ with more specific or mixed verdicts are detailed in the ledger above.
 | --- | --- | --- |
 | `certify_adversarial_matrix.sh` | Certification contract: adversarial matrix. No unresolved gap characterization. | `current` |
 | `certify_deletion_matrix.sh` | Certification contract: deletion matrix. No unresolved gap characterization. | `current` |
-| `certify_merge.sh` | Certification contract: merge. No unresolved gap characterization. | `current` |
+| `certify_merge.sh` | Mandatory post-apply verification and retry-marker reconciliation; see the gap ledger. | `aged-flip` |
 | `certify_reference_bundle.sh` | Certification contract: reference bundle. No unresolved gap characterization. | `current` |
 | `certify_ssh_adoption_roundtrip.sh` | Certification contract: ssh adoption roundtrip. No unresolved gap characterization. | `current` |
 | `certify_ssh_rollback.sh` | Certification contract: ssh rollback. No unresolved gap characterization. | `current` |
@@ -96,8 +105,8 @@ with more specific or mixed verdicts are detailed in the ledger above.
 | `grind_r1a_forms.sh` | Mechanism-specific historical assertions; see the gap ledger. | `prior-reconciled` |
 | `grind_r1b_shop.sh` | Mechanism-specific historical assertions; see the gap ledger. | `aged-flip / aged-delete / unclear-escalate` |
 | `grind_r1c_agency.sh` | Mechanism-specific historical assertions; see the gap ledger. | `prior-reconciled` |
-| `grind_r3a_multilingual.sh` | Mechanism-specific historical assertions; see the gap ledger. | `aged-flip / aged-delete / unclear-escalate` |
-| `grind_r3b_events.sh` | Mechanism-specific historical assertions; see the gap ledger. | `prior-reconciled / unclear-escalate` |
+| `grind_r3a_multilingual.sh` | Mechanism-specific historical assertions; see the gap ledger. | `aged-flip / aged-delete / prior-reconciled` |
+| `grind_r3b_events.sh` | Mechanism-specific historical assertions and isolated pair ownership; see the gap ledger. | `aged-flip / prior-reconciled / unclear-escalate` |
 | `regress_acf_meta_interpreter.php` | Regression contract: acf meta interpreter. No unresolved gap characterization. | `current` |
 | `regress_acf_meta_interpreter.sh` | Regression contract: acf meta interpreter. No unresolved gap characterization. | `current` |
 | `regress_acf_term_options_fields.sh` | Regression contract: acf term options fields. No unresolved gap characterization. | `current` |
@@ -132,7 +141,7 @@ with more specific or mixed verdicts are detailed in the ledger above.
 | `regress_composite_ref.php` | Regression contract: composite ref. No unresolved gap characterization. | `current` |
 | `regress_composite_ref.sh` | Regression contract: composite ref. No unresolved gap characterization. | `current` |
 | `regress_core_semantics.sh` | Regression contract: core semantics. No unresolved gap characterization. | `current` |
-| `regress_coverage.sh` | Regression contract: coverage. No unresolved gap characterization. | `current` |
+| `regress_coverage.sh` | Woo table-coverage expectation reconciled while preserving the synthetic reverse-enumeration proof; see the gap ledger. | `aged-flip` |
 | `regress_coverage_offline.php` | Regression contract: coverage offline. No unresolved gap characterization. | `current` |
 | `regress_discovery_completeness.sh` | Regression contract: discovery completeness. No unresolved gap characterization. | `current` |
 | `regress_doctor_env_values.php` | Regression contract: doctor env values. No unresolved gap characterization. | `current` |
@@ -169,7 +178,7 @@ with more specific or mixed verdicts are detailed in the ledger above.
 | `regress_option_subkeys.sh` | Mechanism-specific historical assertions; see the gap ledger. | `prior-reconciled / unclear-escalate` |
 | `regress_order_preserving.php` | Regression contract: order preserving. No unresolved gap characterization. | `current` |
 | `regress_order_preserving.sh` | Regression contract: order preserving. No unresolved gap characterization. | `current` |
-| `regress_pa_attributes.sh` | Regression contract: pa attributes. No unresolved gap characterization. | `current` |
+| `regress_pa_attributes.sh` | Scratch-repository compiler and whole-surface scope setup reconciled; see the gap ledger. | `aged-flip` |
 | `regress_pair_bootstrap_unit.sh` | Regression contract: pair bootstrap unit. No unresolved gap characterization. | `current` |
 | `regress_plan_summary_code_drift.php` | Regression contract: plan summary code drift. No unresolved gap characterization. | `current` |
 | `regress_plugin_dependency_order.php` | Regression contract: plugin dependency order. No unresolved gap characterization. | `current` |
@@ -185,13 +194,13 @@ with more specific or mixed verdicts are detailed in the ledger above.
 | `regress_repository_compiler_integration.sh` | Regression contract: repository compiler integration. No unresolved gap characterization. | `current` |
 | `regress_rollback_authority.php` | Regression contract: rollback authority. No unresolved gap characterization. | `current` |
 | `regress_scope_gate.sh` | Regression contract: scope gate. No unresolved gap characterization. | `current` |
-| `regress_shipping_zones.sh` | Regression contract: shipping zones. No unresolved gap characterization. | `current` |
+| `regress_shipping_zones.sh` | Mapped-identity fail-closed expectation reconciled to DUO-3209; see the gap ledger. | `aged-flip` |
 | `regress_shortcode_refs.php` | Regression contract: shortcode refs. No unresolved gap characterization. | `current` |
 | `regress_shortcode_refs.sh` | Regression contract: shortcode refs. No unresolved gap characterization. | `current` |
 | `regress_snapshot_meta.sh` | Regression contract: snapshot meta. No unresolved gap characterization. | `current` |
 | `regress_ssh_adopt.sh` | Regression contract: ssh adopt. No unresolved gap characterization. | `current` |
 | `regress_ssh_rollback_certification.php` | Regression contract: ssh rollback certification. No unresolved gap characterization. | `current` |
-| `regress_tec_regen.sh` | Regression contract: tec regen. No unresolved gap characterization. | `current` |
+| `regress_tec_regen.sh` | Private fault-fixture ownership and registry-bound capability status reconciled; see the gap ledger. | `aged-flip` |
 | `regress_template_mismatch.php` | Regression contract: template mismatch. No unresolved gap characterization. | `current` |
 | `regress_term_meta.php` | Regression contract: term meta. No unresolved gap characterization. | `current` |
 | `regress_upload_bundle.php` | Regression contract: upload bundle. No unresolved gap characterization. | `current` |
@@ -199,31 +208,47 @@ with more specific or mixed verdicts are detailed in the ledger above.
 | `regress_url_query_refs.sh` | Regression contract: url query refs. No unresolved gap characterization. | `current` |
 | `regress_user_meta.sh` | Regression contract: user meta. No unresolved gap characterization. | `current` |
 | `regress_widgets.sh` | Regression contract: widgets. No unresolved gap characterization. | `current` |
-| `regress_woo_attribute_deletion.sh` | Regression contract: woo attribute deletion. No unresolved gap characterization. | `current` |
+| `regress_woo_attribute_deletion.sh` | Refusal remains current; rebuild-obligation inventory was reconciled; see the gap ledger. | `prior-reconciled / aged-flip` |
 | `regress_woocommerce_contract.php` | The exact WooCommerce option-inventory gap found by the full-shop fixture was reconciled by DUO-3303/PR #118; see the gap ledger. | `prior-reconciled` |
 | `spike_a_round_trip.sh` | Spike acceptance: a round trip. No unresolved gap characterization. | `current` |
-| `spike_b_merge.sh` | Spike acceptance: b merge. No unresolved gap characterization. | `current` |
+| `spike_b_merge.sh` | Fail-closed post-apply verification replaces the stale generic-drift assertion; see the gap ledger. | `aged-flip` |
 | `spike_c_provenance.sh` | Spike acceptance: c provenance. No unresolved gap characterization. | `current` |
 | `spike_d_woo.sh` | Spike acceptance: d woo. No unresolved gap characterization. | `current` |
 | `spike_e_acf.sh` | Spike acceptance: e acf. No unresolved gap characterization. | `current` |
 | `spike_f_core_loop.sh` | Spike acceptance: f core loop. No unresolved gap characterization. | `current` |
-| `spike_g_code.sh` | Spike acceptance: g code. No unresolved gap characterization. | `current` |
+| `spike_g_code.sh` | Activation/deactivation lifecycle mismatch expectations reconciled; see the gap ledger. | `aged-flip` |
 
 ## Evidence
 
-- `grind_r3a_multilingual.sh`: full isolated run passed. The first apply
-  produced 4/4 `pa_*` relationships and all expected product languages with
-  no manual target configuration or retry. The same run reproduced the
-  separately filed DUO-3300 front-end failure.
+- `grind_r3a_multilingual.sh`: the complete isolated current-main run passed.
+  The first apply produced 4/4 `pa_*` relationships and all expected product
+  languages with no manual target configuration or retry; valid language
+  descriptions survived, and all rendered checks passed after DUO-3300.
 - `grind_r1b_shop.sh`: the clean final blocker-stack run passed after
   DUO-3303/PR #118 and DUO-3304/PR #117. The first apply produced 4/4 `pa_*`
   relationships, the strict comparison reported only the two DUO-3302
   timestamp-bearing files while proving every other byte identical, and both
   environments converged on the editorially merged variation price.
-- `certify_deletion_matrix.sh`: full clean-room run passed on the rebased
-  `main`. Woo product deletion refused before mutation, Ninja Forms completed
-  the supported `duo orphans` recovery path, and the PMPro composite delete
-  settled idempotently. Its owned pair destroyed itself after the green run.
-- `make regress-offline-all`: 59 offline suites green.
-- All 30 changed shell scripts pass `bash -n`; the repository has no
-  executable `echo "$VAR" | grep -q` assertion remaining.
+- `grind_r3b_events.sh`: the complete run passed under isolated pair
+  `c3274r3b`, including TEC regeneration, PMPro composite references, merge,
+  render, and convergence checks. The unrelated stopped `r3b` pair remained
+  untouched.
+- Full live certifications passed for deletion and merge. Merge proved the
+  convergence-verification refusal, exact Team mismatch, retained retry
+  marker, verified capture-first recovery, and clean marker clearance.
+- Full live CLI smoke/status/triage and Spike A/B/G flows passed. Spike B
+  proved fail-closed local-drift preservation; Spike G proved both lifecycle
+  mismatch directions, missing-code refusal, version-range refusal and forced
+  reporting, then idempotent deploy/apply.
+- Targeted live regressions passed for adapter theme range, capture
+  concurrency, code drift, entity width, environment values, fatal mutations,
+  menu-item metadata, option reconciliation and reference scope, snapshot
+  metadata, TEC regeneration, user metadata, widgets, Woo attribute deletion,
+  `pa_*` attributes, shipping zones, coverage, and status truth.
+- Exact current-main WooCommerce conformance passed, as did the deletion
+  matrix and reference-bundle certification (digest
+  `9702bc...`). `php scripts/capability-registry.php check` was clean.
+- `make regress-offline-all`: 60 offline suites green.
+- All 29 branch-changed shell scripts pass `bash -n`; `git diff --check` is
+  clean. No executable `echo "$VAR" | grep -q` assertion remains (only the
+  explanatory comment in `grind_r1a_forms.sh`).
