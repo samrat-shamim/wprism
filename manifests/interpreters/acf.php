@@ -1,7 +1,10 @@
 <?php
 namespace Duo\Interpreters;
 
+require_once __DIR__ . '/../../agent/src/PlainData.php';
+
 use Duo\Policy;
+use Duo\PlainData;
 
 /**
  * ACF interpreter (design finding #12): which meta values are id refs is
@@ -358,7 +361,7 @@ final class Acf {
             "SELECT post_content FROM {$wpdb->posts} WHERE post_type = 'acf-field' AND post_name = %s LIMIT 1",
             $fieldKey
         ));
-        $def = $raw !== null ? maybe_unserialize($raw) : null;
+        $def = $raw !== null ? PlainData::decode($raw, "ACF field '$fieldKey' post_content") : null;
         return $this->fieldDefs[$fieldKey] = (is_array($def) ? $def : null);
     }
 }

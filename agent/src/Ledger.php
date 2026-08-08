@@ -34,6 +34,37 @@ final class Ledger {
      * widget_media_gallery, 20) and declared custom-table kinds. */
     public const ID_KIND_WIDTH = 32;
 
+    private static function checked_get_var(mixed $sql, string $context): mixed {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $value = $wpdb->get_var($sql);
+        if ($value === false || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: ledger read failed: $context");
+        }
+        return $value;
+    }
+
+    private static function checked_get_row(mixed $sql, string $context): ?array {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $row = $wpdb->get_row($sql, ARRAY_A);
+        if (($row !== null && !is_array($row)) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: ledger read failed: $context");
+        }
+        return $row;
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private static function checked_get_results(mixed $sql, string $context): array {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($sql, ARRAY_A);
+        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: ledger read failed: $context");
+        }
+        return $rows;
+    }
+
     public static function ensure(): void {
         global $wpdb;
         $p = $wpdb->prefix;
@@ -81,11 +112,11 @@ final class Ledger {
         global $wpdb;
         $table = $wpdb->prefix . 'duo_map';
         $width = self::ID_KIND_WIDTH;
-        $len = $wpdb->get_var($wpdb->prepare(
+        $len = self::checked_get_var($wpdb->prepare(
             'SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS '
             . "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'id_kind'",
             $table
-        ));
+        ), 'schema width lookup for duo_map.id_kind');
         if ($len !== null && (int) $len < $width) {
             Db::query(
                 "ALTER TABLE `$table` MODIFY COLUMN id_kind VARCHAR($width) NOT NULL",
@@ -108,11 +139,11 @@ final class Ledger {
         $p = $wpdb->prefix;
         $w = self::ENTITY_TYPE_WIDTH;
         foreach (['duo_map', 'duo_state'] as $table) {
-            $len = $wpdb->get_var($wpdb->prepare(
+            $len = self::checked_get_var($wpdb->prepare(
                 'SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS '
                 . "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'entity_type'",
                 $p . $table
-            ));
+            ), "schema width lookup for $table.entity_type");
             if ($len !== null && (int) $len < $w) {
                 Db::query(
                     "ALTER TABLE `{$p}{$table}` MODIFY COLUMN entity_type VARCHAR($w) NOT NULL",
@@ -124,19 +155,19 @@ final class Ledger {
 
     public static function id_for(string $uuid, string $kind): ?int {
         global $wpdb;
-        $id = $wpdb->get_var($wpdb->prepare(
+        $id = self::checked_get_var($wpdb->prepare(
             "SELECT local_id FROM {$wpdb->prefix}duo_map WHERE uuid = %s AND id_kind = %s",
             $uuid, $kind
-        ));
+        ), 'identity lookup by UUID');
         return $id === null ? null : (int) $id;
     }
 
     public static function uuid_for(int $localId, string $kind): ?string {
         global $wpdb;
-        $uuid = $wpdb->get_var($wpdb->prepare(
+        $uuid = self::checked_get_var($wpdb->prepare(
             "SELECT uuid FROM {$wpdb->prefix}duo_map WHERE id_kind = %s AND local_id = %d",
             $kind, $localId
-        ));
+        ), 'identity lookup by local id');
         return $uuid ?: null;
     }
 
@@ -145,10 +176,10 @@ final class Ledger {
         if (!Uuid::is($uuid) || $localId <= 0) {
             throw new \RuntimeException("duo: invalid ledger identity '$uuid' ($kind:$localId)");
         }
-        $byUuid = $wpdb->get_row($wpdb->prepare(
+        $byUuid = self::checked_get_row($wpdb->prepare(
             "SELECT entity_type, local_id FROM {$wpdb->prefix}duo_map WHERE uuid = %s AND id_kind = %s",
             $uuid, $kind
-        ), ARRAY_A);
+        ), 'identity contradiction check by UUID');
         if ($byUuid !== null && (int) $byUuid['local_id'] !== $localId) {
             throw new \RuntimeException(
                 "duo: identity contradiction: $uuid ($kind) is already bound to local id {$byUuid['local_id']}; "
@@ -161,10 +192,10 @@ final class Ledger {
                 . "refusing to retype it as $entityType"
             );
         }
-        $byLocal = $wpdb->get_row($wpdb->prepare(
+        $byLocal = self::checked_get_row($wpdb->prepare(
             "SELECT uuid, entity_type FROM {$wpdb->prefix}duo_map WHERE id_kind = %s AND local_id = %d",
             $kind, $localId
-        ), ARRAY_A);
+        ), 'identity contradiction check by local id');
         if ($byLocal !== null && $byLocal['uuid'] !== $uuid) {
             throw new \RuntimeException(
                 "duo: identity contradiction: local $kind id $localId is already bound to {$byLocal['uuid']}; "
@@ -197,9 +228,9 @@ final class Ledger {
 
     public static function state_hash(string $uuid): ?string {
         global $wpdb;
-        return $wpdb->get_var($wpdb->prepare(
+        return self::checked_get_var($wpdb->prepare(
             "SELECT content_hash FROM {$wpdb->prefix}duo_state WHERE uuid = %s", $uuid
-        )) ?: null;
+        ), 'state hash lookup') ?: null;
     }
 
     public static function set_state_hash(string $uuid, string $entityType, string $hash): void {
@@ -215,8 +246,9 @@ final class Ledger {
     /** @return array<string, array{entity_type: string, content_hash: string}> keyed by uuid */
     public static function all_state(): array {
         global $wpdb;
-        $rows = $wpdb->get_results(
-            "SELECT uuid, entity_type, content_hash FROM {$wpdb->prefix}duo_state", ARRAY_A
+        $rows = self::checked_get_results(
+            "SELECT uuid, entity_type, content_hash FROM {$wpdb->prefix}duo_state",
+            'state hash inventory'
         );
         $out = [];
         foreach ($rows ?: [] as $r) {
@@ -228,10 +260,11 @@ final class Ledger {
     /** @return array<int,array{uuid:string,entity_type:string,id_kind:string,local_id:int}> */
     public static function all_map(): array {
         global $wpdb;
-        $rows = $wpdb->get_results(
+        $rows = self::checked_get_results(
             "SELECT uuid, entity_type, id_kind, local_id FROM {$wpdb->prefix}duo_map "
-            . 'ORDER BY id_kind ASC, local_id ASC, uuid ASC', ARRAY_A
-        ) ?: [];
+            . 'ORDER BY id_kind ASC, local_id ASC, uuid ASC',
+            'identity inventory'
+        );
         return array_map(static fn(array $r): array => [
             'uuid' => (string) $r['uuid'],
             'entity_type' => (string) $r['entity_type'],
@@ -300,19 +333,41 @@ final class Ledger {
      *
      * @param array<string, array{table: string, pk: string}> $tables
      *   id_kind => {table: UNPREFIXED table name, pk: primary key column}
+     * @param array<string, int[]> $preserveLocalIds
+     *   ids which are still referenced by an authored option-name namespace
+     *   (or by a frozen canonical option document). Those references remain
+     *   meaningful even when the owning typed row has already disappeared;
+     *   pruning their map entry would make capture drop a live settings row
+     *   before the deletion planner can pair it with its option tombstone.
      */
-    public static function prune_dead_table_map(array $tables): void {
+    public static function prune_dead_table_map(array $tables, array $preserveLocalIds = []): void {
         global $wpdb;
         $p = $wpdb->prefix;
         foreach ($tables as $idKind => $decl) {
             $table = preg_replace('/[^A-Za-z0-9_]/', '', $decl['table']);
             $pk = preg_replace('/[^A-Za-z0-9_]/', '', $decl['pk']);
-            if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $p . $table))) {
+            if (!self::checked_get_var(
+                $wpdb->prepare('SHOW TABLES LIKE %s', $p . $table),
+                'typed identity table lookup'
+            )) {
                 continue; // plugin's table not present on this environment — nothing to reconcile
             }
+            $keep = [];
+            foreach ((array) ($preserveLocalIds[$idKind] ?? []) as $id) {
+                // Callers derive these from strict numeric option-name
+                // captures or Ledger itself; re-check here because this is
+                // the final SQL boundary and an invalid value must never
+                // widen the DELETE predicate or become executable SQL.
+                if (is_int($id) && $id > 0) {
+                    $keep[$id] = true;
+                }
+            }
+            $keepClause = $keep
+                ? ' AND m.local_id NOT IN (' . implode(',', array_keys($keep)) . ')'
+                : '';
             Db::query($wpdb->prepare(
                 "DELETE m FROM {$p}duo_map m LEFT JOIN `{$p}{$table}` src ON src.`{$pk}` = m.local_id
-                 WHERE m.id_kind = %s AND src.`{$pk}` IS NULL",
+                 WHERE m.id_kind = %s AND src.`{$pk}` IS NULL$keepClause",
                 $idKind
             ), "ledger prune dead $table identities");
         }
@@ -320,9 +375,9 @@ final class Ledger {
 
     public static function kv_get(string $k): ?string {
         global $wpdb;
-        return $wpdb->get_var($wpdb->prepare(
+        return self::checked_get_var($wpdb->prepare(
             "SELECT v FROM {$wpdb->prefix}duo_kv WHERE k = %s", $k
-        ));
+        ), 'key/value lookup');
     }
 
     public static function kv_set(string $k, string $v): void {
@@ -356,7 +411,10 @@ final class Ledger {
      */
     public static function kv_prefix(string $prefix): array {
         global $wpdb;
-        $rows = $wpdb->get_results("SELECT k, v FROM {$wpdb->prefix}duo_kv", ARRAY_A) ?: [];
+        $rows = self::checked_get_results(
+            "SELECT k, v FROM {$wpdb->prefix}duo_kv",
+            'key/value prefix inventory'
+        );
         $out = [];
         foreach ($rows as $r) {
             if (str_starts_with((string) $r['k'], $prefix)) {

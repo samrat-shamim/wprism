@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/PlainData.php';
+
 /** Canonical sidebar ownership and ledger-only widget instance identity. */
 final class SidebarState {
     public const ENTITY_TYPE = 'sidebar';
@@ -128,7 +130,7 @@ final class SidebarState {
         foreach ($rows as $row) {
             $name = (string) $row['option_name'];
             $type = substr($name, 7);
-            $value = maybe_unserialize($row['option_value']);
+            $value = PlainData::decode($row['option_value'], "option '$name'");
             if (!is_array($value)) {
                 throw new \RuntimeException("duo: widget option '$name' is not a multi-instance array");
             }
@@ -196,7 +198,7 @@ final class SidebarState {
         if ($raw === null) {
             return [];
         }
-        $value = maybe_unserialize($raw);
+        $value = PlainData::decode($raw, 'option sidebars_widgets');
         if (!is_array($value)) {
             throw new \RuntimeException('duo: option sidebars_widgets is not an array');
         }
@@ -496,7 +498,7 @@ final class SidebarState {
             "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
             'widget_' . $type
         ));
-        $value = $raw === null ? null : maybe_unserialize($raw);
+        $value = $raw === null ? null : PlainData::decode($raw, "option widget_$type");
         if (!is_array($value) || !isset($value[$local]) || !is_array($value[$local])) {
             throw new \RuntimeException("duo: widget identity row widget_$type:$local is missing");
         }

@@ -60,6 +60,35 @@ function fake_field(string $key, string $type, array $extra = []): array {
     ];
 }
 
+final class AcfFieldDefinitionFakeWpdb {
+    public string $posts = 'wp_posts';
+    public string $raw = '';
+
+    public function prepare($query, ...$args): array {
+        if (count($args) === 1 && is_array($args[0])) {
+            $args = $args[0];
+        }
+        return ['sql' => (string) $query, 'args' => $args];
+    }
+
+    public function get_var($query) {
+        return $this->raw;
+    }
+}
+
+final class AcfSerializedWakeupProbe {
+    public static bool $woke = false;
+    public static bool $unserialized = false;
+
+    public function __wakeup(): void {
+        self::$woke = true;
+    }
+
+    public function __unserialize(array $data): void {
+        self::$unserialized = true;
+    }
+}
+
 // A Policy instance to satisfy Acf::__construct()'s type hint -- its own
 // docblock says the param is unused (classification is fully schema-driven
 // from primed field definitions), so an empty, manifest-less Policy is
@@ -146,6 +175,43 @@ check(
         'options_bad_pointer' => 'x', '_options_bad_pointer' => 'not-a-field-key',
     ]) === null,
     'a malformed shadow pointer value (not matching field_*) is rejected, not trusted blindly'
+);
+
+echo "\n== live acf-field post_content fallback uses the strict plain-data boundary ==\n";
+$acfWpdb = new AcfFieldDefinitionFakeWpdb();
+$GLOBALS['wpdb'] = $acfWpdb;
+$acf3 = new Acf($emptyPolicy);
+$acfWpdb->raw = serialize(['type' => 'image', 'key' => 'field_live_logo']);
+check(
+    $acf3->option_rule('options_live_logo', [
+        'options_live_logo' => '9',
+        '_options_live_logo' => 'field_live_logo',
+    ]) === ['class' => 'authored', 'ref' => 'post', 'cast' => 'string'],
+    'ACF live field-definition post_content accepts an ordinary serialized array'
+);
+
+$acfWpdb->raw = serialize(new AcfSerializedWakeupProbe());
+AcfSerializedWakeupProbe::$woke = false;
+AcfSerializedWakeupProbe::$unserialized = false;
+$acfObjectRejected = false;
+try {
+    $acf3->option_rule('options_live_object', [
+        'options_live_object' => '9',
+        '_options_live_object' => 'field_live_object',
+    ]);
+} catch (Throwable $e) {
+    $acfObjectRejected = str_contains($e->getMessage(), 'PHP object');
+}
+check($acfObjectRejected && !AcfSerializedWakeupProbe::$woke && !AcfSerializedWakeupProbe::$unserialized,
+    'ACF live field-definition reader rejects serialized objects without invoking __wakeup/__unserialize');
+
+$acfWpdb->raw = serialize('plain scalar');
+check(
+    $acf3->option_rule('options_live_scalar', [
+        'options_live_scalar' => '9',
+        '_options_live_scalar' => 'field_live_scalar',
+    ]) === null,
+    'ACF live field-definition reader preserves serialized scalar semantics (not an array schema)'
 );
 
 echo "\n== end-to-end: Policy dispatch through the REAL manifests/acf.json ==\n";

@@ -11,11 +11,64 @@ namespace Duo;
  * entry points plus checked writes to the derived `_price` rows.
  */
 final class WooCommerceContract {
+    /** @return list<int|string> */
+    private static function checked_get_posts(array $args, string $context): array {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $rows = get_posts($args);
+        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: WooCommerce $context query failed");
+        }
+        return array_values($rows);
+    }
+
+    /** @return array<int,mixed> */
+    private static function checked_get_col(string $sql, string $context): array {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_col($sql);
+        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: WooCommerce $context query failed");
+        }
+        return $rows;
+    }
+
+    private static function checked_get_row(string $sql, string $context): ?array {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $row = $wpdb->get_row($sql, ARRAY_A);
+        if (($row !== null && !is_array($row)) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: WooCommerce $context query failed");
+        }
+        return $row;
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private static function checked_get_results(string $sql, string $context): array {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($sql, ARRAY_A);
+        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: WooCommerce $context query failed");
+        }
+        return $rows;
+    }
+
+    private static function checked_get_var(string $sql, string $context): mixed {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $value = $wpdb->get_var($sql);
+        if ($value === false || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: WooCommerce $context query failed");
+        }
+        return $value;
+    }
+
     /** @return array<string,int> */
     public static function rebuild(): array {
         self::assert_runtime();
 
-        $ids = get_posts([
+        $ids = self::checked_get_posts([
             'fields' => 'ids',
             'nopaging' => true,
             'orderby' => 'ID',
@@ -23,7 +76,7 @@ final class WooCommerceContract {
             'post_status' => 'any',
             'post_type' => ['product', 'product_variation'],
             'suppress_filters' => true,
-        ]);
+        ], 'catalog enumeration');
         $ids = array_values(array_map('intval', $ids));
 
         // Child prices must exist before variable/grouped parents are reduced.
@@ -72,7 +125,6 @@ final class WooCommerceContract {
 
         $categoryClass = 'Automattic\\WooCommerce\\Internal\\Admin\\CategoryLookup';
         $categoryClass::instance()->regenerate();
-        delete_transient('wc_attribute_taxonomies');
 
         self::verify($ids);
         return ['products' => count($ids), 'parents' => count($parents)];
@@ -113,10 +165,10 @@ final class WooCommerceContract {
             : $product->get_children('edit');
         $prices = [];
         foreach (array_map('intval', $children) as $childId) {
-            $rows = $wpdb->get_col($wpdb->prepare(
+            $rows = self::checked_get_col($wpdb->prepare(
                 "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = '_price' ORDER BY meta_id",
                 $childId
-            ));
+            ), "child price read for product $childId");
             foreach ($rows as $price) {
                 if ($price !== null && $price !== '') {
                     $prices[] = (string) $price;
@@ -166,19 +218,19 @@ final class WooCommerceContract {
             $expected = $product->is_type(['variable', 'grouped'])
                 ? self::parent_prices($product)
                 : [self::leaf_price($product)];
-            $actual = array_map('strval', $wpdb->get_col($wpdb->prepare(
+            $actual = array_map('strval', self::checked_get_col($wpdb->prepare(
                 "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = '_price' ORDER BY meta_value+0, meta_id",
                 $id
-            )));
+            ), "price verification for product $id"));
             $sortedExpected = $expected;
             usort($sortedExpected, static fn(string $a, string $b): int => (float) $a <=> (float) $b);
             if ($actual !== $sortedExpected) {
                 throw new \RuntimeException("duo: WooCommerce price projection mismatch for product $id");
             }
-            $lookup = $wpdb->get_row($wpdb->prepare(
+            $lookup = self::checked_get_row($wpdb->prepare(
                 "SELECT min_price, max_price, stock_quantity, stock_status FROM {$productLookupTable} WHERE product_id = %d",
                 $id
-            ), ARRAY_A);
+            ), "product lookup verification for product $id");
             if (!is_array($lookup)) {
                 throw new \RuntimeException("duo: WooCommerce product lookup row missing for product $id");
             }
@@ -189,18 +241,18 @@ final class WooCommerceContract {
                     throw new \RuntimeException("duo: WooCommerce product lookup price mismatch for product $id");
                 }
             }
-            $expectedStatus = $wpdb->get_var($wpdb->prepare(
+            $expectedStatus = self::checked_get_var($wpdb->prepare(
                 "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id=%d AND meta_key='_stock_status' ORDER BY meta_id DESC LIMIT 1",
                 $id
-            ));
+            ), "stock-status verification for product $id");
             if (($lookup['stock_status'] === null ? null : (string) $lookup['stock_status'])
                 !== ($expectedStatus === null ? null : (string) $expectedStatus)) {
                 throw new \RuntimeException("duo: WooCommerce product lookup stock mismatch for product $id");
             }
-            $expectedStock = $wpdb->get_var($wpdb->prepare(
+            $expectedStock = self::checked_get_var($wpdb->prepare(
                 "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id=%d AND meta_key='_stock' ORDER BY meta_id DESC LIMIT 1",
                 $id
-            ));
+            ), "stock-quantity verification for product $id");
             $actualStock = $lookup['stock_quantity'] === null ? null : (float) $lookup['stock_quantity'];
             if (($expectedStock === null && $actualStock !== null)
                 || ($expectedStock !== null && $actualStock !== (float) $expectedStock)) {
@@ -216,27 +268,32 @@ final class WooCommerceContract {
     private static function verify_attribute_lookup(): void {
         global $wpdb;
         $lookupTable = $wpdb->prefix . 'wc_product_attributes_lookup';
-        $rows = $wpdb->get_results(
+        $rows = self::checked_get_results(
             "SELECT pm.post_id, p.post_parent, pm.meta_key, pm.meta_value
              FROM {$wpdb->postmeta} pm
              JOIN {$wpdb->posts} p ON p.ID = pm.post_id AND p.post_type = 'product_variation'
              WHERE pm.meta_key LIKE 'attribute\\_pa\\_%' AND pm.meta_value <> ''",
-            ARRAY_A
+            'attribute source verification'
         );
         foreach ($rows as $row) {
             $taxonomy = substr((string) $row['meta_key'], strlen('attribute_'));
-            $termId = (int) $wpdb->get_var($wpdb->prepare(
+            $termIdValue = self::checked_get_var($wpdb->prepare(
                 "SELECT t.term_id FROM {$wpdb->terms} t JOIN {$wpdb->term_taxonomy} tt ON tt.term_id=t.term_id WHERE tt.taxonomy=%s AND t.slug=%s LIMIT 1",
                 $taxonomy,
                 (string) $row['meta_value']
-            ));
-            $count = $termId > 0 ? (int) $wpdb->get_var($wpdb->prepare(
+            ), 'attribute term verification');
+            $termId = $termIdValue === null ? 0 : (int) $termIdValue;
+            $countValue = $termId > 0 ? self::checked_get_var($wpdb->prepare(
                 "SELECT COUNT(*) FROM {$lookupTable} WHERE product_id=%d AND product_or_parent_id=%d AND taxonomy=%s AND term_id=%d AND is_variation_attribute=1",
                 (int) $row['post_id'],
                 (int) $row['post_parent'],
                 $taxonomy,
                 $termId
-            )) : 0;
+            ), 'attribute lookup cardinality verification') : 0;
+            if ($countValue === null) {
+                throw new \RuntimeException('duo: WooCommerce attribute lookup cardinality returned no count');
+            }
+            $count = (int) $countValue;
             if ($count !== 1) {
                 throw new \RuntimeException('duo: WooCommerce variation attribute lookup projection mismatch');
             }
@@ -246,14 +303,21 @@ final class WooCommerceContract {
     private static function verify_category_lookup(): void {
         global $wpdb;
         $lookupTable = $wpdb->prefix . 'wc_category_lookup';
-        $categoryIds = array_map('intval', $wpdb->get_col(
-            "SELECT DISTINCT tt.term_id FROM {$wpdb->term_taxonomy} tt JOIN {$wpdb->term_relationships} tr ON tr.term_taxonomy_id=tt.term_taxonomy_id JOIN {$wpdb->posts} p ON p.ID=tr.object_id WHERE tt.taxonomy='product_cat' AND p.post_type='product'"
+        $categoryIds = array_map('intval', self::checked_get_col(
+            "SELECT DISTINCT tt.term_id FROM {$wpdb->term_taxonomy} tt JOIN {$wpdb->term_relationships} tr ON tr.term_taxonomy_id=tt.term_taxonomy_id JOIN {$wpdb->posts} p ON p.ID=tr.object_id WHERE tt.taxonomy='product_cat' AND p.post_type='product'",
+            'category source verification'
         ));
         foreach ($categoryIds as $categoryId) {
-            $count = (int) $wpdb->get_var($wpdb->prepare(
+            $countValue = self::checked_get_var($wpdb->prepare(
                 "SELECT COUNT(*) FROM {$lookupTable} WHERE category_id=%d",
                 $categoryId
-            ));
+            ), "category lookup verification for category $categoryId");
+            if ($countValue === null) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce category lookup verification returned no count for category $categoryId"
+                );
+            }
+            $count = (int) $countValue;
             if ($count < 1) {
                 throw new \RuntimeException("duo: WooCommerce category lookup row missing for category $categoryId");
             }

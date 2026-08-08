@@ -168,6 +168,44 @@ try {
     check(false, 'a well-formed regen_dependency declaration loads without error (threw: ' . $t->getMessage() . ')');
 }
 
+write_manifest($fixtureDir, 'i', [
+    'name' => 'i',
+    'spec_version' => DUO_SPEC_VERSION,
+    'post_types' => ['widget' => ['regen_dependency' => [
+        'regenerator' => 'fake-regen',
+        'verify' => ['table' => 't', 'column' => 'c'],
+        'batch' => ['enabled' => true],
+        'refresh' => ['enabled' => true],
+    ]]],
+]);
+check_throws(fn() => Policy::load(null, ['i']), 'cannot declare both',
+    'ambiguous batch+refresh declarations refuse at load()');
+
+write_manifest($fixtureDir, 'j', [
+    'name' => 'j',
+    'spec_version' => DUO_SPEC_VERSION,
+    'post_types' => ['widget' => ['regen_dependency' => [
+        'regenerator' => 'fake-regen',
+        'verify' => ['table' => 't', 'column' => 'c'],
+        'batch' => ['enabled' => true, 'typo' => true],
+    ]]],
+]);
+check_throws(fn() => Policy::load(null, ['j']), 'contains unknown key(s): typo',
+    'unknown batch configuration keys refuse at load()');
+
+write_manifest($fixtureDir, 'k', [
+    'name' => 'k',
+    'spec_version' => DUO_SPEC_VERSION,
+    'post_types' => ['widget' => ['regen_dependency' => [
+        'regenerator' => 'fake-regen',
+        'verify' => ['table' => 't', 'column' => 'c'],
+        'always_on_write' => true,
+        'batch' => ['enabled' => true],
+    ]]],
+]);
+check_throws(fn() => Policy::load(null, ['k']), 'always_on_write is ambiguous',
+    'top-level always_on_write beside batch refuses at load()');
+
 // ======================================================================
 echo "\n== regenerators() — manifest-shipped-PHP loading ==\n";
 

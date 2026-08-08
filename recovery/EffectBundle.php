@@ -140,7 +140,7 @@ final class EffectBundle {
         }
         if ($declared === null
             || (string) $declared['effect']['kind'] !== (string) $actual['kind']
-            || $declared['effect']['selector'] !== $actual['selector']) {
+            || !self::matchesDeclaredSelector($declared['effect']['selector'], $actual['selector'] ?? null)) {
             throw new \RuntimeException('duo effects: actual effect is undeclared or exceeds its bounded selector');
         }
         $config = RecoveryExecutor::configuration($root);
@@ -175,6 +175,148 @@ final class EffectBundle {
             throw new \RuntimeException('duo effects: non-prevented effect returned false outbox evidence');
         }
         return ['ok' => true] + $response;
+    }
+
+    /**
+     * Match an observed selector without widening any ordinary declaration.
+     * A provider-resource selector may carry a declarative finite member
+     * grammar. Runtime values remain concrete `{scope,type,value}` selectors;
+     * hooks, namespaces, ordinary provider resources, and every selector
+     * without a valid grammar remain exact matches.
+     */
+    private static function matchesDeclaredSelector(array $declared, mixed $actual): bool {
+        $hasMembers = array_key_exists('members', $declared);
+        if (!$hasMembers && $declared === $actual) {
+            return true;
+        }
+        if (!$hasMembers
+            || ($declared['scope'] ?? null) !== 'external'
+            || ($declared['type'] ?? null) !== 'provider_resource'
+            || !is_string($declared['value'] ?? null)) {
+            return false;
+        }
+        if (!is_array($actual) || array_is_list($actual)
+            || !self::hasExactSelectorKeys($actual)
+            || ($actual['scope'] ?? null) !== 'external'
+            || ($actual['type'] ?? null) !== 'provider_resource'
+            || !is_string($actual['value'] ?? null)) {
+            return false;
+        }
+        $actualValue = (string) $actual['value'];
+        if ($actualValue === '' || strlen($actualValue) > 512
+            || preg_match('/[\x00-\x1f\x7f*?<>]/', $actualValue) === 1
+            || preg_match('/secret|credential|password|authorization|signed.?url|access.?token|api.?key/i', $actualValue) === 1
+            || $actualValue === $declared['value']) {
+            return false;
+        }
+        $compiled = self::compileProviderResourceMembers($declared['members'], (string) $declared['value']);
+        if ($compiled === null) {
+            return false;
+        }
+        if (in_array($actualValue, $compiled['exact'], true)) {
+            return true;
+        }
+        foreach ($compiled['templates'] as $template) {
+            if (preg_match($template, $actualValue) === 1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function hasExactSelectorKeys(array $selector): bool {
+        $keys = array_keys($selector);
+        sort($keys, SORT_STRING);
+        return $keys === ['scope', 'type', 'value'];
+    }
+
+    /**
+     * Compile a provider-resource member list to exact values and anchored
+     * regular expressions. This is deliberately provider-neutral: manifests
+     * own the finite family names and may use only these typed placeholders.
+     * A null result means the declaration is malformed and must be refused.
+     *
+     * @return ?array{exact:list<string>,templates:list<string>}
+     */
+    private static function compileProviderResourceMembers(mixed $members, string $aggregate): ?array {
+        if (!is_array($members) || array_is_list($members)) {
+            return null;
+        }
+        $keys = array_keys($members);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['exact', 'templates']
+            || !is_array($members['exact']) || !array_is_list($members['exact'])
+            || !is_array($members['templates']) || !array_is_list($members['templates'])
+            || ($members['exact'] === [] && $members['templates'] === [])) {
+            return null;
+        }
+        $exact = [];
+        $templates = [];
+        $seen = [];
+        foreach ($members['exact'] as $member) {
+            if (!is_string($member) || $member === '' || strlen($member) > 512
+                || $member === $aggregate
+                || preg_match('/[\x00-\x1f\x7f*?<>\{\}]/', $member) === 1
+                || preg_match('/secret|credential|password|authorization|signed.?url|access.?token|api.?key/i', $member) === 1) {
+                return null;
+            }
+            $identity = 'exact:' . $member;
+            if (isset($seen[$identity])) {
+                return null;
+            }
+            $seen[$identity] = true;
+            $exact[] = $member;
+        }
+        foreach ($members['templates'] as $template) {
+            if (!is_string($template) || $template === '' || strlen($template) > 512
+                || preg_match('/[\x00-\x1f\x7f*?<>]/', $template) === 1
+                || preg_match('/secret|credential|password|authorization|signed.?url|access.?token|api.?key/i', $template) === 1) {
+                return null;
+            }
+            $regex = self::compileProviderResourceTemplate($template);
+            if ($regex === null) {
+                return null;
+            }
+            $identity = 'template:' . $template;
+            if (isset($seen[$identity])) {
+                return null;
+            }
+            $seen[$identity] = true;
+            $templates[] = $regex;
+        }
+        return ['exact' => $exact, 'templates' => $templates];
+    }
+
+    private static function compileProviderResourceTemplate(string $template): ?string {
+        $regex = '~^';
+        $cursor = 0;
+        $placeholderCount = 0;
+        if (preg_match_all('/\{([^{}]*)\}/', $template, $matches, PREG_OFFSET_CAPTURE) === false) {
+            return null;
+        }
+        foreach ($matches[0] as $matchIndex => $wholeMatch) {
+            $offset = (int) $wholeMatch[1];
+            $literal = substr($template, $cursor, $offset - $cursor);
+            if (str_contains($literal, '{') || str_contains($literal, '}')) {
+                return null;
+            }
+            $regex .= preg_quote($literal, '~');
+            $placeholder = (string) ($matches[1][$matchIndex][0] ?? '');
+            if ($placeholder === 'positive_uint') {
+                $regex .= '[1-9][0-9]{0,18}';
+            } elseif ($placeholder === 'slug') {
+                $regex .= '[a-z0-9][a-z0-9_-]{0,63}';
+            } else {
+                return null;
+            }
+            $placeholderCount++;
+            $cursor = $offset + strlen((string) $wholeMatch[0]);
+        }
+        $tail = substr($template, $cursor);
+        if (str_contains($tail, '{') || str_contains($tail, '}') || $placeholderCount === 0) {
+            return null;
+        }
+        return $regex . preg_quote($tail, '~') . '$~D';
     }
 
     /** @return array{adapter_version:string,result_sha256:string} */
@@ -366,7 +508,12 @@ final class EffectBundle {
             }
             $selector = $effect['selector'] ?? null;
             if (!is_array($selector) || array_is_list($selector)) throw new \RuntimeException('duo effects: selector is malformed');
-            self::assertExactKeys($selector, ['scope','type','value'], 'effect selector');
+            $expectedSelectorKeys = ['scope', 'type', 'value'];
+            if (($selector['type'] ?? null) === 'provider_resource' && array_key_exists('members', $selector)) {
+                $expectedSelectorKeys[] = 'members';
+            }
+            sort($expectedSelectorKeys, SORT_STRING);
+            self::assertExactKeys($selector, $expectedSelectorKeys, 'effect selector');
             if (!in_array($selector['scope'] ?? null, ['database_checkpoint','external'], true)
                 || !in_array($selector['type'] ?? null, ['table','option','path','hook','namespace','queue','mail_subject','url_prefix','provider_resource','plugin_lifecycle'], true)
                 || !is_string($selector['value'] ?? null) || $selector['value'] === ''
@@ -374,6 +521,10 @@ final class EffectBundle {
                 || preg_match('/[\x00-\x1f\x7f*]/', $selector['value']) === 1
                 || preg_match('/secret|credential|password|authorization|signed.?url|access.?token|api.?key/i', $selector['value']) === 1) {
                 throw new \RuntimeException('duo effects: selector is unbounded or malformed');
+            }
+            if (($selector['type'] ?? null) === 'provider_resource' && array_key_exists('members', $selector)
+                && self::compileProviderResourceMembers($selector['members'], (string) $selector['value']) === null) {
+                throw new \RuntimeException('duo effects: provider-resource member grammar is malformed or unbounded');
             }
             if ($selector['type'] === 'path' && (str_starts_with($selector['value'], '/')
                 || str_contains($selector['value'], '\\') || in_array('.', explode('/', $selector['value']), true)

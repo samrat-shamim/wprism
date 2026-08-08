@@ -85,14 +85,33 @@ foreach (['wc_product_meta_lookup', 'wc_product_attributes_lookup', 'wc_category
 woo_ok(($declaredTables['wc_tax_rate_classes']['class'] ?? '') === 'authored_snapshot', 'merchant tax classes are portable authored state');
 
 $rebuilders = $policy->rebuilders();
-woo_ok(count($rebuilders) === 1 && str_contains((string) $rebuilders[0]['command'], 'WooCommerceContract::rebuild'), 'manifest declares the checked Woo projection rebuilder');
-woo_ok(count($rebuilders[0]['effects'] ?? []) === 8, 'rebuilder declares all database mutation surfaces for rollback checkpoints');
+$projectionRebuilders = array_values(array_filter(
+    $rebuilders,
+    static fn(array $row): bool => str_contains((string) ($row['command'] ?? ''), 'WooCommerceContract::rebuild')
+));
+woo_ok(count($rebuilders) === 3 && count($projectionRebuilders) === 1, 'manifest composes the checked Woo projection with bounded attribute and shipping/tax cache rebuilders');
+woo_ok(count($projectionRebuilders[0]['effects'] ?? []) === 8, 'checked projection rebuilder declares all database mutation surfaces for rollback checkpoints');
 woo_ok(is_file($root . '/agent/src/WooCommerceContract.php'), 'Woo projection implementation ships with the agent');
-woo_ok($policy->deletion_capability('post:product') === null, 'product deletion is fail-closed until every extension reverse reference is representable');
+$unsupportedDeletes = [
+    'post:product',
+    'post:product_variation',
+    'table:woocommerce_attribute_taxonomies',
+    'table:woocommerce_shipping_zone_locations',
+    'table:woocommerce_shipping_zone_methods',
+    'table:woocommerce_shipping_zones',
+    'table:woocommerce_tax_rate_locations',
+    'table:woocommerce_tax_rates',
+];
+woo_ok(!array_key_exists('deletions', $manifest), 'shipped Woo manifest declares no deletion authority');
+foreach ($unsupportedDeletes as $selector) {
+    woo_ok($policy->deletion_capability($selector) === null, "$selector deletion is fail-closed");
+}
 $wooDisposition = $dispositions['manifests']['woocommerce'] ?? [];
 woo_ok(!in_array('delete', $wooDisposition['capabilities']['operations'] ?? [], true), 'external capability registry does not advertise Woo deletion');
 woo_ok(($wooDisposition['capabilities']['deletion_semantics']['supported'] ?? null) === [], 'external capability registry declares no supported Woo deletion surface');
-woo_ok(in_array('post:product', $wooDisposition['capabilities']['deletion_semantics']['unsupported'] ?? [], true), 'external capability registry names product deletion unsupported');
+$declaredUnsupportedDeletes = $wooDisposition['capabilities']['deletion_semantics']['unsupported'] ?? null;
+woo_ok($declaredUnsupportedDeletes === $unsupportedDeletes,
+    'external capability registry enumerates every shipped Woo deletion selector as unsupported');
 $matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify_version_matrix.sh');
 woo_ok(str_contains($matrixHarness, 'update_option("default_category", (int) $category->term_id)'), 'version-matrix resets the core default-category reference before each plugin boundary');
 

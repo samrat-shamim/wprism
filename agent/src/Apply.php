@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/PlainData.php';
+
 /**
  * Plan + apply: repo state tree -> environment DB.
  *
@@ -328,12 +330,22 @@ final class Apply {
         if (!empty($opts['force_theirs'])) {
             $deleteUuids += array_fill_keys(array_column($plan['delete_conflict'], 'uuid'), true);
         }
+        $guardRepairUuids = $this->guard_repair_uuids($plan);
         foreach (['delete', 'delete_conflict'] as $bucket) {
             foreach ($plan[$bucket] as &$row) {
                 $blocks = [];
                 $guardRefs = [];
-                foreach ($deletionCaps[$row['uuid']]['guards'] ?? [] as $guard) {
-                    $result = $this->count_guard_refs($guard, $row['uuid'], $deleteUuids, $compiled->deletions());
+                $guardWitnesses = [];
+                foreach ($deletionCaps[$row['uuid']]['guards'] ?? [] as $guardIndex => $guard) {
+                    $result = $this->count_guard_refs(
+                        $guard,
+                        $row['uuid'],
+                        $deleteUuids,
+                        $compiled->deletions(),
+                        $compiled->tree(),
+                        $guardRepairUuids
+                    );
+                    $guardWitnesses[(string) $guardIndex] = (string) ($result['witness'] ?? hash('sha256', Canon::encode([])));
                     if ($result['error'] !== null) {
                         $blocks[] = $result['error'];
                     } elseif ($result['count'] > 0) {
@@ -343,6 +355,7 @@ final class Apply {
                             'table' => (string) $guard['table'],
                             'rows' => $result['rows'],
                             'repairable' => isset($this->snapshotRowTables()[(string) $guard['table']]),
+                            'option_name_ref' => !empty($guard['option_name_ref']),
                         ];
                     }
                 }
@@ -352,6 +365,7 @@ final class Apply {
                 if ($guardRefs) {
                     $row['guard_refs'] = $guardRefs;
                 }
+                $row['guard_witnesses'] = $guardWitnesses;
             }
             unset($row);
         }
@@ -690,12 +704,36 @@ final class Apply {
         };
     }
 
-    /** @return array{count:int,error:?string,rows:string[]} */
+    /**
+     * UUIDs whose authored state is actually scheduled to be written in this
+     * revision. Deletion guards use this narrow witness to distinguish a
+     * parent update which removes a ref from a child-only delete (or a
+     * conflicted parent which cannot be trusted to repair anything).
+     *
+     * @return array<string,bool>
+     */
+    private function guard_repair_uuids(array $plan): array {
+        $out = [];
+        foreach (['create', 'update', 'adopt'] as $bucket) {
+            foreach ((array) ($plan[$bucket] ?? []) as $row) {
+                $uuid = (string) ($row['uuid'] ?? '');
+                if ($uuid !== '') {
+                    $out[$uuid] = true;
+                }
+            }
+        }
+        return $out;
+    }
+
+    /** @return array{count:int,error:?string,rows:string[],witness?:string} */
     private function count_guard_refs(
         array $guard,
         string $targetUuid,
         array $deleteUuids,
-        array $deletions
+        array $deletions,
+        array $tree = [],
+        array $guardRepairUuids = [],
+        bool $forUpdate = false
     ): array {
         global $wpdb;
         $table = $wpdb->prefix . preg_replace('/[^A-Za-z0-9_]/', '', $guard['table']);
@@ -710,6 +748,43 @@ final class Apply {
                 'error' => "required {$guard['id_kind']} identity mapping is absent for guard {$guard['table']}.{$guard['column']}",
                 'rows' => [],
             ];
+        }
+
+        // WooCommerce shipping-method instance settings are authored option
+        // rows whose NAME embeds the method's local instance_id. A method
+        // tombstone must therefore carry the matching option tombstone in
+        // the same compiled revision or refuse the raw table delete; leaving
+        // the option behind would make a later Woo load resurrect stale
+        // settings for a newly-reused instance id.
+        if (!empty($guard['option_name_ref'])) {
+            return $this->count_option_name_guard_refs(
+                $guard,
+                $targetUuid,
+                $localId,
+                $tree,
+                $guardRepairUuids,
+                $table,
+                $forUpdate
+            );
+        }
+
+        // Some plugin references are stored as typed PHP values in metadata,
+        // not as a scalar FK column. This manifest-declared branch is still
+        // deterministic and generic: it enumerates the rows, decodes only
+        // the declared ref shape, excludes owners deleted in this revision,
+        // and permits only an explicitly scheduled authored owner update to
+        // remove the target token. It refuses malformed shapes instead of
+        // guessing that an opaque value is safe.
+        if (array_key_exists('meta_key', $guard) || array_key_exists('ref', $guard)) {
+            return $this->count_meta_guard_refs(
+                $guard,
+                $targetUuid,
+                $deleteUuids,
+                $tree,
+                $guardRepairUuids,
+                $table,
+                $forUpdate
+            );
         }
 
         $where = ["`$column` = %d"];
@@ -753,18 +828,6 @@ final class Apply {
                 array_push($args, ...$allowed);
             }
         }
-        // Preserve the pre-enumeration behavior for an empty guard result:
-        // a table with no stable key is irrelevant when it has zero
-        // surviving refs. Stable identity becomes mandatory only when a
-        // force warning would actually need to enumerate rows.
-        $countSql = "SELECT COUNT(*) FROM `$table` WHERE " . implode(' AND ', $where);
-        $count = $wpdb->get_var($wpdb->prepare($countSql, ...$args));
-        if ($wpdb->last_error) {
-            return ['count' => 0, 'error' => "guard query failed for {$guard['table']}.{$guard['column']}: {$wpdb->last_error}", 'rows' => []];
-        }
-        if ((int) $count === 0) {
-            return ['count' => 0, 'error' => null, 'rows' => []];
-        }
         $identityCols = $sourcePk !== '' ? [$sourcePk] : [];
         if (!$identityCols) {
             $primary = $wpdb->get_results("SHOW KEYS FROM `$table` WHERE Key_name = 'PRIMARY'", ARRAY_A) ?: [];
@@ -776,19 +839,61 @@ final class Apply {
                 $primary
             )));
         }
+        $lockIndex = null;
+        if ($forUpdate) {
+            $lockIndex = $this->guard_lock_index($guard, $table);
+            if ($lockIndex === null) {
+                return [
+                    'count' => 0,
+                    'error' => "guard table '{$guard['table']}' has no complete indexed lock boundary for {$guard['column']}",
+                    'rows' => [],
+                    'witness' => hash('sha256', Canon::encode([])),
+                ];
+            }
+        }
+        $forceIndex = $lockIndex !== null ? " FORCE INDEX (`$lockIndex`)" : '';
+        $order = $identityCols
+            ? implode(', ', array_map(fn(string $c): string => "`$c` ASC", $identityCols))
+            : "`$column` ASC";
+        $sql = "SELECT * FROM `$table`$forceIndex WHERE " . implode(' AND ', $where) . " ORDER BY $order";
+        if ($forUpdate) {
+            // A locking read is deliberately used for the boundary, not a
+            // second consistent snapshot. Under REPEATABLE READ, the indexed
+            // equality/range also locks the gap so an insert or a ref-bearing
+            // update cannot slip between this check and delete/commit.
+            $sql .= ' FOR UPDATE';
+            $found = $wpdb->get_results($wpdb->prepare($sql, ...$args), ARRAY_A);
+            if ($wpdb->last_error) {
+                return ['count' => 0, 'error' => "guard query failed for {$guard['table']}.{$guard['column']}: {$wpdb->last_error}", 'rows' => [], 'witness' => hash('sha256', Canon::encode([]))];
+            }
+        } else {
+            // Preserve the pre-enumeration behavior for an empty guard result:
+            // a table with no stable key is irrelevant when it has zero
+            // surviving refs. Stable identity becomes mandatory only when a
+            // force warning would actually need to enumerate rows.
+            $countSql = "SELECT COUNT(*) FROM `$table` WHERE " . implode(' AND ', $where);
+            $count = $wpdb->get_var($wpdb->prepare($countSql, ...$args));
+            if ($wpdb->last_error) {
+                return ['count' => 0, 'error' => "guard query failed for {$guard['table']}.{$guard['column']}", 'rows' => [], 'witness' => hash('sha256', Canon::encode([]))];
+            }
+            if ((int) $count === 0) {
+                return ['count' => 0, 'error' => null, 'rows' => [], 'witness' => hash('sha256', Canon::encode([]))];
+            }
+            $found = $wpdb->get_results($wpdb->prepare($sql, ...$args), ARRAY_A);
+            if ($wpdb->last_error) {
+                return ['count' => 0, 'error' => "guard query failed for {$guard['table']}.{$guard['column']}", 'rows' => [], 'witness' => hash('sha256', Canon::encode([]))];
+            }
+        }
+        if (!$found) {
+            return ['count' => 0, 'error' => null, 'rows' => [], 'witness' => hash('sha256', Canon::encode([]))];
+        }
         if (!$identityCols) {
             return [
                 'count' => 0,
                 'error' => "guard table '{$guard['table']}' has no stable row identity; refusing an unenumerated force-delete warning",
                 'rows' => [],
+                'witness' => hash('sha256', Canon::encode($found)),
             ];
-        }
-        $select = implode(', ', array_map(fn(string $c): string => "`$c`", $identityCols));
-        $order = implode(', ', array_map(fn(string $c): string => "`$c` ASC", $identityCols));
-        $sql = "SELECT $select FROM `$table` WHERE " . implode(' AND ', $where) . " ORDER BY $order";
-        $found = $wpdb->get_results($wpdb->prepare($sql, ...$args), ARRAY_A);
-        if ($wpdb->last_error) {
-            return ['count' => 0, 'error' => "guard query failed for {$guard['table']}.{$guard['column']}: {$wpdb->last_error}", 'rows' => []];
         }
         $rows = array_map(function (array $foundRow) use ($guard, $identityCols): string {
             $identity = implode(',', array_map(
@@ -797,7 +902,473 @@ final class Apply {
             ));
             return (string) $guard['table'] . '.' . $identity;
         }, $found ?: []);
-        return ['count' => count($rows), 'error' => null, 'rows' => $rows];
+        return [
+            'count' => count($rows),
+            'error' => null,
+            'rows' => $rows,
+            'witness' => hash('sha256', Canon::encode(array_values($found))),
+        ];
+    }
+
+    /**
+     * Count live option rows whose declared option_name_refs pattern embeds
+     * the target row's local id. This is manifest-driven: the engine does
+     * not know WooCommerce's naming convention, it only asks the policy
+     * which version-pinned name patterns own a row.
+     *
+     * @return array{count:int,error:?string,rows:string[],witness?:string}
+     */
+    private function count_option_name_guard_refs(
+        array $guard,
+        string $targetUuid,
+        int $targetId,
+        array $tree,
+        array $guardRepairUuids,
+        string $table,
+        bool $forUpdate = false
+    ): array {
+        global $wpdb;
+        $identityColumn = preg_replace(
+            '/[^A-Za-z0-9_]/',
+            '',
+            (string) ($guard['identity_column'] ?? 'option_id')
+        );
+        $lockIndex = null;
+        if ($forUpdate) {
+            $lockIndex = $this->guard_lock_index($guard, $table);
+            if ($lockIndex === null) {
+                return [
+                    'count' => 0,
+                    'error' => "guard table '{$guard['table']}' has no complete indexed lock boundary for option_name",
+                    'rows' => [],
+                    'witness' => hash('sha256', Canon::encode([])),
+                ];
+            }
+        }
+        $forceIndex = $lockIndex !== null ? " FORCE INDEX (`$lockIndex`)" : '';
+        $sql = "SELECT `$identityColumn` AS guard_id, `option_name`, `option_value`, `autoload` FROM `$table`$forceIndex";
+        if ($forUpdate) {
+            // Regex ownership cannot be translated into one portable SQL
+            // range. Lock the complete indexed option-name range instead;
+            // this is intentionally conservative but closes insert-after-
+            // check races for every authored option_name_refs pattern.
+            $sql .= " WHERE `option_name` >= ''";
+        }
+        $sql .= " ORDER BY `$identityColumn` ASC" . ($forUpdate ? ' FOR UPDATE' : '');
+        $rows = $wpdb->get_results($sql, ARRAY_A);
+        if ($wpdb->last_error) {
+            return [
+                'count' => 0,
+                'error' => "guard query failed for {$guard['table']} option-name refs: {$wpdb->last_error}",
+                'rows' => [],
+                'witness' => hash('sha256', Canon::encode([])),
+            ];
+        }
+
+        $found = [];
+        $witnessRows = [];
+        $idKind = (string) ($guard['id_kind'] ?? '');
+        $token = '{{' . $idKind . ':' . $targetUuid . '}}';
+        foreach ($rows ?: [] as $row) {
+            $name = (string) ($row['option_name'] ?? '');
+            try {
+                // Resolve all id_kinds and classes together. Filtering to the
+                // guard's kind first would hide a cross-kind overlap and
+                // recreate the old first-match ambiguity.
+                $details = $this->policy->option_name_ref_match_details($name);
+            } catch (\Throwable $e) {
+                return [
+                    'count' => 0,
+                    'error' => $e->getMessage(),
+                    'rows' => [],
+                    'witness' => hash('sha256', Canon::encode([])),
+                ];
+            }
+            if ($details === null || ($details['rule']['class'] ?? '') !== 'authored'
+                || (string) ($details['rule']['id_kind'] ?? '') !== $idKind) {
+                continue;
+            }
+            $matches = $details['matches'] ?? [];
+            $rawId = $matches['id'][0] ?? null;
+            $matchedId = Policy::strict_positive_local_id($rawId);
+            if ($matchedId === null) {
+                return [
+                    'count' => 0,
+                    'error' => "guard {$guard['table']} option-name rule captured an unsafe local id",
+                    'rows' => [],
+                    'witness' => hash('sha256', Canon::encode([])),
+                ];
+            }
+            if ($matchedId !== $targetId) {
+                continue;
+            }
+
+            // The canonical options entity is the only portable witness that
+            // this live row is intentionally removed. A present record with a
+            // token still points at the soon-to-be-deleted method and must
+            // remain blocking; a missing record is equally unsafe because
+            // apply would leave this live option untouched.
+            $offset = (int) ($matches['id'][1] ?? -1);
+            if ($offset < 0) {
+                return [
+                    'count' => 0,
+                    'error' => "guard {$guard['table']} option-name rule did not expose its named id capture",
+                    'rows' => [],
+                    'witness' => hash('sha256', Canon::encode([])),
+                ];
+            }
+            $canonicalName = substr($name, 0, $offset)
+                . $token
+                . substr($name, $offset + strlen((string) ($matches['id'][0] ?? '')));
+            $optionsUuid = 'options/core';
+            $record = null;
+            $witnessRows[] = $row;
+            $optionsDocument = $tree[$optionsUuid]['data'] ?? null;
+            if (is_array($optionsDocument)
+                && array_key_exists('format', $optionsDocument)
+                && array_key_exists('records', $optionsDocument)) {
+                $record = OptionState::records($optionsDocument)[$canonicalName] ?? null;
+            }
+            if (isset($guardRepairUuids[$optionsUuid])
+                && is_array($record)
+                && ($record['state'] ?? '') === 'deleted') {
+                continue;
+            }
+
+            $found[] = (string) $guard['table'] . '.' . $identityColumn . '='
+                . (string) ($row['guard_id'] ?? '') . " (option_name=$name)";
+        }
+        return [
+            'count' => count($found),
+            'error' => null,
+            'rows' => $found,
+            'witness' => hash('sha256', Canon::encode(array_values($witnessRows))),
+        ];
+    }
+
+    /**
+     * Count a manifest-declared reference held in a metadata value, such as
+     * WooCommerce grouped products' serialized `_children` post[] list.
+     *
+     * @return array{count:int,error:?string,rows:string[],witness?:string}
+     */
+    private function count_meta_guard_refs(
+        array $guard,
+        string $targetUuid,
+        array $deleteUuids,
+        array $tree,
+        array $guardRepairUuids,
+        string $table,
+        bool $forUpdate = false
+    ): array {
+        global $wpdb;
+        $column = preg_replace('/[^A-Za-z0-9_]/', '', (string) ($guard['column'] ?? ''));
+        $metaKey = (string) ($guard['meta_key'] ?? '');
+        $sourceKind = (string) ($guard['source_id_kind'] ?? '');
+        $sourcePk = preg_replace('/[^A-Za-z0-9_]/', '', (string) ($guard['source_pk'] ?? $column));
+        $identityColumn = preg_replace(
+            '/[^A-Za-z0-9_]/',
+            '',
+            (string) ($guard['identity_column'] ?? 'meta_id')
+        );
+        $where = ["`meta_key` = %s"];
+        $args = [$metaKey];
+        foreach ((array) ($guard['where'] ?? []) as $name => $value) {
+            $name = preg_replace('/[^A-Za-z0-9_]/', '', (string) $name);
+            if (is_int($value)) {
+                $where[] = "`$name` = %d";
+                $args[] = $value;
+            } else {
+                $where[] = "`$name` = %s";
+                $args[] = (string) $value;
+            }
+        }
+        foreach ((array) ($guard['exclude_where'] ?? []) as $name => $value) {
+            $name = preg_replace('/[^A-Za-z0-9_]/', '', (string) $name);
+            if (is_int($value)) {
+                $where[] = "`$name` <> %d";
+                $args[] = $value;
+            } else {
+                $where[] = "`$name` <> %s";
+                $args[] = (string) $value;
+            }
+        }
+        $lockIndex = null;
+        if ($forUpdate) {
+            $lockIndex = $this->guard_lock_index($guard, $table);
+            if ($lockIndex === null) {
+                return [
+                    'count' => 0,
+                    'error' => "guard table '{$guard['table']}' has no complete indexed lock boundary for metadata key '$metaKey'",
+                    'rows' => [],
+                    'witness' => hash('sha256', Canon::encode([])),
+                ];
+            }
+        }
+        $forceIndex = $lockIndex !== null ? " FORCE INDEX (`$lockIndex`)" : '';
+        $sql = "SELECT `$identityColumn` AS guard_id, `$sourcePk` AS source_id, `meta_value` "
+            . "FROM `$table`$forceIndex WHERE " . implode(' AND ', $where)
+            . " ORDER BY `$identityColumn` ASC" . ($forUpdate ? ' FOR UPDATE' : '');
+        $rows = $wpdb->get_results($wpdb->prepare($sql, ...$args), ARRAY_A);
+        if ($wpdb->last_error) {
+            return [
+                'count' => 0,
+                'error' => "guard query failed for {$guard['table']} metadata key '$metaKey': {$wpdb->last_error}",
+                'rows' => [],
+                'witness' => hash('sha256', Canon::encode([])),
+            ];
+        }
+        $targetId = Ledger::id_for($targetUuid, (string) ($guard['id_kind'] ?? ''));
+        if ($targetId === null) {
+            return [
+                'count' => 0,
+                'error' => "required {$guard['id_kind']} identity mapping is absent for guard {$guard['table']} metadata key '$metaKey'",
+                'rows' => [],
+                'witness' => hash('sha256', Canon::encode($rows ?: [])),
+            ];
+        }
+        $found = [];
+        $foundSources = [];
+        foreach ($rows ?: [] as $row) {
+            $sourceId = (int) ($row['source_id'] ?? 0);
+            $sourceUuid = $sourceKind !== '' && $sourceId > 0
+                ? Ledger::uuid_for($sourceId, $sourceKind)
+                : null;
+            if ($sourceUuid !== null && isset($deleteUuids[$sourceUuid])) {
+                continue;
+            }
+            $valueIds = $this->meta_guard_value_ids($row['meta_value'] ?? null, $guard);
+            if ($valueIds === null) {
+                return [
+                    'count' => 0,
+                    'error' => "guard {$guard['table']} metadata key '$metaKey' has an unsupported {$guard['ref']} value shape",
+                    'rows' => [],
+                    'witness' => hash('sha256', Canon::encode($rows ?: [])),
+                ];
+            }
+            if (!in_array($targetId, $valueIds, true)) {
+                continue;
+            }
+            // If the owner is being updated in this exact compiled revision,
+            // inspect its desired canonical metadata. A missing target token
+            // is an explicit, portable repair; no live-only inference is
+            // allowed. Owners absent from this map remain blocking refs.
+            if ($sourceUuid !== null && isset($guardRepairUuids[$sourceUuid])) {
+                $desired = (array) (($tree[$sourceUuid]['data']['meta'] ?? null));
+                $desiredPresent = array_key_exists($metaKey, $desired);
+                $desiredContains = $this->canonical_meta_ref_contains_uuid(
+                    $desiredPresent ? $desired[$metaKey] : null,
+                    (string) ($guard['ref'] ?? ''),
+                    $targetUuid,
+                    $desiredPresent
+                );
+                if ($desiredContains === null) {
+                    return [
+                        'count' => 0,
+                        'error' => "guard {$guard['table']} metadata key '$metaKey' has an unsupported desired {$guard['ref']} value shape",
+                        'rows' => [],
+                        'witness' => hash('sha256', Canon::encode($rows ?: [])),
+                    ];
+                }
+                if (!$desiredContains) {
+                    continue;
+                }
+                $foundSources[$sourceUuid] = true;
+            }
+            $label = (string) ($guard['table'] ?? 'metadata') . '.' . $identityColumn . '='
+                . (string) ($row['guard_id'] ?? '');
+            if ($sourcePk !== '' && array_key_exists('source_id', $row)) {
+                $label .= " ($sourcePk=" . $sourceId . ')';
+            }
+            $found[] = $label;
+        }
+
+        // A scheduled owner update can introduce a target token even when
+        // the live metadata row does not currently reference the target. The
+        // recheck after phase-2 would otherwise be the first place this
+        // becomes visible, and a plan could misleadingly appear safe. Treat
+        // the desired canonical owner state itself as a blocking reference;
+        // only an owner update which removes the token (or an owner tombstone)
+        // is a valid repair witness.
+        foreach ($guardRepairUuids as $sourceUuid => $_) {
+            if (isset($deleteUuids[$sourceUuid]) || isset($foundSources[$sourceUuid])) {
+                continue;
+            }
+            $desired = (array) (($tree[$sourceUuid]['data']['meta'] ?? null));
+            $desiredPresent = array_key_exists($metaKey, $desired);
+            $desiredContains = $this->canonical_meta_ref_contains_uuid(
+                $desiredPresent ? $desired[$metaKey] : null,
+                (string) ($guard['ref'] ?? ''),
+                $targetUuid,
+                $desiredPresent
+            );
+            if ($desiredContains === null) {
+                return [
+                    'count' => 0,
+                    'error' => "guard {$guard['table']} metadata key '$metaKey' has an unsupported desired {$guard['ref']} value shape",
+                    'rows' => [],
+                    'witness' => hash('sha256', Canon::encode($rows ?: [])),
+                ];
+            }
+            if (!$desiredContains) {
+                continue;
+            }
+            $found[] = (string) ($guard['table'] ?? 'metadata') . '.' . $identityColumn
+                . "=desired:$sourceUuid";
+        }
+        return [
+            'count' => count($found),
+            'error' => null,
+            'rows' => $found,
+            'witness' => hash('sha256', Canon::encode($rows ?: [])),
+        ];
+    }
+
+    /** @return list<int>|null null means the value shape is unsafe/unknown. */
+    private function meta_guard_value_ids($raw, array $guard): ?array {
+        $ref = (string) ($guard['ref'] ?? '');
+        $cast = (string) ($guard['cast'] ?? '');
+        if ($cast === 'csv') {
+            if (!is_string($raw)) {
+                return null;
+            }
+            if ($raw === '') {
+                return [];
+            }
+            $ids = [];
+            foreach (explode(',', $raw) as $member) {
+                $id = $this->strict_positive_meta_id($member);
+                if ($id === null) {
+                    return null;
+                }
+                $ids[] = $id;
+            }
+            return $ids;
+        }
+        $decoded = $raw;
+        if (is_string($raw)) {
+            // Do not use WordPress' maybe_unserialize() here. Its legacy
+            // helper delegates to unserialize() without allowed_classes and
+            // would instantiate an object supplied by the database. This
+            // guard only needs scalar/list values, so decoding with objects
+            // disabled is both sufficient and a safer boundary for a
+            // target-controlled metadata value. PHP's unserialize() accepts
+            // a valid value followed by arbitrary trailing bytes; require a
+            // byte-for-byte serialize() round trip so the guard cannot inspect
+            // only a prefix of an attacker-controlled payload. This accepts
+            // all ordinary Woo forms produced by serialize() (arrays,
+            // integer/string scalars, null, and false) while rejecting
+            // noncanonical/trailing payloads without instantiating objects.
+            [$serialized, $unserialized] = $this->strict_unserialize($raw);
+            if ($serialized) {
+                $decoded = $unserialized;
+            }
+        }
+        if (str_ends_with($ref, '[]')) {
+            if (!is_array($decoded) || !array_is_list($decoded)) {
+                return null;
+            }
+            $ids = [];
+            foreach ($decoded as $member) {
+                $id = $this->strict_positive_meta_id($member);
+                if ($id === null) {
+                    return null;
+                }
+                $ids[] = $id;
+            }
+            return $ids;
+        }
+        if ($decoded === null || $decoded === '') {
+            return [];
+        }
+        if (is_array($decoded) || is_object($decoded)) {
+            return null;
+        }
+        $id = $this->strict_positive_meta_id($decoded);
+        return $id === null ? null : [$id];
+    }
+
+    /**
+     * @return array{0:bool,1:mixed} whether $raw is one canonical PHP
+     * serialization value and its safely-decoded value.
+     */
+    private function strict_unserialize(string $raw): array {
+        $decoded = @unserialize($raw, ['allowed_classes' => false]);
+        // `false` is a valid serialized value only when its exact canonical
+        // spelling is present; every other false result is malformed input.
+        if ($decoded === false && $raw !== 'b:0;') {
+            return [false, null];
+        }
+        // allowed_classes=false turns supplied objects into an incomplete
+        // object marker. Reject the object boundary explicitly before any
+        // round trip so no object-shaped value is treated as a scalar/list.
+        if (is_object($decoded)) {
+            return [false, null];
+        }
+        try {
+            $roundTrip = serialize($decoded);
+        } catch (\Throwable $e) {
+            return [false, null];
+        }
+        if ($roundTrip !== $raw) {
+            return [false, null];
+        }
+        return [true, $decoded];
+    }
+
+    /** @return int|null null means the value is not an exact positive id. */
+    private function strict_positive_meta_id($value): ?int {
+        if (is_int($value)) {
+            return $value > 0 ? $value : null;
+        }
+        if (!is_string($value) || !preg_match('/^0*[1-9][0-9]*$/D', $value)) {
+            return null;
+        }
+        $digits = ltrim($value, '0');
+        $id = (int) $digits;
+        // Reject overflow rather than letting a huge decimal string saturate
+        // to PHP_INT_MAX and accidentally match a real local identity.
+        return $id > 0 && (string) $id === $digits ? $id : null;
+    }
+
+    /** @return bool|null null means the declared scalar/list shape is unsafe. */
+    private function canonical_meta_ref_contains_uuid(
+        $value,
+        string $ref,
+        string $uuid,
+        bool $present = true
+    ): ?bool {
+        if (!$present) {
+            return false;
+        }
+        if ($value === null) {
+            return null;
+        }
+        $kind = rtrim($ref, '[]');
+        $token = '{{' . $kind . ':' . $uuid . '}}';
+        // Match the same RFC UUID layout/version/variant that Uuid::is()
+        // and Snapshot's canonical token grammar accept. A merely
+        // 36-character hex/hyphen string is not a valid identity token and
+        // must not be interpreted as an explicit desired removal.
+        $tokenPattern = '/^\{\{' . preg_quote($kind, '/')
+            . ':[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\}\}$/';
+        if (str_ends_with($ref, '[]')) {
+            if (!is_array($value) || !array_is_list($value)) {
+                return null;
+            }
+            $contains = false;
+            foreach ($value as $member) {
+                if (!is_string($member) || preg_match($tokenPattern, $member) !== 1) {
+                    return null;
+                }
+                $contains = $contains || hash_equals($token, $member);
+            }
+            return $contains;
+        }
+        if (!is_string($value) || preg_match($tokenPattern, $value) !== 1) {
+            return null;
+        }
+        return hash_equals($token, $value);
     }
 
     /** Make --force-delete-referenced name every survivor and its supported exit path. */
@@ -814,7 +1385,9 @@ final class Apply {
             $rows = (array) $finding['rows'];
             $count = count($rows);
             $message = "$prefix {$row['type']} {$row['uuid']}: $count rows in $table will be orphaned; ";
-            if (!empty($finding['repairable'])) {
+            if (!empty($finding['option_name_ref'])) {
+                $message .= 'the matching options/core tombstone is the supported repair; ';
+            } elseif (!empty($finding['repairable'])) {
                 $message .= "wp duo plan/capture on $table will refuse until resolved (wp duo orphans $table). ";
             } else {
                 $message .= "$table is not a declared authored-snapshot table and must be resolved through its owning content workflow. ";
@@ -1237,6 +1810,9 @@ final class Apply {
         usort($work, fn($x, $y) =>
             $this->phase2_rank($tree[$x['uuid']]) <=> $this->phase2_rank($tree[$y['uuid']]));
 
+        $deleteUuids = array_fill_keys(array_column($deleteWork, 'uuid'), true);
+        $guardRepairUuids = $this->guard_repair_uuids($plan);
+
         // Planning is intentionally read-only and can be expensive. The
         // target-authoritative lease prevents another Duo writer from racing
         // us, then this second plan proves that live authored/runtime changes,
@@ -1264,10 +1840,34 @@ final class Apply {
         Ledger::kv_set('apply_in_progress', '1');
         Canary::arm();
         $attachmentIds = [];
+        $regenContext = [];
         $transactionStarted = false;
         try {
             Db::start('apply transaction start');
             $transactionStarted = true;
+
+            // Guard reads in the preflight plan are evidence only. Before any
+            // phase-2 repair (especially parent metadata removal or option
+            // tombstone deletion), take current-read locks over every guard
+            // boundary and compare the exact witness captured by that plan.
+            // This closes the SELECT/delete and SELECT/repair windows; the
+            // locks remain held through the authored delete and COMMIT.
+            if (!empty($opts['with_deletes']) && $deleteWork) {
+                $this->lock_and_revalidate_delete_guards(
+                    $deleteWork,
+                    $deleteUuids,
+                    $compiled->deletions(),
+                    $tree,
+                    $guardRepairUuids
+                );
+            }
+
+            // Capture an existing variation's previous variable root before
+            // phase 1/finalize can move its post_parent. The receipt is in the
+            // authored transaction, so a later rebuild failure can replay the
+            // old-root cleanup without guessing from the new parent only.
+            $regenContext = $this->capture_regen_reparent_context($work, $tree);
+
             // ---- adopt: claim unmanaged env rows by writing identity ----
             foreach ($plan['adopt'] as $r) {
                 $this->renew_promotion_lock('apply-adopt');
@@ -1347,15 +1947,32 @@ final class Apply {
 
             // ---- explicit tombstone deletes (still flag-gated) ----
             if (!empty($opts['with_deletes'])) {
-                $deleteUuids = array_fill_keys(array_column($deleteWork, 'uuid'), true);
+                // Recheck every delete guard before writing a durable receipt.
+                // This keeps the receipt behind all refusal/precondition gates,
+                // while the receipt itself and the raw deletes remain in the
+                // same transaction and therefore commit or roll back together.
                 foreach ($deleteWork as $r) {
                     $this->renew_promotion_lock('apply-delete');
                     $this->recheck_delete_guards(
                         $r,
                         $deleteUuids,
                         $compiled->deletions(),
-                        !empty($opts['force_delete_referenced'])
+                        !empty($opts['force_delete_referenced']),
+                        $tree,
+                        $guardRepairUuids,
+                        true
                     );
+                }
+
+                // Product lookup regeneration needs the local parent id of a
+                // variation even after the post row is deleted. Capture that
+                // context only after all gates above have passed, immediately
+                // before the delete writes, and inside the authored transaction.
+                $regenContext = array_merge($regenContext, $this->capture_regen_delete_context(
+                    array_merge($deleteWork, $plan['deleted'])
+                ));
+                foreach ($deleteWork as $r) {
+                    $this->renew_promotion_lock('apply-delete');
                     $this->delete_entity($r['uuid'], $r['type']);
                 }
             }
@@ -1396,7 +2013,7 @@ final class Apply {
         // tables are excluded from the hash basis) can't carry this signal.
         $didMutate = count($work) > 0
             || (!empty($opts['with_deletes']) && count($deleteWork) > 0);
-        $this->rebuild($attachmentIds, $didMutate, $work, $tree);
+        $this->rebuild($attachmentIds, $didMutate, $work, $tree, $regenContext);
 
         // DUO-3220: never infer convergence from the absence of a thrown
         // mutation/rebuilder error. Re-capture the target through the same
@@ -1536,11 +2153,275 @@ final class Apply {
         PromotionLock::heartbeat($this->promotionOwner, $this->promotionArtifact, $phase);
     }
 
+    /**
+     * Acquire every deletion guard's indexed current-read boundary before
+     * authored phase-2 repairs begin, and prove that the live witness still
+     * equals the one used by the completed fresh plan. A changed witness is
+     * never forceable: --force-delete-referenced authorizes deletion of a
+     * known, stable reference, not clobbering a target write which arrived
+     * after planning.
+     */
+    private function lock_and_revalidate_delete_guards(
+        array $deleteWork,
+        array $deleteUuids,
+        array $deletions,
+        array $tree,
+        array $guardRepairUuids
+    ): void {
+        $this->assert_delete_lock_isolation();
+        // This is deliberately inside the authored transaction and before
+        // the first guard SELECT ... FOR UPDATE.  InnoDB's record/gap-lock
+        // semantics are not available on MyISAM (or an unknown engine), so
+        // accepting a locking read there would claim a race boundary that
+        // the storage engine cannot provide.  Keep this scope to the guard
+        // tables actually exercised by this delete work; unrelated manifest
+        // tables must not make a deletion fail closed.
+        $this->assert_delete_guard_engines($deleteWork);
+        foreach ($deleteWork as $row) {
+            $capability = Deletion::capability(
+                $this->policy,
+                (string) $row['deletion_kind'],
+                (string) $row['deletion_type']
+            );
+            foreach ($capability['guards'] ?? [] as $guardIndex => $guard) {
+                $result = $this->count_guard_refs(
+                    $guard,
+                    (string) $row['uuid'],
+                    $deleteUuids,
+                    $deletions,
+                    $tree,
+                    $guardRepairUuids,
+                    true
+                );
+                if ($result['error'] !== null) {
+                    throw new \RuntimeException(
+                        "duo: deletion guard lock refused for {$row['type']} {$row['uuid']}: {$result['error']}"
+                    );
+                }
+                $expected = (string) (($row['guard_witnesses'] ?? [])[(string) $guardIndex] ?? '');
+                $actual = (string) ($result['witness'] ?? '');
+                if ($expected === '' || $actual === '' || !hash_equals($expected, $actual)) {
+                    throw new \RuntimeException(
+                        "duo: deletion guard witness changed after planning for {$row['type']} {$row['uuid']}; "
+                        . 'no mutation attempted — recompile and retry (force flags cannot bypass this race boundary)'
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * Prove that every actual table on which this delete work will take a
+     * guard lock exists and is InnoDB.  SHOW TABLES answers only existence;
+     * information_schema.TABLES is the authoritative source for both the
+     * row and its storage engine.  This runs after START TRANSACTION and
+     * before any authored mutation.  apply_in_progress was written before
+     * START TRANSACTION, so a refusal follows the normal rollback/failure
+     * marker path while leaving authored target state untouched.
+     */
+    private function assert_delete_guard_engines(array $deleteWork): void {
+        global $wpdb;
+
+        $tables = [];
+        $invalidGuards = [];
+        foreach ($deleteWork as $row) {
+            $capability = Deletion::capability(
+                $this->policy,
+                (string) ($row['deletion_kind'] ?? ''),
+                (string) ($row['deletion_type'] ?? '')
+            );
+            foreach ($capability['guards'] ?? [] as $guard) {
+                $declared = preg_replace(
+                    '/[^A-Za-z0-9_]/',
+                    '',
+                    (string) ($guard['table'] ?? '')
+                );
+                if ($declared === '') {
+                    $invalidGuards[] = (string) ($guard['table'] ?? '');
+                    continue;
+                }
+                // Keep this exactly in step with count_guard_refs(), whose
+                // SQL reads the same prefix + sanitized manifest name.
+                $tables[(string) $wpdb->prefix . $declared] = true;
+            }
+        }
+
+        if ($invalidGuards) {
+            sort($invalidGuards, SORT_STRING);
+            throw new \RuntimeException(
+                'duo: deletion guard locking refused — guard declaration has no usable table name: '
+                . implode(', ', $invalidGuards)
+            );
+        }
+        if (!$tables) {
+            return;
+        }
+
+        $tables = array_keys($tables);
+        sort($tables, SORT_STRING);
+        $tableSet = array_fill_keys($tables, true);
+        $placeholders = implode(',', array_fill(0, count($tables), '%s'));
+        // Lock each table's metadata before asking information_schema for its
+        // engine.  A concurrent ALTER/RENAME/DROP must either finish before
+        // this read (so we inspect the resulting table) or wait for this
+        // transaction to end; otherwise an engine row could become stale
+        // between the check and the first SELECT ... FOR UPDATE.  This is a
+        // harmless data read, not a row lock, and it occurs before authored
+        // target mutations.
+        foreach ($tables as $table) {
+            $wpdb->last_error = '';
+            $probe = $wpdb->get_var("SELECT 1 FROM `$table` LIMIT 1");
+            $error = trim((string) ($wpdb->last_error ?? ''));
+            if ($probe === false || $error !== '') {
+                $detail = $error !== '' ? $error : 'no result returned';
+                throw new \RuntimeException(
+                    'duo: deletion guard locking refused — unable to acquire metadata lock for guard table '
+                    . "$table: $detail"
+                );
+            }
+        }
+        // wpdb can retain the previous failed-query message (notably when
+        // the modern isolation variable probe falls back to tx_isolation),
+        // so clear it before this independent introspection query.
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ($placeholders)
+             ORDER BY TABLE_NAME ASC",
+            ...$tables
+        ), ARRAY_A);
+        $error = trim((string) ($wpdb->last_error ?? ''));
+        if ($rows === false || $rows === null || $error !== '') {
+            $detail = $error !== '' ? $error : 'no result returned';
+            throw new \RuntimeException(
+                'duo: deletion guard locking refused — storage-engine introspection failed for '
+                . implode(', ', $tables) . ": $detail"
+            );
+        }
+
+        $engines = [];
+        $duplicateRows = [];
+        foreach ((array) $rows as $row) {
+            $name = (string) ($row['TABLE_NAME'] ?? '');
+            if ($name === '' || !isset($tableSet[$name])) {
+                continue;
+            }
+            if (array_key_exists($name, $engines)) {
+                $duplicateRows[$name] = true;
+                continue;
+            }
+            $engine = $row['ENGINE'] ?? null;
+            $engines[$name] = $engine === null || trim((string) $engine) === ''
+                ? null
+                : strtoupper(trim((string) $engine));
+        }
+
+        $missing = array_values(array_diff($tables, array_keys($engines)));
+        $unknown = [];
+        $unsupported = [];
+        foreach ($engines as $name => $engine) {
+            if ($engine === null) {
+                $unknown[] = "$name (engine: NULL/unknown)";
+            } elseif ($engine !== 'INNODB') {
+                $unsupported[] = "$name (engine: $engine)";
+            }
+        }
+        foreach (array_keys($duplicateRows) as $name) {
+            $unknown[] = "$name (duplicate information_schema rows)";
+        }
+        sort($missing, SORT_STRING);
+        sort($unknown, SORT_STRING);
+        sort($unsupported, SORT_STRING);
+        if ($missing || $unknown || $unsupported) {
+            $details = [];
+            if ($missing) {
+                $details[] = 'missing from information_schema.TABLES: ' . implode(', ', $missing);
+            }
+            if ($unknown) {
+                $details[] = 'unknown engine: ' . implode(', ', $unknown);
+            }
+            if ($unsupported) {
+                $details[] = 'unsupported engine (InnoDB required): ' . implode(', ', $unsupported);
+            }
+            throw new \RuntimeException(
+                'duo: deletion guard locking refused — ' . implode('; ', $details)
+            );
+        }
+    }
+
+    /**
+     * Gap locks are part of this race boundary. Refuse a target whose
+     * isolation level would provide only record locks, because an external
+     * insert could then pass the locked read and become a dangling reference.
+     */
+    private function assert_delete_lock_isolation(): void {
+        global $wpdb;
+        $level = $wpdb->get_var('SELECT @@transaction_isolation');
+        if ($level === null || !empty($wpdb->last_error)) {
+            // MariaDB and older MySQL expose the same session setting under
+            // the historical tx_isolation name; MySQL 8 keeps the modern
+            // transaction_isolation spelling. Probe both without assuming a
+            // particular server family.
+            $wpdb->last_error = '';
+            $level = $wpdb->get_var('SELECT @@tx_isolation');
+        }
+        if ($level === null || !in_array(strtoupper((string) $level), ['REPEATABLE-READ', 'SERIALIZABLE'], true)) {
+            throw new \RuntimeException(
+                'duo: deletion guard locking requires REPEATABLE-READ or SERIALIZABLE transaction isolation; refusing unsafe target'
+            );
+        }
+    }
+
+    /**
+     * Resolve an index which covers the first equality/range column of a
+     * manifest guard. A prefix index is accepted only when the declared
+     * metadata key fits entirely inside that prefix; otherwise inserts with
+     * the same visible prefix could still evade the gap lock.
+     */
+    private function guard_lock_index(array $guard, string $table): ?string {
+        global $wpdb;
+        $lockColumn = array_key_exists('meta_key', $guard) || array_key_exists('ref', $guard)
+            ? 'meta_key'
+            : (!empty($guard['option_name_ref']) ? 'option_name' : (string) ($guard['column'] ?? ''));
+        $rows = $wpdb->get_results("SHOW INDEX FROM `$table`", ARRAY_A) ?: [];
+        $indexes = [];
+        foreach ($rows as $row) {
+            $name = preg_replace('/[^A-Za-z0-9_]/', '', (string) ($row['Key_name'] ?? ''));
+            $seq = (int) ($row['Seq_in_index'] ?? 0);
+            if ($name === '' || $seq <= 0) {
+                continue;
+            }
+            $indexes[$name][$seq] = [
+                'column' => preg_replace('/[^A-Za-z0-9_]/', '', (string) ($row['Column_name'] ?? '')),
+                'prefix' => isset($row['Sub_part']) && $row['Sub_part'] !== null
+                    ? (int) $row['Sub_part']
+                    : null,
+            ];
+        }
+        foreach ($indexes as $name => $parts) {
+            ksort($parts, SORT_NUMERIC);
+            $first = reset($parts);
+            if (($first['column'] ?? '') !== $lockColumn) {
+                continue;
+            }
+            $prefix = $first['prefix'] ?? null;
+            if ($prefix !== null && array_key_exists('meta_key', $guard)
+                && strlen((string) $guard['meta_key']) > $prefix) {
+                continue;
+            }
+            return $name;
+        }
+        return null;
+    }
+
     private function recheck_delete_guards(
         array $row,
         array $deleteUuids,
         array $deletions,
-        bool $forced
+        bool $forced,
+        array $tree = [],
+        array $guardRepairUuids = [],
+        bool $forUpdate = false
     ): void {
         $capability = Deletion::capability(
             $this->policy,
@@ -1550,7 +2431,15 @@ final class Apply {
         $blocks = [];
         $guardRefs = [];
         foreach ($capability['guards'] ?? [] as $guard) {
-            $result = $this->count_guard_refs($guard, (string) $row['uuid'], $deleteUuids, $deletions);
+            $result = $this->count_guard_refs(
+                $guard,
+                (string) $row['uuid'],
+                $deleteUuids,
+                $deletions,
+                $tree,
+                $guardRepairUuids,
+                $forUpdate
+            );
             if ($result['error'] !== null) {
                 $blocks[] = $result['error'];
             } elseif ($result['count'] > 0) {
@@ -1560,6 +2449,7 @@ final class Apply {
                     'table' => (string) $guard['table'],
                     'rows' => $result['rows'],
                     'repairable' => isset($this->snapshotRowTables()[(string) $guard['table']]),
+                    'option_name_ref' => !empty($guard['option_name_ref']),
                 ];
             }
         }
@@ -1821,8 +2711,9 @@ final class Apply {
             'post_date' => $front['date'],
             'post_date_gmt' => $front['date_gmt'],
             'post_content' => '',
-            // task #88: written unconditionally even for a 'derived'-
-            // classified field (e.g. product_variation's title) — a new
+            // Post-field classification: written unconditionally even for a
+            // 'derived'-classified field (e.g. a Woo variation title or
+            // product timestamp) — a new
             // row needs SOME starting value and there's no rebuilder to
             // conjure one; finalize_post() below is where derived fields
             // stop being overwritten, once the row actually exists.
@@ -1982,19 +2873,21 @@ final class Apply {
             'menu_order' => (int) ($front['menu_order'] ?? 0),
             'post_mime_type' => $front['mime'] ?? '',
         ];
-        // Post-FIELD classification (task #88): a field this post_type
-        // classifies 'derived' (v2 scope: product_variation's title —
-        // WooCommerce's own hook-free self-heal, #72's root cause) is
-        // dropped from this UPDATE entirely rather than overwritten with
-        // the captured byte string, once the row already exists.
+        // Post-FIELD classification (task #88 / Woo timestamp extension):
+        // a field this post_type classifies 'derived' is dropped from this
+        // UPDATE entirely rather than overwritten with the captured byte
+        // string, once the row already exists. Keep this translation map
+        // explicit: front-matter names are the manifest contract, while
+        // wp_posts column names are the mutation payload. Only fields in
+        // this map can be omitted; an undeclared front key remains authored.
         // ensure_post_row() (phase 1, moments ago in this same apply for a
-        // brand-new row) already wrote the captured value as a real
-        // starting title — there's no rebuilder to conjure one the way
+        // brand-new row) already wrote captured derived values as real
+        // starting values — there's no rebuilder to conjure them the way
         // _wp_attachment_metadata gets one on create, and WordPress
         // requires SOME value on insert — so this only ever skips touching
         // an ALREADY-populated column, never leaves one null.
         //
-        // Argued explicitly (task #88's report): the alternative —
+        // Argued explicitly in the post-field classification report: the alternative —
         // overwrite it on every apply, same as any authored field — would
         // make a target environment's own, more-progressed self-heal
         // regress to a stale source snapshot on every single apply cycle,
@@ -2002,13 +2895,19 @@ final class Apply {
         // (an admin view, a Store API request) — a pointless oscillation
         // for a value nothing authored actually controls. Letting the
         // plugin's own derivation stand once the row exists is what
-        // "derived" is supposed to mean; Canon::post_hash_basis() (see
-        // load_tree() above) is the other half — it keeps this field's
+        // 'derived' is supposed to mean; Canon::post_hash_basis() (see
+        // load_tree() above) is the other half — it keeps these fields'
         // divergence from ever registering as drift/conflict in the first
         // place, so skipping the write here is consistent with what plan
         // already told the operator would happen.
-        if ($this->policy->field_class($front['type'], 'title') === 'derived') {
-            unset($fields['post_title']);
+        foreach ([
+            'title' => 'post_title',
+            'modified' => 'post_modified',
+            'modified_gmt' => 'post_modified_gmt',
+        ] as $frontField => $dbColumn) {
+            if ($this->policy->field_class($front['type'], $frontField) === 'derived') {
+                unset($fields[$dbColumn]);
+            }
         }
         Db::update($wpdb->posts, $fields, ['ID' => $id], null, null, 'apply update post');
 
@@ -2385,7 +3284,7 @@ final class Apply {
         $raw = $wpdb->get_var($wpdb->prepare(
             "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
         ));
-        $mods = $raw !== null ? maybe_unserialize($raw) : [];
+        $mods = $raw !== null ? PlainData::decode($raw, "option '$name'") : [];
         if (!is_array($mods)) {
             $mods = [];
         }
@@ -2474,6 +3373,11 @@ final class Apply {
     /** @return array{0:string,1:array} canonical name -> target-local name + owning rule */
     private function option_apply_target(string $name, array $allOptions): array {
         if (!str_contains($name, '{{')) {
+            // Even a raw/noncanonical repository key must pass through the
+            // option-name namespace validator. In particular, a leading-zero
+            // would-be instance id must not fall through to the generic
+            // option path and leave a stale target row behind.
+            $this->policy->option_name_ref_match_details($name);
             // DUO-3263: interpreter-aware, not the plain static option_rule()
             // — an ACF options-page field (options_<name>/_options_<name>)
             // has no exact/pattern policy entry at all; only
@@ -2495,10 +3399,23 @@ final class Apply {
         if (!preg_match('/\{\{([a-z][a-z0-9_]*):([0-9a-f-]{36})\}\}/', $name, $tm)) {
             throw new \RuntimeException("duo: option key '$name' contains '{{' but is not a well-formed ref token");
         }
+        // Validate canonical ownership before resolving the token. This
+        // rejects same-kind and cross-kind overlaps in the same way as live
+        // capture and Snapshot preservation, rather than allowing a later
+        // match to silently pick a different rule.
+        $canonicalDetails = $this->policy->canonical_option_name_ref_details($name);
+        if (($canonicalDetails['rule'] ?? null) === null) {
+            throw new \RuntimeException(
+                "duo: captured option key '$name' contains an identity token but no authored option_name_refs owner"
+            );
+        }
         $realId = $this->tokens->token_to_id($tm[0]);
         $realName = str_replace($tm[0], (string) $realId, $name);
-        $rule = $this->policy->match_option_name_ref($realName);
-        if ($rule === null) {
+        $realDetails = $this->policy->option_name_ref_match_details($realName);
+        $rule = $realDetails['rule'] ?? null;
+        if ($rule === null
+            || ($rule['class'] ?? '') !== 'authored'
+            || (string) ($rule['id_kind'] ?? '') !== (string) $tm[1]) {
             throw new \RuntimeException(
                 "duo: captured option key '$name' looks token-form but matches no option_name_refs rule "
                 . "after detokenizing to '$realName'"
@@ -2646,7 +3563,7 @@ final class Apply {
                 . 'has not been deployed/activated on this target yet)';
             $live = [];
         } else {
-            $live = maybe_unserialize($raw);
+            $live = PlainData::decode($raw, "live option '$name'");
             if (!is_array($live)) {
                 throw new \RuntimeException(
                     "duo: live option '$name' is not array-shaped — cannot sub-key-merge into it (got "
@@ -3216,6 +4133,336 @@ final class Apply {
 
     // --------------------------------------------------------------- rebuild
 
+    private const REGEN_DELETE_CONTEXT_PREFIX = 'regen_delete_context:';
+    private const REGEN_REPARENT_CONTEXT_PREFIX = 'regen_reparent_context:';
+
+    private function regen_checked_get_var(mixed $sql, string $context): mixed {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $value = $wpdb->get_var($sql);
+        if ($value === false || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: regeneration bookkeeping read failed: $context");
+        }
+        return $value;
+    }
+
+    private function regen_checked_get_row(mixed $sql, string $context): ?array {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $row = $wpdb->get_row($sql, ARRAY_A);
+        if (($row !== null && !is_array($row)) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: regeneration bookkeeping read failed: $context");
+        }
+        return $row;
+    }
+
+    /** @return array<int,mixed> */
+    private function regen_checked_get_col(mixed $sql, string $context): array {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_col($sql);
+        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: regeneration bookkeeping read failed: $context");
+        }
+        return $rows;
+    }
+
+    /**
+     * Preserve the previous parent of an existing batch-owned post before raw
+     * SQL moves its post_parent. Plugin adapters decide whether that parent is
+     * a derived root to refresh (Woo's variation adapter does); the engine
+     * remains post-type agnostic. New rows and same-parent writes are
+     * intentionally cheap no-ops; a reparent receipt is durable and scoped to
+     * an enabled batch declaration just like a delete receipt.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    private function capture_regen_reparent_context(array $work, array $tree): array {
+        global $wpdb;
+        $out = [];
+        foreach ($work as $entry) {
+            $uuid = (string) ($entry['uuid'] ?? '');
+            $entity = $tree[$uuid] ?? null;
+            if ($uuid === '' || ($entity['type'] ?? '') !== 'post') {
+                continue;
+            }
+            $front = (array) ($entity['data'] ?? []);
+            $postType = (string) ($front['type'] ?? '');
+            if ($postType === '' || $this->policy->regen_batch($postType) === null) {
+                continue;
+            }
+            $id = Ledger::id_for($uuid, Ledger::KIND_POST);
+            if ($id === null && isset($entry['env_id'])) {
+                // Adopt rows do not receive their ledger identity until the
+                // transaction's adopt phase, but their plan-time env_id came
+                // from an exact slug/type/parent collision query. Reuse it
+                // only after validating the post row and refusing an id that
+                // is already mapped to another canonical UUID; never trust a
+                // free-form authored number as an identity fallback.
+                $adoptId = (int) $entry['env_id'];
+                if ($adoptId > 0) {
+                    $mappedUuid = Ledger::uuid_for($adoptId, Ledger::KIND_POST);
+                    if ($mappedUuid !== null && $mappedUuid !== $uuid) {
+                        throw new \RuntimeException(
+                            "duo: cannot capture reparent context for adopted post $adoptId ($uuid): "
+                            . "the local id is already mapped to canonical post $mappedUuid"
+                        );
+                    }
+                    $id = $adoptId;
+                }
+            }
+            if ($id === null) {
+                continue; // create: no previous parent to repair
+            }
+            $row = $this->regen_checked_get_row($wpdb->prepare(
+                "SELECT post_type, post_parent FROM {$wpdb->posts} WHERE ID = %d",
+                $id
+            ), "reparent source post $id");
+            if (!is_array($row) || (string) ($row['post_type'] ?? '') !== $postType) {
+                continue;
+            }
+            $oldParentId = (int) ($row['post_parent'] ?? 0);
+            if ($oldParentId <= 0) {
+                continue;
+            }
+
+            $parentToken = (string) ($front['parent'] ?? '');
+            $newParentId = 0;
+            $newParentKnown = $parentToken === '';
+            if ($parentToken !== ''
+                && preg_match('/^\{\{post:([0-9a-f-]{36})\}\}$/', $parentToken, $match)) {
+                $newParentId = (int) (Ledger::id_for($match[1], Ledger::KIND_POST) ?? 0);
+                $newParentKnown = $newParentId > 0;
+                if (!$newParentKnown) {
+                    // The desired parent may itself be created in this apply;
+                    // its id is not available until phase 1.
+                    $newParentKnown = false;
+                }
+            }
+            $oldParentUuid = Ledger::uuid_for($oldParentId, Ledger::KIND_POST);
+            $sameParent = $newParentId === $oldParentId
+                || (!$newParentKnown && $oldParentUuid !== null
+                    && $parentToken === '{{post:' . $oldParentUuid . '}}');
+            if ($sameParent) {
+                continue;
+            }
+
+            $context = [
+                'kind' => 'reparent',
+                'uuid' => $uuid,
+                'id' => (int) $id,
+                'post_type' => $postType,
+                'parent_id' => $oldParentId,
+                'old_parent_id' => $oldParentId,
+                'new_parent_id' => $newParentId,
+                'child_ids' => [],
+            ];
+            // A failed A->B rebuild may be followed by a B->C authored move
+            // before the first receipt is retried. Keep every root touched by
+            // that chain; replacing the marker with only B/C would make A's
+            // lookup and attributes stale forever. The receipt and the raw
+            // mutation remain in this same transaction.
+            $stored = Ledger::kv_get(self::REGEN_REPARENT_CONTEXT_PREFIX . $uuid);
+            $previous = is_string($stored) ? json_decode($stored, true) : null;
+            if (is_array($previous)
+                && ($previous['kind'] ?? '') === 'reparent'
+                && (string) ($previous['uuid'] ?? $uuid) === $uuid) {
+                $context = $this->merge_regen_contexts($previous, $context);
+            } else {
+                $context['root_ids'] = array_values($this->regen_context_root_ids($context));
+                sort($context['root_ids'], SORT_NUMERIC);
+            }
+            Ledger::kv_set(
+                self::REGEN_REPARENT_CONTEXT_PREFIX . $uuid,
+                json_encode($context)
+            );
+            $out[] = $context;
+        }
+        return $out;
+    }
+
+    /**
+     * Merge durable/current derived-state context without dropping roots from
+     * an earlier failed reparent chain. This is deliberately generic engine
+     * bookkeeping: manifest adapters decide what the ids mean.
+     *
+     * @param array<string,mixed> $base
+     * @param array<string,mixed> $overlay
+     * @return array<string,mixed>
+     */
+    private function merge_regen_contexts(array $base, array $overlay): array {
+        $merged = array_merge($base, $overlay);
+        if (isset($base['_marker_key']) && !isset($overlay['_marker_key'])) {
+            $merged['_marker_key'] = $base['_marker_key'];
+        }
+        $roots = $this->regen_context_root_ids($base);
+        foreach ($this->regen_context_root_ids($overlay) as $rootId) {
+            $roots[$rootId] = $rootId;
+        }
+        if ($roots) {
+            $rootIds = array_values($roots);
+            sort($rootIds, SORT_NUMERIC);
+            $merged['root_ids'] = $rootIds;
+        }
+        $children = [];
+        foreach ([$base, $overlay] as $context) {
+            foreach ((array) ($context['child_ids'] ?? []) as $childId) {
+                $childId = (int) $childId;
+                if ($childId > 0) {
+                    $children[$childId] = $childId;
+                }
+            }
+        }
+        if ($children || array_key_exists('child_ids', $base) || array_key_exists('child_ids', $overlay)) {
+            $merged['child_ids'] = array_values($children);
+            sort($merged['child_ids'], SORT_NUMERIC);
+        }
+        return $merged;
+    }
+
+    /** @param array<string,mixed> $context @return array<int,int> keyed by id */
+    private function regen_context_root_ids(array $context): array {
+        $roots = [];
+        foreach ((array) ($context['root_ids'] ?? []) as $rootId) {
+            $rootId = (int) $rootId;
+            if ($rootId > 0) {
+                $roots[$rootId] = $rootId;
+            }
+        }
+        foreach (['old_parent_id', 'new_parent_id', 'parent_id'] as $key) {
+            $rootId = (int) ($context[$key] ?? 0);
+            if ($rootId > 0) {
+                $roots[$rootId] = $rootId;
+            }
+        }
+        return $roots;
+    }
+
+    /**
+     * Preserve local post/parent ids needed by a manifest batch regenerator
+     * before delete_entity() removes the rows.  Receipts are written only for
+     * post types with an enabled manifest batch contract, so ordinary/legacy
+     * deletes never accumulate a marker that no regenerator can consume.  A
+     * failed apply can retry without relying on a post type that no longer
+     * exists in wp_posts.  It is cleared only after the rebuild pass succeeds;
+     * a later ledger/convergence failure can therefore replay the same
+     * derived cleanup safely.  The generic engine removes a receipt only
+     * after the adapter's exact verification (plus its declarative safety
+     * check) succeeds; later canonical convergence failures do not pretend
+     * that derived state is still unverified.
+     *
+     * @return array<int,array{uuid:string,id:int,post_type:string,parent_id:int,child_ids:array<int,int>}>
+     */
+    private function capture_regen_delete_context(array $deleteWork): array {
+        global $wpdb;
+        $out = [];
+        $explicitIds = [];
+        foreach ($deleteWork as $entry) {
+            if (($entry['type'] ?? '') !== 'post') {
+                continue;
+            }
+            $entryId = Ledger::id_for((string) ($entry['uuid'] ?? ''), Ledger::KIND_POST);
+            if ($entryId !== null) {
+                $explicitIds[(int) $entryId] = true;
+            }
+        }
+        foreach ($deleteWork as $entry) {
+            if (($entry['type'] ?? '') !== 'post') {
+                continue;
+            }
+            $uuid = (string) ($entry['uuid'] ?? '');
+            if ($uuid === '') {
+                continue;
+            }
+            $id = Ledger::id_for($uuid, Ledger::KIND_POST);
+            if ($id === null) {
+                $stored = Ledger::kv_get(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid);
+                $decoded = is_string($stored) ? json_decode($stored, true) : null;
+                $storedType = is_array($decoded) ? (string) ($decoded['post_type'] ?? '') : '';
+                if ($storedType !== '' && $this->policy->regen_batch($storedType) !== null
+                    && is_array($decoded) && (int) ($decoded['id'] ?? 0) > 0) {
+                    $out[] = [
+                        'kind' => 'delete',
+                        'uuid' => $uuid,
+                        'id' => (int) $decoded['id'],
+                        'post_type' => $storedType,
+                        'parent_id' => (int) ($decoded['parent_id'] ?? 0),
+                        'child_ids' => array_values(array_map('intval', (array) ($decoded['child_ids'] ?? []))),
+                    ];
+                } elseif ($stored !== null) {
+                    // A declaration may have been removed or disabled after a
+                    // failed delete.  Do not replay an orphan receipt through
+                    // an unrelated/legacy path.
+                    Ledger::kv_delete(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid);
+                }
+                continue;
+            }
+            $row = $this->regen_checked_get_row($wpdb->prepare(
+                "SELECT post_type, post_parent FROM {$wpdb->posts} WHERE ID = %d",
+                $id
+            ), "delete source post $id");
+            if ($row === null) {
+                // A previous apply may have committed the post delete and
+                // then failed during rebuild.  Reuse the durable pre-delete
+                // receipt rather than losing the variation's parent id on
+                // the retry just because the ledger row still exists.
+                $stored = Ledger::kv_get(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid);
+                $decoded = is_string($stored) ? json_decode($stored, true) : null;
+                $storedType = is_array($decoded) ? (string) ($decoded['post_type'] ?? '') : '';
+                if ($storedType !== '' && $this->policy->regen_batch($storedType) !== null
+                    && is_array($decoded) && (int) ($decoded['id'] ?? 0) > 0) {
+                    $out[] = [
+                        'kind' => 'delete',
+                        'uuid' => $uuid,
+                        'id' => (int) $decoded['id'],
+                        'post_type' => $storedType,
+                        'parent_id' => (int) ($decoded['parent_id'] ?? 0),
+                        'child_ids' => array_values(array_map('intval', (array) ($decoded['child_ids'] ?? []))),
+                    ];
+                } elseif ($stored !== null) {
+                    Ledger::kv_delete(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid);
+                }
+                continue;
+            }
+            $postType = (string) ($row['post_type'] ?? '');
+            if ($postType === '' || $this->policy->regen_batch($postType) === null) {
+                // This delete has no enabled batch consumer.  Remove only a
+                // stale receipt for the same uuid, and never create one.
+                Ledger::kv_delete(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid);
+                continue;
+            }
+            $parentId = (int) ($row['post_parent'] ?? 0);
+            $childIds = [];
+            if ($postType === 'product') {
+                $childIds = array_map('intval', $this->regen_checked_get_col($wpdb->prepare(
+                    "SELECT ID FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = 'product_variation' ORDER BY ID ASC",
+                    $id
+                ), "delete child inventory for post $id"));
+                // A parent delete can coexist with a still-managed child
+                // post in a partial revision.  Only children that are also
+                // explicit tombstones belong to this deletion receipt;
+                // target-local live children must keep their own derived
+                // lookup rows and will be refreshed by the batch live-id
+                // pass.
+                $childIds = array_values(array_filter(
+                    $childIds,
+                    static fn(int $childId): bool => isset($explicitIds[$childId])
+                ));
+            }
+            $context = [
+                'kind' => 'delete',
+                'uuid' => $uuid,
+                'id' => (int) $id,
+                'post_type' => $postType,
+                'parent_id' => $parentId,
+                'child_ids' => $childIds,
+            ];
+            Ledger::kv_set(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid, json_encode($context));
+            $out[] = $context;
+        }
+        return $out;
+    }
+
     /**
      * @param array<int,array{uuid:string,type:string,path?:string}> $work
      *   this run's applied entities (create+adopt+update+forced-conflict) —
@@ -3225,7 +4472,13 @@ final class Apply {
      *   keyed by uuid — needed to resolve a $work entry's post_type
      *   ($tree[$uuid]['data']['type']).
      */
-    private function rebuild(array $attachmentIds, bool $didWork, array $work = [], array $tree = []): void {
+    private function rebuild(
+        array $attachmentIds,
+        bool $didWork,
+        array $work = [],
+        array $tree = [],
+        array $regenContext = []
+    ): void {
         global $wpdb;
 
         // DUO-3234: derived tables with a hard per-entity query-availability
@@ -3236,7 +4489,7 @@ final class Apply {
         // still-outstanding regen_pending: marker must be retried even when
         // THIS run's own $work is empty (see regen_dependencies()'s own
         // docblock for why $didWork/an empty $work cannot gate this step).
-        $this->regen_dependencies($work, $tree);
+        $this->regen_dependencies($work, $tree, $regenContext);
 
         // Future-post cron is derived operational state. Raw SQL deliberately
         // bypasses wp_transition_post_status(), so reproduce only its narrow
@@ -3503,8 +4756,15 @@ final class Apply {
      */
     private const REGEN_PENDING_PREFIX = 'regen_pending:';
 
-    private function regen_dependencies(array $work, array $tree): void {
+    private function regen_dependencies(array $work, array $tree, array $deleteContext = []): void {
         global $wpdb;
+
+        // Batch/refresh dependencies are an explicit opt-in.  They run
+        // before the legacy path so a batch adapter can reconcile an existing
+        // (but stale) row even when the generic existence check would have
+        // skipped it.  TEC and every pre-batch manifest continue through the
+        // single-id path below unchanged.
+        $this->regen_batch_dependencies($work, $tree, $deleteContext);
 
         $candidates = []; // uuid => post_type
         foreach ($work as $r) {
@@ -3513,7 +4773,8 @@ final class Apply {
                 continue;
             }
             $postType = (string) ($e['data']['type'] ?? '');
-            if ($postType !== '' && $this->policy->regen_dependency($postType) !== null) {
+            if ($postType !== '' && $this->policy->regen_dependency($postType) !== null
+                && $this->policy->regen_batch($postType) === null) {
                 $candidates[$r['uuid']] = $postType;
             }
         }
@@ -3522,9 +4783,13 @@ final class Apply {
             if (isset($candidates[$uuid])) {
                 continue; // already covered by $work above
             }
-            if ($this->policy->regen_dependency($postType) !== null) {
+            if ($this->policy->regen_dependency($postType) !== null
+                && $this->policy->regen_batch($postType) === null) {
                 $candidates[$uuid] = $postType;
                 continue;
+            }
+            if ($this->policy->regen_batch($postType) !== null) {
+                continue; // batch path owns this marker
             }
             // Manifest no longer declares this post type's dependency
             // (unpinned, or the declaration was removed) — nothing safe to
@@ -3604,6 +4869,314 @@ final class Apply {
         }
     }
 
+    /**
+     * Execute opt-in manifest batch regenerators.  The generic engine owns
+     * candidate discovery, marker/retry bookkeeping, and the small existence
+     * verification contract; the manifest adapter owns plugin-specific exact
+     * value verification and root/deletion semantics.
+     *
+     * A batch declaration with always_on_write=true receives every write
+     * candidate of its declared type, even when its verification row already
+     * exists. Candidates are this apply's authored work, pending retry
+     * markers, and durable deletion receipts; an unrelated/no-op apply does
+     * not scan the catalog or load the plugin. Deletion context is captured
+     * before the raw delete and remains available until the rebuild pass
+     * succeeds.
+     */
+    private function regen_batch_dependencies(array $work, array $tree, array $deleteContext): void {
+        $jobs = []; // regenerator => {ids, id_types, uuids, deletions, post_types}
+        $batchTypes = $this->policy->regen_batch_post_types();
+
+        $ensureJob = function (string $postType, ?int $id = null, ?string $uuid = null) use (&$jobs): void {
+            $decl = $this->policy->regen_dependency($postType);
+            $batch = $this->policy->regen_batch($postType);
+            if ($decl === null || $batch === null || empty($batch['enabled'])) {
+                return;
+            }
+            $name = (string) ($decl['regenerator'] ?? '');
+            if ($name === '') {
+                return; // Policy validation names malformed declarations.
+            }
+            if (!isset($jobs[$name])) {
+                $jobs[$name] = [
+                    'ids' => [],
+                    'id_types' => [],
+                    'uuids' => [],
+                    'deletions' => [],
+                    'post_types' => [],
+                ];
+            }
+            $jobs[$name]['post_types'][$postType] = true;
+            if ($id !== null && $id > 0) {
+                $jobs[$name]['ids'][$id] = $id;
+                $jobs[$name]['id_types'][$id] = $postType;
+            }
+            if ($uuid !== null && $uuid !== '') {
+                $jobs[$name]['uuids'][$uuid] = $postType;
+            }
+        };
+
+        foreach ($work as $entry) {
+            $entity = $tree[$entry['uuid']] ?? null;
+            if (($entity['type'] ?? '') !== 'post') {
+                continue;
+            }
+            $postType = (string) ($entity['data']['type'] ?? '');
+            if (!isset($batchTypes[$postType])) {
+                continue;
+            }
+            $id = Ledger::id_for((string) $entry['uuid'], Ledger::KIND_POST);
+            $batch = $batchTypes[$postType];
+            if (empty($batch['always_on_write']) && $id !== null) {
+                $decl = $this->policy->regen_dependency($postType);
+                if ($decl !== null && $this->regen_verify_exists($decl['verify'], $id)) {
+                    // A conditional batch declaration retains the original
+                    // existence-gated behavior for a changed work item.
+                    // Pending markers and deletion receipts below remain
+                    // unconditional retries/cleanup candidates.
+                    continue;
+                }
+            }
+            $ensureJob($postType, $id, (string) $entry['uuid']);
+        }
+
+        // A marker can outlive the content hash and is deliberately a
+        // candidate in its own right.  It is also how a failed batch retries
+        // naturally when apply_in_progress is no longer the only signal.
+        foreach (Ledger::kv_prefix(self::REGEN_PENDING_PREFIX) as $key => $postType) {
+            $postType = (string) $postType;
+            if (!isset($batchTypes[$postType])) {
+                continue;
+            }
+            $uuid = substr((string) $key, strlen(self::REGEN_PENDING_PREFIX));
+            $id = Ledger::id_for($uuid, Ledger::KIND_POST);
+            if ($id === null) {
+                Ledger::kv_delete((string) $key);
+                $this->warnings[] = "regen_pending marker for post $uuid (type '$postType') dropped: "
+                    . 'uuid no longer resolves to a local post id';
+                continue;
+            }
+            $ensureJob($postType, $id, $uuid);
+        }
+
+        // Durable derived-state contexts are candidates in their own right.  A
+        // previous apply can have committed the raw delete and failed before
+        // this rebuild, so the retry must not depend on the current plan still
+        // carrying the tombstone.  This is a small marker scan, never a
+        // mapped-post/catalog scan.  Drop malformed or now-nonbatch receipts
+        // rather than replaying them through an unrelated plugin path.
+        $durableContext = [];
+        foreach ([
+            self::REGEN_DELETE_CONTEXT_PREFIX,
+            self::REGEN_REPARENT_CONTEXT_PREFIX,
+        ] as $contextPrefix) {
+            foreach (Ledger::kv_prefix($contextPrefix) as $key => $encoded) {
+                $context = is_string($encoded) ? json_decode($encoded, true) : null;
+                $postType = is_array($context) ? (string) ($context['post_type'] ?? '') : '';
+                $id = is_array($context) ? (int) ($context['id'] ?? 0) : 0;
+                if ($postType === '' || $id <= 0 || $this->policy->regen_batch($postType) === null) {
+                    Ledger::kv_delete((string) $key);
+                    continue;
+                }
+                if (!isset($context['uuid']) || (string) $context['uuid'] === '') {
+                    $context['uuid'] = substr((string) $key, strlen($contextPrefix));
+                }
+                if (!isset($context['kind']) || (string) $context['kind'] === '') {
+                    $context['kind'] = $contextPrefix === self::REGEN_REPARENT_CONTEXT_PREFIX
+                        ? 'reparent'
+                        : 'delete';
+                }
+                $context['_marker_key'] = (string) $key;
+                $durableContext[] = $context;
+            }
+        }
+
+        // Deletion/reparent contexts are supplied even when there are no live
+        // ids in this revision (for example, deleting the last product).
+        // Dedupe by kind+UUID+id so a tombstone and a retry receipt cannot
+        // cause duplicate plugin calls.
+        foreach (array_merge($durableContext, $deleteContext) as $context) {
+            $postType = (string) ($context['post_type'] ?? '');
+            if (!isset($batchTypes[$postType])) {
+                continue;
+            }
+            $decl = $this->policy->regen_dependency($postType);
+            $name = (string) ($decl['regenerator'] ?? '');
+            if ($name === '') {
+                continue;
+            }
+            $kind = (string) ($context['kind'] ?? 'delete');
+            if ($kind === 'reparent') {
+                // A marker-only retry still needs the live variation id so a
+                // plugin adapter can discover the new root after the old
+                // parent receipt was captured. If its ledger mapping has
+                // already disappeared, retain old/new context without
+                // inventing a live id.
+                $uuid = (string) ($context['uuid'] ?? '');
+                $liveId = $uuid !== '' ? Ledger::id_for($uuid, Ledger::KIND_POST) : null;
+                $ensureJob($postType, $liveId, $uuid !== '' ? $uuid : null);
+            } else {
+                $ensureJob($postType);
+            }
+            $identity = (string) ($context['kind'] ?? 'delete') . ':'
+                . (string) ($context['uuid'] ?? '') . ':' . (int) ($context['id'] ?? 0);
+            if (isset($jobs[$name]['deletions'][$identity])) {
+                $context = $this->merge_regen_contexts(
+                    $jobs[$name]['deletions'][$identity],
+                    $context
+                );
+            }
+            $jobs[$name]['deletions'][$identity] = $context;
+        }
+
+        if (!$jobs) {
+            return;
+        }
+
+        $regenerators = $this->policy->regenerators();
+        foreach ($jobs as $name => $job) {
+            $ids = array_values(array_map('intval', $job['ids']));
+            $deletions = array_values($job['deletions']);
+            // A failed reparent can be followed by a tombstone before the
+            // retry. The stale Ledger mapping is intentionally retained until
+            // this rebuild succeeds, so pending/reparent discovery may still
+            // put the deleted id in $job['ids']. Never hand that id to a Woo
+            // adapter as live work: its wc_get_product() read must observe the
+            // deletion context instead. Keep all reparent roots and delete
+            // cleanup contexts in the same call.
+            $deletedIds = [];
+            $deletedUuids = [];
+            foreach ($deletions as $context) {
+                if (($context['kind'] ?? 'delete') === 'reparent') {
+                    continue;
+                }
+                $id = (int) ($context['id'] ?? 0);
+                if ($id > 0) {
+                    $deletedIds[$id] = true;
+                }
+                foreach ((array) ($context['child_ids'] ?? []) as $childId) {
+                    $childId = (int) $childId;
+                    if ($childId > 0) {
+                        $deletedIds[$childId] = true;
+                    }
+                }
+                $uuid = (string) ($context['uuid'] ?? '');
+                $postType = (string) ($context['post_type'] ?? '');
+                if ($uuid !== '' && $postType !== '') {
+                    $deletedUuids[$uuid] = $postType;
+                }
+            }
+            if ($deletedIds) {
+                $ids = array_values(array_filter(
+                    $ids,
+                    static fn(int $id): bool => !isset($deletedIds[$id])
+                ));
+            }
+            $idTypes = $job['id_types'];
+            foreach (array_keys($deletedIds) as $deletedId) {
+                unset($idTypes[$deletedId]);
+            }
+            if (!$ids && !$deletions) {
+                continue;
+            }
+            $regenerator = $regenerators[$name]
+                ?? throw new \RuntimeException(
+                    "duo: batch regen_dependency regenerator '$name' did not load (see Policy::regenerators())"
+                );
+            $markers = array_fill_keys(array_keys($job['uuids']), true);
+            $markFailure = function (\Throwable $t) use ($markers, $job, $name): void {
+                foreach ($markers as $uuid => $_) {
+                    $postType = (string) ($job['uuids'][$uuid] ?? '');
+                    if ($postType !== '') {
+                        Ledger::kv_set(self::REGEN_PENDING_PREFIX . $uuid, $postType);
+                    }
+                }
+                throw new \RuntimeException(
+                    "duo: batch regenerator '$name' failed: " . $t->getMessage(),
+                    0,
+                    $t
+                );
+            };
+
+            if (!method_exists($regenerator, 'regenerate_batch')) {
+                $markFailure(new \RuntimeException(
+                    "regenerator '$name' opted into batch regeneration but does not define "
+                    . 'regenerate_batch(array $liveIds, array $deletionContext, ?callable $heartbeat = null): void'
+                ));
+            }
+
+            // Renew before and after the opaque plugin call. Newer adapters
+            // may also call this callback during their own long live-id,
+            // root, deletion, or verification loops; older two-argument
+            // adapters remain source-compatible.
+            $heartbeat = function (): void {
+                // A production Apply instance always has the lease identity
+                // installed by run().  Keeping the empty-identity seam a
+                // no-op makes this private dispatch contract executable in
+                // offline fakes without weakening the live lease path.
+                if ($this->promotionOwner !== '' && $this->promotionArtifact !== '') {
+                    $this->renew_promotion_lock('apply-rebuild-regen-batch');
+                }
+            };
+            try {
+                $heartbeat();
+                $batchMethod = new \ReflectionMethod($regenerator, 'regenerate_batch');
+                if ($batchMethod->isVariadic() || $batchMethod->getNumberOfParameters() >= 3) {
+                    $regenerator->regenerate_batch($ids, $deletions, $heartbeat);
+                } else {
+                    $regenerator->regenerate_batch($ids, $deletions);
+                }
+                $heartbeat();
+            } catch (\Throwable $t) {
+                $markFailure($t);
+            }
+
+            // Keep the old declarative verification as a cheap generic
+            // safety net.  Woo's adapter additionally checks exact values and
+            // exact absence; TEC never enters this branch.
+            foreach ($idTypes as $id => $postType) {
+                $heartbeat();
+                $decl = $this->policy->regen_dependency((string) $postType);
+                if ($decl === null || !$this->regen_verify_exists($decl['verify'], (int) $id)) {
+                    $uuid = Ledger::uuid_for((int) $id, Ledger::KIND_POST);
+                    if ($uuid !== null) {
+                        Ledger::kv_set(self::REGEN_PENDING_PREFIX . $uuid, (string) $postType);
+                    }
+                    throw new \RuntimeException(
+                        "duo: batch regen_dependency verification failed for post " . (int) $id
+                        . " (type '$postType') — expected a row in {$decl['verify']['table']} where "
+                        . "{$decl['verify']['column']} = " . (int) $id
+                    );
+                }
+                $uuid = Ledger::uuid_for((int) $id, Ledger::KIND_POST);
+                if ($uuid !== null) {
+                    Ledger::kv_delete(self::REGEN_PENDING_PREFIX . $uuid);
+                }
+            }
+            foreach ($deletions as $context) {
+                $heartbeat();
+                $uuid = (string) ($context['uuid'] ?? '');
+                if ($uuid !== '') {
+                    $markerKey = (string) ($context['_marker_key'] ?? '');
+                    if ($markerKey === '') {
+                        $markerKey = (($context['kind'] ?? 'delete') === 'reparent'
+                            ? self::REGEN_REPARENT_CONTEXT_PREFIX
+                            : self::REGEN_DELETE_CONTEXT_PREFIX) . $uuid;
+                    }
+                    Ledger::kv_delete($markerKey);
+                }
+            }
+            // A deleted UUID may still have a pending marker because its
+            // stale Ledger mapping was needed to discover the reparent job.
+            // The adapter's successful exact deletion verification is now the
+            // convergence boundary for that marker too; retain it on any
+            // failure so the next retry repeats both cleanup and roots.
+            foreach ($deletedUuids as $uuid => $_postType) {
+                Ledger::kv_delete(self::REGEN_PENDING_PREFIX . $uuid);
+            }
+        }
+    }
+
     /** Declarative existence check ({table, column} only — no plugin
      *  knowledge needed), matching `invalidate`'s own precedent for the
      *  purely-mechanical half of a typed-snapshot declaration. A missing
@@ -3616,9 +5189,15 @@ final class Apply {
         $table = preg_replace('/[^A-Za-z0-9_]/', '', (string) $verify['table']);
         $col = preg_replace('/[^A-Za-z0-9_]/', '', (string) $verify['column']);
         $prefixed = $wpdb->prefix . $table;
-        if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
+        if (!$this->regen_checked_get_var(
+            $wpdb->prepare('SHOW TABLES LIKE %s', $prefixed),
+            "verify table $table"
+        )) {
             return false;
         }
-        return (bool) $wpdb->get_var($wpdb->prepare("SELECT 1 FROM `$prefixed` WHERE `$col` = %d LIMIT 1", $localId));
+        return (bool) $this->regen_checked_get_var(
+            $wpdb->prepare("SELECT 1 FROM `$prefixed` WHERE `$col` = %d LIMIT 1", $localId),
+            "verify row in $table"
+        );
     }
 }

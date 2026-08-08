@@ -52,6 +52,123 @@ The compiled artifact and plan carry a deterministically sorted
 are checkpoint-restorable. The external object cache is reversible only
 through its pinned inverse/readback contract.
 
+## WooCommerce boundary
+
+The committed WooCommerce manifest declares plugin lifecycle as
+`irreversible`. Its rebuilders and product regenerators name the exact
+checkpoint-restorable database surfaces they can mutate, including the real
+`_transient_*` option rows used by WordPress rather than Woo's logical
+transient names. The attribute-taxonomy and shipping rebuilders bind the
+specific `wc_attribute_taxonomies` and `shipping-transient-version` logical
+keys to bounded provider resources; neither uses the generic `transient`
+namespace as a selector.
+
+Each product regenerator declares the four fixed product transient keys
+(`wc_products_onsale`, `wc_featured_products`, `wc_outofstock_count`, and
+`wc_low_stock_count`) and both value/timeout rows for each, plus the value and
+timeout rows for `product-transient-version`. It also carries one explicit,
+wildcard-free provider-resource aggregate whose finite families are:
+`product`, `object`, `products`, and `product_objects` cache groups;
+product-specific transient families `wc_product_children`,
+`wc_var_prices`, `wc_related`, `wc_child_has_weight`, and
+`wc_child_has_dimensions`; the product transient version; and
+the exact attribute-registry transient `wc_attribute_taxonomies`; and
+`wc_layered_nav_counts`. The aggregate also names the finite generic
+WordPress groups touched by `clean_post_cache()` and
+`clean_object_term_cache()` (`posts`, `post_meta`, `terms`, and `general`),
+plus the dynamic `post_parent:<id>` key within `posts` and
+`<taxonomy>_relationships` group families. The selector's declarative
+`members` object contains exact values and finite templates; the only core
+typed placeholders are `{positive_uint}` (a canonical positive decimal id of
+1–19 digits, without leading zeroes) and `{slug}` (a lower-case, bounded
+attribute slug).
+The first four groups and the family names receive concrete runtime keys (for
+example, `post_parent:42` within `posts` and `pa_color_relationships` for a
+product attribute).
+The relationship family is restricted to Woo's fixed product taxonomies
+(`product_type`, `product_visibility`, `product_cat`, `product_tag`, and
+`product_shipping_class`) plus concrete `pa_<slug>` attribute taxonomies.
+Within those groups, the callback boundary covers the product-id,
+`post_parent:<id>`, and `last_changed` keys in `posts`, the object id in
+`post_meta`, `last_changed` in `terms`, and `wp_get_archives` in `general`.
+The aggregate is the single bounded authority for those dynamic names; an
+observer maps only a concrete `{scope,type,value}` selector against its
+declared exact/template members and rejects every other key. The aggregate
+itself is not a member and cannot be observed as a substitute for one of its
+concrete resources. No selector or member template contains a wildcard or an
+unbounded id/attribute pattern; unknown placeholders, duplicate members,
+extra selector keys, and malformed templates fail during policy/inventory
+validation.
+The canonical concrete event form is
+`woocommerce-product-cache-event:v1:group=product;id=42`,
+`...:transient=wc_layered_nav_counts_pa_color`, or
+`...:cache_group=pa_color_relationships;key=42`; direct compact forms such as
+`product_42` and `wc_var_prices_42` are accepted only for this aggregate.
+Malformed ids, unknown families, wildcard values, and generic namespaces are
+refused before the provider is called.
+
+Woo 11.0.0's `wc_delete_product_transients()` also refreshes
+`product-transient-version` through `get_transient_version('product', true)`
+and fires `woocommerce_delete_product_transients`. The manifest separately
+declares the exact WordPress read/set filters and actions for that key (the
+`pre_transient_*`, `transient_*`, `pre_set_transient_*`,
+`expiration_of_transient_*`, `set_transient_*`, generic `set_transient`, and
+deprecated `setted_transient` boundaries), as well as
+`woocommerce_product_read` and `woocommerce_updated_product_price`.
+`WC_Cache_Helper::invalidate_attribute_count(array_keys($product->get_attributes()))`
+queues the concrete `wc_layered_nav_counts_<attribute>` keys. Live product and
+variation objects supply their own keys; deletion-only batches conservatively
+invalidate the finite registered Woo taxonomy set because the deleted object
+cannot be loaded after raw SQL deletion. A variation also invalidates its
+parent's fixed/specific transients and product cache, matching Woo's public
+11.x clear-cache behavior.
+
+The ordinary, manual `duo promote` path remains supported. Operators may
+continue to use it with an explicit review/rollback plan; the effect bundle
+does not turn WooCommerce's public lifecycle or dynamic caches into a claim
+of automatic reversibility.
+
+The exact inventory is pinned by
+`sandbox/tests/regress_woocommerce_effect_contract.php`: both product types
+name `posts`, `postmeta`, both lookup tables, every fixed transient value and
+timeout row, both product-version rows, and the attribute-taxonomy transient
+value/timeout rows as checkpoint-restorable. The
+offline product fake exercises fixed deletes, concrete id-suffixed product
+families, product-version get/set, concrete fixed-delete callbacks, and
+concrete layered-nav invalidation; it
+does not leave `wc_delete_product_transients()` or attribute invalidation as a
+false-green no-op. Runtime observations therefore carry concrete IDs and
+attribute names and reconcile to the declared aggregate's finite family list.
+The attribute transient command declares the exact WordPress
+`delete_transient_wc_attribute_taxonomies` and `deleted_transient` callback
+boundaries. The shipping invalidator declares the exact transient read/set
+filters and actions for `shipping-transient-version`, including generic
+`set_transient` and deprecated `setted_transient`. It immediately reads the
+version back with `get_transient_version('shipping', false)` and fails if the
+returned value differs from the refresh result; a truthy refresh return alone
+is not persistence proof. All corresponding external-cache rows remain
+explicit automatic blockers until a bounded inverse and fresh readback are
+proven. Each regenerator separately declares the attribute-registry transient
+delete/get/set callbacks, including the generic `deleted_transient`,
+`set_transient`, and `setted_transient` actions, because that refresh executes
+in the regenerator phase rather than the standalone rebuild phase.
+
+Scope boundary: the `clean_post_cache` and `clean_object_term_cache` callback
+boundaries are declared as irreversible hooks, and the finite generic groups
+they touch are included in the Woo provider aggregate for observation. The
+adapter's direct `wp_cache_delete('lookup_table', 'object_<id>')` is likewise
+covered by the bounded `object` family. No other generic WordPress cache
+group, and not the unbounded WordPress `transient` namespace, is claimed by
+this contract; an undeclared callback or group remains a hard observation
+refusal rather than hidden rollback authority.
+
+Woo's `woocommerce_before_attribute_delete`, `woocommerce_attribute_deleted`,
+`woocommerce_flush_rewrite_rules`, and
+`woocommerce_shipping_zone_method_added` hooks are intentionally not in this
+inventory: typed attribute deletion and shipping CRUD setters are unsupported
+raw-table paths here, so those callbacks are not invoked by the shipped
+adapter.
+
 ## Target preparation and receipt binding
 
 Configure an absolute provider argv vector:

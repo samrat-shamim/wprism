@@ -6,15 +6,18 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy \
 	regress-env-options-policy regress-export-manifest-roundtrip regress-manifest-reclassification-policy \
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
+	regress-woocommerce-product-lookups regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
+	regress-woocommerce-regen-engine \
 	regress-term-meta regress-url-query-refs regress-acf-term-options-fields regress-collision \
 	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
 	regress-snapshot-meta regress-ssh-adopt regress-tec-regen regress-user-meta \
 	regress-option-name-refs-wiring regress-offline-all regress-live-list regress-code-compatibility regress-upload-bundle \
-	regress-effect-bundle regress-ssh-rollback-certification \
+	regress-effect-bundle regress-woocommerce-effect-contract regress-ssh-rollback-certification \
 	regress-coverage-offline regress-coverage regress-classification-batch \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
-	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-woocommerce-contract
+	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions \
+	regress-post-field-classification regress-woocommerce-contract
 
 up:
 	$(COMPOSE) up -d
@@ -339,6 +342,9 @@ regress-coverage-offline:
 regress-coverage:
 	bash sandbox/tests/regress_coverage.sh
 
+regress-post-field-classification:
+	php sandbox/tests/regress_post_field_classification.php
+
 regress-code-revision-enforcement:
 	php sandbox/tests/regress_code_revision_enforcement.php
 
@@ -490,6 +496,18 @@ regress-menu-field-reclassification-policy:
 regress-regen-dependency-policy:
 	bash sandbox/tests/regress_regen_dependency_policy.sh
 
+regress-woocommerce-product-lookups:
+	php sandbox/tests/regress_woocommerce_product_lookups.php
+
+regress-woocommerce-product-lookups-fake:
+	php sandbox/tests/regress_woocommerce_product_lookups_fake.php
+
+regress-woocommerce-deletion-authority:
+	php sandbox/tests/regress_woocommerce_deletion_authority.php
+
+regress-woocommerce-regen-engine:
+	php sandbox/tests/regress_woocommerce_regen_engine.php
+
 regress-shortcode-refs:
 	bash sandbox/tests/regress_shortcode_refs.sh
 
@@ -520,6 +538,9 @@ regress-upload-bundle:
 regress-effect-bundle:
 	php sandbox/tests/regress_effect_bundle.php
 
+regress-woocommerce-effect-contract:
+	php sandbox/tests/regress_woocommerce_effect_contract.php
+
 regress-ssh-rollback-certification:
 	php sandbox/tests/regress_ssh_rollback_certification.php
 
@@ -528,6 +549,7 @@ regress-pair-bootstrap-unit:
 
 regress-woocommerce-contract:
 	php sandbox/tests/regress_woocommerce_contract.php
+	php sandbox/tests/woocommerce_contract_read_failures.php
 
 # --- live (docker/pair.sh-dependent), now in regress-live-list ---
 regress-acf-term-options-fields:
@@ -578,10 +600,11 @@ regress-user-meta:
 # DUO-3285: one target bundling every offline (no-docker) regress suite --
 # cheap enough to run at every local close-gate. Hosted CI is intentionally
 # disabled for this repository, so this local bundle plus independent review
-# is the merge gate. 53 suites: code-half-unit's prerequisites folded in once,
-# plus the direct offline prerequisites below. regress-bundle-coverage
-# independently computes this transitive count and rejects a stale number in
-# the status line.
+# is the merge gate. 59 suites: code-half-unit's prerequisites folded in once,
+# plus the direct offline prerequisites below, including the SSH rollback,
+# WooCommerce adapter/lookup/guard/effect and post-field classification
+# contracts. regress-bundle-coverage independently computes this transitive
+# count and rejects a stale number in the status line.
 # Plain prerequisite list, same idiom
 # as code-half-unit itself -- make's default (non -j) prerequisite order
 # is the listed order, and it stops at the first failure, exactly the
@@ -589,8 +612,8 @@ regress-user-meta:
 # on suite 21 when suite 3 already broke). Live suites are deliberately
 # NOT here -- see regress-live-list.
 #
-# DUO-3285 fast-follow and recovery closure: the bundle is now 50 suites.
-# regress-coverage-offline (DUO-3290's own suite,
+# DUO-3285 fast-follow and recovery closure: regress-coverage-offline
+# (DUO-3290's own suite,
 # asub's PR #82) had a real Makefile target the whole time but landed after
 # this bundle's own survey was authored, so it slipped in unbundled exactly
 # the way this target exists to prevent -- team-lead caught it by
@@ -619,8 +642,12 @@ regress-offline-all: code-half-unit \
 	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch \
 	regress-coverage-offline regress-bundle-coverage regress-rollback-authority \
 	regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-upload-bundle \
-	regress-effect-bundle regress-ssh-rollback-certification regress-pair-bootstrap-unit regress-woocommerce-contract
-	@echo "regress-offline-all: 53 offline suites green"
+	regress-effect-bundle regress-woocommerce-effect-contract regress-woocommerce-product-lookups \
+	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
+	regress-woocommerce-regen-engine regress-pair-bootstrap-unit \
+	regress-post-field-classification \
+	regress-ssh-rollback-certification regress-woocommerce-contract
+	@echo "regress-offline-all: 59 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

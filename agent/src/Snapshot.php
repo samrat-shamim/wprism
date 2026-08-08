@@ -270,17 +270,20 @@ namespace Duo;
  *
  * ---- What this file does NOT do (by design, this round) ----
  *
- * - No support for a ref whose TARGET column lives in an option NAME rather
- *   than a table column (WooCommerce's `woocommerce_<method>_<instance>_
- *   settings` shape, docs/grind/r1b-shop.md) — characterized as a fourth,
- *   harder mechanism there; shipping_zones/tax_rates stay honest intent
- *   markers (`authored_typed_snapshot_post_v1`), not attempted here.
- * - No cross-table delete ORDERING (children before parents): verified
- *   empirically via SHOW CREATE TABLE that nf3_fields/nf3_actions carry no
- *   real FOREIGN KEY constraint (WordPress plugins essentially never use
- *   InnoDB FK enforcement), so a same-transaction delete of a parent before
- *   its now-also-deleted children never trips a database error — cosmetic
- *   ordering, not a correctness gap, and left as a documented follow-up.
+ * - No direct WooCommerce CRUD/API or plugin-hook emulation for typed-row
+ *   deletes: authored Woo rows and option-name refs are represented and
+ *   guarded generically from their manifest declarations, while Woo's
+ *   version-pinned cache boundaries are run by Apply's manifest rebuilder.
+ *   Plugin-specific side effects outside those declared state and cache
+ *   boundaries remain unsupported until a manifest capability grants them
+ *   explicit authority.
+ * - Delete ordering is the inverse of creation ordering: Apply's
+ *   deletion_rank() sorts declared typed rows child-before-parent, while
+ *   Snapshot::phase2_rank() keeps ordinary writes parent-before-child. The
+ *   order is deterministic even though WordPress plugin tables rarely carry
+ *   real InnoDB foreign keys; it makes child cleanup/cache invalidation happen
+ *   before the parent tombstone and keeps the boundary safe if a future
+ *   adapter does add an FK.
  *
  * ---- Engine boundary ----
  *
@@ -1646,13 +1649,37 @@ final class Snapshot {
         $idKind = $decl['id_kind'];
         $front = $entity['data'] ?? Canon::decode($entity['content']);
         $uuid = $front['uuid'];
-        if (Ledger::id_for($uuid, $idKind) !== null) {
-            return false;
-        }
+        $mappedId = Ledger::id_for($uuid, $idKind);
         $prefixed = $wpdb->prefix . $entity['type'];
+        $pk = $decl['pk'];
+
+        // An option-name reference can deliberately retain this identity
+        // after the typed row disappears so capture can still emit the
+        // paired settings tombstone.  That retained mapping is recovery
+        // evidence, not proof that the row still exists.  Re-read the exact
+        // primary key and, when absent, recreate it with the same id so the
+        // tokenized option name remains bound to the recovered row.
+        if ($mappedId !== null) {
+            $wpdb->last_error = '';
+            $existingId = $wpdb->get_var($wpdb->prepare(
+                "SELECT `$pk` FROM `$prefixed` WHERE `$pk` = %d LIMIT 1",
+                $mappedId
+            ));
+            if ((string) ($wpdb->last_error ?? '') !== '') {
+                throw new \RuntimeException(
+                    "duo: failed to verify retained typed-snapshot identity for {$entity['type']}"
+                );
+            }
+            if ($existingId !== null) {
+                return false;
+            }
+        }
         $colTypes = self::live_column_types($entity['type']) ?? [];
 
         $data = [];
+        if ($mappedId !== null) {
+            $data[$pk] = $mappedId;
+        }
         foreach ($decl['columns'] ?? [] as $col => $rule) {
             if (($rule['class'] ?? '') !== 'authored') {
                 continue;
@@ -1664,7 +1691,8 @@ final class Snapshot {
         }
         [$data, $format] = self::write_format($data, $colTypes);
         Db::insert($prefixed, $data, $format, "apply insert typed-snapshot row {$entity['type']}");
-        $localId = Db::insert_id("apply insert typed-snapshot row {$entity['type']}");
+        $localId = $mappedId
+            ?? Db::insert_id("apply insert typed-snapshot row {$entity['type']}");
         Ledger::set($uuid, $entity['type'], $idKind, $localId);
         return true;
     }
@@ -2141,7 +2169,151 @@ final class Snapshot {
      * a straightforward future addition if this hygiene gap ever proves to
      * matter in practice; not built speculatively here.
      */
-    public static function prune_dead_map(Policy $policy): void {
+    /**
+     * Preserve typed-row identities which an authored option-name namespace
+     * still needs. A Woo shipping-method row can disappear before its
+     * `woocommerce_<method>_<instance>_settings` option does; pruning the
+     * wc_zone_method mapping at that point would make the live option look
+     * like an unrelated/unowned row before capture can emit its paired
+     * canonical tombstone. The live option scan covers that recovery case;
+     * the frozen options document additionally covers a previous canonical
+     * deletion record when the option is already absent on this target.
+     *
+     * This is deliberately identity preservation only. It does not mint a
+     * UUID, infer a missing mapping, or widen option ownership: every kept
+     * id still has to match an authored option_name_refs rule for its own
+     * id_kind, and canonical tokens must resolve through the existing ledger.
+     *
+     * @return array<string,int[]> id_kind => local ids to exclude from dead-map pruning
+     */
+    public static function option_name_ref_preserved_ids(
+        Policy $policy,
+        ?array $repositoryOptions = null
+    ): array {
+        $rulesByKind = [];
+        foreach ($policy->option_name_ref_rules() as $rule) {
+            if (($rule['class'] ?? '') !== 'authored') {
+                continue;
+            }
+            $kind = (string) ($rule['id_kind'] ?? '');
+            if ($kind !== '') {
+                $rulesByKind[$kind][] = $rule;
+            }
+        }
+        if (!$rulesByKind) {
+            return [];
+        }
+
+        $preserve = [];
+        global $wpdb;
+        $optionsTable = preg_replace(
+            '/[^A-Za-z0-9_]/',
+            '',
+            (string) ($wpdb->options ?? (($wpdb->prefix ?? 'wp_') . 'options'))
+        );
+        if ($optionsTable !== '') {
+            // A failed option scan is not the same thing as an empty option
+            // table. Treating it as empty would let the following dead-map
+            // DELETE remove precisely the identity this preservation pass
+            // exists to protect. Clear a stale previous diagnostic first,
+            // then fail closed on either wpdb error form.
+            $wpdb->last_error = '';
+            $live = $wpdb->get_results("SELECT `option_name` FROM `$optionsTable`", ARRAY_A);
+            if ($live === false || $live === null || !empty($wpdb->last_error)) {
+                throw new \RuntimeException(
+                    'duo: cannot reconcile option_name_refs identities because the wp_options scan failed'
+                );
+            }
+            foreach ($live as $row) {
+                $name = (string) ($row['option_name'] ?? '');
+                $details = $policy->option_name_ref_match_details($name);
+                if ($details === null || ($details['rule']['class'] ?? '') !== 'authored') {
+                    continue;
+                }
+                $kind = (string) ($details['rule']['id_kind'] ?? '');
+                if (!isset($rulesByKind[$kind])) {
+                    continue;
+                }
+                $matches = $details['matches'] ?? [];
+                $rawId = $matches['id'][0] ?? null;
+                $id = Policy::strict_positive_local_id($rawId);
+                if ($id === null) {
+                    throw new \RuntimeException(
+                        "duo: option '$name' has an invalid local id in option_name_refs; refusing identity pruning"
+                    );
+                }
+                $preserve[$kind][] = $id;
+            }
+        }
+
+        // A previous canonical deletion can be the only remaining witness
+        // after the live option row has already gone. Keep its ledger mapping
+        // long enough for the next capture/apply to reconcile the typed-row
+        // tombstone and the option tombstone as one authored change.
+        if ($repositoryOptions !== null) {
+            foreach (array_keys(OptionState::records($repositoryOptions)) as $name) {
+                $matched = preg_match_all(
+                    '/\{\{([a-z][a-z0-9_]*):([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\}\}/',
+                    (string) $name,
+                    $matches,
+                    PREG_SET_ORDER
+                );
+                if ($matched === false || $matched === 0) {
+                    continue;
+                }
+                foreach ($matches as $match) {
+                    $kind = (string) ($match[1] ?? '');
+                    if (!isset($rulesByKind[$kind])) {
+                        continue;
+                    }
+                    $id = Ledger::id_for((string) ($match[2] ?? ''), $kind);
+                    if ($id === null || $id <= 0) {
+                        continue;
+                    }
+
+                    // Canonical option names are untrusted repository input
+                    // until their policy ownership is proved. A token with
+                    // a known kind embedded in an unrelated name must not
+                    // pin a dead map row forever. Reconstruct the numeric
+                    // name and require exactly one authored rule for that
+                    // kind whose named capture resolves to this same id.
+                    $tokenText = (string) ($match[0] ?? '');
+                    $replacementCount = 0;
+                    $numericName = preg_replace(
+                        '/' . preg_quote($tokenText, '/') . '/',
+                        (string) $id,
+                        (string) $name,
+                        1,
+                        $replacementCount
+                    );
+                    if ($numericName === null || $replacementCount !== 1) {
+                        throw new \RuntimeException(
+                            "duo: canonical option token for id_kind '$kind' could not be reconstructed safely"
+                        );
+                    }
+                    $details = $policy->option_name_ref_match_details($numericName);
+                    if ($details === null
+                        || ($details['rule']['class'] ?? '') !== 'authored'
+                        || (string) ($details['rule']['id_kind'] ?? '') !== $kind
+                        || Policy::strict_positive_local_id($details['matches']['id'][0] ?? null) !== $id) {
+                        throw new \RuntimeException(
+                            "duo: canonical option token for id_kind '$kind' is not owned by exactly one authored option_name_refs rule"
+                        );
+                    }
+                    $preserve[$kind][] = $id;
+                }
+            }
+        }
+
+        foreach ($preserve as $kind => $ids) {
+            $ids = array_values(array_unique(array_map('intval', $ids), SORT_NUMERIC));
+            sort($ids, SORT_NUMERIC);
+            $preserve[$kind] = array_values(array_filter($ids, static fn(int $id): bool => $id > 0));
+        }
+        return $preserve;
+    }
+
+    public static function prune_dead_map(Policy $policy, ?array $repositoryOptions = null): void {
         $tables = [];
         foreach (self::row_tables($policy) as $name => $decl) {
             if (self::is_composite_ref($decl)) {
@@ -2150,7 +2322,10 @@ final class Snapshot {
             $tables[$decl['id_kind']] = ['table' => $name, 'pk' => $decl['pk']];
         }
         if ($tables) {
-            Ledger::prune_dead_table_map($tables);
+            Ledger::prune_dead_table_map(
+                $tables,
+                self::option_name_ref_preserved_ids($policy, $repositoryOptions)
+            );
         }
     }
 
@@ -2169,7 +2344,10 @@ final class Snapshot {
      * prune_dead_map(): their packed local_id has no single source PK to join
      * against, and no current option-name reference can resolve one safely.
      */
-    public static function prune_option_name_ref_map(Policy $policy): void {
+    public static function prune_option_name_ref_map(
+        Policy $policy,
+        ?array $repositoryOptions = null
+    ): void {
         $refKinds = [];
         foreach ($policy->option_name_ref_rules() as $rule) {
             $kind = (string) ($rule['id_kind'] ?? '');
@@ -2190,7 +2368,10 @@ final class Snapshot {
             $tables[$kind] = ['table' => $name, 'pk' => $decl['pk']];
         }
         if ($tables) {
-            Ledger::prune_dead_table_map($tables);
+            Ledger::prune_dead_table_map(
+                $tables,
+                self::option_name_ref_preserved_ids($policy, $repositoryOptions)
+            );
         }
     }
 

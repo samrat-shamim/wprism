@@ -25,16 +25,24 @@ function get_taxonomies($args = [], $output = 'names'): array { return []; }
 function get_taxonomy($name) { return false; }
 function esc_sql($value): string { return addslashes((string) $value); }
 function wp_json_encode($value) { return json_encode($value, JSON_UNESCAPED_SLASHES); }
+function wp_cache_delete(...$args): bool { return true; }
+function maybe_serialize($value) {
+    return is_array($value) || is_object($value) ? serialize($value) : $value;
+}
 function is_serialized($value, $strict = true): bool {
     if (!is_string($value)) return false;
+    $value = trim($value);
+    if ($value === 'N;') return true;
     if ($value === 'b:0;') return true;
     $length = strlen($value);
     if ($length < 4 || $value[1] !== ':') return false;
-    $last = $value[$length - 1];
-    if ($last !== ';' && $last !== '}') return false;
+    if ($strict) {
+        $last = $value[$length - 1];
+        if ($last !== ';' && $last !== '}') return false;
+    }
     $token = $value[0];
     if ($token === 's') return !$strict || $value[2] === '"';
-    return in_array($token, ['a', 'O', 'C', 'E', 'd', 'i', 'b', 'N'], true);
+    return in_array($token, ['a', 'O', 'C', 'E', 'd', 'i', 'b'], true);
 }
 function maybe_unserialize($value) {
     if (!is_serialized($value)) return $value;
@@ -54,6 +62,7 @@ final class LifecycleOptionsFakeWpdb {
     public string $options = 'wp_options';
     public string $users = 'wp_users';
     public string $last_error = '';
+    public string $schemaProbeErrorColumn = '';
     /** @var array<string,array{option_value:string,autoload:string}> */
     public array $optionRows = [];
     /** @var array<string,bool> */
@@ -64,6 +73,12 @@ final class LifecycleOptionsFakeWpdb {
     public array $map = [];
     /** @var list<string> */
     public array $queries = [];
+    /** @var list<array{table:string,data:array,where?:array}> */
+    public array $writes = [];
+    /** @var list<object> */
+    public array $menuTerms = [];
+    /** @var array<int,string> */
+    public array $termUuidById = [];
 
     public function get_charset_collate(): string { return ''; }
 
@@ -95,8 +110,19 @@ final class LifecycleOptionsFakeWpdb {
     public function get_results($query, $output = ARRAY_A): array {
         [$sql, $args] = $this->unwrap($query);
         $this->queries[] = $sql;
+        if (str_contains($sql, "tt.taxonomy = 'nav_menu'")) {
+            return $this->menuTerms;
+        }
         if (str_contains($sql, 'option_name, option_value') && str_contains($sql, $this->options)) {
-            if (str_contains($sql, "option_name LIKE 'widget\\_%'")) return [];
+            if (str_contains($sql, "option_name LIKE 'widget\\_%'")) {
+                $rows = [];
+                foreach ($this->optionRows as $name => $row) {
+                    if (str_starts_with($name, 'widget_')) {
+                        $rows[] = ['option_name' => $name, 'option_value' => $row['option_value']];
+                    }
+                }
+                return $rows;
+            }
             $rows = [];
             foreach ($this->optionRows as $name => $row) {
                 $rows[] = ['option_name' => $name, 'option_value' => $row['option_value']];
@@ -153,9 +179,23 @@ final class LifecycleOptionsFakeWpdb {
     public function get_var($query) {
         [$sql, $args] = $this->unwrap($query);
         $this->queries[] = $sql;
+        if (str_contains($sql, 'SELECT option_value FROM') && $args !== []) {
+            $name = (string) $args[0];
+            return $this->optionRows[$name]['option_value'] ?? null;
+        }
+        if (str_contains($sql, 'SELECT meta_value FROM wp_termmeta') && $args !== []) {
+            return $this->termUuidById[(int) $args[0]] ?? null;
+        }
         // Ledger migration checks see an already-current schema; all ordinary
         // identity/reference lookups are intentionally empty.
-        if (str_contains($sql, 'CHARACTER_MAXIMUM_LENGTH')) return '64';
+        if (str_contains($sql, 'CHARACTER_MAXIMUM_LENGTH')) {
+            if ($this->schemaProbeErrorColumn !== ''
+                && str_contains($sql, "COLUMN_NAME = '{$this->schemaProbeErrorColumn}'")) {
+                $this->last_error = 'simulated schema-width probe failure';
+                return null;
+            }
+            return '64';
+        }
         if (str_contains($sql, 'SHOW TABLES LIKE')) {
             return isset($this->existingTables[(string) ($args[0] ?? '')])
                 ? (string) ($args[0] ?? '')
@@ -195,14 +235,54 @@ final class LifecycleOptionsFakeWpdb {
         return [];
     }
 
-    public function insert($table, $data, $format = null): int { return 1; }
-    public function update($table, $data, $where, $format = null, $whereFormat = null): int { return 1; }
+    public function insert($table, $data, $format = null): int {
+        $this->writes[] = ['table' => (string) $table, 'data' => $data];
+        return 1;
+    }
+    public function update($table, $data, $where, $format = null, $whereFormat = null): int {
+        $this->writes[] = ['table' => (string) $table, 'data' => $data, 'where' => $where];
+        return 1;
+    }
     public function delete($table, $where, $whereFormat = null): int { return 1; }
 
     private function unwrap($query): array {
         return is_array($query) && isset($query['sql'])
             ? [$query['sql'], $query['args'] ?? []]
             : [(string) $query, []];
+    }
+}
+
+final class CaptureSerializedWakeupProbe {
+    public static bool $woke = false;
+    public static bool $unserialized = false;
+
+    public function __wakeup(): void {
+        self::$woke = true;
+    }
+
+    public function __unserialize(array $data): void {
+        self::$unserialized = true;
+    }
+}
+
+final class SidebarSerializedWakeupProbe {
+    public static bool $woke = false;
+
+    public function __wakeup(): void {
+        self::$woke = true;
+    }
+}
+
+final class ApplySerializedWakeupProbe {
+    public static bool $woke = false;
+    public static bool $unserialized = false;
+
+    public function __wakeup(): void {
+        self::$woke = true;
+    }
+
+    public function __unserialize(array $data): void {
+        self::$unserialized = true;
     }
 }
 
@@ -231,13 +311,17 @@ require_once __DIR__ . '/../../agent/src/SidebarState.php';
 require_once __DIR__ . '/../../agent/src/Tokens.php';
 require_once __DIR__ . '/../../agent/src/Capture.php';
 require_once __DIR__ . '/../../agent/src/Deploy.php';
+require_once __DIR__ . '/../../agent/src/Apply.php';
 
 use Duo\Canon;
 use Duo\Capture;
 use Duo\CompiledRepository;
 use Duo\Deploy;
+use Duo\Apply;
 use Duo\OptionState;
 use Duo\Policy;
+use Duo\PlainData;
+use Duo\SidebarState;
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -248,6 +332,30 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
     echo "FAIL: $message\n";
     $failures++;
 };
+
+// An uncertain INFORMATION_SCHEMA read cannot be interpreted as an
+// already-current ledger. Long Woo table names require the widened schema,
+// so ensure() must stop before it can leave a legacy VARCHAR(32) in service.
+foreach ([
+    'entity_type' => 'schema width lookup for duo_map.entity_type',
+    'id_kind' => 'schema width lookup for duo_map.id_kind',
+] as $column => $context) {
+    $wpdb->queries = [];
+    $wpdb->schemaProbeErrorColumn = $column;
+    $schemaProbeRefused = false;
+    try {
+        \Duo\Ledger::ensure();
+    } catch (Throwable $e) {
+        $schemaProbeRefused = str_contains($e->getMessage(), 'ledger read failed: ' . $context);
+    }
+    $check($schemaProbeRefused, "ledger schema migration refuses a failed $column width probe");
+    $check(
+        !array_filter($wpdb->queries, static fn(string $sql): bool => str_starts_with($sql, 'ALTER TABLE')),
+        "failed $column width probe cannot issue a guessed schema migration"
+    );
+    $wpdb->last_error = '';
+}
+$wpdb->schemaProbeErrorColumn = '';
 
 $present = static fn($value, string $autoload = 'yes'): array => OptionState::present($value, $autoload);
 
@@ -298,6 +406,116 @@ $compiled = CompiledRepository::create([
     'revision_hash' => str_repeat('a', 64),
     'manifest_hash' => str_repeat('b', 64),
 ]);
+
+// 0. Apply's target-owned option readers use the same strict plain-data
+// boundary as Capture. Invoke both private consumers directly so this
+// regression cannot pass merely because the source contains a safer helper:
+// assign_locations() reads theme_mods_<stylesheet>, while
+// apply_option_sub_keys() reads a manifest-owned live option blob.
+$applyReflection = new ReflectionClass(Apply::class);
+$applyConstructor = $applyReflection->getConstructor();
+$applyConstructor->setAccessible(true);
+$apply = $applyReflection->newInstanceWithoutConstructor();
+$applyConstructor->invoke($apply, '/unused', $policy(false), $compiled);
+$assignLocations = new ReflectionMethod(Apply::class, 'assign_locations');
+$assignLocations->setAccessible(true);
+$applyOptionSubKeys = new ReflectionMethod(Apply::class, 'apply_option_sub_keys');
+$applyOptionSubKeys->setAccessible(true);
+
+$wpdb->optionRows = [
+    'stylesheet' => ['option_value' => 'fixture-theme', 'autoload' => 'yes'],
+    'theme_mods_fixture-theme' => [
+        'option_value' => serialize(['nav_menu_locations' => ['primary' => 7], 'unmanaged' => 'keep']),
+        'autoload' => 'yes',
+    ],
+];
+$wpdb->writes = [];
+$assignLocations->invoke($apply, 42, ['footer']);
+$assignWrite = $wpdb->writes[array_key_last($wpdb->writes)] ?? null;
+$check(
+    is_array($assignWrite)
+        && PlainData::decode((string) ($assignWrite['data']['option_value'] ?? ''), 'Apply assign_locations test output')
+            === [
+                'nav_menu_locations' => ['primary' => 7, 'footer' => 42],
+                'unmanaged' => 'keep',
+            ],
+    'Apply assign_locations preserves exact serialized array semantics while merging locations'
+);
+
+$wpdb->optionRows['theme_mods_fixture-theme']['option_value'] = 'ordinary scalar string';
+$wpdb->writes = [];
+$assignLocations->invoke($apply, 42, ['footer']);
+$assignScalarWrite = $wpdb->writes[array_key_last($wpdb->writes)] ?? null;
+$check(
+    is_array($assignScalarWrite)
+        && PlainData::decode((string) ($assignScalarWrite['data']['option_value'] ?? ''), 'Apply scalar test output')
+            === ['nav_menu_locations' => ['footer' => 42]],
+    'Apply assign_locations preserves ordinary nonserialized-string semantics'
+);
+
+$wpdb->optionRows['theme_mods_fixture-theme']['option_value'] = serialize([
+    'nav_menu_locations' => ['primary' => 7],
+    'unmanaged' => 'keep',
+]);
+
+$wpdb->optionRows['owned_blob'] = [
+    'option_value' => serialize(['owned' => 'old', 'runtime' => 'keep']),
+    'autoload' => 'yes',
+];
+$applyOptionSubKeys->invoke(
+    $apply,
+    'owned_blob',
+    ['owned' => 'new'],
+    ['owned' => ['class' => 'authored'], 'runtime' => ['class' => 'runtime']],
+    'yes'
+);
+$subKeysWrite = $wpdb->writes[array_key_last($wpdb->writes)] ?? null;
+$check(
+    is_array($subKeysWrite)
+        && PlainData::decode((string) ($subKeysWrite['data']['option_value'] ?? ''), 'Apply sub-key test output')
+            === ['owned' => 'new', 'runtime' => 'keep'],
+    'Apply apply_option_sub_keys preserves exact serialized array semantics while merging authored keys'
+);
+
+$wpdb->optionRows['theme_mods_fixture-theme']['option_value'] = serialize(new ApplySerializedWakeupProbe());
+ApplySerializedWakeupProbe::$woke = false;
+ApplySerializedWakeupProbe::$unserialized = false;
+$applyAssignObjectRejected = false;
+try {
+    $assignLocations->invoke($apply, 42, ['footer']);
+} catch (Throwable $e) {
+    $applyAssignObjectRejected = str_contains($e->getMessage(), 'PHP object');
+}
+$check($applyAssignObjectRejected && !ApplySerializedWakeupProbe::$woke && !ApplySerializedWakeupProbe::$unserialized,
+    'Apply assign_locations rejects serialized objects without invoking __wakeup/__unserialize');
+
+$wpdb->optionRows['owned_blob']['option_value'] = serialize(new ApplySerializedWakeupProbe());
+ApplySerializedWakeupProbe::$woke = false;
+ApplySerializedWakeupProbe::$unserialized = false;
+$applySubKeysObjectRejected = false;
+try {
+    $applyOptionSubKeys->invoke(
+        $apply,
+        'owned_blob',
+        ['owned' => 'new'],
+        ['owned' => ['class' => 'authored']],
+        'yes'
+    );
+} catch (Throwable $e) {
+    $applySubKeysObjectRejected = str_contains($e->getMessage(), 'PHP object');
+}
+$check($applySubKeysObjectRejected && !ApplySerializedWakeupProbe::$woke && !ApplySerializedWakeupProbe::$unserialized,
+    'Apply apply_option_sub_keys rejects serialized objects without invoking __wakeup/__unserialize');
+
+// Restore the lifecycle fixture's baseline after the direct Apply probes;
+// the following snapshot/hash comparisons intentionally start from this exact
+// four-option target state.
+$wpdb->optionRows = [
+    'authored_setting' => ['option_value' => 'site-value', 'autoload' => 'yes'],
+    'active_plugins' => ['option_value' => serialize(['fixture/fixture.php']), 'autoload' => 'yes'],
+    'template' => ['option_value' => 'fixture-theme', 'autoload' => 'yes'],
+    'stylesheet' => ['option_value' => 'fixture-theme', 'autoload' => 'yes'],
+];
 
 // 1. The clean-install lifecycle boundary does not enter Snapshot::capture,
 // even though the frozen manifest declares a plugin-owned table absent here.
@@ -385,6 +603,346 @@ try {
     $orphanRejected = str_contains($e->getMessage(), 'unresolvable ref');
 }
 $check($orphanRejected, 'apply-direction token resolution rejects the pruned custom identity');
+
+// 2b. Capture's own options-only builder must reject a malformed local-id
+// spelling even when a legacy manifest regex is broad. Keep the owning table
+// out of this synthetic policy so Snapshot's preservation prune is skipped;
+// this isolates the Capture::build_options() consumer rather than merely
+// re-testing Snapshot's live scan.
+$captureMalformedPolicy = $policy(false);
+$captureMalformedPolicy->manifests[0]['option_name_refs'] = [[
+    'class' => 'authored',
+    'id_kind' => 'wc_zone_method',
+    'match' => '^woocommerce_[a-z0-9_]+_(?<id>[0-9]+)_settings$',
+    'autoload' => 'yes',
+]];
+$wpdb->optionRows['woocommerce_flat_rate_0003_settings'] = [
+    'option_value' => serialize(['title' => 'Malformed']),
+    'autoload' => 'yes',
+];
+$captureMalformedRejected = false;
+try {
+    Capture::snapshot_options_core('/unused', false, $compiled, $captureMalformedPolicy);
+} catch (Throwable $e) {
+    $captureMalformedRejected = str_contains($e->getMessage(), 'invalid local id');
+}
+$check($captureMalformedRejected,
+    'Capture options discovery refuses a leading-zero local id instead of silently dropping the live option');
+unset($wpdb->optionRows['woocommerce_flat_rate_0003_settings']);
+
+// 2c. Capture's option-name-ref values cross an untrusted PHP-serialization
+// boundary. A canonical Woo settings array is accepted, while a trailing
+// serialized value and a supplied object are rejected before either can be
+// captured. The wakeup probe proves allowed_classes=false is active at the
+// decode boundary, rather than merely relying on a later plain-data shape gate.
+$CAPTURE_ZONE_METHOD_UUID = '33333333-3333-4333-8333-333333333333';
+$wpdb->optionRows = [
+    'authored_setting' => ['option_value' => 'site-value', 'autoload' => 'yes'],
+    'active_plugins' => ['option_value' => serialize(['fixture/fixture.php']), 'autoload' => 'yes'],
+    'template' => ['option_value' => 'fixture-theme', 'autoload' => 'yes'],
+    'stylesheet' => ['option_value' => 'fixture-theme', 'autoload' => 'yes'],
+    'woocommerce_flat_rate_3_settings' => [
+        'option_value' => serialize([
+            'title' => 'Flat rate',
+            'cost' => '5.99',
+            'tax_status' => 'none',
+        ]),
+        'autoload' => 'yes',
+    ],
+];
+$wpdb->map = [[
+    'uuid' => $CAPTURE_ZONE_METHOD_UUID,
+    'entity_type' => 'woocommerce_shipping_zone_methods',
+    'kind' => 'wc_zone_method',
+    'id' => 3,
+]];
+$captureValueSnapshot = Capture::snapshot_options_core('/unused', false, $compiled, $captureMalformedPolicy);
+$captureValueRecords = OptionState::records(Canon::decode($captureValueSnapshot['options/core']['content']));
+$captureValueName = 'woocommerce_flat_rate_{{wc_zone_method:' . $CAPTURE_ZONE_METHOD_UUID . '}}_settings';
+$check(
+    ($captureValueRecords[$captureValueName]['state'] ?? null) === 'present'
+        && ($captureValueRecords[$captureValueName]['value']['title'] ?? null) === 'Flat rate'
+        && ($captureValueRecords[$captureValueName]['value']['cost'] ?? null) === '5.99',
+    'Capture accepts canonical serialized WooCommerce settings'
+);
+
+$wpdb->optionRows['woocommerce_flat_rate_3_settings']['option_value'] =
+    serialize(['title' => 'Flat rate']) . 'i:42;';
+$captureTrailingRejected = false;
+try {
+    Capture::snapshot_options_core('/unused', false, $compiled, $captureMalformedPolicy);
+} catch (Throwable $e) {
+    $captureTrailingRejected = str_contains($e->getMessage(), 'trailing or noncanonical');
+}
+$check($captureTrailingRejected,
+    'Capture refuses option-name-ref serialized values with trailing payload bytes');
+
+CaptureSerializedWakeupProbe::$woke = false;
+CaptureSerializedWakeupProbe::$unserialized = false;
+$wpdb->optionRows['woocommerce_flat_rate_3_settings']['option_value'] =
+    serialize(new CaptureSerializedWakeupProbe());
+$captureObjectRejected = false;
+try {
+    Capture::snapshot_options_core('/unused', false, $compiled, $captureMalformedPolicy);
+} catch (Throwable $e) {
+    $captureObjectRejected = str_contains($e->getMessage(), 'PHP object');
+}
+$check(
+    $captureObjectRejected
+        && !CaptureSerializedWakeupProbe::$woke
+        && !CaptureSerializedWakeupProbe::$unserialized,
+    'Capture refuses serialized option objects without invoking __wakeup/__unserialize'
+);
+
+// 2c-menu. scope_menus()'s active-theme location reader is a separate raw
+// wp_options consumer from the option-name-ref path above. Invoke the real
+// private method with one menu term so this regression proves the exact SQL,
+// native array/scalar behavior, and the no-hook object boundary at the point
+// where locations are actually consumed.
+$captureReflection = new ReflectionClass(Capture::class);
+$captureConstructor = $captureReflection->getConstructor();
+$captureConstructor->setAccessible(true);
+$captureForMenus = $captureReflection->newInstanceWithoutConstructor();
+$captureConstructor->invoke($captureForMenus, '/unused', $policy(false));
+$scopeMenus = new ReflectionMethod(Capture::class, 'scope_menus');
+$scopeMenus->setAccessible(true);
+$captureOptionRowsBeforeMenus = $wpdb->optionRows;
+$wpdb->menuTerms = [(object) [
+    'term_id' => 7,
+    'name' => 'Primary Menu',
+    'slug' => 'primary-menu',
+    'term_taxonomy_id' => 70,
+    'taxonomy' => 'nav_menu',
+    'description' => '',
+    'parent' => 0,
+]];
+$wpdb->termUuidById = [7 => '44444444-4444-4444-8444-444444444444'];
+$wpdb->optionRows = [
+    'stylesheet' => ['option_value' => 'fixture-theme', 'autoload' => 'yes'],
+    'theme_mods_fixture-theme' => [
+        'option_value' => serialize(['nav_menu_locations' => ['primary' => 7]]),
+        'autoload' => 'yes',
+    ],
+];
+$wpdb->queries = [];
+$menuArraySnapshot = $scopeMenus->invoke($captureForMenus, false);
+$rawThemeModsQueries = array_values(array_filter(
+    $wpdb->queries,
+    static fn(string $sql): bool => str_contains(
+        $sql,
+        'SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1'
+    )
+));
+$check(
+    ($menuArraySnapshot[0]['front']['locations'] ?? null) === ['primary']
+        && count($rawThemeModsQueries) === 1,
+    'Capture menu locations reads the exact theme_mods row and preserves serialized arrays'
+);
+
+$wpdb->optionRows['theme_mods_fixture-theme']['option_value'] = 'ordinary scalar string';
+$menuScalarSnapshot = $scopeMenus->invoke($captureForMenus, false);
+$check(
+    ($menuScalarSnapshot[0]['front']['locations'] ?? null) === [],
+    'Capture menu locations preserves WordPress ordinary-scalar semantics'
+);
+
+$wpdb->optionRows['theme_mods_fixture-theme']['option_value'] = serialize(7);
+$menuSerializedScalarSnapshot = $scopeMenus->invoke($captureForMenus, false);
+$check(
+    ($menuSerializedScalarSnapshot[0]['front']['locations'] ?? null) === [],
+    'Capture menu locations preserves serialized-scalar semantics'
+);
+
+unset($wpdb->optionRows['theme_mods_fixture-theme']);
+$menuMissingSnapshot = $scopeMenus->invoke($captureForMenus, false);
+$check(
+    ($menuMissingSnapshot[0]['front']['locations'] ?? null) === [],
+    'Capture menu locations preserves get_option false-default semantics for a missing row'
+);
+
+CaptureSerializedWakeupProbe::$woke = false;
+CaptureSerializedWakeupProbe::$unserialized = false;
+$wpdb->optionRows['theme_mods_fixture-theme']['option_value'] =
+    serialize(new CaptureSerializedWakeupProbe());
+$menuObjectRejected = false;
+try {
+    $scopeMenus->invoke($captureForMenus, false);
+} catch (Throwable $e) {
+    $menuObjectRejected = str_contains($e->getMessage(), 'PHP object');
+}
+$check(
+    $menuObjectRejected
+        && !CaptureSerializedWakeupProbe::$woke
+        && !CaptureSerializedWakeupProbe::$unserialized,
+    'Capture menu locations rejects serialized objects without invoking __wakeup/__unserialize'
+);
+$wpdb->optionRows = $captureOptionRowsBeforeMenus;
+
+$wpdb->optionRows['woocommerce_flat_rate_3_settings']['option_value'] =
+    'a:1:{i:0;a:1:{i:0;R:2;}}';
+$captureReferenceRejected = false;
+try {
+    Capture::snapshot_options_core('/unused', false, $compiled, $captureMalformedPolicy);
+} catch (Throwable $e) {
+    $captureReferenceRejected = str_contains($e->getMessage(), 'reference or recursive array');
+}
+$check($captureReferenceRejected,
+    'Capture refuses canonical recursive PHP references before plain-data traversal');
+
+// 2d. SidebarState's three raw option readers use the same strict boundary:
+// the widget-family loader, sidebars_widgets assignment loader, and widget
+// witness. Exercise each reader with the same canonical values and then with
+// every hostile shape the boundary must refuse. This is deliberately an
+// actual SidebarState call (the loader methods are private only because they
+// are implementation details, so this offline fixture invokes them through
+// Reflection rather than reimplementing their SQL or parsing).
+$sidebarPolicy = $policy(false);
+$sidebarPolicy->manifests[0]['widgets'] = [
+    'text' => ['settings' => ['title' => ['class' => 'authored']]],
+];
+$sidebarDeclared = $sidebarPolicy->widget_types();
+$sidebarLoadWidgets = new ReflectionMethod(SidebarState::class, 'load_widget_options');
+$sidebarLoadWidgets->setAccessible(true);
+$sidebarLoadSidebars = new ReflectionMethod(SidebarState::class, 'load_sidebars_option');
+$sidebarLoadSidebars->setAccessible(true);
+$sidebarWidgetValue = [3 => ['title' => 'Hello'], '_multiwidget' => 1];
+$sidebarAssignmentsValue = ['sidebar-1' => ['text-3'], 'array_version' => 3];
+$wpdb->optionRows = [
+    'widget_text' => ['option_value' => serialize($sidebarWidgetValue), 'autoload' => 'yes'],
+    'sidebars_widgets' => ['option_value' => serialize($sidebarAssignmentsValue), 'autoload' => 'yes'],
+];
+$loadedSidebarWidgets = $sidebarLoadWidgets->invoke(null, $sidebarPolicy, $sidebarDeclared, true);
+$loadedSidebarAssignments = $sidebarLoadSidebars->invoke(null);
+$check(
+    ($loadedSidebarWidgets['text'][3]['title'] ?? null) === 'Hello',
+    'SidebarState widget loader accepts canonical serialized widget settings'
+);
+$check(
+    ($loadedSidebarAssignments['sidebar-1'] ?? null) === ['text-3'],
+    'SidebarState sidebars_widgets loader accepts canonical serialized assignments'
+);
+$expectedSidebarWitness = hash('sha256', Canon::encode([
+    'kind' => SidebarState::kind('text'), 'local_id' => 3, 'settings' => $sidebarWidgetValue[3],
+]));
+$check(
+    SidebarState::witness('text', 3) === $expectedSidebarWitness,
+    'SidebarState witness accepts canonical serialized widget settings'
+);
+$check(
+    PlainData::decode('i:7;', 'scalar') === 7
+        && PlainData::decode('b:0;', 'false') === false
+        && PlainData::decode('N;', 'null') === null
+        && PlainData::decode('42', 'plain') === '42',
+    'shared boundary preserves WordPress scalar and ordinary-string semantics'
+);
+$sidebarExpectReject = static function (callable $fn, string $needle, string $message) use ($check): void {
+    try {
+        $fn();
+        $check(false, "$message (accepted hostile value)");
+    } catch (Throwable $e) {
+        $check(str_contains($e->getMessage(), $needle), "$message ({$e->getMessage()})");
+    }
+};
+
+SidebarSerializedWakeupProbe::$woke = false;
+$wpdb->optionRows['widget_text']['option_value'] = serialize(new SidebarSerializedWakeupProbe());
+$sidebarExpectReject(
+    fn() => $sidebarLoadWidgets->invoke(null, $sidebarPolicy, $sidebarDeclared, true),
+    'PHP object',
+    'SidebarState widget loader rejects serialized objects before __wakeup'
+);
+$check(!SidebarSerializedWakeupProbe::$woke, 'SidebarState widget loader never invokes serialized object __wakeup');
+
+SidebarSerializedWakeupProbe::$woke = false;
+$wpdb->optionRows['sidebars_widgets']['option_value'] = serialize(new SidebarSerializedWakeupProbe());
+$sidebarExpectReject(
+    fn() => $sidebarLoadSidebars->invoke(null),
+    'PHP object',
+    'SidebarState sidebars_widgets loader rejects serialized objects before __wakeup'
+);
+$check(!SidebarSerializedWakeupProbe::$woke, 'SidebarState sidebars_widgets loader never invokes serialized object __wakeup');
+
+SidebarSerializedWakeupProbe::$woke = false;
+$wpdb->optionRows['widget_text']['option_value'] = serialize(new SidebarSerializedWakeupProbe());
+$sidebarExpectReject(
+    fn() => SidebarState::witness('text', 3),
+    'PHP object',
+    'SidebarState witness rejects serialized objects before __wakeup'
+);
+$check(!SidebarSerializedWakeupProbe::$woke, 'SidebarState witness never invokes serialized object __wakeup');
+
+$wpdb->optionRows['widget_text']['option_value'] = serialize($sidebarWidgetValue) . 'i:42;';
+$sidebarExpectReject(
+    fn() => $sidebarLoadWidgets->invoke(null, $sidebarPolicy, $sidebarDeclared, true),
+    'trailing or noncanonical',
+    'SidebarState widget loader rejects trailing serialized payloads'
+);
+$wpdb->optionRows['sidebars_widgets']['option_value'] = serialize($sidebarAssignmentsValue) . 'i:42;';
+$sidebarExpectReject(
+    fn() => $sidebarLoadSidebars->invoke(null),
+    'trailing or noncanonical',
+    'SidebarState sidebars_widgets loader rejects trailing serialized payloads'
+);
+$wpdb->optionRows['widget_text']['option_value'] = serialize($sidebarWidgetValue) . 'i:42;';
+$sidebarExpectReject(
+    fn() => SidebarState::witness('text', 3),
+    'trailing or noncanonical',
+    'SidebarState witness rejects trailing serialized payloads'
+);
+
+$sidebarRecursive = 'a:1:{i:0;a:1:{i:0;R:2;}}';
+$wpdb->optionRows['widget_text']['option_value'] = $sidebarRecursive;
+$sidebarExpectReject(
+    fn() => $sidebarLoadWidgets->invoke(null, $sidebarPolicy, $sidebarDeclared, true),
+    'reference or recursive array',
+    'SidebarState widget loader rejects canonical recursive/reference arrays'
+);
+$wpdb->optionRows['sidebars_widgets']['option_value'] = $sidebarRecursive;
+$sidebarExpectReject(
+    fn() => $sidebarLoadSidebars->invoke(null),
+    'reference or recursive array',
+    'SidebarState sidebars_widgets loader rejects canonical recursive/reference arrays'
+);
+$wpdb->optionRows['widget_text']['option_value'] = $sidebarRecursive;
+$sidebarExpectReject(
+    fn() => SidebarState::witness('text', 3),
+    'reference or recursive array',
+    'SidebarState witness rejects canonical recursive/reference arrays'
+);
+
+$sidebarDeep = 'i:1;';
+for ($i = 0; $i <= PlainData::MAX_DEPTH; $i++) {
+    $sidebarDeep = 'a:1:{i:0;' . $sidebarDeep . '}';
+}
+$wpdb->optionRows['widget_text']['option_value'] = $sidebarDeep;
+$sidebarExpectReject(
+    fn() => $sidebarLoadWidgets->invoke(null, $sidebarPolicy, $sidebarDeclared, true),
+    'nested too deeply',
+    'SidebarState widget loader rejects excessively deep serialized arrays'
+);
+$wpdb->optionRows['sidebars_widgets']['option_value'] = $sidebarDeep;
+$sidebarExpectReject(
+    fn() => $sidebarLoadSidebars->invoke(null),
+    'nested too deeply',
+    'SidebarState sidebars_widgets loader rejects excessively deep serialized arrays'
+);
+$wpdb->optionRows['widget_text']['option_value'] = $sidebarDeep;
+$sidebarExpectReject(
+    fn() => SidebarState::witness('text', 3),
+    'nested too deeply',
+    'SidebarState witness rejects excessively deep serialized arrays'
+);
+
+$wpdb->optionRows = [
+    'authored_setting' => ['option_value' => 'site-value', 'autoload' => 'yes'],
+    'active_plugins' => ['option_value' => serialize(['fixture/fixture.php']), 'autoload' => 'yes'],
+    'template' => ['option_value' => 'fixture-theme', 'autoload' => 'yes'],
+    'stylesheet' => ['option_value' => 'fixture-theme', 'autoload' => 'yes'],
+    'woocommerce_flat_rate_42_settings' => [
+        'option_value' => serialize(['title' => 'Flat rate']),
+        'autoload' => 'yes',
+    ],
+];
 $wpdb->map = [[
     'uuid' => $STALE_ZONE_METHOD_UUID,
     'entity_type' => 'woocommerce_shipping_zone_methods',

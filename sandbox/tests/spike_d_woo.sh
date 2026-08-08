@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Spike D — WooCommerce authored round-trip + referential delete guard:
+# Spike D — WooCommerce authored round-trip + fail-closed product deletion:
 #   a product catalog (meta/terms/media refs, string/csv cast variants) round-
 #   trips A -> B byte-for-byte; runtime meta (_stock) is never reconciled; a
-#   manifest deletion capability blocks removing a product an order references
-#   until explicitly forced, then applies loudly. Coupons section: a product+
+#   real source-side product deletion is refused before repository or target
+#   mutation because the open extension ecosystem is not a closed reverse-
+#   reference inventory. Coupons section: a product+
 #   category-restricted percent coupon and an expiring free-shipping
 #   fixed_cart coupon round-trip their ref/cast fields (incl. exclude_
 #   variants) A -> B byte-for-byte; a redemption's usage_count/_used_by stay
@@ -176,69 +177,6 @@ APPLIED=$(wp_b duo apply --repo=/siterepo --default-author=admin --json | tail -
 [ "$(wp_b wc product get "$WIDGET_B" --field=stock_quantity --user=admin)" = "2" ] || fail "B-local stock was clobbered by apply"
 pass "re-apply is a no-op; B's local stock edit survived"
 
-say "referential guard: place an order on B against the stocked product"
-ORDER_B=$(wp_b eval "
-\$order = wc_create_order();
-\$product = wc_get_product($WIDGET_B);
-\$order->add_product(\$product, 1);
-\$order->calculate_totals();
-\$order->set_status('processing');
-\$order->save();
-echo \$order->get_id();
-")
-# WooCommerce syncs analytics lookup tables via an Action Scheduler async job
-# -- NOT synchronously on save(), and not even immediately queued: it debounces
-# a few seconds into the future (observed: order-save time + 5s) rather than
-# scheduling for "now", so calling the runner right after save() can find
-# nothing due yet. Poll instead of a single fixed sleep, since the exact
-# debounce is a WooCommerce implementation detail, not a documented constant.
-LOOKUP_ROWS=0
-for _ in $(seq 1 8); do
-  wp_b action-scheduler run >/dev/null
-  LOOKUP_ROWS=$(wp_b db query "SELECT COUNT(*) FROM wp_wc_order_product_lookup WHERE product_id=$WIDGET_B" --skip-column-names)
-  [ "$LOOKUP_ROWS" -ge "1" ] && break
-  sleep 2
-done
-[ "$LOOKUP_ROWS" -ge "1" ] || fail "no wc_order_product_lookup row for the order (after polling the action scheduler)"
-pass "order #$ORDER_B placed; wc_order_product_lookup has $LOOKUP_ROWS row(s)"
-
-say "on A: delete the referenced product, capture, propagate"
-WIDGET_A_ID=$(wp_a post list --post_type=product --name=duo-widget --field=ID)
-wp_a post delete "$WIDGET_A_ID" --force >/dev/null
-wp_a duo capture --repo=/siterepo >/dev/null
-$GIT_A add -A && $GIT_A commit -qm "delete: retire Duo Widget" && $GIT_A push -q origin main
-
-say "on B: plan must show the delete BLOCKED"
-$GIT_B pull -q origin main
-PLAN_TEXT=$(wp_b duo plan --repo=/siterepo)
-echo "$PLAN_TEXT"
-echo "$PLAN_TEXT" | grep -q '\[BLOCKED:' || fail "plan did not surface the referential guard"
-pass "plan blocks the delete (order references this product)"
-
-say "apply with the explicit drift override must still fail without --force-delete-referenced"
-set +e
-APPLY_ERR=$(wp_b duo apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin 2>&1)
-APPLY_RC=$?
-set -e
-[ "$APPLY_RC" -ne 0 ] || fail "apply succeeded despite the referential guard"
-echo "$APPLY_ERR" | grep -qi 'referential guard' || fail "failure did not mention the referential guard"
-pass "apply refused the guarded delete"
-
-say "apply with both explicit overrides must succeed with loud FORCED warnings"
-FORCE_OUT=$(wp_b duo apply --repo=/siterepo --with-deletes --force-theirs --force-delete-referenced --default-author=admin 2>&1)
-echo "$FORCE_OUT"
-echo "$FORCE_OUT" | grep -qi 'FORCED' || fail "no FORCED warning printed"
-pass "forced delete applied with a loud warning"
-
-say "acceptance: product gone on B, order row intact"
-REMAINING=$(wp_b post list --post_type=product --name=duo-widget --field=ID)
-[ -z "$REMAINING" ] || fail "product still present on B"
-STILL=$(wp_b db query "SELECT COUNT(*) FROM wp_wc_order_product_lookup WHERE order_id=$ORDER_B" --skip-column-names)
-[ "$STILL" = "$LOOKUP_ROWS" ] || fail "order's lookup row(s) were disturbed by the delete"
-ORDER_STATUS=$(wp_b wc shop_order get "$ORDER_B" --field=status --user=admin)
-[ -n "$ORDER_STATUS" ] || fail "order no longer retrievable"
-pass "product removed on B; order #$ORDER_B (status=$ORDER_STATUS) is untouched"
-
 say "seed coupons on A: percent (product+category restricted, email-restricted) and fixed_cart (expiring, free shipping)"
 CLEARANCE_A=$(wp_a term create product_cat Clearance --slug=clearance --porcelain)
 EXPIRES_TS=$(wp_a eval "echo strtotime('2026-12-31 23:59:59');")
@@ -351,5 +289,65 @@ USAGE_B=$(wp_b eval "echo (int) get_post_meta($CPN_PCT_B, 'usage_count', true);"
 USED_BY_B=$(wp_b eval "echo count(get_post_meta($CPN_PCT_B, '_used_by'));")
 [ "$USED_BY_B" = "0" ] || fail "duo10off _used_by leaked onto B ($USED_BY_B row(s), expected 0 — A's redemption must stay A-local)"
 pass "A's coupon redemption (usage_count=1, _used_by=vip@example.test) stayed A-local; B's usage_count is its own local value (0)"
+
+say "fail-closed deletion boundary: place a target-local order, then delete the source product"
+ORDER_B=$(wp_b eval "
+\$order = wc_create_order();
+\$product = wc_get_product($WIDGET_B);
+\$order->add_product(\$product, 1);
+\$order->calculate_totals();
+\$order->set_status('processing');
+\$order->save();
+echo \$order->get_id();
+")
+# WooCommerce debounces analytics lookup updates through Action Scheduler.
+# Poll the public runner so the target-local order evidence is concrete before
+# the source deletion attempt.
+LOOKUP_ROWS=0
+for _ in $(seq 1 8); do
+  wp_b action-scheduler run >/dev/null
+  LOOKUP_ROWS=$(wp_b db query "SELECT COUNT(*) FROM wp_wc_order_product_lookup WHERE product_id=$WIDGET_B" --skip-column-names)
+  [ "$LOOKUP_ROWS" -ge "1" ] && break
+  sleep 2
+done
+[ "$LOOKUP_ROWS" -ge "1" ] || fail "no target order lookup row for the product after polling Action Scheduler"
+
+WIDGET_STATE=$(find siterepo/a/state/posts/product -type f -name '*--duo-widget.md' -print -quit)
+[ -n "$WIDGET_STATE" ] || fail "canonical Duo Widget state file is missing before the refusal probe"
+WIDGET_UUID=$(basename "$WIDGET_STATE")
+WIDGET_UUID=${WIDGET_UUID%%--*}
+STATE_HASH_BEFORE=$(find siterepo/a/state -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')
+HEAD_BEFORE=$($GIT_A rev-parse HEAD)
+ORIGIN_BEFORE=$($GIT_A rev-parse origin/main)
+STATUS_BEFORE=$($GIT_A status --porcelain=v1 --untracked-files=all)
+
+wp_a wc product delete "$WIDGET_A" --force=true --user=admin >/dev/null
+if wp_a post get "$WIDGET_A" --field=ID >/dev/null 2>&1; then
+  fail "source product still exists after the public WooCommerce delete"
+fi
+set +e
+CAPTURE_OUT=$(wp_a duo capture --repo=/siterepo 2>&1)
+CAPTURE_RC=$?
+set -e
+[ "$CAPTURE_RC" -ne 0 ] || fail "capture accepted unsupported WooCommerce product deletion intent"
+grep -Fq 'deletion intent for post:product is unsupported' <<<"$CAPTURE_OUT" \
+  || fail "capture refusal did not name the unsupported post:product boundary: $CAPTURE_OUT"
+
+STATE_HASH_AFTER=$(find siterepo/a/state -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')
+[ "$STATE_HASH_AFTER" = "$STATE_HASH_BEFORE" ] || fail "refused capture changed the canonical state tree"
+[ "$($GIT_A rev-parse HEAD)" = "$HEAD_BEFORE" ] || fail "refused capture changed local HEAD"
+[ "$($GIT_A rev-parse origin/main)" = "$ORIGIN_BEFORE" ] || fail "refused capture changed origin/main"
+[ "$($GIT_A status --porcelain=v1 --untracked-files=all)" = "$STATUS_BEFORE" ] \
+  || fail "refused capture changed repository worktree status"
+[ -f "$WIDGET_STATE" ] || fail "refused capture removed the canonical product file"
+[ ! -e "siterepo/a/state/deletions/$WIDGET_UUID.json" ] \
+  || fail "refused capture published an unauthorized product tombstone"
+[ "$(wp_b post get "$WIDGET_B" --field=post_status)" = "publish" ] \
+  || fail "refused source capture changed the target product"
+[ "$(wp_b db query "SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id=$WIDGET_B" --skip-column-names)" = "1" ] \
+  || fail "refused source capture changed the target product lookup"
+[ "$(wp_b db query "SELECT COUNT(*) FROM wp_wc_order_product_lookup WHERE order_id=$ORDER_B" --skip-column-names)" = "$LOOKUP_ROWS" ] \
+  || fail "refused source capture changed the target-local order lookup"
+pass "public source delete is refused before repo/target mutation; target product and order remain intact"
 
 printf '\n\033[1;32m✔ SPIKE D PASSED\033[0m\n'
