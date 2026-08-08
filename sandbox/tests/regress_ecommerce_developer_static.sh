@@ -374,7 +374,7 @@ TARGET_PLUGIN_TREE_HASH_HELPER_GOLDEN_HASH=6c9343b7af357aa093efaae96328a2315ee2c
 TARGET_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=d80740550295c2df86f1a011941531aca503a475081bfbec685f9f158d9fa1e4
 SOURCE_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=830daaccf4702c0f2dbb27efd6b4aa5b1dd936bd089d744eaa8ec14f0ff35c31
 TARGET_TEE_UNCHANGED_HELPER_GOLDEN_HASH=d2dba3b69d1c9faba4ee697313197c02616d7686e537f953c482bdaf3163bad0
-TARGET_ORDER_SNAPSHOT_HELPER_GOLDEN_HASH=730bc4376c272df5efede95132d4676c616e36e1b6ee165c24ddebad084a0b98
+TARGET_ORDER_SNAPSHOT_HELPER_GOLDEN_HASH=8a136ecc4fad0998eb1df46ca908ff61d38dc3bf8fcbb3f9968b60e6256d501c
 TARGET_ORDER_ABSENT_HELPER_GOLDEN_HASH=f73fed99f66539e6521295e15535deffb4d9aca7740d9487a1b64b6aee6667ce
 DELETION_PROBE_PRESENT_HELPER_GOLDEN_HASH=e24bc5069b3f4f905e12bf04fcf30c14308c9c7cc007c8a56e9052cd2490ae82
 LIVE_CHECKOUT_HELPER_GOLDEN_HASH=1ef4a9c1f02943311c2767a7f336fe24588ce0f6d7e641ca826adfb7588edea2
@@ -590,7 +590,7 @@ assert_helper_contracts target-order-snapshot "$TARGET_ORDER_SNAPSHOT_HELPER_BLO
   '((.order_stats[0].shipping_total | tonumber) >= 0)' 'target order snapshot helper does not validate order-stat shipping totals' \
   '((.order_stats[0].date_created_gmt | tostring | length) > 0)' 'target order snapshot helper does not require an order-stat creation timestamp' \
   '(.product_lookup | length) == 1 and' 'target order snapshot helper does not require one order-product lookup row' \
-  '((.product_lookup[0].order_item_id | tonumber) == (.order_items[0].order_item_id | tonumber))' 'target order snapshot helper does not bind the product lookup to the order item' \
+  '((.product_lookup[0].order_item_id | tonumber) == $line_item_id)' 'target order snapshot helper does not bind the product lookup to the raw line item' \
   '((.product_lookup[0].order_id | tonumber) == $expected_order)' 'target order snapshot helper does not bind product lookup to the order' \
   '((.product_lookup[0].product_id | tonumber) == $expected_product)' 'target order snapshot helper does not bind product lookup to the expected product' \
   '((.product_lookup[0].variation_id | tonumber) == 0)' 'target order snapshot helper does not validate the product lookup variation' \
@@ -599,8 +599,19 @@ assert_helper_contracts target-order-snapshot "$TARGET_ORDER_SNAPSHOT_HELPER_BLO
   '((.product_lookup[0].product_gross_revenue | tonumber) > 0)' 'target order snapshot helper does not require positive gross product revenue' \
   '((.product_lookup[0].product_net_revenue | tonumber) > 0)' 'target order snapshot helper does not require positive net product revenue' \
   '((.product_lookup[0].date_created | tostring | length) > 0)' 'target order snapshot helper does not require a product lookup timestamp' \
-  '(.order_items | length) == 1 and' 'target order snapshot helper does not require one order item' \
-  '(.order_itemmeta | length) >= 4 and' 'target order snapshot helper does not require order-item metadata' \
+  '(.order_items | length) == 2 and' 'target order snapshot helper does not require exact line-item and tax-item rows' \
+  '[.order_items[] | select(.order_item_type == "line_item")]' 'target order snapshot helper does not identify the raw line item semantically' \
+  '[.order_items[] | select(.order_item_type == "tax")]' 'target order snapshot helper does not identify the raw tax item semantically' \
+  'any($snapshot.order_items[]; (.order_item_id | tonumber) == $meta_item_id)' 'target order snapshot helper does not bind metadata to a known raw order item' \
+  '.meta_key == "_product_id" and (.meta_value | tonumber) == $expected_product' 'target order snapshot helper does not bind raw product metadata' \
+  '.meta_key == "_variation_id" and (.meta_value | tonumber) == 0' 'target order snapshot helper does not bind raw variation metadata' \
+  '.meta_key == "_qty" and (.meta_value | tonumber) == 1' 'target order snapshot helper does not bind raw quantity metadata' \
+  '.meta_key == "_line_subtotal" and (.meta_value | tonumber) > 0' 'target order snapshot helper does not require a positive raw line subtotal' \
+  '.meta_key == "_line_total" and (.meta_value | tonumber) > 0' 'target order snapshot helper does not require a positive raw line total' \
+  '.meta_key == "rate_id" and (.meta_value | tonumber) > 0' 'target order snapshot helper does not require the raw tax rate' \
+  '.meta_key == "label" and .meta_value == "Duo Grind CA Sales Tax"' 'target order snapshot helper does not require the exact raw tax label' \
+  '.meta_key == "tax_amount" and (.meta_value | tonumber) > 0' 'target order snapshot helper does not require a positive raw tax amount' \
+  '(.order_itemmeta | length) >= 10 and' 'target order snapshot helper does not require complete order-item metadata' \
   '((.meta_id | tonumber) > 0)' 'target order snapshot helper does not require valid order-item metadata IDs' \
   '((.meta_key | tostring | length) > 0)' 'target order snapshot helper does not require nonempty order-item metadata keys' \
   '((.meta_value | type) == "string")' 'target order snapshot helper does not require valid order-item metadata values' \
@@ -1052,6 +1063,12 @@ grep -Fq 'unique | join(",")' "$SCRIPT" || fail 'target order item ID capture is
 grep -Fq 'target-only HPOS order item ID capture is malformed' "$SCRIPT" || fail 'target order item ID capture does not fail closed on malformed IDs'
 grep -Fq 'LEFT JOIN `$order_items_table` AS items' "$SCRIPT" || fail 'rollback absence does not inspect orphaned order-item metadata'
 grep -Fq '$order->add_meta_data("_duo_runtime_marker", "target-order-only", true);' "$SCRIPT" || fail 'target order does not seed an exact HPOS metadata marker'
+grep -Fq 'target_wp action-scheduler action list --hook=wc-admin_import_orders --args="[$TARGET_ORDER_ID]" --status=pending --format=ids' "$SCRIPT" || fail 'target order does not resolve its exact pending Woo analytics import action'
+grep -Fq 'target_wp action-scheduler action run "$TARGET_ORDER_IMPORT_ACTION_ID"' "$SCRIPT" || fail 'target order does not execute its exact Woo analytics import action'
+grep -Fq 'target_wp action-scheduler action list --hook=wc-admin_import_orders --args="[$TARGET_ORDER_ID]" --status=complete --format=ids' "$SCRIPT" || fail 'target order does not prove its exact Woo analytics import completed'
+if grep -Eq 'action-scheduler[[:space:]]+run|action-scheduler[[:space:]]+action[[:space:]]+run[[:space:]]+\$\(' "$SCRIPT"; then
+  fail 'ecommerce grind drains an unbounded Action Scheduler queue'
+fi
 grep -Fq '200 Target Runtime Way' "$SCRIPT" || fail 'target order does not seed an exact billing address'
 grep -Fq '201 Target Fulfillment Way' "$SCRIPT" || fail 'target order does not seed an exact shipping address'
 grep -Fq 'assert_extension_runtime_event()' "$SCRIPT" || fail 'extension runtime-row assertion helper is missing'

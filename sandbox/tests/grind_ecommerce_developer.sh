@@ -460,6 +460,9 @@ target_order_snapshot() {
 assert_target_order_snapshot() {
   local snapshot="$1" label="$2"
   jq -e --argjson expected_order "$TARGET_ORDER_ID" --argjson expected_product "$TARGET_CAP_ID" --argjson expected_customer "$TARGET_RUNTIME_CUSTOMER_ID" '
+    . as $snapshot |
+    ([.order_items[] | select(.order_item_type == "line_item")][0].order_item_id | tonumber) as $line_item_id |
+    ([.order_items[] | select(.order_item_type == "tax")][0].order_item_id | tonumber) as $tax_item_id |
     .id == $expected_order and
     .status == "pending" and
     .customer_id == $expected_customer and
@@ -504,7 +507,6 @@ assert_target_order_snapshot() {
     ((.order_stats[0].shipping_total | tonumber) >= 0) and
     ((.order_stats[0].date_created_gmt | tostring | length) > 0) and
     (.product_lookup | length) == 1 and
-    ((.product_lookup[0].order_item_id | tonumber) == (.order_items[0].order_item_id | tonumber)) and
     ((.product_lookup[0].order_id | tonumber) == $expected_order) and
     ((.product_lookup[0].product_id | tonumber) == $expected_product) and
     ((.product_lookup[0].variation_id | tonumber) == 0) and
@@ -513,9 +515,27 @@ assert_target_order_snapshot() {
     ((.product_lookup[0].product_gross_revenue | tonumber) > 0) and
     ((.product_lookup[0].product_net_revenue | tonumber) > 0) and
     ((.product_lookup[0].date_created | tostring | length) > 0) and
-    (.order_items | length) == 1 and
-    (.order_itemmeta | length) >= 4 and
-    (all(.order_itemmeta[]; ((.meta_id | tonumber) > 0) and ((.order_item_id | tonumber) == (.order_items[0].order_item_id | tonumber)) and ((.meta_key | tostring | length) > 0) and ((.meta_value | type) == "string")))
+    ((.product_lookup[0].order_item_id | tonumber) == $line_item_id) and
+    (.order_items | length) == 2 and
+    ([.order_items[] | select(.order_item_type == "line_item")] | length) == 1 and
+    ([.order_items[] | select(.order_item_type == "tax")] | length) == 1 and
+    (all(.order_items[]; ((.order_item_id | tonumber) > 0) and ((.order_id | tonumber) == $expected_order) and ((.order_item_name | tostring | length) > 0))) and
+    (.order_itemmeta | length) >= 10 and
+    (all(.order_itemmeta[];
+      ((.meta_id | tonumber) > 0) and
+      ((.meta_key | tostring | length) > 0) and
+      ((.meta_value | type) == "string") and
+      ((.order_item_id | tonumber) as $meta_item_id |
+        any($snapshot.order_items[]; (.order_item_id | tonumber) == $meta_item_id))
+    )) and
+    (any(.order_itemmeta[]; (.order_item_id | tonumber) == $line_item_id and .meta_key == "_product_id" and (.meta_value | tonumber) == $expected_product)) and
+    (any(.order_itemmeta[]; (.order_item_id | tonumber) == $line_item_id and .meta_key == "_variation_id" and (.meta_value | tonumber) == 0)) and
+    (any(.order_itemmeta[]; (.order_item_id | tonumber) == $line_item_id and .meta_key == "_qty" and (.meta_value | tonumber) == 1)) and
+    (any(.order_itemmeta[]; (.order_item_id | tonumber) == $line_item_id and .meta_key == "_line_subtotal" and (.meta_value | tonumber) > 0)) and
+    (any(.order_itemmeta[]; (.order_item_id | tonumber) == $line_item_id and .meta_key == "_line_total" and (.meta_value | tonumber) > 0)) and
+    (any(.order_itemmeta[]; (.order_item_id | tonumber) == $tax_item_id and .meta_key == "rate_id" and (.meta_value | tonumber) > 0)) and
+    (any(.order_itemmeta[]; (.order_item_id | tonumber) == $tax_item_id and .meta_key == "label" and .meta_value == "Duo Grind CA Sales Tax")) and
+    (any(.order_itemmeta[]; (.order_item_id | tonumber) == $tax_item_id and .meta_key == "tax_amount" and (.meta_value | tonumber) > 0))
   ' <<<"$snapshot" >/dev/null || fail "$label order identity/line-item/totals acceptance failed: $snapshot"
 }
 assert_target_order_unchanged() {
@@ -1921,6 +1941,14 @@ $product->save();
 echo $order->get_id();
 ')"
 [ "$TARGET_ORDER_ID" -gt 0 ] || fail "target-only HPOS runtime order was not created"
+# Woo 11 schedules this order's analytics import five seconds in the future.
+# Execute only that exact public Action Scheduler job before freezing the
+# runtime baseline; never drain unrelated application work from the queue.
+TARGET_ORDER_IMPORT_ACTION_ID="$(target_wp action-scheduler action list --hook=wc-admin_import_orders --args="[$TARGET_ORDER_ID]" --status=pending --format=ids)"
+[[ "$TARGET_ORDER_IMPORT_ACTION_ID" =~ ^[1-9][0-9]*$ ]] || fail "target order analytics import did not schedule exactly one action: $TARGET_ORDER_IMPORT_ACTION_ID"
+target_wp action-scheduler action run "$TARGET_ORDER_IMPORT_ACTION_ID" >/dev/null
+TARGET_ORDER_COMPLETED_IMPORT_ACTION_ID="$(target_wp action-scheduler action list --hook=wc-admin_import_orders --args="[$TARGET_ORDER_ID]" --status=complete --format=ids)"
+assert_eq "$TARGET_ORDER_IMPORT_ACTION_ID" "$TARGET_ORDER_COMPLETED_IMPORT_ACTION_ID" 'target order exact analytics import completion'
 TARGET_RUNTIME_CUSTOMER_ID="$(target_wp eval 'echo get_user_by("email", "runtime-customer@example.invalid") ? (int) get_user_by("email", "runtime-customer@example.invalid")->ID : 0;')"
 [[ "$TARGET_RUNTIME_CUSTOMER_ID" =~ ^[0-9]+$ ]] && [ "$TARGET_RUNTIME_CUSTOMER_ID" -gt 0 ] || fail "target runtime customer id is not numeric: $TARGET_RUNTIME_CUSTOMER_ID"
 TARGET_RUNTIME_CUSTOMER_BASELINE="$(target_runtime_customer_snapshot "$TARGET_RUNTIME_CUSTOMER_ID")"
