@@ -115,6 +115,12 @@ final class Apply {
             'code_mismatch' => [], 'code_drift' => [], 'incomplete_apply' => [],
             'incomplete_lifecycle' => [],
             'missing_user' => [], 'skipped_user_meta' => [],
+            // DUO-3297: complete immutable declaration available before any
+            // target mutation. Runtime journaling resolves these bounded
+            // original/derivative roots into exact before-image and absence
+            // receipts; this list itself never claims that an undeclared
+            // derivative is safe.
+            'uploads_inventory' => $compiled->uploads_inventory(),
         ];
         $collisionCache = [];
         foreach ($tree as $uuid => $e) {
@@ -1515,7 +1521,7 @@ final class Apply {
             'create', 'update', 'unchanged', 'drift', 'conflict', 'adopt',
             'collision', 'delete', 'delete_conflict', 'deleted',
             'code_mismatch', 'code_drift', 'incomplete_apply', 'regen_pending',
-            'missing_user', 'skipped_user_meta',
+            'missing_user', 'skipped_user_meta', 'uploads_inventory',
         ];
         $basis = [];
         foreach ($keys as $key) {

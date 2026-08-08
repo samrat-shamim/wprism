@@ -26,6 +26,10 @@ final class CompiledRepository {
             }
             Code::assert_descriptor($payload['code']);
         }
+        if (!is_array($payload['tree'] ?? null)) {
+            throw new \RuntimeException('duo: compiled repository payload has no typed tree');
+        }
+        $payload['uploads_inventory'] = self::derive_uploads_inventory($payload['tree']);
         $payload['format'] = self::FORMAT;
         $payload['artifact_hash'] = self::content_hash($payload);
         return new self($payload);
@@ -42,6 +46,9 @@ final class CompiledRepository {
         }
         if (!isset($artifact['tree']) || !is_array($artifact['tree'])) {
             throw new \RuntimeException('duo: compiled artifact has no typed tree');
+        }
+        if (($artifact['uploads_inventory'] ?? null) !== self::derive_uploads_inventory($artifact['tree'])) {
+            throw new \RuntimeException('duo: compiled artifact upload inventory does not match its typed tree');
         }
         if (array_key_exists('code', $artifact)) {
             if (!is_array($artifact['code'])) {
@@ -124,6 +131,46 @@ final class CompiledRepository {
             throw new \RuntimeException("duo: compiled artifact media payload '$name' does not verify");
         }
         return $bytes;
+    }
+
+    /**
+     * Immutable, target-independent upload mutation declaration. Each row
+     * names the repository-owned original and the only directory/prefix in
+     * which WordPress metadata generation may report derivatives for it.
+     * Runtime preparation turns this bounded declaration into exact
+     * before-images/absence receipts before any target write.
+     *
+     * @return list<array<string,string>>
+     */
+    public function uploads_inventory(): array {
+        return (array) ($this->artifact['uploads_inventory'] ?? []);
+    }
+
+    /** @return list<array<string,string>> */
+    private static function derive_uploads_inventory(array $tree): array {
+        $rows = [];
+        foreach ($tree as $uuid => $entry) {
+            $front = is_array($entry['data'] ?? null) ? $entry['data'] : [];
+            if (($entry['type'] ?? '') !== 'post' || ($front['type'] ?? '') !== 'attachment') {
+                continue;
+            }
+            $path = (string) ($front['file'] ?? '');
+            $media = (string) ($front['media'] ?? '');
+            $directory = dirname($path);
+            if ($directory === '.') {
+                $directory = '';
+            }
+            $rows[] = [
+                'attachment_uuid' => (string) $uuid,
+                'derivative_basename_prefix' => pathinfo(basename($path), PATHINFO_FILENAME) . '-',
+                'derivative_directory' => $directory,
+                'media_blob' => $media,
+                'original_path' => $path,
+                'original_sha256' => preg_match('/^([0-9a-f]{64})\./', $media, $m) === 1 ? $m[1] : '',
+            ];
+        }
+        usort($rows, static fn(array $a, array $b): int => strcmp($a['original_path'], $b['original_path']));
+        return $rows;
     }
 
     public function export(): array {
@@ -219,6 +266,8 @@ final class RepositoryCompiler {
     private array $deletions = [];
     /** @var array<string,string> upload-relative path => source path */
     private array $uploadPaths = [];
+    /** @var array<string,string> derivative directory/basename prefix => source path */
+    private array $uploadDerivativeRoots = [];
     /** @var array<string,array{sha256:string,base64:string}> media blob => immutable payload */
     private array $media = [];
     /** @var array<string,string> every content-addressed blob in media/, including safe orphans */
@@ -1043,6 +1092,20 @@ final class RepositoryCompiler {
             $this->add('duplicate_upload_path', $path, 'file', "upload path '$upload' is also owned by {$this->uploadPaths[$upload]}", $this->uploadPaths[$upload]);
         } else {
             $this->uploadPaths[$upload] = $path;
+            $directory = dirname($upload);
+            $root = ($directory === '.' ? '' : $directory . '/')
+                . pathinfo(basename($upload), PATHINFO_FILENAME) . '-';
+            if (isset($this->uploadDerivativeRoots[$root])) {
+                $this->add(
+                    'duplicate_media_derivative_root',
+                    $path,
+                    'file',
+                    "upload path '$upload' shares derivative root '$root*' with {$this->uploadDerivativeRoots[$root]}",
+                    $this->uploadDerivativeRoots[$root]
+                );
+            } else {
+                $this->uploadDerivativeRoots[$root] = $path;
+            }
         }
         $blob = (string) ($data['media'] ?? '');
         if (!preg_match('/^([0-9a-f]{64})\.[A-Za-z0-9]+$/', $blob, $m)) {

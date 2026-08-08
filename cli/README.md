@@ -458,6 +458,10 @@ checkpoint preparation and the stricter database/prior-verifier execution
 path. Its optional `code_release_provider` argv enables off-target-built,
 immutable descriptor-bound releases plus signed-journal `code_select` and
 atomic `code_restore`; without it, code recovery is explicitly manual.
+Its optional `upload_provider` prepares encrypted local/offload before-images,
+adds signed-journal `storage_apply`, and makes `storage_restore` enforce exact
+absence plus fresh prior-inventory verification; without it, upload recovery
+is explicitly manual.
 Adoption probes all configured capabilities. Provider tokens and key
 material never enter the registry or command line; only hashes and the
 external key id are bound into a signed receipt. See
@@ -466,6 +470,8 @@ the boundary between this executor and future automatic rollback, and
 [docs/checkpoint-bundle.md](../docs/checkpoint-bundle.md) for the checkpoint
 contract, and [docs/code-release-runtime.md](../docs/code-release-runtime.md)
 for the atomic code-release contract.
+See [docs/upload-bundle.md](../docs/upload-bundle.md) for the upload/media
+journal and provider contract.
 
 ### Where the registry comes from
 

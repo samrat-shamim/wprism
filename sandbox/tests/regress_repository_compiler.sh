@@ -186,6 +186,18 @@ $a = "$tmp/a"; $ids = build_valid($a);
 $one = compile_repo($a);
 $two = compile_repo($a);
 if ($one->artifact_hash() !== $two->artifact_hash()) fail('same revision compiled to different artifact hashes');
+$uploads = $one->uploads_inventory();
+if ($uploads !== [[
+    'attachment_uuid' => $ids['attachment'],
+    'derivative_basename_prefix' => 'photo-',
+    'derivative_directory' => '',
+    'media_blob' => $ids['mediaHash'] . '.txt',
+    'original_path' => 'photo.txt',
+    'original_sha256' => $ids['mediaHash'],
+]]) {
+    fail('compiled artifact did not expose the exact original and bounded derivative mutation root');
+}
+ok('compiled artifact exposes complete immutable upload originals and derivative roots before target contact');
 $artifactPath = "$tmp/{$one->artifact_hash()}.json";
 $one->write($artifactPath);
 $read = RepositoryCompiler::read_artifact($artifactPath, Policy::load($a));
@@ -196,6 +208,13 @@ ok('valid revision (including block/text/nav-menu widgets) compiles offline and 
 $tampered = $one->export(); $tampered['revision_hash'] = str_repeat('0', 64);
 put("$tmp/tampered.json", Canon::encode($tampered));
 try { RepositoryCompiler::read_artifact("$tmp/tampered.json", Policy::load($a)); fail('tampered artifact was accepted'); }
+catch (RepositoryCompilationException $e) { needs($e->payload(), 'compiled_artifact_invalid'); }
+$mismatchedUploads = $one->export();
+$mismatchedUploads['uploads_inventory'][0]['original_path'] = 'foreign.txt';
+unset($mismatchedUploads['artifact_hash']);
+$mismatchedUploads['artifact_hash'] = hash('sha256', Canon::encode($mismatchedUploads));
+put("$tmp/mismatched-uploads.json", Canon::encode($mismatchedUploads));
+try { RepositoryCompiler::read_artifact("$tmp/mismatched-uploads.json", Policy::load($a)); fail('self-hashed artifact with a foreign upload inventory was accepted'); }
 catch (RepositoryCompilationException $e) { needs($e->payload(), 'compiled_artifact_invalid'); }
 $siteBytes = file_get_contents("$a/site.duo.json");
 $site = Canon::decode($siteBytes);
@@ -490,6 +509,13 @@ $front += ['alt'=>'Second', 'file'=>'photo.txt', 'media'=>"{$m['mediaHash']}.txt
 put("$media/state/posts/attachment/" . uuid(30) . "--second-photo.md", Canon::post_file($front, ''));
 $p = failure($media); needs($p, 'duplicate_upload_path');
 ok('two attachment entities cannot claim one upload path');
+
+$derivativeCollision = "$tmp/derivative-collision"; $dc = build_valid($derivativeCollision);
+$front = post_front(uuid(31), 'attachment', 'second-photo-extension');
+$front += ['alt'=>'Second', 'file'=>'photo.jpg', 'media'=>"{$dc['mediaHash']}.txt", 'mime'=>'image/jpeg'];
+put("$derivativeCollision/state/posts/attachment/" . uuid(31) . "--second-photo-extension.md", Canon::post_file($front, ''));
+$p = failure($derivativeCollision); needs($p, 'duplicate_media_derivative_root');
+ok('attachments cannot share a derivative basename root even when original extensions differ');
 
 $unsafeMedia = "$tmp/unsafe-media"; $u = build_valid($unsafeMedia);
 $attachmentPath = "$unsafeMedia/state/posts/attachment/{$u['attachment']}--photo.md";

@@ -108,6 +108,7 @@ final class RollbackAuthority {
         }
         $checkpointConfigured = $this->transport->checkpointConfigured();
         $codeReleaseConfigured = $this->transport->codeReleaseConfigured();
+        $uploadProviderConfigured = $this->transport->uploadProviderConfigured();
         $receiptFormat = $codeReleaseConfigured
             ? RollbackControl::RECEIPT_FORMAT
             : 'duo-rollback-receipt/v1';
@@ -118,6 +119,22 @@ final class RollbackAuthority {
         }
         $desiredCodeRevision = null;
         $desiredDescriptorHash = null;
+        $uploadInventory = null;
+        if ($uploadProviderConfigured) {
+            if (array_key_exists('uploads_inventory_sha256', $fields)) {
+                throw new \RuntimeException('duo rollback: uploads_inventory_sha256 is provider-owned when certified upload recovery is configured');
+            }
+            if (!is_array($fields['upload_inventory'] ?? null)) {
+                throw new \RuntimeException('duo rollback: certified upload recovery needs the compiled upload_inventory');
+            }
+            $uploadInventory = $fields['upload_inventory'];
+            unset($fields['upload_inventory']);
+            if (!is_string($fields['retention_until'] ?? null) || $fields['retention_until'] === '') {
+                throw new \RuntimeException('duo rollback: upload recovery claim needs retention_until');
+            }
+        } elseif (array_key_exists('upload_inventory', $fields)) {
+            throw new \RuntimeException('duo rollback: upload_inventory requires a certified upload provider');
+        }
         if ($codeReleaseConfigured) {
             if (array_key_exists('prior_code_descriptor_sha256', $fields)
                 || array_key_exists('code_release_metadata_sha256', $fields)) {
@@ -241,6 +258,23 @@ final class RollbackAuthority {
                 ]);
                 $fields['prior_code_descriptor_sha256'] = (string) ($release['prior_code_descriptor_sha256'] ?? '');
                 $fields['code_release_metadata_sha256'] = (string) ($release['code_release_metadata_sha256'] ?? '');
+            }
+            if ($uploadProviderConfigured) {
+                $uploads = $this->sendUploadBundle([
+                    'action' => 'prepare',
+                    'artifact_hash' => (string) ($fields['artifact_hash'] ?? ''),
+                    'claim_epoch' => 1,
+                    'claimant' => $claimant,
+                    'format' => 'duo-upload-bundle-request/v1',
+                    'generation' => $generation,
+                    'inventory' => $uploadInventory,
+                    'owner' => (string) ($fields['owner'] ?? ''),
+                    'receipt_id' => $receiptId,
+                    'retention_until' => (string) ($fields['retention_until'] ?? ''),
+                    'target_id' => (string) ($status['target_id'] ?? ''),
+                    'timestamp' => $now,
+                ]);
+                $fields['uploads_inventory_sha256'] = (string) ($uploads['uploads_inventory_sha256'] ?? '');
             }
         }
         $receipt = $fields + [
@@ -446,6 +480,26 @@ final class RollbackAuthority {
         ]);
     }
 
+    /** Delete retained upload before-images after terminal authority and retention. */
+    public function deleteUploadBundle(?string $timestamp = null): array {
+        if (!$this->transport->uploadProviderConfigured()) {
+            throw new \RuntimeException('duo rollback: no certified upload provider is configured');
+        }
+        $status = self::status($this->transport);
+        if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
+            || ($status['active'] ?? false) !== true || empty($status['terminal'])) {
+            throw new \RuntimeException('duo rollback: upload bundle deletion requires valid terminal authority');
+        }
+        return $this->sendUploadBundle([
+            'action' => 'delete', 'artifact_hash' => (string) $status['artifact_hash'],
+            'claim_epoch' => (int) $status['claim_epoch'], 'claimant' => (string) $status['claimant'],
+            'format' => 'duo-upload-bundle-request/v1', 'generation' => (int) $status['generation'],
+            'inventory' => null, 'owner' => (string) $status['owner'],
+            'receipt_id' => (string) $status['receipt_id'], 'retention_until' => (string) $status['retention_until'],
+            'target_id' => (string) $status['target_id'], 'timestamp' => $timestamp ?? self::timestamp(),
+        ]);
+    }
+
     /** @return array<string,mixed> */
     private function requiredActiveStatus(): array {
         $status = self::status($this->transport);
@@ -555,6 +609,14 @@ final class RollbackAuthority {
         return $this->sendRemote(
             RollbackControl::sign($payload, $this->keyId, $this->secretKey),
             'code-release-request'
+        );
+    }
+
+    /** @return array<string,mixed> */
+    private function sendUploadBundle(array $payload): array {
+        return $this->sendRemote(
+            RollbackControl::sign($payload, $this->keyId, $this->secretKey),
+            'upload-bundle-request'
         );
     }
 

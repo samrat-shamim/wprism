@@ -421,6 +421,12 @@ final class Cli {
             $flag = !empty($r['required']) ? 'required' : 'optional';
             WP_CLI::line('ENV_MISSING ' . ($r['name'] ?? '?') . " ($flag)");
         }
+        foreach ($plan['uploads_inventory'] ?? [] as $r) {
+            $root = ($r['derivative_directory'] ?? '') !== ''
+                ? $r['derivative_directory'] . '/' . $r['derivative_basename_prefix'] . '*'
+                : $r['derivative_basename_prefix'] . '*';
+            WP_CLI::line('UPLOAD_MUTATION ' . ($r['original_path'] ?? '?') . " (derivatives: $root)");
+        }
         foreach ($plan['warnings'] ?? [] as $w) {
             WP_CLI::warning($w);
         }
@@ -433,6 +439,7 @@ final class Cli {
         $counts .= ', ' . count($plan['env_missing'] ?? []) . ' env_missing';
         $counts .= ', ' . count($plan['missing_user'] ?? []) . ' missing_user';
         $counts .= ', ' . count($plan['skipped_user_meta'] ?? []) . ' skipped_user_meta';
+        $counts .= ', ' . count($plan['uploads_inventory'] ?? []) . ' upload_mutations';
         WP_CLI::success("plan: $counts");
         if ($plan['drift']) {
             WP_CLI::warning('environment drift detected — capture-first workflow recommended');

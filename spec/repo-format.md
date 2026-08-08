@@ -528,6 +528,16 @@ The orchestrator surfaces this loop as `duo pending <env>` and `duo classify <en
 
 Compilation batches stable blocking diagnostics for malformed or unknown entity kinds, invalid/duplicate UUIDs, duplicate natural identities (`post_type + slug + parent`, `taxonomy + slug`, or a declared table natural key), malformed/unsupported tombstones, live+tombstone collisions, conflict markers, graph references whose target is explicitly deleted or has the wrong kind, unsafe/duplicate attachment paths, missing or mis-hashed media, schema/content mismatches, and pinned adapter constraints. ACF's schema/value checks use the same manifest-shipped interpreter trust boundary as classification—never the installed plugin. The DUO-3203 policy-authorization pass is the final compiler layer and preserves its existing structured failure contract.
 
+The compiled artifact also carries `uploads_inventory`: one deterministic row
+per attachment with the exact original upload-relative path and content hash,
+plus the only derivative directory/basename prefix metadata generation may
+mutate. Two originals may not share a derivative root, even when their
+extensions differ. `duo plan` exposes the same rows before target mutation.
+This bounded compile declaration is not wildcard deletion authority; the SSH
+upload provider resolves it into exact encrypted before-images and exact
+absence receipts under the signed rollback generation (see
+`docs/upload-bundle.md`).
+
 Plan, apply, and deploy construct or load this artifact before target contact and accept only the `CompiledRepository` type internally—never a raw tree array. `--compiled=<artifact.json>` reuses a previously emitted artifact. All phases consume its decoded data/body/media payload and never reopen mutable `state/` or `media/` files after compilation; a failed compilation therefore creates no ledger and performs no target read, lifecycle call, rebuild, filesystem materialization, or database write.
 
 Apply's mandatory fresh-process post-mutation verifier receives private
