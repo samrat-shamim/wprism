@@ -72,6 +72,14 @@ function duo_commerce_extension_table_shape(bool $with_context): array {
     $shape = [];
     foreach ($rows as $row) {
         $length = $row['CHARACTER_MAXIMUM_LENGTH'] ?? null;
+        $default = ($row['COLUMN_DEFAULT'] ?? null) === null ? null : (string) $row['COLUMN_DEFAULT'];
+        // MariaDB quotes literal string defaults in INFORMATION_SCHEMA while
+        // MySQL returns the decoded value. Normalize only the exact empty
+        // string spelling this schema declares; every other default remains
+        // byte-visible to the fail-closed shape comparison.
+        if ($default === "''") {
+            $default = '';
+        }
         $shape[] = [
             'name' => (string) ($row['COLUMN_NAME'] ?? ''),
             'data_type' => strtolower((string) ($row['DATA_TYPE'] ?? '')),
@@ -80,7 +88,7 @@ function duo_commerce_extension_table_shape(bool $with_context): array {
             'nullable' => strtoupper((string) ($row['IS_NULLABLE'] ?? '')),
             'extra' => strtolower((string) ($row['EXTRA'] ?? '')),
             'column_key' => strtoupper((string) ($row['COLUMN_KEY'] ?? '')),
-            'default' => ($row['COLUMN_DEFAULT'] ?? null) === null ? null : (string) $row['COLUMN_DEFAULT'],
+            'default' => $default,
         ];
     }
     return $shape;

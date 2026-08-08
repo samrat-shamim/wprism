@@ -31,7 +31,9 @@ final class EcommerceExtensionMigrationFakeWpdb {
     public array $v2Shape = [
         ['name' => 'id', 'data_type' => 'bigint', 'column_type' => 'bigint(21) unsigned', 'length' => null, 'nullable' => 'NO', 'extra' => 'auto_increment', 'column_key' => 'PRI', 'default' => null],
         ['name' => 'label', 'data_type' => 'varchar', 'column_type' => 'varchar(191)', 'length' => 191, 'nullable' => 'NO', 'extra' => '', 'column_key' => '', 'default' => null],
-        ['name' => 'context', 'data_type' => 'varchar', 'column_type' => 'varchar(64)', 'length' => 64, 'nullable' => 'NO', 'extra' => '', 'column_key' => '', 'default' => ''],
+        // MariaDB exposes an empty string literal as two quote bytes through
+        // INFORMATION_SCHEMA.COLUMNS.COLUMN_DEFAULT.
+        ['name' => 'context', 'data_type' => 'varchar', 'column_type' => 'varchar(64)', 'length' => 64, 'nullable' => 'NO', 'extra' => '', 'column_key' => '', 'default' => "''"],
         ['name' => 'created_at', 'data_type' => 'datetime', 'column_type' => 'datetime', 'length' => null, 'nullable' => 'NO', 'extra' => '', 'column_key' => '', 'default' => null],
     ];
 
@@ -322,18 +324,30 @@ function ecommerce_extension_child_run(string $fixture, string $case): void {
                 'MariaDB integer display width was treated as a schema mismatch'
             );
             $mariaShape = $wpdb->shape;
+            $wpdb->shape = $wpdb->v2Shape;
+            ecommerce_extension_child_check(
+                duo_commerce_extension_table_shape(true) === duo_commerce_extension_expected_table_shape(true),
+                'MariaDB quoted empty-string default was treated as a schema mismatch'
+            );
+            $mysqlV2Shape = $wpdb->v2Shape;
+            $mysqlV2Shape[2]['default'] = '';
+            $wpdb->shape = $mysqlV2Shape;
+            ecommerce_extension_child_check(
+                duo_commerce_extension_table_shape(true) === duo_commerce_extension_expected_table_shape(true),
+                'MySQL decoded empty-string default was treated as a schema mismatch'
+            );
             $wrongShapes = [];
-            $wrong = $wpdb->shape;
+            $wrong = $mariaShape;
             $wrong[0]['column_type'] = 'bigint(21)';
             $wrongShapes['signed bigint'] = $wrong;
-            $wrong = $wpdb->shape;
+            $wrong = $mariaShape;
             $wrong[1]['column_type'] = 'varchar(190)';
             $wrong[1]['length'] = 190;
             $wrongShapes['wrong varchar length'] = $wrong;
-            $wrong = $wpdb->shape;
+            $wrong = $mariaShape;
             $wrong[0]['column_key'] = '';
             $wrongShapes['missing primary key'] = $wrong;
-            $wrong = $wpdb->shape;
+            $wrong = $mariaShape;
             $wrongShapes['wrong column order'] = [$wrong[1], $wrong[0], $wrong[2]];
             foreach ($wrongShapes as $label => $wrongShape) {
                 $wpdb->shape = $wrongShape;
@@ -343,7 +357,7 @@ function ecommerce_extension_child_run(string $fixture, string $case): void {
                 );
             }
             $wrongContext = $wpdb->v2Shape;
-            $wrongContext[2]['default'] = 'unexpected';
+            $wrongContext[2]['default'] = "'unexpected'";
             $wpdb->shape = $wrongContext;
             ecommerce_extension_child_expect_throw(
                 static fn(): mixed => duo_commerce_extension_assert_table_shape(true),
