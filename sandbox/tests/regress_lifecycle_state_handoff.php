@@ -57,6 +57,8 @@ $check(
 
 $recordGate = new ReflectionMethod(Deploy::class, 'unexpected_lifecycle_state_changes');
 $recordGate->setAccessible(true);
+$missingBinder = new ReflectionMethod(Deploy::class, 'bind_lifecycle_missing_options');
+$missingBinder->setAccessible(true);
 $present = static fn($value): array => OptionState::present($value, 'no');
 $beforeDocument = OptionState::document([
     'active_plugins' => $present(['old/old.php']),
@@ -91,6 +93,40 @@ $wooLikeDesired = OptionState::document([
 $check(
     $recordGate->invoke(null, $wooLikeBefore, $wooLikeAfter, $wooLikeDesired) === [],
     'a hook-created authored option may move from a tombstone bound to frozen desired state'
+);
+
+$dynamicBefore = OptionState::document([
+    'theme_mods_old' => OptionState::absent(),
+    'theme_mods_new' => OptionState::absent(),
+]);
+$dynamicDesired = OptionState::document([
+    'theme_mods_new' => $present(['background_color' => '3c8c3c']),
+]);
+$dynamicBound = $missingBinder->invoke(null, $dynamicBefore, $dynamicDesired);
+$dynamicBoundRecords = OptionState::records($dynamicBound);
+$check(
+    ($dynamicBoundRecords['theme_mods_new']['state'] ?? null) === 'deleted'
+        && hash_equals(
+            $dynamicBoundRecords['theme_mods_new']['expected_hash'] ?? '',
+            OptionState::record_hash(OptionState::records($dynamicDesired)['theme_mods_new'])
+        ),
+    'a missing dynamic/sub-key lifecycle projection is cryptographically bound to frozen desired state'
+);
+$check(
+    ($dynamicBoundRecords['theme_mods_old']['state'] ?? null) === 'absent',
+    'a missing option outside frozen desired-present state remains ordinary non-authoritative absence'
+);
+$check(
+    $recordGate->invoke(
+        null,
+        $dynamicBound,
+        OptionState::document([
+            'theme_mods_old' => OptionState::absent(),
+            'theme_mods_new' => $present(['background_color' => 'hook-default']),
+        ]),
+        $dynamicDesired
+    ) === [],
+    'a theme lifecycle hook may create the hash-bound dynamic option before apply reconciles its authored sub-keys'
 );
 $check(
     $recordGate->invoke(

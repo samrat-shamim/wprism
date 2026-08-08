@@ -1023,6 +1023,12 @@ final class Deploy {
                 throw new \RuntimeException('snapshot document is not an object');
             }
             OptionState::records($document);
+            $desired = $compiled->tree()['options/core']['data'] ?? null;
+            if (is_array($desired)) {
+                $document = self::bind_lifecycle_missing_options($document, $desired);
+                $content = Canon::encode($document);
+                $hash = hash('sha256', $content);
+            }
         } catch (\Throwable $t) {
             throw new \RuntimeException(
                 'duo: lifecycle state handoff captured malformed canonical options/core',
@@ -1031,6 +1037,35 @@ final class Deploy {
             );
         }
         return ['hash' => $hash, 'document' => $document];
+    }
+
+    /**
+     * Bind a lifecycle snapshot's missing portable projection to the frozen
+     * desired record. This is intentionally local to the deploy handoff: an
+     * ordinary canonical state=absent remains non-authoritative, and this
+     * transient document is never consumed as apply intent.
+     *
+     * Exact authored options already arrive as bound tombstones from
+     * Capture::build_options(). Sub-key and dynamic-name options cannot use
+     * a durable whole-row deletion tombstone (Duo owns only part of their
+     * value), so their missing live projection arrives as state=absent. A
+     * theme switch is the concrete case: before switch_theme(), the dynamic
+     * theme_mods resolver names the old theme; afterward it names the frozen
+     * desired theme. Converting only desired-present/missing observations to
+     * a hash-bound transient marker gives the record gate the same proof
+     * without granting deletion authority or reviving the unsafe generic
+     * absent-to-present exception.
+     */
+    private static function bind_lifecycle_missing_options(array $observedDocument, array $desiredDocument): array {
+        $observed = OptionState::records($observedDocument);
+        foreach (OptionState::records($desiredDocument) as $name => $desiredRecord) {
+            $observedRecord = $observed[$name] ?? null;
+            if (($desiredRecord['state'] ?? null) === 'present'
+                && ($observedRecord === null || ($observedRecord['state'] ?? null) === 'absent')) {
+                $observed[$name] = OptionState::deleted($desiredRecord, true);
+            }
+        }
+        return OptionState::document($observed);
     }
 
     /**
