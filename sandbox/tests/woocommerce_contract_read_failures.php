@@ -12,6 +12,11 @@ namespace Automattic\WooCommerce\Internal\ProductAttributesLookup {
         public function get_last_regeneration_step_failed(): bool { return false; }
         public function finalize_regeneration(bool $direct = false): void {}
     }
+
+    final class LookupDataStore {
+        public function create_data_for_product($product, bool $optimized = false): void {}
+        public function get_last_create_operation_failed(): bool { return false; }
+    }
 }
 
 namespace Automattic\WooCommerce\Internal\Admin {
@@ -29,6 +34,9 @@ namespace {
     if (!defined('WC_VERSION')) {
         define('WC_VERSION', '11.0.0');
     }
+
+    final class WC_Product_Variable {}
+    final class WC_Product_Grouped {}
 
     final class WooContractReadFakeWpdb {
         public string $prefix = 'wp_';
@@ -143,7 +151,9 @@ namespace {
 
     final class WooContractReadFakeContainer {
         public function get(string $class): object {
-            return new \Automattic\WooCommerce\Internal\ProductAttributesLookup\DataRegenerator();
+            return $class === \Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::class
+                ? new \Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore()
+                : new \Automattic\WooCommerce\Internal\ProductAttributesLookup\DataRegenerator();
         }
     }
 
@@ -168,6 +178,8 @@ namespace {
     function wc_maybe_schedule_product_sale_events(int $id): void {}
     function wc_get_container(): WooContractReadFakeContainer { return new WooContractReadFakeContainer(); }
     function as_next_scheduled_action(string $hook, array $args, string $group) { return false; }
+    function add_filter(string $hook, callable $callback, int $priority = 10, int $acceptedArgs = 1): bool { return true; }
+    function remove_filter(string $hook, callable $callback, int $priority = 10): bool { return true; }
 
     require dirname(__DIR__, 2) . '/agent/src/TransientDbException.php';
     require dirname(__DIR__, 2) . '/agent/src/Db.php';

@@ -20,7 +20,7 @@ namespace Automattic\WooCommerce\Internal\ProductAttributesLookup {
             global $fakeProducts, $fakeAttrLookup;
             $this->createCalls++;
             $rootId = (int) (is_object($product) ? $product->get_id() : $product);
-            $root = \wc_get_product($rootId);
+            $root = is_object($product) ? $product : \wc_get_product($rootId);
             if (!$root) {
                 $this->failed = true;
                 return;
@@ -61,6 +61,11 @@ namespace Automattic\WooCommerce\Internal\ProductAttributesLookup {
                         }
                     }
                 }
+                $termsBySlug = array_flip(\get_terms([
+                    'taxonomy' => 'pa_color',
+                    'hide_empty' => false,
+                    'fields' => 'id=>slug',
+                ]));
                 foreach ((array) $root->get_children() as $childId) {
                     $child = \wc_get_product((int) $childId);
                     foreach ($attrs as $taxonomy => $attribute) {
@@ -68,7 +73,7 @@ namespace Automattic\WooCommerce\Internal\ProductAttributesLookup {
                             continue;
                         }
                         $slug = (string) (($child->get_attributes()[$taxonomy] ?? ''));
-                        $term = $slug === 'red' ? 101 : ($slug === 'blue' ? 102 : 0);
+                        $term = (int) ($termsBySlug[$slug] ?? 0);
                         if ($term > 0) {
                             $rows[] = [
                                 'product_id' => (int) $childId,
@@ -273,13 +278,29 @@ namespace {
         }
 
         public function get_var(string $query): mixed {
-            global $fakeMetaLookup, $fakeAttrLookup;
+            global $fakeMetaLookup, $fakeAttrLookup, $fakeProducts;
             if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
                 $this->last_error = 'simulated read failure';
                 return null;
             }
             if (trim($query) === 'SELECT @@in_transaction') {
                 return $this->transactionActive ? '1' : '0';
+            }
+            if (preg_match('/SELECT post_type FROM wp_posts WHERE ID = (\d+) LIMIT 1/', $query, $m)) {
+                $product = $fakeProducts[(int) $m[1]] ?? null;
+                return $product && $product->get_type() === 'variation'
+                    ? 'product_variation'
+                    : ($product ? 'product' : null);
+            }
+            if (preg_match("/SELECT ID FROM wp_posts WHERE post_parent = (\\d+) AND post_type = 'product_variation'/", $query, $m)) {
+                $parentId = (int) $m[1];
+                foreach ($fakeProducts as $id => $product) {
+                    if ($product->get_type() === 'variation'
+                        && (int) $product->get_parent_id('edit') === $parentId) {
+                        return (int) $id;
+                    }
+                }
+                return null;
             }
             if (preg_match('/COUNT\\(\\*\\) FROM `?wp_wc_product_meta_lookup`? WHERE product_id = (\\d+)/', $query, $m)) {
                 return isset($fakeMetaLookup[(int) $m[1]]) ? 1 : 0;
@@ -302,7 +323,7 @@ namespace {
         public function get_variation(): bool { return $this->variation; }
     }
 
-    final class FakeProduct {
+    class FakeProduct {
         public function __construct(
             private int $id,
             private string $type,
@@ -345,6 +366,42 @@ namespace {
         public function set_visible_children(array $children): void { $this->visibleChildren = $children; }
         public function set_status(string $status): void { $this->status = $status; }
         public function set_catalog_visibility(string $visibility): void { $this->catalogVisibility = $visibility; }
+    }
+
+    final class WC_Product_Variable extends FakeProduct {
+        public function __construct(int $id) {
+            global $fakeProducts;
+            $source = $fakeProducts[$id];
+            parent::__construct(
+                $id,
+                'variable',
+                (int) $source->get_parent_id('edit'),
+                (array) $source->get_children(),
+                (array) $source->get_attributes(),
+                (bool) $source->is_in_stock(),
+                (array) $source->get_visible_children(),
+                (string) $source->get_status(),
+                (string) $source->get_catalog_visibility()
+            );
+        }
+    }
+
+    final class WC_Product_Grouped extends FakeProduct {
+        public function __construct(int $id) {
+            global $fakeProducts;
+            $source = $fakeProducts[$id];
+            parent::__construct(
+                $id,
+                'grouped',
+                (int) $source->get_parent_id('edit'),
+                (array) $source->get_children(),
+                (array) $source->get_attributes(),
+                (bool) $source->is_in_stock(),
+                (array) $source->get_visible_children(),
+                (string) $source->get_status(),
+                (string) $source->get_catalog_visibility()
+            );
+        }
     }
 
     final class WC_Data_Store {
@@ -596,6 +653,8 @@ namespace {
     $fakeGroupedChildren = [];
     $fakeSyncFailures = ['variable' => [], 'grouped' => []];
     $fakeMetaRestoreFailures = [];
+    $fakeFilters = [];
+    $fakeTermQueries = [];
 
     function wc_get_product($id = false) {
         global $fakeProducts, $fakeProductCache, $fakeCacheEvents, $fakeMeta;
@@ -729,7 +788,40 @@ namespace {
         $fakeWpCacheDeletes[] = ['key' => $key, 'group' => $group];
     }
     function wc_stock_amount($value) { return (float) $value; }
-    function get_terms(array $args): array { return [101 => 'red', 102 => 'blue']; }
+    function add_filter(string $hook, callable $callback, int $priority = 10, int $acceptedArgs = 1): bool {
+        global $fakeFilters;
+        $fakeFilters[$hook][$priority][] = [$callback, $acceptedArgs];
+        return true;
+    }
+    function remove_filter(string $hook, callable $callback, int $priority = 10): bool {
+        global $fakeFilters;
+        foreach (($fakeFilters[$hook][$priority] ?? []) as $index => [$candidate]) {
+            if ($candidate === $callback) {
+                unset($fakeFilters[$hook][$priority][$index]);
+                return true;
+            }
+        }
+        return false;
+    }
+    function get_terms(array $args): array {
+        global $fakeFilters, $fakeTermQueries;
+        $taxonomies = (array) ($args['taxonomy'] ?? []);
+        $filters = $fakeFilters['get_terms_args'] ?? [];
+        ksort($filters);
+        foreach ($filters as $callbacks) {
+            foreach ($callbacks as [$callback, $acceptedArgs]) {
+                $args = $acceptedArgs >= 2
+                    ? $callback($args, $taxonomies)
+                    : $callback($args);
+            }
+        }
+        $fakeTermQueries[] = $args;
+        // Model Polylang's current-language term clauses: absent `lang`
+        // exposes only red, while explicit empty `lang` means all languages.
+        return array_key_exists('lang', $args) && $args['lang'] === ''
+            ? [101 => 'red', 102 => 'blue']
+            : [101 => 'red'];
+    }
     function wc_sanitize_taxonomy_name(string $name): string { return $name; }
     function is_wp_error($value): bool { return false; }
     function get_option(string $key, $default = false) { return $key === 'woocommerce_schema_version' ? 1000 : $default; }
@@ -831,6 +923,15 @@ namespace {
     $check($fakeMetaLookup[11]['onsale'] === 1, 'onsale follows Woo sale-price/effective-price equality');
     $check($fakeMeta[11]['_stock'] === ['5'], 'target-local runtime stock meta is preserved');
     $check(count($fakeAttrLookup) === 2, 'attribute lookup rows are regenerated synchronously and exactly');
+    $check($fakeTermQueries !== [] && count(array_filter(
+        $fakeTermQueries,
+        static fn(array $args): bool => !array_key_exists('lang', $args) || $args['lang'] !== ''
+    )) === 0, 'public and verifier attribute term reads explicitly span all Polylang languages');
+    $remainingTermFilters = array_filter(
+        $fakeFilters['get_terms_args'][1] ?? [],
+        static fn(array $entry): bool => isset($entry[0])
+    );
+    $check($remainingTermFilters === [], 'all-language term filter is removed after synchronous generation');
     $check(in_array('product_10', WC_Cache_Helper::$invalidatedGroups, true)
         && in_array('product_11', WC_Cache_Helper::$invalidatedGroups, true),
         'Woo cache-helper invalidates the affected product groups');
@@ -1354,6 +1455,45 @@ namespace {
     ]]);
     $check(in_array('wc_layered_nav_counts_pa_grind-size', $fakeDeletedTransients, true),
         'deleted simple product invalidates the concrete registered layered-nav fallback key');
+
+    // On a fresh target the derived product_type relationship is absent, so
+    // Woo's ordinary factory reports the root as simple. Put lower-id
+    // variations before their higher-id parent to reproduce the live R3-A
+    // ordering that originally erased/omitted lookup rows. The adapter must
+    // infer a WC_Product_Variable object without persisting product_type.
+    $fakeProducts[68] = new FakeProduct(68, 'variation', 70, [], ['pa_color' => 'red'], true);
+    $fakeProducts[69] = new FakeProduct(69, 'variation', 70, [], ['pa_color' => 'blue'], true);
+    $fakeProducts[70] = new FakeProduct(
+        70,
+        'simple',
+        0,
+        [68, 69],
+        ['pa_color' => new FakeProductAttribute(12, [101, 102], true)],
+        true
+    );
+    $fakeMeta[68] = $fakeMeta[12];
+    $fakeMeta[68]['_regular_price'] = ['18'];
+    $fakeMeta[68]['_sale_price'] = [''];
+    $fakeMeta[69] = $fakeMeta[12];
+    $fakeMeta[70] = $fakeMeta[10];
+    foreach ([68, 69, 70] as $id) {
+        $fakeMetaLookup[$id] = $fakeMetaLookup[10];
+        $fakeMetaLookup[$id]['product_id'] = $id;
+        $fakeMetaLookup[$id]['min_price'] = '999';
+        $fakeMetaLookup[$id]['max_price'] = '999';
+    }
+    $adapter->regenerate_batch([68, 69, 70], []);
+    $freshRows = array_values(array_filter(
+        $fakeAttrLookup,
+        static fn(array $row): bool => (int) $row['product_or_parent_id'] === 70
+    ));
+    $check($fakeMeta[70]['_price'] === ['18', '21'],
+        'fresh target infers variable-root price synthesis from authored child posts');
+    $check(count($freshRows) === 2
+        && array_column($freshRows, 'product_id') === [68, 69],
+        'child-before-parent fresh target generates the exact cross-language variation lookup graph');
+    $check($fakeProducts[70]->get_type() === 'simple',
+        'fresh-target classification stays in memory and never persists a derived product_type');
 
     if ($failures > 0) {
         echo "FAIL: $failures check(s) failed\n";
