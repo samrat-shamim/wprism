@@ -233,6 +233,7 @@ ACF_SCHEMA_HELPER_BLOCK="$(function_block assert_acf_schema | strip_static_comme
 FRONTEND_HELPER_BLOCK="$(function_block assert_frontend_child_parent | strip_static_comments)"
 REST_HELPER_BLOCK="$(function_block assert_extension_rest_status | strip_static_comments)"
 STORE_API_HTTP_HELPER_BLOCK="$(function_block assert_store_api_http | strip_static_comments)"
+INITIAL_V1_PHASE_BLOCK="$(phase_block 'publish target-only env registry and materialize v1 code/lifecycle' | strip_static_comments)"
 FAILED_V2_PHASE_BLOCK="$(phase_block 'v2 reviewed change: migrate scalar setting/table and deliberately fail activation' | strip_static_comments)"
 FAILED_V2_RECOVERY_PHASE_BLOCK="$(phase_block 'exact checkpoint recovery, then fixed v2 retry' | strip_static_comments)"
 ROLLBACK_PHASE_BLOCK="$(phase_block 'exact rollback: import v1 checkpoint under maintenance, then promote v1' | strip_static_comments)"
@@ -287,6 +288,12 @@ block_contains theme-helper "$THEME_HELPER_BLOCK" "$THEME_ACF_ACTIVE" 'theme/dep
 block_contains theme-helper "$THEME_HELPER_BLOCK" "$THEME_EXT_ACTIVE" 'theme/dependency helper does not assert extension activation'
 block_contains theme-helper "$THEME_HELPER_BLOCK" "$THEME_PLUGINS_ASSERT" 'theme/dependency helper does not assert authored plugin order'
 block_contains theme-helper "$THEME_HELPER_BLOCK" "$THEME_RUNTIME_ASSERT" 'theme/dependency helper does not assert Woo runtime integration'
+ordered_contract initial-v1-recapture "$INITIAL_V1_PHASE_BLOCK" \
+  'target_wp duo capture --repo=/siterepo --out=/siterepo/.tmp-v1-recapture >/dev/null' \
+  'if ! diff -r "$OTHER_SITE/state" "$OTHER_SITE/.tmp-v1-recapture" >/dev/null; then' \
+  'diff -ru "$OTHER_SITE/state" "$OTHER_SITE/.tmp-v1-recapture" >&2 || true' \
+  "fail 'initial v1 target recapture did not match canonical state byte-for-byte'" \
+  'rm -rf -- "$OTHER_SITE/.tmp-v1-recapture"'
 noop_helper_block() {
   awk '
     NR == 1 { print; next }

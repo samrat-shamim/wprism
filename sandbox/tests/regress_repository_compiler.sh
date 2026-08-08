@@ -205,6 +205,45 @@ if (Canon::encode($read->export()) !== Canon::encode($one->export())) fail('seri
 if (($one->tree()['sidebar/sidebar-1']['type'] ?? '') !== 'sidebar') fail('sidebar entity missing from compiled tree');
 ok('valid revision (including block/text/nav-menu widgets) compiles offline and id_kind width budget holds');
 
+// Typed-snapshot capture now emits --record when no authored slug_column is
+// declared, but repositories captured by earlier Duo versions used the
+// source environment's numeric primary key as this cosmetic suffix. Readers
+// must keep accepting both shapes; identity remains the UUID prefix.
+$tableCompat = "$tmp/table-path-compat";
+build_valid($tableCompat);
+$tableSite = Canon::decode(file_get_contents("$tableCompat/site.duo.json"));
+$tableSite['policy']['tables']['portable_rows'] = [
+    'class' => 'authored_snapshot',
+    'id_kind' => 'portable_row',
+    'pk' => 'id',
+    'refs' => [],
+    'columns' => ['name' => ['class' => 'authored']],
+];
+put("$tableCompat/site.duo.json", Canon::encode($tableSite));
+$tableUuid = uuid(9);
+$tableContent = Canon::encode([
+    'columns' => (object) ['name' => 'Portable row'],
+    'meta' => (object) [],
+    'table' => 'portable_rows',
+    'uuid' => $tableUuid,
+]);
+$legacyTablePath = "$tableCompat/state/tables/portable_rows/$tableUuid--7.json";
+$portableTablePath = "$tableCompat/state/tables/portable_rows/$tableUuid--record.json";
+put($legacyTablePath, $tableContent);
+$legacyTableArtifact = compile_repo($tableCompat);
+if (($legacyTableArtifact->tree()[$tableUuid]['path'] ?? '') !== "tables/portable_rows/$tableUuid--7.json") {
+    fail('legacy numeric typed-snapshot suffix did not compile as a readable row path');
+}
+rename($legacyTablePath, $portableTablePath);
+$portableTableArtifact = compile_repo($tableCompat);
+if (($portableTableArtifact->tree()[$tableUuid]['path'] ?? '') !== "tables/portable_rows/$tableUuid--record.json") {
+    fail('portable typed-snapshot suffix did not compile as a readable row path');
+}
+if (($legacyTableArtifact->tree()[$tableUuid]['hash'] ?? null) !== ($portableTableArtifact->tree()[$tableUuid]['hash'] ?? null)) {
+    fail('legacy and portable typed-snapshot path forms changed the row semantic hash');
+}
+ok('legacy numeric and portable --record typed-snapshot paths both compile to the same UUID/content semantics');
+
 $tampered = $one->export(); $tampered['revision_hash'] = str_repeat('0', 64);
 put("$tmp/tampered.json", Canon::encode($tampered));
 try { RepositoryCompiler::read_artifact("$tmp/tampered.json", Policy::load($a)); fail('tampered artifact was accepted'); }

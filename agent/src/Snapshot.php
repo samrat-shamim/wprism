@@ -785,6 +785,18 @@ final class Snapshot {
                 "duo: table '$table' declares column(s) in BOTH columns and refs: " . implode(', ', $overlap)
             );
         }
+        if (array_key_exists('slug_column', $decl)) {
+            $slugCol = $decl['slug_column'];
+            $slugRule = is_string($slugCol) && $slugCol !== ''
+                ? ($decl['columns'][$slugCol] ?? null)
+                : null;
+            if (!is_array($slugRule) || ($slugRule['class'] ?? null) !== 'authored') {
+                throw new \RuntimeException(
+                    "duo: table '$table' slug_column must name a non-empty authored columns entry — "
+                    . 'primary keys, refs, runtime, derived, and env columns are environment-local and cannot name canonical files'
+                );
+            }
+        }
 
         $live = self::live_columns($table);
         if ($live === null) {

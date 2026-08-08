@@ -381,20 +381,24 @@ function fresh_policy(array $tablesDecl): Policy {
     return $policy;
 }
 
-function shipping_method_policy(): Policy {
+function shipping_method_decl(array $overrides = []): array {
+    return array_merge([
+        'class' => 'authored_snapshot',
+        'id_kind' => 'wc_zone_method',
+        'pk' => 'instance_id',
+        'refs' => [['column' => 'zone_id', 'kind' => 'wc_zone']],
+        'columns' => [
+            'method_id' => ['class' => 'authored'],
+            'method_order' => ['class' => 'authored'],
+            'is_enabled' => ['class' => 'authored'],
+        ],
+    ], $overrides);
+}
+
+function shipping_method_policy(array $overrides = []): Policy {
     $policy = new Policy();
     $policy->manifests = [['tables' => [
-        'woocommerce_shipping_zone_methods' => [
-            'class' => 'authored_snapshot',
-            'id_kind' => 'wc_zone_method',
-            'pk' => 'instance_id',
-            'refs' => [['column' => 'zone_id', 'kind' => 'wc_zone']],
-            'columns' => [
-                'method_id' => ['class' => 'authored'],
-                'method_order' => ['class' => 'authored'],
-                'is_enabled' => ['class' => 'authored'],
-            ],
-        ],
+        'woocommerce_shipping_zone_methods' => shipping_method_decl($overrides),
     ]]];
     return $policy;
 }
@@ -710,6 +714,21 @@ check(
     ($methodsA[FLAT_RATE_UUID]['path'] ?? '') === 'tables/woocommerce_shipping_zone_methods/' . FLAT_RATE_UUID . '--record.json'
         && ($methodsA[FREE_SHIPPING_UUID]['path'] ?? '') === 'tables/woocommerce_shipping_zone_methods/' . FREE_SHIPPING_UUID . '--record.json',
     'E2: a table without slug_column uses the portable --record suffix, never an environment-local primary key'
+);
+check_throws(
+    fn() => Snapshot::assert_row_schema(
+        'woocommerce_shipping_zone_methods',
+        shipping_method_decl(['slug_column' => 'instance_id'])
+    ),
+    'slug_column must name a non-empty authored columns entry',
+    'E3: a primary-key slug_column is rejected before capture can leak environment-local ids into paths'
+);
+$runtimeSlugDecl = shipping_method_decl(['slug_column' => 'method_id']);
+$runtimeSlugDecl['columns']['method_id']['class'] = 'runtime';
+check_throws(
+    fn() => Snapshot::assert_row_schema('woocommerce_shipping_zone_methods', $runtimeSlugDecl),
+    'slug_column must name a non-empty authored columns entry',
+    'E4: a runtime slug_column is rejected; only portable authored data may name canonical files'
 );
 
 // ======================================================================
