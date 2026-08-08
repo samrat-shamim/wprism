@@ -1211,11 +1211,13 @@ final class WoocommerceProductLookups {
             return (string) $expected === (string) $actual;
         }
         if ($column === 'total_sales') {
-            // Woo stores this BIGINT lookup column as 0 when the source meta
-            // is absent. Never cast malformed source text to zero: only
-            // numeric values may take the numeric comparison path.
+            // Woo's BIGINT lookup column is nullable with a zero default.
+            // Its public refresh stores NULL for a variation whose source
+            // meta is absent, while other product paths can read back zero.
+            // Never cast malformed source text to zero: only an absent
+            // source or numeric values may take the normalization path.
             if ($expected === '') {
-                return $actual === ''
+                return $actual === null || $actual === ''
                     || (is_numeric($actual) && abs((float) $actual) < 0.000001);
             }
             if (!is_numeric($expected) || !is_numeric($actual)) {

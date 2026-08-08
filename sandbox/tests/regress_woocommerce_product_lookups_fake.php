@@ -440,9 +440,12 @@ namespace {
                 'average_rating' => ((string) ($fakeMeta[$id]['_wc_average_rating'][0] ?? '')) === ''
                     ? '0.00'
                     : (string) $fakeMeta[$id]['_wc_average_rating'][0],
-                // The real Woo lookup schema is BIGINT NOT NULL with a zero
-                // default, so absent source meta is normalized to integer 0.
-                'total_sales' => (string) ($fakeMeta[$id]['total_sales'][0] ?? '0'),
+                // The real Woo lookup schema is BIGINT NULL DEFAULT 0. Its
+                // public refresh stores SQL NULL for a variation with no
+                // source meta, which is distinct from an explicit zero.
+                'total_sales' => array_key_exists('total_sales', $fakeMeta[$id])
+                    ? (string) ($fakeMeta[$id]['total_sales'][0] ?? '')
+                    : null,
                 'tax_status' => 'taxable',
                 'tax_class' => '',
                 'global_unique_id' => '',
@@ -805,6 +808,8 @@ namespace {
         'average rating verifier rejects a real nonzero mismatch');
     $check((bool) $ratingEqual->invoke($adapter, '', '0', 'total_sales'),
         'empty authored total sales matches Woo integer zero normalization');
+    $check((bool) $ratingEqual->invoke($adapter, '', null, 'total_sales'),
+        'absent total sales matches Woo nullable lookup normalization');
     $check((bool) $ratingEqual->invoke($adapter, '12', '12.0', 'total_sales'),
         'numeric total sales values compare by their numeric meaning');
     $check(!(bool) $ratingEqual->invoke($adapter, 'not-a-number', '0', 'total_sales'),
@@ -1053,6 +1058,8 @@ namespace {
     $check($heartbeatCalls > 0, 'batch adapter invokes the promotion heartbeat callback');
     $check($fakeMeta[13]['_price'] === ['0'], 'authored zero sale price recomputes stale _price');
     $check($fakeMetaLookup[13]['onsale'] === 0, 'zero sale price is not marked onsale');
+    $check($fakeMetaLookup[13]['total_sales'] === null,
+        'public lookup refresh preserves Woo nullable total sales for absent source meta');
 
     $adapter->regenerate_batch([14], []);
     $check(($fakeMetaLookup[14]['min_price'] ?? null) === '0.0000'
