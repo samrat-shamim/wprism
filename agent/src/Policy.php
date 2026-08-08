@@ -58,7 +58,24 @@ final class Policy {
         return '/duo-manifests';
     }
 
+    /**
+     * V1 is deliberately single-site. Refuse before policy/repository reads
+     * so a network install cannot be mistaken for a supported convergence
+     * surface and no command can publish a partial single-blog projection.
+     * The function guard keeps the pure offline policy validators usable
+     * outside WordPress while the real product path always has is_multisite().
+     */
+    private static function assert_single_site(): void {
+        if (function_exists('is_multisite') && is_multisite()) {
+            throw new \RuntimeException(
+                'duo: multisite is unsupported by the certified v1 contract; '
+                . 'this command is single-site only and refuses before loading policy or mutating state'
+            );
+        }
+    }
+
     public static function load(?string $repo, ?array $manifestNames = null): self {
+        self::assert_single_site();
         $p = new self();
         if ($repo !== null) {
             $siteFile = rtrim($repo, '/') . '/site.duo.json';
@@ -121,6 +138,7 @@ final class Policy {
 
     /** Reconstruct and fully validate a policy exported by export_snapshot(). */
     public static function from_snapshot(array $snapshot): self {
+        self::assert_single_site();
         $keys = array_keys($snapshot);
         sort($keys, SORT_STRING);
         if ($keys !== ['format', 'manifests', 'site']

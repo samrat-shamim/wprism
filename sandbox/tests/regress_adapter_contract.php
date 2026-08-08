@@ -30,6 +30,14 @@
  * and the script exits 1.
  */
 
+// WordPress supplies this in production. The offline harness exposes a
+// switchable equivalent so Policy::load()'s real v1 single-site gate is
+// exercised without bootstrapping WordPress or replacing the product path.
+$GLOBALS['duo_test_is_multisite'] = false;
+function is_multisite(): bool {
+    return (bool) $GLOBALS['duo_test_is_multisite'];
+}
+
 require __DIR__ . '/../../agent/src/Canon.php';
 require __DIR__ . '/../../agent/src/OptionState.php';
 require __DIR__ . '/../../agent/src/Db.php';
@@ -146,6 +154,17 @@ check(
     isset($tr['acme-theme']) && $tr['acme-theme'] === ['min' => '3.0.0', 'max' => '4.0.0', 'manifest' => 'good'],
     'theme_ranges() returns the declared theme range keyed by theme directory name'
 );
+
+echo "\n== scope boundary: multisite refuses before policy loading or mutation ==\n";
+$GLOBALS['duo_test_is_multisite'] = true;
+expect_throw(
+    fn() => Policy::load(null, ['good']),
+    'multisite is unsupported by the certified v1 contract',
+    'multisite fails closed through the real Policy::load() entry path'
+);
+$GLOBALS['duo_test_is_multisite'] = false;
+Policy::load(null, ['good']);
+check(true, 'single-site policy loading remains available after the refusal probe');
 
 echo "\n== spec_version: MANDATORY (DUO-3247) — absent hard-fails, present-and-correct passes, present-and-WRONG hard-fails ==\n";
 
