@@ -22,18 +22,19 @@
 #       initial capture on g1 records the inactive baseline.
 #   (b) g1 activates duo-loop-demo for real (activate_plugin(), hooks fire),
 #       captures, pushes; g2 pulls the pending activation.
-#   (c) g2: plan shows the pending activation with code_mismatch empty (the
-#       plugin's code already arrived via g1's earlier commits); deploy
-#       activates it for real (REST route responds — proves hooks fired,
-#       not just an option flip); apply converges; canonical(g2) ==
-#       canonical(g1) byte for byte.
+#   (c) g2: plan shows the pending activation as the sole
+#       inactive_in_environment code_mismatch (the plugin's code already
+#       arrived via g1's earlier commits); deploy activates it for real
+#       (REST route responds — proves hooks fired, not just an option flip);
+#       apply converges; canonical(g2) == canonical(g1) byte for byte.
 #   (d) invariant demo: on a branch, duo-loop-demo is removed from code/
 #       (git rm -r) while canonical still says active. g2 pulls; the
 #       ALREADY-RUNNING container's bind-mounted plugin directory goes
 #       missing live. plan surfaces missing_in_code loudly; deploy AND
 #       apply both refuse. Fix: g1 deactivates for real (matching the
-#       already-missing code), captures, pushes; g2 pulls; deploy succeeds;
-#       plugin gone cleanly.
+#       already-missing code), captures, pushes; g2 pulls and reports the
+#       target's unexpected_active_plugin lifecycle gap; deploy deactivates
+#       it and clears that final mismatch; plugin gone cleanly.
 #   (e) version_range demo: a dedicated fixture manifest
 #       (manifests/duo-loop-demo-versioned.json) pins a version_range for
 #       duo-loop-demo. Control case first (still-compliant version deploys
@@ -259,12 +260,16 @@ git -C siterepo/g1 push -q origin main
 git -C siterepo/g2 pull -q origin main
 pass "(b) g1 activated duo-loop-demo for real; capture recorded it; g2 pulled the pending activation"
 
-say "(c) on g2: plan shows the pending activation with code_mismatch EMPTY — the plugin's code already arrived (present since before docker ever started, via g1's earlier commits)"
+say "(c) on g2: plan shows the pending activation as the ONLY code_mismatch finding — inactive_in_environment, because code arrived but its lifecycle has not run"
 PLAN_JSON=$(wp_g2 duo plan --repo=/siterepo --format=json | tail -1)
 echo "$PLAN_JSON" | jq . 2>/dev/null || echo "$PLAN_JSON"
-echo "$PLAN_JSON" | jq -e '.code_mismatch == []' >/dev/null \
-  || fail "g2's plan shows code_mismatch even though duo-loop-demo's code is present via the bind mount (got: $(echo "$PLAN_JSON" | jq -c .code_mismatch))"
-pass "(c) plan: pending activation visible, code_mismatch empty"
+echo "$PLAN_JSON" | jq -e '.code_mismatch | length == 1' >/dev/null \
+  || fail "g2's plan does not show exactly one code_mismatch finding (got: $(echo "$PLAN_JSON" | jq -c .code_mismatch))"
+echo "$PLAN_JSON" | jq -e '.code_mismatch[0].issue == "inactive_in_environment" and .code_mismatch[0].kind == "plugin" and .code_mismatch[0].plugin == "duo-loop-demo/duo-loop-demo.php"' >/dev/null \
+  || fail "g2's single code_mismatch finding is not the expected inactive_in_environment/duo-loop-demo shape (got: $(echo "$PLAN_JSON" | jq -c .code_mismatch))"
+echo "$PLAN_JSON" | jq -e '.code_mismatch[0].message | contains("Run") and contains("deploy") and contains("before apply")' >/dev/null \
+  || fail "inactive_in_environment message lost its deploy-before-apply guidance (got: $(echo "$PLAN_JSON" | jq -c .code_mismatch))"
+pass "(c) plan: pending activation is the sole inactive_in_environment finding and points to deploy-before-apply"
 
 say "(c) wp duo deploy on g2: real activation"
 DEPLOY_JSON=$(wp_g2 duo deploy --repo=/siterepo --format=json | tail -1)
@@ -368,8 +373,13 @@ git -C siterepo/g1 -c user.name=duo -c user.email=duo@example.test commit -qm "b
 git -C siterepo/g1 push -q origin remove-plugin-demo
 git -C siterepo/g2 pull -q origin remove-plugin-demo
 PLAN_JSON=$(wp_g2 duo plan --repo=/siterepo --format=json | tail -1)
-echo "$PLAN_JSON" | jq -e '.code_mismatch == []' >/dev/null || fail "g2's plan still shows code_mismatch after the deactivation fix landed (got: $PLAN_JSON)"
-pass "(d) g1 deactivated for real + captured + pushed; g2 pulled — code_mismatch now empty"
+echo "$PLAN_JSON" | jq -e '.code_mismatch | length == 1' >/dev/null \
+  || fail "g2's plan does not show exactly one lifecycle mismatch after the canonical deactivation landed (got: $PLAN_JSON)"
+echo "$PLAN_JSON" | jq -e '.code_mismatch[0].issue == "unexpected_active_plugin" and .code_mismatch[0].kind == "plugin" and .code_mismatch[0].plugin == "duo-loop-demo/duo-loop-demo.php"' >/dev/null \
+  || fail "g2's remaining mismatch is not the expected unexpected_active_plugin/duo-loop-demo shape (got: $PLAN_JSON)"
+echo "$PLAN_JSON" | jq -e '.code_mismatch[0].message | contains("Run") and contains("deploy") and contains("before apply")' >/dev/null \
+  || fail "unexpected_active_plugin message lost its deploy-before-apply guidance (got: $PLAN_JSON)"
+pass "(d) g1 captured canonical deactivation; g2 still reports its target-local unexpected_active_plugin until deploy runs the lifecycle"
 
 say "(d) deploy now succeeds; plugin gone cleanly"
 DEPLOY_JSON=$(wp_g2 duo deploy --repo=/siterepo --format=json | tail -1)
@@ -378,6 +388,9 @@ echo "$DEPLOY_JSON" | jq -e '.deactivated | any(. == "duo-loop-demo/duo-loop-dem
 wp_g2 plugin list --status=active --field=name | grep -qx duo-loop-demo && fail "duo-loop-demo still shows active on g2 after deploy deactivated it"
 STILL_GONE=$(wp_g2 eval 'echo file_exists(WP_PLUGIN_DIR . "/duo-loop-demo/duo-loop-demo.php") ? "present" : "gone";')
 [ "$STILL_GONE" = "gone" ] || fail "duo-loop-demo.php reappeared on g2 unexpectedly"
+PLAN_JSON=$(wp_g2 duo plan --repo=/siterepo --format=json | tail -1)
+echo "$PLAN_JSON" | jq -e '.code_mismatch == []' >/dev/null \
+  || fail "deploy did not clear the unexpected_active_plugin lifecycle mismatch (got: $PLAN_JSON)"
 pass "(d) deploy succeeded: duo-loop-demo deactivated, absent from code/ — invariant satisfied, plugin gone cleanly"
 
 say "(e) return to a consistent baseline: g1/g2 back on main (plugin present + active again per canonical, ready to re-deploy)"
