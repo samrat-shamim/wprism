@@ -3,7 +3,7 @@
 <!-- BEGIN GENERATED CAPABILITY SUMMARY -->
 - **Certified authored-state adapters:** acf, contact-form-7, core, elementor, ninja-forms, polylang, woocommerce, yoast.
 - **Experimental and promotion-blocking:** paid-memberships-pro, the-events-calendar.
-- **Evidence:** bundle `3072a1064678f3392013dbf409180ecf26bc9f4ba2ceb0d746f4df43c9b59c3b` (current); exact versions, operations, surfaces, and unsupported boundaries are in [the generated capability document](docs/capabilities.md). Plugins run unmodified; only registry-named authored state is branchable.
+- **Evidence:** bundle `3072a1064678f3392013dbf409180ecf26bc9f4ba2ceb0d746f4df43c9b59c3b` (candidate); exact versions, operations, surfaces, and unsupported boundaries are in [the generated capability document](docs/capabilities.md). Plugins run unmodified; only registry-named authored state is branchable.
 <!-- END GENERATED CAPABILITY SUMMARY -->
 
 Duo makes the registry-certified authored surfaces of a WordPress site **branchable like code** — branch, edit, merge, promote — without modifying plugin or theme source. Authored content and configuration live canonically in a git repository; runtime data (orders, comments, sessions, caches) stays environment-local and untouched. Missing registry data is unsupported.
