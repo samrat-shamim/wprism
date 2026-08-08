@@ -1137,6 +1137,11 @@ grep -Fq '"product_id" => (int) $item->get_product_id()' "$SCRIPT" || fail 'HPOS
 grep -Fq '"quantity" => (int) $item->get_quantity()' "$SCRIPT" || fail 'HPOS order line-item quantity assertion missing'
 grep -Fq '"total" => (string) $item->get_total()' "$SCRIPT" || fail 'HPOS order line-item total assertion missing'
 grep -Fq 'target_tee_snapshot()' "$SCRIPT" || fail 'deterministic target tee snapshot helper missing'
+grep -Fq 'WHERE meta_key = %s AND meta_value = %s LIMIT 1' "$SCRIPT" || fail 'target tee snapshot does not parameterize both metadata identity inputs'
+grep -Fq '"_duo_uuid",' "$SCRIPT" || fail 'target tee snapshot does not bind the exact portable identity key'
+if grep -Fq "meta_key = '_duo_uuid'" "$SCRIPT"; then
+  fail 'target tee snapshot embeds a shell-unsafe single-quoted SQL literal inside its single-quoted PHP program'
+fi
 grep -Fq 'assert_target_tee_unchanged()' "$SCRIPT" || fail 'target tee conflict snapshot equality assertion missing'
 grep -Fq 'TEE_UUID=' "$SCRIPT" || fail 'canonical tee UUID binding missing'
 grep -Fq 'CONFLICT_PRODUCT_PATH=' "$SCRIPT" || fail 'canonical tee path binding missing'

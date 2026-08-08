@@ -792,7 +792,8 @@ target_tee_snapshot() {
 global $wpdb;
 $uuid = '"'"$uuid"'"';
 $postId = (int) $wpdb->get_var($wpdb->prepare(
-    "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_duo_uuid' AND meta_value = %s LIMIT 1",
+    "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value = %s LIMIT 1",
+    "_duo_uuid",
     $uuid
 ));
 if (!$postId) { throw new RuntimeException("target tee identity missing: " . $uuid); }
