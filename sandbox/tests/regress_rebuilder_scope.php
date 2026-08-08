@@ -63,7 +63,8 @@ $manifest = [
 ];
 
 $policy = \Duo\Policy::from_snapshot([
-    'format' => 'duo-policy-snapshot/v2',
+    'format' => 'duo-policy-snapshot/v3',
+    'capabilities' => null,
     'dispositions' => null,
     'site' => [
         'manifests' => ['trigger-probe'],
@@ -111,7 +112,8 @@ $check(
 $expectThrow = static function (array $badManifest, string $needle, string $label) use ($check): void {
     try {
         \Duo\Policy::from_snapshot([
-            'format' => 'duo-policy-snapshot/v2',
+            'format' => 'duo-policy-snapshot/v3',
+            'capabilities' => null,
             'dispositions' => null,
             'site' => [
                 'manifests' => ['trigger-probe'],
