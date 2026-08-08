@@ -525,8 +525,8 @@
             },
             {
                 "path": "manifests/woocommerce.json",
-                "sha256": "e0ed9facd2f2fdbd7b5104ed2def90816a8a248e0b7ef578d0407ccde52f59fa",
-                "size": 106696
+                "sha256": "6bd8dd75418beb99d6104db19e0bb1da0f567e2f0c5bbd2ed534e7542ce98dca",
+                "size": 106827
             },
             {
                 "path": "manifests/yoast.json",
@@ -724,8 +724,8 @@
                 "size": 94454
             }
         ],
-        "bundle_digest": "3072a1064678f3392013dbf409180ecf26bc9f4ba2ceb0d746f4df43c9b59c3b",
-        "created_at": "2026-08-08T22:00:07Z",
+        "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
+        "created_at": "2026-08-08T23:14:20Z",
         "environment": {
             "path": "environment.json",
             "sha256": "9711ef3a04f882da7e7e0271d99bf014408bea1c656510ec463456e635fedc63",
@@ -744,7 +744,7 @@
             "wordpress": "7.0.2"
         },
         "force_hatches": [],
-        "git_revision": "9b15df480084cefc304019904baca229c1d4b7eb",
+        "git_revision": "fed287fc73072c4b183ee3b209de5564366708d2",
         "harness": {
             "name": "duo-reference-certification",
             "version": 2
@@ -780,8 +780,8 @@
                 "id": "core-conformance",
                 "log": {
                     "path": "logs/core-conformance.txt",
-                    "sha256": "5cc1d9bda633648d44a330b145c62d9cf83e35aab819fb7702c9cae9af65ccdf",
-                    "size": 28643
+                    "sha256": "bf95a7cd195e31df6e652dde299030316bc94943795ccc58aa2c61abfe4bd283",
+                    "size": 28081
                 },
                 "result": {
                     "path": "results/core-conformance.json",
@@ -799,8 +799,8 @@
                 "id": "fse-conformance",
                 "log": {
                     "path": "logs/fse-conformance.txt",
-                    "sha256": "73ae0bdde58fc5ca4bff6b587872b31061e4735791317515c95f69f730c9fe4e",
-                    "size": 15106
+                    "sha256": "1fc42cc0c6da44a18cfb097467fe38b635605e54f7b1b5467aa89f4521205f82",
+                    "size": 14860
                 },
                 "result": {
                     "path": "results/fse-conformance.json",
@@ -818,8 +818,8 @@
                 "id": "multisite-refusal",
                 "log": {
                     "path": "logs/multisite-refusal.txt",
-                    "sha256": "32e2e2ca72342923a2d54e39f749611660313d3920b42163d7f90f276912ac51",
-                    "size": 7887
+                    "sha256": "ea16a6ff3149fb05785957047d4034f61993a262ba5dc23037f577c370028cf1",
+                    "size": 7733
                 },
                 "result": {
                     "path": "results/multisite-refusal.json",
@@ -837,8 +837,8 @@
                 "id": "exact-artifact-version-matrix",
                 "log": {
                     "path": "logs/exact-artifact-version-matrix.txt",
-                    "sha256": "48e7fbe0db8dd195d646bec68ec6a04fe272afd04997fc82b9df045808bf1bf9",
-                    "size": 136859
+                    "sha256": "871ddc0fed6b859fe77b616b2fd384b027383a383b8b63dab9240b1f0035d889",
+                    "size": 134209
                 },
                 "result": {
                     "path": "results/exact-artifact-version-matrix.json",
