@@ -104,6 +104,13 @@ receipts, runtime fingerprints, and ledger session. It also checks the same
 database and provider identities. Any mismatch stays non-green, so a database
 import alone can never establish a successful rollback.
 
+Terminal rollback admission is proof-bearing: `verifying_prior → rolled_back`
+requires a completed `prior_verify` from the current claim epoch. A claimant
+takeover therefore invalidates an earlier claimant's verification evidence and
+the successor must verify again. If `database_restore` was declared by a
+prepared operation, its completed event must also remain in the signed chain;
+the absence of open operations is never treated as proof that restoration ran.
+
 ## Retention and deletion
 
 Checkpoint material cannot be deleted for an inactive or nonterminal

@@ -371,7 +371,8 @@ the intermediate expectation is deliberately non-green.
 
 The harness must also inject changed target identity, stale generation, wrong
 owner/artifact, substituted checkpoint, unavailable decryption key, missing
-adapter, changed file, and failed maintenance keepalive. Each is a loud refusal
+adapter, changed file, failed maintenance keepalive, and terminal rollback
+without a completed current-epoch prior verification. Each is a loud refusal
 without unauthorized mutation. The certification artifact is a signed,
 machine-readable bundle of every case, terminal outcome, verifier report, and
 resource fingerprint—not a log-grep claim.

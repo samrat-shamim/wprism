@@ -83,6 +83,7 @@ function ssh_cert_negative_ids(): array {
         'concurrent-claimant',
         'concurrent-writer',
         'failed-maintenance-keepalive',
+        'terminal-without-prior-verify',
     ];
 }
 

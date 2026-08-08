@@ -550,8 +550,8 @@
             },
             {
                 "path": "sandbox/bin/ssh-rollback-certification.php",
-                "sha256": "a8f56e77ea4c905ad9080bfcf1ca79484e6ecefc8493951c25e14164c6d19e24",
-                "size": 21855
+                "sha256": "7717c0f84b60af8f90749cd2a5129f67c9a4e3bc6189f21bc514eed971c3a42a",
+                "size": 21896
             },
             {
                 "path": "sandbox/conformance/artifacts-cache/.gitkeep",
@@ -724,8 +724,8 @@
                 "size": 94454
             }
         ],
-        "bundle_digest": "73029ce2533fe5c45a24faeedb84d0c9524f897910bc4d14caf09dd146116515",
-        "created_at": "2026-08-08T19:01:05Z",
+        "bundle_digest": "cda4c3182f9ae9ed6cdaf9b730becd3bef5d95b084fa613ada6129b361bf6e4a",
+        "created_at": "2026-08-08T20:22:27Z",
         "environment": {
             "path": "environment.json",
             "sha256": "9711ef3a04f882da7e7e0271d99bf014408bea1c656510ec463456e635fedc63",
@@ -744,7 +744,7 @@
             "wordpress": "7.0.2"
         },
         "force_hatches": [],
-        "git_revision": "5bc15bd8ac646e7f8b3436a46301dc858aa04ed0",
+        "git_revision": "ec485849d244a3b32f612b3299374e578c424cbf",
         "harness": {
             "name": "duo-reference-certification",
             "version": 2
@@ -780,8 +780,8 @@
                 "id": "core-conformance",
                 "log": {
                     "path": "logs/core-conformance.txt",
-                    "sha256": "f430c35a0b4d805918b475564080522293a7000e4807f4b883b088bf358b6234",
-                    "size": 28067
+                    "sha256": "abd43fafa6c4f37a024f8d274feea4bb751c2a2c75e33c5c90f5eb7b2ed73ec7",
+                    "size": 29249
                 },
                 "result": {
                     "path": "results/core-conformance.json",
@@ -799,8 +799,8 @@
                 "id": "fse-conformance",
                 "log": {
                     "path": "logs/fse-conformance.txt",
-                    "sha256": "78f143331fa1e9c171725b214783d9079e0dd910eb39de1de0183a34fecca515",
-                    "size": 14846
+                    "sha256": "1cd9f71f504bc029b6c9c5ea41fb378f3862a17a6bdca607791ad5c67a278e68",
+                    "size": 15396
                 },
                 "result": {
                     "path": "results/fse-conformance.json",
@@ -818,8 +818,8 @@
                 "id": "multisite-refusal",
                 "log": {
                     "path": "logs/multisite-refusal.txt",
-                    "sha256": "f4b2fdfff86d250aa341061c4aaf481fd4bc881784cc5eb21b5678c473d32f27",
-                    "size": 7714
+                    "sha256": "eb6138fdfd75acb71bb580935e72c421d90efc1509a5049e5cc495c4d7dba296",
+                    "size": 8092
                 },
                 "result": {
                     "path": "results/multisite-refusal.json",
@@ -837,8 +837,8 @@
                 "id": "exact-artifact-version-matrix",
                 "log": {
                     "path": "logs/exact-artifact-version-matrix.txt",
-                    "sha256": "62cfe8ca5f244b57f6f4e93cc6a303baf14fa88876d3533a388800808455f033",
-                    "size": 133644
+                    "sha256": "a3be30c2bf74ec3350649e7c24ecd8245731ec2e980a25a7e36dfd6d3d246519",
+                    "size": 138994
                 },
                 "result": {
                     "path": "results/exact-artifact-version-matrix.json",
