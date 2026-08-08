@@ -1,10 +1,10 @@
 # Fixture staleness sweep
 
 DUO-3274 audits the repository's gap-characterization fixtures against the
-mechanisms present on `main` at `ec485849d244a3b32f612b3299374e578c424cbf`.
+mechanisms present on `main` at `d973e0027caabc3f4522679a71167386cf6e5236`.
 The denominator is every `sandbox/tests/{regress_,certify_,grind_,spike_}*.sh`
-or `.php` file at that revision: 103 regressions, 8 certifications, 8 grinds,
-and 7 spikes, 126 files total. The three `cli_*smoke.sh` fixtures are outside
+or `.php` file at that revision: 115 regressions, 8 certifications, 9 grinds,
+and 7 spikes, 139 files total. The three `cli_*smoke.sh` fixtures are outside
 that naming denominator but were included in the assertion-safety audit.
 
 Verdicts:
@@ -44,6 +44,7 @@ Verdicts:
 | `certify_deletion_matrix.sh` | A forced Ninja Forms parent deletion left guard-survivor rows as an unresolved finding requiring manual cleanup. | DUO-3251 retained the mandatory ref-integrity refusal, added exact survivor warnings, and shipped `wp duo orphans` delete/reparent recovery. The fixture now characterizes the refusal as a safety checkpoint and proves both supported recovery actions plus clean plan/capture. | `aged-flip` |
 | `certify_merge.sh`, `spike_b_merge.sh` | A preserved target-local Team edit merely emitted a generic drift message while the rest of the merge could be treated as complete. | Current apply performs mandatory fresh-process canonical verification, fails closed on the exact Team hash mismatch, leaves an `incomplete_apply` retry marker, and clears it only after capture-first recovery verifies cleanly. Both full live flows passed. | `aged-flip` |
 | `regress_woocommerce_contract.php`, `grind_r1b_shop.sh` | The DUO-3225 offline option inventory is complete for the exact WooCommerce 11.0.0 full-shop fixture. | A clean post-rebase R1-B run found five namespace-owned options with no exact classification. DUO-3303/PR #118 classified all five exact authored options plus the later `wc_pending_batch_processes` runtime row, extended the inventory regression, passed exact-commit Woo conformance, and completed the full R1-B blocker stack. | `prior-reconciled` |
+| `regress_woocommerce_contract.php`, `grind_r1b_shop.sh` | The reconciled WooCommerce 11.0.0 option inventory remained complete after the exact-reference certification workflow landed. | The next clean full-shop capture found `woocommerce_hooked_blocks_version` and `woocommerce_pickup_location_settings`. DUO-3311/PR #127 classified both as exact authored, reference-free options, extended the inventory regression, passed the full latest-main R1-B stack with no unclassified Woo namespace rows, and certified the exact standalone commit. | `prior-reconciled` |
 | `regress_option_subkeys.sh` | The first apply leaves Polylang language relationships as drift and a retry/content change repairs them. | DUO-3280 is asserted on the single first apply; the no-op reapply must have zero drift. The later content update now proves ordinary preservation, not repair. | `prior-reconciled` |
 | `regress_option_subkeys.sh` | Deep lint catches IDs below language-slug keys in `nav_menus`. | The script explicitly does not assert this; the existing blind spot is filed as DUO-3241. | `unclear-escalate` |
 | `regress_option_ref_scope.sh` | In-scope-but-unminted references behave like ordinary dangling IDs. | The current script asserts the real scope-aware refusal/non-minting snapshot contract; reconciled in PR #51 (`926518c`). | `prior-reconciled` |
@@ -101,6 +102,7 @@ with more specific or mixed verdicts are detailed in the ledger above.
 | `certify_version_skew_merge.sh` | Certification contract: version skew merge. No unresolved gap characterization. | `current` |
 | `grind_code_half.sh` | Scenario contract: code half. No unresolved gap characterization. | `current` |
 | `grind_code_half_ecosystem.sh` | Scenario contract: code half ecosystem. No unresolved gap characterization. | `current` |
+| `grind_ecommerce_developer.sh` | Scenario contract: ecommerce developer. No unresolved gap characterization. | `current` |
 | `grind_first_sync_hook_recovery.sh` | Scenario contract: first sync hook recovery. No unresolved gap characterization. | `current` |
 | `grind_r1a_forms.sh` | Mechanism-specific historical assertions; see the gap ledger. | `prior-reconciled` |
 | `grind_r1b_shop.sh` | Mechanism-specific historical assertions; see the gap ledger. | `aged-flip / aged-delete / prior-reconciled` |
@@ -117,6 +119,9 @@ with more specific or mixed verdicts are detailed in the ledger above.
 | `regress_block_refs.php` | Regression contract: block refs. No unresolved gap characterization. | `current` |
 | `regress_block_refs.sh` | Regression contract: block refs. No unresolved gap characterization. | `current` |
 | `regress_bundle_coverage.sh` | Regression contract: bundle coverage. No unresolved gap characterization. | `current` |
+| `regress_capability_registry.php` | Regression contract: capability registry. No unresolved gap characterization. | `current` |
+| `regress_capability_registry.sh` | Regression contract: capability registry. No unresolved gap characterization. | `current` |
+| `regress_capture_atomicity.php` | Regression contract: capture atomicity. No unresolved gap characterization. | `current` |
 | `regress_capture_concurrency.sh` | Regression contract: capture concurrency. No unresolved gap characterization. | `current` |
 | `regress_capture_publish.php` | Regression contract: capture publish. No unresolved gap characterization. | `current` |
 | `regress_capture_publish.sh` | Regression contract: capture publish. No unresolved gap characterization. | `current` |
@@ -147,6 +152,8 @@ with more specific or mixed verdicts are detailed in the ledger above.
 | `regress_doctor_env_values.php` | Regression contract: doctor env values. No unresolved gap characterization. | `current` |
 | `regress_dynamic_options_policy.php` | Regression contract: dynamic options policy. No unresolved gap characterization. | `current` |
 | `regress_dynamic_options_policy.sh` | Regression contract: dynamic options policy. No unresolved gap characterization. | `current` |
+| `regress_ecommerce_developer_static.sh` | Regression contract: ecommerce developer static fixture. No unresolved gap characterization. | `current` |
+| `regress_ecommerce_extension_migration.php` | Regression contract: ecommerce extension migration. No unresolved gap characterization. | `current` |
 | `regress_effect_bundle.php` | Regression contract: effect bundle. No unresolved gap characterization. | `current` |
 | `regress_entity_type_width.sh` | Regression contract: entity type width. No unresolved gap characterization. | `current` |
 | `regress_env_options_policy.php` | Regression contract: env options policy. No unresolved gap characterization. | `current` |
@@ -183,9 +190,11 @@ with more specific or mixed verdicts are detailed in the ledger above.
 | `regress_plan_summary_code_drift.php` | Regression contract: plan summary code drift. No unresolved gap characterization. | `current` |
 | `regress_plugin_dependency_order.php` | Regression contract: plugin dependency order. No unresolved gap characterization. | `current` |
 | `regress_pmpro_composite_ref.sh` | Regression contract: pmpro composite ref. No unresolved gap characterization. | `current` |
+| `regress_post_field_classification.php` | Regression contract: post field classification. No unresolved gap characterization. | `current` |
 | `regress_promotion.sh` | Regression contract: promotion. No unresolved gap characterization. | `current` |
 | `regress_promotion_lock.sh` | Regression contract: promotion lock. No unresolved gap characterization. | `current` |
 | `regress_promotion_unit.sh` | Regression contract: promotion unit. No unresolved gap characterization. | `current` |
+| `regress_rebuilder_scope.php` | Regression contract: rebuilder scope. No unresolved gap characterization. | `current` |
 | `regress_recovery_executor.php` | Regression contract: recovery executor. No unresolved gap characterization. | `current` |
 | `regress_regen_dependency_policy.php` | Regression contract: regen dependency policy. No unresolved gap characterization. | `current` |
 | `regress_regen_dependency_policy.sh` | Regression contract: regen dependency policy. No unresolved gap characterization. | `current` |
@@ -209,7 +218,12 @@ with more specific or mixed verdicts are detailed in the ledger above.
 | `regress_user_meta.sh` | Regression contract: user meta. No unresolved gap characterization. | `current` |
 | `regress_widgets.sh` | Regression contract: widgets. No unresolved gap characterization. | `current` |
 | `regress_woo_attribute_deletion.sh` | Refusal remains current; rebuild-obligation inventory was reconciled; see the gap ledger. | `prior-reconciled / aged-flip` |
-| `regress_woocommerce_contract.php` | The exact WooCommerce option-inventory gap found by the full-shop fixture was reconciled by DUO-3303/PR #118; see the gap ledger. | `prior-reconciled` |
+| `regress_woocommerce_contract.php` | The exact WooCommerce option-inventory gaps found by the full-shop fixture were reconciled by DUO-3303/PR #118 and DUO-3311/PR #127; see the gap ledger. | `prior-reconciled` |
+| `regress_woocommerce_deletion_authority.php` | Regression contract: WooCommerce deletion authority. No unresolved gap characterization. | `current` |
+| `regress_woocommerce_effect_contract.php` | Regression contract: WooCommerce effect contract. No unresolved gap characterization. | `current` |
+| `regress_woocommerce_product_lookups.php` | Regression contract: WooCommerce product lookups. No unresolved gap characterization. | `current` |
+| `regress_woocommerce_product_lookups_fake.php` | Regression contract: WooCommerce product lookups fake adapter. No unresolved gap characterization. | `current` |
+| `regress_woocommerce_regen_engine.php` | Regression contract: WooCommerce regeneration engine. No unresolved gap characterization. | `current` |
 | `spike_a_round_trip.sh` | Spike acceptance: a round trip. No unresolved gap characterization. | `current` |
 | `spike_b_merge.sh` | Fail-closed post-apply verification replaces the stale generic-drift assertion; see the gap ledger. | `aged-flip` |
 | `spike_c_provenance.sh` | Spike acceptance: c provenance. No unresolved gap characterization. | `current` |
@@ -225,7 +239,9 @@ with more specific or mixed verdicts are detailed in the ledger above.
   languages with no manual target configuration or retry; valid language
   descriptions survived, and all rendered checks passed after DUO-3300.
 - `grind_r1b_shop.sh`: the clean final blocker-stack run passed after
-  DUO-3303/PR #118 and DUO-3304/PR #117. The first apply produced 4/4 `pa_*`
+  DUO-3303/PR #118, DUO-3304/PR #117, and DUO-3311/PR #127. The exact
+  full-shop inventory has no unclassified Woo namespace rows, including the
+  two options reconciled by DUO-3311. The first apply produced 4/4 `pa_*`
   relationships. DUO-3302 keeps the real timestamp differences visible in raw
   captures while both complete trees compile to identical policy-driven entity
   hashes, and both environments converge on the editorially merged price.
@@ -248,9 +264,9 @@ with more specific or mixed verdicts are detailed in the ledger above.
   `pa_*` attributes, shipping zones, coverage, and status truth.
 - Exact current-main WooCommerce conformance passed, as did the deletion
   matrix and reference-bundle certification (digest
-  `b41e5a3c46784874d24f6afefd6f9ee693a59d464657488c8eeb35590c53cc63`).
+  `7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595`).
   `php scripts/capability-registry.php check` was clean.
-- `make regress-offline-all`: 60 offline suites green.
+- `make regress-offline-all`: 64 offline suites green.
 - All 29 branch-changed shell scripts pass `bash -n`; `git diff --check` is
   clean. No executable `echo "$VAR" | grep -q` assertion remains (only the
   explanatory comment in `grind_r1a_forms.sh`).
