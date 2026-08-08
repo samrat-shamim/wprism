@@ -1,10 +1,10 @@
 # Fixture staleness sweep
 
 DUO-3274 audits the repository's gap-characterization fixtures against the
-mechanisms present on `main` at `3aeef92521f21e4424e26b01a190742511047d54`.
+mechanisms present on `main` at `c3a7d567ff95851253d1b2252e73ba6a26f99967`.
 The denominator is every `sandbox/tests/{regress_,certify_,grind_,spike_}*.sh`
-or `.php` file at that revision: 102 regressions, 8 certifications, 8 grinds,
-and 7 spikes, 125 files total. The three `cli_*smoke.sh` fixtures are outside
+or `.php` file at that revision: 103 regressions, 8 certifications, 8 grinds,
+and 7 spikes, 126 files total. The three `cli_*smoke.sh` fixtures are outside
 that naming denominator but were included in the assertion-safety audit.
 
 Verdicts:
@@ -39,6 +39,8 @@ Verdicts:
 | `grind_r3b_events.sh` | TEC occurrences required a manual regeneration loop after apply. | DUO-3234 `regen_dependency` now regenerates occurrences in apply; the fixture asserts three query-visible events and zero pending markers. | `prior-reconciled` |
 | `grind_r3b_events.sh` | PMPro composite restriction rows and `meta_id` sidecars could not round-trip. | DUO-3235 `identity.mode=composite_ref` and `id_column` are asserted directly with no repair. | `prior-reconciled` |
 | `grind_r3b_events.sh` | TEC's aggregate `/events/list/` always becomes ready within the fixture's former retry budget. | Individual routes and database rows are reliable, but the aggregate view can lag under load after data is complete. No root cause is claimed; DUO-3301 owns the focused investigation. | `unclear-escalate` |
+| `certify_deletion_matrix.sh` | WooCommerce product deletion could be forced after checking a known order-reference table. | DUO-3225 makes the product deletion capability explicitly unsupported because arbitrary extension references are not exhaustively representable. The certification now asserts that plan, apply, and forced apply all refuse before mutation. | `current` |
+| `certify_deletion_matrix.sh` | A forced Ninja Forms parent deletion left guard-survivor rows as an unresolved finding requiring manual cleanup. | DUO-3251 retained the mandatory ref-integrity refusal, added exact survivor warnings, and shipped `wp duo orphans` delete/reparent recovery. The fixture now characterizes the refusal as a safety checkpoint and proves both supported recovery actions plus clean plan/capture. | `aged-flip` |
 | `regress_option_subkeys.sh` | The first apply leaves Polylang language relationships as drift and a retry/content change repairs them. | DUO-3280 is asserted on the single first apply; the no-op reapply must have zero drift. The later content update now proves ordinary preservation, not repair. | `prior-reconciled` |
 | `regress_option_subkeys.sh` | Deep lint catches IDs below language-slug keys in `nav_menus`. | The script explicitly does not assert this; the existing blind spot is filed as DUO-3241. | `unclear-escalate` |
 | `regress_option_ref_scope.sh` | In-scope-but-unminted references behave like ordinary dangling IDs. | The current script asserts the real scope-aware refusal/non-minting snapshot contract; reconciled in PR #51 (`926518c`). | `prior-reconciled` |
@@ -59,7 +61,7 @@ echo "$VALUE" | grep -q PATTERN
 With `set -o pipefail`, a successful early `grep -q` can close the pipe while
 `echo` is still writing, turning a successful match into status 141. The
 replacement is a here-string (`grep -q PATTERN <<<"$VALUE"`), which has no
-live producer process to race. This sweep replaced 188 such producer
+live producer process to race. This sweep replaced 185 such producer
 pipelines across 31 scripts. The only remaining literal occurrence is the
 explanatory comment in `grind_r1a_forms.sh`; non-quiet consumers such as
 `grep -c` and `grep -o` remain pipelines because they consume the complete
@@ -195,6 +197,7 @@ with more specific or mixed verdicts are detailed in the ledger above.
 | `regress_user_meta.sh` | Regression contract: user meta. No unresolved gap characterization. | `current` |
 | `regress_widgets.sh` | Regression contract: widgets. No unresolved gap characterization. | `current` |
 | `regress_woo_attribute_deletion.sh` | Regression contract: woo attribute deletion. No unresolved gap characterization. | `current` |
+| `regress_woocommerce_contract.php` | Regression contract: WooCommerce option/table ownership, rebuild, and fail-closed deletion. No unresolved gap characterization. | `current` |
 | `spike_a_round_trip.sh` | Spike acceptance: a round trip. No unresolved gap characterization. | `current` |
 | `spike_b_merge.sh` | Spike acceptance: b merge. No unresolved gap characterization. | `current` |
 | `spike_c_provenance.sh` | Spike acceptance: c provenance. No unresolved gap characterization. | `current` |
@@ -215,4 +218,3 @@ with more specific or mixed verdicts are detailed in the ledger above.
 - `make regress-offline-all`: 52 offline suites green.
 - All 31 changed shell scripts pass `bash -n`; the repository has no
   executable `echo "$VAR" | grep -q` assertion remaining.
-
