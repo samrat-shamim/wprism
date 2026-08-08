@@ -550,8 +550,8 @@
             },
             {
                 "path": "sandbox/bin/ssh-rollback-certification.php",
-                "sha256": "a8f56e77ea4c905ad9080bfcf1ca79484e6ecefc8493951c25e14164c6d19e24",
-                "size": 21855
+                "sha256": "7717c0f84b60af8f90749cd2a5129f67c9a4e3bc6189f21bc514eed971c3a42a",
+                "size": 21896
             },
             {
                 "path": "sandbox/conformance/artifacts-cache/.gitkeep",
@@ -610,8 +610,8 @@
             },
             {
                 "path": "sandbox/conformance/checks/woocommerce.sh",
-                "sha256": "d532d864987b6b10186a30f250fd0e3c1c371ae8b355e3262644a74f2fc86d5d",
-                "size": 13897
+                "sha256": "7938e8831abdb88d0043f0ab816786dc9eccea943762673bf4af67b68ec618dd",
+                "size": 14114
             },
             {
                 "path": "sandbox/conformance/checks/yoast.sh",
@@ -720,12 +720,12 @@
             },
             {
                 "path": "spec/repo-format.md",
-                "sha256": "5d08753cad167f1558298173413d42b17dab5882c5b71d5f60463be04c26642c",
-                "size": 93881
+                "sha256": "01458d19628d7cd3ed8c68d8403aeabbe33734a55ec06a4a498fe8c90c1dd7d6",
+                "size": 94454
             }
         ],
-        "bundle_digest": "978440c967f29a49243c39174949bced6a013ab06bc0c25f970e10dc9ecb3f1a",
-        "created_at": "2026-08-08T20:54:39Z",
+        "bundle_digest": "3072a1064678f3392013dbf409180ecf26bc9f4ba2ceb0d746f4df43c9b59c3b",
+        "created_at": "2026-08-08T22:00:07Z",
         "environment": {
             "path": "environment.json",
             "sha256": "9711ef3a04f882da7e7e0271d99bf014408bea1c656510ec463456e635fedc63",
@@ -744,7 +744,7 @@
             "wordpress": "7.0.2"
         },
         "force_hatches": [],
-        "git_revision": "d467ed6c9d3ee79a593d0f850455756b480cbbb7",
+        "git_revision": "9b15df480084cefc304019904baca229c1d4b7eb",
         "harness": {
             "name": "duo-reference-certification",
             "version": 2
@@ -780,8 +780,8 @@
                 "id": "core-conformance",
                 "log": {
                     "path": "logs/core-conformance.txt",
-                    "sha256": "41cb4b40a650705a49ea344226292f9eaaee096082c900de945c4ec5546e08d2",
-                    "size": 28937
+                    "sha256": "5cc1d9bda633648d44a330b145c62d9cf83e35aab819fb7702c9cae9af65ccdf",
+                    "size": 28643
                 },
                 "result": {
                     "path": "results/core-conformance.json",
@@ -799,8 +799,8 @@
                 "id": "fse-conformance",
                 "log": {
                     "path": "logs/fse-conformance.txt",
-                    "sha256": "712858e8192a6c7f402d114f1ab0cea2bee7cf45291cfbbb945e08dc74fe6c5e",
-                    "size": 15242
+                    "sha256": "73ae0bdde58fc5ca4bff6b587872b31061e4735791317515c95f69f730c9fe4e",
+                    "size": 15106
                 },
                 "result": {
                     "path": "results/fse-conformance.json",
@@ -818,8 +818,8 @@
                 "id": "multisite-refusal",
                 "log": {
                     "path": "logs/multisite-refusal.txt",
-                    "sha256": "c52295f07ec61c4a0fc4c5cf46551f6a5012e73d009a16ae370ade82602a2413",
-                    "size": 7979
+                    "sha256": "32e2e2ca72342923a2d54e39f749611660313d3920b42163d7f90f276912ac51",
+                    "size": 7887
                 },
                 "result": {
                     "path": "results/multisite-refusal.json",
@@ -837,8 +837,8 @@
                 "id": "exact-artifact-version-matrix",
                 "log": {
                     "path": "logs/exact-artifact-version-matrix.txt",
-                    "sha256": "c5b7f9af4e52ff74aebd9bed6c7614f6c0b4c39c07444d67a4661bdff4fc335c",
-                    "size": 138197
+                    "sha256": "48e7fbe0db8dd195d646bec68ec6a04fe272afd04997fc82b9df045808bf1bf9",
+                    "size": 136859
                 },
                 "result": {
                     "path": "results/exact-artifact-version-matrix.json",
