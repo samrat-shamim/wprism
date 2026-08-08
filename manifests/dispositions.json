@@ -110,7 +110,7 @@
     },
     "ninja-forms": {
       "capabilities": {
-        "deletion_semantics": {"supported": ["table:nf3_actions", "table:nf3_fields", "table:nf3_forms"], "unsupported": ["runtime submissions"]},
+        "deletion_semantics": {"supported": ["table:nf3_actions", "table:nf3_fields"], "unsupported": ["table:nf3_forms", "runtime submissions"]},
         "entity_sections": ["post_types", "tables"],
         "field_sections": ["options", "block_attrs"],
         "lifecycle_phases": ["retire", "activate", "verify"],
@@ -122,10 +122,13 @@
         {"reason": "Exact 3.4.34.2/3.14.11 typed-table matrix evidence covers the plugin-owned form meta keyspace.", "status": "justified", "table": "nf3_form_meta"}
       ],
       "evidence": {"bundle_schema": "duo-certification-bundle/v1", "tests": ["exact-artifact-version-matrix"]},
-      "reason": "Certified typed-table form graph, cache rebuild, block rendering, deletion guards, and exact version boundaries.",
+      "reason": "Certified typed-table form graph, cache rebuild, block rendering, child-row deletion, loud parent-deletion refusal, and exact version boundaries.",
       "status": "certified",
       "supported_versions": {"plugin": "ninja-forms/ninja-forms.php", "range": {"max": "4.0.0", "min": "3.4.34.2"}},
-      "unsupported": [{"operation": "capture", "reason": "Submission entities are runtime-sovereign and intentionally excluded.", "surface": "post_types.nf_sub"}]
+      "unsupported": [
+        {"operation": "delete", "reason": "The shipped nf3_actions.parent_id and nf3_fields.parent_id columns have no complete indexes, so an unmodified Ninja Forms target cannot provide the next-key/gap-lock boundary required for race-safe form deletion.", "surface": "tables.nf3_forms"},
+        {"operation": "capture", "reason": "Submission entities are runtime-sovereign and intentionally excluded.", "surface": "post_types.nf_sub"}
+      ]
     },
     "paid-memberships-pro": {
       "capabilities": {"deletion_semantics": {"supported": ["table:pmpro_memberships_pages"], "unsupported": ["intent-only composite tables"]}, "entity_sections": ["tables"], "field_sections": ["options", "post_meta"], "lifecycle_phases": [], "operations": ["capture", "compile", "plan", "apply", "delete", "recapture"]},

@@ -177,12 +177,11 @@ certify-adversarial-matrix:
 	bash sandbox/tests/certify_adversarial_matrix.sh
 
 # DUO-3223 slice 4 (--with-deletes scenarios): the three manifests with real
-# deletions/guards blocks on plugin-owned typed-snapshot tables, beyond
-# core's own (checks/core.sh). woocommerce's wc_order_product_lookup guard,
-# ninja-forms' three-guard shape (two cross-table + one postmeta) with the
-# cascade-vs-guard distinction proven live, and paid-memberships-pro's
-# empty-guards composite_ref table. See the script's own header for the
-# multiple failed designs it took to get the ninja-forms leg right.
+# deletion boundaries on plugin-owned typed-snapshot tables, beyond core's
+# own (checks/core.sh). WooCommerce and Ninja Forms prove explicit fail-closed
+# parent boundaries, Ninja Forms also proves its independently safe child-row
+# cascades, and Paid Memberships Pro proves an empty-guards composite_ref
+# delete. See the script's own header for the exact contracts.
 certify-deletion-matrix:
 	bash sandbox/tests/certify_deletion_matrix.sh
 
