@@ -74,14 +74,33 @@ rm -rf "$HOST_REPO"
 mkdir -p "$HOST_REPO"
 cat > "$HOST_REPO/site.duo.json" <<'EOF'
 {
+  "spec_version": 2,
   "manifests": ["core", "woocommerce"],
   "policy": {
     "options": {}, "post_meta": {},
     "post_types": ["post", "page", "attachment"],
-    "taxonomies": ["category", "post_tag"]
+    "taxonomies": ["category", "post_tag"],
+    "scope": {
+      "post_type": {
+        "product": {"class": "runtime"},
+        "product_variation": {"class": "runtime"}
+      },
+      "taxonomy": {
+        "product_cat": {"class": "runtime"},
+        "product_type": {"class": "runtime"},
+        "product_visibility": {"class": "runtime"},
+        "r92_not_pa_at_all": {"class": "runtime"}
+      }
+    }
   }
 }
 EOF
+# RepositoryCompiler now validates even non-minting snapshots fail closed on
+# malformed repositories. This probe needs a valid empty state tree so it
+# reaches the taxonomy-scope assertion it was written to exercise. The scope
+# dispositions above likewise satisfy the newer whole-entity completeness
+# gate without promoting the deliberately undeclared taxonomy to authored.
+mkdir -p "$HOST_REPO/state"
 wp1 eval '
 global $wpdb;
 $wpdb->insert($wpdb->terms, ["name" => "Stray", "slug" => "r92-stray", "term_group" => 0]);
