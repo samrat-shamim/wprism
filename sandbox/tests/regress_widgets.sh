@@ -106,7 +106,7 @@ wp1 db query "DELETE FROM wp_duo_map WHERE uuid='$TEXT_UUID' AND id_kind='widget
 if OUT=$(wp1 duo capture --repo=/siterepo 2>&1); then
   fail "capture silently reminted a widget after ledger loss"
 fi
-echo "$OUT" | grep -q 'restore identity-export' || fail "lost mapping refusal did not name recovery: $OUT"
+grep -q 'restore identity-export' <<<"$OUT" || fail "lost mapping refusal did not name recovery: $OUT"
 wp1 duo identity-import --repo=/siterepo --in=/siterepo/.duo/widget-identity.json >/dev/null
 wp1 duo capture --repo=/siterepo --format=json >/dev/null || fail "capture did not recover after identity import"
 pass "ledger loss fails closed and identity import restores continuity"
@@ -134,8 +134,8 @@ pass "fresh target defaults surface in plan as unmanaged widget deletes"
 wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts,menus --default-author=admin >/dev/null \
   || fail "target apply failed"
 TARGET_KEYS=$(wp2 eval '$s=get_option("sidebars_widgets"); echo implode(",", $s["sidebar-1"]);')
-echo "$TARGET_KEYS" | grep -q 'block-21' && fail "source block counter was copied/target default survived: $TARGET_KEYS"
-echo "$TARGET_KEYS" | grep -q 'text-22' && fail "source text counter was copied/target default survived: $TARGET_KEYS"
+grep -q 'block-21' <<<"$TARGET_KEYS" && fail "source block counter was copied/target default survived: $TARGET_KEYS"
+grep -q 'text-22' <<<"$TARGET_KEYS" && fail "source text counter was copied/target default survived: $TARGET_KEYS"
 for type in block text nav_menu; do
   COUNT=$(wp2 db query "SELECT COUNT(*) FROM wp_duo_map WHERE id_kind='widget_$type'" --skip-column-names 2>/dev/null | tr -d '\r')
   [ "$COUNT" = 1 ] || fail "expected one widget_$type mapping on target, got $COUNT"
@@ -154,7 +154,7 @@ wp2 db query "DELETE FROM wp_duo_map WHERE uuid='$TARGET_TEXT_UUID' AND id_kind=
 if OUT=$(wp2 duo plan --repo=/siterepo 2>&1); then
   fail "restored-target widget ledger loss did not block plan"
 fi
-echo "$OUT" | grep -q 'Restore identity-export' || fail "target ledger-loss refusal omitted recovery path: $OUT"
+grep -q 'Restore identity-export' <<<"$OUT" || fail "target ledger-loss refusal omitted recovery path: $OUT"
 wp2 duo identity-import --repo=/siterepo --in=/siterepo/.duo/widget-target-identity.json >/dev/null
 wp2 duo plan --repo=/siterepo --format=json >/dev/null || fail "target plan did not recover after identity import"
 pass "restored-target ledger loss blocks plan until verified identity import"
@@ -163,7 +163,7 @@ wp2 option update widget_text 'legacy-singleton-shape' >/dev/null
 if OUT=$(wp2 duo capture --repo=/siterepo 2>&1); then
   fail "malformed widget_text option was guessed instead of refused"
 fi
-echo "$OUT" | grep -q "widget option 'widget_text'" || fail "malformed refusal did not name widget_text: $OUT"
+grep -q "widget option 'widget_text'" <<<"$OUT" || fail "malformed refusal did not name widget_text: $OUT"
 pass "non-multi-instance widget option refuses loudly by option name"
 
 printf '\n\033[1;32m✔ REGRESS_WIDGETS PASSED\033[0m\n'
