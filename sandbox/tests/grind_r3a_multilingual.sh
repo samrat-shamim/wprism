@@ -109,8 +109,17 @@ assert_language_descriptions() { # assert_language_descriptions <side> <checkpoi
     }
     echo "POLYLANG_LANGUAGE_DESCRIPTIONS_OK\n";
   ' 2>&1) || { echo "$out"; fail "Polylang language descriptions invalid on side $side at checkpoint '$checkpoint'"; }
-  echo "$out" | grep -q 'POLYLANG_LANGUAGE_DESCRIPTIONS_OK' \
+  grep -q 'POLYLANG_LANGUAGE_DESCRIPTIONS_OK' <<<"$out" \
     || fail "Polylang language-description probe produced no success marker on side $side at checkpoint '$checkpoint' (got: $out)"
+}
+
+assert_complete_html() { # assert_complete_html <body> <label>
+  local body="$1" label="$2" bytes
+  bytes=${#body}
+  [ "$bytes" -ge 4096 ] \
+    || fail "$label response is implausibly short ($bytes bytes; expected at least 4096)"
+  grep -qi '</html>' <<<"$body" \
+    || fail "$label response has no closing </html> marker ($bytes bytes; possible truncated transfer)"
 }
 
 say "pair.sh up: boot r3a1 (:$PORT1) / r3a2 (:$PORT2), DB-level readiness, generic WordPress bootstrap"
@@ -175,8 +184,8 @@ COLOR_ID=$(wp_1 wc product_attribute create --name=Color --slug=color --type=sel
 RED_ID=$(wp_1 wc product_attribute_term create "$COLOR_ID" --name=Red --slug=red --porcelain --user=admin)
 BLUE_ID=$(wp_1 wc product_attribute_term create "$COLOR_ID" --name=Blue --slug=blue --porcelain --user=admin)
 REGISTERED=$(wp_1 eval "foreach (wc_get_attribute_taxonomies() as \$a) { echo wc_attribute_taxonomy_name(\$a->attribute_name) . ' '; }")
-echo "$REGISTERED" | grep -q 'pa_size' || fail "pa_size did not register"
-echo "$REGISTERED" | grep -q 'pa_color' || fail "pa_color did not register"
+grep -q 'pa_size' <<<"$REGISTERED" || fail "pa_size did not register"
+grep -q 'pa_color' <<<"$REGISTERED" || fail "pa_color did not register"
 pass "pa_size ($SIZE_ID) / pa_color ($COLOR_ID) registered"
 
 say "languages (en default, de) + enable translation for product/product_cat/pa_color (the free/pro boundary test — no manifest, no license: pure Polylang admin config)"
@@ -217,7 +226,7 @@ echo 'configured' . PHP_EOL;
 OBJ_OK=0
 for _ in 1 2 3 4 5 6 7 8; do
   OBJTYPE=$(wp_1 eval "\$t=get_taxonomy('language'); echo implode(',', (array) \$t->object_type);")
-  if echo "$OBJTYPE" | grep -q 'product'; then
+  if grep -q 'product' <<<"$OBJTYPE"; then
     OBJ_OK=1
     break
   fi
@@ -310,8 +319,8 @@ echo \$cap_de;
 ")
 pass "Duo Kappe created ($CAP_DE), linked translation of Duo Cap ($CAP_ID)"
 LANG_CHECK=$(wp_1 eval "var_export(['mug'=>pll_get_post_language($MUG_ID),'cap'=>pll_get_post_language($CAP_ID),'tee'=>pll_get_post_language($TEE_ID),'kappe'=>pll_get_post_language($CAP_DE)]);")
-echo "$LANG_CHECK" | grep -q "'mug' => 'en'" || fail "Duo Mug language tag did not take (see task #121 finding 7)"
-echo "$LANG_CHECK" | grep -q "'tee' => 'en'" || fail "Duo Tee language tag did not take (see task #121 finding 7)"
+grep -q "'mug' => 'en'" <<<"$LANG_CHECK" || fail "Duo Mug language tag did not take (see task #121 finding 7)"
+grep -q "'tee' => 'en'" <<<"$LANG_CHECK" || fail "Duo Tee language tag did not take (see task #121 finding 7)"
 pass "language tags verified to have actually landed (not just called)"
 
 say "per-language menus: Main Menu (en) / Hauptmenu (de), both assigned primary via Polylang's own per-language mapping"
@@ -396,7 +405,7 @@ git clone -q siterepo/origin-r3a.git siterepo/r3a2
 # real earlier in this script) is a real mismatch apply refuses outright.
 # Deploy first, same fix as grind_r1b_shop.sh's identical finding.
 DEPLOY0_JSON=$(wp_2 duo deploy --repo=/siterepo --format=json | tail -1)
-echo "$DEPLOY0_JSON" | grep -q '"theme_switched":"storefront"' || fail "deploy did not switch to storefront (got: $DEPLOY0_JSON)"
+grep -q '"theme_switched":"storefront"' <<<"$DEPLOY0_JSON" || fail "deploy did not switch to storefront (got: $DEPLOY0_JSON)"
 [ "$(wp_2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not the active theme on r3a2 after deploy"
 pass "r3a2 switched to Storefront via a real wp duo deploy — required BEFORE apply under DUO-3216"
 REV=$(git -C siterepo/r3a2 rev-parse HEAD)
@@ -411,10 +420,10 @@ echo "$APPLY1_OUT"
 # reported rather than asserted to a fixed value below, since a different,
 # still-present timing question (relationship-WRITING order, not the
 # warning) survives task #92 -- see the next comment.
-echo "$APPLY1_OUT" | grep -q 'not registered on this environment' \
+grep -q 'not registered on this environment' <<<"$APPLY1_OUT" \
   && FRESH_TARGET_WARNED=1 || FRESH_TARGET_WARNED=0
 [ "$FRESH_TARGET_WARNED" = "0" ] || fail "unexpected unregistered-taxonomy warning for pa_size/pa_color -- task #92's object_type fallback should make this unreachable for a declared taxonomy_patterns match (got: $APPLY1_OUT)"
-echo "$APPLY1_OUT" | grep -q 'canary clean\|"canary":"clean"\|(canary clean)' || fail "apply canary was not clean"
+grep -qE 'canary clean|"canary":"clean"|\(canary clean\)' <<<"$APPLY1_OUT" || fail "apply canary was not clean"
 assert_language_descriptions 1 "after initial source capture"
 assert_language_descriptions 2 "after initial target apply"
 pass "apply succeeded, canary clean, no unregistered-taxonomy warning"
@@ -422,7 +431,7 @@ pass "apply succeeded, canary clean, no unregistered-taxonomy warning"
 say "confirm the precise blast radius on the fresh target: pa_* attribute taxonomy rows self-provision (task #75); relationship-WRITING for 'product' is still order-of-processing dependent within the SAME apply run"
 TEE_B2=$(wp_2 post list --post_type=product --name=duo-tee --field=ID)
 REGISTERED_B2=$(wp_2 eval "var_export(['pa_size'=>taxonomy_exists('pa_size'),'pa_color'=>taxonomy_exists('pa_color')]);")
-echo "$REGISTERED_B2" | grep -q "'pa_size' => true" || fail "pa_size did not self-register on the fresh target (task #75 regression)"
+grep -q "'pa_size' => true" <<<"$REGISTERED_B2" || fail "pa_size did not self-register on the fresh target (task #75 regression)"
 RELS_BEFORE=$(wp_2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN ('pa_size','pa_color')" --skip-column-names)
 # NOT asserted to be exactly 0: Apply::taxes_by_object_type() (agent/src/
 # Apply.php) memoizes $taxesByObjectType on FIRST access, lazily, not
@@ -477,7 +486,7 @@ update_option('polylang', \$o);
 OBJ_OK_B2=0
 for _ in 1 2 3 4 5 6 7 8; do
   OBJTYPE_B2=$(wp_2 eval "\$t=get_taxonomy('language'); echo implode(',', (array) \$t->object_type);")
-  if echo "$OBJTYPE_B2" | grep -q 'product'; then
+  if grep -q 'product' <<<"$OBJTYPE_B2"; then
     OBJ_OK_B2=1
     break
   fi
@@ -517,9 +526,9 @@ pass "relationships restored (4 rows), language restored for Duo Tee/Mug/Cap/Kap
 
 say "wp duo deploy on r3a2 again — DUO-3216 idempotency contract: already reconciled by the early deploy above, so this must be a genuine no-op"
 DEPLOY_JSON=$(wp_2 duo deploy --repo=/siterepo --format=json | tail -1)
-echo "$DEPLOY_JSON" | grep -q '"theme_switched":null' || fail "expected a no-op re-deploy (theme already switched by the early deploy above) — got: $DEPLOY_JSON"
-echo "$DEPLOY_JSON" | grep -q '"activated":\[\]' || fail "expected zero plugin activations on an idempotent re-deploy — got: $DEPLOY_JSON"
-echo "$DEPLOY_JSON" | grep -q '"deactivated":\[\]' || fail "expected zero plugin deactivations on an idempotent re-deploy — got: $DEPLOY_JSON"
+grep -q '"theme_switched":null' <<<"$DEPLOY_JSON" || fail "expected a no-op re-deploy (theme already switched by the early deploy above) — got: $DEPLOY_JSON"
+grep -q '"activated":\[\]' <<<"$DEPLOY_JSON" || fail "expected zero plugin activations on an idempotent re-deploy — got: $DEPLOY_JSON"
+grep -q '"deactivated":\[\]' <<<"$DEPLOY_JSON" || fail "expected zero plugin deactivations on an idempotent re-deploy — got: $DEPLOY_JSON"
 [ "$(wp_2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not active on r3a2"
 pass "confirmed: re-running wp duo deploy once everything is already reconciled is a true no-op (zero hook fires)"
 
@@ -615,20 +624,24 @@ pass "Polylang language descriptions remained valid through every R3-A checkpoin
 say "per-language render checks (buffered curl, THEN grep — pipefail hazard) + host:port leak negative assertions"
 HTTP1=$(curl -s -o /dev/null -w '%{http_code}' "$R3A1/")
 [ "$HTTP1" = "200" ] || fail "r3a1 homepage returned $HTTP1, not 200"
-BODY1_EN=$(curl -s "$R3A1/")
-echo "$BODY1_EN" | grep -qi 'Duo' || fail "r3a1 EN homepage missing expected content"
-echo "$BODY1_EN" | grep -q "$PORT2" && fail "r3a1 output leaks r3a2's host:port" || true
-BODY1_DE=$(curl -s "$R3A1/de/")
-echo "$BODY1_DE" | grep -qi 'Hauptmenu\|Startseite' || fail "r3a1 DE homepage missing German content"
-BODY2_EN=$(curl -s "$R3A2/")
-echo "$BODY2_EN" | grep -qi 'Duo' || fail "r3a2 EN homepage missing expected content"
-echo "$BODY2_EN" | grep -q "$PORT1" && fail "r3a2 output leaks r3a1's host:port" || true
-BODY2_DE=$(curl -s "$R3A2/de/")
-echo "$BODY2_DE" | grep -qi 'Startseite' || fail "r3a2 DE homepage missing Startseite (per-item auto-translate surfaces it via post_translations regardless of whether the second menu is separately wired)"
+BODY1_EN=$(curl -fsS "$R3A1/") || fail "r3a1 EN homepage transfer failed"
+BODY1_DE=$(curl -fsS "$R3A1/de/") || fail "r3a1 DE homepage transfer failed"
+BODY2_EN=$(curl -fsS "$R3A2/") || fail "r3a2 EN homepage transfer failed"
+BODY2_DE=$(curl -fsS "$R3A2/de/") || fail "r3a2 DE homepage transfer failed"
+assert_complete_html "$BODY1_EN" "r3a1 EN homepage"
+assert_complete_html "$BODY1_DE" "r3a1 DE homepage"
+assert_complete_html "$BODY2_EN" "r3a2 EN homepage"
+assert_complete_html "$BODY2_DE" "r3a2 DE homepage"
+grep -qi 'Duo' <<<"$BODY1_EN" || fail "r3a1 EN homepage missing expected content (${#BODY1_EN} bytes)"
+grep -q "$PORT2" <<<"$BODY1_EN" && fail "r3a1 output leaks r3a2's host:port" || true
+grep -qiE 'Hauptmenu|Startseite' <<<"$BODY1_DE" || fail "r3a1 DE homepage missing German content (${#BODY1_DE} bytes)"
+grep -qi 'Duo' <<<"$BODY2_EN" || fail "r3a2 EN homepage missing expected content (${#BODY2_EN} bytes)"
+grep -q "$PORT1" <<<"$BODY2_EN" && fail "r3a2 output leaks r3a1's host:port" || true
+grep -qi 'Startseite' <<<"$BODY2_DE" || fail "r3a2 DE homepage missing Startseite (${#BODY2_DE} bytes; per-item auto-translate surfaces it via post_translations regardless of whether the second menu is separately wired)"
 # DUO-3233's sub_keys mechanism (task #121) now captures/applies nav_menus
 # as a declared sub-key of the SAME polylang option, so Hauptmenu rendering
 # is required rather than merely reported.
-echo "$BODY2_DE" | grep -qi 'Hauptmenu' || fail "r3a2 DE homepage did not render Hauptmenu"
+grep -qi 'Hauptmenu' <<<"$BODY2_DE" || fail "r3a2 DE homepage did not render Hauptmenu (${#BODY2_DE} bytes)"
 pass "render checks complete: no host:port leaks either direction; per-item translation swap works via post_translations regardless of the second menu's own wiring, reported above"
 
 say "runtime isolation: place a real anonymous order on r3a1 via the Store API, confirm absent on r3a2"
@@ -636,7 +649,7 @@ wp_1 option update woocommerce_cod_settings --format=json '{"enabled":"yes","tit
 JAR=$(mktemp)
 curl -s -o /dev/null -c "$JAR" "$R3A1/product/duo-mug/"
 NONCE=$(curl -s -D - -o /dev/null -c "$JAR" -b "$JAR" "$R3A1/wp-json/wc/store/v1/cart")
-NONCE=$(echo "$NONCE" | grep -i '^Nonce:' | tr -d '\r' | cut -d' ' -f2)
+NONCE=$(grep -i '^Nonce:' <<<"$NONCE" | tr -d '\r' | cut -d' ' -f2)
 [ -n "$NONCE" ] || fail "did not get a Store API nonce"
 ADD_CODE=$(curl -s -o /tmp/r3a_cart.json -w '%{http_code}' -c "$JAR" -b "$JAR" -X POST "$R3A1/wp-json/wc/store/v1/cart/add-item" -H "Content-Type: application/json" -H "Nonce: $NONCE" -d "{\"id\":$MUG_ID,\"quantity\":1}")
 [ "$ADD_CODE" = "201" ] || fail "add-item did not return 201 (got $ADD_CODE)"
