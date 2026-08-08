@@ -252,6 +252,7 @@ foreach(['database-abort-before','database-import','database-abort-final']as$ind
     else srd_boundary($boundary,$transport,$dbProbe,$envPath,$faultEvidence,fn()=>srd_marker($authority,$transport,'rolling_back',str_replace('-','_',$boundary)));
 }
 srd_transition($authority,$transport,'verifying_prior','verifying_prior');
+srd_refusal('terminal-without-prior-verify',$transport,$fixture,$negativeEvidence,fn()=>srd_transition($authority,$transport,'rolled_back','rolled_back_without_prior_verify'));
 srd_boundary('prior-verification',$transport,$dbProbe,$envPath,$faultEvidence,function()use($authority,$transport){$status=RollbackAuthority::status($transport);$authority->runOperation('verifying_prior','prior_verify',1,['checkpoint_sha256'=>$status['checkpoint_sha256'],'operation'=>'prior_verify'],srd_time(),srd_time());});
 srd_remote($transport,'chmod -R a-w '.escapeshellarg($fixture['release_root'].'/release-prior'),'freeze prior release');
 $priorWorld=srd_world($transport,$fixture);$priorVerifier=srd_fresh_verifier($envPath,srd_hash('artifact-prior'),'prior',1);

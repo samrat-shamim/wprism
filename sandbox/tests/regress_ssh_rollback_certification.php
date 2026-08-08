@@ -106,8 +106,15 @@ try {
     src_refuses(fn()=>ssh_cert_validate_spec($missing), 'missing crash boundary case is rejected');
     $duplicate = $spec; $duplicate['cases'][1] = $duplicate['cases'][0];
     src_refuses(fn()=>ssh_cert_validate_spec($duplicate), 'duplicate or reordered crash case is rejected');
-    $negativeMissing = $spec; array_pop($negativeMissing['negative_cases']);
-    src_refuses(fn()=>ssh_cert_validate_spec($negativeMissing), 'missing required negative refusal is rejected');
+    $negativeMissing = $spec;
+    $negativeMissing['negative_cases'] = array_values(array_filter(
+        $negativeMissing['negative_cases'],
+        static fn(array $case): bool => ($case['case_id'] ?? '') !== 'terminal-without-prior-verify'
+    ));
+    src_refuses(
+        fn()=>ssh_cert_validate_spec($negativeMissing),
+        'removing the terminal-without-prior-verify negative case invalidates certification'
+    );
     $sameHost = $spec; $sameHost['target']['host_sha256'] = $sameHost['source']['host_sha256'];
     src_refuses(fn()=>ssh_cert_validate_spec($sameHost), 'shared SSH host identity is rejected');
     $sameDb = $spec; $sameDb['target']['database_sha256'] = $sameDb['source']['database_sha256'];

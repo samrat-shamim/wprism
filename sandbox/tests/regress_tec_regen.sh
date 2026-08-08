@@ -13,6 +13,10 @@
 #
 # Proves, against the REAL The Events Calendar 6.17.2 and the SHIPPED
 # manifests/the-events-calendar.json (not a synthetic declaration):
+#   0. DUO-3301's R3-B render checker keeps its complete-response and
+#      producer-safe aggregate assertion contract. This source-wiring
+#      preflight prevents `echo "$LIST_HTML" | grep -q` from returning as
+#      a soft false-negative under pipefail.
 #   1. The original R3-B-documented break is fixed: applying a captured
 #      tribe_events post to a fresh target used to leave it genuinely
 #      invisible to `wp post list` (TEC's own WP_Query filter requires a
@@ -67,9 +71,34 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 command -v jq >/dev/null || fail "jq required"
 
-PAIR=asnaptec
-PORT1=8936
-PORT2=8937
+R3B_GRIND="tests/grind_r3b_events.sh"
+grep -q '^assert_complete_html()' "$R3B_GRIND" || fail "R3-B grind lacks complete-HTML validation"
+grep -q 'assert_complete_html "$LIST_HTML" "/events/list/ aggregate page"' "$R3B_GRIND" \
+  || fail "R3-B aggregate view is not guarded by complete-HTML validation"
+grep -q 'grep -qF "$t" <<<"$LIST_HTML" || fail' "$R3B_GRIND" \
+  || fail "R3-B aggregate title assertion is not producer-safe and hard-failing"
+R3B_CODE=$(grep -Ev '^[[:space:]]*#' "$R3B_GRIND")
+if grep -Eq 'echo "\$[A-Za-z0-9_]*HTML"[[:space:]]*\|[[:space:]]*grep -q' <<<"$R3B_CODE"; then
+  fail "R3-B grind still pipes buffered HTML through grep -q under pipefail"
+fi
+if grep -q 'LIST_MISSING\|aggregate view currently missing' "$R3B_GRIND"; then
+  fail "R3-B aggregate assertion still has a soft-failure path"
+fi
+
+SYNTHETIC_HTML="<html><body>Fall Open House Community Meetup Annual Gala$(printf '%08000d' 0)</body></html>"
+[ "${#SYNTHETIC_HTML}" -ge 4096 ] || fail "synthetic complete-response fixture is too short"
+grep -qi '</html>' <<<"$SYNTHETIC_HTML" || fail "synthetic response lacks closing HTML"
+for title in "Fall Open House" "Community Meetup" "Annual Gala"; do
+  grep -qF "$title" <<<"$SYNTHETIC_HTML" || fail "producer-safe title check missed '$title'"
+done
+pass "DUO-3301 render-check contract: complete response, producer-safe title checks, hard aggregate failure"
+# The owning issue can run its focused, docker-free contract independently
+# from DUO-3234's older live regen scenarios below.
+[ "${TEC_REGEN_PREFLIGHT_ONLY:-0}" = "1" ] && exit 0
+
+PAIR="${TEC_REGEN_PAIR:-asnaptec}"
+PORT1="${TEC_REGEN_PORT1:-8936}"
+PORT2="${TEC_REGEN_PORT2:-8937}"
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" DUO_CODEBIND_PLUGIN=""
 
 wp1() { docker compose -p "duo-$PAIR" -f pair.yml run --rm -T cli1 wp "$@"; }
@@ -236,7 +265,7 @@ APPLY2_RC=$?
 set -e
 echo "$APPLY2"
 [ "$APPLY2_RC" -ne 0 ] || fail "expected duo apply to hard-fail on a genuine regen_dependency verification failure — it exited 0"
-echo "$APPLY2" | grep -qi "duo_regress_nonexistent_column\|regen_dependency verification failed" \
+grep -qi "duo_regress_nonexistent_column\|regen_dependency verification failed" <<<"$APPLY2" \
   || fail "failure message doesn't name the verification failure (got: $APPLY2)"
 pass "duo apply hard-failed as required (exit $APPLY2_RC), naming the verification failure"
 
@@ -339,7 +368,7 @@ STATUS_RC=$?
 set -e
 echo "$STATUS_OUT"
 [ "$STATUS_RC" -ne 0 ] || fail "expected 'duo status $ENV_NAME' to exit non-zero while a regen_pending marker is outstanding — it exited 0"
-echo "$STATUS_OUT" | grep -qi "regen_pending\|REGEN_PENDING" \
+grep -qi "regen_pending\|REGEN_PENDING" <<<"$STATUS_OUT" \
   || fail "duo status output doesn't mention regen_pending (output: $STATUS_OUT)"
 pass "duo status correctly reports not-safe-to-promote (exit $STATUS_RC), naming regen_pending — isolated from every other ok=false condition"
 
