@@ -128,10 +128,13 @@ $sale = as_next_scheduled_action("wc_product_end_scheduled_sale", ["product_id" 
 $empty_stock_cart = new WC_Cart();
 $blocked_without_target_stock = !$empty_stock_cart->add_to_cart($simple, 1);
 // Stock is runtime by contract, so establish target-local inventory without
-// Woo product setters: those setters also bump authored post_modified bytes
-// and would make the final recapture differ even though stock itself is
-// correctly excluded. Keep the derived lookup in sync just as a stock write
-// does, while leaving authored post state untouched.
+// Woo product setters. Those setters also advance the observable (but
+// manifest-declared derived) product/variation modified timestamps. Raw
+// capture keeps those values honestly even though Canon::post_hash_basis()
+// excludes them from branch-state comparison (DUO-3302); this projection
+// check is about target-local stock, so do not introduce unrelated observed
+// timestamp churn here. Keep the derived lookup in sync just as a stock write
+// does, while leaving the post rows untouched.
 foreach ([$simple, $small] as $stocked_id) {
   update_post_meta($stocked_id, "_stock", "5");
   update_post_meta($stocked_id, "_stock_status", "instock");

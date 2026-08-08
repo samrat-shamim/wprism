@@ -435,6 +435,13 @@ $GIT_1 commit -qm "capture: WooCommerce shop on r1b1 (attributes, variable produ
 $GIT_1 push -q origin main
 
 say "anon Store API session on r1b1: browse, add Small/Red variation to cart, checkout (COD) — a real order, runtime data"
+PARENT_MODIFIED_BEFORE_ORDER=$(wp_r1b1 post get "$TEE_ID" --field=post_modified_gmt)
+VARIATION_MODIFIED_BEFORE_ORDER=$(wp_r1b1 post get "$V1" --field=post_modified_gmt)
+# WordPress timestamps have one-second resolution. Make the ownership probe
+# deterministic instead of letting a fast host accidentally put the authored
+# capture and the runtime order in the same second (the historical DUO-3302
+# false green).
+sleep 2
 JAR=$(mktemp)
 curl -s -o /dev/null "$R1B1/product/duo-tee/" -c "$JAR"
 CART_HEADERS=$(curl -s -D - -o /dev/null -c "$JAR" -b "$JAR" "$R1B1/wp-json/wc/store/v1/cart")
@@ -456,9 +463,15 @@ pass "real anon Store API order #$ORDER_ID placed (status=$ORDER_STATUS) — fla
 say "referential runtime facts on r1b1: stock decremented, order lives in HPOS custom tables (never wp_posts)"
 STOCK_AFTER=$(wp_r1b1 post meta get "$V1" _stock)
 [ "$STOCK_AFTER" = "14" ] || fail "expected Small/Red stock to decrement to 14 (got $STOCK_AFTER)"
+PARENT_MODIFIED_AFTER_ORDER=$(wp_r1b1 post get "$TEE_ID" --field=post_modified_gmt)
+VARIATION_MODIFIED_AFTER_ORDER=$(wp_r1b1 post get "$V1" --field=post_modified_gmt)
+[ "$PARENT_MODIFIED_AFTER_ORDER" != "$PARENT_MODIFIED_BEFORE_ORDER" ] \
+  || fail "the real order's stock reduction did not advance the variable parent's modified_gmt ($PARENT_MODIFIED_AFTER_ORDER)"
+[ "$VARIATION_MODIFIED_AFTER_ORDER" != "$VARIATION_MODIFIED_BEFORE_ORDER" ] \
+  || fail "the real order's stock reduction did not advance the variation's modified_gmt ($VARIATION_MODIFIED_AFTER_ORDER)"
 POST_ORDERS=$(wp_r1b1 db query 'SELECT COUNT(*) FROM wp_posts WHERE post_type="shop_order"' --skip-column-names)
 [ "$POST_ORDERS" = "0" ] || fail "HPOS is on but shop_order rows exist in wp_posts"
-pass "stock 15 -> 14 (runtime, r1b1-local); order is a wc_orders row, not a post — HPOS custom tables are outside duo's scope entirely, by construction"
+pass "stock 15 -> 14 (runtime, r1b1-local); Woo's order reduction advanced both variation and variable-parent modified_gmt; order is a wc_orders row, not a post — HPOS custom tables are outside duo's scope entirely, by construction"
 
 say "round-trip: clone into r1b2, deploy (DUO-3216: code lifecycle before state — real switch_theme() to Storefront, hooks fire), plan, apply (adopt the WooCommerce/core installer collisions)"
 git clone -q siterepo/origin-r1b.git siterepo/r1b2
@@ -564,9 +577,17 @@ rm -f /tmp/r1b2_cart0.json
 pass "confirmed: is_purchasable=true but add-to-cart is genuinely refused (400, '0 remaining') until this environment has ITS OWN stock count — exactly the env-local inventory discipline _stock=runtime is meant to enforce, not a bug"
 
 say "the realistic next step: r1b2's own ops team receives stock and records it locally (never through duo — _stock is deliberately runtime/env-local)"
+TARGET_PARENT_MODIFIED_BEFORE_STOCK=$(wp_r1b2 post get "$TEE_B2" --field=post_modified_gmt)
+TARGET_VARIATION_MODIFIED_BEFORE_STOCK=$(wp_r1b2 post get "$V1_B2" --field=post_modified_gmt)
 wp_r1b2 post meta update "$V1_B2" _stock 15
 wp_r1b2 post meta update "$V1_B2" _stock_status instock
-pass "r1b2 now has its own local stock count for this variation (15, independent of r1b1's own count of 14 after its sale)"
+TARGET_PARENT_MODIFIED_AFTER_STOCK=$(wp_r1b2 post get "$TEE_B2" --field=post_modified_gmt)
+TARGET_VARIATION_MODIFIED_AFTER_STOCK=$(wp_r1b2 post get "$V1_B2" --field=post_modified_gmt)
+[ "$TARGET_PARENT_MODIFIED_AFTER_STOCK" = "$TARGET_PARENT_MODIFIED_BEFORE_STOCK" ] \
+  || fail "raw target-local stock provisioning unexpectedly advanced the variable parent's modified_gmt ($TARGET_PARENT_MODIFIED_BEFORE_STOCK -> $TARGET_PARENT_MODIFIED_AFTER_STOCK)"
+[ "$TARGET_VARIATION_MODIFIED_AFTER_STOCK" = "$TARGET_VARIATION_MODIFIED_BEFORE_STOCK" ] \
+  || fail "raw target-local stock provisioning unexpectedly advanced the variation's modified_gmt ($TARGET_VARIATION_MODIFIED_BEFORE_STOCK -> $TARGET_VARIATION_MODIFIED_AFTER_STOCK)"
+pass "r1b2 now has its own local stock count for this variation (15, independent of r1b1's own count of 14 after its sale); raw local provisioning left both post timestamps untouched"
 
 say "acceptance: a VARIATION is genuinely purchasable on r1b2 via the real Store API"
 V1_STORE=$(curl -s "$R1B2/wp-json/wc/store/v1/products/$V1_B2")
@@ -627,26 +648,47 @@ wp_r1b2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final >/dev/null
 DIFF_OUT=$(diff -rq siterepo/r1b1/state siterepo/r1b2/.tmp-final || true)
 echo "$DIFF_OUT"
 
-# TRUE zero-exclusion byte identity — no exceptions anywhere, including
-# product_variation.title. Two fixes compose to make this possible:
-# task #88 (Policy::field_class()/Canon::post_hash_basis()) closes #72's
-# TIMING-based divergence — proven structurally above (criterion 3: a
-# title-only self-heal never appears in plan's drift/update/conflict) and
-# now proven by construction here too, since both sides just had an
-# identical forced self-heal before this diff. Task #123 (Canon.php's
-# OrderPreserved mechanism, manifests/woocommerce.json's
-# `_product_attributes` "order_preserving": true declaration) closes the
-# SEPARATE, PERMANENT divergence this section used to carve out with an
-# anagram check: the parent's _product_attributes array order — which
-# WooCommerce's variation-title generator reads directly — now survives
-# capture/apply byte-for-byte instead of being alphabetically resorted, so
-# the generated title itself converges byte-identically, not just as a
-# same-words reordering. With both root causes closed, the whole tree
-# (product_variation included) needs no carve-out at all — same rigor
-# every other post type already gets, restored in full.
-[ -z "$DIFF_OUT" ] || fail "unexpected byte differences after an identical forced self-heal on both sides (see diff output above) — with #88 and #123 both closed, the entire tree, including product_variation.title, must be byte-identical with zero exceptions"
-rm -rf siterepo/r1b2/.tmp-final
-pass "task #88 AND task #123 both CLOSED for real: the entire tree is byte-identical with ZERO exceptions, product_variation.title included. #72's timing-based self-heal was proven invisible to plan/drift (criterion 3); #123's permanent _product_attributes reordering (WC_Product_Variation_Data_Store_CPT::read() reads the parent's raw array order to generate the title) no longer occurs because Canon::normalize() no longer resorts a meta value declared order_preserving — confirmed here by construction (identical bytes, not merely an anagram) rather than by a scoped exclusion."
+# DUO-3302 closes the remaining false assertion here. A captured file is an
+# honest observation, so manifest-declared derived fields stay visible in its
+# raw bytes. The order above deliberately advanced r1b1's product/variation
+# timestamps while r1b2's independent raw stock provisioning did not; raw
+# byte identity is therefore expected to fail. The contract is stricter than
+# a hand-written timestamp exclusion: compile BOTH complete captured trees
+# through RepositoryCompiler with the shipped Woo policy, then compare every
+# entity's product hash. Canon::post_hash_basis() is the single policy-driven
+# authority that removes derived fields; any difference in authored content,
+# identity, paths, or a non-post entity still appears below and fails.
+[ -n "$DIFF_OUT" ] || fail "expected the real order-vs-local-stock timestamp ownership probe to leave observable raw capture differences"
+rm -rf siterepo/r1b2/.tmp-source-final
+cp -R siterepo/r1b1/state siterepo/r1b2/.tmp-source-final
+SEMANTIC_DIFF=$(wp_r1b2 eval '
+$policy = \Duo\Policy::load("/siterepo");
+$left = \Duo\RepositoryCompiler::compile_staged("/siterepo/.tmp-source-final", "/siterepo", $policy)->tree();
+$right = \Duo\RepositoryCompiler::compile_staged("/siterepo/.tmp-final", "/siterepo", $policy)->tree();
+$project = static function (array $tree): array {
+    $out = [];
+    foreach ($tree as $entity) {
+        $out[(string) $entity["path"]] = (string) $entity["hash"];
+    }
+    ksort($out, SORT_STRING);
+    return $out;
+};
+$a = $project($left);
+$b = $project($right);
+$paths = array_values(array_unique(array_merge(array_keys($a), array_keys($b))));
+sort($paths, SORT_STRING);
+$diff = [];
+foreach ($paths as $path) {
+    if (($a[$path] ?? null) !== ($b[$path] ?? null)) {
+        $diff[] = ["path" => $path, "source_hash" => $a[$path] ?? null, "target_hash" => $b[$path] ?? null];
+    }
+}
+echo \Duo\Canon::encode($diff);
+' | tail -1)
+[ "$SEMANTIC_DIFF" = "[]" ] \
+  || fail "compiled semantic state differs after ignoring only manifest-declared derived fields (got: $SEMANTIC_DIFF)"
+rm -rf siterepo/r1b2/.tmp-source-final siterepo/r1b2/.tmp-final
+pass "DUO-3302 CLOSED: real order stock reduction advanced product/variation timestamps while raw target-local stock did not; raw captures retain that evidence, but both complete trees compile to identical entity hashes under the shipped derived-field policy (no hand-written diff allowance)"
 
 say "lint (final, hard gate)"
 LINT_FINAL=$(wp_r1b1 duo lint --repo=/siterepo --format=json | tail -1)
