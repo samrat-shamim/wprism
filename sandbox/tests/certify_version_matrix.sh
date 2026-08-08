@@ -50,15 +50,26 @@ GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-vmatrix1 -c user.email=vmatrix
 . bin/fetch-artifact.sh
 
 # Every boundary replaces both host-side Git working trees while the pair's
-# CLI processes run as uid 33.  Recreating those roots with the host's normal
-# 0755 umask blocks capture's root lock; letting uid 33 use its normal 0022
-# umask also leaves nested temporary trees the host cannot recursively clean.
-# Keep this cooperation strictly inside disposable matrix repositories.
+# CLI processes run as uid 33.  The roots are live bind mounts, so removing a
+# root lets Docker recreate it as root:0755 before the next CLI call.  Preserve
+# those exact inodes, clear only their children, and keep this cross-user
+# cooperation strictly inside the two disposable matrix repositories.
+clear_case_repository() {
+  local root="$1"
+  case "$root" in
+    "siterepo/${PAIR}1"|"siterepo/${PAIR}2") ;;
+    *) fail "refusing unsafe matrix repository cleanup: $root" ;;
+  esac
+  mkdir -p "$root"
+  find "$root" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  chmod 0777 "$root"
+}
+
 reset_case_repositories() {
-  rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1" "siterepo/${PAIR}2"
+  rm -rf "siterepo/origin-$PAIR.git"
+  clear_case_repository "siterepo/${PAIR}1"
+  clear_case_repository "siterepo/${PAIR}2"
   git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-  mkdir -p "siterepo/${PAIR}1"
-  chmod 0777 "siterepo/${PAIR}1"
 }
 
 clone_case_target() {

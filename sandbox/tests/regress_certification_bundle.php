@@ -81,12 +81,24 @@ check(
     'both version-matrix WP-CLI sides create disposable output with a host-cleanable umask'
 );
 check(
-    str_contains($versionMatrix, 'chmod 0777 "siterepo/${PAIR}1"'),
-    'every reset can restore uid-33 write access to the recreated source repository root'
+    str_contains($versionMatrix, 'chmod 0777 "$root"'),
+    'every allowlisted reset restores uid-33 write access without replacing the bind root'
 );
 check(
     str_contains($versionMatrix, 'chmod 0777 "siterepo/${PAIR}2"'),
     'every clone can restore uid-33 write access to the recreated target repository root'
+);
+check(
+    str_contains($versionMatrix, '"siterepo/${PAIR}1"|"siterepo/${PAIR}2") ;;'),
+    'matrix cleanup is allowlisted to the two disposable repository roots'
+);
+check(
+    str_contains($versionMatrix, 'find "$root" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +'),
+    'matrix resets clear repository children while preserving live bind-root inodes'
+);
+check(
+    !str_contains($versionMatrix, 'rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1"'),
+    'matrix resets never remove the live source bind root'
 );
 check(
     preg_match_all('/^\s*reset_case_repositories\s*$/m', $versionMatrix) === 14,
