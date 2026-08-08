@@ -1034,11 +1034,13 @@ final class Deploy {
     }
 
     /**
-     * A whole-entity hash handoff may cover only lifecycle-managed records or
+     * A whole-entity hash handoff may cover lifecycle-managed records,
      * authored records whose post-hook value is exactly the frozen desired
-     * value. Otherwise apply could mistake an unrelated hook migration for
-     * expected lifecycle progress and overwrite it with stale repository
-     * data. Return every unsafe name so deploy can stop before state apply.
+     * value, or a missing authored record whose pre-hook deleted tombstone is
+     * cryptographically bound to that desired present record. Otherwise
+     * apply could mistake an unrelated hook migration for expected lifecycle
+     * progress and overwrite it with stale repository data. Return every
+     * unsafe name so deploy can stop before state apply.
      *
      * @return list<string>
      */
@@ -1062,18 +1064,25 @@ final class Deploy {
                 continue;
             }
             $desiredRecord = $desired[$name] ?? null;
-            // A first activation is allowed to create an authored option from
-            // explicit pre-hook absence: WooCommerce and other
-            // plugins commonly seed their defaults before the state apply
-            // leg runs. Apply will reconcile that hook-created value to the
-            // frozen desired present record. This is intentionally narrower
-            // than the exact-desired exception below: a pre-existing authored
-            // value may have been migrated by the hook, but Duo cannot infer
-            // that the migration is safe when it differs from desired. Never
-            // authorize a hook-created value against absent/deleted intent.
-            if (is_array($beforeRecord) && ($beforeRecord['state'] ?? null) === 'absent'
-                && is_array($afterRecord) && ($afterRecord['state'] ?? null) === 'present'
-                && is_array($desiredRecord) && ($desiredRecord['state'] ?? null) === 'present') {
+            // On a first activation Capture::build_options(previous desired)
+            // represents a missing exact authored row as a deleted tombstone
+            // whose expected_hash is the hash of the frozen desired present
+            // record. The hook may then create an ordinary default (present),
+            // or a ref-bearing row may be omitted as absent until its identity
+            // is minted. Only that cryptographic proof authorizes Apply to
+            // reconcile the hook result; a plain state=absent record, a stale
+            // expected_hash, or absent/deleted desired intent stays blocked.
+            $beforeWasBoundMissing = is_array($beforeRecord)
+                && ($beforeRecord['state'] ?? null) === 'deleted'
+                && is_array($desiredRecord)
+                && ($desiredRecord['state'] ?? null) === 'present'
+                && is_array($afterRecord)
+                && in_array(($afterRecord['state'] ?? null), ['present', 'absent'], true)
+                && hash_equals(
+                    (string) $beforeRecord['expected_hash'],
+                    OptionState::record_hash($desiredRecord)
+                );
+            if ($beforeWasBoundMissing) {
                 continue;
             }
             if (is_array($afterRecord) && is_array($desiredRecord)

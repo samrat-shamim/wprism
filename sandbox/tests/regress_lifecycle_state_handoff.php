@@ -78,18 +78,49 @@ $check(
     'managed lifecycle changes and an authored record already advanced to exact desired state must be composable'
 );
 
+$desiredPresent = $present('desired');
 $wooLikeBefore = OptionState::document([
-    'authored_setting' => OptionState::absent(),
+    'authored_setting' => OptionState::deleted($desiredPresent, true),
 ]);
 $wooLikeAfter = OptionState::document([
     'authored_setting' => $present('hook-default'),
 ]);
 $wooLikeDesired = OptionState::document([
-    'authored_setting' => $present('desired'),
+    'authored_setting' => $desiredPresent,
 ]);
 $check(
     $recordGate->invoke(null, $wooLikeBefore, $wooLikeAfter, $wooLikeDesired) === [],
-    'a hook-created authored option may move from explicit pre-hook absence when frozen desired state is present'
+    'a hook-created authored option may move from a tombstone bound to frozen desired state'
+);
+$check(
+    $recordGate->invoke(
+        null,
+        $wooLikeBefore,
+        OptionState::document(['authored_setting' => OptionState::absent()]),
+        $wooLikeDesired
+    ) === [],
+    'a ref-bearing hook-created option may remain absent when its identity is not yet resolvable'
+);
+
+$mismatchedBefore = OptionState::document([
+    'authored_setting' => OptionState::deleted($present('other'), true),
+]);
+$check(
+    $recordGate->invoke(null, $mismatchedBefore, $wooLikeAfter, $wooLikeDesired) === ['authored_setting'],
+    'a deleted pre-hook record with a mismatched desired hash remains blocked'
+);
+$check(
+    $recordGate->invoke(null, $mismatchedBefore, $wooLikeDesired, $wooLikeDesired) === [],
+    'an exact post-hook desired value remains independently safe even when the missing-row proof does not bind'
+);
+$check(
+    $recordGate->invoke(
+        null,
+        OptionState::document(['authored_setting' => OptionState::absent()]),
+        $wooLikeAfter,
+        $wooLikeDesired
+    ) === ['authored_setting'],
+    'ordinary absent-to-present authored changes remain blocked without a bound tombstone'
 );
 
 $presentBefore = OptionState::document([
