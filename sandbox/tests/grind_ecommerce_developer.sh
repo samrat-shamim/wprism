@@ -122,6 +122,22 @@ cleanup() {
   local pair_containers pair_volumes pair_networks remaining_dbs teardown_verified=1
   trap - EXIT INT TERM
   set +e
+  # Maintenance is deliberately fail-closed while an exact rollback is
+  # incomplete.  Release it only after the public v1 promote completed; if
+  # that promote/import failed, pair destruction removes the disposable
+  # target, and an uncertain teardown keeps the pair paths diagnosable with
+  # maintenance still held.
+  if [ "$ROLLBACK_MAINTENANCE_HELD" = 1 ] && [ "$ROLLBACK_PROMOTION_SUCCEEDED" = 1 ] && [ "$PAIR_UP" = 1 ]; then
+    if ! target_wp maintenance-mode deactivate >/dev/null 2>&1; then
+      printf 'FAIL: ecommerce rollback maintenance release failed for %s\n' "$PAIR" >&2
+      status=1
+      teardown_verified=0
+    else
+      ROLLBACK_MAINTENANCE_HELD=0
+    fi
+  elif [ "$ROLLBACK_MAINTENANCE_HELD" = 1 ] && [ "$ROLLBACK_PROMOTION_SUCCEEDED" != 1 ]; then
+    printf 'ecommerce rollback maintenance remains held after an incomplete recovery for %s\n' "$PAIR" >&2
+  fi
   if [ "$PAIR_UP" = 1 ]; then
     # Capture/apply runs as uid 33. Normalize only this disposable repo
     # before pair.sh removes its containers.
@@ -1719,6 +1735,8 @@ echo json_encode([
   pass "wc_product_meta_lookup and wc_product_attributes_lookup expose exact cap/grouped-bundle/tee/variation price, SKU, stock, tax, attribute-term/in_stock rows; Store API price/attribute filters resolve"
 }
 
+ROLLBACK_MAINTENANCE_HELD=0
+ROLLBACK_PROMOTION_SUCCEEDED=0
 say "opt into code: vendored pinned WooCommerce + custom extension + parent/child storefront"
 mkdir -p "$SITE/code/wp-content/plugins" "$SITE/code/wp-content/themes"
 # Copy the exact installed artifact bytes from the author container rather
@@ -2486,7 +2504,7 @@ assert_receipt "$REMOVE_ARTIFACT" 'extension removal promote' "$REMOVE_REVISION"
 [ "$REMOVE_REVISION" != "$V2_REVISION" ] || fail 'extension removal did not publish a distinct code revision'
 pass "dependency-aware lifecycle retired only custom code; WooCommerce, ACF, catalog, target-only order and stock survived"
 
-say "exact rollback: restore v1 repository, promote it, then import the pair-local v1 DB checkpoint"
+say "exact rollback: import v1 checkpoint under maintenance, then promote v1"
 rm -rf -- "$SITE/code"
 rm -rf -- "$SITE/state"
 cp -a "$V1_INPUTS/code" "$SITE/code"
@@ -2496,18 +2514,40 @@ git -C "$SITE" add -A
 git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'rollback: restore exact v1 code and state descriptors'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
-if ! RESTORE_OUT="$(promote 2>&1)"; then
-  echo "$RESTORE_OUT" >&2
-  fail 'v1 rollback promotion failed'
+ROLLBACK_MAINTENANCE_HELD=0
+ROLLBACK_PROMOTION_SUCCEEDED=0
+if ! target_wp maintenance-mode activate >/dev/null; then
+  fail 'could not establish target maintenance before v1 checkpoint recovery'
 fi
-echo "$RESTORE_OUT"
+ROLLBACK_MAINTENANCE_HELD=1
 assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_DB_DUMP" | awk '{print $1}')" 'retained v1 database checkpoint bytes before rollback import'
 assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$OTHER_SITE/.tmp-ecommerce-v1-db.sql" | awk '{print $1}')" 'pair-local v1 database checkpoint bytes before rollback import'
-target_wp db import /siterepo/.tmp-ecommerce-v1-db.sql >/dev/null
+control_wp recoveryDbImportArgs "/siterepo/.tmp-ecommerce-v1-db.sql" >/dev/null
+assert_eq "$NATIVE_ACTIVE_PLUGINS_JSON" "$(active_plugins_json)" 'v1 checkpoint active plugin order before code staging'
+assert_eq absent "$(target_file "$EXT_TARGET")" 'v1 extension code absent before control-plane staging'
 assert_eq "$V1_REVISION" "$(ledger_revision)" 'exact v1 code revision after checkpoint import'
 assert_eq retail "$(target_wp option get duo_commerce_extension_settings)" 'exact v1 setting after checkpoint import'
 assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_duo_commerce_extension_events' AND COLUMN_NAME = 'context'")" 'exact v1 runtime table shape'
 assert_extension_runtime_event 0 "" 'exact v1 runtime row after rollback'
+if ! RESTORE_OUT="$(promote 2>&1)"; then
+  echo "$RESTORE_OUT" >&2
+  fail 'v1 rollback promotion failed'
+fi
+ROLLBACK_PROMOTION_SUCCEEDED=1
+if ! target_wp maintenance-mode deactivate >/dev/null; then
+  fail 'could not release target maintenance after successful v1 rollback promotion'
+fi
+ROLLBACK_MAINTENANCE_HELD=0
+echo "$RESTORE_OUT"
+assert_phase_order "$RESTORE_OUT" \
+  'promote phase: compile' \
+  'promote phase: promotion-begin' \
+  'promote phase: checkpoint' \
+  'promote phase: code-stage' \
+  'promote phase: lifecycle-retire' \
+  'promote phase: lifecycle-activate' \
+  'promote phase: code-finalize' \
+  'promote phase: apply'
 assert_eq "$(source_hash "$V1_INPUTS/code/wp-content/plugins/$EXT_SLUG/$EXT_FILE")" "$(target_hash "$EXT_TARGET")" 'exact v1 extension bytes'
 assert_eq "$V1_TARGET_MANAGED_CODE_TREE_HASH" "$(target_managed_code_tree_hash)" 'exact v1 managed code tree after checkpoint import'
 assert_theme_and_dependency "$NATIVE_ACTIVE_PLUGINS_JSON"

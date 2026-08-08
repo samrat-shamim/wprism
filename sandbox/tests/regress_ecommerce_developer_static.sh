@@ -235,6 +235,7 @@ REST_HELPER_BLOCK="$(function_block assert_extension_rest_status | strip_static_
 STORE_API_HTTP_HELPER_BLOCK="$(function_block assert_store_api_http | strip_static_comments)"
 FAILED_V2_PHASE_BLOCK="$(phase_block 'v2 reviewed change: migrate scalar setting/table and deliberately fail activation' | strip_static_comments)"
 FAILED_V2_RECOVERY_PHASE_BLOCK="$(phase_block 'exact checkpoint recovery, then fixed v2 retry' | strip_static_comments)"
+ROLLBACK_PHASE_BLOCK="$(phase_block 'exact rollback: import v1 checkpoint under maintenance, then promote v1' | strip_static_comments)"
 FAIL_CLOSED_PHASE_BLOCK="$(phase_block 'Woo deletion boundary: public product delete is refused before Duo capture mutation' | strip_static_comments)"
 CLEANUP_PAIR_DESTROY='if ! bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1; then'
 CLEANUP_DOCKER_CONTAINERS='pair_containers="$(docker ps -aq --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)"'
@@ -359,7 +360,7 @@ helper_noop_rejected visibility-helper "$VISIBILITY_STATE_ASSERT"
 helper_noop_rejected eq-helper "$EQ_PREDICATE"
 helper_noop_rejected receipt-helper "$RECEIPT_JQ_CALL"
 helper_noop_rejected theme-helper "$THEME_RUNTIME_ASSERT"
-CLEANUP_HELPER_GOLDEN_HASH=4c9f4c61f879c794a50f94bf1b43055eeda3060b77b20020f775aa65a054e455
+CLEANUP_HELPER_GOLDEN_HASH=9cac02c1c9d2ff7667e56018b20321c25aa093ae7a034f241260448581609e75
 ORDER_HELPER_GOLDEN_HASH=a5e218adaba2ef1c2f7dcee7078886c36fd4e743f8108aa883d1b5de3c3f0f64
 ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=95777d9b3c8dd94e1a9c27febc42b3bff1ccbc7d47e5ce87aee5517637fcd35c
 VISIBILITY_HELPER_GOLDEN_HASH=7cc6d2e93dc5c78c222f033c0ed941e7e41afcf421ecefbf8d6a04fd89e46357
@@ -787,6 +788,34 @@ ordered_contract failed-v2-recovery "$FAILED_V2_RECOVERY_PHASE_BLOCK" \
   'assert_eq "$V2_FAILED_CHECKPOINT_SHA256" "$(sha256sum "$V2_FAILED_CHECKPOINT_HOST"' \
   'control_wp recoveryDbImportArgs "$V2_FAILED_CHECKPOINT"' \
   'control_wp abortArgs "$V2_FAILED_OWNER" "$V2_FAILED_ARTIFACT"'
+
+ordered_contract exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
+  'target_wp maintenance-mode activate' \
+  'assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_DB_DUMP"' \
+  'assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$OTHER_SITE/.tmp-ecommerce-v1-db.sql"' \
+  'control_wp recoveryDbImportArgs "/siterepo/.tmp-ecommerce-v1-db.sql"' \
+  'assert_eq "$NATIVE_ACTIVE_PLUGINS_JSON" "$(active_plugins_json)"' \
+  'assert_eq absent "$(target_file "$EXT_TARGET")"' \
+  'if ! RESTORE_OUT="$(promote 2>&1)"; then' \
+  'ROLLBACK_PROMOTION_SUCCEEDED=1' \
+  'target_wp maintenance-mode deactivate' \
+  'ROLLBACK_MAINTENANCE_HELD=0' \
+  'assert_phase_order "$RESTORE_OUT"'
+if grep -Fq 'target_wp db import' "$SCRIPT"; then
+  fail 'exact v1 rollback bypasses the isolated control-plane database import'
+fi
+block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'control_wp recoveryDbImportArgs "/siterepo/.tmp-ecommerce-v1-db.sql"' \
+  'exact v1 rollback does not restore its dump through the fatal-safe control operation'
+block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'promote phase: code-stage' \
+  'exact v1 rollback does not require code staging before lifecycle activation'
+block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'target_wp maintenance-mode deactivate' \
+  'exact v1 rollback does not release target maintenance after promotion'
+grep -Fq 'ROLLBACK_MAINTENANCE_HELD=0' "$SCRIPT" || fail 'rollback maintenance held flag is not initialized/released'
+grep -Fq 'ROLLBACK_PROMOTION_SUCCEEDED=0' "$SCRIPT" || fail 'rollback promotion success guard is not initialized'
+grep -Fq '[ "$ROLLBACK_MAINTENANCE_HELD" = 1 ] && [ "$ROLLBACK_PROMOTION_SUCCEEDED" != 1 ]' "$SCRIPT" \
+  || fail 'rollback failure cleanup does not preserve maintenance before successful promotion'
+grep -Fq 'ecommerce rollback maintenance remains held after an incomplete recovery' "$SCRIPT" \
+  || fail 'rollback failure cleanup does not report its fail-closed maintenance state'
 
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'source_wp wc product delete "$DELETION_PROBE_SOURCE_ID" --force=true --user=admin >/dev/null' 'fail-closed phase does not execute the public Woo product delete'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'if DELETION_REFUSAL_OUT="$(source_wp duo capture --repo=/siterepo 2>&1)"; then' 'fail-closed phase does not capture the unsupported deletion refusal'

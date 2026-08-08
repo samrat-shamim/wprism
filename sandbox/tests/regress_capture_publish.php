@@ -796,6 +796,96 @@ echo "\n== P9: transaction-bound capture publication recovery ==\n";
 
 // ======================================================================
 echo "\n";
+
+// ======================================================================
+// P10 — protocol roots never follow symlinks outside the destination
+// ======================================================================
+echo "\n== P10: symlinked publication roots fail closed ==\n";
+{
+    // A state/ symlink used to be mistaken for an existing published tree:
+    // swap() moved that link to capture-backup and rrmdir() then traversed
+    // the external target. The target must remain untouched and the link
+    // must remain available as evidence after refusal.
+    $root = fresh_root('symlink_swap');
+    $outside = fresh_root('symlink_swap_external');
+    $stateDir = "$root/state";
+    write_tree($outside, ['keep.txt' => "must-survive\n"]);
+    symlink($outside, $stateDir);
+    write_tree(Publish::stage_dir($stateDir), ['candidate.txt' => "new\n"]);
+    $swapFailure = null;
+    try {
+        // Include a trailing separator: PHP otherwise reports is_link() false
+        // for a directory symlink spelled as /state/.
+        Publish::swap($stateDir . '/');
+    } catch (Throwable $t) {
+        $swapFailure = $t;
+    }
+    check(
+        $swapFailure instanceof RuntimeException && str_contains($swapFailure->getMessage(), 'symlink'),
+        'P10a: swap() refuses a symlinked published root before any rename/cleanup'
+    );
+    check(is_file("$outside/keep.txt"), 'P10a: swap() refusal never deletes the external target');
+    check(is_link($stateDir) && is_dir(Publish::stage_dir($stateDir)), 'P10a: symlink and staged evidence remain intact');
+    unlink($stateDir);
+
+    // Legacy/no-intent recovery has a direct stale-backup cleanup branch.
+    // A symlink at that root must not turn rrmdir() into an external-tree
+    // deletion, even when state/ itself is an ordinary directory.
+    $root = fresh_root('symlink_recover');
+    $outside = fresh_root('symlink_recover_external');
+    $stateDir = "$root/state";
+    write_tree($stateDir, ['current.txt' => "published\n"]);
+    write_tree($outside, ['keep.txt' => "must-survive\n"]);
+    symlink($outside, Publish::backup_dir($stateDir));
+    $recoverFailure = null;
+    try {
+        Publish::recover($stateDir);
+    } catch (Throwable $t) {
+        $recoverFailure = $t;
+    }
+    check(
+        $recoverFailure instanceof RuntimeException && str_contains($recoverFailure->getMessage(), 'symlink'),
+        'P10b: recover() refuses a symlinked backup root before stale cleanup'
+    );
+    check(is_file("$outside/keep.txt"), 'P10b: recover() refusal never deletes the external target');
+    check(is_link(Publish::backup_dir($stateDir)) && read_tree($stateDir) === ['current.txt' => "published\n"], 'P10b: backup link and published evidence remain intact');
+    unlink(Publish::backup_dir($stateDir));
+
+    // The receipt path is valid, matching intent/receipt evidence is valid,
+    // and the backup digest is deliberately made to match the receipt. This
+    // reaches the exact cleanup_committed() branch that previously deleted
+    // an external keep.txt through a symlinked backup root.
+    $root = fresh_root('symlink_cleanup');
+    $outside = fresh_root('symlink_cleanup_external');
+    $stateDir = "$root/state";
+    write_tree($stateDir, ['revision.txt' => "old\n", 'keep.txt' => "must-survive\n"]);
+    write_tree(Publish::stage_dir($stateDir), ['revision.txt' => "candidate\n"]);
+    $intent = Publish::begin_intent($stateDir, Publish::stage_dir($stateDir));
+    Publish::swap($stateDir, true);
+    $intent = Publish::mark_swapped($stateDir, $intent);
+    $intent = Publish::mark_commit_ready($stateDir, $intent);
+    $intent = Publish::mark_committing($stateDir, $intent);
+    $receipt = Publish::write_receipt($stateDir, $intent);
+    Publish::rrmdir(Publish::backup_dir($stateDir));
+    write_tree($outside, ['revision.txt' => "old\n", 'keep.txt' => "must-survive\n"]);
+    symlink($outside, Publish::backup_dir($stateDir));
+    $cleanupFailure = null;
+    try {
+        Publish::cleanup_committed($stateDir, $receipt);
+    } catch (Throwable $t) {
+        $cleanupFailure = $t;
+    }
+    check(
+        $cleanupFailure instanceof RuntimeException && str_contains($cleanupFailure->getMessage(), 'symlink'),
+        'P10c: cleanup_committed() refuses a symlinked backup root before hashing/deletion'
+    );
+    check(is_file("$outside/keep.txt"), 'P10c: cleanup refusal never deletes the external target');
+    check(is_link(Publish::backup_dir($stateDir)) && is_file(Publish::intent_path($stateDir)), 'P10c: retained backup link and matching intent remain for inspection/retry');
+    unlink(Publish::backup_dir($stateDir));
+}
+
+// ======================================================================
+echo "\n";
 if ($failures > 0) {
     echo "FAIL: $failures check(s) failed\n";
     exit(1);

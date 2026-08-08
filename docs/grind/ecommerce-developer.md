@@ -116,7 +116,8 @@ The live sequence covers:
   request is refused before target mutation;
 - ordinary state drift/conflict resolution and target code drift healing;
 - dependency-aware extension removal while Woo/ACF and runtime order data stay;
-- exact v1 code/state plus the pair-local pre-order database checkpoint restore;
+- exact v1 code/state plus a maintenance-held, pair-local pre-order database
+  checkpoint restore performed before the public v1 promotion;
 - byte-identical final recapture, clean status, and scoped pair/database
   cleanup.
 
@@ -131,27 +132,38 @@ No production transactions or secrets are used. The source and target runtime
 rows are synthetic probes only: source customer/order/event data is created
 before the first capture, while a real target customer/order/event is created
 after the v1 checkpoint. None is captured into canonical state or copied to
-the opposite site. The final rollback imports the pre-order checkpoint and
-explicitly removes the target-only customer/order while preserving the v1
-target event that was present when the checkpoint was taken.
+the opposite site. The final rollback enters WordPress maintenance mode,
+verifies the retained checkpoint bytes, and imports the pre-order checkpoint
+through Duo's isolated control-plane `db import` operation. This order
+matters: the checkpoint puts the custom extension back in `active_plugins`
+while its v1 files are still absent from the target, so the public `duo
+promote` must stage the exact v1 code before its lifecycle window. Maintenance
+remains held across both the import and promote and is released only after
+promote succeeds. A failed import/promote leaves the disposable pair
+fail-closed; the exit trap keeps maintenance held when teardown is uncertain.
+The restore explicitly removes the target-only customer/order while
+preserving the v1 target event that was present when the checkpoint was taken.
 
 The v1 rollback checkpoint keeps both a host-temp copy of the complete v1
 canonical `state/` tree and a pair-local SQL dump. Its SHA-256 is recorded when
 the dump is made, compared with the retained host copy, and rechecked
-immediately before import. This restores the v1 canonical product record and
-target boundary before the final byte-identical recapture; the refused Woo
-deletion never promoted a tombstone. The rollback scope is intentionally
-honest: it restores the database and v1 repository inputs captured at that
-boundary; it is not a claim of physical erasure or a rollback of unrelated
-external systems.
+immediately before import. The isolated control-plane import skips ordinary
+plugins, themes, and user MU code, while the following public promote stages
+the restored v1 files before lifecycle activation. This restores the v1
+canonical product record and target boundary before the final byte-identical
+recapture; the refused Woo deletion never promoted a tombstone. The rollback
+scope is intentionally honest: it restores the database and v1 repository
+inputs captured at that boundary; it is not a claim of physical erasure or a
+rollback of unrelated external systems.
 
 Every deploy receipt is selected as exactly one new `deploy-<run>.json` file
 relative to the pre-deploy inventory. Every promote receipt is derived from
 the command's printed `promote-<run>.sql` checkpoint, requires that non-empty
 pair-local checkpoint, and is verified by recomputing the artifact hash with
 the repository's `Duo\Canon::encode` contract after removing
-`artifact_hash`. This binds receipt content, run name, and checkpoint without
-introducing a second hash algorithm.
+`artifact_hash`. This verifies the receipt content and associates the receipt
+and checkpoint by their exact run name; it does not claim that the SQL bytes
+are cryptographically included in the promotion receipt.
 
 The deletion boundary is intentionally explicit: ordinary Woo public deletion
 can remove a source product, but capture refuses before mutating canonical

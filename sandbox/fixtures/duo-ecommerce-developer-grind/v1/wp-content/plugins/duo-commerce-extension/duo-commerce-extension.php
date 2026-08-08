@@ -124,11 +124,9 @@ function duo_commerce_extension_trace(string $event): void {
 }
 
 function duo_commerce_extension_require_woocommerce(): void {
-    // CodeDeploy deliberately uses an isolated --skip-plugins bootstrap while
-    // firing lifecycle hooks.  WordPress has verified the Requires Plugins
-    // graph before this hook, but it has not loaded the provider's ordinary
-    // bootstrap.  Load the already-materialized provider once so this real
-    // extension can use Woo APIs in both lifecycle contexts.
+    // Lifecycle reconciliation uses an ordinary WordPress bootstrap, so the
+    // provider-first activation plan should already have loaded WooCommerce.
+    // Keep a defensive direct-fixture fallback for isolated/offline execution.
     if (!class_exists('WooCommerce') && defined('WP_PLUGIN_DIR')) {
         $woo = WP_PLUGIN_DIR . '/woocommerce/woocommerce.php';
         if (is_file($woo)) {

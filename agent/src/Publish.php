@@ -103,6 +103,7 @@ final class Publish {
      * @return resource an open file handle; pass to unlock() when done
      */
     public static function lock(string $stateDir) {
+        self::assert_protocol_roots($stateDir);
         $path = self::lock_path($stateDir);
         $dir = dirname($path);
         if (!is_dir($dir) && !mkdir($dir, 0777, true) && !is_dir($dir)) {
@@ -191,6 +192,7 @@ final class Publish {
      * @return string[] log lines describing what, if anything, was recovered
      */
     public static function recover(string $stateDir, ?callable $commitStatus = null): array {
+        self::assert_protocol_roots($stateDir);
         $log = [];
         $staging = self::stage_dir($stateDir);
         $backup = self::backup_dir($stateDir);
@@ -428,6 +430,7 @@ final class Publish {
      * @param null|callable(string, string): void $writeFile
      */
     public static function write_entities(string $stagingDir, array $entities, ?callable $writeFile = null): void {
+        self::assert_not_symlink_root($stagingDir, 'staging');
         $writeFile ??= [Canon::class, 'write_file'];
         if (is_dir($stagingDir)) {
             // Belt only — recover() above already clears this before a
@@ -459,6 +462,7 @@ final class Publish {
      * failure — never silently continues past a rename that didn't happen.
      */
     public static function swap(string $stateDir, bool $retainBackup = false): void {
+        self::assert_protocol_roots($stateDir);
         $staging = self::stage_dir($stateDir);
         $backup = self::backup_dir($stateDir);
 
@@ -520,6 +524,8 @@ final class Publish {
      * @return array{format:string,id:string,phase:string,candidate_sha256:string,previous_sha256:string,created_at:string}
      */
     public static function begin_intent(string $stateDir, string $candidateDir): array {
+        self::assert_protocol_roots($stateDir);
+        self::assert_not_symlink_root($candidateDir, 'capture candidate');
         if (!is_dir($candidateDir)) {
             throw new \RuntimeException("duo: cannot create capture intent — staged candidate is missing: $candidateDir");
         }
@@ -540,6 +546,7 @@ final class Publish {
 
     /** Mark the intent after both filesystem renames have returned. */
     public static function mark_swapped(string $stateDir, array $intent): array {
+        self::assert_protocol_roots($stateDir);
         self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
         $onDisk = self::read_record(self::intent_path($stateDir), 'intent');
         if ($onDisk === null || ($onDisk['id'] ?? null) !== ($intent['id'] ?? null)) {
@@ -558,6 +565,7 @@ final class Publish {
      * client/server commit outcome is unknowable (must remain fail-closed).
      */
     public static function mark_commit_ready(string $stateDir, array $intent): array {
+        self::assert_protocol_roots($stateDir);
         self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
         $onDisk = self::read_record(self::intent_path($stateDir), 'intent');
         if ($onDisk === null || ($onDisk['id'] ?? null) !== ($intent['id'] ?? null)) {
@@ -571,6 +579,7 @@ final class Publish {
 
     /** Mark the exact point immediately before issuing DB COMMIT. */
     public static function mark_committing(string $stateDir, array $intent): array {
+        self::assert_protocol_roots($stateDir);
         self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
         $onDisk = self::read_record(self::intent_path($stateDir), 'intent');
         if ($onDisk === null || ($onDisk['id'] ?? null) !== ($intent['id'] ?? null)) {
@@ -593,6 +602,7 @@ final class Publish {
      * @return array{format:string,intent_id:string,phase:string,candidate_sha256:string,previous_sha256:string,committed_at:string}
      */
     public static function write_receipt(string $stateDir, array $intent): array {
+        self::assert_protocol_roots($stateDir);
         self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
         if (!is_dir($stateDir)) {
             throw new \RuntimeException('duo: cannot write a capture receipt because state/ is missing after COMMIT');
@@ -632,6 +642,7 @@ final class Publish {
      * the next lock holder can retry this cleanup without replaying capture.
      */
     public static function cleanup_committed(string $stateDir, array $receipt): void {
+        self::assert_protocol_roots($stateDir);
         self::assert_record($receipt, 'receipt', 'duo-capture-receipt/v1');
         if (!is_dir($stateDir)) {
             throw new \RuntimeException('duo: post-commit cleanup refused — published state/ is missing');
@@ -677,6 +688,7 @@ final class Publish {
 
     /** Deterministic digest of every regular file beneath a tree. */
     public static function tree_digest(string $dir): string {
+        self::assert_not_symlink_root($dir, 'capture tree');
         if (!is_dir($dir)) {
             throw new \RuntimeException("duo: cannot hash missing tree $dir");
         }
@@ -707,6 +719,7 @@ final class Publish {
 
     /** @return ?array<string,mixed> */
     private static function read_record(string $path, string $label): ?array {
+        self::assert_not_symlink_root($path, "$label record");
         if (!is_file($path)) {
             return null;
         }
@@ -728,6 +741,7 @@ final class Publish {
 
     /** @param array<string,mixed> $record @return array<string,mixed> */
     private static function write_record(string $path, array $record, string $label): array {
+        self::assert_not_symlink_root($path, "$label record");
         $record = self::seal_record($record);
         $tmp = $path . '.tmp.' . getmypid() . '.' . bin2hex(random_bytes(6));
         try {
@@ -825,6 +839,7 @@ final class Publish {
     }
 
     private static function remove_record(string $path, string $label): void {
+        self::assert_not_symlink_root($path, "$label record");
         if (is_file($path) && !@unlink($path)) {
             throw new \RuntimeException("duo: capture recovery could not remove durable $label record $path");
         }
@@ -832,6 +847,8 @@ final class Publish {
     }
 
     private static function restore_backup(string $stateDir, string $backup): void {
+        self::assert_not_symlink_root($stateDir, 'published state');
+        self::assert_not_symlink_root($backup, 'retained backup');
         if (!@rename($backup, $stateDir)) {
             throw new \RuntimeException(
                 "duo: capture recovery failed — $stateDir is missing and retained backup $backup could not be restored; "
@@ -843,6 +860,8 @@ final class Publish {
 
     /** Replace a complete new state tree with the retained old tree. */
     private static function replace_with_backup(string $stateDir, string $backup): void {
+        self::assert_not_symlink_root($stateDir, 'published state');
+        self::assert_not_symlink_root($backup, 'retained backup');
         if (is_dir($stateDir)) {
             self::rrmdir($stateDir);
         }
@@ -925,6 +944,7 @@ final class Publish {
     }
 
     public static function rrmdir(string $dir): void {
+        self::assert_not_symlink_root($dir, 'directory');
         if (!is_dir($dir)) {
             return;
         }
@@ -936,5 +956,41 @@ final class Publish {
             $f->isDir() ? rmdir($f->getPathname()) : unlink($f->getPathname());
         }
         rmdir($dir);
+    }
+
+    /**
+     * A protocol root must be an ordinary path or absent, never a symlink.
+     * PHP's is_dir()/is_file() follow links, so checking only those predicates
+     * would let a published, staged, retained, or durable-record path resolve
+     * outside the destination and make recovery/cleanup operate on unrelated
+     * files. Broken links are rejected too: is_link() reports them even when
+     * the target no longer exists.
+     */
+    private static function assert_not_symlink_root(string $path, string $label): void {
+        // is_link('/tmp/link/') is false on PHP even when /tmp/link is a
+        // symlink to a directory; probe the same lexical root without its
+        // trailing separator so callers cannot bypass this guard by spelling
+        // an otherwise identical path differently.
+        $probe = rtrim($path, '/\\');
+        if ($probe === '') {
+            $probe = $path;
+        }
+        if (is_link($probe)) {
+            throw new \RuntimeException("duo: refusing to operate on symlinked $label root $path");
+        }
+    }
+
+    /** Validate every named sibling before any protocol boundary is read. */
+    private static function assert_protocol_roots(string $stateDir): void {
+        foreach ([
+            'published state' => $stateDir,
+            'staging' => self::stage_dir($stateDir),
+            'retained backup' => self::backup_dir($stateDir),
+            'intent record' => self::intent_path($stateDir),
+            'receipt record' => self::receipt_path($stateDir),
+            'capture lock' => self::lock_path($stateDir),
+        ] as $label => $path) {
+            self::assert_not_symlink_root($path, $label);
+        }
     }
 }

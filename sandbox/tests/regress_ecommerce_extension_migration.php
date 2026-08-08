@@ -213,6 +213,17 @@ function ecommerce_extension_child_set_v1(EcommerceExtensionMigrationFakeWpdb $w
     $fakeOptions['duo_commerce_extension_schema'] = 1;
 }
 
+function ecommerce_extension_child_set_v2(EcommerceExtensionMigrationFakeWpdb $wpdb): void {
+    global $fakeOptions;
+    $wpdb->shape = $wpdb->v2Shape;
+    $fakeOptions['duo_commerce_extension_settings'] = [
+        'schema' => 2,
+        'channel' => 'retail',
+        'catalog_mode' => 'managed',
+    ];
+    $fakeOptions['duo_commerce_extension_schema'] = 2;
+}
+
 function ecommerce_extension_child_set_no_state(EcommerceExtensionMigrationFakeWpdb $wpdb): void {
     global $fakeOptions;
     $wpdb->shape = null;
@@ -301,6 +312,32 @@ function ecommerce_extension_child_run(string $fixture, string $case): void {
             ecommerce_extension_child_check(($fakeOptions['duo_commerce_extension_settings'] ?? null) === 'retail', 'v1 schema failure lost verified settings');
             ecommerce_extension_child_check(!array_key_exists('duo_commerce_extension_schema', $fakeOptions), 'v1 advertised schema after schema failure');
             duo_commerce_extension_install_v1();
+            ecommerce_extension_child_assert_v1($wpdb);
+            return;
+
+        case 'v1-activation-v2-shape':
+            // A v1 code activation cannot repair a v2 runtime table.  The
+            // live rollback therefore restores the exact v1 DB checkpoint
+            // before public promote stages and activates v1 code.
+            ecommerce_extension_child_set_v2($wpdb);
+            ecommerce_extension_child_check(is_callable($fakeActivation), 'v1 fixture did not register activation callback');
+            $shapeBefore = $wpdb->shape;
+            $optionsBefore = $fakeOptions;
+            $error = ecommerce_extension_child_expect_throw(
+                static fn(): mixed => $fakeActivation(),
+                'v1 activation against v2 table shape'
+            );
+            ecommerce_extension_child_check(
+                $error->getMessage() === 'Duo Commerce Extension runtime table shape does not match the expected v1 contract',
+                'v1 activation against v2 table shape changed its fail-closed diagnostic'
+            );
+            ecommerce_extension_child_check($wpdb->shape === $shapeBefore, 'v1 activation against v2 shape mutated the runtime table');
+            ecommerce_extension_child_check($fakeOptions === $optionsBefore, 'v1 activation against v2 shape mutated options');
+
+            // This models the recovery boundary: after the exact v1 DB
+            // checkpoint is restored, the same public activation is valid.
+            ecommerce_extension_child_set_v1($wpdb);
+            $fakeActivation();
             ecommerce_extension_child_assert_v1($wpdb);
             return;
 
@@ -461,6 +498,7 @@ function ecommerce_extension_migration_parent(): void {
         ['fixture' => 'v1', 'case' => 'v1-create'],
         ['fixture' => 'v1', 'case' => 'v1-settings'],
         ['fixture' => 'v1', 'case' => 'v1-schema'],
+        ['fixture' => 'v1', 'case' => 'v1-activation-v2-shape'],
         ['fixture' => 'fixed-v2', 'case' => 'shape-normalization'],
         ['fixture' => 'fixed-v2', 'case' => 'v2-probe'],
         ['fixture' => 'fixed-v2', 'case' => 'v2-alter'],
