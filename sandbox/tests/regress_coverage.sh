@@ -63,14 +63,14 @@ pass "coverage correctly surfaces real, previously-unknown gaps in an ALREADY-ma
 
 say "(4) human-readable mode runs without error and contains both sections"
 HUMAN=$(wp1 duo coverage --repo=/siterepo 2>&1)
-echo "$HUMAN" | grep -q "^OPTIONS" || fail "expected an OPTIONS section header in human-readable output"
-echo "$HUMAN" | grep -q "^TABLES" || fail "expected a TABLES section header in human-readable output"
-echo "$HUMAN" | grep -qi "never blocks capture/plan/apply" || fail "expected the explicit non-gating reassurance line"
+grep -q "^OPTIONS" <<<"$HUMAN" || fail "expected an OPTIONS section header in human-readable output"
+grep -q "^TABLES" <<<"$HUMAN" || fail "expected a TABLES section header in human-readable output"
+grep -qi "never blocks capture/plan/apply" <<<"$HUMAN" || fail "expected the explicit non-gating reassurance line"
 pass "human-readable rendering produces both sections and the explicit non-gating statement"
 
 say "(5) THE decisive check: coverage found real gaps (hundreds of invisible options, several undeclared tables) -- capture must still succeed cleanly right after, proving zero interference"
 OUT=$(wp1 duo capture --repo=/siterepo 2>&1)
-echo "$OUT" | grep -qi success || fail "expected capture to succeed immediately after a coverage run that found many gaps (got: $OUT)"
+grep -qi success <<<"$OUT" || fail "expected capture to succeed immediately after a coverage run that found many gaps (got: $OUT)"
 pass "capture succeeds normally right after coverage — coverage is proven non-gating, not just designed to be"
 
 say "(6) cleanup: drop the planted probe table so re-runs start clean"
