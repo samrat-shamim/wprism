@@ -78,6 +78,7 @@ final class PlanSummary {
         $envMissing = $plan['env_missing'] ?? [];
         $missingUser = $plan['missing_user'] ?? [];
         $skippedUserMeta = $plan['skipped_user_meta'] ?? [];
+        $uploadsInventory = $plan['uploads_inventory'] ?? [];
         $envMissingRequired = array_values(array_filter($envMissing, fn($r) => !empty($r['required'])));
         $summary = 'plan: ' . implode(', ', array_map(fn($k) => "{$counts[$k]} $k", self::BUCKETS));
         $summary .= ', ' . count($codeMismatch) . ' code_mismatch';
@@ -88,7 +89,16 @@ final class PlanSummary {
         $summary .= ', ' . count($envMissing) . ' env_missing';
         $summary .= ', ' . count($missingUser) . ' missing_user';
         $summary .= ', ' . count($skippedUserMeta) . ' skipped_user_meta';
+        $summary .= ', ' . count($uploadsInventory) . ' upload_mutations';
         $lines[] = $summary;
+
+        foreach ($uploadsInventory as $row) {
+            $directory = (string) ($row['derivative_directory'] ?? '');
+            $root = ($directory !== '' ? $directory . '/' : '')
+                . (string) ($row['derivative_basename_prefix'] ?? '?') . '*';
+            $lines[] = 'UPLOAD_MUTATION ' . ($row['original_path'] ?? '?')
+                . " (derivatives: $root)";
+        }
 
         $seenAnnotations = [];
         foreach (self::BUCKETS as $bucket) {

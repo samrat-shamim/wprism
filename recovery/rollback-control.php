@@ -260,6 +260,7 @@ final class RollbackControl {
                 'owner' => (string) $receipt['owner'],
                 'receipt_id' => (string) $receipt['receipt_id'],
                 'retention_until' => (string) $receipt['retention_until'],
+                'uploads_inventory_sha256' => (string) $receipt['uploads_inventory_sha256'],
                 'sequence' => (int) $target['sequence'],
                 'state' => (string) $target['state'],
                 'target_id' => (string) $target['target_id'],
@@ -341,6 +342,9 @@ final class RollbackControl {
             }
             if (CodeRelease::configured($root)) {
                 CodeRelease::assertClaimCodeRelease($root, $receipt, $event);
+            }
+            if (UploadBundle::configured($root)) {
+                UploadBundle::assertClaimUploadBundle($root, $receipt, $event);
             }
         }
 
@@ -655,6 +659,7 @@ final class RollbackControl {
             'prior_code_descriptor_sha256' => (string) $verified['receipt']['prior_code_descriptor_sha256'],
             'receipt_id' => (string) $target['active_receipt'],
             'retention_until' => (string) $verified['receipt']['retention_until'],
+            'uploads_inventory_sha256' => (string) $verified['receipt']['uploads_inventory_sha256'],
             'sequence' => (int) $target['sequence'],
             'state' => (string) $target['state'],
             'target_id' => (string) $target['target_id'],
@@ -1093,6 +1098,7 @@ function rollback_control_main(array $argv): int {
             'exclusion-request' => RecoveryExecutor::handleExclusionRequest($root, (string) ($args['request'] ?? '')),
             'checkpoint-request' => CheckpointBundle::handleRequest($root, (string) ($args['request'] ?? '')),
             'code-release-request' => CodeRelease::handleRequest($root, (string) ($args['request'] ?? '')),
+            'upload-bundle-request' => UploadBundle::handleRequest($root, (string) ($args['request'] ?? '')),
             'execute' => RecoveryExecutor::execute(
                 $root,
                 (string) ($args['adapter'] ?? ''),
@@ -1117,6 +1123,7 @@ function rollback_control_main(array $argv): int {
 require_once __DIR__ . '/RecoveryExecutor.php';
 require_once __DIR__ . '/CheckpointBundle.php';
 require_once __DIR__ . '/CodeRelease.php';
+require_once __DIR__ . '/UploadBundle.php';
 
 if (isset($_SERVER['SCRIPT_FILENAME']) && realpath((string) $_SERVER['SCRIPT_FILENAME']) === __FILE__) {
     exit(rollback_control_main($argv));

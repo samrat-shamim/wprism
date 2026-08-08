@@ -2,7 +2,7 @@
 
 The recovery runtime under `<repo_path>/.duo/control/recovery-runtime/` is a
 PHP CLI that does not load WordPress. A production host supplies its own
-maintenance-exclusion provider, optional checkpoint and code-release
+maintenance-exclusion provider, optional checkpoint, code-release, and upload
 providers, and four recovery adapters. Duo invokes each as an argv array through `proc_open`; it never
 constructs a shell command.
 
@@ -27,6 +27,7 @@ Put this in the gitignored `.duo-envs.json` SSH environment beside
     },
     "checkpoint_provider": ["/opt/duo/bin/checkpoint-provider"],
     "code_release_provider": ["/opt/duo/bin/code-release-provider"],
+    "upload_provider": ["/opt/duo/bin/upload-provider"],
     "exclusion_provider": ["/opt/duo/bin/exclude-site", "production"],
     "timeout_seconds": 30
   }
@@ -41,6 +42,9 @@ can be claimed. `code_release_provider` is optional; without it, code recovery
 is explicitly manual and the in-place materializer cannot advertise automatic
 rollback. Tokens, database credentials, and encryption key material must
 not appear in configuration or argv; providers own any credentials they need.
+`upload_provider` is optional; without it, upload recovery is explicitly
+manual. When present it must prepare encrypted local/offload evidence before
+the receipt can be claimed.
 
 ## Exclusion provider protocol
 
@@ -113,7 +117,9 @@ adapter contract. See [checkpoint-bundle.md](checkpoint-bundle.md). When
 `code_release_provider` is configured, Duo adds `code_select` in `promoting`
 and routes both it and `code_restore` through the immutable atomic-release
 protocol. See [code-release-runtime.md](code-release-runtime.md). Storage
-continues through its named generic adapter.
+uses the generic adapter only without `upload_provider`. With the provider,
+Duo adds `storage_apply` in `promoting` and routes it and `storage_restore`
+through the bounded upload journal. See [upload-bundle.md](upload-bundle.md).
 
 ## Operator probes
 

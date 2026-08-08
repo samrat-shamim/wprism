@@ -10,7 +10,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
 	regress-snapshot-meta regress-ssh-adopt regress-tec-regen regress-user-meta \
-	regress-option-name-refs-wiring regress-offline-all regress-live-list regress-code-compatibility \
+	regress-option-name-refs-wiring regress-offline-all regress-live-list regress-code-compatibility regress-upload-bundle \
 	regress-coverage-offline regress-coverage regress-classification-batch \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
 	regress-multisite-refusal regress-journal-bootstrap
@@ -510,6 +510,9 @@ regress-checkpoint-bundle:
 regress-code-release:
 	php sandbox/tests/regress_code_release.php
 
+regress-upload-bundle:
+	php sandbox/tests/regress_upload_bundle.php
+
 # --- live (docker/pair.sh-dependent), now in regress-live-list ---
 regress-acf-term-options-fields:
 	bash sandbox/tests/regress_acf_term_options_fields.sh
@@ -555,7 +558,7 @@ regress-user-meta:
 
 # DUO-3285: one target bundling every offline (no-docker) regress suite --
 # cheap enough to run at every close-gate, wired into CI as a required check
-# (.github/workflows/conformance.yml). 43 suites: code-half-unit's own 18
+# (.github/workflows/conformance.yml). 44 suites: code-half-unit's own 18
 # (already bundled, referenced not repeated), 7 that had a Makefile target
 # but were in no bundle CI ever ran (regress-capture-publish through
 # regress-order-preserving below), the 12 newly-wired offline scripts,
@@ -573,7 +576,7 @@ regress-user-meta:
 # on suite 21 when suite 3 already broke). Live suites are deliberately
 # NOT here -- see regress-live-list.
 #
-# DUO-3285 fast-follow and recovery closure: the bundle is now 42 suites.
+# DUO-3285 fast-follow and recovery closure: the bundle is now 44 suites.
 # regress-coverage-offline (DUO-3290's own suite,
 # asub's PR #82) had a real Makefile target the whole time but landed after
 # this bundle's own survey was authored, so it slipped in unbundled exactly
@@ -588,8 +591,9 @@ regress-user-meta:
 # forward: it runs this exact survey and fails loud the moment a
 # regress_*.{sh,php} file exists with neither a bundle nor a live-list
 # entry, so a suite must declare itself at birth or CI goes red.
-# DUO-3293/3294/3295/3296 add the external authority, exclusion executor,
-# encrypted checkpoint, and immutable atomic code-release suites respectively.
+# DUO-3293/3294/3295/3296/3297 add the external authority, exclusion executor,
+# encrypted checkpoint, immutable atomic code-release, and upload/media bundle
+# suites respectively.
 regress-offline-all: code-half-unit \
 	regress-capture-publish regress-adapter-contract regress-certification-bundle regress-interpreter-policy \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan \
@@ -600,8 +604,8 @@ regress-offline-all: code-half-unit \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
 	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch \
 	regress-coverage-offline regress-bundle-coverage regress-rollback-authority \
-	regress-recovery-executor regress-checkpoint-bundle regress-code-release
-	@echo "regress-offline-all: 43 offline suites green"
+	regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-upload-bundle
+	@echo "regress-offline-all: 44 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
