@@ -785,6 +785,18 @@ final class Snapshot {
                 "duo: table '$table' declares column(s) in BOTH columns and refs: " . implode(', ', $overlap)
             );
         }
+        if (array_key_exists('slug_column', $decl)) {
+            $slugCol = $decl['slug_column'];
+            $slugRule = is_string($slugCol) && $slugCol !== ''
+                ? ($decl['columns'][$slugCol] ?? null)
+                : null;
+            if (!is_array($slugRule) || ($slugRule['class'] ?? null) !== 'authored') {
+                throw new \RuntimeException(
+                    "duo: table '$table' slug_column must name a non-empty authored columns entry — "
+                    . 'primary keys, refs, runtime, derived, and env columns are environment-local and cannot name canonical files'
+                );
+            }
+        }
 
         $live = self::live_columns($table);
         if ($live === null) {
@@ -1159,7 +1171,7 @@ final class Snapshot {
             if ($identityNote !== null && !in_array($identityNote, $tokens->notes, true)) {
                 $tokens->notes[] = $identityNote;
             }
-            $slug = self::slug_for($decl, $row, $localId);
+            $slug = self::slug_for($decl, $row);
             $entities[] = [
                 'uuid' => $uuid,
                 'type' => $table,
@@ -1335,11 +1347,20 @@ final class Snapshot {
         return $uuid;
     }
 
-    private static function slug_for(array $decl, array $row, int $localId): string {
+    /**
+     * Human-readable path suffix for an ordinary typed-snapshot row.
+     *
+     * A declared slug column is authored data and therefore portable. A
+     * table without one used to fall back to its auto-increment primary key,
+     * making an otherwise identical capture/apply/recapture rename files on
+     * every environment whose local ids differed. The UUID already provides
+     * per-row uniqueness, so a static suffix is the only honest fallback.
+     */
+    private static function slug_for(array $decl, array $row): string {
         $col = $decl['slug_column'] ?? null;
         $raw = $col !== null ? (string) ($row[$col] ?? '') : '';
         $slug = $raw !== '' ? sanitize_title($raw) : '';
-        return $slug !== '' ? $slug : (string) $localId;
+        return $slug !== '' ? $slug : 'record';
     }
 
     /**
