@@ -85,13 +85,10 @@ foreach (['wc_product_meta_lookup', 'wc_product_attributes_lookup', 'wc_category
 woo_ok(($declaredTables['wc_tax_rate_classes']['class'] ?? '') === 'authored_snapshot', 'merchant tax classes are portable authored state');
 
 $rebuilders = $policy->rebuilders();
-$projectionRebuilders = array_values(array_filter(
-    $rebuilders,
-    static fn(array $row): bool => str_contains((string) ($row['command'] ?? ''), 'WooCommerceContract::rebuild')
-));
-woo_ok(count($rebuilders) === 3 && count($projectionRebuilders) === 1, 'manifest composes the checked Woo projection with bounded attribute and shipping/tax cache rebuilders');
-woo_ok(count($projectionRebuilders[0]['effects'] ?? []) === 8, 'checked projection rebuilder declares all database mutation surfaces for rollback checkpoints');
-woo_ok(is_file($root . '/agent/src/WooCommerceContract.php'), 'Woo projection implementation ships with the agent');
+woo_ok(count($rebuilders) === 2
+    && !str_contains(implode(' ', array_map(static fn(array $row): string => (string) ($row['command'] ?? ''), $rebuilders)), 'WooCommerceContract::rebuild'),
+    'manifest keeps only bounded attribute and shipping/tax cache rebuilders; the whole-catalog projection is not automatic');
+woo_ok(is_file($root . '/agent/src/WooCommerceContract.php'), 'legacy Woo projection implementation remains available only outside automatic Apply authority');
 $unsupportedDeletes = [
     'post:product',
     'post:product_variation',

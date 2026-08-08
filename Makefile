@@ -7,7 +7,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-env-options-policy regress-export-manifest-roundtrip regress-manifest-reclassification-policy \
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
 	regress-woocommerce-product-lookups regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
-	regress-woocommerce-regen-engine \
+	regress-woocommerce-regen-engine regress-rebuilder-scope regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity \
 	regress-term-meta regress-url-query-refs regress-acf-term-options-fields regress-collision \
 	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
@@ -345,6 +345,18 @@ regress-coverage:
 regress-post-field-classification:
 	php sandbox/tests/regress_post_field_classification.php
 
+regress-ecommerce-developer-static:
+	bash sandbox/tests/regress_ecommerce_developer_static.sh
+
+regress-ecommerce-extension-migration:
+	php sandbox/tests/regress_ecommerce_extension_migration.php
+
+regress-capture-atomicity:
+	php sandbox/tests/regress_capture_atomicity.php
+
+regress-rebuilder-scope:
+	php sandbox/tests/regress_rebuilder_scope.php
+
 regress-code-revision-enforcement:
 	php sandbox/tests/regress_code_revision_enforcement.php
 
@@ -600,11 +612,11 @@ regress-user-meta:
 # DUO-3285: one target bundling every offline (no-docker) regress suite --
 # cheap enough to run at every local close-gate. Hosted CI is intentionally
 # disabled for this repository, so this local bundle plus independent review
-# is the merge gate. 59 suites: code-half-unit's prerequisites folded in once,
+# is the merge gate. 63 suites: code-half-unit's prerequisites folded in once,
 # plus the direct offline prerequisites below, including the SSH rollback,
-# WooCommerce adapter/lookup/guard/effect and post-field classification
-# contracts. regress-bundle-coverage independently computes this transitive
-# count and rejects a stale number in the status line.
+# WooCommerce adapter/lookup/deletion/effect, post-field classification, and
+# ecommerce static contracts. regress-bundle-coverage independently computes
+# this transitive count and rejects a stale number in the status line.
 # Plain prerequisite list, same idiom
 # as code-half-unit itself -- make's default (non -j) prerequisite order
 # is the listed order, and it stops at the first failure, exactly the
@@ -644,10 +656,10 @@ regress-offline-all: code-half-unit \
 	regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-upload-bundle \
 	regress-effect-bundle regress-woocommerce-effect-contract regress-woocommerce-product-lookups \
 	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
-	regress-woocommerce-regen-engine regress-pair-bootstrap-unit \
-	regress-post-field-classification \
+	regress-woocommerce-regen-engine regress-rebuilder-scope regress-pair-bootstrap-unit \
+	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity \
 	regress-ssh-rollback-certification regress-woocommerce-contract
-	@echo "regress-offline-all: 59 offline suites green"
+	@echo "regress-offline-all: 63 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

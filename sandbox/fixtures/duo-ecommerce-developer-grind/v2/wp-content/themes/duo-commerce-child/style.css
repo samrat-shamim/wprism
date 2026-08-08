@@ -1,0 +1,17 @@
+/*
+Theme Name: Duo Commerce Child
+Description: The migrated storefront skin for the ecommerce grind.
+Template: duo-commerce-parent
+Version: 2.0.0
+*/
+
+.duo-commerce-catalog {
+    border-top: 4px solid #1f9d55;
+    padding-top: 1rem;
+}
+
+.duo-commerce-catalog::before {
+    content: "Duo Commerce v2";
+    display: block;
+    font-weight: 700;
+}

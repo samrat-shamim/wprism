@@ -57,7 +57,11 @@ fetch_artifact() {
   sha256=$(echo "$entry" | jq -r '.sha256')
   cache_path="/artifacts-cache/${slug}-${version}.zip"
 
-  "${PAIR_COMPOSE[@]}" run --rm -T "$cli" sh -c "
+  # The shared cache is a host bind mount and is intentionally not made
+  # world-writable. Fetch/verification is infrastructure work, so perform
+  # this one bounded command as root; ordinary wp-cli/plugin execution still
+  # runs as the image's unprivileged user and only reads the verified ZIP.
+  "${PAIR_COMPOSE[@]}" run --rm -T -u root "$cli" sh -c "
     set -e
     if [ -f '$cache_path' ]; then
       ACTUAL=\$(sha256sum '$cache_path' | cut -d' ' -f1)

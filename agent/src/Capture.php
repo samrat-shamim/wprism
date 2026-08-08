@@ -84,23 +84,14 @@ final class Capture {
      */
     public static function run(string $repo, ?string $outDir = null, bool $forceUnresolvedRefs = false): array {
         Canary::suppress_cron_spawn();
-        // Policy's v1 single-site boundary must run before Ledger::ensure()
-        // or any pruning: an unsupported multisite request is a clean
+        // Policy's v1 single-site boundary must run before any destination
+        // lock or Ledger work: an unsupported multisite request is a clean
         // refusal, not a request that may initialize or rewrite Duo state
         // before eventually discovering it cannot be certified.
         $policy = Policy::load($repo);
-        Ledger::ensure();
-        Identity::assert_embedded_unique();
-        Ledger::prune_dead_map();
-        $observedDeletedTables = Snapshot::observed_deleted_mapped_uuids($policy);
-        $observedDeletedWidgets = SidebarState::observed_deleted_mapped_uuids($policy);
-        SidebarState::prune_dead_map($policy);
-        $c = new self($repo, $policy);
-
         $intoRepo = ($outDir === null);
-        $stateDir = $intoRepo ? $c->repo . '/state' : rtrim($outDir, '/');
-
-        self::verify_engine_support($policy);
+        $repoPath = rtrim($repo, '/');
+        $stateDir = $intoRepo ? $repoPath . '/state' : rtrim($outDir, '/');
 
         // DUO-3213: a capture lock serializes concurrent publishers to this
         // SAME destination (Publish::lock() fails cleanly, non-blocking, if
@@ -110,7 +101,15 @@ final class Capture {
         // publishers interleaving any part of it is exactly what the lock
         // exists to rule out.
         $lock = Publish::lock($stateDir);
+        $testPhaseMarked = false;
         try {
+            // The destination lock is deliberately acquired BEFORE even
+            // Ledger::ensure(): schema migration and every row mutation below
+            // belong to the same destination's serialized publication.
+            Ledger::ensure();
+            $c = new self($repo, $policy);
+            self::verify_engine_support($policy);
+
             // DUO-3223 (concurrency-scenario harness): the SAME deterministic
             // test-pause idiom DUO-3217 established for PromotionLock
             // (agent/src/Apply.php's own DUO_TEST_MODE/DUO_TEST_PROMOTION_
@@ -127,6 +126,12 @@ final class Capture {
             // explicitly opts into both env vars; production capture is
             // unchanged.
             if (getenv('DUO_TEST_MODE') === '1') {
+                // This marker is intentionally outside the consistent
+                // snapshot: a second process must be able to observe it
+                // while this process is paused inside the held flock(). It is
+                // test-only and is deleted in finally so a refused/failed
+                // capture cannot leave a duo_kv residue behind.
+                $testPhaseMarked = true;
                 Ledger::kv_set('capture_test_phase', 'locked');
                 $pauseMs = (int) (getenv('DUO_TEST_CAPTURE_PAUSE_MS') ?: 0);
                 if ($pauseMs > 0 && $pauseMs <= 10000) {
@@ -191,33 +196,45 @@ final class Capture {
                     $previousUserLogins[] = (string) ($entity['data']['login'] ?? '');
                 }
             }
-            // A typed method row may disappear before its instance-settings
-            // option. Keep the option-name identity alive through this
-            // capture so build_options() can still emit the paired canonical
-            // option tombstone instead of dropping the live row as unmapped.
-            Snapshot::prune_dead_map($policy, $previousOptions);
-
             // The one consistent-snapshot transaction: every SELECT build()
-            // issues, plus the _duo_uuid/duo_map identity-minting writes
-            // alongside them, see one coherent point-in-time view. Retries
-            // on its own (see run_in_consistent_snapshot()) if a concurrent
-            // WordPress write collides with one of THIS build's own writes.
+            // issues, plus dead-map pruning, the _duo_uuid/duo_map identity-
+            // minting writes, and deletion capability validation, see one
+            // coherent point-in-time view. Retries on its own (see
+            // run_in_consistent_snapshot()) if a concurrent WordPress write
+            // collides with one of THIS build's own writes. In particular,
+            // an unsupported deletion must roll back every row mutation made
+            // while assembling the refused candidate.
             $build = self::run_in_consistent_snapshot(function () use (
-                $c, $policy, $repo, $forceUnresolvedRefs, $observedDeletedTables, $previousOptions,
-                $previousUserLogins, $observedDeletedWidgets
+                $c, $policy, $repo, $forceUnresolvedRefs, $previous, $previousOptions,
+                $previousUserLogins
             ): array {
+                // All map/state mutations which can happen while deciding
+                // whether this candidate is publishable are transactionally
+                // coupled to Deletion::capture_tombstones() below. A refusal
+                // therefore cannot strand a newly-minted identity or a
+                // pruned map row in the environment.
                 Identity::assert_embedded_unique();
+                Ledger::prune_dead_map();
+                $observedDeletedTables = Snapshot::observed_deleted_mapped_uuids($policy);
+                $observedDeletedWidgets = SidebarState::observed_deleted_mapped_uuids($policy);
+                SidebarState::prune_dead_map($policy);
+                // A typed method row may disappear before its instance-
+                // settings option. Keep the option-name identity alive
+                // through this capture so build_options() can still emit the
+                // paired canonical option tombstone instead of dropping the
+                // live row as unmapped.
+                Snapshot::prune_dead_map($policy, $previousOptions);
                 Snapshot::assert_mapped_history_present($policy, $repo, $observedDeletedTables);
                 SidebarState::assert_mapped_history_present($repo, $observedDeletedWidgets);
                 $candidate = $c->build(true, $forceUnresolvedRefs, $previousOptions, $previousUserLogins);
                 Identity::assert_entities_unique($candidate['entities']);
+                $candidate['deletions'] = Deletion::capture_tombstones(
+                    $previous,
+                    $candidate['entities'],
+                    $policy
+                );
                 return $candidate;
             });
-            $build['deletions'] = Deletion::capture_tombstones(
-                $previous,
-                $build['entities'],
-                $policy
-            );
 
             // Build + validate the COMPLETE candidate in an isolated
             // staging location — 'state/' itself is never touched until
@@ -330,6 +347,16 @@ final class Capture {
                 Deploy::record_code_versions($c->policy);
             }
         } finally {
+            if ($testPhaseMarked) {
+                try {
+                    Ledger::kv_delete('capture_test_phase');
+                } catch (\Throwable $markerFailure) {
+                    // The marker is only a live-test aid. Never mask the
+                    // capture's real outcome with a best-effort cleanup
+                    // failure, and never let it make a successful publish
+                    // fail after the tree and authoritative ledger commit.
+                }
+            }
             Publish::unlock($lock);
         }
 
@@ -850,22 +877,48 @@ final class Capture {
      * a fresh snapshot." Any OTHER \Throwable — every existing loud-and-
      * blocking gate in build() included — is a real, deterministic failure
      * and is never retried; retrying it would just burn attempts
-     * reproducing the identical failure.
+     * reproducing the identical failure. A transient error reported by the
+     * post-COMMIT checkpoint is also never retried: COMMIT has already
+     * returned, so its outcome may be durable and replaying the callback could
+     * duplicate a committed identity/state mutation.
      */
     private static function run_in_consistent_snapshot(callable $fn) {
-        global $wpdb;
         $attempt = 0;
         while (true) {
             $attempt++;
-            Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT', 'capture transaction start');
-            self::check_transient_db_error('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+            $transactionOpen = false;
             try {
+                Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT', 'capture transaction start');
+                // Mark the transaction open immediately after query() returns:
+                // the following checkpoint can still report a transient
+                // driver error even though START succeeded and therefore
+                // needs a rollback before retrying.
+                $transactionOpen = true;
+                self::check_transient_db_error('START TRANSACTION WITH CONSISTENT SNAPSHOT');
                 $result = $fn();
                 Db::commit('capture transaction commit');
-                self::check_transient_db_error('COMMIT');
+                // A successful COMMIT closes the transaction even if its
+                // post-query error checkpoint reports a stale driver message;
+                // never issue ROLLBACK after that commit. If the checkpoint
+                // does report an error, the commit outcome is ambiguous: the
+                // callback must not be retried because the database may have
+                // accepted its writes already.
+                $transactionOpen = false;
+                try {
+                    self::check_transient_db_error('COMMIT');
+                } catch (\Throwable $commitCheck) {
+                    throw new \RuntimeException(
+                        'duo: capture commit outcome uncertain — COMMIT returned, but its database error '
+                        . 'checkpoint failed; refusing to retry because the candidate may already be durable',
+                        0,
+                        $commitCheck
+                    );
+                }
                 return $result;
             } catch (TransientDbException $e) {
-                Db::rollback('capture transaction rollback');
+                if ($transactionOpen) {
+                    Db::rollback('capture transaction rollback');
+                }
                 if ($attempt >= self::MAX_DB_ATTEMPTS) {
                     throw new \RuntimeException(
                         "duo: capture failed after $attempt attempt(s) — repeated transient database contention "
@@ -876,7 +929,9 @@ final class Capture {
                 usleep(200_000 * $attempt); // 200ms, 400ms, ... — short: this targets brief lock contention, not an outage
                 continue;
             } catch (\Throwable $t) {
-                Db::rollback('capture transaction rollback');
+                if ($transactionOpen) {
+                    Db::rollback('capture transaction rollback');
+                }
                 throw $t;
             }
         }

@@ -458,6 +458,11 @@ try {
 if (!is_array($stageResult) || ($stageResult['staged'] ?? false) !== true) {
     fail_stage_compat('stage did not report success for native/alphabetical dependency order');
 }
+try {
+    Code::assert_verified_staged($compiled);
+} catch (\Throwable $e) {
+    fail_stage_compat('successful native/alphabetical stage did not publish verifiable stage markers: ' . $e->getMessage());
+}
 if (file_get_contents(WP_CONTENT_DIR . '/plugins/provider/provider.php') !== $stageProvider
     || file_get_contents(WP_CONTENT_DIR . '/plugins/dependent/dependent.php') !== $stageDependent) {
     fail_stage_compat('accepted native/alphabetical dependency stage did not materialize expected target bytes');

@@ -21,6 +21,14 @@ Confirmed empirically (`DESCRIBE`/raw `SELECT` against a live install, not assum
 
 Classification isn't post-type-scoped in this engine (`Policy::rule()` never takes a post type — confirmed by reading it), so the fix has to be global. **`manifests/woocommerce.json` now classifies `_price` `derived`** — semantically correct (Spike D's own note already established it's fully computable from other authored fields) and exempt from the multi-row guard entirely (the guard only applies to `class === 'authored'`, confirmed by the exact line in `Capture.php`). Verified empirically that this doesn't quietly break anything: `WC_Product_Variable`'s displayed price range and each variation's own purchasability come from the variations' own (single-valued) price fields, live-queried — never from the parent's own `_price` meta, which is a catalog-search optimization the product/checkout pages don't read. No rebuilder was added for it — nothing in WooCommerce's own wp-cli-reachable surface forces that specific resync, and smuggling a PHP one-liner through a rebuilder's plain command string felt like exactly the "regex-on-strings" fragility `DESIGN.md` warns against for a payoff testing showed unnecessary. If a future scenario needs the parent's price-range meta_query to work (a shop price-filter widget, say), that's the trigger to revisit — not a hypothetical guarded against today.
 
+**Current status:** that final sentence records the original R1-B discovery, not
+the present contract. The WooCommerce 11.x manifest now has a synchronous,
+bounded product/variation regenerator for effective `_price`, product and
+global-attribute lookups, and per-product sale schedules. It deliberately does
+not run the former whole-catalog projection command; `wc_category_lookup`
+remains an explicit manual repair/verification boundary because Woo exposes no
+public bounded regeneration method for it.
+
 ## The core loop, and why it isn't re-enacted verbatim in the script
 
 The *discovery* sequence — `duo capture` hitting the loud gate on `_children`/`_default_attributes`/`_product_attributes` (grouped/variable-product meta), `wp duo pending` surfacing a real `ref_hint` for `_children` (a small number coinciding with Duo Mug's actual post id), `wp duo classify --set=...` resolving each deliberately, then a second wave on `attribute_pa_color`/`attribute_pa_size`/`_variation_description` once `product_variation` entered scope — happened once, interactively, against a manifest that didn't yet have these rules. That transcript:

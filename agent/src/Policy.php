@@ -107,6 +107,7 @@ final class Policy {
             self::validate_field_classes($manifest);
             self::validate_menu_field_classes($manifest);
             self::validate_regen_dependencies($manifest);
+            self::validate_rebuilders($manifest);
             self::validate_env_options($manifest, "manifest '$name'");
             self::validate_user_meta_rules($manifest, "manifest '$name'");
             self::validate_scope_classes($manifest, "manifest '$name'", false);
@@ -181,6 +182,7 @@ final class Policy {
             self::validate_field_classes($manifest);
             self::validate_menu_field_classes($manifest);
             self::validate_regen_dependencies($manifest);
+            self::validate_rebuilders($manifest);
             self::validate_env_options($manifest, "frozen manifest '$name'");
             self::validate_user_meta_rules($manifest, "frozen manifest '$name'");
             self::validate_scope_classes($manifest, "frozen manifest '$name'", false);
@@ -3042,6 +3044,45 @@ final class Policy {
     }
 
     /**
+     * Manifest rebuilders with an exact canonical surface intersection.
+     *
+     * A declaration without `triggers` is deliberately unscoped for
+     * backwards compatibility: it remains required for every authored
+     * mutation. A declaration with triggers is selected only when Apply has
+     * derived the exact same canonical surface from this request. The empty
+     * surface set is a no-op, so a read-only apply cannot launch a rebuilder.
+     *
+     * @param list<string> $surfaces
+     * @return list<array<string,mixed>>
+     */
+    public function rebuilders_for(array $surfaces): array {
+        $wanted = [];
+        foreach ($surfaces as $surface) {
+            if (is_string($surface) && $surface !== '') {
+                $wanted[$surface] = true;
+            }
+        }
+        if ($wanted === []) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($this->rebuilders() as $rebuilder) {
+            if (!array_key_exists('triggers', $rebuilder)) {
+                $out[] = $rebuilder;
+                continue;
+            }
+            foreach ((array) $rebuilder['triggers'] as $trigger) {
+                if (isset($wanted[$trigger])) {
+                    $out[] = $rebuilder;
+                    break;
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
      * Complete target-independent effect declaration for the automatic
      * rollback profile. Missing lifecycle/rebuilder/regenerator declarations
      * are represented as explicit irreversible rows instead of disappearing:
@@ -3159,6 +3200,70 @@ final class Policy {
             'mode' => 'irreversible',
             'selector' => ['scope' => 'external', 'type' => $type, 'value' => $value],
         ];
+    }
+
+    /**
+     * Validate the optional exact-surface selector on manifest rebuilders.
+     *
+     * Surface names are intentionally a small, literal grammar. They are
+     * matching keys, never patterns or command fragments, so a manifest can
+     * narrow a rebuilder to one canonical post type/table/option/taxonomy
+     * without gaining any authority to name arbitrary ids or execute a
+     * caller-provided selector. Membership is not forced to this manifest's
+     * declaration lists: a rebuilder may observe a core/site surface owned by
+     * another pinned manifest, while exact literal matching still prevents
+     * that declaration from widening its authority.
+     */
+    private static function validate_rebuilders(array $manifest): void {
+        if (!array_key_exists('rebuilders', $manifest)) {
+            return;
+        }
+        $name = (string) ($manifest['name'] ?? '?');
+        $rebuilders = $manifest['rebuilders'];
+        if (!is_array($rebuilders) || !array_is_list($rebuilders)) {
+            throw new \RuntimeException("duo: manifest '$name' rebuilders must be a list");
+        }
+        foreach ($rebuilders as $i => $rebuilder) {
+            $where = "manifest '$name' rebuilders[$i]";
+            if (!is_array($rebuilder) || array_is_list($rebuilder)) {
+                throw new \RuntimeException("duo: $where must be an object");
+            }
+            $keys = array_keys($rebuilder);
+            sort($keys, SORT_STRING);
+            // `effects` is optional in existing manifests; it is included in
+            // the allowed set so the effect validator can supply its normal
+            // explicit irreversible fallback when omitted.
+            if (array_diff($keys, ['command', 'effects', 'triggers']) !== []) {
+                throw new \RuntimeException(
+                    "$where contains unknown key(s): "
+                    . implode(', ', array_diff($keys, ['command', 'effects', 'triggers']))
+                );
+            }
+            if (!is_string($rebuilder['command'] ?? null) || trim((string) $rebuilder['command']) === '') {
+                throw new \RuntimeException("duo: $where.command must be a non-empty string");
+            }
+            if (!array_key_exists('triggers', $rebuilder)) {
+                continue;
+            }
+            $triggers = $rebuilder['triggers'];
+            if (!is_array($triggers) || !array_is_list($triggers) || $triggers === []) {
+                throw new \RuntimeException("duo: $where.triggers must be a non-empty list");
+            }
+            $seen = [];
+            foreach ($triggers as $triggerIndex => $trigger) {
+                if (!is_string($trigger)
+                    || preg_match('/^(post|term|table|option|entity):[a-z0-9][a-z0-9._-]{0,127}$/D', $trigger) !== 1) {
+                    throw new \RuntimeException(
+                        "duo: $where.triggers[$triggerIndex] must be one exact canonical surface "
+                        . '(post|term|table|option|entity):<lowercase-name>'
+                    );
+                }
+                if (isset($seen[$trigger])) {
+                    throw new \RuntimeException("duo: $where.triggers repeats exact surface '$trigger'");
+                }
+                $seen[$trigger] = true;
+            }
+        }
     }
 
     /** Validate the bounded reversibility grammar without target contact. */

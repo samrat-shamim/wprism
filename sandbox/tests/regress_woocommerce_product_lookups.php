@@ -72,6 +72,10 @@ $needles = [
     'recompute_simple_price' => 'derived _price is recomputed from authored inputs',
     '_regular_price' => 'price recomputation reads authored regular price',
     '_sale_price_dates_from' => 'price recomputation honors sale windows',
+    'wc_maybe_schedule_product_sale_events' => 'sale actions use Woo public per-product scheduling',
+    'as_unschedule_all_actions' => 'deleted sale actions use bounded public unscheduling',
+    'as_next_scheduled_action' => 'sale actions have exact Action Scheduler readback',
+    'verify_sale_schedules' => 'sale schedule verification is explicit and separate from lookup verification',
 ];
 foreach ($needles as $needle => $message) {
     check(is_string($source) && str_contains($source, $needle), $message);
@@ -85,6 +89,10 @@ $refreshGrouped = is_string($source) ? strpos($source, 'refresh_grouped_children
 $groupedStoreLoad = is_string($source) ? strpos($source, "WC_Data_Store::load('product-grouped')") : false;
 check($refreshGrouped !== false && $groupedStoreLoad !== false && $refreshGrouped < $groupedStoreLoad,
     'grouped child cache refresh runs before the grouped public sync_price() call');
+$rebuilders = $policy->rebuilders();
+check(count($rebuilders) === 2
+    && !str_contains(implode(' ', array_map(static fn(array $row): string => (string) ($row['command'] ?? ''), $rebuilders)), 'WooCommerceContract::rebuild'),
+    'Woo policy no longer dispatches the whole-catalog projection rebuilder');
 
 if ($failures > 0) {
     echo "FAIL: $failures check(s) failed\n";
