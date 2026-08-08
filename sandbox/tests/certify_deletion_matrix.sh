@@ -3,50 +3,32 @@
 # boundaries beyond core's own post/term deletion guards (already
 # exhaustively covered by conformance/checks/core.sh, task #88-era work).
 # WooCommerce now proves unsupported product intent refuses before mutation;
-# the other two prove the generic typed-table guard/delete mechanism
-# (Apply.php's count_guard_refs(), driven entirely by each manifest's own
-# declared deletions block) generalizes correctly from core's hardcoded
-# post-type guards to arbitrary plugin-declared table guards, with no new
-# engine code needed -- this is a certification of an existing mechanism,
-# not new capability work.
+# Ninja Forms proves its safe child-row cascades and its fail-closed parent
+# boundary; Paid Memberships Pro proves the generic unguarded typed-table
+# delete mechanism. This is certification of declared contracts, not new
+# deletion-engine authority.
 #
 #   PART 1 (WooCommerce): product deletion's fail-closed boundary. A real
 #     order proves why a partial guard is insufficient; review, download,
 #     subscription, and arbitrary extension custom-table references are not
 #     exhaustively representable, so neither deletion force flag is authority.
-#   PART 2 (Ninja Forms): table:nf3_forms's THREE-guard shape -- two
-#     cross-table guards (nf3_actions/nf3_fields referencing the form) and
-#     one postmeta guard (_form_id submissions). Notable, verified live
-#     rather than assumed: nf3_fields/nf3_actions are declared GUARDS, not
-#     cascades -- only attached_meta (nf3_form_meta) cascades
-#     automatically. All three guard targets survive a forced delete
-#     orphaned but intact, exactly as declared. Getting there took three
-#     failed designs first (see the PART 2 seed section for the full
-#     story) -- unlike PART 1's guard table (wc_order_product_lookup,
-#     never itself a Duo entity), nf3_fields/nf3_actions ARE declared
-#     authored_snapshot tables, so an orphaned or never-captured row in
-#     them breaks either capture's own ref-integrity check or plan's
-#     read-only identity resolution, and a row scheduled for its OWN
-#     deletion in the same batch is excluded from counting as a blocking
-#     reference at all. The shape that actually works: create field/
-#     action directly on the target, then run a throwaway `wp duo capture
-#     --out=/tmp` there immediately after -- capture's ledger side effect
-#     (minting duo_map/duo_state) happens regardless of where its output
-#     tree goes, properly mapping the rows into the target's OWN ledger
-#     without ever touching the tracked state/ directory, git history, or
-#     the source environment's own view of the world.
+#   PART 2 (Ninja Forms): nf3_fields and nf3_actions are independently safe
+#     child selectors whose attached metadata cascades exactly. The parent
+#     nf3_forms selector is deliberately absent: shipped parent_id columns
+#     are unindexed, so the required InnoDB next-key/gap-lock boundary does
+#     not exist on an unmodified plugin install. Whole-form disappearance
+#     must refuse during capture without publishing partial child tombstones,
+#     and a hand-authored parent tombstone must be rejected by plan/apply
+#     before target mutation.
 #   PART 3 (Paid Memberships Pro): table:pmpro_memberships_pages declares
 #     an EMPTY guards/cascades block -- the thinnest case, proving a plain
 #     unguarded composite_ref delete still converges cleanly end to end
 #     (no guard machinery to exercise, but real evidence the empty
 #     declaration isn't accidentally silently broken either).
 #
-# Each part: guard-refusal (loud, naming the referencing rows) where a
-# guard exists, --force-delete-referenced override behavior, tombstone
-# convergence on the target, and cascade completeness verified against
-# the declared block. PART 2 also proves the supported force -> refusal ->
-# `duo orphans` delete/reparent -> clean-plan exit path, with journal and
-# canary evidence.
+# Each part proves its declared boundary: unsupported intent refuses loudly
+# before mutation, while supported typed-row tombstones converge and verify
+# their exact cascade effects.
 #
 # TWO real, isolated WordPress environments (own dedicated pair, never
 # any other agent's), matching certify_merge.sh's convention: both sides
@@ -235,40 +217,10 @@ echo "$RETRY1" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) 
 pass "PART 1 complete: product and order (status=$ORDER_STATUS) untouched; supported tree settles idempotently"
 
 # ============================================================================
-# PART 2 — Ninja Forms: table:nf3_forms's THREE-guard shape
+# PART 2 — Ninja Forms: child deletes supported, parent delete refused
 # ============================================================================
 
-say "PART 2 — seed a FORM ONLY on A, capture, converge B"
-# THREE earlier drafts of this section hit real, structural walls, not
-# test bugs to route around:
-#   (1) seeding field/action on A too, then raw-SQL-deleting ONLY the
-#       form on A before capture, orphaned Duo-tracked nf3_actions/
-#       nf3_fields rows still pointing at a vanished parent — capture
-#       correctly refused ("unmanaged nf3_form ref ... capture scope must
-#       include the referenced row"): every row in a DECLARED table is in
-#       Snapshot's own ref-integrity scope, unlike wc_order_product_lookup
-#       (PART 1's guard table, never itself a Duo entity).
-#   (2) creating field/action directly on B, with no other step: `wp duo
-#       plan` (read-only, mint=false) refused ("mapped identity missing
-#       for populated table 'nf3_actions' ... refusing to create or
-#       rebind it") the moment it tried to account for B's own declared-
-#       table rows — a never-captured row in a table Duo itself declares
-#       can't be silently minted during a read-only operation.
-#   (3) seeding field/action on A alongside the form and deleting all of
-#       them together in one batch: the delete DID succeed and DID show
-#       the postmeta guard, but count_guard_refs() turned out to exclude
-#       rows that are THEMSELVES also being deleted in the same batch
-#       from counting as blocking references — field/action's own
-#       tombstones meant they never got a chance to block the form's.
-# The shape that satisfies all three constraints: create field/action
-# directly on B (matching (2)'s starting point), then run `wp duo
-# capture --out=/tmp` on B RIGHT AFTER — capture's ledger side effect
-# (minting duo_map/duo_state entries for whatever it finds live) happens
-# regardless of where its OUTPUT state tree goes, so this properly maps
-# B's own field/action into B's OWN ledger without ever touching the
-# tracked state/ directory or git history, and without A ever knowing
-# these rows exist. Field/action are now "properly known" (satisfying
-# (2)'s constraint) but never part of any delete batch (satisfying (3)'s).
+say "PART 2 — seed one form with one field/action and attached metadata on A, capture, converge B"
 NF_SEED=$(wp1 eval '
 global $wpdb;
 $now = current_time("mysql");
@@ -276,215 +228,131 @@ $wpdb->insert($wpdb->prefix . "nf3_forms", [
   "title" => "Deletion Matrix Form", "key" => "deletion_matrix_form",
   "created_at" => $now, "updated_at" => $now,
 ]);
-echo $wpdb->insert_id;
+$form_id = $wpdb->insert_id;
+$wpdb->insert($wpdb->prefix . "nf3_fields", [
+  "parent_id" => $form_id, "type" => "textbox", "key" => "field_key_1",
+  "label" => "Name", "created_at" => $now, "updated_at" => $now,
+]);
+$field_id = $wpdb->insert_id;
+$wpdb->insert($wpdb->prefix . "nf3_field_meta", [
+  "parent_id" => $field_id, "key" => "label", "value" => "Name",
+  "meta_key" => "label", "meta_value" => "Name",
+]);
+$wpdb->insert($wpdb->prefix . "nf3_actions", [
+  "parent_id" => $form_id, "type" => "successmessage", "key" => "action_key_1",
+  "title" => "Success Message", "label" => "Success Message", "active" => 1,
+  "created_at" => $now, "updated_at" => $now,
+]);
+$action_id = $wpdb->insert_id;
+$wpdb->insert($wpdb->prefix . "nf3_action_meta", [
+  "parent_id" => $action_id, "key" => "message", "value" => "Thanks",
+  "meta_key" => "message", "meta_value" => "Thanks",
+]);
+echo "$form_id|$field_id|$action_id";
 ')
-FORM_A="$NF_SEED"
-[ -n "$FORM_A" ] || fail "ninja-forms seed did not produce a form id"
+IFS='|' read -r FORM_A FIELD_A ACTION_A <<< "$NF_SEED"
+[ -n "$FORM_A" ] && [ -n "$FIELD_A" ] && [ -n "$ACTION_A" ] \
+  || fail "ninja-forms seed did not produce form/field/action ids (got: $NF_SEED)"
 wp1 duo capture --repo=/siterepo >/dev/null
-$GIT_A add -A && $GIT_A commit -qm "A: seed Deletion Matrix Form" && $GIT_A push -q origin main
+$GIT_A add -A && $GIT_A commit -qm "A: seed Ninja Forms deletion graph" && $GIT_A push -q origin main
 $GIT_B pull -q origin main
 wp2 duo apply --repo=/siterepo --default-author=admin --format=json | tail -1 | jq .
 FORM_B=$(wp2 db query --skip-column-names "SELECT id FROM wp_nf3_forms WHERE title='Deletion Matrix Form'" | tr -d '\r')
-[ -n "$FORM_B" ] || fail "form did not converge on B"
-echo "form: A=$FORM_A B=$FORM_B"
+FIELD_B=$(wp2 db query --skip-column-names "SELECT id FROM wp_nf3_fields WHERE parent_id=$FORM_B AND label='Name'" | tr -d '\r')
+ACTION_B=$(wp2 db query --skip-column-names "SELECT id FROM wp_nf3_actions WHERE parent_id=$FORM_B AND label='Success Message'" | tr -d '\r')
+[ -n "$FORM_B" ] && [ -n "$FIELD_B" ] && [ -n "$ACTION_B" ] \
+  || fail "form/field/action did not converge on B"
+pass "form/field/action converged with target-local ids form=$FORM_B field=$FIELD_B action=$ACTION_B"
 
-say "PART 2 — on B ONLY: attach guarded rows + ref mirrors, a repair-parent form, and a submission; then mint B's OWN ledger identities without touching A"
-NF_B_SEED=$(wp2 eval "
-global \$wpdb;
-\$now = current_time('mysql');
-\$wpdb->insert(\$wpdb->prefix . 'nf3_form_meta', [
-  'parent_id' => $FORM_B, 'key' => 'cascade_marker', 'value' => 'should be cascaded away',
-]);
-\$wpdb->insert(\$wpdb->prefix . 'nf3_fields', [
-  'parent_id' => $FORM_B, 'type' => 'textbox', 'key' => 'field_key_1',
-  'label' => 'Name', 'created_at' => \$now, 'updated_at' => \$now,
-]);
-\$field_id = \$wpdb->insert_id;
-\$wpdb->insert(\$wpdb->prefix . 'nf3_field_meta', [
-  'parent_id' => \$field_id, 'key' => 'parent_id', 'value' => '$FORM_B',
-  'meta_key' => 'parent_id', 'meta_value' => '$FORM_B',
-]);
-\$wpdb->insert(\$wpdb->prefix . 'nf3_actions', [
-  'parent_id' => $FORM_B, 'type' => 'successmessage', 'key' => 'action_key_1',
-  'title' => 'Success Message', 'label' => 'Success Message', 'active' => 1,
-  'created_at' => \$now, 'updated_at' => \$now,
-]);
-\$action_id = \$wpdb->insert_id;
-\$wpdb->insert(\$wpdb->prefix . 'nf3_action_meta', [
-  'parent_id' => \$action_id, 'key' => 'parent_id', 'value' => '$FORM_B',
-  'meta_key' => 'parent_id', 'meta_value' => '$FORM_B',
-]);
-\$wpdb->insert(\$wpdb->prefix . 'nf3_forms', [
-  'title' => 'Orphan Repair Parent', 'key' => 'orphan_repair_parent',
-  'created_at' => \$now, 'updated_at' => \$now,
-]);
-\$repair_form_id = \$wpdb->insert_id;
-\$sub_id = wp_insert_post(['post_type' => 'nf_sub', 'post_status' => 'publish', 'post_title' => 'Submission']);
-update_post_meta(\$sub_id, '_form_id', $FORM_B);
-echo \"\$field_id|\$action_id|\$repair_form_id|\$sub_id\";
-")
-IFS='|' read -r FIELD_B ACTION_B REPAIR_FORM_B SUB_B <<< "$NF_B_SEED"
-[ -n "$FIELD_B" ] && [ -n "$ACTION_B" ] && [ -n "$REPAIR_FORM_B" ] && [ -n "$SUB_B" ] || fail "B-local seed did not produce field/action/repair-form/submission ids (got: $NF_B_SEED)"
-wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-mint-b-local >/dev/null
-rm -rf "siterepo/delmatrix2/.tmp-mint-b-local"
-MINTED_FIELD=$(wp2 db query --skip-column-names "SELECT uuid FROM wp_duo_map WHERE id_kind='nf3_field' AND local_id=$FIELD_B" | tr -d '\r')
-MINTED_ACTION=$(wp2 db query --skip-column-names "SELECT uuid FROM wp_duo_map WHERE id_kind='nf3_action' AND local_id=$ACTION_B" | tr -d '\r')
-[ -n "$MINTED_FIELD" ] && [ -n "$MINTED_ACTION" ] || fail "throwaway capture did not mint B's own ledger entries for field/action (field uuid: '$MINTED_FIELD', action uuid: '$MINTED_ACTION')"
-pass "form=$FORM_B; B-local field=$FIELD_B, action=$ACTION_B, repair parent=$REPAIR_FORM_B, submission=$SUB_B — local identities minted, none pushed to A"
-
-say "PART 2 — on A: delete the form (clean — A never had any field/action/meta attached, so this is a straightforward tombstone, no orphan-ref concern), capture, propagate"
-wp1 db query "DELETE FROM wp_nf3_forms WHERE id=$FORM_A"
-wp1 duo capture --repo=/siterepo >/dev/null
-$GIT_A add -A && $GIT_A commit -qm "A: delete Deletion Matrix Form" && $GIT_A push -q origin main
+say "PART 2 — delete only the supported child rows on A; capture and apply their exact attached-meta cascades"
+wp1 db query "
+  DELETE FROM wp_nf3_field_meta WHERE parent_id=$FIELD_A;
+  DELETE FROM wp_nf3_action_meta WHERE parent_id=$ACTION_A;
+  DELETE FROM wp_nf3_fields WHERE id=$FIELD_A;
+  DELETE FROM wp_nf3_actions WHERE id=$ACTION_A;
+" >/dev/null
+CHILD_CAPTURE=$(wp1 duo capture --repo=/siterepo --format=json | tail -1)
+[ "$(jq -r '.counts.deletion' <<<"$CHILD_CAPTURE")" = 2 ] \
+  || fail "child removal did not capture exactly two tombstones: $CHILD_CAPTURE"
+$GIT_A add -A && $GIT_A commit -qm "A: delete supported Ninja Forms children" && $GIT_A push -q origin main
 $GIT_B pull -q origin main
+CHILD_APPLY=$(wp2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json | tail -1)
+echo "$CHILD_APPLY" | jq -e '.canary == "clean" and .verification.result == "pass"' >/dev/null \
+  || fail "supported child deletion did not converge: $CHILD_APPLY"
+[ "$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_fields WHERE id=$FIELD_B" | tr -d '\r')" = 0 ] \
+  || fail "supported nf3_fields deletion left the row behind"
+[ "$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_field_meta WHERE parent_id=$FIELD_B" | tr -d '\r')" = 0 ] \
+  || fail "nf3_fields attached-meta cascade left rows behind"
+[ "$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_actions WHERE id=$ACTION_B" | tr -d '\r')" = 0 ] \
+  || fail "supported nf3_actions deletion left the row behind"
+[ "$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_action_meta WHERE parent_id=$ACTION_B" | tr -d '\r')" = 0 ] \
+  || fail "nf3_actions attached-meta cascade left rows behind"
+[ "$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_forms WHERE id=$FORM_B" | tr -d '\r')" = 1 ] \
+  || fail "child deletion disturbed the retained parent form"
+pass "supported nf3_fields/nf3_actions tombstones converged with exact attached-meta cascades"
 
-say "PART 2 — B's plan must show the delete BLOCKED, naming all three guards (actions, fields, submissions)"
-PLAN2=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
-echo "$PLAN2" | jq .
-# Same posture as PART 1: check both .delete[] and .delete_conflict[]
-# rather than assuming a specific bucket -- only one entity is being
-# deleted here.
-BLOCKED2=$(echo "$PLAN2" | jq -r '[.delete[]?, .delete_conflict[]?] | map(.blocked // empty) | join("\n")')
-[ -n "$BLOCKED2" ] || fail "plan did not show the form's delete as blocked at all: $PLAN2"
-echo "$BLOCKED2" | grep -qi "actions reference" || fail "plan did not name the nf3_actions guard: $BLOCKED2"
-echo "$BLOCKED2" | grep -qi "fields reference" || fail "plan did not name the nf3_fields guard: $BLOCKED2"
-echo "$BLOCKED2" | grep -qi "submissions reference" || fail "plan did not name the postmeta submission guard: $BLOCKED2"
-pass "plan blocks the delete, naming all three declared guards"
-
-say "PART 2 — apply refuses without --force-delete-referenced"
-# The throwaway capture-mint step above touched B's OWN identity/state
-# tracking for the form entity too (a full capture pass re-evaluates
-# everything in scope, not just the rows it was minting identities for),
-# so B's plan landed this in .delete_conflict[] (own local drift) as well
-# as being guard-blocked -- matching spike_d_woo.sh's own established
-# precedent of needing BOTH --force-theirs and --force-delete-referenced
-# together, not just the referential-guard override alone. The refusal
-# message correspondingly may name either "referential guard" or
-# "deletion conflict" depending on which check trips first — check for
-# either rather than assuming one specific wording.
+say "PART 2 — whole-form disappearance refuses atomically during source capture"
+wp1 db query "DELETE FROM wp_nf3_forms WHERE id=$FORM_A" >/dev/null
+STATE_STATUS_BEFORE=$(git -C siterepo/delmatrix1 status --porcelain --untracked-files=all -- state)
+[ -z "$STATE_STATUS_BEFORE" ] || fail "canonical state dirty before parent refusal: $STATE_STATUS_BEFORE"
+TOMBSTONES_BEFORE=$(find siterepo/delmatrix1/state/deletions -type f -name '*.json' | wc -l | tr -d '[:space:]')
 set +e
-APPLY2_ERR=$(wp2 duo apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin 2>&1)
-APPLY2_RC=$?
+PARENT_CAPTURE_ERR=$(wp1 duo capture --repo=/siterepo --format=json 2>&1)
+PARENT_CAPTURE_RC=$?
 set -e
-[ "$APPLY2_RC" -ne 0 ] || fail "apply succeeded despite three live referential guards"
-echo "$APPLY2_ERR" | grep -qiE 'referential guard|deletion conflict' \
-  || fail "failure did not mention a referential guard or deletion conflict: $APPLY2_ERR"
-pass "apply refused the guarded delete"
+[ "$PARENT_CAPTURE_RC" -ne 0 ] || fail "capture accepted unsupported table:nf3_forms deletion"
+grep -Fq 'deletion intent for table:nf3_forms is unsupported' <<<"$PARENT_CAPTURE_ERR" \
+  || fail "capture refusal did not name table:nf3_forms: $PARENT_CAPTURE_ERR"
+STATE_STATUS_AFTER=$(git -C siterepo/delmatrix1 status --porcelain --untracked-files=all -- state)
+[ "$STATE_STATUS_AFTER" = "$STATE_STATUS_BEFORE" ] \
+  || fail "failed parent capture changed canonical state: $STATE_STATUS_AFTER"
+TOMBSTONES_AFTER=$(find siterepo/delmatrix1/state/deletions -type f -name '*.json' | wc -l | tr -d '[:space:]')
+[ "$TOMBSTONES_AFTER" = "$TOMBSTONES_BEFORE" ] \
+  || fail "failed parent capture published a partial tombstone ($TOMBSTONES_BEFORE -> $TOMBSTONES_AFTER)"
+RESTORE_PARENT=$(wp1 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | tail -1)
+echo "$RESTORE_PARENT" | jq -e '.canary == "clean" and .verification.result == "pass"' >/dev/null \
+  || fail "canonical form could not restore the source after refusal: $RESTORE_PARENT"
+pass "source capture refused table:nf3_forms atomically and canonical apply restored the source"
 
-say "PART 2 — force commits the guarded mutation, emits the informed warning, then truthfully fails mandatory convergence on the new orphans"
+say "PART 2 — a hand-authored parent tombstone is rejected by plan/apply before target mutation"
+FORM_FILE=$(find siterepo/delmatrix2/state/tables/nf3_forms -name '*--deletion-matrix-form.json' -print -quit)
+[ -n "$FORM_FILE" ] || fail "captured parent form state file missing"
+FORM_UUID=$(jq -r '.uuid' "$FORM_FILE")
+FORM_EXPECTED_HASH=$(shasum -a 256 "$FORM_FILE" | awk '{print $1}')
+FORM_EXPECTED_REVISION=$(wp2 eval 'echo \Duo\RepositoryCompiler::compile("/siterepo", \Duo\Policy::load("/siterepo"))->revision_hash();')
+FORM_SOURCE_PATH="tables/nf3_forms/$(basename "$FORM_FILE")"
+FORM_BACKUP="siterepo/delmatrix2/.tmp-unsupported-nf3-form.json"
+mkdir -p siterepo/delmatrix2/state/deletions
+mv "$FORM_FILE" "$FORM_BACKUP"
+jq -n \
+  --arg expected_hash "$FORM_EXPECTED_HASH" \
+  --arg expected_revision "$FORM_EXPECTED_REVISION" \
+  --arg source_path "$FORM_SOURCE_PATH" \
+  --arg uuid "$FORM_UUID" \
+  '{expected_hash:$expected_hash,expected_revision:$expected_revision,format:"duo-deletion/v1",kind:"table",source_path:$source_path,type:"nf3_forms",uuid:$uuid}' \
+  > "siterepo/delmatrix2/state/deletions/$FORM_UUID.json"
 set +e
-FORCE2_OUT=$(wp2 duo apply --repo=/siterepo --with-deletes --force-theirs --force-delete-referenced --default-author=admin 2>&1)
-FORCE2_RC=$?
+PARENT_PLAN_ERR=$(wp2 duo plan --repo=/siterepo --format=json 2>&1)
+PARENT_PLAN_RC=$?
+PARENT_APPLY_ERR=$(wp2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1)
+PARENT_APPLY_RC=$?
+PARENT_FORCE_ERR=$(wp2 duo apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin 2>&1)
+PARENT_FORCE_RC=$?
 set -e
-echo "$FORCE2_OUT"
-[ "$FORCE2_RC" -ne 0 ] || fail "forced apply reported convergence despite deliberately orphaning declared structural refs"
-echo "$FORCE2_OUT" | grep -qi 'FORCED' || fail "no FORCED warning printed: $FORCE2_OUT"
-echo "$FORCE2_OUT" | grep -Fqi "1 rows in nf3_fields will be orphaned; wp duo plan/capture on nf3_fields will refuse until resolved (wp duo orphans nf3_fields)" \
-  || fail "forced warning did not give nf3_fields count/table/exit path: $FORCE2_OUT"
-echo "$FORCE2_OUT" | grep -Fqi "Surviving rows: nf3_fields.id=$FIELD_B" \
-  || fail "forced warning did not enumerate the surviving field row: $FORCE2_OUT"
-echo "$FORCE2_OUT" | grep -Fqi "Surviving rows: nf3_actions.id=$ACTION_B" \
-  || fail "forced warning did not enumerate the surviving action row: $FORCE2_OUT"
-echo "$FORCE2_OUT" | grep -Fqi "postmeta.meta_id=" \
-  || fail "forced warning did not enumerate the surviving submission-meta row: $FORCE2_OUT"
-echo "$FORCE2_OUT" | grep -qi "unmanaged nf3_form ref" \
-  || fail "forced apply did not retain the mandatory convergence refusal after its informed warning: $FORCE2_OUT"
-pass "forced mutation committed, warned with exact survivors/exit path, then failed closed at mandatory convergence"
-
-say "PART 2 — acceptance: form gone; attached_meta CASCADE removed automatically; the GUARDED field/action/submission — none of them ever scheduled for their own deletion, purely live guard references — all survive the forced delete completely untouched"
-# The precise cascade-vs-guard distinction the manifest declares:
-# nf3_form_meta cleans up as a pure SIDE EFFECT of the form's own deletion
-# (a direct fk-keyed cleanup, independent of whether Duo ever captured
-# those meta rows as first-class entities) — that's what "cascade" means
-# here. nf3_fields/nf3_actions are NOT cascaded: they are guards, and
-# since neither was ever itself scheduled for deletion in this batch,
-# they must survive, orphaned (parent_id now pointing at nothing) but
-# intact — proving the manifest's guard-not-cascade declaration is real
-# engine behavior, not just documentation, exactly like the submission.
-FORM_GONE=$(wp2 db query --skip-column-names "SELECT id FROM wp_nf3_forms WHERE id=$FORM_B" | tr -d '\r')
-[ -z "$FORM_GONE" ] || fail "form still present on B"
-META_GONE=$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_form_meta WHERE parent_id=$FORM_B" | tr -d '\r')
-[ "$META_GONE" = "0" ] || fail "declared cascade (attached_meta/nf3_form_meta) did not clean up (found $META_GONE row(s))"
-FIELD_SURVIVES=$(wp2 db query --skip-column-names "SELECT id FROM wp_nf3_fields WHERE id=$FIELD_B" | tr -d '\r')
-[ "$FIELD_SURVIVES" = "$FIELD_B" ] || fail "guarded nf3_fields row did NOT survive the forced parent delete (expected orphaned survival, per the manifest's own guard-not-cascade declaration; got: '$FIELD_SURVIVES') -- either the manifest declaration or the engine's actual behavior changed; this needs a human decision, not a silent update to this assertion"
-ACTION_SURVIVES=$(wp2 db query --skip-column-names "SELECT id FROM wp_nf3_actions WHERE id=$ACTION_B" | tr -d '\r')
-[ "$ACTION_SURVIVES" = "$ACTION_B" ] || fail "guarded nf3_actions row did NOT survive the forced parent delete (same concern as the field check above)"
-SUB_SURVIVES=$(wp2 post list --post_type=nf_sub --field=ID --include="$SUB_B" 2>/dev/null | tr -d '\r')
-[ "$SUB_SURVIVES" = "$SUB_B" ] || fail "guarded submission post did NOT survive the forced parent delete"
-pass "form removed, cascade (form_meta) cleaned up, guarded rows (field/action/submission) survive orphaned exactly as declared"
-
-say "PART 2 — GENUINE FINDING, not a test bug: the orphaned guard-survivor rows now break wp duo plan's own general ref-integrity scan on ANY subsequent call, for this table, until an operator also removes them"
-# A first attempt at this step asserted a clean idempotent retry (matching
-# PART 1's and PART 3's own retry checks). It failed here, and the FAILURE
-# is the real result, not a bug in the assertion: nf3_actions row 5's
-# parent_id now points at nf3_forms id 2, which no longer exists (exactly
-# the orphaned-but-surviving state this test just certified as correct
-# guard behavior) — and Snapshot's own ref-integrity check, which runs on
-# EVERY declared-table row regardless of whether that row has anything to
-# do with the current operation, refuses the moment it tries to resolve
-# that dangling ref. In other words: successfully forcing a guarded
-# delete through, leaving the guard-referencing rows orphaned exactly as
-# declared, leaves this environment unable to run `wp duo plan`/`capture`
-# again AT ALL until an operator also removes (or reparents) the orphaned
-# rows -- a real, load-bearing consequence of "guard, not cascade" that
-# isn't obvious from the manifest declaration alone, and isn't something
-# --force-delete-referenced's own warning mentions. Flagging for a human
-# decision (documented behavior? a second guard needed against leaving
-# force-deleted rows unresolved? something else?), not silently working
-# around it here.
-set +e
-RETRY2=$(wp2 duo plan --repo=/siterepo --format=json 2>&1)
-RETRY2_RC=$?
-set -e
-echo "$RETRY2"
-[ "$RETRY2_RC" -ne 0 ] || fail "expected plan to refuse due to the now-dangling nf3_actions/nf3_fields parent_id ref -- if this now succeeds cleanly, the engine's behavior changed and this whole finding needs re-examination, not silent deletion of this assertion"
-echo "$RETRY2" | grep -qi "unmanaged nf3_form ref" || fail "refusal was for an unexpected reason: $RETRY2"
-pass "forced consequence confirmed: plan refuses on the surviving structural-ref orphans"
-
-say "PART 2 — wp duo orphans lists exact broken refs, then resolves one row by declared-cascade delete and one by declared-ref reparent (no operator SQL)"
-ORPHAN_FIELDS=$(wp2 duo orphans nf3_fields --repo=/siterepo --format=json | tail -1)
-ORPHAN_ACTIONS=$(wp2 duo orphans nf3_actions --repo=/siterepo --format=json | tail -1)
-echo "$ORPHAN_FIELDS" | jq -e --argjson id "$FIELD_B" --argjson parent "$FORM_B" \
-  '.rows == [{identity:{id:$id},orphan_refs:[{column:"parent_id",kind:"nf3_form",local_id:$parent}],local_id:$id}]' >/dev/null \
-  || fail "orphans did not list the exact field row/ref: $ORPHAN_FIELDS"
-echo "$ORPHAN_ACTIONS" | jq -e --argjson id "$ACTION_B" --argjson parent "$FORM_B" \
-  '.rows == [{identity:{id:$id},orphan_refs:[{column:"parent_id",kind:"nf3_form",local_id:$parent}],local_id:$id}]' >/dev/null \
-  || fail "orphans did not list the exact action row/ref: $ORPHAN_ACTIONS"
-
-DELETE_ORPHAN=$(wp2 duo orphans nf3_fields --repo=/siterepo --row="$FIELD_B" --delete --format=json | tail -1)
-echo "$DELETE_ORPHAN" | jq -e '.action | startswith("delete nf3_fields.id=")' >/dev/null \
-  || fail "Duo orphan delete did not report its action: $DELETE_ORPHAN"
-echo "$DELETE_ORPHAN" | jq -e '.canary == "clean" and (.rows | length) == 0' >/dev/null \
-  || fail "Duo orphan delete was not canary-clean/resolved: $DELETE_ORPHAN"
-
-REPARENT_ORPHAN=$(wp2 duo orphans nf3_actions --repo=/siterepo --row="$ACTION_B" --reparent="parent_id=$REPAIR_FORM_B" --format=json | tail -1)
-echo "$REPARENT_ORPHAN" | jq -e '.action | startswith("reparent nf3_actions.id=")' >/dev/null \
-  || fail "Duo orphan reparent did not report its action: $REPARENT_ORPHAN"
-echo "$REPARENT_ORPHAN" | jq -e '.canary == "clean" and (.rows | length) == 0' >/dev/null \
-  || fail "Duo orphan reparent was not canary-clean/resolved: $REPARENT_ORPHAN"
-
-FIELD_GONE=$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_fields WHERE id=$FIELD_B" | tr -d '\r')
-FIELD_META_GONE=$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_field_meta WHERE parent_id=$FIELD_B" | tr -d '\r')
-ACTION_PARENT=$(wp2 db query --skip-column-names "SELECT parent_id FROM wp_nf3_actions WHERE id=$ACTION_B" | tr -d '\r')
-ACTION_META_PARENT=$(wp2 db query --skip-column-names "SELECT meta_value FROM wp_nf3_action_meta WHERE parent_id=$ACTION_B AND meta_key='parent_id'" | tr -d '\r')
-[ "$FIELD_GONE" = "0" ] && [ "$FIELD_META_GONE" = "0" ] || fail "Duo orphan delete missed the field or its declared sidecar"
-[ "$ACTION_PARENT" = "$REPAIR_FORM_B" ] && [ "$ACTION_META_PARENT" = "$REPAIR_FORM_B" ] \
-  || fail "Duo orphan reparent did not update both the action ref and its declared meta mirror"
-JOURNALED=$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_duo_journal WHERE tbl IN ('nf3_fields','nf3_field_meta','nf3_actions','nf3_action_meta') AND surface='cli'" | tr -d '\r')
-[ "$JOURNALED" -ge "4" ] || fail "Duo orphan resolution was not journaled across row/sidecar mutations (found $JOURNALED observations)"
-
-RECOVERY_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | tail -1) \
-  || fail "plan still refuses after Duo resolved both orphaned rows"
-SETTLE=$(wp2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json | tail -1)
-echo "$SETTLE" | jq -e '.canary == "clean" and .verification.result == "pass"' >/dev/null \
-  || fail "post-resolution apply did not complete the retained convergence receipt: $SETTLE"
-FINAL_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
-echo "$FINAL_PLAN" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0' >/dev/null \
-  || fail "post-resolution retry plan was not settled: $FINAL_PLAN"
-wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-post-orphan-resolution >/dev/null \
-  || fail "capture still refuses after Duo resolved both orphaned rows"
-rm -rf "siterepo/delmatrix2/.tmp-post-orphan-resolution"
-pass "PART 2 complete: force -> refusal -> exact orphan listing -> journaled/canary-clean delete+reparent -> clean plan/capture"
+[ "$PARENT_PLAN_RC" -ne 0 ] && [ "$PARENT_APPLY_RC" -ne 0 ] && [ "$PARENT_FORCE_RC" -ne 0 ] \
+  || fail "unsupported parent deletion was accepted by plan/apply or force"
+for OUT in "$PARENT_PLAN_ERR" "$PARENT_APPLY_ERR" "$PARENT_FORCE_ERR"; do
+  grep -Fq 'deletion intent for table:nf3_forms is unsupported' <<<"$OUT" \
+    || fail "parent deletion refusal did not name table:nf3_forms: $OUT"
+done
+[ "$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_forms WHERE id=$FORM_B" | tr -d '\r')" = 1 ] \
+  || fail "refused parent intent mutated the target form"
+rm "siterepo/delmatrix2/state/deletions/$FORM_UUID.json"
+mv "$FORM_BACKUP" "$FORM_FILE"
+FINAL_PLAN2=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
+echo "$FINAL_PLAN2" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0' >/dev/null \
+  || fail "restored parent state did not settle: $FINAL_PLAN2"
+pass "PART 2 complete: child deletion converges; unsupported parent intent refuses before publication or mutation"
 
 # ============================================================================
 # PART 3 — Paid Memberships Pro: table:pmpro_memberships_pages, EMPTY guards
@@ -554,7 +422,7 @@ echo "$RETRY3" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) 
   || fail "retry plan still shows pending deletes: $RETRY3"
 pass "PART 3 complete: unguarded composite_ref delete converges cleanly, level and page both survive untouched, retry settles idempotently"
 
-printf '\n\033[1;32m✔ CERTIFY DELETION MATRIX PASSED (woocommerce product deletion fail-closed; ninja-forms three-guard shape + cascade/guard distinction; pmpro unguarded composite_ref delete)\033[0m\n'
+printf '\n\033[1;32m✔ CERTIFY DELETION MATRIX PASSED (woocommerce product deletion fail-closed; ninja-forms child cascades + parent refusal; pmpro unguarded composite_ref delete)\033[0m\n'
 
 say "cleanup: destroy the delmatrix pair (green run — 'destroy-when-green' convention; unreached on any earlier failure)"
 bash bin/pair.sh destroy delmatrix

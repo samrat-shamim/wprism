@@ -127,6 +127,10 @@ $ninjaDefaults = array_column($data['manifests']['ninja-forms']['default_authore
 foreach (['nf3_action_meta', 'nf3_field_meta', 'nf3_form_meta'] as $table) {
     check(($ninjaDefaults[$table] ?? null) === 'justified', "$table has exact default-authored justification");
 }
+$ninjaDeletes = $data['manifests']['ninja-forms']['capabilities']['deletion_semantics'];
+check($ninjaDeletes['supported'] === ['table:nf3_actions', 'table:nf3_fields'], 'Ninja Forms certifies only independently safe child-row deletion');
+check(in_array('table:nf3_forms', $ninjaDeletes['unsupported'], true), 'Ninja Forms parent deletion is explicitly unsupported');
+check(Policy::load(null, ['ninja-forms'])->deletion_capability('table:nf3_forms') === null, 'Ninja Forms manifest cannot authorize parent deletion');
 check(($data['manifests']['paid-memberships-pro']['default_authored_keyspaces'][0]['status'] ?? null) === 'unsupported', 'PMPro default-authored keyspace is explicitly unsupported');
 
 echo "\n== disposition bytes are frozen and content-addressed ==\n";

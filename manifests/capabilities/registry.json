@@ -22,7 +22,7 @@
             "name": "duo-reference-certification",
             "version": 2
         },
-        "status": "current",
+        "status": "candidate",
         "tests": [
             {
                 "id": "core-conformance",
@@ -45,7 +45,7 @@
     "format": "duo-capability-registry/v1",
     "generated_from": {
         "compatibility_sha256": "40050ad62cde35c9365d56525a6cf5c0a2a11382e3636971016895c8cba94d61",
-        "dispositions_sha256": "aa78d30c9b5dbbd7e20e65c86c7755b3275f4a5e4921bdaaece05764a8c447e3",
+        "dispositions_sha256": "ed4988dcb51e1c43540b2c6ab15c60af14f8696db1a0d7ac96c6241b0930dd90",
         "evidence_sha256": "b878c1b92e5e73d4b4dd3c22f896c90abc0477140db5c297d18c706e87ddd9a4"
     },
     "manifests": {
@@ -83,7 +83,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "exact-artifact-version-matrix"
                 ]
@@ -169,7 +169,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "exact-artifact-version-matrix"
                 ]
@@ -262,7 +262,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "core-conformance"
                 ]
@@ -423,7 +423,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -491,7 +491,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -555,7 +555,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -629,7 +629,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -697,7 +697,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -762,7 +762,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "exact-artifact-version-matrix"
                 ]
@@ -820,7 +820,7 @@
             ]
         },
         "ninja-forms": {
-            "adapter_digest": "fabca887209795019344555a6761ae0e4c285039b485ba55e0aeaf4b9a48527a",
+            "adapter_digest": "0f03f25c980a0c298ece16c74fc8798f1218fcab9b97ec4d88e9f40886e0074b",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -828,10 +828,10 @@
             "deletion_semantics": {
                 "supported": [
                     "table:nf3_actions",
-                    "table:nf3_fields",
-                    "table:nf3_forms"
+                    "table:nf3_fields"
                 ],
                 "unsupported": [
+                    "table:nf3_forms",
                     "runtime submissions"
                 ]
             },
@@ -857,7 +857,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "exact-artifact-version-matrix"
                 ]
@@ -883,7 +883,7 @@
                 "mode": "unmodified",
                 "status": "verified"
             },
-            "reason": "Certified typed-table form graph, cache rebuild, block rendering, deletion guards, and exact version boundaries.",
+            "reason": "Certified typed-table form graph, cache rebuild, block rendering, child-row deletion, loud parent-deletion refusal, and exact version boundaries.",
             "status": "certified",
             "supported_versions": {
                 "plugin": "ninja-forms/ninja-forms.php",
@@ -897,7 +897,6 @@
                 "block_attrs.ninja-forms/form",
                 "deletions.table:nf3_actions",
                 "deletions.table:nf3_fields",
-                "deletions.table:nf3_forms",
                 "options",
                 "options.nf_doing_import_form",
                 "options.nf_import_form",
@@ -918,6 +917,11 @@
                 "tables.nf3_upgrades"
             ],
             "unsupported": [
+                {
+                    "operation": "delete",
+                    "reason": "The shipped nf3_actions.parent_id and nf3_fields.parent_id columns have no complete indexes, so an unmodified Ninja Forms target cannot provide the next-key/gap-lock boundary required for race-safe form deletion.",
+                    "surface": "tables.nf3_forms"
+                },
                 {
                     "operation": "capture",
                     "reason": "Submission entities are runtime-sovereign and intentionally excluded.",
@@ -961,7 +965,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -1105,7 +1109,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "exact-artifact-version-matrix"
                 ]
@@ -1194,7 +1198,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -1311,7 +1315,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "exact-artifact-version-matrix"
                 ]
@@ -1560,7 +1564,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "exact-artifact-version-matrix"
                 ]
@@ -1669,7 +1673,7 @@
                 "bundle_digest": "7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "fse-conformance"
                 ]
