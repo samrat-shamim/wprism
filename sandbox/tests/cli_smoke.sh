@@ -67,9 +67,15 @@ for env in e1 e2; do
   done
   echo "$OUT"
   [ "$ok" -eq 1 ] || fail "duo doctor $env never went green (exit $CODE)"
-  [ "$(echo "$OUT" | grep -c '\[PASS\]')" -eq 4 ] || fail "duo doctor $env: expected 4 [PASS] lines"
+  for required in \
+    'transport reachable' 'WordPress installed' 'duo agent present' \
+    'repo path has site.duo.json' 'PHP version' 'database' \
+    'WordPress core' 'coverage report available'; do
+    grep -Fq "[PASS] $required" <<<"$OUT" \
+      || fail "duo doctor $env: missing required [PASS] check '$required'"
+  done
   grep -q '\[FAIL\]' <<<"$OUT" && fail "duo doctor $env: unexpected [FAIL]"
-  pass "duo doctor $env: 4/4 checks green"
+  pass "duo doctor $env: all required checks green"
 done
 
 say "duo status e2 (expect clean — e1/e2 start in sync from spike E)"
@@ -121,8 +127,10 @@ grep -q ', 0 conflict, 0 collision,' <<<"$OUT" || fail "duo status e2: expected 
 pass "duo status e2 is clean again after apply"
 
 say "sanity: e2's applied title actually matches"
-GOT_TITLE=$($COMPOSE run --rm -T cli-e2 wp post get "$POST_ID" --field=post_title 2>/dev/null | tr -d '\r')
-[ "$GOT_TITLE" = "$NEW_TITLE" ] || fail "e2's post #$POST_ID title is '$GOT_TITLE', expected '$NEW_TITLE'"
-pass "e2's post title matches e1's edit ($NEW_TITLE)"
+TARGET_POST_ID=$($COMPOSE run --rm -T cli-e2 wp post list --post_type=post --name=duo-acf-content --field=ID | tr -d '\r')
+[ -n "$TARGET_POST_ID" ] || fail "could not resolve e2's duo-acf-content post by canonical slug"
+GOT_TITLE=$($COMPOSE run --rm -T cli-e2 wp post get "$TARGET_POST_ID" --field=post_title 2>/dev/null | tr -d '\r')
+[ "$GOT_TITLE" = "$NEW_TITLE" ] || fail "e2's duo-acf-content post #$TARGET_POST_ID title is '$GOT_TITLE', expected '$NEW_TITLE'"
+pass "e2's target-local post #$TARGET_POST_ID matches e1's edit ($NEW_TITLE)"
 
 printf '\n\033[1;32m✔ CLI SMOKE PASSED\033[0m\n'

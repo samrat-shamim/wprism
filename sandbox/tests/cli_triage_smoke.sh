@@ -82,7 +82,7 @@ for _ in $(seq 1 30); do
 done
 echo "$OUT"
 [ "$ok" -eq 1 ] || fail "duo doctor e1 never went green (exit $CODE)"
-pass "duo doctor e1: 4/4 checks green"
+pass "duo doctor e1: all required checks green"
 
 say "baseline: e1's review queue starts empty"
 assert_exit 0 "duo pending e1 (baseline)" -- "$DUO" pending e1
