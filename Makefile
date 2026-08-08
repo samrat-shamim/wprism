@@ -2,7 +2,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 
 .PHONY: regress-lifecycle-options-snapshot
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half grind-code-half-ecosystem grind-code-half-first-sync pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-ssh-adoption-roundtrip regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-executor regress-checkpoint-bundle code-half-unit \
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half grind-code-half-ecosystem grind-code-half-first-sync pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-ssh-adoption-roundtrip regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-executor regress-checkpoint-bundle regress-code-release code-half-unit \
 	regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy \
 	regress-env-options-policy regress-export-manifest-roundtrip regress-manifest-reclassification-policy \
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
@@ -497,6 +497,9 @@ regress-recovery-executor:
 regress-checkpoint-bundle:
 	php sandbox/tests/regress_checkpoint_bundle.php
 
+regress-code-release:
+	php sandbox/tests/regress_code_release.php
+
 # --- live (docker/pair.sh-dependent), now in regress-live-list ---
 regress-acf-term-options-fields:
 	bash sandbox/tests/regress_acf_term_options_fields.sh
@@ -560,7 +563,8 @@ regress-user-meta:
 # on suite 21 when suite 3 already broke). Live suites are deliberately
 # NOT here -- see regress-live-list.
 #
-# DUO-3285 fast-follow: +2. regress-coverage-offline (DUO-3290's own suite,
+# DUO-3285 fast-follow and recovery closure: the bundle is now 42 suites.
+# regress-coverage-offline (DUO-3290's own suite,
 # asub's PR #82) had a real Makefile target the whole time but landed after
 # this bundle's own survey was authored, so it slipped in unbundled exactly
 # the way this target exists to prevent -- team-lead caught it by
@@ -574,6 +578,8 @@ regress-user-meta:
 # forward: it runs this exact survey and fails loud the moment a
 # regress_*.{sh,php} file exists with neither a bundle nor a live-list
 # entry, so a suite must declare itself at birth or CI goes red.
+# DUO-3293/3294/3295/3296 add the external authority, exclusion executor,
+# encrypted checkpoint, and immutable atomic code-release suites respectively.
 regress-offline-all: code-half-unit \
 	regress-capture-publish regress-adapter-contract regress-interpreter-policy \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan \
@@ -584,8 +590,8 @@ regress-offline-all: code-half-unit \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
 	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch \
 	regress-coverage-offline regress-bundle-coverage regress-rollback-authority \
-	regress-recovery-executor regress-checkpoint-bundle
-	@echo "regress-offline-all: 41 offline suites green"
+	regress-recovery-executor regress-checkpoint-bundle regress-code-release
+	@echo "regress-offline-all: 42 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

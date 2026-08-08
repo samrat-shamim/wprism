@@ -16,7 +16,8 @@ namespace Duo\Recovery;
  */
 final class RollbackControl {
     public const TARGET_FORMAT = 'duo-rollback-target/v1';
-    public const RECEIPT_FORMAT = 'duo-rollback-receipt/v1';
+    public const RECEIPT_FORMAT = 'duo-rollback-receipt/v2';
+    private const LEGACY_RECEIPT_FORMAT = 'duo-rollback-receipt/v1';
     public const EVENT_FORMAT = 'duo-rollback-event/v1';
 
     /** @var list<string> */
@@ -52,6 +53,7 @@ final class RollbackControl {
         'artifact_hash',
         'checkpoint_sha256',
         'claim_ttl_seconds',
+        'code_release_metadata_sha256',
         'created_at',
         'encryption_key_id',
         'exclusion_token_sha256',
@@ -68,6 +70,18 @@ final class RollbackControl {
         'runtime_fingerprints_sha256',
         'signing_key_id',
         'target_id',
+        'uploads_inventory_sha256',
+    ];
+
+    /** @var list<string> */
+    private const LEGACY_RECEIPT_KEYS = [
+        'adapter_versions_sha256', 'artifact_hash', 'checkpoint_sha256',
+        'claim_ttl_seconds', 'created_at', 'encryption_key_id',
+        'exclusion_token_sha256', 'format', 'generation',
+        'ledger_session_sha256', 'lifecycle_receipts_sha256', 'owner',
+        'prior_code_descriptor_sha256', 'prior_verifier_inputs_sha256',
+        'receipt_id', 'resources_inventory_sha256', 'retention_until',
+        'runtime_fingerprints_sha256', 'signing_key_id', 'target_id',
         'uploads_inventory_sha256',
     ];
 
@@ -324,6 +338,9 @@ final class RollbackControl {
             RecoveryExecutor::assertClaimExclusion($root, $receipt, $event);
             if (CheckpointBundle::configured($root)) {
                 CheckpointBundle::assertClaimCheckpoint($root, $receipt, $event);
+            }
+            if (CodeRelease::configured($root)) {
+                CodeRelease::assertClaimCodeRelease($root, $receipt, $event);
             }
         }
 
@@ -624,6 +641,9 @@ final class RollbackControl {
             'claim_ttl_seconds' => (int) $verified['receipt']['claim_ttl_seconds'],
             'claimant' => (string) $target['claimant'],
             'checkpoint_sha256' => (string) $verified['receipt']['checkpoint_sha256'],
+            'code_release_metadata_sha256' => isset($verified['receipt']['code_release_metadata_sha256'])
+                ? (string) $verified['receipt']['code_release_metadata_sha256']
+                : null,
             'encryption_key_id' => (string) $verified['receipt']['encryption_key_id'],
             'exclusion_token_sha256' => (string) $verified['receipt']['exclusion_token_sha256'],
             'format' => self::TARGET_FORMAT,
@@ -632,6 +652,7 @@ final class RollbackControl {
             'ok' => true,
             'open_operations' => count($verified['open_operations']),
             'owner' => (string) $target['owner'],
+            'prior_code_descriptor_sha256' => (string) $verified['receipt']['prior_code_descriptor_sha256'],
             'receipt_id' => (string) $target['active_receipt'],
             'retention_until' => (string) $verified['receipt']['retention_until'],
             'sequence' => (int) $target['sequence'],
@@ -669,8 +690,12 @@ final class RollbackControl {
     }
 
     private static function validateReceipt(array $receipt, string $envelopeKeyId): void {
-        self::assertExactKeys($receipt, self::RECEIPT_KEYS, 'receipt payload');
-        if (($receipt['format'] ?? '') !== self::RECEIPT_FORMAT) {
+        $format = (string) ($receipt['format'] ?? '');
+        if ($format === self::RECEIPT_FORMAT) {
+            self::assertExactKeys($receipt, self::RECEIPT_KEYS, 'receipt payload');
+        } elseif ($format === self::LEGACY_RECEIPT_FORMAT) {
+            self::assertExactKeys($receipt, self::LEGACY_RECEIPT_KEYS, 'receipt payload');
+        } else {
             throw new \RuntimeException('duo rollback: unsupported receipt format');
         }
         self::assertIdentifier((string) $receipt['receipt_id'], 'receipt id', 32, 64);
@@ -691,6 +716,7 @@ final class RollbackControl {
         foreach ([
             'artifact_hash',
             'checkpoint_sha256',
+            ...($format === self::RECEIPT_FORMAT ? ['code_release_metadata_sha256'] : []),
             'prior_code_descriptor_sha256',
             'lifecycle_receipts_sha256',
             'uploads_inventory_sha256',
@@ -1066,6 +1092,7 @@ function rollback_control_main(array $argv): int {
             'recovery-probe' => RecoveryExecutor::probe($root),
             'exclusion-request' => RecoveryExecutor::handleExclusionRequest($root, (string) ($args['request'] ?? '')),
             'checkpoint-request' => CheckpointBundle::handleRequest($root, (string) ($args['request'] ?? '')),
+            'code-release-request' => CodeRelease::handleRequest($root, (string) ($args['request'] ?? '')),
             'execute' => RecoveryExecutor::execute(
                 $root,
                 (string) ($args['adapter'] ?? ''),
@@ -1089,6 +1116,7 @@ function rollback_control_main(array $argv): int {
 
 require_once __DIR__ . '/RecoveryExecutor.php';
 require_once __DIR__ . '/CheckpointBundle.php';
+require_once __DIR__ . '/CodeRelease.php';
 
 if (isset($_SERVER['SCRIPT_FILENAME']) && realpath((string) $_SERVER['SCRIPT_FILENAME']) === __FILE__) {
     exit(rollback_control_main($argv));

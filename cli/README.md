@@ -455,13 +455,17 @@ a manual-recovery warning and retains the existing operator-directed behavior.
 `code_restore`, `database_restore`, `prior_verify`, and `storage_restore` argv
 adapters. Its optional `checkpoint_provider` argv enables encrypted database
 checkpoint preparation and the stricter database/prior-verifier execution
-path. Adoption probes all configured capabilities. Provider tokens and key
+path. Its optional `code_release_provider` argv enables off-target-built,
+immutable descriptor-bound releases plus signed-journal `code_select` and
+atomic `code_restore`; without it, code recovery is explicitly manual.
+Adoption probes all configured capabilities. Provider tokens and key
 material never enter the registry or command line; only hashes and the
 external key id are bound into a signed receipt. See
 [docs/recovery-runtime.md](../docs/recovery-runtime.md) for the protocol and
 the boundary between this executor and future automatic rollback, and
 [docs/checkpoint-bundle.md](../docs/checkpoint-bundle.md) for the checkpoint
-contract.
+contract, and [docs/code-release-runtime.md](../docs/code-release-runtime.md)
+for the atomic code-release contract.
 
 ### Where the registry comes from
 

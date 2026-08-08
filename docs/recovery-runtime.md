@@ -2,8 +2,8 @@
 
 The recovery runtime under `<repo_path>/.duo/control/recovery-runtime/` is a
 PHP CLI that does not load WordPress. A production host supplies its own
-maintenance-exclusion provider, a checkpoint provider, and four recovery
-adapters. Duo invokes each as an argv array through `proc_open`; it never
+maintenance-exclusion provider, optional checkpoint and code-release
+providers, and four recovery adapters. Duo invokes each as an argv array through `proc_open`; it never
 constructs a shell command.
 
 This is the fail-closed execution substrate. It does not make the current
@@ -26,6 +26,7 @@ Put this in the gitignored `.duo-envs.json` SSH environment beside
       "storage_restore": ["/opt/duo/bin/storage-restore"]
     },
     "checkpoint_provider": ["/opt/duo/bin/checkpoint-provider"],
+    "code_release_provider": ["/opt/duo/bin/code-release-provider"],
     "exclusion_provider": ["/opt/duo/bin/exclude-site", "production"],
     "timeout_seconds": 30
   }
@@ -33,10 +34,12 @@ Put this in the gitignored `.duo-envs.json` SSH environment beside
 ```
 
 Executable paths must be absolute. Adoption writes only these paths and the
-timeout to the protected target root, then probes both providers and all four
+timeout to the protected target root, then probes every configured provider and all four
 adapters. `checkpoint_provider` is optional for hosts that only install the
 DUO-3294 executor substrate; it is required before encrypted database recovery
-can be claimed. Tokens, database credentials, and encryption key material must
+can be claimed. `code_release_provider` is optional; without it, code recovery
+is explicitly manual and the in-place materializer cannot advertise automatic
+rollback. Tokens, database credentials, and encryption key material must
 not appear in configuration or argv; providers own any credentials they need.
 
 ## Exclusion provider protocol
@@ -92,7 +95,7 @@ input hash and a result SHA-256. The controller must append that digest in the
 signed completion event; the adapter cannot complete or broaden its own
 authority.
 
-The fixed adapter names are:
+The base adapter names are:
 
 - `database_restore`: import the prepared database checkpoint;
 - `code_restore`: restore the prepared prior code descriptor;
@@ -106,8 +109,11 @@ or release.
 
 When `checkpoint_provider` is configured, Duo routes `database_restore` and
 `prior_verify` through the stricter checkpoint protocol instead of the generic
-adapter contract. See [checkpoint-bundle.md](checkpoint-bundle.md). Code and
-storage continue through their named generic adapters.
+adapter contract. See [checkpoint-bundle.md](checkpoint-bundle.md). When
+`code_release_provider` is configured, Duo adds `code_select` in `promoting`
+and routes both it and `code_restore` through the immutable atomic-release
+protocol. See [code-release-runtime.md](code-release-runtime.md). Storage
+continues through its named generic adapter.
 
 ## Operator probes
 

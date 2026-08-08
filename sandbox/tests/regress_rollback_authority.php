@@ -79,6 +79,7 @@ function receipt(array $status, int $generation, string $receiptId, string $crea
         'artifact_hash' => $hash('artifact-' . $generation),
         'checkpoint_sha256' => $hash('checkpoint-' . $generation),
         'claim_ttl_seconds' => 30,
+        'code_release_metadata_sha256' => $hash('code-release-' . $generation),
         'created_at' => $created,
         'encryption_key_id' => 'age-key-2026',
         'exclusion_token_sha256' => $hash('exclusion-' . $generation),
@@ -334,6 +335,16 @@ try {
         file_put_contents($path, RollbackControl::canonical($decoded) . "\n");
         refuses(fn() => RollbackControl::status($copy), "$kind tampering makes status non-green");
     }
+
+    $legacyRoot = $tmp . '/legacy-v1/control';
+    $legacyStatus = RollbackControl::initialize($legacyRoot);
+    RollbackControl::installPublicKey($legacyRoot, $keyId, base64_encode($public));
+    $legacyReceipt = receipt($legacyStatus, 1, str_repeat('b', 48), '2026-01-02T00:00:00Z');
+    $legacyReceipt['format'] = 'duo-rollback-receipt/v1';
+    unset($legacyReceipt['code_release_metadata_sha256']);
+    $legacyEvent = event($legacyReceipt, 1, str_repeat('0', 64), 'prepared', 'state_transition', 'promotion-claim', 1, 'legacy-worker', 1, '2026-01-02T00:00:00Z');
+    $legacyClaim = submit($legacyRoot, signed_request('claim', $legacyEvent, $legacyReceipt, $secret));
+    ok_test($legacyClaim['state'] === 'prepared' && $legacyClaim['code_release_metadata_sha256'] === null, 'existing v1 receipts remain readable but carry no certified code-release metadata');
 
     $claimHooks = [
         'receipt:before-write', 'receipt:after-file-fsync', 'receipt:after-rename', 'receipt:after-dir-fsync',

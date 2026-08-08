@@ -85,6 +85,11 @@ final class SshTransport extends Transport {
             && array_key_exists('checkpoint_provider', $this->rollbackRecovery);
     }
 
+    public function codeReleaseConfigured(): bool {
+        return is_array($this->rollbackRecovery)
+            && array_key_exists('code_release_provider', $this->rollbackRecovery);
+    }
+
     /** @return ?array<string,mixed> */
     public function recoveryConfig(): ?array {
         return $this->rollbackRecovery;
@@ -125,13 +130,16 @@ final class SshTransport extends Transport {
         $expected = ['adapters', 'exclusion_provider', 'timeout_seconds'];
         if (array_key_exists('checkpoint_provider', $config)) {
             $expected[] = 'checkpoint_provider';
-            sort($expected, SORT_STRING);
         }
+        if (array_key_exists('code_release_provider', $config)) {
+            $expected[] = 'code_release_provider';
+        }
+        sort($expected, SORT_STRING);
         $actual = array_keys($config);
         sort($actual, SORT_STRING);
         if ($actual !== $expected) {
             throw new \RuntimeException(
-                "env '$env': rollback_recovery requires adapters, exclusion_provider, timeout_seconds, and optional checkpoint_provider"
+                "env '$env': rollback_recovery requires adapters, exclusion_provider, timeout_seconds, and optional checkpoint_provider/code_release_provider"
             );
         }
         $provider = self::validateCommand($env, $config['exclusion_provider'] ?? null, 'exclusion_provider');
@@ -166,6 +174,13 @@ final class SshTransport extends Transport {
                 $env,
                 $config['checkpoint_provider'],
                 'checkpoint_provider'
+            );
+        }
+        if (array_key_exists('code_release_provider', $config)) {
+            $normalized['code_release_provider'] = self::validateCommand(
+                $env,
+                $config['code_release_provider'],
+                'code_release_provider'
             );
         }
         return $normalized;

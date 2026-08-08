@@ -101,7 +101,7 @@ pass "pre-existing WordPress target starts without Duo"
 php -r '$pair=sodium_crypto_sign_keypair(); file_put_contents($argv[1], base64_encode(sodium_crypto_sign_secretkey($pair))."\n");' "$TMP/rollback-signing.key"
 chmod 0600 "$TMP/rollback-signing.key"
 ssh_fixture 'mkdir -p /home/duo/recovery-fixture && chmod 700 /home/duo/recovery-fixture'
-scp -F "$TMP/ssh_config" sandbox/tests/fixtures/recovery-exclusion-provider.php sandbox/tests/fixtures/recovery-adapter.php sandbox/tests/fixtures/checkpoint-provider.php \
+scp -F "$TMP/ssh_config" sandbox/tests/fixtures/recovery-exclusion-provider.php sandbox/tests/fixtures/recovery-adapter.php sandbox/tests/fixtures/checkpoint-provider.php sandbox/tests/fixtures/code-release-provider.php \
   duo-adopt-fixture:/home/duo/recovery-fixture/ >/dev/null
 ssh_fixture 'chmod 700 /home/duo/recovery-fixture/*.php'
 
@@ -122,6 +122,7 @@ cat >"$TMP/envs.json" <<EOF
           "storage_restore": ["/usr/local/bin/php", "/home/duo/recovery-fixture/recovery-adapter.php"]
         },
         "checkpoint_provider": ["/usr/local/bin/php", "/home/duo/recovery-fixture/checkpoint-provider.php"],
+        "code_release_provider": ["/usr/local/bin/php", "/home/duo/recovery-fixture/code-release-provider.php", "/home/duo/recovery-fixture/code-release-state", "/home/duo/code-releases", "/home/duo/code-current"],
         "exclusion_provider": ["/usr/local/bin/php", "/home/duo/recovery-fixture/recovery-exclusion-provider.php", "/home/duo/recovery-fixture/provider-state.json"],
         "timeout_seconds": 5
       },
@@ -145,7 +146,7 @@ ssh_fixture "test -f /var/www/html/wp-content/mu-plugins/duo/duo.php && test -f 
 [ "$(ssh_fixture "cd /var/www/html && wp eval 'echo \\Duo\\Policy::manifests_dir();'")" = "/var/www/html/wp-content/mu-plugins/manifests" ] \
   || fail "fresh process did not select the installed sibling manifest library"
 ssh_fixture 'test ! -e /duo-manifests' || fail "adopt unexpectedly required the root-owned fallback"
-ssh_fixture 'test -f /home/duo/site/.duo/control/recovery-runtime/rollback-control.php && test -f /home/duo/site/.duo/control/recovery-runtime/RecoveryExecutor.php && test -f /home/duo/site/.duo/control/recovery-config.json && test -f /home/duo/site/.duo/control/public-keys/fixture-key-1.pub && test -f /home/duo/site/.duo/control/target.json' \
+ssh_fixture 'test -f /home/duo/site/.duo/control/recovery-runtime/rollback-control.php && test -f /home/duo/site/.duo/control/recovery-runtime/RecoveryExecutor.php && test -f /home/duo/site/.duo/control/recovery-runtime/CodeRelease.php && test -f /home/duo/site/.duo/control/recovery-config.json && test -f /home/duo/site/.duo/control/public-keys/fixture-key-1.pub && test -f /home/duo/site/.duo/control/target.json' \
   || fail "adopt did not provision the external rollback authority"
 [ "$(ssh_fixture 'stat -c %a /home/duo/site/.duo/control')" = "700" ] \
   || fail "rollback control root is not protected mode 0700"
@@ -162,8 +163,11 @@ ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.p
 ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php recovery-probe --root=/home/duo/site/.duo/control' \
   | grep -q '"provider_id":"ssh-checkpoint-fixture"' \
   || fail "raw checkpoint probe depended on the WordPress bootstrap"
+ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php recovery-probe --root=/home/duo/site/.duo/control' \
+  | grep -q '"provider_id":"ssh-release-fixture"' \
+  || fail "raw code-release probe depended on the WordPress bootstrap"
 ssh_fixture 'rm /var/www/html/wp-config.php; mv /var/www/html/wp-config.broken /var/www/html/wp-config.php'
-pass "configured exclusion, checkpoint provider, and all four recovery adapters probe over raw SSH with WordPress broken"
+pass "configured exclusion, checkpoint/code-release providers, and all four recovery adapters probe over raw SSH with WordPress broken"
 
 if STATUS_OUT="$("$DUO" --envs-file="$TMP/envs.json" status target 2>&1)"; then STATUS_CODE=0; else STATUS_CODE=$?; fi
 grep -q '\[PASS\] rollback authority: ready (no active generation)' <<<"$STATUS_OUT" \
