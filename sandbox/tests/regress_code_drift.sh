@@ -128,15 +128,15 @@ APPLY_REFUSE_RC=$?
 set -e
 echo "$APPLY_REFUSE"
 [ "$APPLY_REFUSE_RC" -ne 0 ] || fail "expected duo apply to refuse on code_drift, got exit 0"
-echo "$APPLY_REFUSE" | grep -q "code_drift" || fail "refusal did not mention code_drift"
-echo "$APPLY_REFUSE" | grep -q -- "--force-code-drift" || fail "refusal did not name the escape hatch"
+grep -q "code_drift" <<<"$APPLY_REFUSE" || fail "refusal did not mention code_drift"
+grep -q -- "--force-code-drift" <<<"$APPLY_REFUSE" || fail "refusal did not name the escape hatch"
 pass "apply refuses loudly, names code_drift and --force-code-drift"
 
 say "PART 1 — apply --force-code-drift proceeds, reporting the override (report-not-hide, Architecture Rulings §1)"
 APPLY_FORCED=$(wp1 duo apply --repo=/siterepo --default-author=admin --force-code-drift 2>&1)
 echo "$APPLY_FORCED"
-echo "$APPLY_FORCED" | grep -qi "success\|applied" || fail "expected --force-code-drift to let apply succeed, got: $APPLY_FORCED"
-echo "$APPLY_FORCED" | grep -q "FORCED past code_drift" || fail "forced apply did not report the overridden finding in human output"
+grep -qi "success\|applied" <<<"$APPLY_FORCED" || fail "expected --force-code-drift to let apply succeed, got: $APPLY_FORCED"
+grep -q "FORCED past code_drift" <<<"$APPLY_FORCED" || fail "forced apply did not report the overridden finding in human output"
 pass "forced apply succeeded and reported the overridden finding"
 
 say "PART 1 — apply does NOT own code state: the baseline is still corrupted after a forced apply"
@@ -152,14 +152,14 @@ DEPLOY_REFUSE_RC=$?
 set -e
 echo "$DEPLOY_REFUSE"
 [ "$DEPLOY_REFUSE_RC" -ne 0 ] || fail "expected duo deploy to refuse on code_drift, got exit 0"
-echo "$DEPLOY_REFUSE" | grep -q "code_drift" || fail "deploy refusal did not mention code_drift"
-echo "$DEPLOY_REFUSE" | grep -q -- "--force-code-drift" || fail "deploy refusal did not name the escape hatch"
+grep -q "code_drift" <<<"$DEPLOY_REFUSE" || fail "deploy refusal did not mention code_drift"
+grep -q -- "--force-code-drift" <<<"$DEPLOY_REFUSE" || fail "deploy refusal did not name the escape hatch"
 pass "deploy refuses loudly too, names code_drift and --force-code-drift"
 
 say "PART 1 — deploy --force-code-drift proceeds, reports the override, AND re-baselines"
 DEPLOY_FORCED=$(wp1 duo deploy --repo=/siterepo --force-code-drift 2>&1)
 echo "$DEPLOY_FORCED"
-echo "$DEPLOY_FORCED" | grep -q "FORCED past code_drift" || fail "forced deploy did not report the overridden finding in human output"
+grep -q "FORCED past code_drift" <<<"$DEPLOY_FORCED" || fail "forced deploy did not report the overridden finding in human output"
 pass "forced deploy succeeded and reported the overridden finding"
 
 PLAN4=$(wp1 duo plan --repo=/siterepo --format=json | tail -1)
@@ -194,7 +194,7 @@ DOCTOR_OUT1=$(DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" php ../cli/duo doctor codedr
 DOCTOR_RC1=$?
 echo "$DOCTOR_OUT1"
 [ "$DOCTOR_RC1" -eq 0 ] || fail "expected duo doctor to exit 0 (advisory finding must not fail it), got $DOCTOR_RC1"
-echo "$DOCTOR_OUT1" | grep -q '\[WARN\] DISALLOW_FILE_MODS set' \
+grep -q '\[WARN\] DISALLOW_FILE_MODS set' <<<"$DOCTOR_OUT1" \
   || fail "expected a [WARN] (not [FAIL]) DISALLOW_FILE_MODS line on a fresh install with the constant unset"
 pass "doctor exits 0 and labels the missing constant WARN, not FAIL — advisory confirmed both ways"
 
@@ -202,7 +202,7 @@ say "PART 2 — setting DISALLOW_FILE_MODS flips the check to PASS"
 wp1 config set DISALLOW_FILE_MODS true --raw --type=constant >/dev/null
 DOCTOR_OUT2=$(DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" php ../cli/duo doctor codedrift1 --envs-file="$DOCTOR_ENVS_FILE" 2>&1)
 echo "$DOCTOR_OUT2"
-echo "$DOCTOR_OUT2" | grep -q '\[PASS\] DISALLOW_FILE_MODS set' \
+grep -q '\[PASS\] DISALLOW_FILE_MODS set' <<<"$DOCTOR_OUT2" \
   || fail "expected [PASS] DISALLOW_FILE_MODS set once the constant is actually defined true"
 pass "doctor correctly reflects DISALLOW_FILE_MODS once set"
 
