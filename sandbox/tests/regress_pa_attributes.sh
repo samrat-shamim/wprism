@@ -62,9 +62,9 @@ $wpdb->delete($wpdb->terms, ["term_id" => $term_id]);
 $wpdb->delete($wpdb->prefix . "woocommerce_attribute_taxonomies", ["attribute_name" => "r92regress"]);
 ' 2>&1 | tail -1)
 echo "$OUT1"
-echo "$OUT1" | grep -q "reg_before=false" || fail "expected get_taxonomy() to be false immediately after the raw table insert (got: $OUT1)"
-echo "$OUT1" | grep -q "found_in_distinct=yes" || fail "expected the DISTINCT query to see the new taxonomy name in the SAME request (got: $OUT1)"
-echo "$OUT1" | grep -q "reg_after=false" || fail "expected get_taxonomy() to STILL be false — the registry never catches up mid-request (got: $OUT1)"
+grep -q "reg_before=false" <<<"$OUT1" || fail "expected get_taxonomy() to be false immediately after the raw table insert (got: $OUT1)"
+grep -q "found_in_distinct=yes" <<<"$OUT1" || fail "expected the DISTINCT query to see the new taxonomy name in the SAME request (got: $OUT1)"
+grep -q "reg_after=false" <<<"$OUT1" || fail "expected get_taxonomy() to STILL be false — the registry never catches up mid-request (got: $OUT1)"
 pass "hazard reproduced: DISTINCT sees it live, get_taxonomy() never does this request — exactly the gap taxonomy_patterns' live-DB expansion (not the registry) exists to close"
 
 say "(2) scope-gating: an undeclared-pattern taxonomy must NOT enter scope even though it's now live in wp_term_taxonomy"
@@ -95,7 +95,7 @@ SNAP=$(wp1 eval "try { \$s = \Duo\Capture::snapshot('$REPO'); \$taxes = []; fore
 echo "$SNAP"
 wp1 db query "DELETE FROM wp_term_taxonomy WHERE term_id = $STRAY_TERM_ID"
 wp1 db query "DELETE FROM wp_terms WHERE term_id = $STRAY_TERM_ID"
-echo "$SNAP" | grep -q "OK clean" || fail "an undeclared-pattern taxonomy (r92_not_pa_at_all) leaked into scope -- taxonomy_patterns must be scope-gated, never a blanket widen (got: $SNAP)"
+grep -q "OK clean" <<<"$SNAP" || fail "an undeclared-pattern taxonomy (r92_not_pa_at_all) leaked into scope -- taxonomy_patterns must be scope-gated, never a blanket widen (got: $SNAP)"
 pass "undeclared-pattern taxonomy correctly stayed OUT of scope -- taxonomy_patterns never blanket-widens to whatever the database happens to hold"
 rm -rf "$HOST_REPO"
 
@@ -118,7 +118,7 @@ pass "pa_size/pa_color term files + attribute_taxonomies table rows present, dri
 say "(4) hard lint gate + wp_get_attribute_taxonomies() zero-provisioning proof stay green (regression, not re-litigation -- full narrative already proven live for #92)"
 LINT_OUT=$(wp1 duo lint --repo=/siterepo 2>&1)
 echo "$LINT_OUT"
-echo "$LINT_OUT" | grep -qi "no findings" || fail "expected lint 0 findings on r3e1's own captured state (got: $LINT_OUT)"
+grep -qi "no findings" <<<"$LINT_OUT" || fail "expected lint 0 findings on r3e1's own captured state (got: $LINT_OUT)"
 pass "lint clean on r3e1's captured state"
 
 rm -f /tmp/r92-capture.txt
