@@ -6,10 +6,11 @@ maintenance-exclusion provider, optional checkpoint, code-release, upload, and e
 providers, and four recovery adapters. Duo invokes each as an argv array through `proc_open`; it never
 constructs a shell command.
 
-This is the fail-closed execution substrate. It does not make the current
-in-place `duo promote` path automatically recoverable. That claim remains
-blocked until the checkpoint, code/storage, verifier, and integrated
-crash-matrix slices use this substrate end to end.
+This is the fail-closed execution substrate. DUO-3299's production-form SSH
+harness composes its checkpoint, code/storage, effect, fresh-verifier, and
+external-authority paths end to end and certifies the closed crash matrix.
+The current in-place `duo promote` command does not select that automatic
+profile, so its operator-directed recovery contract remains unchanged.
 
 ## Controller configuration
 
@@ -140,7 +141,14 @@ php <repo_path>/.duo/control/recovery-runtime/rollback-control.php \
 
 php <repo_path>/.duo/control/recovery-runtime/rollback-control.php \
   status --root=<repo_path>/.duo/control
+
+php <repo_path>/.duo/control/recovery-runtime/rollback-control.php \
+  audit --root=<repo_path>/.duo/control
 ```
+
+`audit` returns hash-only evidence for the verified active receipt and its
+complete event chain. It does not expose provider tokens, checkpoint bytes,
+or key material.
 
 Do not edit `target.json`, `exclusion.json`, receipts, or events. A new
 controller takes over through a signed authority event and signed exclusion

@@ -2,13 +2,14 @@
 
 > **Design ruling (DUO-3291, 2026-08-08; authority foundation DUO-3293,
 > checkpoint DUO-3295, code release DUO-3296, uploads DUO-3297, effect
-> contracts DUO-3298).**
+> contracts DUO-3298, integrated certification DUO-3299).**
 > The protected target identity, never-reused generation fence, immutable
 > signed receipt, signed event hash chain, claimant takeover, status evidence,
 > SSH adoption wiring, encrypted checkpoint executor, and immutable atomic
-> code-release executor, upload journal, and lifecycle/rebuilder effect bundle
-> described below are implemented. End-to-end promotion integration is not.
-> Current promotion
+> code-release executor, upload journal, lifecycle/rebuilder effect bundle,
+> resumable controller operation API, and signed production-form SSH crash
+> certification described below are implemented. The existing in-place
+> `duo promote` command does not yet select this automatic profile. Current promotion
 > therefore remains operator-directed as specified in `spec/repo-format.md`;
 > a successful database import is not a verified rollback.
 

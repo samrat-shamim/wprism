@@ -275,6 +275,13 @@ try {
     append_event($root, $r2, $secret, 'verifying_prior', 'state_transition', 'advance', 1, 'worker-c', 1, '2026-01-01T00:01:03Z');
     append_event($root, $r2, $secret, 'rolled_back', 'state_transition', 'advance', 1, 'worker-c', 1, '2026-01-01T00:01:04Z');
     ok_test(RollbackControl::status($root)['state'] === 'rolled_back', 'rollback path reaches the only other terminal green state');
+    $audit = RollbackControl::auditEvidence($root);
+    ok_test(($audit['format'] ?? '') === 'duo-rollback-audit/v1'
+        && ($audit['state'] ?? '') === 'rolled_back'
+        && count($audit['events'] ?? []) === (int) RollbackControl::status($root)['sequence']
+        && preg_match('/^[a-f0-9]{64}$/', (string) ($audit['receipt_sha256'] ?? '')) === 1
+        && preg_match('/^[a-f0-9]{64}$/', (string) ($audit['event_chain_sha256'] ?? '')) === 1,
+        'hash-only audit export binds the verified signed receipt and complete event chain');
 
     $current = RollbackControl::status($root);
     $r3 = receipt($current, 3, str_repeat('c', 48), '2026-01-01T00:02:00Z');
