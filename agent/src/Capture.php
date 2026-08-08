@@ -82,10 +82,14 @@ final class Capture {
      */
     public static function run(string $repo, ?string $outDir = null, bool $forceUnresolvedRefs = false): array {
         Canary::suppress_cron_spawn();
+        // Policy's v1 single-site boundary must run before Ledger::ensure()
+        // or any pruning: an unsupported multisite request is a clean
+        // refusal, not a request that may initialize or rewrite Duo state
+        // before eventually discovering it cannot be certified.
+        $policy = Policy::load($repo);
         Ledger::ensure();
         Identity::assert_embedded_unique();
         Ledger::prune_dead_map();
-        $policy = Policy::load($repo);
         $observedDeletedTables = Snapshot::observed_deleted_mapped_uuids($policy);
         $observedDeletedWidgets = SidebarState::observed_deleted_mapped_uuids($policy);
         Snapshot::prune_dead_map($policy); // declared-table id_kinds get the same dead-map hygiene as post/term/tt

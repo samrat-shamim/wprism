@@ -323,3 +323,36 @@ removed, site-repo directories correctly left behind, the shared db and
 actually reach the container's `HostConfig`, not just parsed and ignored).
 The legacy `docker-compose.yml` pairs (`a`, `b`, `conf1/2`, `r1a*/r1b*/r1c*`)
 were confirmed still running, untouched, throughout.
+
+## Reference certification evidence bundles
+
+`make certify-reference-bundle` runs the release reference path: core
+conformance through the real deploy/apply flow, an executable WordPress
+multisite clean-refusal check, and the exact-artifact version matrix (including
+Ninja Forms' typed-table graph). The harness owns one disposable pair at a
+time, destroys it after each green leg, and leaves a failed pair available for
+inspection. Override its isolated resources with `CERT_BUNDLE_PAIR`,
+`CERT_BUNDLE_PORT1`, and `CERT_BUNDLE_PORT2` when the defaults are occupied.
+
+Every run publishes a content-addressed directory below the ignored
+`sandbox/certification-bundles/` directory (or `CERT_BUNDLE_OUT`). Its manifest
+records the exact environment, artifact URLs and digests, harness version,
+force-hatch use, named test verdicts, diffs, full logs, and SHA-256 digests for
+the repository inputs that define the run. A Git revision is recorded for
+diagnostics, but verification is bound to the actual input bytes rather than a
+mutable branch name.
+
+The builder and verifier emit one JSON verdict on stdout and human diagnostics
+on stderr. Exit `0` means valid and green, `1` means a failed or corrupt bundle,
+and `2` means the evidence expired because a bound input changed. Re-verify a
+bundle explicitly with:
+
+```sh
+php sandbox/bin/certification-bundle.php verify \
+  sandbox/certification-bundles/<sha256> /path/to/duo-wp
+```
+
+Malformed checker output is recorded as `invalid_checker_output` and can never
+become a green bundle. The offline deliberate-defect regression covers changed
+inputs, mutated evidence, and malformed result JSON; run it directly with
+`make regress-certification-bundle` or as part of `make regress-offline-all`.

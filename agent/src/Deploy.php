@@ -1023,6 +1023,12 @@ final class Deploy {
                 throw new \RuntimeException('snapshot document is not an object');
             }
             OptionState::records($document);
+            $desired = $compiled->tree()['options/core']['data'] ?? null;
+            if (is_array($desired)) {
+                $document = self::bind_lifecycle_missing_options($document, $desired);
+                $content = Canon::encode($document);
+                $hash = hash('sha256', $content);
+            }
         } catch (\Throwable $t) {
             throw new \RuntimeException(
                 'duo: lifecycle state handoff captured malformed canonical options/core',
@@ -1031,6 +1037,42 @@ final class Deploy {
             );
         }
         return ['hash' => $hash, 'document' => $document];
+    }
+
+    /**
+     * Bind a lifecycle snapshot's missing portable projection to the frozen
+     * desired record. This is intentionally local to the deploy handoff: an
+     * ordinary canonical state=absent remains non-authoritative, and this
+     * transient document is never consumed as apply intent.
+     *
+     * Exact authored options already arrive as bound tombstones when their
+     * row is absent before a hook. After activation, however, a hook-created
+     * ref-bearing option may exist while its new target-local entity has no
+     * Duo identity yet; the non-minting snapshot correctly projects that row
+     * as state=absent. Elementor's elementor_active_kit is the proven case.
+     * Rebinding that post-hook missing projection makes it byte-identical to
+     * the pre-hook proof. Sub-key/dynamic options can have the same absent
+     * projection because Duo owns only part of their value. Converting only
+     * desired-present/missing observations gives the record gate the same
+     * proof without granting deletion authority or reviving the unsafe
+     * generic absent-to-present exception.
+     */
+    private static function bind_lifecycle_missing_options(array $observedDocument, array $desiredDocument): array {
+        $observed = OptionState::records($observedDocument);
+        foreach (OptionState::records($desiredDocument) as $name => $desiredRecord) {
+            $observedRecord = $observed[$name] ?? null;
+            if (($desiredRecord['state'] ?? null) === 'present'
+                && ($observedRecord === null || ($observedRecord['state'] ?? null) === 'absent')) {
+                // The immutable desired document is already available to the
+                // record gate, so this transient marker needs only its hash.
+                // Omitting a classification witness also makes a ref-bearing
+                // post-hook projection that remains unresolved byte-identical
+                // to the pre-hook bound tombstone instead of manufacturing a
+                // false lifecycle change from witness metadata alone.
+                $observed[$name] = OptionState::deleted($desiredRecord);
+            }
+        }
+        return OptionState::document($observed);
     }
 
     /**

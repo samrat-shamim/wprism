@@ -14,6 +14,7 @@ require_once $root . '/agent/src/Deploy.php';
 require_once $root . '/agent/src/Apply.php';
 
 use Duo\Apply;
+use Duo\Canon;
 use Duo\Deploy;
 use Duo\OptionState;
 
@@ -57,6 +58,8 @@ $check(
 
 $recordGate = new ReflectionMethod(Deploy::class, 'unexpected_lifecycle_state_changes');
 $recordGate->setAccessible(true);
+$missingBinder = new ReflectionMethod(Deploy::class, 'bind_lifecycle_missing_options');
+$missingBinder->setAccessible(true);
 $present = static fn($value): array => OptionState::present($value, 'no');
 $beforeDocument = OptionState::document([
     'active_plugins' => $present(['old/old.php']),
@@ -91,6 +94,50 @@ $wooLikeDesired = OptionState::document([
 $check(
     $recordGate->invoke(null, $wooLikeBefore, $wooLikeAfter, $wooLikeDesired) === [],
     'a hook-created authored option may move from a tombstone bound to frozen desired state'
+);
+
+$activeKitDesired = OptionState::document([
+    'elementor_active_kit' => $present('{{post:kit-uuid}}'),
+]);
+$activeKitBefore = OptionState::document([
+    'elementor_active_kit' => OptionState::deleted(
+        OptionState::records($activeKitDesired)['elementor_active_kit']
+    ),
+    'unrelated_missing' => OptionState::absent(),
+]);
+$activeKitAfterObserved = OptionState::document([
+    // The hook created a target-local kit, but its post identity cannot be
+    // tokenized by a non-minting pre-apply snapshot yet.
+    'elementor_active_kit' => OptionState::absent(),
+    'unrelated_missing' => OptionState::absent(),
+]);
+$activeKitAfterBound = $missingBinder->invoke(null, $activeKitAfterObserved, $activeKitDesired);
+$activeKitAfterRecords = OptionState::records($activeKitAfterBound);
+$check(
+    ($activeKitAfterRecords['elementor_active_kit']['state'] ?? null) === 'deleted'
+        && !array_key_exists('classification_witness', $activeKitAfterRecords['elementor_active_kit'])
+        && hash_equals(
+            $activeKitAfterRecords['elementor_active_kit']['expected_hash'] ?? '',
+            OptionState::record_hash(OptionState::records($activeKitDesired)['elementor_active_kit'])
+        ),
+    'a post-hook unresolved authored ref is hash-bound without witness-only byte drift'
+);
+$check(
+    ($activeKitAfterRecords['unrelated_missing']['state'] ?? null) === 'absent',
+    'a missing option outside frozen desired-present state remains ordinary non-authoritative absence'
+);
+$check(
+    Canon::encode($activeKitBefore) === Canon::encode($activeKitAfterBound),
+    'the pre-hook bound tombstone and post-hook unresolved projection are byte-identical'
+);
+$check(
+    $recordGate->invoke(
+        null,
+        $activeKitBefore,
+        $activeKitAfterBound,
+        $activeKitDesired
+    ) === [],
+    'a lifecycle hook may create an unresolved ref-bearing option before apply mints and reconciles its target'
 );
 $check(
     $recordGate->invoke(

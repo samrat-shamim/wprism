@@ -36,3 +36,8 @@ state.capture.lock
 # regenerable-from-a-pinned-digest binary blob git should never carry.
 sandbox/conformance/artifacts-cache/*
 !sandbox/conformance/artifacts-cache/.gitkeep
+
+# DUO-3223: generated content-addressed certification bundles. The schema,
+# builder, verifier, and reference harness are committed; each run's logs and
+# environment evidence are immutable outputs published by digest, not source.
+sandbox/certification-bundles/
