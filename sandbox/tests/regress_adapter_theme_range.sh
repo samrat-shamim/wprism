@@ -100,8 +100,8 @@ assert r['manifest'] == 'theme-range-test', r
 assert 'declared version_range' not in r['message'] or True  # message wording checked below
 " || fail "bumped case did not produce the expected single outside_version_range/theme finding: $BUMPED_JSON"
 MSG=$(echo "$BUMPED_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)[0]['message'])")
-echo "$MSG" | grep -q "theme_version_range" || fail "message does not mention theme_version_range (got: $MSG)"
-echo "$MSG" | grep -q -- "--force-code-mismatch" || fail "message does not mention --force-code-mismatch (got: $MSG)"
+grep -q "theme_version_range" <<<"$MSG" || fail "message does not mention theme_version_range (got: $MSG)"
+grep -q -- "--force-code-mismatch" <<<"$MSG" || fail "message does not mention --force-code-mismatch (got: $MSG)"
 pass "(e) outside_version_range correctly flagged for the THEME slot — $MSG"
 
 wp1 theme activate twentytwentyone >/dev/null
