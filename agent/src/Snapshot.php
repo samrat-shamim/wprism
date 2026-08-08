@@ -410,7 +410,16 @@ final class Snapshot {
      */
     public static function repair_truncated_entity_types(Policy $policy): array {
         global $wpdb;
-        Ledger::ensure(); // guarantee the column is already widened before any UPDATE targets it
+        // Every production entry point completes Ledger::ensure() before it
+        // reaches this helper. Do not repeat it here: Snapshot::capture() is
+        // called inside Capture's consistent-snapshot transaction and even
+        // CREATE TABLE IF NOT EXISTS causes an implicit commit in MySQL and
+        // MariaDB. That would make an earlier dead-map prune durable when a
+        // later capture gate refuses the candidate, defeating Capture's
+        // rollback guarantee. Schema initialization/migration therefore
+        // belongs to the entry-point boundary; this helper is DML-only so it
+        // remains safe both inside Capture's transaction and at Apply's
+        // already-initialized call sites.
         $declared = array_keys(self::row_tables($policy));
         $oldCeiling = 32;
         $long = array_filter($declared, fn($name) => strlen($name) > $oldCeiling);

@@ -35,6 +35,7 @@ final class CaptureAtomicityFakeWpdb {
     public int $starts = 0;
     public int $commits = 0;
     public int $rollbacks = 0;
+    public int $ddlQueries = 0;
     public bool $failStartBeforeOpen = false;
     public bool $failStartAfterOpen = false;
     public ?string $commitCheckpointError = null;
@@ -60,6 +61,10 @@ final class CaptureAtomicityFakeWpdb {
             $query = substr_replace($query, $replacement, $position, strlen($token));
         }
         return $query;
+    }
+
+    public function get_charset_collate(): string {
+        return 'DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci';
     }
 
     public function query(string $sql) {
@@ -96,6 +101,16 @@ final class CaptureAtomicityFakeWpdb {
             }
             $this->transactionSnapshot = null;
             return true;
+        }
+
+        // MySQL/MariaDB implicitly commit an open transaction before DDL,
+        // including CREATE TABLE IF NOT EXISTS. Model that real behavior so
+        // this regression catches schema helpers accidentally called from
+        // Capture's transactional candidate build.
+        if (preg_match('/^(?:CREATE|ALTER) TABLE\b/i', $sql)) {
+            $this->ddlQueries++;
+            $this->transactionSnapshot = null;
+            return 0;
         }
 
         if (preg_match(
@@ -173,6 +188,14 @@ final class CaptureAtomicityFakeWpdb {
 
     public function get_var(string $sql) {
         $this->last_error = '';
+        if (stripos($sql, 'INFORMATION_SCHEMA.COLUMNS') !== false) {
+            if (stripos($sql, "COLUMN_NAME = 'entity_type'") !== false) {
+                return 64;
+            }
+            if (stripos($sql, "COLUMN_NAME = 'id_kind'") !== false) {
+                return 32;
+            }
+        }
         throw new RuntimeException("fixture does not understand get_var SQL: $sql");
     }
 
@@ -203,6 +226,7 @@ require_once "$root/agent/src/TransientDbException.php";
 require_once "$root/agent/src/Db.php";
 require_once "$root/agent/src/Ledger.php";
 require_once "$root/agent/src/Policy.php";
+require_once "$root/agent/src/Snapshot.php";
 require_once "$root/agent/src/SidebarState.php";
 require_once "$root/agent/src/RepositoryCompiler.php";
 require_once "$root/agent/src/Deletion.php";
@@ -218,6 +242,7 @@ use Duo\CompiledRepository;
 use Duo\Db;
 use Duo\Deletion;
 use Duo\Ledger;
+use Duo\Snapshot;
 
 $wpdb = new CaptureAtomicityFakeWpdb();
 
@@ -248,6 +273,7 @@ assert_capture_atomicity($wpdb->commits === 1 && $wpdb->rollbacks === 0, 'a pre-
 // transaction has actually opened. This second injection proves the wrapper
 // rolls that snapshot back before retrying too.
 $wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
+$wpdb->ddlQueries = 0;
 $wpdb->failStartAfterOpen = true;
 $wpdb->map = ['stable|post' => [
     'uuid' => 'stable', 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => 7,
@@ -336,6 +362,11 @@ try {
             ),
             'ledger prune dead post identities'
         );
+        // Snapshot::capture() invokes this repair before it captures declared
+        // table rows. It must remain DML-only here: Ledger::ensure() would
+        // issue DDL, implicitly commit the prune above, and make the refusal
+        // below incapable of restoring the ledger.
+        Snapshot::repair_truncated_entity_types($policy);
         Ledger::set($uuid, 'post', Ledger::KIND_POST, 42);
         Ledger::set_state_hash($uuid, 'post', str_repeat('c', 64));
         Ledger::kv_set('capture_phase', 'candidate');
@@ -353,5 +384,6 @@ assert_capture_atomicity($wpdb->map === $beforeRefusal['map'], 'refusal rolls ba
 assert_capture_atomicity($wpdb->state === $beforeRefusal['state'], 'refusal rolls back duo_state mutation');
 assert_capture_atomicity($wpdb->kv === $beforeRefusal['kv'], 'refusal rolls back duo_kv mutation');
 assert_capture_atomicity($wpdb->rollbacks === 1 && $wpdb->commits === 0, 'refusal rolls back once and never commits a candidate');
+assert_capture_atomicity($wpdb->ddlQueries === 0, 'transactional capture performs no implicit-commit schema DDL');
 
 echo "ALL PASSED\n";
