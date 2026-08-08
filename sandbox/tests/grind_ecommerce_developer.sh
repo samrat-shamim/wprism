@@ -1830,6 +1830,13 @@ if ! V1_APPLY_OUT="$(apply_state --adopt-by-slug=terms,posts --default-author=ad
   fail "v1 state apply failed"
 fi
 echo "$V1_APPLY_OUT"
+target_wp duo capture --repo=/siterepo --out=/siterepo/.tmp-v1-recapture >/dev/null
+if ! diff -r "$OTHER_SITE/state" "$OTHER_SITE/.tmp-v1-recapture" >/dev/null; then
+  diff -ru "$OTHER_SITE/state" "$OTHER_SITE/.tmp-v1-recapture" >&2 || true
+  fail 'initial v1 target recapture did not match canonical state byte-for-byte'
+fi
+rm -rf -- "$OTHER_SITE/.tmp-v1-recapture"
+pass 'initial v1 target recapture is byte-identical to canonical state'
 assert_theme_and_dependency "$NATIVE_ACTIVE_PLUGINS_JSON"
 assert_eq "$V1_SOURCE_MANAGED_CODE_TREE_HASH" "$(target_managed_code_tree_hash)" 'exact v1 source/target managed code tree'
 assert_acf_schema target 'v1 target apply'
@@ -2573,7 +2580,10 @@ pass "code, active dependency/theme lifecycle, authored setting, runtime table s
 
 say "final recapture/status and exact clean-room cleanup"
 target_wp duo capture --repo=/siterepo --out=/siterepo/.tmp-final-state >/dev/null
-diff -r "$OTHER_SITE/state" "$OTHER_SITE/.tmp-final-state" >/dev/null || fail 'final target recapture did not match canonical v1 state byte-for-byte'
+if ! diff -r "$OTHER_SITE/state" "$OTHER_SITE/.tmp-final-state" >/dev/null; then
+  diff -ru "$OTHER_SITE/state" "$OTHER_SITE/.tmp-final-state" >&2 || true
+  fail 'final target recapture did not match canonical v1 state byte-for-byte'
+fi
 assert_extension_runtime_event_excluded 'final recapture'
 assert_eq 0 "$(target_wp eval 'echo get_user_by("email", "runtime-customer@example.invalid") ? 1 : 0;')" 'final recapture target-only runtime customer remains absent'
 assert_source_runtime_baseline 'final source runtime baseline'
