@@ -853,9 +853,9 @@ clear_siterepo_root() { # clear_siterepo_root <path>
     rm -rf -- "$root"
   fi
   mkdir -p -- "$root"
-  chmod -R ugo+rwX -- "$root" 2>/dev/null || true
+  chmod -R ugo+rwX "$root" 2>/dev/null || true
   find "$root" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-  chmod 0777 -- "$root"
+  chmod 0777 "$root"
 }
 
 refuse_codebind_reset() { # refuse_codebind_reset <name>

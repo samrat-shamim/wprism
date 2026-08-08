@@ -14,7 +14,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-effect-bundle \
 	regress-coverage-offline regress-coverage regress-classification-batch \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
-	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit
+	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions
 
 up:
 	$(COMPOSE) up -d
@@ -258,6 +258,9 @@ regress-adapter-contract:
 
 regress-certification-bundle:
 	bash sandbox/tests/regress_certification_bundle.sh
+
+regress-manifest-dispositions:
+	bash sandbox/tests/regress_manifest_dispositions.sh
 
 regress-multisite-refusal:
 	bash sandbox/tests/regress_multisite_refusal.sh
@@ -596,7 +599,7 @@ regress-user-meta:
 # encrypted checkpoint, immutable atomic code-release, and upload/media bundle
 # suites, followed by lifecycle/rebuilder effect contracts.
 regress-offline-all: code-half-unit \
-	regress-capture-publish regress-adapter-contract regress-certification-bundle regress-interpreter-policy \
+	regress-capture-publish regress-adapter-contract regress-manifest-dispositions regress-certification-bundle regress-interpreter-policy \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan \
 	regress-order-preserving \
 	regress-block-refs regress-composite-ref regress-doctor-env-values \
@@ -607,7 +610,7 @@ regress-offline-all: code-half-unit \
 	regress-coverage-offline regress-bundle-coverage regress-rollback-authority \
 	regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-upload-bundle \
 	regress-effect-bundle regress-pair-bootstrap-unit
-	@echo "regress-offline-all: 50 offline suites green"
+	@echo "regress-offline-all: 51 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

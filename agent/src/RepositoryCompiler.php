@@ -422,12 +422,17 @@ final class RepositoryCompiler {
      * (manifest_hash()) are provably the SAME content, never two
      * independently-maintained notions of "what identifies this manifest."
      *
-     * @return list<array{name:string, manifest:array, interpreter?:array{name:string,sha256:?string}}>
+     * @return list<array{name:string, manifest:array, disposition:?array, interpreter?:array{name:string,sha256:?string}}>
      */
     private static function manifest_rows(Policy $policy): array {
         $rows = [];
         foreach ($policy->manifests as $manifest) {
-            $row = ['name' => (string) ($manifest['name'] ?? ''), 'manifest' => $manifest];
+            $name = (string) ($manifest['name'] ?? '');
+            $row = [
+                'name' => $name,
+                'manifest' => $manifest,
+                'disposition' => $policy->manifest_disposition($name),
+            ];
             $interpreter = $manifest['interpreter'] ?? null;
             if (is_string($interpreter) && $interpreter !== '') {
                 $file = Policy::manifests_dir() . '/interpreters/' . basename($interpreter) . '.php';
@@ -456,7 +461,7 @@ final class RepositoryCompiler {
      * independently checkable without needing every OTHER pinned
      * manifest's bytes too.
      *
-     * @return list<array{name:string, digest:string, spec_version:?int, plugin:?string, version_range:?array, theme:?string, theme_version_range:?array}>
+     * @return list<array{name:string, digest:string, spec_version:?int, plugin:?string, version_range:?array, theme:?string, theme_version_range:?array, disposition:?array}>
      */
     public static function resolved_adapters(Policy $policy): array {
         $out = [];
@@ -471,6 +476,7 @@ final class RepositoryCompiler {
                 'theme' => isset($manifest['theme']) ? (string) $manifest['theme'] : null,
                 'theme_version_range' => is_array($manifest['theme_version_range'] ?? null)
                     ? $manifest['theme_version_range'] : null,
+                'disposition' => $row['disposition'],
             ];
         }
         return $out;

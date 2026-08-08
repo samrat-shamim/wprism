@@ -48,6 +48,10 @@ namespace Duo\Orchestrator;
  *     all (label() does not apply), and never a value: env_missing exists
  *     to checklist WHICH values still need provisioning, never to leak
  *     what they should contain.
+ *   - adapter_dispositions (DUO-3224): selected manifests whose external
+ *     registry status is experimental or excluded. Row shape
+ *     {name,status,reason}; status is never green and host promotion refuses
+ *     the same compiled disposition before lease/checkpoint/mutation.
  */
 final class PlanSummary {
     private const BUCKETS = [
@@ -80,6 +84,7 @@ final class PlanSummary {
         $skippedUserMeta = $plan['skipped_user_meta'] ?? [];
         $uploadsInventory = $plan['uploads_inventory'] ?? [];
         $effectsInventory = $plan['effects_inventory'] ?? [];
+        $adapterDispositions = $plan['adapter_dispositions'] ?? [];
         $envMissingRequired = array_values(array_filter($envMissing, fn($r) => !empty($r['required'])));
         $summary = 'plan: ' . implode(', ', array_map(fn($k) => "{$counts[$k]} $k", self::BUCKETS));
         $summary .= ', ' . count($codeMismatch) . ' code_mismatch';
@@ -92,6 +97,7 @@ final class PlanSummary {
         $summary .= ', ' . count($skippedUserMeta) . ' skipped_user_meta';
         $summary .= ', ' . count($uploadsInventory) . ' upload_mutations';
         $summary .= ', ' . count($effectsInventory) . ' declared_effects';
+        $summary .= ', ' . count($adapterDispositions) . ' adapter_dispositions';
         $lines[] = $summary;
 
         foreach ($uploadsInventory as $row) {
@@ -254,6 +260,15 @@ final class PlanSummary {
             }
         }
 
+        if ($adapterDispositions) {
+            $lines[] = 'ADAPTER_DISPOSITION (a pinned manifest is not certified for promotion):';
+            foreach ($adapterDispositions as $r) {
+                $lines[] = '  - ' . ($r['name'] ?? '?') . ' [' . ($r['status'] ?? 'unreviewed')
+                    . ']: ' . ($r['reason'] ?? 'not certified');
+            }
+            $lines[] = 'experimental and excluded adapters cannot make readiness green or enter host promotion';
+        }
+
         // --- fail-closed exit semantics (DUO-3221) ---
         //
         // `duo status` answers "safe to promote?" for this environment, so
@@ -326,6 +341,10 @@ final class PlanSummary {
         //                     measured against a stale base — not a "safe
         //                     to promote" state. Capture first (see the
         //                     rendered hint above).
+        //   - adapter_dispositions: an external review status other than
+        //                     certified cannot make readiness green, even
+        //                     though lower-level agent calls stay available
+        //                     to exercise experimental/test fixtures.
         // Plain $plan['warnings'] entries are rendered loudly above but
         // never flip this by themselves: every warning either accompanies a
         // state already counted here, or is a deliberate, ratified warn-
@@ -344,6 +363,7 @@ final class PlanSummary {
             && !$regenPending
             && !$envMissingRequired
             && !$missingUser
+            && !$adapterDispositions
             && !$blocked
             && $counts['drift'] === 0;
 

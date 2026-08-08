@@ -138,6 +138,17 @@ function cert_build(string $specPath, string $outputRoot): never {
         $environment = cert_read_json($environmentSource);
         cert_copy($environmentSource, "$stage/environment.json");
 
+        $ratificationSource = (string) ($spec['ratification'] ?? '');
+        $ratification = cert_read_json($ratificationSource);
+        if (($ratification['format'] ?? null) !== 'duo-manifest-dispositions/v1'
+            || !is_array($ratification['manifests'] ?? null)
+            || array_is_list($ratification['manifests'])
+            || !is_array($ratification['profiles'] ?? null)
+            || (array_is_list($ratification['profiles']) && $ratification['profiles'] !== [])) {
+            throw new RuntimeException('ratification must be a duo-manifest-dispositions/v1 registry');
+        }
+        cert_copy($ratificationSource, "$stage/ratification.json");
+
         $bound = [];
         $seenInputs = [];
         foreach (($spec['bound_inputs'] ?? []) as $i => $rawPath) {
@@ -234,6 +245,28 @@ function cert_build(string $specPath, string $outputRoot): never {
             ];
         }
 
+        $certifiedClaims = [];
+        foreach (['manifests', 'profiles'] as $section) {
+            foreach ($ratification[$section] as $name => $claim) {
+                if (($claim['status'] ?? null) !== 'certified') {
+                    continue;
+                }
+                $evidenceTests = $claim['evidence']['tests'] ?? null;
+                if (($claim['evidence']['bundle_schema'] ?? null) !== DUO_CERT_SCHEMA
+                    || !is_array($evidenceTests) || !array_is_list($evidenceTests) || !$evidenceTests) {
+                    throw new RuntimeException("certified $section disposition '$name' lacks current bundle evidence");
+                }
+                foreach ($evidenceTests as $testId) {
+                    if (!is_string($testId) || !isset($seenTests[$testId])) {
+                        throw new RuntimeException(
+                            "certified $section disposition '$name' cites absent bundle test '$testId'"
+                        );
+                    }
+                }
+                $certifiedClaims[] = "$section.$name";
+            }
+        }
+
         $harness = $spec['harness'] ?? [];
         if (!is_array($harness) || array_is_list($harness)
             || !is_string($harness['name'] ?? null) || ($harness['name'] ?? '') === ''
@@ -259,6 +292,12 @@ function cert_build(string $specPath, string $outputRoot): never {
             'artifacts' => $artifacts,
             'environment_summary' => $environment,
             'environment' => cert_asset("$stage/environment.json", 'environment.json'),
+            'ratification' => cert_asset("$stage/ratification.json", 'ratification.json'),
+            'ratification_summary' => [
+                'certified_claims' => $certifiedClaims,
+                'manifest_count' => count($ratification['manifests']),
+                'profile_count' => count($ratification['profiles']),
+            ],
             'bound_inputs' => $bound,
             'tests' => $testRecords,
         ];
@@ -313,7 +352,7 @@ function cert_verify(string $bundleDir, string $repoRoot): never {
             throw new RuntimeException('bundle manifest digest or content-addressed directory name is corrupt');
         }
 
-        $assets = [$manifest['environment'] ?? null];
+        $assets = [$manifest['environment'] ?? null, $manifest['ratification'] ?? null];
         foreach (($manifest['tests'] ?? []) as $test) {
             $assets[] = $test['result'] ?? null;
             $assets[] = $test['diff'] ?? null;

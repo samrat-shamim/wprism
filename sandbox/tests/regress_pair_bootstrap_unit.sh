@@ -17,6 +17,21 @@ say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 
+inode_of() {
+  local path="$1" inode
+  if inode="$(stat -c '%i' "$path" 2>/dev/null)"; then
+    : # GNU stat.
+  elif inode="$(stat -f '%i' "$path" 2>/dev/null)"; then
+    : # BSD stat (macOS).
+  else
+    fail "cannot read inode for $path"
+  fi
+  case "$inode" in
+    ''|*[!0-9]*) fail "stat returned a malformed inode for $path: $inode" ;;
+  esac
+  printf '%s\n' "$inode"
+}
+
 assert_file_contains() {
   local file="$1" needle="$2" message="$3"
   grep -F -- "$needle" "$file" >/dev/null || fail "$message (missing: $needle)"
@@ -894,7 +909,7 @@ run_reset_codebind_refusal_case() {
   nested="$root/code/wp-content/plugins/demo-plugin"
   mkdir -p "$nested" "$case_root/sandbox/siterepo/${pair}2"
   printf 'do not delete this mounted code\n' > "$nested/marker.php"
-  inode_before="$(stat -c '%i' "$nested")"
+  inode_before="$(inode_of "$nested")"
   mount_line="${nested}"$'\t/var/www/html/wp-content/plugins/demo-plugin'
   write_fake_docker "$fake_bin"
   export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
@@ -912,7 +927,7 @@ run_reset_codebind_refusal_case() {
   fi
   grep -q "codebind mount" "$output" \
     || fail "$label did not identify the nested codebind mount"
-  inode_after="$(stat -c '%i' "$nested")"
+  inode_after="$(inode_of "$nested")"
   [ "$inode_before" = "$inode_after" ] || fail "$label changed the nested codebind inode"
   [ -f "$nested/marker.php" ] || fail "$label deleted content from the nested codebind source"
   if grep -F "<-p> <duo-db>" "$log" >/dev/null; then
@@ -975,7 +990,7 @@ run_reset_inode_preservation_case() {
   mkdir -p "$root/code/wp-content/plugins/demo-plugin" "$case_root/sandbox/siterepo/${pair}2"
   printf 'old state\n' > "$root/code/wp-content/plugins/demo-plugin/marker.php"
   mkdir -p "$case_root/sandbox/siterepo/origin-${pair}.git"
-  inode_before="$(stat -c '%i' "$root")"
+  inode_before="$(inode_of "$root")"
   write_fake_docker "$fake_bin"
   export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
     DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
@@ -987,7 +1002,7 @@ run_reset_inode_preservation_case() {
 
   "$case_root/sandbox/bin/pair.sh" reset "$pair" >"$output" 2>&1 \
     || { cat "$output" >&2; fail "$label reset failed"; }
-  inode_after="$(stat -c '%i' "$root")"
+  inode_after="$(inode_of "$root")"
   [ "$inode_before" = "$inode_after" ] || fail "$label replaced the ordinary site-repo root inode"
   [ ! -e "$root/code" ] || fail "$label retained old site-repo content"
   [ ! -e "$case_root/sandbox/siterepo/origin-${pair}.git" ] \

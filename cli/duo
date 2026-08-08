@@ -51,6 +51,7 @@ Usage:
   duo doctor <env>
   duo adopt  <env>
   duo status <env>
+  duo capabilities <env> [--format=json]
   duo capture <env> [extra wp-cli flags...]
   duo plan    <env> [extra wp-cli flags...]
   duo apply   <env> [extra wp-cli flags...]
@@ -89,6 +90,11 @@ Verbs:
                           See cli/src/PlanSummary.php's decision-matrix
                           comment. Underlying plan failure/unparseable JSON is
                           also non-zero. Warnings alone never flip this.
+  capabilities <env>      Report the pinned manifests' certified,
+                          experimental, or excluded disposition and exact
+                          versions, entities, fields, operations, lifecycle,
+                          deletion, unsupported surfaces, and evidence.
+                          --format=json returns the agent's canonical report.
   capture <env> [...]     `wp duo capture --repo=<repo_path> [...]`
   plan <env> [...]        `wp duo plan    --repo=<repo_path> [...]`
   apply <env> [...]       `wp duo apply   --repo=<repo_path> [...]`
@@ -227,7 +233,7 @@ function main(array $argv): int {
     }
 
     $verb = array_shift($rest);
-    $verbsNeedingEnv = ['doctor', 'adopt', 'status', 'capture', 'plan', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage'];
+    $verbsNeedingEnv = ['doctor', 'adopt', 'status', 'capabilities', 'capture', 'plan', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage'];
 
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
@@ -251,7 +257,7 @@ function main(array $argv): int {
         'doctor' => cmd_doctor($transport),
         'adopt' => cmd_adopt($transport, $extra),
         'status' => cmd_status($transport),
-        'capture', 'plan', 'apply', 'env-set', 'coverage' => cmd_passthrough($transport, $verb, $extra),
+        'capabilities', 'capture', 'plan', 'apply', 'env-set', 'coverage' => cmd_passthrough($transport, $verb, $extra),
         'deploy' => cmd_deploy($transport, $extra),
         'promote' => cmd_promote($transport, $extra),
         'pending' => cmd_pending($transport, $extra),
@@ -509,6 +515,14 @@ function cmd_deploy(Transport $t, array $extra): int {
         fwrite(STDERR, "duo: deploy: compile returned no valid artifact hash; no lifecycle or code materialization occurred\n");
         return 1;
     }
+    $dispositionBlockers = CodeDeploy::dispositionBlockers($compile['summary']);
+    if ($dispositionBlockers) {
+        foreach ($dispositionBlockers as $row) {
+            fwrite(STDERR, "duo: deploy: adapter {$row['name']} is {$row['status']}: {$row['reason']}\n");
+        }
+        fwrite(STDERR, "duo: deploy: refusing before promotion-begin; only certified adapters may enter deployment\n");
+        return 1;
+    }
 
     $artifactHash = (string) $compile['summary']['artifact_hash'];
     $codeEnabled = CodeDeploy::enabled($compile['summary']);
@@ -609,6 +623,14 @@ function cmd_promote(Transport $t, array $extra): int {
     }
     if ($compile['summary'] === null) {
         fwrite(STDERR, "duo: promote: compile returned no valid artifact hash; no checkpoint or target mutation occurred\n");
+        return 1;
+    }
+    $dispositionBlockers = CodeDeploy::dispositionBlockers($compile['summary']);
+    if ($dispositionBlockers) {
+        foreach ($dispositionBlockers as $row) {
+            fwrite(STDERR, "duo: promote: adapter {$row['name']} is {$row['status']}: {$row['reason']}\n");
+        }
+        fwrite(STDERR, "duo: promote: refusing before promotion-begin/checkpoint; only certified adapters may enter promotion\n");
         return 1;
     }
     $artifactHash = (string) $compile['summary']['artifact_hash'];

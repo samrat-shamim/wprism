@@ -344,7 +344,7 @@ were confirmed still running, untouched, throughout.
 
 ## Reference certification evidence bundles
 
-`make certify-reference-bundle` runs the release reference path: core
+`make certify-reference-bundle` runs the release reference path: core and FSE
 conformance through the real deploy/apply flow, an executable WordPress
 multisite clean-refusal check, and the exact-artifact version matrix (including
 Ninja Forms' typed-table graph). The harness owns one disposable pair at a
@@ -355,7 +355,8 @@ inspection. Override its isolated resources with `CERT_BUNDLE_PAIR`,
 Every run publishes a content-addressed directory below the ignored
 `sandbox/certification-bundles/` directory (or `CERT_BUNDLE_OUT`). Its manifest
 records the exact environment, artifact URLs and digests, harness version,
-force-hatch use, named test verdicts, diffs, full logs, and SHA-256 digests for
+force-hatch use, the exact hashed manifest-disposition matrix, named test
+verdicts, diffs, full logs, and SHA-256 digests for
 the repository inputs that define the run. A Git revision is recorded for
 diagnostics, but verification is bound to the actual input bytes rather than a
 mutable branch name.

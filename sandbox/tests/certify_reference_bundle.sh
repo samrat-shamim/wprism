@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# DUO-3223 reference certification: core conformance, the executable
+# DUO-3223/DUO-3224 reference certification: core and FSE conformance, the executable
 # multisite refusal boundary, and the exact-artifact matrix (which includes
 # Ninja Forms' real typed-table graph). Every run, pass or fail, is reduced to
 # machine result/diff JSON plus full logs and published by content digest.
@@ -31,6 +31,7 @@ cleanup_work() {
 trap cleanup_work EXIT
 
 CORE_LOG="$WORK_ROOT/core-conformance.log"
+FSE_LOG="$WORK_ROOT/fse-conformance.log"
 MULTISITE_LOG="$WORK_ROOT/multisite-refusal.log"
 MATRIX_LOG="$WORK_ROOT/version-matrix.log"
 ENV_FILE="$WORK_ROOT/environment.json"
@@ -59,7 +60,7 @@ pass "bundle builder and all invoked harnesses parse; pair load inspected"
 
 overall=0
 
-say "reference leg 1/3: core conformance through the real deploy/apply path"
+say "reference leg 1/4: core conformance through the real deploy/apply path"
 set +e
 CONF_PAIR="$PAIR" CONF1_PORT="$PORT1" CONF2_PORT="$PORT2" \
   bash conformance/run.sh core > "$CORE_LOG" 2>&1
@@ -116,7 +117,37 @@ if [ "$core_rc" -eq 0 ]; then
 fi
 
 if [ "$overall" -eq 0 ]; then
-  say "reference leg 2/3: real WordPress multisite must refuse with zero mutation"
+  say "reference leg 2/4: FSE conformance through the real deploy/apply path"
+  set +e
+  CONF_PAIR="$PAIR" CONF1_PORT="$PORT1" CONF2_PORT="$PORT2" \
+    bash conformance/run.sh fse > "$FSE_LOG" 2>&1
+  fse_rc=$?
+  set -e
+  tail -30 "$FSE_LOG"
+  fse_reason=passed
+  if [ "$fse_rc" -eq 0 ] && ! grep -qF '✔ CONFORMANCE PASSED (fse)' "$FSE_LOG"; then
+    fse_rc=70
+    fse_reason=invalid_checker_output
+  fi
+  if [ "$fse_rc" -ne 0 ]; then
+    overall=1
+    [ "$fse_reason" = passed ] && fse_reason=command_failed
+  fi
+  write_result fse-conformance "$fse_rc" "$fse_reason" \
+    '["block_theme_fixture","templates","template_parts","navigation","reusable_blocks","theme_taxonomies","byte_identical_recapture"]' \
+    "$WORK_ROOT/fse-conformance.result.json"
+  jq -n --arg status "$([ "$fse_rc" -eq 0 ] && printf clean || printf unknown)" \
+    '{status:$status,diffs:["capture-twice","conf1-vs-conf2-recapture"]}' > "$WORK_ROOT/fse-conformance.diff.json"
+  if [ "$fse_rc" -eq 0 ]; then
+    bash bin/pair.sh destroy "$PAIR"
+    pass "FSE conformance passed and its pair was destroyed"
+  fi
+else
+  write_skipped fse-conformance "$FSE_LOG" "$WORK_ROOT/fse-conformance.result.json" "$WORK_ROOT/fse-conformance.diff.json"
+fi
+
+if [ "$overall" -eq 0 ]; then
+  say "reference leg 3/4: real WordPress multisite must refuse with zero mutation"
   set +e
   MULTISITE_PAIR="$PAIR" MULTISITE_PORT1="$PORT1" MULTISITE_PORT2="$PORT2" \
     bash tests/regress_multisite_refusal.sh > "$MULTISITE_LOG" 2>&1
@@ -142,7 +173,7 @@ else
 fi
 
 if [ "$overall" -eq 0 ]; then
-  say "reference leg 3/3: exact-artifact version matrix (includes Ninja Forms typed tables)"
+  say "reference leg 4/4: exact-artifact version matrix (includes Ninja Forms typed tables)"
   bash bin/pair.sh list
   set +e
   VMATRIX_PAIR="$PAIR" VMATRIX_PORT1="$PORT1" VMATRIX_PORT2="$PORT2" \
@@ -169,26 +200,29 @@ else
 fi
 
 say "materialize the content-addressed machine-readable bundle"
-BOUND_INPUTS=$(git -C "$REPO_ROOT" ls-files \
+BOUND_INPUTS=$({ git -C "$REPO_ROOT" ls-files \
   agent cli manifests sandbox/bin sandbox/conformance \
   sandbox/tests/certify_reference_bundle.sh \
   sandbox/tests/certify_version_matrix.sh \
-  sandbox/tests/regress_multisite_refusal.sh | jq -R . | jq -s .)
+  sandbox/tests/regress_multisite_refusal.sh; printf '%s\n' manifests/dispositions.json; } | sort -u | jq -R . | jq -s .)
 ARTIFACTS=$(jq '[to_entries[] as $slug | $slug.value | to_entries[] | {name:$slug.key,version:.key,url:.value.url,sha256:.value.sha256}]' conformance/artifacts.lock.json)
 CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 GIT_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
 jq -n \
   --arg repo_root "$REPO_ROOT" --arg created_at "$CREATED_AT" --arg git_revision "$GIT_REVISION" \
   --arg environment "$ENV_FILE" --argjson bound_inputs "$BOUND_INPUTS" --argjson artifacts "$ARTIFACTS" \
+  --arg ratification "$REPO_ROOT/manifests/dispositions.json" \
   --arg core_result "$WORK_ROOT/core-conformance.result.json" --arg core_diff "$WORK_ROOT/core-conformance.diff.json" --arg core_log "$CORE_LOG" \
+  --arg fse_result "$WORK_ROOT/fse-conformance.result.json" --arg fse_diff "$WORK_ROOT/fse-conformance.diff.json" --arg fse_log "$FSE_LOG" \
   --arg ms_result "$WORK_ROOT/multisite-refusal.result.json" --arg ms_diff "$WORK_ROOT/multisite-refusal.diff.json" --arg ms_log "$MULTISITE_LOG" \
   --arg matrix_result "$WORK_ROOT/exact-artifact-version-matrix.result.json" --arg matrix_diff "$WORK_ROOT/exact-artifact-version-matrix.diff.json" --arg matrix_log "$MATRIX_LOG" \
   '{
     repo_root:$repo_root,created_at:$created_at,git_revision:$git_revision,
     harness:{name:"duo-reference-certification",version:1},force_hatches:[],
-    environment:$environment,bound_inputs:$bound_inputs,artifacts:$artifacts,
+    environment:$environment,ratification:$ratification,bound_inputs:$bound_inputs,artifacts:$artifacts,
     tests:[
       {id:"core-conformance",result:$core_result,diff:$core_diff,log:$core_log},
+      {id:"fse-conformance",result:$fse_result,diff:$fse_diff,log:$fse_log},
       {id:"multisite-refusal",result:$ms_result,diff:$ms_diff,log:$ms_log},
       {id:"exact-artifact-version-matrix",result:$matrix_result,diff:$matrix_diff,log:$matrix_log}
     ]
