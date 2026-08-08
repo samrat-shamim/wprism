@@ -425,7 +425,7 @@ Per-transport required keys:
 |---|---|---|
 | `local` | `wp_path`, `repo_path` | — |
 | `docker` | `compose_file`, `service`, `repo_path` | `profile` |
-| `ssh` | `host`, `wp_path`, `repo_path` | `ssh_config`, paired `rollback_key_id` + `rollback_signing_key` |
+| `ssh` | `host`, `wp_path`, `repo_path` | `ssh_config`, paired `rollback_key_id` + `rollback_signing_key`, `rollback_recovery` |
 
 A missing required key is a loud, specific error naming the environment,
 the key, and the transport — never a guess.
@@ -450,6 +450,14 @@ non-green; only `committed` and `rolled_back` active generations are green.
 `duo deploy` and `duo promote` refuse target mutation while that external
 authority is invalid or nonterminal. A host adopted before this runtime emits
 a manual-recovery warning and retains the existing operator-directed behavior.
+
+`rollback_recovery` configures a target-owned exclusion provider plus exact
+`code_restore`, `database_restore`, `prior_verify`, and `storage_restore` argv
+adapters. Adoption probes all exclusion scopes and adapters. Provider tokens
+never enter the registry or command line; only their SHA-256 digest is bound
+into a signed receipt. See
+[docs/recovery-runtime.md](../docs/recovery-runtime.md) for the protocol and
+the boundary between this executor and future automatic rollback.
 
 ### Where the registry comes from
 

@@ -35,18 +35,23 @@ final class Adopt {
         SshTransport $transport,
         string $sourceRoot,
         ?string $rollbackKeyId = null,
-        ?string $rollbackPublicKey = null
+        ?string $rollbackPublicKey = null,
+        ?array $recoveryConfig = null
     ): array {
         $agentDir = rtrim($sourceRoot, '/') . '/agent';
         $manifestsDir = rtrim($sourceRoot, '/') . '/manifests';
         $version = self::agentVersion($agentDir . '/duo.php');
         $runtime = rtrim($sourceRoot, '/') . '/recovery/rollback-control.php';
+        $executor = rtrim($sourceRoot, '/') . '/recovery/RecoveryExecutor.php';
         if ($version === null || !is_file($agentDir . '/duo-loader.php') || !is_dir($manifestsDir)
-            || !is_file($runtime)) {
-            return self::failure('local artifact', 'Duo source tree is incomplete: expected agent/, manifests/, and recovery/rollback-control.php', $version ?? 'unknown');
+            || !is_file($runtime) || !is_file($executor)) {
+            return self::failure('local artifact', 'Duo source tree is incomplete: expected agent/, manifests/, and the complete recovery runtime', $version ?? 'unknown');
         }
         if (($rollbackKeyId === null) !== ($rollbackPublicKey === null)) {
             return self::failure('local artifact', 'rollback key id and public key must be supplied together', $version);
+        }
+        if ($recoveryConfig !== null && $rollbackKeyId === null) {
+            return self::failure('local artifact', 'recovery configuration requires a rollback verification key', $version);
         }
 
         $reachable = $transport->captureRaw('echo duo-reachable');
@@ -91,7 +96,8 @@ final class Adopt {
                 $transport->repoPath(),
                 $token,
                 $rollbackKeyId,
-                $rollbackPublicKey
+                $rollbackPublicKey,
+                $recoveryConfig
             ));
             if ($install['exit'] !== 0) {
                 return self::fromTransport('remote install', $install, $version);
@@ -169,7 +175,8 @@ final class Adopt {
         string $repo,
         string $token,
         ?string $rollbackKeyId,
-        ?string $rollbackPublicKey
+        ?string $rollbackPublicKey,
+        ?array $recoveryConfig
     ): string {
         $agent = rtrim($muDir, '/') . '/duo';
         $loader = rtrim($muDir, '/') . '/duo-loader.php';
@@ -179,6 +186,7 @@ final class Adopt {
             throw new \RuntimeException('could not encode adoption site-repo seed');
         }
         $seed .= "\n";
+        $recovery = $recoveryConfig === null ? null : \Duo\Recovery\RollbackControl::canonical($recoveryConfig) . "\n";
 
         $q = static fn(string $value): string => escapeshellarg($value);
         $stage = '/tmp/duo-adopt-' . $token;
@@ -249,7 +257,7 @@ final class Adopt {
             . "mkdir \"\$txn\"\n"
             . "tar --no-same-owner -xf \"\$archive\" -C \"\$stage\"\n"
             . "[ -f \"\$stage/agent/duo.php\" ] && [ -f \"\$stage/agent/duo-loader.php\" ] && [ -f \"\$stage/manifests/core.json\" ] || { echo 'duo adopt: uploaded artifact is incomplete' >&2; exit 1; }\n"
-            . "[ -f \"\$stage/recovery/rollback-control.php\" ] || { echo 'duo adopt: rollback runtime is missing' >&2; exit 1; }\n"
+            . "[ -f \"\$stage/recovery/rollback-control.php\" ] && [ -f \"\$stage/recovery/RecoveryExecutor.php\" ] || { echo 'duo adopt: recovery runtime is missing' >&2; exit 1; }\n"
             . "cp -R \"\$stage/agent\" \"\$agent_new\"\n"
             . "cp \"\$stage/agent/duo-loader.php\" \"\$loader_new\"\n"
             . "cp -R \"\$stage/manifests\" \"\$manifest_new\"\n"
@@ -262,6 +270,11 @@ final class Adopt {
             . "php \"\$runtime/rollback-control.php\" init --root=\"\$control\" >/dev/null\n"
             . ($rollbackKeyId !== null
                 ? "php \"\$runtime/rollback-control.php\" install-key --root=\"\$control\" --key-id=" . $q($rollbackKeyId) . ' --public-key=' . $q((string) $rollbackPublicKey) . " >/dev/null\n"
+                : '')
+            . ($recovery !== null
+                ? "printf '%s' " . $q($recovery) . " > \"\$stage/recovery-config.json\"; chmod 600 \"\$stage/recovery-config.json\"\n"
+                    . "php \"\$runtime/rollback-control.php\" configure-recovery --root=\"\$control\" --config=\"\$stage/recovery-config.json\" >/dev/null\n"
+                    . "php \"\$runtime/rollback-control.php\" recovery-probe --root=\"\$control\" >/dev/null\n"
                 : '')
             . "success=1\n"
             . "if [ \"\$seed_created\" -eq 1 ]; then echo duo-repo-created; else echo duo-repo-retained; fi\n"

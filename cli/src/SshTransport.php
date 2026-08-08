@@ -8,6 +8,8 @@ final class SshTransport extends Transport {
     private ?string $configFile;
     private ?string $rollbackKeyId;
     private ?string $rollbackSigningKey;
+    /** @var ?array<string,mixed> */
+    private ?array $rollbackRecovery;
 
     public function __construct(string $name, array $cfg) {
         parent::__construct($name, $cfg);
@@ -40,12 +42,26 @@ final class SshTransport extends Transport {
         $this->rollbackSigningKey = is_string($keyPath)
             ? self::resolvePath((string) ($cfg['_dir'] ?? '.'), $keyPath)
             : null;
+
+        $recovery = $cfg['rollback_recovery'] ?? null;
+        if ($recovery !== null && !is_array($recovery)) {
+            throw new \RuntimeException("env '$name': rollback_recovery must be an object");
+        }
+        $this->rollbackRecovery = is_array($recovery)
+            ? self::validateRecoveryConfig($name, $recovery)
+            : null;
+        if ($this->rollbackRecovery !== null && !$this->rollbackConfigured()) {
+            throw new \RuntimeException(
+                "env '$name': rollback_recovery requires rollback_key_id + rollback_signing_key"
+            );
+        }
     }
 
     public function describe(): string {
         $config = $this->configFile !== null ? " ssh_config={$this->configFile}" : '';
         $rollback = $this->rollbackKeyId !== null ? " rollback_key_id={$this->rollbackKeyId}" : '';
-        return "ssh    host={$this->host} wp_path={$this->wpPath} repo_path={$this->repoPath}{$config}{$rollback}";
+        $recovery = $this->rollbackRecovery !== null ? ' rollback_recovery=configured' : '';
+        return "ssh    host={$this->host} wp_path={$this->wpPath} repo_path={$this->repoPath}{$config}{$rollback}{$recovery}";
     }
 
     public function rollbackConfigured(): bool {
@@ -58,6 +74,15 @@ final class SshTransport extends Transport {
 
     public function rollbackSigningKeyPath(): ?string {
         return $this->rollbackSigningKey;
+    }
+
+    public function recoveryConfigured(): bool {
+        return $this->rollbackRecovery !== null;
+    }
+
+    /** @return ?array<string,mixed> */
+    public function recoveryConfig(): ?array {
+        return $this->rollbackRecovery;
     }
 
     protected function wpCommand(array $wpArgs): string {
@@ -88,5 +113,60 @@ final class SshTransport extends Transport {
 
     private function sshPrefix(): string {
         return 'ssh' . ($this->configFile !== null ? ' -F ' . self::esc($this->configFile) : '');
+    }
+
+    /** @param array<string,mixed> $config @return array<string,mixed> */
+    private static function validateRecoveryConfig(string $env, array $config): array {
+        $expected = ['adapters', 'exclusion_provider', 'timeout_seconds'];
+        $actual = array_keys($config);
+        sort($actual, SORT_STRING);
+        if ($actual !== $expected) {
+            throw new \RuntimeException(
+                "env '$env': rollback_recovery requires exactly adapters, exclusion_provider, timeout_seconds"
+            );
+        }
+        $provider = self::validateCommand($env, $config['exclusion_provider'] ?? null, 'exclusion_provider');
+        $adapters = $config['adapters'] ?? null;
+        if (!is_array($adapters) || array_is_list($adapters)) {
+            throw new \RuntimeException("env '$env': rollback_recovery.adapters must be an object");
+        }
+        $required = ['code_restore', 'database_restore', 'prior_verify', 'storage_restore'];
+        $adapterNames = array_keys($adapters);
+        sort($adapterNames, SORT_STRING);
+        if ($adapterNames !== $required) {
+            throw new \RuntimeException(
+                "env '$env': rollback_recovery.adapters requires exactly " . implode(', ', $required)
+            );
+        }
+        $validated = [];
+        foreach ($required as $name) {
+            $validated[$name] = self::validateCommand($env, $adapters[$name], "adapters.$name");
+        }
+        $timeout = $config['timeout_seconds'] ?? null;
+        if (!is_int($timeout) || $timeout < 1 || $timeout > 60) {
+            throw new \RuntimeException("env '$env': rollback_recovery.timeout_seconds must be 1..60");
+        }
+        return [
+            'adapters' => $validated,
+            'exclusion_provider' => $provider,
+            'format' => 'duo-recovery-config/v1',
+            'timeout_seconds' => $timeout,
+        ];
+    }
+
+    /** @return list<string> */
+    private static function validateCommand(string $env, mixed $value, string $label): array {
+        if (!is_array($value) || !array_is_list($value) || $value === []) {
+            throw new \RuntimeException("env '$env': rollback_recovery.$label must be a non-empty argv array");
+        }
+        foreach ($value as $index => $arg) {
+            if (!is_string($arg) || $arg === '' || str_contains($arg, "\0")) {
+                throw new \RuntimeException("env '$env': rollback_recovery.$label argv[$index] is invalid");
+            }
+        }
+        if ($value[0][0] !== '/') {
+            throw new \RuntimeException("env '$env': rollback_recovery.$label executable must be absolute");
+        }
+        return array_values($value);
     }
 }
