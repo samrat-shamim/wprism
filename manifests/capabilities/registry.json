@@ -1,0 +1,1666 @@
+{
+    "evidence": {
+        "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+        "bundle_schema": "duo-certification-bundle/v1",
+        "created_at": "2026-08-08T10:00:00Z",
+        "environment_summary": {
+            "database_client": "11.8.8",
+            "database_server": "11.8.8-MariaDB",
+            "multisite": false,
+            "php": "8.3.33",
+            "wordpress": "7.0.2"
+        },
+        "force_hatches": [],
+        "format": "duo-capability-evidence/v1",
+        "git_revision": "64504c99568595c76dcf5005394a1b6fc4988ada",
+        "harness": {
+            "name": "duo-reference-certification",
+            "version": 1
+        },
+        "status": "candidate",
+        "tests": [
+            {
+                "id": "core-conformance",
+                "verdict": "pass"
+            },
+            {
+                "id": "fse-conformance",
+                "verdict": "pass"
+            },
+            {
+                "id": "multisite-refusal",
+                "verdict": "pass"
+            },
+            {
+                "id": "exact-artifact-version-matrix",
+                "verdict": "pass"
+            }
+        ]
+    },
+    "format": "duo-capability-registry/v1",
+    "generated_from": {
+        "compatibility_sha256": "40050ad62cde35c9365d56525a6cf5c0a2a11382e3636971016895c8cba94d61",
+        "dispositions_sha256": "5b709ef00cd44391bb3328df09acd3d96ee162bd5a3431457a2d80eef255edd9",
+        "evidence_sha256": "da42a5b08c32e0ba4edf1ca8a569c408c896bee0ee9600ee80bddddc836de3d1"
+    },
+    "manifests": {
+        "acf": {
+            "adapter_digest": "ff46368d69a732651cdb3052aad03a48791e549a110fc811622bda82e3bc9349",
+            "authored_state": {
+                "scope": "only the exact registered surfaces and operations below",
+                "status": "certified"
+            },
+            "deletion_semantics": {
+                "supported": [],
+                "unsupported": [
+                    "all ACF entity deletes"
+                ]
+            },
+            "environment_assumptions": {
+                "database": {
+                    "engine": "MariaDB",
+                    "max": "12.0.0",
+                    "min": "11.0.0",
+                    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+                },
+                "php": {
+                    "max": "8.4.0",
+                    "min": "8.3.0",
+                    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+                },
+                "site_mode": "single-site",
+                "wordpress": {
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                }
+            },
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": [
+                    "exact-artifact-version-matrix"
+                ]
+            },
+            "lifecycle_phases": [
+                "retire",
+                "activate",
+                "verify"
+            ],
+            "name": "acf",
+            "operations": [
+                "apply",
+                "capture",
+                "compile",
+                "deploy",
+                "plan",
+                "promote",
+                "recapture",
+                "render-api"
+            ],
+            "plugin_execution": {
+                "mode": "unmodified",
+                "status": "verified"
+            },
+            "reason": "Certified at both admitted artifact boundaries with schema-driven ACF field evidence.",
+            "status": "certified",
+            "supported_versions": {
+                "plugin": "advanced-custom-fields/acf.php",
+                "range": {
+                    "max": "7.0.0",
+                    "min": "6.0.0"
+                }
+            },
+            "surfaces": [
+                "interpreter",
+                "option_namespaces",
+                "options",
+                "options.acf_first_activated_version",
+                "options.acf_site_health",
+                "post_types",
+                "post_types.acf-field",
+                "post_types.acf-field-group"
+            ],
+            "unsupported": [
+                {
+                    "operation": "delete",
+                    "reason": "No ACF-specific deletion selector is declared.",
+                    "surface": "deletions.*"
+                }
+            ]
+        },
+        "contact-form-7": {
+            "adapter_digest": "f15dabf29c1a422caf9b600b42b708a23f59d496030dd98e7999db5a8737ec64",
+            "authored_state": {
+                "scope": "only the exact registered surfaces and operations below",
+                "status": "certified"
+            },
+            "deletion_semantics": {
+                "supported": [],
+                "unsupported": [
+                    "plugin-specific deletes"
+                ]
+            },
+            "environment_assumptions": {
+                "database": {
+                    "engine": "MariaDB",
+                    "max": "12.0.0",
+                    "min": "11.0.0",
+                    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+                },
+                "php": {
+                    "max": "8.4.0",
+                    "min": "8.3.0",
+                    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+                },
+                "site_mode": "single-site",
+                "wordpress": {
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                }
+            },
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": [
+                    "exact-artifact-version-matrix"
+                ]
+            },
+            "lifecycle_phases": [
+                "retire",
+                "activate",
+                "verify"
+            ],
+            "name": "contact-form-7",
+            "operations": [
+                "apply",
+                "capture",
+                "compile",
+                "deploy",
+                "plan",
+                "promote",
+                "recapture",
+                "render-api"
+            ],
+            "plugin_execution": {
+                "mode": "unmodified",
+                "status": "verified"
+            },
+            "reason": "Certified with real form/API/render behavior at both admitted artifact boundaries.",
+            "status": "certified",
+            "supported_versions": {
+                "plugin": "contact-form-7/wp-contact-form-7.php",
+                "range": {
+                    "max": "7.0.0",
+                    "min": "6.0.0"
+                }
+            },
+            "surfaces": [
+                "post_meta",
+                "post_meta._additional_settings",
+                "post_meta._form",
+                "post_meta._hash",
+                "post_meta._locale",
+                "post_meta._mail",
+                "post_meta._mail_2",
+                "post_meta._messages"
+            ],
+            "unsupported": [
+                {
+                    "operation": "delete",
+                    "reason": "No Contact Form 7 deletion selector is declared.",
+                    "surface": "deletions.*"
+                }
+            ]
+        },
+        "core": {
+            "adapter_digest": "56220cf8e8f336a6f9ca6d4352dfcb27838fdf9a76216377d10c800dfcc4d9b0",
+            "authored_state": {
+                "scope": "only the exact registered surfaces and operations below",
+                "status": "certified"
+            },
+            "deletion_semantics": {
+                "supported": [
+                    "menu:nav_menu",
+                    "post:attachment",
+                    "post:page",
+                    "post:post",
+                    "term:category",
+                    "term:post_tag"
+                ],
+                "unsupported": [
+                    "undeclared post types and taxonomies"
+                ]
+            },
+            "environment_assumptions": {
+                "database": {
+                    "engine": "MariaDB",
+                    "max": "12.0.0",
+                    "min": "11.0.0",
+                    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+                },
+                "php": {
+                    "max": "8.4.0",
+                    "min": "8.3.0",
+                    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+                },
+                "site_mode": "single-site",
+                "wordpress": {
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                }
+            },
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": [
+                    "core-conformance"
+                ]
+            },
+            "lifecycle_phases": [
+                "verify"
+            ],
+            "name": "core",
+            "operations": [
+                "apply",
+                "capture",
+                "compile",
+                "delete",
+                "deploy",
+                "plan",
+                "promote",
+                "recapture",
+                "render-api"
+            ],
+            "plugin_execution": {
+                "mode": "platform",
+                "status": "verified"
+            },
+            "reason": "Certified single-site core authored-state surface; the FSE profile is separately named below.",
+            "status": "certified",
+            "supported_versions": {
+                "wordpress": {
+                    "source": "bundle.environment_summary.wordpress"
+                }
+            },
+            "surfaces": [
+                "block_attrs",
+                "block_attrs.core/block",
+                "block_attrs.core/cover",
+                "block_attrs.core/gallery",
+                "block_attrs.core/image",
+                "block_attrs.core/media-text",
+                "block_attrs.core/navigation",
+                "block_attrs.core/navigation-link",
+                "block_attrs.core/navigation-submenu",
+                "block_attrs.core/query",
+                "deletions.menu:nav_menu",
+                "deletions.post:attachment",
+                "deletions.post:page",
+                "deletions.post:post",
+                "deletions.term:category",
+                "deletions.term:post_tag",
+                "dynamic_options",
+                "dynamic_options.theme_mods",
+                "menu_fields",
+                "menu_fields.locations",
+                "option_patterns",
+                "options",
+                "options.active_plugins",
+                "options.admin_email",
+                "options.blogdescription",
+                "options.blogname",
+                "options.cron",
+                "options.default_category",
+                "options.home",
+                "options.page_for_posts",
+                "options.page_on_front",
+                "options.posts_per_page",
+                "options.recently_activated",
+                "options.recently_edited",
+                "options.rewrite_rules",
+                "options.show_on_front",
+                "options.siteurl",
+                "options.sticky_posts",
+                "options.stylesheet",
+                "options.template",
+                "options.wp_page_for_privacy_policy",
+                "post_meta",
+                "post_meta._duo_uuid",
+                "post_meta._edit_last",
+                "post_meta._edit_lock",
+                "post_meta._encloseme",
+                "post_meta._menu_item_classes",
+                "post_meta._menu_item_menu_item_parent",
+                "post_meta._menu_item_object",
+                "post_meta._menu_item_object_id",
+                "post_meta._menu_item_orphaned",
+                "post_meta._menu_item_target",
+                "post_meta._menu_item_type",
+                "post_meta._menu_item_url",
+                "post_meta._menu_item_xfn",
+                "post_meta._pingme",
+                "post_meta._thumbnail_id",
+                "post_meta._wp_attached_file",
+                "post_meta._wp_attachment_backup_sizes",
+                "post_meta._wp_attachment_image_alt",
+                "post_meta._wp_attachment_metadata",
+                "post_meta._wp_desired_post_slug",
+                "post_meta._wp_old_date",
+                "post_meta._wp_old_slug",
+                "post_meta._wp_page_template",
+                "post_meta._wp_trash_meta_status",
+                "post_meta._wp_trash_meta_time",
+                "post_meta.origin",
+                "post_meta.wp_pattern_sync_status",
+                "profile:fse",
+                "shortcode_attrs",
+                "shortcode_attrs.gallery",
+                "tables",
+                "tables.commentmeta",
+                "tables.comments",
+                "term_meta",
+                "term_meta._duo_uuid",
+                "widgets",
+                "widgets.block",
+                "widgets.nav_menu",
+                "widgets.text"
+            ],
+            "unsupported": [
+                {
+                    "operation": "all",
+                    "reason": "The v1 contract refuses WordPress multisite before policy load or mutation.",
+                    "surface": "multisite"
+                },
+                {
+                    "operation": "capture",
+                    "reason": "Unknown whole-entity and field surfaces remain loud pending items.",
+                    "surface": "unclassified.*"
+                }
+            ]
+        },
+        "duo-agency-cpt": {
+            "adapter_digest": "d5d6e9104a0044238ad18803f928e6045a718e5e81a152b21aec193c0fbf82cd",
+            "authored_state": {
+                "scope": "only the exact registered surfaces and operations below",
+                "status": "unsupported"
+            },
+            "deletion_semantics": {
+                "supported": [],
+                "unsupported": [
+                    "all"
+                ]
+            },
+            "environment_assumptions": {
+                "database": {
+                    "engine": "MariaDB",
+                    "max": "12.0.0",
+                    "min": "11.0.0",
+                    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+                },
+                "php": {
+                    "max": "8.4.0",
+                    "min": "8.3.0",
+                    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+                },
+                "site_mode": "single-site",
+                "wordpress": {
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                }
+            },
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": []
+            },
+            "lifecycle_phases": [],
+            "name": "duo-agency-cpt",
+            "operations": [
+                "test-only"
+            ],
+            "plugin_execution": {
+                "mode": "synthetic-fixture",
+                "status": "not-a-product-claim"
+            },
+            "reason": "Duo-authored regression fixture, not a third-party adapter or product support claim.",
+            "status": "excluded",
+            "supported_versions": {
+                "fixture": true
+            },
+            "surfaces": [
+                "options",
+                "options.duo_agency_client_api_key",
+                "post_meta",
+                "post_meta._duo_project_internal_notes",
+                "post_meta._duo_project_views",
+                "term_meta",
+                "user_meta"
+            ],
+            "unsupported": [
+                {
+                    "operation": "promote",
+                    "reason": "Excluded fixture manifests are never production-ready.",
+                    "surface": "production"
+                }
+            ]
+        },
+        "duo-code-half-ecosystem": {
+            "adapter_digest": "8724a7bddf7ed3fb58f6fa864c16ed1a619beeb8f0e5e7bc3d35dd09c11f55ac",
+            "authored_state": {
+                "scope": "only the exact registered surfaces and operations below",
+                "status": "unsupported"
+            },
+            "deletion_semantics": {
+                "supported": [],
+                "unsupported": [
+                    "all"
+                ]
+            },
+            "environment_assumptions": {
+                "database": {
+                    "engine": "MariaDB",
+                    "max": "12.0.0",
+                    "min": "11.0.0",
+                    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+                },
+                "php": {
+                    "max": "8.4.0",
+                    "min": "8.3.0",
+                    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+                },
+                "site_mode": "single-site",
+                "wordpress": {
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                }
+            },
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": []
+            },
+            "lifecycle_phases": [],
+            "name": "duo-code-half-ecosystem",
+            "operations": [
+                "test-only"
+            ],
+            "plugin_execution": {
+                "mode": "synthetic-fixture",
+                "status": "not-a-product-claim"
+            },
+            "reason": "Duo code-half ecosystem fixture used only by regression harnesses.",
+            "status": "excluded",
+            "supported_versions": {
+                "fixture": true
+            },
+            "surfaces": [
+                "options",
+                "options.duo_ecosystem_mu_boots",
+                "options.duo_ecosystem_trace"
+            ],
+            "unsupported": [
+                {
+                    "operation": "promote",
+                    "reason": "Excluded fixture manifests are never production-ready.",
+                    "surface": "production"
+                }
+            ]
+        },
+        "duo-code-half-probe": {
+            "adapter_digest": "bcb23c0d451e49a615c2018dfb16b3e71ab52c1aac9d2cf5f71e20c7f458937a",
+            "authored_state": {
+                "scope": "only the exact registered surfaces and operations below",
+                "status": "unsupported"
+            },
+            "deletion_semantics": {
+                "supported": [],
+                "unsupported": [
+                    "all"
+                ]
+            },
+            "environment_assumptions": {
+                "database": {
+                    "engine": "MariaDB",
+                    "max": "12.0.0",
+                    "min": "11.0.0",
+                    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+                },
+                "php": {
+                    "max": "8.4.0",
+                    "min": "8.3.0",
+                    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+                },
+                "site_mode": "single-site",
+                "wordpress": {
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                }
+            },
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": []
+            },
+            "lifecycle_phases": [],
+            "name": "duo-code-half-probe",
+            "operations": [
+                "test-only"
+            ],
+            "plugin_execution": {
+                "mode": "synthetic-fixture",
+                "status": "not-a-product-claim"
+            },
+            "reason": "Synthetic plugin fixture proving code-half and table handoff behavior.",
+            "status": "excluded",
+            "supported_versions": {
+                "fixture": true,
+                "plugin": "duo-code-half-probe/duo-code-half-probe.php",
+                "range": {
+                    "max": "3.0.0",
+                    "min": "1.0.0"
+                }
+            },
+            "surfaces": [
+                "options",
+                "options.duo_code_half_probe_activations",
+                "options.duo_code_half_probe_deactivations",
+                "options.duo_code_half_probe_schema",
+                "options.duo_code_half_probe_settings",
+                "options.duo_code_half_probe_trace",
+                "tables",
+                "tables.duo_code_half_probe_rows"
+            ],
+            "unsupported": [
+                {
+                    "operation": "promote",
+                    "reason": "Excluded fixture manifests are never production-ready.",
+                    "surface": "production"
+                }
+            ]
+        },
+        "duo-loop-demo": {
+            "adapter_digest": "31784434799666fa57fe8ef832abfd660096047a359cd1073549453642825314",
+            "authored_state": {
+                "scope": "only the exact registered surfaces and operations below",
+                "status": "unsupported"
+            },
+            "deletion_semantics": {
+                "supported": [],
+                "unsupported": [
+                    "all"
+                ]
+            },
+            "environment_assumptions": {
+                "database": {
+                    "engine": "MariaDB",
+                    "max": "12.0.0",
+                    "min": "11.0.0",
+                    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+                },
+                "php": {
+                    "max": "8.4.0",
+                    "min": "8.3.0",
+                    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+                },
+                "site_mode": "single-site",
+                "wordpress": {
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                }
+            },
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": []
+            },
+            "lifecycle_phases": [],
+            "name": "duo-loop-demo",
+            "operations": [
+                "test-only"
+            ],
+            "plugin_execution": {
+                "mode": "synthetic-fixture",
+                "status": "not-a-product-claim"
+            },
+            "reason": "Synthetic core-loop fixture, not a shipped adapter claim.",
+            "status": "excluded",
+            "supported_versions": {
+                "fixture": true
+            },
+            "surfaces": [
+                "options",
+                "options.duo_loop_api_key",
+                "options.duo_loop_color",
+                "options.duo_loop_hits",
+                "post_meta",
+                "post_meta._duo_loop_badge",
+                "term_meta"
+            ],
+            "unsupported": [
+                {
+                    "operation": "promote",
+                    "reason": "Excluded fixture manifests are never production-ready.",
+                    "surface": "production"
+                }
+            ]
+        },
+        "duo-loop-demo-versioned": {
+            "adapter_digest": "738413729ece84c0eb1472a7656bc9aa6809721b46e41d6ec9a3853c7778017a",
+            "authored_state": {
+                "scope": "only the exact registered surfaces and operations below",
+                "status": "unsupported"
+            },
+            "deletion_semantics": {
+                "supported": [],
+                "unsupported": [
+                    "all"
+                ]
+            },
+            "environment_assumptions": {
+                "database": {
+                    "engine": "MariaDB",
+                    "max": "12.0.0",
+                    "min": "11.0.0",
+                    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+                },
+                "php": {
+                    "max": "8.4.0",
+                    "min": "8.3.0",
+                    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+                },
+                "site_mode": "single-site",
+                "wordpress": {
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                }
+            },
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": []
+            },
+            "lifecycle_phases": [],
+            "name": "duo-loop-demo-versioned",
+            "operations": [
+                "test-only"
+            ],
+            "plugin_execution": {
+                "mode": "synthetic-fixture",
+                "status": "not-a-product-claim"
+            },
+            "reason": "Synthetic version-range refusal fixture, not a shipped adapter claim.",
+            "status": "excluded",
+            "supported_versions": {
+                "fixture": true,
+                "plugin": "duo-loop-demo/duo-loop-demo.php",
+                "range": {
+                    "max": "99.0.0",
+                    "min": "9.0.0"
+                }
+            },
+            "surfaces": [],
+            "unsupported": [
+                {
+                    "operation": "promote",
+                    "reason": "Excluded fixture manifests are never production-ready.",
+                    "surface": "production"
+                }
+            ]
+        },
+        "elementor": {
+            "adapter_digest": "66f70b84448e303740c694dbfe1a75b7704ec9ae7b00f56dba45f8cfb7fd05a0",
+            "authored_state": {
+                "scope": "only the exact registered surfaces and operations below",
+                "status": "certified"
+            },
+            "deletion_semantics": {
+                "supported": [],
+                "unsupported": [
+                    "plugin-specific deletes"
+                ]
+            },
+            "environment_assumptions": {
+                "database": {
+                    "engine": "MariaDB",
+                    "max": "12.0.0",
+                    "min": "11.0.0",
+                    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+                },
+                "php": {
+                    "max": "8.4.0",
+                    "min": "8.3.0",
+                    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+                },
+                "site_mode": "single-site",
+                "wordpress": {
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                }
+            },
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": [
+                    "exact-artifact-version-matrix"
+                ]
+            },
+            "lifecycle_phases": [
+                "retire",
+                "activate",
+                "verify"
+            ],
+            "name": "elementor",
+            "operations": [
+                "apply",
+                "capture",
+                "compile",
+                "deploy",
+                "plan",
+                "promote",
+                "recapture",
+                "render-api"
+            ],
+            "plugin_execution": {
+                "mode": "unmodified",
+                "status": "verified"
+            },
+            "reason": "Certified structural JSON/reference and frontend/CSS behavior at both admitted boundaries.",
+            "status": "certified",
+            "supported_versions": {
+                "plugin": "elementor/elementor.php",
+                "range": {
+                    "max": "5.0.0",
+                    "min": "4.0.0"
+                }
+            },
+            "surfaces": [
+                "meta_patterns",
+                "options",
+                "options.elementor_active_kit",
+                "post_meta",
+                "post_meta._elementor_css",
+                "post_meta._elementor_data",
+                "post_meta._elementor_edit_mode",
+                "post_meta._elementor_element_cache",
+                "post_meta._elementor_global_class_usage_indexed",
+                "post_meta._elementor_global_class_usage_indexed_preview",
+                "post_meta._elementor_page_assets",
+                "post_meta._elementor_template_type",
+                "post_meta._elementor_version"
+            ],
+            "unsupported": [
+                {
+                    "operation": "delete",
+                    "reason": "No Elementor deletion selector is declared.",
+                    "surface": "deletions.*"
+                }
+            ]
+        },
+        "ninja-forms": {
+            "adapter_digest": "fabca887209795019344555a6761ae0e4c285039b485ba55e0aeaf4b9a48527a",
+            "authored_state": {
+                "scope": "only the exact registered surfaces and operations below",
+                "status": "certified"
+            },
+            "deletion_semantics": {
+                "supported": [
+                    "table:nf3_actions",
+                    "table:nf3_fields",
+                    "table:nf3_forms"
+                ],
+                "unsupported": [
+                    "runtime submissions"
+                ]
+            },
+            "environment_assumptions": {
+                "database": {
+                    "engine": "MariaDB",
+                    "max": "12.0.0",
+                    "min": "11.0.0",
+                    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+                },
+                "php": {
+                    "max": "8.4.0",
+                    "min": "8.3.0",
+                    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+                },
+                "site_mode": "single-site",
+                "wordpress": {
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                }
+            },
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": [
+                    "exact-artifact-version-matrix"
+                ]
+            },
+            "lifecycle_phases": [
+                "retire",
+                "activate",
+                "verify"
+            ],
+            "name": "ninja-forms",
+            "operations": [
+                "apply",
+                "capture",
+                "compile",
+                "delete",
+                "deploy",
+                "plan",
+                "promote",
+                "recapture",
+                "render-api"
+            ],
+            "plugin_execution": {
+                "mode": "unmodified",
+                "status": "verified"
+            },
+            "reason": "Certified typed-table form graph, cache rebuild, block rendering, deletion guards, and exact version boundaries.",
+            "status": "certified",
+            "supported_versions": {
+                "plugin": "ninja-forms/ninja-forms.php",
+                "range": {
+                    "max": "4.0.0",
+                    "min": "3.4.34.2"
+                }
+            },
+            "surfaces": [
+                "block_attrs",
+                "block_attrs.ninja-forms/form",
+                "deletions.table:nf3_actions",
+                "deletions.table:nf3_fields",
+                "deletions.table:nf3_forms",
+                "options",
+                "options.nf_doing_import_form",
+                "options.nf_import_form",
+                "options.ninja_forms_needs_updates",
+                "post_types",
+                "post_types.nf_sub",
+                "tables",
+                "tables.nf3_action_meta",
+                "tables.nf3_actions",
+                "tables.nf3_chunks",
+                "tables.nf3_field_meta",
+                "tables.nf3_fields",
+                "tables.nf3_form_meta",
+                "tables.nf3_forms",
+                "tables.nf3_object_meta",
+                "tables.nf3_objects",
+                "tables.nf3_relationships",
+                "tables.nf3_upgrades"
+            ],
+            "unsupported": [
+                {
+                    "operation": "capture",
+                    "reason": "Submission entities are runtime-sovereign and intentionally excluded.",
+                    "surface": "post_types.nf_sub"
+                }
+            ]
+        },
+        "paid-memberships-pro": {
+            "adapter_digest": "bd7d713038ce5e01153c2198e709f62f37e43550b46a9571d00dd459e0fe4ccc",
+            "authored_state": {
+                "scope": "only the exact registered surfaces and operations below",
+                "status": "experimental"
+            },
+            "deletion_semantics": {
+                "supported": [
+                    "table:pmpro_memberships_pages"
+                ],
+                "unsupported": [
+                    "intent-only composite tables"
+                ]
+            },
+            "environment_assumptions": {
+                "database": {
+                    "engine": "MariaDB",
+                    "max": "12.0.0",
+                    "min": "11.0.0",
+                    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+                },
+                "php": {
+                    "max": "8.4.0",
+                    "min": "8.3.0",
+                    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+                },
+                "site_mode": "single-site",
+                "wordpress": {
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                }
+            },
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": []
+            },
+            "lifecycle_phases": [],
+            "name": "paid-memberships-pro",
+            "operations": [
+                "apply",
+                "capture",
+                "compile",
+                "delete",
+                "plan",
+                "recapture"
+            ],
+            "plugin_execution": {
+                "mode": "unmodified",
+                "status": "unverified"
+            },
+            "reason": "Experimental: conformance exists, but the manifest has no plugin identity/version range and no exact-artifact certification bundle.",
+            "status": "experimental",
+            "supported_versions": {
+                "plugin": "unbound",
+                "range": null
+            },
+            "surfaces": [
+                "deletions.table:pmpro_memberships_pages",
+                "options",
+                "options.pmpro_accepted_credit_cards",
+                "options.pmpro_account_page_id",
+                "options.pmpro_addons",
+                "options.pmpro_addons_timestamp",
+                "options.pmpro_billing_page_id",
+                "options.pmpro_cancel_page_id",
+                "options.pmpro_checkout_page_id",
+                "options.pmpro_confirmation_page_id",
+                "options.pmpro_currency",
+                "options.pmpro_db_version",
+                "options.pmpro_dismissed_wp_pointers",
+                "options.pmpro_email_admin_billing",
+                "options.pmpro_email_admin_cancels",
+                "options.pmpro_email_admin_changes",
+                "options.pmpro_email_admin_checkout",
+                "options.pmpro_filterqueries",
+                "options.pmpro_from_email",
+                "options.pmpro_from_name",
+                "options.pmpro_gateway_environment",
+                "options.pmpro_invoice_page_id",
+                "options.pmpro_last_known_url",
+                "options.pmpro_levels_page_id",
+                "options.pmpro_library_conflicts",
+                "options.pmpro_login_page_id",
+                "options.pmpro_member_profile_edit_page_id",
+                "options.pmpro_nag_paused",
+                "options.pmpro_restricted_files_random_string",
+                "options.pmpro_tospage",
+                "options.pmpro_undeprecated_gateways",
+                "options.pmpro_views",
+                "options.pmpro_visits",
+                "options.pmpro_wisdom_opt_out",
+                "options.pmpro_wizard_redirect",
+                "post_meta",
+                "tables",
+                "tables.pmpro_discount_codes",
+                "tables.pmpro_discount_codes_levels",
+                "tables.pmpro_discount_codes_uses",
+                "tables.pmpro_email_log",
+                "tables.pmpro_groups",
+                "tables.pmpro_membership_levelmeta",
+                "tables.pmpro_membership_levels",
+                "tables.pmpro_membership_levels_groups",
+                "tables.pmpro_membership_ordermeta",
+                "tables.pmpro_membership_orders",
+                "tables.pmpro_memberships_categories",
+                "tables.pmpro_memberships_pages",
+                "tables.pmpro_memberships_users",
+                "tables.pmpro_subscriptionmeta",
+                "tables.pmpro_subscriptions"
+            ],
+            "unsupported": [
+                {
+                    "operation": "capture",
+                    "reason": "Intent marker only; no implemented typed snapshot contract.",
+                    "surface": "tables.pmpro_discount_codes"
+                },
+                {
+                    "operation": "capture",
+                    "reason": "Intent marker only; no implemented typed snapshot contract.",
+                    "surface": "tables.pmpro_discount_codes_levels"
+                },
+                {
+                    "operation": "capture",
+                    "reason": "Intent marker only; no implemented typed snapshot contract.",
+                    "surface": "tables.pmpro_groups"
+                },
+                {
+                    "operation": "capture",
+                    "reason": "Intent marker only; no implemented typed snapshot contract.",
+                    "surface": "tables.pmpro_membership_levels_groups"
+                },
+                {
+                    "operation": "capture",
+                    "reason": "Intent marker only; no implemented typed snapshot contract.",
+                    "surface": "tables.pmpro_memberships_categories"
+                },
+                {
+                    "operation": "promote",
+                    "reason": "No exact version/evidence contract exists.",
+                    "surface": "production"
+                }
+            ]
+        },
+        "polylang": {
+            "adapter_digest": "6413c8328416fc08d9deda0a29d0c0e165df863f2876256a56677825bc5052e6",
+            "authored_state": {
+                "scope": "only the exact registered surfaces and operations below",
+                "status": "certified"
+            },
+            "deletion_semantics": {
+                "supported": [],
+                "unsupported": [
+                    "plugin-specific deletes"
+                ]
+            },
+            "environment_assumptions": {
+                "database": {
+                    "engine": "MariaDB",
+                    "max": "12.0.0",
+                    "min": "11.0.0",
+                    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+                },
+                "php": {
+                    "max": "8.4.0",
+                    "min": "8.3.0",
+                    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+                },
+                "site_mode": "single-site",
+                "wordpress": {
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                }
+            },
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": [
+                    "exact-artifact-version-matrix"
+                ]
+            },
+            "lifecycle_phases": [
+                "retire",
+                "activate",
+                "verify"
+            ],
+            "name": "polylang",
+            "operations": [
+                "apply",
+                "capture",
+                "compile",
+                "deploy",
+                "plan",
+                "promote",
+                "recapture",
+                "render-api"
+            ],
+            "plugin_execution": {
+                "mode": "unmodified",
+                "status": "verified"
+            },
+            "reason": "Certified bilingual entity/ref behavior and rendered output at both admitted boundaries.",
+            "status": "certified",
+            "supported_versions": {
+                "plugin": "polylang/polylang.php",
+                "range": {
+                    "max": "4.0.0",
+                    "min": "3.5"
+                }
+            },
+            "surfaces": [
+                "menu_fields",
+                "menu_fields.locations",
+                "options",
+                "options.default_category",
+                "options.pll_language_from_content_available",
+                "options.pll_language_taxonomies",
+                "options.polylang",
+                "taxonomies",
+                "taxonomies.language",
+                "taxonomies.post_translations",
+                "taxonomies.term_translations"
+            ],
+            "unsupported": [
+                {
+                    "operation": "delete",
+                    "reason": "No Polylang deletion selector is declared.",
+                    "surface": "deletions.*"
+                }
+            ]
+        },
+        "the-events-calendar": {
+            "adapter_digest": "721d14e71c436cf91814f9566a0270e830ab92832598606a39265f71eb0750a7",
+            "authored_state": {
+                "scope": "only the exact registered surfaces and operations below",
+                "status": "experimental"
+            },
+            "deletion_semantics": {
+                "supported": [],
+                "unsupported": [
+                    "plugin-specific deletes"
+                ]
+            },
+            "environment_assumptions": {
+                "database": {
+                    "engine": "MariaDB",
+                    "max": "12.0.0",
+                    "min": "11.0.0",
+                    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+                },
+                "php": {
+                    "max": "8.4.0",
+                    "min": "8.3.0",
+                    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+                },
+                "site_mode": "single-site",
+                "wordpress": {
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                }
+            },
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": []
+            },
+            "lifecycle_phases": [],
+            "name": "the-events-calendar",
+            "operations": [
+                "apply",
+                "capture",
+                "compile",
+                "plan",
+                "recapture"
+            ],
+            "plugin_execution": {
+                "mode": "unmodified",
+                "status": "unverified"
+            },
+            "reason": "Experimental: grind evidence exists, but there is no conformance entry, plugin version contract, or current certification bundle.",
+            "status": "experimental",
+            "supported_versions": {
+                "plugin": "unbound",
+                "range": null
+            },
+            "surfaces": [
+                "options",
+                "options.stellar_schema_version_stellarwp-shepherd-tec-tasks",
+                "options.stellar_schema_version_tec-kv-cache",
+                "options.stellarwp_telemetry",
+                "options.stellarwp_telemetry_last_send",
+                "options.stellarwp_telemetry_the-events-calendar_show_optin",
+                "options.tec_ct1_events_table_schema_version",
+                "options.tec_ct1_migration_state",
+                "options.tec_ct1_occurrences_table_schema_version",
+                "options.tec_timed_tec_custom_tables_v1_initialized",
+                "options.tribe_events_calendar_options",
+                "options.tribe_last_generate_rewrite_rules",
+                "options.tribe_last_save_post",
+                "options.tribe_last_updated_option",
+                "post_meta",
+                "post_meta._EventDuration",
+                "post_meta._EventEndDate",
+                "post_meta._EventEndDateUTC",
+                "post_meta._EventOrganizerID",
+                "post_meta._EventOrigin",
+                "post_meta._EventShowMap",
+                "post_meta._EventShowMapLink",
+                "post_meta._EventStartDate",
+                "post_meta._EventStartDateUTC",
+                "post_meta._EventTimezone",
+                "post_meta._EventTimezoneAbbr",
+                "post_meta._EventVenueID",
+                "post_meta._OrganizerEmail",
+                "post_meta._OrganizerOrigin",
+                "post_meta._OrganizerPhone",
+                "post_meta._VenueAddress",
+                "post_meta._VenueCity",
+                "post_meta._VenueCountry",
+                "post_meta._VenueOrigin",
+                "post_meta._VenuePhone",
+                "post_meta._VenueState",
+                "post_meta._VenueZip",
+                "post_meta._tribe_modified_fields",
+                "post_types",
+                "post_types.tribe_events",
+                "tables",
+                "tables.tec_events",
+                "tables.tec_kv_cache",
+                "tables.tec_occurrences"
+            ],
+            "unsupported": [
+                {
+                    "operation": "promote",
+                    "reason": "No exact version/evidence contract exists.",
+                    "surface": "production"
+                }
+            ]
+        },
+        "woocommerce": {
+            "adapter_digest": "0259c3d699a9c435cab0d2e26990ed34b8f1c55e4d1e79f7423f836f7486e5b1",
+            "authored_state": {
+                "scope": "only the exact registered surfaces and operations below",
+                "status": "certified"
+            },
+            "deletion_semantics": {
+                "supported": [],
+                "unsupported": [
+                    "post:product",
+                    "table:woocommerce_attribute_taxonomies"
+                ]
+            },
+            "environment_assumptions": {
+                "database": {
+                    "engine": "MariaDB",
+                    "max": "12.0.0",
+                    "min": "11.0.0",
+                    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+                },
+                "php": {
+                    "max": "8.4.0",
+                    "min": "8.3.0",
+                    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+                },
+                "site_mode": "single-site",
+                "wordpress": {
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                }
+            },
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": [
+                    "exact-artifact-version-matrix"
+                ]
+            },
+            "lifecycle_phases": [
+                "retire",
+                "activate",
+                "verify"
+            ],
+            "name": "woocommerce",
+            "operations": [
+                "apply",
+                "capture",
+                "compile",
+                "deploy",
+                "plan",
+                "promote",
+                "recapture",
+                "render-api"
+            ],
+            "plugin_execution": {
+                "mode": "unmodified",
+                "status": "verified"
+            },
+            "reason": "Certified product/catalog creation and update, typed-table configuration, option-name reference, HPOS runtime-sovereignty, lifecycle, and explicit fail-closed deletion boundaries.",
+            "status": "certified",
+            "supported_versions": {
+                "plugin": "woocommerce/woocommerce.php",
+                "range": {
+                    "max": "12.0.0",
+                    "min": "11.0.0"
+                }
+            },
+            "surfaces": [
+                "block_attrs",
+                "block_attrs.woocommerce/product-collection",
+                "meta_patterns",
+                "option_name_refs",
+                "option_patterns",
+                "options",
+                "options.woocommerce_all_except_countries",
+                "options.woocommerce_allowed_countries",
+                "options.woocommerce_cart_page_id",
+                "options.woocommerce_checkout_page_id",
+                "options.woocommerce_currency",
+                "options.woocommerce_db_version",
+                "options.woocommerce_default_country",
+                "options.woocommerce_hold_stock_minutes",
+                "options.woocommerce_myaccount_page_id",
+                "options.woocommerce_notify_low_stock_amount",
+                "options.woocommerce_notify_no_stock_amount",
+                "options.woocommerce_placeholder_image",
+                "options.woocommerce_price_num_decimals",
+                "options.woocommerce_refund_returns_page_id",
+                "options.woocommerce_shop_page_id",
+                "options.woocommerce_single_image_width",
+                "options.woocommerce_store_address",
+                "options.woocommerce_store_address_2",
+                "options.woocommerce_store_city",
+                "options.woocommerce_store_postcode",
+                "options.woocommerce_terms_page_id",
+                "options.woocommerce_thumbnail_image_width",
+                "options.woocommerce_trash_cancelled_orders",
+                "options.woocommerce_trash_failed_orders",
+                "options.woocommerce_trash_pending_orders",
+                "options.woocommerce_version",
+                "post_meta",
+                "post_meta._backorders",
+                "post_meta._children",
+                "post_meta._crosssell_ids",
+                "post_meta._default_attributes",
+                "post_meta._download_expiry",
+                "post_meta._download_limit",
+                "post_meta._downloadable",
+                "post_meta._downloadable_files",
+                "post_meta._global_unique_id",
+                "post_meta._height",
+                "post_meta._length",
+                "post_meta._low_stock_amount",
+                "post_meta._manage_stock",
+                "post_meta._price",
+                "post_meta._product_attributes",
+                "post_meta._product_image_gallery",
+                "post_meta._product_version",
+                "post_meta._purchase_note",
+                "post_meta._regular_price",
+                "post_meta._sale_price",
+                "post_meta._sale_price_dates_from",
+                "post_meta._sale_price_dates_to",
+                "post_meta._sku",
+                "post_meta._sold_individually",
+                "post_meta._stock",
+                "post_meta._stock_status",
+                "post_meta._tax_class",
+                "post_meta._tax_status",
+                "post_meta._upsell_ids",
+                "post_meta._used_by",
+                "post_meta._variation_description",
+                "post_meta._virtual",
+                "post_meta._wc_average_rating",
+                "post_meta._wc_rating_count",
+                "post_meta._wc_review_count",
+                "post_meta._weight",
+                "post_meta._width",
+                "post_meta.coupon_amount",
+                "post_meta.customer_email",
+                "post_meta.date_expires",
+                "post_meta.discount_type",
+                "post_meta.exclude_product_categories",
+                "post_meta.exclude_product_ids",
+                "post_meta.exclude_sale_items",
+                "post_meta.expiry_date",
+                "post_meta.free_shipping",
+                "post_meta.individual_use",
+                "post_meta.limit_usage_to_x_items",
+                "post_meta.maximum_amount",
+                "post_meta.minimum_amount",
+                "post_meta.product_categories",
+                "post_meta.product_ids",
+                "post_meta.total_sales",
+                "post_meta.usage_count",
+                "post_meta.usage_limit",
+                "post_meta.usage_limit_per_user",
+                "post_types",
+                "post_types.product",
+                "post_types.product_variation",
+                "post_types.shop_coupon",
+                "post_types.shop_order",
+                "tables",
+                "tables.actionscheduler_actions",
+                "tables.actionscheduler_claims",
+                "tables.actionscheduler_groups",
+                "tables.actionscheduler_logs",
+                "tables.wc_admin_note_actions",
+                "tables.wc_admin_notes",
+                "tables.wc_category_lookup",
+                "tables.wc_customer_lookup",
+                "tables.wc_download_log",
+                "tables.wc_email_unsubscribes",
+                "tables.wc_order_addresses",
+                "tables.wc_order_coupon_lookup",
+                "tables.wc_order_operational_data",
+                "tables.wc_order_product_lookup",
+                "tables.wc_order_stats",
+                "tables.wc_order_tax_lookup",
+                "tables.wc_orders",
+                "tables.wc_orders_meta",
+                "tables.wc_product_attributes_lookup",
+                "tables.wc_product_download_directories",
+                "tables.wc_product_meta_lookup",
+                "tables.wc_rate_limits",
+                "tables.wc_reserved_stock",
+                "tables.wc_tax_rate_classes",
+                "tables.wc_webhooks",
+                "tables.woocommerce_api_keys",
+                "tables.woocommerce_attribute_taxonomies",
+                "tables.woocommerce_downloadable_product_permissions",
+                "tables.woocommerce_log",
+                "tables.woocommerce_order_itemmeta",
+                "tables.woocommerce_order_items",
+                "tables.woocommerce_payment_tokenmeta",
+                "tables.woocommerce_payment_tokens",
+                "tables.woocommerce_sessions",
+                "tables.woocommerce_shipping_zone_locations",
+                "tables.woocommerce_shipping_zone_methods",
+                "tables.woocommerce_shipping_zones",
+                "tables.woocommerce_tax_rate_locations",
+                "tables.woocommerce_tax_rates",
+                "taxonomy_patterns",
+                "term_meta",
+                "term_meta.thumbnail_id"
+            ],
+            "unsupported": [
+                {
+                    "operation": "delete",
+                    "reason": "Product reverse references can live in downloads, subscriptions, order metadata, serialized values, and extension-owned custom tables that the v1 guard grammar cannot close safely.",
+                    "surface": "post_types.product"
+                },
+                {
+                    "operation": "delete",
+                    "reason": "The v1 guard/cascade grammar cannot express WooCommerce global-attribute semantic deletion.",
+                    "surface": "tables.woocommerce_attribute_taxonomies"
+                },
+                {
+                    "operation": "capture",
+                    "reason": "Orders, customers, sessions, stock reservations, and Action Scheduler rows remain runtime-sovereign.",
+                    "surface": "tables.runtime"
+                }
+            ]
+        },
+        "yoast": {
+            "adapter_digest": "94b0640efaab4b53bcbe9774adedc1c5c19ba90e2f2378ee532dc3103e028755",
+            "authored_state": {
+                "scope": "only the exact registered surfaces and operations below",
+                "status": "certified"
+            },
+            "deletion_semantics": {
+                "supported": [],
+                "unsupported": [
+                    "plugin-specific deletes"
+                ]
+            },
+            "environment_assumptions": {
+                "database": {
+                    "engine": "MariaDB",
+                    "max": "12.0.0",
+                    "min": "11.0.0",
+                    "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+                },
+                "php": {
+                    "max": "8.4.0",
+                    "min": "8.3.0",
+                    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+                },
+                "site_mode": "single-site",
+                "wordpress": {
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                }
+            },
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": [
+                    "exact-artifact-version-matrix"
+                ]
+            },
+            "lifecycle_phases": [
+                "retire",
+                "activate",
+                "verify"
+            ],
+            "name": "yoast",
+            "operations": [
+                "apply",
+                "capture",
+                "compile",
+                "deploy",
+                "plan",
+                "promote",
+                "recapture",
+                "render-api"
+            ],
+            "plugin_execution": {
+                "mode": "unmodified",
+                "status": "verified"
+            },
+            "reason": "Certified authored option/meta refs, target-local derived indexables, API/frontend behavior, and exact artifact boundaries.",
+            "status": "certified",
+            "supported_versions": {
+                "plugin": "wordpress-seo/wp-seo.php",
+                "range": {
+                    "max": "29.0.0",
+                    "min": "28.0"
+                }
+            },
+            "surfaces": [
+                "options",
+                "options.wpseo",
+                "options.wpseo_social",
+                "options.wpseo_taxonomy_meta",
+                "options.wpseo_titles",
+                "post_meta",
+                "post_meta._yoast_wpseo_bctitle",
+                "post_meta._yoast_wpseo_canonical",
+                "post_meta._yoast_wpseo_content_score",
+                "post_meta._yoast_wpseo_estimated-reading-time-minutes",
+                "post_meta._yoast_wpseo_focuskw",
+                "post_meta._yoast_wpseo_is_cornerstone",
+                "post_meta._yoast_wpseo_linkdex",
+                "post_meta._yoast_wpseo_meta-robots-adv",
+                "post_meta._yoast_wpseo_meta-robots-nofollow",
+                "post_meta._yoast_wpseo_meta-robots-noindex",
+                "post_meta._yoast_wpseo_metadesc",
+                "post_meta._yoast_wpseo_opengraph-description",
+                "post_meta._yoast_wpseo_opengraph-image",
+                "post_meta._yoast_wpseo_opengraph-image-id",
+                "post_meta._yoast_wpseo_opengraph-title",
+                "post_meta._yoast_wpseo_primary_category",
+                "post_meta._yoast_wpseo_redirect",
+                "post_meta._yoast_wpseo_title",
+                "post_meta._yoast_wpseo_twitter-description",
+                "post_meta._yoast_wpseo_twitter-image",
+                "post_meta._yoast_wpseo_twitter-title",
+                "tables",
+                "tables.yoast_indexable",
+                "tables.yoast_indexable_hierarchy",
+                "tables.yoast_migrations",
+                "tables.yoast_primary_term",
+                "tables.yoast_seo_links"
+            ],
+            "unsupported": [
+                {
+                    "operation": "delete",
+                    "reason": "No Yoast-specific deletion selector is declared.",
+                    "surface": "deletions.*"
+                }
+            ]
+        }
+    },
+    "platform": {
+        "agent_version": "0.5.0",
+        "branchable_state": "only exact certified registry surfaces and operations",
+        "compatibility": {
+            "database": {
+                "engine": "MariaDB",
+                "max": "12.0.0",
+                "min": "11.0.0",
+                "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+            },
+            "php": {
+                "max": "8.4.0",
+                "min": "8.3.0",
+                "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+            },
+            "wordpress": {
+                "last_verified": "7.0.2",
+                "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+            }
+        },
+        "plugin_execution": "unmodified",
+        "site_mode": "single-site",
+        "spec_version": 2
+    },
+    "profiles": {
+        "fse": {
+            "adapter_digest": "56220cf8e8f336a6f9ca6d4352dfcb27838fdf9a76216377d10c800dfcc4d9b0",
+            "evidence": {
+                "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+                "bundle_schema": "duo-certification-bundle/v1",
+                "force_hatches": [],
+                "status": "candidate",
+                "tests": [
+                    "fse-conformance"
+                ]
+            },
+            "manifest": "core",
+            "name": "fse",
+            "reason": "Certified core full-site-editing profile for block themes, templates, template parts, navigation, reusable blocks, and theme taxonomies.",
+            "scope": {
+                "post_types": [
+                    "wp_block",
+                    "wp_navigation",
+                    "wp_template",
+                    "wp_template_part"
+                ],
+                "taxonomies": [
+                    "wp_pattern_category",
+                    "wp_template_part_area",
+                    "wp_theme"
+                ]
+            },
+            "status": "certified",
+            "supported_versions": {
+                "wordpress": {
+                    "source": "bundle.environment_summary.wordpress"
+                }
+            }
+        }
+    }
+}

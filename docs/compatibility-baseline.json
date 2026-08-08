@@ -1,5 +1,5 @@
 {
-  "_comment": "DUO-3222: the ONE project-level WP/PHP/database compatibility statement, per the adversarial review's reshape ruling on this issue -- deliberately NOT a per-adapter field (combinatorial cost, no matching risk; the manifest-treadmill risk DESIGN.md names is plugin-version drift specifically, not core/runtime drift). Consumed by cli/src/Doctor.php's 'compatibility baseline' check (php + database are enforced ranges; wordpress is informational only, see its own note below) so this file is the single source of truth for both the human-readable claim and the machine check -- never two independently-maintained numbers. Ranges are {min inclusive, max exclusive}, matching Policy::version_ranges()'s own convention exactly.",
+  "_comment": "DUO-3222/DUO-3227: the ONE project-level WordPress/PHP/database compatibility statement. PHP and database use min-inclusive/max-exclusive ranges. WordPress remains a single last-verified version because no multi-version core matrix exists; the generated capability registry treats any other target version as unproven and blocks a certified verdict. Doctor reports this baseline and the release/registry evaluator is the authoritative product gate -- never independently-maintained numbers.",
   "php": {
     "min": "8.3.0",
     "max": "8.4.0",
@@ -13,6 +13,6 @@
   },
   "wordpress": {
     "last_verified": "7.0.2",
-    "note": "NOT an enforced range -- the sandbox harness's own wordpress:php8.3-apache image bakes in whatever WordPress core version was current at image-build time; no explicit WP-core version pin exists anywhere in this project's Docker tags. This field records what conformance was last actually run against, for honesty, not a claimed compatibility floor/ceiling. A real WP-core version range is a future decision (DUO-3224/3225's territory, once per-version compatibility evidence exists), not invented here without evidence."
+    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
   }
 }

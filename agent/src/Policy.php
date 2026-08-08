@@ -7,13 +7,15 @@ namespace Duo;
  * and unclassified is a loud abort at the call sites (never a silent guess).
  */
 final class Policy {
-    private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v2';
+    private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v3';
 
     public array $site = [];
     /** @var array<int, array> */
     public array $manifests = [];
     /** External review state; null for legacy/custom manifest directories without a registry. */
     private ?ManifestDispositions $manifestDispositions = null;
+    /** Generated evidence/platform projection of the reviewed dispositions. */
+    private ?CapabilityRegistry $capabilityRegistry = null;
     /** @var array<string, object>|null lazily-built interpreter instances */
     private ?array $interpreterInstances = null;
     /** @var array<string, object>|null lazily-built regenerator instances (DUO-3234) */
@@ -76,8 +78,14 @@ final class Policy {
         }
     }
 
-    public static function load(?string $repo, ?array $manifestNames = null): self {
-        self::assert_single_site();
+    public static function load(
+        ?string $repo,
+        ?array $manifestNames = null,
+        bool $allowUnsupportedSiteForReadOnlyCapabilities = false
+    ): self {
+        if (!$allowUnsupportedSiteForReadOnlyCapabilities) {
+            self::assert_single_site();
+        }
         $p = new self();
         if ($repo !== null) {
             $siteFile = rtrim($repo, '/') . '/site.duo.json';
@@ -127,6 +135,19 @@ final class Policy {
         self::validate_no_overlapping_option_name_refs($p->manifests);
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_manifest_pins($pins, $p);
+        if ($p->manifestDispositions !== null && class_exists(CapabilityRegistry::class)) {
+            $p->capabilityRegistry = CapabilityRegistry::load(
+                $dir,
+                $p->manifestDispositions,
+                $p->manifests
+            );
+            if ($p->capabilityRegistry === null) {
+                throw new \RuntimeException(
+                    "duo: $dir has manifest dispositions but no generated capability registry; "
+                    . 'missing registry data is unsupported'
+                );
+            }
+        }
         return $p;
     }
 
@@ -142,6 +163,7 @@ final class Policy {
             'site' => $this->site,
             'manifests' => $this->manifests,
             'dispositions' => $this->manifestDispositions?->data(),
+            'capabilities' => $this->capabilityRegistry?->data(),
         ];
     }
 
@@ -150,7 +172,7 @@ final class Policy {
         self::assert_single_site();
         $keys = array_keys($snapshot);
         sort($keys, SORT_STRING);
-        if ($keys !== ['dispositions', 'format', 'manifests', 'site']
+        if ($keys !== ['capabilities', 'dispositions', 'format', 'manifests', 'site']
             || ($snapshot['format'] ?? null) !== self::SNAPSHOT_FORMAT
             || !is_array($snapshot['site'] ?? null)
             || !is_array($snapshot['manifests'] ?? null)
@@ -200,6 +222,20 @@ final class Policy {
             }
             $p->manifestDispositions = ManifestDispositions::from_snapshot($dispositions, $p->manifests);
         }
+        $capabilities = $snapshot['capabilities'] ?? null;
+        if ($capabilities !== null) {
+            if (!is_array($capabilities) || $p->manifestDispositions === null
+                || !class_exists(CapabilityRegistry::class)) {
+                throw new \RuntimeException('duo: frozen policy snapshot capability registry is unavailable or malformed');
+            }
+            $p->capabilityRegistry = CapabilityRegistry::from_snapshot(
+                $capabilities,
+                $p->manifestDispositions,
+                $p->manifests
+            );
+        } elseif ($p->manifestDispositions !== null) {
+            throw new \RuntimeException('duo: frozen policy snapshot has dispositions but no capability registry');
+        }
         self::validate_no_conflicting_option_rules(
             $p->manifests,
             $p->site['policy']['options'] ?? []
@@ -215,16 +251,36 @@ final class Policy {
         return $this->manifestDispositions?->entry($name);
     }
 
+    /** The generated evidence-bound claim for one pinned adapter. */
+    public function capability_claim(string $name): ?array {
+        return $this->capabilityRegistry?->claim($name);
+    }
+
     /** Non-certified pinned adapters are a structured readiness blocker. */
     public function adapter_readiness_blockers(): array {
-        return $this->manifestDispositions?->blockers($this->manifests) ?? [];
+        if ($this->manifestDispositions === null) {
+            return [];
+        }
+        if ($this->capabilityRegistry === null) {
+            return [[
+                'name' => 'registry',
+                'status' => 'unsupported',
+                'code' => 'missing_capability_registry',
+                'reason' => 'manifest dispositions exist but the generated capability registry is absent',
+            ]];
+        }
+        return $this->capabilityRegistry->blockers(
+            $this->manifests,
+            ['operation' => 'promote'],
+            CapabilityRegistry::probe_target()
+        );
     }
 
     /** Resolve CLI capability output from the same manifests and external review bytes. */
-    public function capability_report(): array {
-        if ($this->manifestDispositions === null) {
+    public function capability_report(array $query = []): array {
+        if ($this->manifestDispositions === null || $this->capabilityRegistry === null) {
             return [
-                'schema_version' => ManifestDispositions::FORMAT,
+                'schema_version' => CapabilityRegistry::FORMAT,
                 'registry_sha256' => null,
                 'ready' => false,
                 'blockers' => [[
@@ -236,7 +292,11 @@ final class Policy {
                 'profiles' => new \stdClass(),
             ];
         }
-        return $this->manifestDispositions->report($this->manifests);
+        return $this->capabilityRegistry->report(
+            $this->manifests,
+            $query,
+            CapabilityRegistry::probe_target()
+        );
     }
 
     /**

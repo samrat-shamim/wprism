@@ -29,8 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: full offline regress corpus (33 suites, no docker)
+      - name: full offline regress corpus (54 suites, no docker)
         run: make regress-offline-all
+
+      - name: evidence freshness and generated product claims
+        run: make release-gate
 
   code-half-live-lock:
     runs-on: ubuntu-latest

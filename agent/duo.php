@@ -22,6 +22,7 @@ require_once __DIR__ . '/src/WooCommerceContract.php';
 require_once __DIR__ . '/src/Secrets.php';
 require_once __DIR__ . '/src/PersonalData.php';
 require_once __DIR__ . '/src/ManifestDispositions.php';
+require_once __DIR__ . '/src/CapabilityRegistry.php';
 require_once __DIR__ . '/src/Policy.php';
 require_once __DIR__ . '/src/Ledger.php';
 require_once __DIR__ . '/src/PromotionLock.php';

@@ -10,6 +10,7 @@ require __DIR__ . '/../../agent/src/Canon.php';
 require __DIR__ . '/../../agent/src/OptionState.php';
 require __DIR__ . '/../../agent/src/Db.php';
 require __DIR__ . '/../../agent/src/ManifestDispositions.php';
+require __DIR__ . '/../../agent/src/CapabilityRegistry.php';
 require __DIR__ . '/../../agent/src/Policy.php';
 require __DIR__ . '/../../agent/src/Ledger.php';
 require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
@@ -18,6 +19,7 @@ require __DIR__ . '/../../cli/src/CodeDeploy.php';
 
 use Duo\Canon;
 use Duo\ManifestDispositions;
+use Duo\CapabilityRegistry;
 use Duo\Policy;
 use Duo\RepositoryCompiler;
 use Duo\Orchestrator\CodeDeploy;
@@ -72,6 +74,7 @@ $manifestFiles = array_values(array_filter(
     fn(string $path): bool => basename($path) !== 'dispositions.json'
 ));
 $manifests = array_map(fn(string $path): array => Canon::decode(Canon::read_file($path)), $manifestFiles);
+$capabilityRegistry = CapabilityRegistry::load($manifestDir, $registry, $manifests);
 
 echo "\n== complete external matrix and honest classifications ==\n";
 check(count($data['manifests']) === count($manifestFiles), 'every shipped manifest has exactly one external disposition');
@@ -100,10 +103,19 @@ foreach ($data['profiles'] as $name => $entry) {
     }
 }
 $corePolicy = Policy::load(null, ['core']);
-check($corePolicy->adapter_readiness_blockers() === [], 'a certified core pin contributes no disposition blocker');
+$coreBlockers = $corePolicy->adapter_readiness_blockers();
+if (($capabilityRegistry->data()['evidence']['status'] ?? null) === 'current') {
+    check($coreBlockers === [], 'a certified core pin with current evidence contributes no capability blocker');
+} else {
+    check(($coreBlockers[0]['code'] ?? null) === 'evidence_not_current', 'candidate evidence remains a structured readiness blocker');
+}
 $pmproPolicy = Policy::load(null, ['paid-memberships-pro']);
 $pmproBlockers = $pmproPolicy->adapter_readiness_blockers();
-check(($pmproBlockers[0]['status'] ?? null) === 'experimental', 'an experimental pin is a structured readiness blocker');
+$pmproAuthoredBlocker = array_values(array_filter(
+    $pmproBlockers,
+    fn(array $row): bool => ($row['code'] ?? null) === 'authored_state_not_certified'
+));
+check(($pmproAuthoredBlocker[0]['name'] ?? null) === 'paid-memberships-pro', 'an experimental pin is a structured readiness blocker');
 check($pmproPolicy->capability_report()['ready'] === false, 'experimental capability output can never report ready');
 
 echo "\n== intent-only tables and default-authored keyspaces remain unsupported/justified ==\n";
@@ -125,16 +137,29 @@ check(
 );
 $fixture = sys_get_temp_dir() . '/duo_dispositions_' . bin2hex(random_bytes(5));
 mkdir($fixture, 0777, true);
+mkdir($fixture . '/capabilities', 0777, true);
 register_shutdown_function(fn() => remove_fixture_tree($fixture));
 copy($manifestDir . '/core.json', $fixture . '/core.json');
 $coreRegistry = $data;
 $coreRegistry['manifests'] = ['core' => $data['manifests']['core']];
 $coreRegistry['profiles'] = [];
 Canon::write_file($fixture . '/dispositions.json', Canon::encode($coreRegistry));
+$coreCapabilities = $capabilityRegistry->data();
+$coreCapabilities['manifests'] = ['core' => $coreCapabilities['manifests']['core']];
+$coreCapabilities['profiles'] = [];
+$coreCapabilities['generated_from']['dispositions_sha256'] = hash_file('sha256', $fixture . '/dispositions.json');
+Canon::write_file($fixture . '/capabilities/registry.json', Canon::encode($coreCapabilities));
 putenv("DUO_MANIFESTS_DIR=$fixture");
 $before = RepositoryCompiler::resolved_adapters(Policy::load(null, ['core']))[0]['digest'];
 $coreRegistry['manifests']['core']['reason'] .= ' Reviewed wording change.';
 Canon::write_file($fixture . '/dispositions.json', Canon::encode($coreRegistry));
+$coreCapabilities['generated_from']['dispositions_sha256'] = hash_file('sha256', $fixture . '/dispositions.json');
+$coreCapabilities['manifests']['core']['adapter_digest'] = CapabilityRegistry::adapter_digest(
+    Canon::decode(Canon::read_file($fixture . '/core.json')),
+    $coreRegistry['manifests']['core'],
+    $fixture
+);
+Canon::write_file($fixture . '/capabilities/registry.json', Canon::encode($coreCapabilities));
 $after = RepositoryCompiler::resolved_adapters(Policy::load(null, ['core']))[0]['digest'];
 check($before !== $after, 'changing only disposition bytes moves the per-adapter digest');
 
@@ -146,9 +171,9 @@ WP_CLI::$lines = [];
 (new Duo\Cli())->capabilities([], ['all' => true, 'format' => 'json']);
 $cliReport = json_decode(WP_CLI::$lines[0] ?? '', true);
 check(count($cliReport['manifests'] ?? []) === 15, 'wp duo capabilities --all reports every shipped disposition');
-check(($cliReport['registry_sha256'] ?? null) === $registry->report($manifests)['registry_sha256'], 'CLI capability output resolves the exact checked-in registry bytes');
+check(($cliReport['registry_sha256'] ?? null) === $capabilityRegistry->report($manifests)['registry_sha256'], 'CLI capability output resolves the exact checked-in generated registry bytes');
 $summary = PlanSummary::render(['adapter_dispositions' => $pmproBlockers]);
-check($summary['ok'] === false && str_contains(implode("\n", $summary['lines']), 'ADAPTER_DISPOSITION'), 'host status is non-green and explains the experimental adapter');
+check($summary['ok'] === false && str_contains(implode("\n", $summary['lines']), 'CAPABILITY_REGISTRY'), 'host status is non-green and explains the experimental adapter');
 $hostBlockers = CodeDeploy::dispositionBlockers(['resolved_adapters' => RepositoryCompiler::resolved_adapters($pmproPolicy)]);
 check(($hostBlockers[0]['name'] ?? null) === 'paid-memberships-pro', 'host promotion gate refuses the same experimental disposition');
 

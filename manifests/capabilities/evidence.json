@@ -1,0 +1,40 @@
+{
+  "bound_inputs": [],
+  "bundle_digest": "94310412574f11b409b82dc7a20b4a05f538f9352eca0a5125d59162622fba3b",
+  "bundle_schema": "duo-certification-bundle/v1",
+  "created_at": "2026-08-08T10:00:00Z",
+  "environment_summary": {
+    "database_client": "11.8.8",
+    "database_server": "11.8.8-MariaDB",
+    "multisite": false,
+    "php": "8.3.33",
+    "wordpress": "7.0.2"
+  },
+  "force_hatches": [],
+  "format": "duo-capability-evidence/v1",
+  "git_revision": "64504c99568595c76dcf5005394a1b6fc4988ada",
+  "harness": {
+    "name": "duo-reference-certification",
+    "version": 1
+  },
+  "ratification": {},
+  "status": "candidate",
+  "tests": [
+    {
+      "id": "core-conformance",
+      "verdict": "pass"
+    },
+    {
+      "id": "fse-conformance",
+      "verdict": "pass"
+    },
+    {
+      "id": "multisite-refusal",
+      "verdict": "pass"
+    },
+    {
+      "id": "exact-artifact-version-matrix",
+      "verdict": "pass"
+    }
+  ]
+}
