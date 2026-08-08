@@ -204,7 +204,11 @@ BOUND_INPUTS=$({ git -C "$REPO_ROOT" ls-files \
   agent cli manifests sandbox/bin sandbox/conformance \
   sandbox/tests/certify_reference_bundle.sh \
   sandbox/tests/certify_version_matrix.sh \
-  sandbox/tests/regress_multisite_refusal.sh; printf '%s\n' manifests/dispositions.json; } | sort -u | jq -R . | jq -s .)
+  sandbox/tests/regress_multisite_refusal.sh \
+  scripts/capability-registry.php docs/compatibility-baseline.json \
+  DESIGN.md spec/repo-format.md Makefile .github/workflows/conformance.yml; \
+  printf '%s\n' manifests/dispositions.json; } \
+  | grep -v '^manifests/capabilities/' | sort -u | jq -R . | jq -s .)
 ARTIFACTS=$(jq '[to_entries[] as $slug | $slug.value | to_entries[] | {name:$slug.key,version:.key,url:.value.url,sha256:.value.sha256}]' conformance/artifacts.lock.json)
 CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 GIT_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
@@ -218,7 +222,7 @@ jq -n \
   --arg matrix_result "$WORK_ROOT/exact-artifact-version-matrix.result.json" --arg matrix_diff "$WORK_ROOT/exact-artifact-version-matrix.diff.json" --arg matrix_log "$MATRIX_LOG" \
   '{
     repo_root:$repo_root,created_at:$created_at,git_revision:$git_revision,
-    harness:{name:"duo-reference-certification",version:1},force_hatches:[],
+    harness:{name:"duo-reference-certification",version:2},force_hatches:[],
     environment:$environment,ratification:$ratification,bound_inputs:$bound_inputs,artifacts:$artifacts,
     tests:[
       {id:"core-conformance",result:$core_result,diff:$core_diff,log:$core_log},

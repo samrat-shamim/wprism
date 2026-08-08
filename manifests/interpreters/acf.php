@@ -1,8 +1,6 @@
 <?php
 namespace Duo\Interpreters;
 
-require_once __DIR__ . '/../../agent/src/PlainData.php';
-
 use Duo\Policy;
 use Duo\PlainData;
 

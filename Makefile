@@ -17,7 +17,8 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-coverage-offline regress-coverage regress-classification-batch \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions \
-	regress-post-field-classification regress-woocommerce-contract
+	regress-post-field-classification regress-capability-registry regress-woocommerce-contract \
+	capability-registry-generate release-gate
 
 up:
 	$(COMPOSE) up -d
@@ -264,6 +265,17 @@ regress-certification-bundle:
 
 regress-manifest-dispositions:
 	bash sandbox/tests/regress_manifest_dispositions.sh
+
+regress-capability-registry:
+	bash sandbox/tests/regress_capability_registry.sh
+
+capability-registry-generate:
+	php scripts/capability-registry.php generate
+
+# Product release gate: current content-addressed evidence, exact generated
+# registry, and every generated public compatibility claim must agree.
+release-gate:
+	php scripts/capability-registry.php check
 
 regress-multisite-refusal:
 	bash sandbox/tests/regress_multisite_refusal.sh
@@ -632,7 +644,7 @@ regress-user-meta:
 # suites, followed by lifecycle/rebuilder effect contracts and DUO-3299's
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all: code-half-unit \
-	regress-capture-publish regress-adapter-contract regress-manifest-dispositions regress-certification-bundle regress-interpreter-policy \
+	regress-capture-publish regress-adapter-contract regress-manifest-dispositions regress-capability-registry regress-certification-bundle regress-interpreter-policy \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan \
 	regress-order-preserving \
 	regress-block-refs regress-composite-ref regress-doctor-env-values \
@@ -646,8 +658,8 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-pair-bootstrap-unit \
 	regress-post-field-classification \
-	regress-ssh-rollback-certification regress-woocommerce-contract
-	@echo "regress-offline-all: 59 offline suites green"
+	regress-ssh-rollback-certification regress-capability-registry regress-woocommerce-contract
+	@echo "regress-offline-all: 60 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

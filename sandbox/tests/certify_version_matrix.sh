@@ -296,7 +296,10 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # (WooCommerce product_visibility exposed this), turning harmless stale
   # residue into a real out-of-scope reference. Rebind the core option to the
   # actual category that site empty retained/recreated before installing the
-  # next exact artifact.
+  # next exact artifact. Polylang can make a translated category (for example
+  # uncategorized-en) the target's default. `site empty` then correctly keeps
+  # that term, so after rebinding delete every other category: at this reset
+  # boundary any survivor is cross-case contamination, not fixture content.
   "$cli" eval '
     $category = get_term_by("slug", "uncategorized", "category");
     if (!$category) {
@@ -306,6 +309,15 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
     }
     if (!$category || is_wp_error($category)) { throw new RuntimeException("version-matrix reset could not restore default category"); }
     update_option("default_category", (int) $category->term_id);
+    $survivors = get_terms(["taxonomy" => "category", "hide_empty" => false]);
+    if (is_wp_error($survivors)) { throw new RuntimeException($survivors->get_error_message()); }
+    foreach ($survivors as $term) {
+      if ((int) $term->term_id === (int) $category->term_id) { continue; }
+      $deleted = wp_delete_term((int) $term->term_id, "category");
+      if (is_wp_error($deleted) || $deleted === false) {
+        throw new RuntimeException("version-matrix reset could not remove residual category " . $term->slug);
+      }
+    }
   ' >/dev/null
   local plugin
   for plugin in advanced-custom-fields contact-form-7 elementor ninja-forms polylang woocommerce wordpress-seo; do

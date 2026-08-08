@@ -403,8 +403,9 @@ final class Cli {
         }
         foreach ($plan['adapter_dispositions'] ?? [] as $r) {
             WP_CLI::line(
-                'ADAPTER_' . strtoupper((string) ($r['status'] ?? 'unreviewed')) . ' '
-                . ($r['name'] ?? '?') . ': ' . ($r['reason'] ?? 'not certified')
+                'CAPABILITY_' . strtoupper((string) ($r['status'] ?? 'unsupported')) . ' '
+                . ($r['name'] ?? '?') . ' [' . ($r['code'] ?? 'not_certified') . ']: '
+                . ($r['reason'] ?? 'not certified')
             );
         }
         // regen_pending (DUO-3234, design review addition 1): a derived
@@ -476,7 +477,7 @@ final class Cli {
             WP_CLI::warning('regen_pending markers outstanding — the next duo apply will retry them automatically');
         }
         if (!empty($plan['adapter_dispositions'])) {
-            WP_CLI::warning('non-certified adapter disposition(s) selected — readiness is not green and host promotion will refuse');
+            WP_CLI::warning('capability registry blocker(s) selected — readiness is not green and host promotion will refuse');
         }
         if (!empty($plan['missing_user'])) {
             WP_CLI::warning('required exact login(s) missing — duo apply will refuse before target mutation');
@@ -1293,6 +1294,9 @@ final class Cli {
      * ## OPTIONS
      * [--repo=<path>] : Site repository whose manifest pins should be resolved.
      * [--all] : Report every shipped manifest instead of a site repository.
+     * [--operation=<operation>] : Capability to evaluate. Defaults to promote.
+     * [--surface=<surface>] : Exact registry surface to evaluate.
+     * [--revision=<sha>] : Exact evidence-bound platform revision to evaluate.
      * [--format=<format>] : Output format. Accepts json.
      */
     public function capabilities($args, $assoc) {
@@ -1301,11 +1305,19 @@ final class Cli {
         if ($all && $repo !== null) {
             WP_CLI::error('--all and --repo are mutually exclusive');
         }
+        $query = [
+            'operation' => isset($assoc['operation']) ? (string) $assoc['operation'] : 'promote',
+        ];
+        foreach (['surface', 'revision'] as $key) {
+            if (isset($assoc[$key])) {
+                $query[$key] = (string) $assoc[$key];
+            }
+        }
         try {
             if ($all) {
                 $dir = Policy::manifests_dir();
-                $registry = ManifestDispositions::load($dir);
-                if ($registry === null) {
+                $dispositions = ManifestDispositions::load($dir);
+                if ($dispositions === null) {
                     throw new \RuntimeException("duo: $dir has no external manifest disposition registry");
                 }
                 $manifests = [];
@@ -1314,12 +1326,16 @@ final class Cli {
                         $manifests[] = Canon::decode(Canon::read_file($file));
                     }
                 }
-                $report = $registry->report($manifests);
+                $registry = CapabilityRegistry::load($dir, $dispositions, $manifests);
+                if ($registry === null) {
+                    throw new \RuntimeException("duo: $dir has no generated capability registry");
+                }
+                $report = $registry->report($manifests, $query, null);
             } else {
                 if ($repo === null || $repo === '') {
                     WP_CLI::error('--repo required unless --all is used');
                 }
-                $report = Policy::load($repo)->capability_report();
+                $report = Policy::load($repo, null, true)->capability_report($query);
             }
         } catch (\Throwable $t) {
             WP_CLI::error($t->getMessage());
@@ -1329,24 +1345,30 @@ final class Cli {
             return;
         }
         foreach ($report['manifests'] as $row) {
-            WP_CLI::line('CAPABILITY ' . $row['name'] . ' ' . strtoupper((string) $row['status']));
+            $verdict = (string) ($row['verdict']['status'] ?? $row['status'] ?? 'unsupported');
+            WP_CLI::line('CAPABILITY ' . $row['name'] . ' ' . strtoupper($verdict));
             WP_CLI::line('  reason: ' . $row['reason']);
             WP_CLI::line('  supported_versions: ' . trim(Canon::encode($row['supported_versions'])));
-            WP_CLI::line('  entities: ' . trim(Canon::encode($row['entities'])));
-            WP_CLI::line('  fields: ' . trim(Canon::encode($row['fields'])));
-            WP_CLI::line('  operations: ' . implode(', ', $row['capabilities']['operations']));
-            WP_CLI::line('  lifecycle: ' . implode(', ', $row['capabilities']['lifecycle_phases']));
-            WP_CLI::line('  deletion: ' . trim(Canon::encode($row['capabilities']['deletion_semantics'])));
+            WP_CLI::line('  plugin_execution: ' . trim(Canon::encode($row['plugin_execution'])));
+            WP_CLI::line('  authored_state: ' . trim(Canon::encode($row['authored_state'])));
+            WP_CLI::line('  adapter_digest: ' . ($row['adapter_digest'] ?? 'none'));
+            WP_CLI::line('  evidence_bundle: ' . ($row['evidence']['bundle_digest'] ?? 'none'));
+            WP_CLI::line('  operations: ' . implode(', ', $row['operations'] ?? []));
+            WP_CLI::line('  surfaces: ' . implode(', ', $row['surfaces'] ?? []));
             foreach ($row['unsupported'] as $unsupported) {
                 WP_CLI::line(
                     '  unsupported: ' . $unsupported['surface'] . ' / ' . $unsupported['operation']
                     . ' — ' . $unsupported['reason']
                 );
             }
+            foreach ($row['verdict']['reasons'] ?? [] as $reason) {
+                WP_CLI::line('  blocked: ' . ($reason['code'] ?? 'unknown') . ' — ' . ($reason['message'] ?? ''));
+            }
         }
         foreach ($report['profiles'] as $name => $profile) {
             WP_CLI::line('PROFILE ' . $name . ' ' . strtoupper((string) $profile['status']));
         }
+        WP_CLI::line('evidence bundle: ' . ($report['evidence']['bundle_digest'] ?? 'none'));
         WP_CLI::line('registry sha256: ' . ($report['registry_sha256'] ?? 'none'));
     }
 }

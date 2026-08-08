@@ -22,8 +22,9 @@ $root = dirname(__DIR__, 2);
 $manifest = json_decode((string) file_get_contents($root . '/manifests/woocommerce.json'), true, flags: JSON_THROW_ON_ERROR);
 $dispositions = json_decode((string) file_get_contents($root . '/manifests/dispositions.json'), true, flags: JSON_THROW_ON_ERROR);
 $policy = Policy::from_snapshot([
+    'capabilities' => null,
     'dispositions' => null,
-    'format' => 'duo-policy-snapshot/v2',
+    'format' => 'duo-policy-snapshot/v3',
     'manifests' => [$manifest],
     'site' => ['manifests' => ['woocommerce'], 'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []], 'spec_version' => DUO_SPEC_VERSION],
 ]);

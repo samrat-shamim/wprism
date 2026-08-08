@@ -1,0 +1,855 @@
+{
+    "bundle": {
+        "artifacts": [
+            {
+                "name": "advanced-custom-fields",
+                "sha256": "66499016b3864e507139be16319ef9c5026a399a4b1e7630c75eee4bfe3122a6",
+                "url": "https://downloads.wordpress.org/plugin/advanced-custom-fields.5.12.6.zip",
+                "version": "5.12.6"
+            },
+            {
+                "name": "advanced-custom-fields",
+                "sha256": "b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341",
+                "url": "https://downloads.wordpress.org/plugin/advanced-custom-fields.6.0.0.zip",
+                "version": "6.0.0"
+            },
+            {
+                "name": "advanced-custom-fields",
+                "sha256": "f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2",
+                "url": "https://downloads.wordpress.org/plugin/advanced-custom-fields.6.8.7.zip",
+                "version": "6.8.7"
+            },
+            {
+                "name": "contact-form-7",
+                "sha256": "357b13dab0e2b9996444664c95bd7ee7ca49fb18aced65db4c40c747543afcf4",
+                "url": "https://downloads.wordpress.org/plugin/contact-form-7.5.9.8.zip",
+                "version": "5.9.8"
+            },
+            {
+                "name": "contact-form-7",
+                "sha256": "23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6",
+                "url": "https://downloads.wordpress.org/plugin/contact-form-7.6.0.1.zip",
+                "version": "6.0.1"
+            },
+            {
+                "name": "contact-form-7",
+                "sha256": "e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e",
+                "url": "https://downloads.wordpress.org/plugin/contact-form-7.6.1.6.zip",
+                "version": "6.1.6"
+            },
+            {
+                "name": "elementor",
+                "sha256": "90a41a7b76980e611619ff19daf4e89dc170c7608da18fcb8bb1fed266eb40cc",
+                "url": "https://downloads.wordpress.org/plugin/elementor.3.35.9.zip",
+                "version": "3.35.9"
+            },
+            {
+                "name": "elementor",
+                "sha256": "75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2",
+                "url": "https://downloads.wordpress.org/plugin/elementor.4.0.0.zip",
+                "version": "4.0.0"
+            },
+            {
+                "name": "elementor",
+                "sha256": "4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db",
+                "url": "https://downloads.wordpress.org/plugin/elementor.4.2.2.zip",
+                "version": "4.2.2"
+            },
+            {
+                "name": "ninja-forms",
+                "sha256": "54fc48a030a85d4929fe4c3dc364affdd996e1add175f42a5d1f90c08a43682f",
+                "url": "https://downloads.wordpress.org/plugin/ninja-forms.3.3.21.4.zip",
+                "version": "3.3.21.4"
+            },
+            {
+                "name": "ninja-forms",
+                "sha256": "a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687",
+                "url": "https://downloads.wordpress.org/plugin/ninja-forms.3.4.34.2.zip",
+                "version": "3.4.34.2"
+            },
+            {
+                "name": "ninja-forms",
+                "sha256": "82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73",
+                "url": "https://downloads.wordpress.org/plugin/ninja-forms.3.14.11.zip",
+                "version": "3.14.11"
+            },
+            {
+                "name": "polylang",
+                "sha256": "adf4ac84fe0f10a326a7e6cad9453075bfe02eb99286f9c8f57259787914c9ab",
+                "url": "https://downloads.wordpress.org/plugin/polylang.3.4.5.zip",
+                "version": "3.4.5"
+            },
+            {
+                "name": "polylang",
+                "sha256": "3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1",
+                "url": "https://downloads.wordpress.org/plugin/polylang.3.5.zip",
+                "version": "3.5"
+            },
+            {
+                "name": "polylang",
+                "sha256": "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa",
+                "url": "https://downloads.wordpress.org/plugin/polylang.3.8.6.zip",
+                "version": "3.8.6"
+            },
+            {
+                "name": "woocommerce",
+                "sha256": "6e58fc3ba9b18d1c9aee6b0227d3c3c09e4fe2c1332823bd2e0ac54ffcff64a9",
+                "url": "https://downloads.wordpress.org/plugin/woocommerce.10.9.4.zip",
+                "version": "10.9.4"
+            },
+            {
+                "name": "woocommerce",
+                "sha256": "ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666",
+                "url": "https://downloads.wordpress.org/plugin/woocommerce.11.0.0.zip",
+                "version": "11.0.0"
+            },
+            {
+                "name": "wordpress-seo",
+                "sha256": "eaca8321b8816da3541427b0b6774a5266a0f4ba8f9503f01ae056c0d8282052",
+                "url": "https://downloads.wordpress.org/plugin/wordpress-seo.27.9.zip",
+                "version": "27.9"
+            },
+            {
+                "name": "wordpress-seo",
+                "sha256": "348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f",
+                "url": "https://downloads.wordpress.org/plugin/wordpress-seo.28.0.zip",
+                "version": "28.0"
+            },
+            {
+                "name": "wordpress-seo",
+                "sha256": "f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23",
+                "url": "https://downloads.wordpress.org/plugin/wordpress-seo.28.2.zip",
+                "version": "28.2"
+            }
+        ],
+        "bound_inputs": [
+            {
+                "path": ".github/workflows/conformance.yml",
+                "sha256": "7414b89fb9ecf246796f2161df3df17f43d59c498d3bb0dc34a9fbf89fac6b75",
+                "size": 2889
+            },
+            {
+                "path": "DESIGN.md",
+                "sha256": "e567e9c1e45b3057e5e86977b61a84bc3b34a7fb290f50762cc5cbcc5cb1a604",
+                "size": 31312
+            },
+            {
+                "path": "Makefile",
+                "sha256": "463b90f691ad1d593634c2e376ba1cfa3652ff25601bf3f234919e07ab6411a8",
+                "size": 34630
+            },
+            {
+                "path": "agent/duo-loader.php",
+                "sha256": "6dd9ac8e080e32ebe6086e1782fa0d009c1cafb84bb8e55a8f88afa9ea0f4d29",
+                "size": 235
+            },
+            {
+                "path": "agent/duo.php",
+                "sha256": "249a619dcaa35bcd1629f3ed1eac158582eecd018a3905337e13eeee7f7110fe",
+                "size": 3193
+            },
+            {
+                "path": "agent/src/Apply.php",
+                "sha256": "d2a0084bc120fa7c4dc650e917d5dc46620990a92ad5b7187e54eff4287438eb",
+                "size": 257088
+            },
+            {
+                "path": "agent/src/Blocks.php",
+                "sha256": "9f399c17e86bb9c1976bb3a8197b6834c713a8bc7386373baf7b290d69932d64",
+                "size": 18325
+            },
+            {
+                "path": "agent/src/Canary.php",
+                "sha256": "2f625349dfa5a4995b85a8b7e7ff06594b39c8f7ef084e5396f92212f72e5bb0",
+                "size": 5181
+            },
+            {
+                "path": "agent/src/Canon.php",
+                "sha256": "7a0905c68614c905631bf1ddac962d65e54e728d6917ec5a5836aa85ab4defd8",
+                "size": 10024
+            },
+            {
+                "path": "agent/src/CapabilityRegistry.php",
+                "sha256": "667c6bf230fb1d63d7738b083c620ebacfdb987f482a630274f507cf881637e5",
+                "size": 22907
+            },
+            {
+                "path": "agent/src/Capture.php",
+                "sha256": "79a248c50e694815d34e80c2e1184b0b2b81a68d47fbe5fa27b5217a573fd7f6",
+                "size": 164677
+            },
+            {
+                "path": "agent/src/Cli.php",
+                "sha256": "c7c4faa818693c2a73278a3f8903f531e2fa37d184f4afccabe08a7e7302db24",
+                "size": 65974
+            },
+            {
+                "path": "agent/src/Code.php",
+                "sha256": "ed417684e6554e012144077715c094e1b04f777af8b928ff13bbe1c36b68c192",
+                "size": 87126
+            },
+            {
+                "path": "agent/src/CodeCompatibility.php",
+                "sha256": "14136ee36a06465bfcd10fe6f9fad4ff80d042fe258f275da7c429f5894d8694",
+                "size": 21231
+            },
+            {
+                "path": "agent/src/CodeStateContract.php",
+                "sha256": "7bb9177c93ebb4d84691ed0b05bdc42fe88ac4b8eed7d43b4e295f2a979d6674",
+                "size": 8882
+            },
+            {
+                "path": "agent/src/Coverage.php",
+                "sha256": "9c0e83cb62b05ec95a899f2f8d78f3172310e9296e00aaec4537ebce6b01250c",
+                "size": 11686
+            },
+            {
+                "path": "agent/src/Db.php",
+                "sha256": "98e6bb66feed17659dabf3564433a523c16ac80b928e14004de7793fd9f3aeb9",
+                "size": 4752
+            },
+            {
+                "path": "agent/src/Deletion.php",
+                "sha256": "665540bc03eef9ba2e483b2432c03aceef8c2193ba6c4440add43d2c0f692625",
+                "size": 5597
+            },
+            {
+                "path": "agent/src/Deploy.php",
+                "sha256": "efb00fdd51a978d4c92f8a1ab65fed9b6948c22bf386fcd7316274ceb4ce1cfe",
+                "size": 71483
+            },
+            {
+                "path": "agent/src/Identity.php",
+                "sha256": "1b763b162e565aa11922563adfcd9353a2858722f1c90daf0f94ed3c9af02288",
+                "size": 3723
+            },
+            {
+                "path": "agent/src/IdentityBackup.php",
+                "sha256": "592686b1c9244931ab984ee5b222f9fe48c1a5d976ebd2d0ea749ca960795e3c",
+                "size": 16817
+            },
+            {
+                "path": "agent/src/IdentityNotes.php",
+                "sha256": "67c25d363ff67d3c2f9cf642d2bfcf644e0ceb4ecd6df84f4dda2c12ff9fedd0",
+                "size": 1327
+            },
+            {
+                "path": "agent/src/Journal.php",
+                "sha256": "5c3dfaf0a63256acd918b3ab3688775b3f59ce93a5e219f1abbe1d49504def21",
+                "size": 10997
+            },
+            {
+                "path": "agent/src/JsonRefs.php",
+                "sha256": "7b58d103fde21d8ce6ea7e02da562b283f1e213a20d5625b7294db8c7383ce16",
+                "size": 8029
+            },
+            {
+                "path": "agent/src/Ledger.php",
+                "sha256": "adf50a4ae41cabf8727097a40c46404cbba7b34e686efccb535674334408e1bc",
+                "size": 19196
+            },
+            {
+                "path": "agent/src/Lint.php",
+                "sha256": "15da036c3ef6bd2a934d53d50c3475796a5f81690fab9bced3c9b3e2aaa3a780",
+                "size": 57981
+            },
+            {
+                "path": "agent/src/ManifestDispositions.php",
+                "sha256": "7538bedf5b0d76f630313bb5c07dd82ac44753c6e657186f8e98996aa625b929",
+                "size": 14024
+            },
+            {
+                "path": "agent/src/OptionState.php",
+                "sha256": "e4e4348a2999de97fc4523cf9b4a162cf4e8c53aaf860427087af79533349434",
+                "size": 9998
+            },
+            {
+                "path": "agent/src/OrderPreserved.php",
+                "sha256": "77ecfddbb513aac455092e38b82b709b01168b251172e4beb1494099ed707d07",
+                "size": 977
+            },
+            {
+                "path": "agent/src/Orphans.php",
+                "sha256": "846d5a5d0b555ffb1272e549241c8732f5ca87f11f59e0df7460e82281bb4ec8",
+                "size": 9548
+            },
+            {
+                "path": "agent/src/Pending.php",
+                "sha256": "fadf5a7a09c61cfd8212d3325f7614edaa0a0874bb317c43d1577aa80f6fa603",
+                "size": 14469
+            },
+            {
+                "path": "agent/src/PersonalData.php",
+                "sha256": "0d5354f1e2b0cdfd8d3665e2de80e4f4688158a028a93b45916e08c45f235726",
+                "size": 2807
+            },
+            {
+                "path": "agent/src/PlainData.php",
+                "sha256": "ec68f35862729998a5b9eb10383931fe1f24bfab970e87ba6f7027a6cecff846",
+                "size": 4776
+            },
+            {
+                "path": "agent/src/Policy.php",
+                "sha256": "80ed13bb8fd095120166d610c55a22fe4e0fcdee530682f416ae4ceb94101e97",
+                "size": 190791
+            },
+            {
+                "path": "agent/src/PromotionLock.php",
+                "sha256": "85eb5579f38c172d1bbfb2b9586154cf59ad9a5dd96fb41abc2cbecff32a1954",
+                "size": 42579
+            },
+            {
+                "path": "agent/src/Publish.php",
+                "sha256": "ca3985702e17024e9f2a0086b632ddc7c3b4848021b6fc21c24448c74d5e3f2f",
+                "size": 16353
+            },
+            {
+                "path": "agent/src/RepositoryAuthorization.php",
+                "sha256": "be3daca4ecbc08b732ca8f7ef34523d531647a0301df5020b805e3979f863408",
+                "size": 27812
+            },
+            {
+                "path": "agent/src/RepositoryCompiler.php",
+                "sha256": "9f6d6e178a40351b06bef2c878d47df812e66d4d824e79c8445cf61cbf720948",
+                "size": 77656
+            },
+            {
+                "path": "agent/src/Secrets.php",
+                "sha256": "9747df7c9b37a61d8732147ee1b9d38a813b62e043c4fc2acf10235f28cf5b9e",
+                "size": 6322
+            },
+            {
+                "path": "agent/src/Shortcodes.php",
+                "sha256": "c1c012820cb037c1f53d86896603d2b4a0860ab10ceac904de02ceef07723b6a",
+                "size": 14452
+            },
+            {
+                "path": "agent/src/SidebarState.php",
+                "sha256": "7df03c8800f50f7adf3483a811e4f5261086c8cfc10c2fd88c2a159075eed5ea",
+                "size": 24577
+            },
+            {
+                "path": "agent/src/Snapshot.php",
+                "sha256": "4f9e14bfff3fe0bfd301623a6103f6d1b75da0d6133eb72c604a7da7f05e47be",
+                "size": 123736
+            },
+            {
+                "path": "agent/src/Tokens.php",
+                "sha256": "75f9358c41c11ba1be7c854dadc496223d40534419aee37587db066f7758d4c8",
+                "size": 37166
+            },
+            {
+                "path": "agent/src/TransientDbException.php",
+                "sha256": "84e0d59ffe5f8d8de03c2d3c00ce27affbad70c7ac9a7a0606d39435b9bbadf6",
+                "size": 523
+            },
+            {
+                "path": "agent/src/UserMetaState.php",
+                "sha256": "cbecce3b8a063ccd7775fb96a97777a34ddb1d857b2ec812859a057c6d455a83",
+                "size": 1139
+            },
+            {
+                "path": "agent/src/Uuid.php",
+                "sha256": "6ad3c2bf6036f3585e86f60ab5700f0423eb6c60122b92fca68fa4acddc929f0",
+                "size": 3443
+            },
+            {
+                "path": "agent/src/WooCommerceContract.php",
+                "sha256": "085552ae3d185f1b914990146d42b49c9ecc5a8de877cc2cd3d258ca94599368",
+                "size": 15870
+            },
+            {
+                "path": "cli/README.md",
+                "sha256": "065b6b8be75478dc41b764f787dd553222645642e5fdba99ff438550ce35465c",
+                "size": 41370
+            },
+            {
+                "path": "cli/duo",
+                "sha256": "d2b1953796bdb148fef6ac0a34c8b23ddc2d67b75a1828ec0925c62db278043f",
+                "size": 46770
+            },
+            {
+                "path": "cli/src/Adopt.php",
+                "sha256": "ed7e2db6b90f7abd231250af58fd500bff5a9c3d827dc948db033a8a9754f95a",
+                "size": 22358
+            },
+            {
+                "path": "cli/src/ClassificationBatch.php",
+                "sha256": "e089c38240cd23f2e920e85062b859fac6877d0da38240454d2a00874f5666ea",
+                "size": 11037
+            },
+            {
+                "path": "cli/src/CodeDeploy.php",
+                "sha256": "3617f8a193bd924590f7b7c4a2ecffb421c2e17bf1816b6084c8a5bcd1e2d3fb",
+                "size": 11642
+            },
+            {
+                "path": "cli/src/DockerTransport.php",
+                "sha256": "c6389db8d3423604c87f12bb75f94a6392c623a073191072a234325f5c8a4b3e",
+                "size": 1905
+            },
+            {
+                "path": "cli/src/Doctor.php",
+                "sha256": "d7a95821dc76a3649b93091662318cb94d1f98364bb3fa6d3b4cc2b3290dfaa7",
+                "size": 15623
+            },
+            {
+                "path": "cli/src/LocalTransport.php",
+                "sha256": "1a08436d639419058673a22660c7f4dba609c344638ecad41020b0ab1daeec79",
+                "size": 868
+            },
+            {
+                "path": "cli/src/Pending.php",
+                "sha256": "ce54fb622c4d1dd880cfa0dbd3780162a97bb66a62578ac435fd79ba033376ca",
+                "size": 6336
+            },
+            {
+                "path": "cli/src/PlanSummary.php",
+                "sha256": "b4b994e368f24b259a803eb035ea610b7f957fbac715fb775d98547d07086ff1",
+                "size": 21256
+            },
+            {
+                "path": "cli/src/Registry.php",
+                "sha256": "c82565da0603695b1fdf374fd45b61a7123f16ef623523dc1f989869ccb1e5e8",
+                "size": 4002
+            },
+            {
+                "path": "cli/src/RollbackAuthority.php",
+                "sha256": "1739bb2ed8742884d23cd7debd321032e19a4a4bb7076f5706d13526c8ec2df7",
+                "size": 42338
+            },
+            {
+                "path": "cli/src/SshTransport.php",
+                "sha256": "f2401c6a0d0d12d01c69a82dc881c37ca0a2a8d1fbe87eb9119500e6bd49bf06",
+                "size": 10255
+            },
+            {
+                "path": "cli/src/Transport.php",
+                "sha256": "29afccd38efa48f25423c21f7cf0e7619fbe2b9e857d25f50886b6a2b273245d",
+                "size": 5098
+            },
+            {
+                "path": "cli/src/Triage.php",
+                "sha256": "37b93045cd999386ed3dd072d5300001594d5545639f030ce7056c9e55eefd2d",
+                "size": 8090
+            },
+            {
+                "path": "docs/compatibility-baseline.json",
+                "sha256": "40050ad62cde35c9365d56525a6cf5c0a2a11382e3636971016895c8cba94d61",
+                "size": 1580
+            },
+            {
+                "path": "manifests/acf.json",
+                "sha256": "a003450ddb972402b1988f8f31d482ad7b7de54844c75598492a84c0253c12a3",
+                "size": 1847
+            },
+            {
+                "path": "manifests/contact-form-7.json",
+                "sha256": "d4084cec1a3a84e172afd51d55de502a7b1fb6409776f8f7da280bdb11b75870",
+                "size": 3192
+            },
+            {
+                "path": "manifests/core.json",
+                "sha256": "f10a9f32db56f44f2beddc8b8544b7e856d91c318e21a1b4ff45c349d8dc90c5",
+                "size": 21830
+            },
+            {
+                "path": "manifests/dispositions.json",
+                "sha256": "341684befb55703209ec7f89732a1167f9099a8394ddb2edb52a1d08389bf651",
+                "size": 16392
+            },
+            {
+                "path": "manifests/duo-agency-cpt.json",
+                "sha256": "0414a0e59ef3ef6b19d57444bc871f2d659a203086fbc85e30324dd2b23fa6a3",
+                "size": 412
+            },
+            {
+                "path": "manifests/duo-code-half-ecosystem.json",
+                "sha256": "11ae921040572f74ae1ea75012dafad721f22527cbd43326a1aebd513bbd5378",
+                "size": 214
+            },
+            {
+                "path": "manifests/duo-code-half-probe.json",
+                "sha256": "0fb3405279789a1b80f70eff9fd8421fcc14ed2781ef4681c28fa1d837a7bcd9",
+                "size": 587
+            },
+            {
+                "path": "manifests/duo-loop-demo-versioned.json",
+                "sha256": "74e38fce4f032834ff4a360f674e68c87929b447fb7ce5e5ef65ee46a89d224f",
+                "size": 170
+            },
+            {
+                "path": "manifests/duo-loop-demo.json",
+                "sha256": "c4555513456b29ef9806ffdea8d088315f92e04d21bd2cf30eb4253d9e560514",
+                "size": 469
+            },
+            {
+                "path": "manifests/elementor.json",
+                "sha256": "4554bf2b58223391420c3575f0566b81a5fa2d4c3ea2b6d050e9c51a15f87bee",
+                "size": 6755
+            },
+            {
+                "path": "manifests/interpreters/acf.php",
+                "sha256": "fe6c21e2e49298d6b4942fde056fb38f6b0dfcfc20726ca2b6bab22666142b20",
+                "size": 18898
+            },
+            {
+                "path": "manifests/ninja-forms.json",
+                "sha256": "4d03c8a9f57fe389a196f929a86ce5afeef93a36045b7f2244a4501f5d2c9c9e",
+                "size": 18128
+            },
+            {
+                "path": "manifests/paid-memberships-pro.json",
+                "sha256": "017e42e46e1fa8f5d8472fe7f6704c25e5ff28db4f04c540954dc477aeb8caf6",
+                "size": 20518
+            },
+            {
+                "path": "manifests/polylang.json",
+                "sha256": "31db69f4a7c38632ad75080438b8a737a54711b70f865a896027b0ca9dd0de99",
+                "size": 28627
+            },
+            {
+                "path": "manifests/regenerators/the-events-calendar.php",
+                "sha256": "d05d35286fa53cb17d1fb371c736d4bb39cb53eb61fec28465cfadec26a75691",
+                "size": 3935
+            },
+            {
+                "path": "manifests/regenerators/woocommerce-product-lookups.php",
+                "sha256": "440c87192f63c6030a023b631d776047449dd10d5d97db40cf1803e255827f4c",
+                "size": 63024
+            },
+            {
+                "path": "manifests/the-events-calendar.json",
+                "sha256": "8f3870a6aac8be10197fb498e89a219d6c2e505e3e5ee538ee2e67a345bd5797",
+                "size": 15193
+            },
+            {
+                "path": "manifests/woocommerce.json",
+                "sha256": "a8d2e61f7ecf65bb8b535e640fc475e09b8e25e8aa377b7b52ddb49d7f1a3c79",
+                "size": 101899
+            },
+            {
+                "path": "manifests/yoast.json",
+                "sha256": "a1f23e75b8fe372450fce889687d2fb8162472114950ec489861e584969d2ba4",
+                "size": 13145
+            },
+            {
+                "path": "sandbox/bin/certification-bundle.php",
+                "sha256": "27b622999fd275e41ef78e5564efd9e1b81ef66ddba82af75a5b3afd245a9af5",
+                "size": 18582
+            },
+            {
+                "path": "sandbox/bin/fetch-artifact.sh",
+                "sha256": "b0953cdcd00b44a10a2b9331dc230306b5d8d0c9ffc58ecdd2e3b4b7f7d49205",
+                "size": 4316
+            },
+            {
+                "path": "sandbox/bin/pair.sh",
+                "sha256": "59552d4f4f1c6c2f56272eed3f1b1b17e5175cbd99822cc0b004c0e784345e23",
+                "size": 47573
+            },
+            {
+                "path": "sandbox/bin/ssh-rollback-certification.php",
+                "sha256": "a8f56e77ea4c905ad9080bfcf1ca79484e6ecefc8493951c25e14164c6d19e24",
+                "size": 21855
+            },
+            {
+                "path": "sandbox/conformance/artifacts-cache/.gitkeep",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 0
+            },
+            {
+                "path": "sandbox/conformance/artifacts.lock.json",
+                "sha256": "8c3c74173c053c2d2242ad4df817d0f3565cbbdba6bb9bb5240ca93029f0ff05",
+                "size": 3862
+            },
+            {
+                "path": "sandbox/conformance/checks/_retry_helper.sh",
+                "sha256": "f6edf44d7de5d0e85fddfcec2cc3dc0d8a8883eeabfdd6e4848d20babe886e67",
+                "size": 6073
+            },
+            {
+                "path": "sandbox/conformance/checks/acf.sh",
+                "sha256": "790cc855f856ec4c0593db4bdc844e11d3a11a7fd362a2254839c0379efe9c7a",
+                "size": 3721
+            },
+            {
+                "path": "sandbox/conformance/checks/contact-form-7.sh",
+                "sha256": "cf13e30386acf71b237ba529b15ddfa673dce1b1705c433e3f0f065e8ae0f273",
+                "size": 3385
+            },
+            {
+                "path": "sandbox/conformance/checks/core.sh",
+                "sha256": "5670abe603b3308552e71597173ff344036cb03b6e9eb90957f85de566059b9e",
+                "size": 24802
+            },
+            {
+                "path": "sandbox/conformance/checks/elementor.sh",
+                "sha256": "5dfc2efb200683d8f6620fba81a4e513642e9a9cccdc24a997e557f3031b1911",
+                "size": 4930
+            },
+            {
+                "path": "sandbox/conformance/checks/fse.sh",
+                "sha256": "dfe143b66d913e544550c072f870123ba5e3bac4799e4c92663d8811c6748b64",
+                "size": 6240
+            },
+            {
+                "path": "sandbox/conformance/checks/ninja-forms.sh",
+                "sha256": "c71516dc2be3b7721c633b27fff5de4df6947cbf477e803bffc33880d2693822",
+                "size": 11964
+            },
+            {
+                "path": "sandbox/conformance/checks/paid-memberships-pro.sh",
+                "sha256": "1bd101bd7f052114de6ec62c3a66bf49f41c5a41839e9c8ac75b4b45776ed14e",
+                "size": 3612
+            },
+            {
+                "path": "sandbox/conformance/checks/polylang.sh",
+                "sha256": "2d17ae5bd70628a09b88a2541d7d71fd9f3b2fa4a3d62bc386362d0ae92a5650",
+                "size": 10295
+            },
+            {
+                "path": "sandbox/conformance/checks/woocommerce.sh",
+                "sha256": "0825227c191f71da3ab9c98c2265d6310b42740dfa502bea360904e6ffc9d246",
+                "size": 13404
+            },
+            {
+                "path": "sandbox/conformance/checks/yoast.sh",
+                "sha256": "6bf045d2384568db862ddd3df6cdfc84bb71a73f1b7799c61a8f3e83d87907ec",
+                "size": 5682
+            },
+            {
+                "path": "sandbox/conformance/manifests.json",
+                "sha256": "20aecc655f003ae14afddd40ee40ad78bb62e8fed583f51507e74907fe8b3a58",
+                "size": 2262
+            },
+            {
+                "path": "sandbox/conformance/postdeploy/contact-form-7.sh",
+                "sha256": "9c8fb76854349ff56008ca7b93964eb155e70962037a83db7fb04d5e4c53689a",
+                "size": 937
+            },
+            {
+                "path": "sandbox/conformance/postdeploy/core.sh",
+                "sha256": "5cb79e2a135c57bca2d457dd539f4289fa686c9055ba73c95774dfa257a13f81",
+                "size": 2390
+            },
+            {
+                "path": "sandbox/conformance/postdeploy/ninja-forms.sh",
+                "sha256": "ca0630f8236ae5ce2ae0b9eb9aa0a74d6a441634a8ff10af55559a4f2bfcd2a8",
+                "size": 4108
+            },
+            {
+                "path": "sandbox/conformance/postdeploy/woocommerce.sh",
+                "sha256": "92d5a52db50369018c250560ecdd8c4db553378efd07a3b3d5e3e7862b93ce22",
+                "size": 1331
+            },
+            {
+                "path": "sandbox/conformance/run.sh",
+                "sha256": "477cca09198197576102c1a9803c7aa85daf2278f2552c9edc0f2cd3539fbf59",
+                "size": 25099
+            },
+            {
+                "path": "sandbox/conformance/seeds/acf.sh",
+                "sha256": "ad3a3fef82b172e2f40a1ba2da275832ca08a596a0ea3eb3de22c45d262fea96",
+                "size": 7481
+            },
+            {
+                "path": "sandbox/conformance/seeds/contact-form-7.sh",
+                "sha256": "e6649b9f1e30875df1f210fe078dc69f29bc69a53f516117f2e0b688f19d1ba0",
+                "size": 1859
+            },
+            {
+                "path": "sandbox/conformance/seeds/core.sh",
+                "sha256": "f6a905d3d6e4b5dc754436e5e769edd7262cc0d76ff03698a884e1c493fda123",
+                "size": 6558
+            },
+            {
+                "path": "sandbox/conformance/seeds/elementor.sh",
+                "sha256": "388cbbde149ffff0f603fd0a781288e877187c91618fd5031019324d0a5e3b9a",
+                "size": 8049
+            },
+            {
+                "path": "sandbox/conformance/seeds/fse.sh",
+                "sha256": "fe551e1fc70a6cc639e481d317dcf88c51197f129ef94ac36794625bac47c483",
+                "size": 7871
+            },
+            {
+                "path": "sandbox/conformance/seeds/ninja-forms.sh",
+                "sha256": "7c42c5bba5e1605e901102dcd0466faeffb6cdd75b21a0d5ee2d6b1d7ec3be31",
+                "size": 6017
+            },
+            {
+                "path": "sandbox/conformance/seeds/paid-memberships-pro.sh",
+                "sha256": "c94231b2a1df21758adf30e2c12c261e7a36d5bfb69ceeff60a8894ee7ac1743",
+                "size": 4196
+            },
+            {
+                "path": "sandbox/conformance/seeds/polylang.sh",
+                "sha256": "d07429c9a3743ddfd60ee3dcd1b2cd6c4b28ee13eb6f7d814687739e55dd8ee1",
+                "size": 5465
+            },
+            {
+                "path": "sandbox/conformance/seeds/woocommerce.sh",
+                "sha256": "cc1b183a44ba8eb1b62f64afc5ba6bb00acf665763c209ec1fa9f57d3e1cbfc1",
+                "size": 10043
+            },
+            {
+                "path": "sandbox/conformance/seeds/yoast.sh",
+                "sha256": "2b3edb0583a97b168a479b7ba3681f4887c0556df2569c3c3905e8fc67eec0e8",
+                "size": 7875
+            },
+            {
+                "path": "sandbox/tests/certify_reference_bundle.sh",
+                "sha256": "e55a832a73284578f973618cb1de1f8d91cb725d56872781a574b90593f28181",
+                "size": 12195
+            },
+            {
+                "path": "sandbox/tests/certify_version_matrix.sh",
+                "sha256": "799067e4d63a82c21cbaa2724528c9785e70f323f69ab01c45192bc8f0807105",
+                "size": 59922
+            },
+            {
+                "path": "sandbox/tests/regress_multisite_refusal.sh",
+                "sha256": "7fe7e20849b1137cfaab4af72d2e487191dbfe4da901a9789b4e3aec95ebf04b",
+                "size": 3167
+            },
+            {
+                "path": "scripts/capability-registry.php",
+                "sha256": "21100b2566a7da4650d77ab6fe8f097feddc8572d82f9c66b4e7dc715b3cfb14",
+                "size": 21608
+            },
+            {
+                "path": "spec/repo-format.md",
+                "sha256": "5d08753cad167f1558298173413d42b17dab5882c5b71d5f60463be04c26642c",
+                "size": 93881
+            }
+        ],
+        "bundle_digest": "5c68ef251fb6c09cee0d4632c04ca870fb937b479472950ebd8f8f3647da5c92",
+        "created_at": "2026-08-08T16:42:11Z",
+        "environment": {
+            "path": "environment.json",
+            "sha256": "9711ef3a04f882da7e7e0271d99bf014408bea1c656510ec463456e635fedc63",
+            "size": 261
+        },
+        "environment_summary": {
+            "active_plugins": [],
+            "database_client": "11.8.8",
+            "database_server": "11.8.8-MariaDB-ubu2404",
+            "multisite": false,
+            "php": "8.3.33",
+            "theme": {
+                "stylesheet": "twentytwentyfive",
+                "template": "twentytwentyfive"
+            },
+            "wordpress": "7.0.2"
+        },
+        "force_hatches": [],
+        "git_revision": "919dd4127a64524ce7cf548b5d3d10e10695a31e",
+        "harness": {
+            "name": "duo-reference-certification",
+            "version": 2
+        },
+        "ratification": {
+            "path": "ratification.json",
+            "sha256": "341684befb55703209ec7f89732a1167f9099a8394ddb2edb52a1d08389bf651",
+            "size": 16392
+        },
+        "ratification_summary": {
+            "certified_claims": [
+                "manifests.acf",
+                "manifests.contact-form-7",
+                "manifests.core",
+                "manifests.elementor",
+                "manifests.ninja-forms",
+                "manifests.polylang",
+                "manifests.woocommerce",
+                "manifests.yoast",
+                "profiles.fse"
+            ],
+            "manifest_count": 15,
+            "profile_count": 1
+        },
+        "schema_version": "duo-certification-bundle/v1",
+        "tests": [
+            {
+                "diff": {
+                    "path": "diffs/core-conformance.json",
+                    "sha256": "ca02a3bd4128513b8910a70fbc6f0a65b699f2dc397a4dc5646e5d1fb8ee19e0",
+                    "size": 94
+                },
+                "id": "core-conformance",
+                "log": {
+                    "path": "logs/core-conformance.txt",
+                    "sha256": "26e62556c8fc925f7db2dc36797ea04c95e5e5c1931ddf22eede6fa2228c392a",
+                    "size": 26613
+                },
+                "result": {
+                    "path": "results/core-conformance.json",
+                    "sha256": "f20d8210586382f9476c76a1f9507c8fc9a1e41b76616fe4afb02f60576a5ce8",
+                    "size": 358
+                },
+                "verdict": "pass"
+            },
+            {
+                "diff": {
+                    "path": "diffs/fse-conformance.json",
+                    "sha256": "ca02a3bd4128513b8910a70fbc6f0a65b699f2dc397a4dc5646e5d1fb8ee19e0",
+                    "size": 94
+                },
+                "id": "fse-conformance",
+                "log": {
+                    "path": "logs/fse-conformance.txt",
+                    "sha256": "bba5b97d03b65cf6e90a319ebd8288ef7ef51ade7dd244063ea4dfebf0c4a09a",
+                    "size": 14182
+                },
+                "result": {
+                    "path": "results/fse-conformance.json",
+                    "sha256": "176668fc452513ad905bd9036debd2d7e724ac00fcbc84f4b0e6e23d3e61fd9a",
+                    "size": 343
+                },
+                "verdict": "pass"
+            },
+            {
+                "diff": {
+                    "path": "diffs/multisite-refusal.json",
+                    "sha256": "2daeccfb1dc9f9224d8adea3a6d3a5ca79769966b14e8947569fc31314f59a9b",
+                    "size": 159
+                },
+                "id": "multisite-refusal",
+                "log": {
+                    "path": "logs/multisite-refusal.txt",
+                    "sha256": "ee72636f2c588f03bf21cc326f6f5b146b2e7b3a696e858877b9570bf981051d",
+                    "size": 7269
+                },
+                "result": {
+                    "path": "results/multisite-refusal.json",
+                    "sha256": "631a9feebef93f5f6a059e838eaad18523e7ea82899e78a0d07712d58085a04f",
+                    "size": 345
+                },
+                "verdict": "pass"
+            },
+            {
+                "diff": {
+                    "path": "diffs/exact-artifact-version-matrix.json",
+                    "sha256": "97be2cea4d566bb0c206da7fae64a423e4cf5b8f033bf07215510dd061aa12d1",
+                    "size": 140
+                },
+                "id": "exact-artifact-version-matrix",
+                "log": {
+                    "path": "logs/exact-artifact-version-matrix.txt",
+                    "sha256": "2f159147d8fe96e93f4c2e299c2e07565bd9a1448fb4c7c49e1583a0360ec174",
+                    "size": 126980
+                },
+                "result": {
+                    "path": "results/exact-artifact-version-matrix.json",
+                    "sha256": "28af1963dcb29e019ec2a0d868410c916eed0bbd1671bc9597ed18075332fd2a",
+                    "size": 381
+                },
+                "verdict": "pass"
+            }
+        ],
+        "verdict": "pass"
+    },
+    "format": "duo-capability-evidence/v1",
+    "status": "current"
+}

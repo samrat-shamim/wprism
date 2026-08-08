@@ -113,10 +113,12 @@ final class CompiledRepository {
      * live-environment match. Compilation remains target-DB-free (no $wpdb,
      * get_plugins(), or wp_get_theme() calls), while Deploy::code_mismatch()
      * remains the independent proof of what is installed on the target.
-     * DUO-3227's capability registry is expected to generate from exactly
-     * this shape (one machine-readable row per adapter).
+     * DUO-3227's generated capability claim is now carried beside exactly
+     * this shape (one machine-readable row per adapter); its digest remains
+     * the digest of manifest+interpreter+external disposition, avoiding a
+     * self-referential hash while the outer artifact binds the claim too.
      *
-     * @return list<array{name:string, digest:string, spec_version:?int, plugin:?string, version_range:?array, theme:?string, theme_version_range:?array}>
+     * @return list<array{name:string, digest:string, spec_version:?int, plugin:?string, version_range:?array, theme:?string, theme_version_range:?array, disposition:?array, capability:?array}>
      */
     public function resolved_adapters(): array {
         return $this->artifact['resolved_adapters'] ?? [];
@@ -461,7 +463,7 @@ final class RepositoryCompiler {
      * independently checkable without needing every OTHER pinned
      * manifest's bytes too.
      *
-     * @return list<array{name:string, digest:string, spec_version:?int, plugin:?string, version_range:?array, theme:?string, theme_version_range:?array, disposition:?array}>
+     * @return list<array{name:string, digest:string, spec_version:?int, plugin:?string, version_range:?array, theme:?string, theme_version_range:?array, disposition:?array, capability:?array}>
      */
     public static function resolved_adapters(Policy $policy): array {
         $out = [];
@@ -469,7 +471,9 @@ final class RepositoryCompiler {
             $manifest = $row['manifest'];
             $out[] = [
                 'name' => $row['name'],
-                'digest' => hash('sha256', Canon::encode($row)),
+                'digest' => class_exists(CapabilityRegistry::class)
+                    ? CapabilityRegistry::adapter_digest($manifest, $row['disposition'])
+                    : hash('sha256', Canon::encode($row)),
                 'spec_version' => isset($manifest['spec_version']) ? (int) $manifest['spec_version'] : null,
                 'plugin' => isset($manifest['plugin']) ? (string) $manifest['plugin'] : null,
                 'version_range' => is_array($manifest['version_range'] ?? null) ? $manifest['version_range'] : null,
@@ -477,6 +481,7 @@ final class RepositoryCompiler {
                 'theme_version_range' => is_array($manifest['theme_version_range'] ?? null)
                     ? $manifest['theme_version_range'] : null,
                 'disposition' => $row['disposition'],
+                'capability' => $policy->capability_claim((string) $row['name']),
             ];
         }
         return $out;

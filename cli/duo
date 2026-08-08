@@ -51,7 +51,7 @@ Usage:
   duo doctor <env>
   duo adopt  <env>
   duo status <env>
-  duo capabilities <env> [--format=json]
+  duo capabilities <env> [--operation=<op>] [--surface=<surface>] [--revision=<sha>] [--format=json]
   duo capture <env> [extra wp-cli flags...]
   duo plan    <env> [extra wp-cli flags...]
   duo apply   <env> [extra wp-cli flags...]
@@ -90,11 +90,11 @@ Verbs:
                           See cli/src/PlanSummary.php's decision-matrix
                           comment. Underlying plan failure/unparseable JSON is
                           also non-zero. Warnings alone never flip this.
-  capabilities <env>      Report the pinned manifests' certified,
-                          experimental, or excluded disposition and exact
-                          versions, entities, fields, operations, lifecycle,
-                          deletion, unsupported surfaces, and evidence.
-                          --format=json returns the agent's canonical report.
+  capabilities <env>      Evaluate the evidence-bound generated registry for
+                          this exact target/revision/operation/surface. Reports
+                          plugin execution separately from branchable authored
+                          state and explains every blocker. --format=json
+                          returns the agent's canonical verdict.
   capture <env> [...]     `wp duo capture --repo=<repo_path> [...]`
   plan <env> [...]        `wp duo plan    --repo=<repo_path> [...]`
   apply <env> [...]       `wp duo apply   --repo=<repo_path> [...]`

@@ -128,10 +128,11 @@ PHP;
     }
 
     /**
-     * Return pinned adapters whose external review status is not certified.
-     * Null dispositions preserve legacy/custom test libraries which do not
-     * publish certification claims; canonical shipped entries always carry
-     * a disposition and are checked before a target lease or checkpoint.
+     * Return pinned adapters whose generated, evidence-bound capability is
+     * not certified. Null claims preserve legacy/custom test libraries which
+     * publish no product claim; canonical shipped entries always carry both
+     * a disposition and a capability and are checked before a target lease
+     * or checkpoint.
      */
     public static function dispositionBlockers(array $summary): array {
         $out = [];
@@ -139,14 +140,30 @@ PHP;
             if (!is_array($adapter) || !is_array($adapter['disposition'] ?? null)) {
                 continue;
             }
-            $disposition = $adapter['disposition'];
-            if (($disposition['status'] ?? null) === 'certified') {
+            $capability = $adapter['capability'] ?? null;
+            if (!is_array($capability)) {
+                $out[] = [
+                    'name' => (string) ($adapter['name'] ?? '?'),
+                    'status' => 'unsupported',
+                    'reason' => 'no generated capability claim is bound to this compiled adapter',
+                ];
                 continue;
             }
+            if (($capability['status'] ?? null) === 'certified'
+                && ($capability['evidence']['status'] ?? null) === 'current') {
+                continue;
+            }
+            $reason = ($capability['evidence']['status'] ?? null) !== 'current'
+                ? 'the generated capability claim is not backed by current evidence'
+                : (string) (
+                    $capability['reason']
+                    ?? $adapter['disposition']['reason']
+                    ?? 'capability is not certified with current evidence'
+                );
             $out[] = [
                 'name' => (string) ($adapter['name'] ?? '?'),
-                'status' => (string) ($disposition['status'] ?? 'unreviewed'),
-                'reason' => (string) ($disposition['reason'] ?? 'not certified'),
+                'status' => (string) ($capability['status'] ?? 'unsupported'),
+                'reason' => $reason,
             ];
         }
         return $out;
