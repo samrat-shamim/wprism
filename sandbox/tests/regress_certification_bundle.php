@@ -82,6 +82,19 @@ write_json("$inputs/core.result.json", [
     'assertions' => ['round_trip', 'render'],
 ]);
 write_json("$inputs/core.diff.json", ['status' => 'clean', 'changed' => []]);
+write_json("$inputs/ratification.json", [
+    'format' => 'duo-manifest-dispositions/v1',
+    'manifests' => [
+        'core' => [
+            'status' => 'certified',
+            'evidence' => [
+                'bundle_schema' => 'duo-certification-bundle/v1',
+                'tests' => ['core-conformance'],
+            ],
+        ],
+    ],
+    'profiles' => new stdClass(),
+]);
 
 $spec = [
     'repo_root' => $repo,
@@ -90,6 +103,7 @@ $spec = [
     'harness' => ['name' => 'duo-reference-certification', 'version' => 1],
     'force_hatches' => [],
     'environment' => "$inputs/environment.json",
+    'ratification' => "$inputs/ratification.json",
     'bound_inputs' => ['agent.php', 'harness.sh'],
     'artifacts' => [[
         'name' => 'ninja-forms',
@@ -123,6 +137,8 @@ check(($manifest['environment_summary']['wordpress'] ?? null) === '6.8.2', 'bund
 check(($manifest['tests'][0]['id'] ?? null) === 'core-conformance', 'bundle carries named test evidence');
 check(($manifest['artifacts'][0]['version'] ?? null) === '3.14.11', 'bundle carries exact artifact/version evidence');
 check(($manifest['force_hatches'] ?? null) === [], 'bundle records that no force hatch was used');
+check(($manifest['ratification_summary']['certified_claims'][0] ?? null) === 'manifests.core', 'bundle names the certified claim backed by its test evidence');
+check(is_file("$bundle/ratification.json"), 'bundle embeds the exact ratification matrix as a hashed asset');
 
 echo "\n== deliberate defect 1: a changed bound code/harness input expires certification ==\n";
 $originalInput = (string) file_get_contents("$repo/agent.php");

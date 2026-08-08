@@ -7,11 +7,13 @@ namespace Duo;
  * and unclassified is a loud abort at the call sites (never a silent guess).
  */
 final class Policy {
-    private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v1';
+    private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v2';
 
     public array $site = [];
     /** @var array<int, array> */
     public array $manifests = [];
+    /** External review state; null for legacy/custom manifest directories without a registry. */
+    private ?ManifestDispositions $manifestDispositions = null;
     /** @var array<string, object>|null lazily-built interpreter instances */
     private ?array $interpreterInstances = null;
     /** @var array<string, object>|null lazily-built regenerator instances (DUO-3234) */
@@ -92,6 +94,9 @@ final class Policy {
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
         $pins = self::normalize_manifest_pins($rawPins);
         $dir = self::manifests_dir();
+        $p->manifestDispositions = class_exists(ManifestDispositions::class)
+            ? ManifestDispositions::load($dir)
+            : null;
         foreach ($pins as $pin) {
             $name = $pin['name'];
             $file = $dir . '/' . basename($name) . '.json';
@@ -134,6 +139,7 @@ final class Policy {
             'format' => self::SNAPSHOT_FORMAT,
             'site' => $this->site,
             'manifests' => $this->manifests,
+            'dispositions' => $this->manifestDispositions?->data(),
         ];
     }
 
@@ -142,7 +148,7 @@ final class Policy {
         self::assert_single_site();
         $keys = array_keys($snapshot);
         sort($keys, SORT_STRING);
-        if ($keys !== ['format', 'manifests', 'site']
+        if ($keys !== ['dispositions', 'format', 'manifests', 'site']
             || ($snapshot['format'] ?? null) !== self::SNAPSHOT_FORMAT
             || !is_array($snapshot['site'] ?? null)
             || !is_array($snapshot['manifests'] ?? null)
@@ -184,6 +190,13 @@ final class Policy {
             self::validate_discovery_contract($manifest);
             $p->manifests[] = $manifest;
         }
+        $dispositions = $snapshot['dispositions'] ?? null;
+        if ($dispositions !== null) {
+            if (!is_array($dispositions) || !class_exists(ManifestDispositions::class)) {
+                throw new \RuntimeException('duo: frozen policy snapshot disposition registry is unavailable or malformed');
+            }
+            $p->manifestDispositions = ManifestDispositions::from_snapshot($dispositions, $p->manifests);
+        }
         self::validate_no_conflicting_option_rules(
             $p->manifests,
             $p->site['policy']['options'] ?? []
@@ -191,6 +204,35 @@ final class Policy {
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_manifest_pins($pins, $p);
         return $p;
+    }
+
+    /** The reviewed support boundary for one pinned adapter, if this library has a registry. */
+    public function manifest_disposition(string $name): ?array {
+        return $this->manifestDispositions?->entry($name);
+    }
+
+    /** Non-certified pinned adapters are a structured readiness blocker. */
+    public function adapter_readiness_blockers(): array {
+        return $this->manifestDispositions?->blockers($this->manifests) ?? [];
+    }
+
+    /** Resolve CLI capability output from the same manifests and external review bytes. */
+    public function capability_report(): array {
+        if ($this->manifestDispositions === null) {
+            return [
+                'schema_version' => ManifestDispositions::FORMAT,
+                'registry_sha256' => null,
+                'ready' => false,
+                'blockers' => [[
+                    'name' => 'registry',
+                    'status' => 'unreviewed',
+                    'reason' => 'this manifest directory has no external disposition registry',
+                ]],
+                'manifests' => [],
+                'profiles' => new \stdClass(),
+            ];
+        }
+        return $this->manifestDispositions->report($this->manifests);
     }
 
     /**

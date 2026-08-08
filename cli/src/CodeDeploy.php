@@ -128,6 +128,31 @@ PHP;
     }
 
     /**
+     * Return pinned adapters whose external review status is not certified.
+     * Null dispositions preserve legacy/custom test libraries which do not
+     * publish certification claims; canonical shipped entries always carry
+     * a disposition and are checked before a target lease or checkpoint.
+     */
+    public static function dispositionBlockers(array $summary): array {
+        $out = [];
+        foreach (($summary['resolved_adapters'] ?? []) as $adapter) {
+            if (!is_array($adapter) || !is_array($adapter['disposition'] ?? null)) {
+                continue;
+            }
+            $disposition = $adapter['disposition'];
+            if (($disposition['status'] ?? null) === 'certified') {
+                continue;
+            }
+            $out[] = [
+                'name' => (string) ($adapter['name'] ?? '?'),
+                'status' => (string) ($disposition['status'] ?? 'unreviewed'),
+                'reason' => (string) ($disposition['reason'] ?? 'not certified'),
+            ];
+        }
+        return $out;
+    }
+
+    /**
      * Acquire the target lease before promotion's DB checkpoint. The outer
      * artifact hash is deliberately the only code/state input: it binds both
      * halves without making the host inspect the opaque code descriptor.

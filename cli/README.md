@@ -29,6 +29,7 @@ duo envs
 duo doctor <env>
 duo adopt  <env>
 duo status <env>
+duo capabilities <env> [--format=json]
 duo capture <env> [extra wp-cli flags...]
 duo plan    <env> [extra wp-cli flags...]
 duo apply   <env> [extra wp-cli flags...]
@@ -92,7 +93,7 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   `$assoc['json']`; see the comments in `agent/src/Cli.php`) and renders a
   human summary: counts per plan bucket (create/update/adopt/unchanged/
   drift/conflict/collision/delete/code_mismatch/code_drift/incomplete_apply/
-  incomplete_lifecycle/regen_pending/env_missing), drift paths, blocked-delete
+  incomplete_lifecycle/regen_pending/env_missing/adapter_dispositions), drift paths, blocked-delete
   reasons, incomplete_lifecycle recovery receipts (an unresolved pre-hook
   lifecycle boundary requiring restoration of the exact database checkpoint),
   code_mismatch and code_drift findings (the latter is an installed code
@@ -108,7 +109,8 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   `conflict`, `collision`, `code_mismatch`, or `code_drift` entry, any
   blocked delete, any ordinary state drift, a retained `incomplete_apply`
   marker, an `incomplete_lifecycle` receipt, a `regen_pending` entry, or a
-  **required** `env_missing` entry. An `incomplete_lifecycle` receipt requires
+  **required** `env_missing` entry, or a pinned manifest whose external
+  disposition is `experimental` or `excluded`. An `incomplete_lifecycle` receipt requires
   restoring the exact pre-lifecycle database checkpoint; force flags cannot
   bypass it.
   `duo apply` refuses code_drift unless explicitly passed
@@ -139,6 +141,16 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
 
   `duo status` parses and reformats; it does not print the raw JSON. Use
   `duo plan <env> --format=json` for that.
+
+- **`duo capabilities <env> [--format=json]`** — resolves the repository's
+  exact manifest pins against [the external disposition registry](../manifests/dispositions.json).
+  It reports supported versions, entity and field sections, operations,
+  lifecycle phases, deletion semantics, unsupported surfaces, default-authored
+  keyspace rulings, and certification evidence from the same bytes bound into
+  compiled adapter digests. The agent-level `wp duo capabilities --all`
+  reports the complete shipped library. This is descriptive product scope;
+  `duo status` and host deploy/promote enforce it by blocking every selected
+  status other than `certified` before target mutation.
 
 - **`duo capture|plan|apply <env> [flags...]`** — pure passthrough to `wp duo
   capture|plan|apply --repo=<repo_path> [flags...]` for that environment.

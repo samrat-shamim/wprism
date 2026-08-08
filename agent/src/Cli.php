@@ -4,7 +4,7 @@ namespace Duo;
 use WP_CLI;
 
 /**
- * wp duo <capture|plan|apply|orphans|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
+ * wp duo <capture|plan|apply|capabilities|orphans|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
  */
 final class Cli {
     private static function halt_json_failure(\Throwable $t, array $assoc): void {
@@ -401,6 +401,12 @@ final class Cli {
         foreach ($plan['skipped_user_meta'] ?? [] as $r) {
             WP_CLI::line("SKIPPED_USER_META {$r['path']} (exact login '{$r['login']}')");
         }
+        foreach ($plan['adapter_dispositions'] ?? [] as $r) {
+            WP_CLI::line(
+                'ADAPTER_' . strtoupper((string) ($r['status'] ?? 'unreviewed')) . ' '
+                . ($r['name'] ?? '?') . ': ' . ($r['reason'] ?? 'not certified')
+            );
+        }
         // regen_pending (DUO-3234, design review addition 1): a derived
         // table with a hard per-entity availability dependency whose
         // post-apply verification failed and hasn't resolved yet — see
@@ -452,6 +458,7 @@ final class Cli {
         $counts .= ', ' . count($plan['skipped_user_meta'] ?? []) . ' skipped_user_meta';
         $counts .= ', ' . count($plan['uploads_inventory'] ?? []) . ' upload_mutations';
         $counts .= ', ' . count($plan['effects_inventory'] ?? []) . ' declared_effects';
+        $counts .= ', ' . count($plan['adapter_dispositions'] ?? []) . ' adapter_dispositions';
         WP_CLI::success("plan: $counts");
         if ($plan['drift']) {
             WP_CLI::warning('environment drift detected — capture-first workflow recommended');
@@ -467,6 +474,9 @@ final class Cli {
         }
         if (!empty($plan['regen_pending'])) {
             WP_CLI::warning('regen_pending markers outstanding — the next duo apply will retry them automatically');
+        }
+        if (!empty($plan['adapter_dispositions'])) {
+            WP_CLI::warning('non-certified adapter disposition(s) selected — readiness is not green and host promotion will refuse');
         }
         if (!empty($plan['missing_user'])) {
             WP_CLI::warning('required exact login(s) missing — duo apply will refuse before target mutation');
@@ -1274,6 +1284,70 @@ final class Cli {
             WP_CLI::error($t->getMessage());
         }
         WP_CLI::line(rtrim(Canon::encode($pin)));
+    }
+
+    /**
+     * Report the external ratification boundary for this repository's exact
+     * pinned manifests, or the complete shipped library with --all.
+     *
+     * ## OPTIONS
+     * [--repo=<path>] : Site repository whose manifest pins should be resolved.
+     * [--all] : Report every shipped manifest instead of a site repository.
+     * [--format=<format>] : Output format. Accepts json.
+     */
+    public function capabilities($args, $assoc) {
+        $all = isset($assoc['all']);
+        $repo = isset($assoc['repo']) ? (string) $assoc['repo'] : null;
+        if ($all && $repo !== null) {
+            WP_CLI::error('--all and --repo are mutually exclusive');
+        }
+        try {
+            if ($all) {
+                $dir = Policy::manifests_dir();
+                $registry = ManifestDispositions::load($dir);
+                if ($registry === null) {
+                    throw new \RuntimeException("duo: $dir has no external manifest disposition registry");
+                }
+                $manifests = [];
+                foreach (glob(rtrim($dir, '/') . '/*.json') ?: [] as $file) {
+                    if (basename($file) !== 'dispositions.json') {
+                        $manifests[] = Canon::decode(Canon::read_file($file));
+                    }
+                }
+                $report = $registry->report($manifests);
+            } else {
+                if ($repo === null || $repo === '') {
+                    WP_CLI::error('--repo required unless --all is used');
+                }
+                $report = Policy::load($repo)->capability_report();
+            }
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($report, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        foreach ($report['manifests'] as $row) {
+            WP_CLI::line('CAPABILITY ' . $row['name'] . ' ' . strtoupper((string) $row['status']));
+            WP_CLI::line('  reason: ' . $row['reason']);
+            WP_CLI::line('  supported_versions: ' . trim(Canon::encode($row['supported_versions'])));
+            WP_CLI::line('  entities: ' . trim(Canon::encode($row['entities'])));
+            WP_CLI::line('  fields: ' . trim(Canon::encode($row['fields'])));
+            WP_CLI::line('  operations: ' . implode(', ', $row['capabilities']['operations']));
+            WP_CLI::line('  lifecycle: ' . implode(', ', $row['capabilities']['lifecycle_phases']));
+            WP_CLI::line('  deletion: ' . trim(Canon::encode($row['capabilities']['deletion_semantics'])));
+            foreach ($row['unsupported'] as $unsupported) {
+                WP_CLI::line(
+                    '  unsupported: ' . $unsupported['surface'] . ' / ' . $unsupported['operation']
+                    . ' — ' . $unsupported['reason']
+                );
+            }
+        }
+        foreach ($report['profiles'] as $name => $profile) {
+            WP_CLI::line('PROFILE ' . $name . ' ' . strtoupper((string) $profile['status']));
+        }
+        WP_CLI::line('registry sha256: ' . ($report['registry_sha256'] ?? 'none'));
     }
 }
 

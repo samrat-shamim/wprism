@@ -1,0 +1,200 @@
+{
+  "format": "duo-manifest-dispositions/v1",
+  "manifests": {
+    "acf": {
+      "capabilities": {
+        "deletion_semantics": {"supported": [], "unsupported": ["all ACF entity deletes"]},
+        "entity_sections": ["post_types"],
+        "field_sections": ["options", "option_namespaces", "interpreter"],
+        "lifecycle_phases": ["retire", "activate", "verify"],
+        "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]
+      },
+      "default_authored_keyspaces": [],
+      "evidence": {"bundle_schema": "duo-certification-bundle/v1", "tests": ["exact-artifact-version-matrix"]},
+      "reason": "Certified at both admitted artifact boundaries with schema-driven ACF field evidence.",
+      "status": "certified",
+      "supported_versions": {"plugin": "advanced-custom-fields/acf.php", "range": {"max": "7.0.0", "min": "6.0.0"}},
+      "unsupported": [
+        {"operation": "delete", "reason": "No ACF-specific deletion selector is declared.", "surface": "deletions.*"}
+      ]
+    },
+    "contact-form-7": {
+      "capabilities": {
+        "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]},
+        "entity_sections": [],
+        "field_sections": ["post_meta"],
+        "lifecycle_phases": ["retire", "activate", "verify"],
+        "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]
+      },
+      "default_authored_keyspaces": [],
+      "evidence": {"bundle_schema": "duo-certification-bundle/v1", "tests": ["exact-artifact-version-matrix"]},
+      "reason": "Certified with real form/API/render behavior at both admitted artifact boundaries.",
+      "status": "certified",
+      "supported_versions": {"plugin": "contact-form-7/wp-contact-form-7.php", "range": {"max": "7.0.0", "min": "6.0.0"}},
+      "unsupported": [
+        {"operation": "delete", "reason": "No Contact Form 7 deletion selector is declared.", "surface": "deletions.*"}
+      ]
+    },
+    "core": {
+      "capabilities": {
+        "deletion_semantics": {"supported": ["menu:nav_menu", "post:attachment", "post:page", "post:post", "term:category", "term:post_tag"], "unsupported": ["undeclared post types and taxonomies"]},
+        "entity_sections": ["tables", "widgets"],
+        "field_sections": ["options", "option_patterns", "dynamic_options", "post_meta", "term_meta", "menu_fields", "block_attrs", "shortcode_attrs"],
+        "lifecycle_phases": ["verify"],
+        "operations": ["capture", "compile", "plan", "deploy", "apply", "delete", "recapture", "render-api"]
+      },
+      "default_authored_keyspaces": [],
+      "evidence": {"bundle_schema": "duo-certification-bundle/v1", "tests": ["core-conformance"]},
+      "reason": "Certified single-site core authored-state surface; the FSE profile is separately named below.",
+      "status": "certified",
+      "supported_versions": {"wordpress": {"source": "bundle.environment_summary.wordpress"}},
+      "unsupported": [
+        {"operation": "all", "reason": "The v1 contract refuses WordPress multisite before policy load or mutation.", "surface": "multisite"},
+        {"operation": "capture", "reason": "Unknown whole-entity and field surfaces remain loud pending items.", "surface": "unclassified.*"}
+      ]
+    },
+    "duo-agency-cpt": {
+      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["all"]}, "entity_sections": [], "field_sections": ["options", "post_meta", "term_meta", "user_meta"], "lifecycle_phases": [], "operations": ["test-only"]},
+      "default_authored_keyspaces": [],
+      "reason": "Duo-authored regression fixture, not a third-party adapter or product support claim.",
+      "status": "excluded",
+      "supported_versions": {"fixture": true},
+      "unsupported": [{"operation": "promote", "reason": "Excluded fixture manifests are never production-ready.", "surface": "production"}]
+    },
+    "duo-code-half-ecosystem": {
+      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["all"]}, "entity_sections": [], "field_sections": ["options"], "lifecycle_phases": [], "operations": ["test-only"]},
+      "default_authored_keyspaces": [],
+      "reason": "Duo code-half ecosystem fixture used only by regression harnesses.",
+      "status": "excluded",
+      "supported_versions": {"fixture": true},
+      "unsupported": [{"operation": "promote", "reason": "Excluded fixture manifests are never production-ready.", "surface": "production"}]
+    },
+    "duo-code-half-probe": {
+      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["all"]}, "entity_sections": ["tables"], "field_sections": ["options"], "lifecycle_phases": [], "operations": ["test-only"]},
+      "default_authored_keyspaces": [],
+      "reason": "Synthetic plugin fixture proving code-half and table handoff behavior.",
+      "status": "excluded",
+      "supported_versions": {"fixture": true, "plugin": "duo-code-half-probe/duo-code-half-probe.php", "range": {"max": "3.0.0", "min": "1.0.0"}},
+      "unsupported": [{"operation": "promote", "reason": "Excluded fixture manifests are never production-ready.", "surface": "production"}]
+    },
+    "duo-loop-demo": {
+      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["all"]}, "entity_sections": [], "field_sections": ["options", "post_meta", "term_meta"], "lifecycle_phases": [], "operations": ["test-only"]},
+      "default_authored_keyspaces": [],
+      "reason": "Synthetic core-loop fixture, not a shipped adapter claim.",
+      "status": "excluded",
+      "supported_versions": {"fixture": true},
+      "unsupported": [{"operation": "promote", "reason": "Excluded fixture manifests are never production-ready.", "surface": "production"}]
+    },
+    "duo-loop-demo-versioned": {
+      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["all"]}, "entity_sections": [], "field_sections": [], "lifecycle_phases": [], "operations": ["test-only"]},
+      "default_authored_keyspaces": [],
+      "reason": "Synthetic version-range refusal fixture, not a shipped adapter claim.",
+      "status": "excluded",
+      "supported_versions": {"fixture": true, "plugin": "duo-loop-demo/duo-loop-demo.php", "range": {"max": "99.0.0", "min": "9.0.0"}},
+      "unsupported": [{"operation": "promote", "reason": "Excluded fixture manifests are never production-ready.", "surface": "production"}]
+    },
+    "elementor": {
+      "capabilities": {
+        "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]},
+        "entity_sections": [],
+        "field_sections": ["options", "post_meta", "meta_patterns"],
+        "lifecycle_phases": ["retire", "activate", "verify"],
+        "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]
+      },
+      "default_authored_keyspaces": [],
+      "evidence": {"bundle_schema": "duo-certification-bundle/v1", "tests": ["exact-artifact-version-matrix"]},
+      "reason": "Certified structural JSON/reference and frontend/CSS behavior at both admitted boundaries.",
+      "status": "certified",
+      "supported_versions": {"plugin": "elementor/elementor.php", "range": {"max": "5.0.0", "min": "4.0.0"}},
+      "unsupported": [{"operation": "delete", "reason": "No Elementor deletion selector is declared.", "surface": "deletions.*"}]
+    },
+    "ninja-forms": {
+      "capabilities": {
+        "deletion_semantics": {"supported": ["table:nf3_actions", "table:nf3_fields", "table:nf3_forms"], "unsupported": ["runtime submissions"]},
+        "entity_sections": ["post_types", "tables"],
+        "field_sections": ["options", "block_attrs"],
+        "lifecycle_phases": ["retire", "activate", "verify"],
+        "operations": ["capture", "compile", "plan", "deploy", "apply", "delete", "recapture", "render-api"]
+      },
+      "default_authored_keyspaces": [
+        {"reason": "Exact 3.4.34.2/3.14.11 typed-table matrix evidence covers the plugin-owned action meta keyspace.", "status": "justified", "table": "nf3_action_meta"},
+        {"reason": "Exact 3.4.34.2/3.14.11 typed-table matrix evidence covers the plugin-owned field meta keyspace.", "status": "justified", "table": "nf3_field_meta"},
+        {"reason": "Exact 3.4.34.2/3.14.11 typed-table matrix evidence covers the plugin-owned form meta keyspace.", "status": "justified", "table": "nf3_form_meta"}
+      ],
+      "evidence": {"bundle_schema": "duo-certification-bundle/v1", "tests": ["exact-artifact-version-matrix"]},
+      "reason": "Certified typed-table form graph, cache rebuild, block rendering, deletion guards, and exact version boundaries.",
+      "status": "certified",
+      "supported_versions": {"plugin": "ninja-forms/ninja-forms.php", "range": {"max": "4.0.0", "min": "3.4.34.2"}},
+      "unsupported": [{"operation": "capture", "reason": "Submission entities are runtime-sovereign and intentionally excluded.", "surface": "post_types.nf_sub"}]
+    },
+    "paid-memberships-pro": {
+      "capabilities": {"deletion_semantics": {"supported": ["table:pmpro_memberships_pages"], "unsupported": ["intent-only composite tables"]}, "entity_sections": ["tables"], "field_sections": ["options", "post_meta"], "lifecycle_phases": [], "operations": ["capture", "compile", "plan", "apply", "delete", "recapture"]},
+      "default_authored_keyspaces": [{"reason": "No version-pinned evidence bounds the default metadata keyspace; the whole adapter remains promotion-blocking.", "status": "unsupported", "table": "pmpro_membership_levelmeta"}],
+      "reason": "Experimental: conformance exists, but the manifest has no plugin identity/version range and no exact-artifact certification bundle.",
+      "status": "experimental",
+      "supported_versions": {"plugin": "unbound", "range": null},
+      "unsupported": [
+        {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_discount_codes"},
+        {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_discount_codes_levels"},
+        {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_groups"},
+        {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_membership_levels_groups"},
+        {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_memberships_categories"},
+        {"operation": "promote", "reason": "No exact version/evidence contract exists.", "surface": "production"}
+      ]
+    },
+    "polylang": {
+      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]}, "entity_sections": ["taxonomies"], "field_sections": ["options", "menu_fields"], "lifecycle_phases": ["retire", "activate", "verify"], "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]},
+      "default_authored_keyspaces": [],
+      "evidence": {"bundle_schema": "duo-certification-bundle/v1", "tests": ["exact-artifact-version-matrix"]},
+      "reason": "Certified bilingual entity/ref behavior and rendered output at both admitted boundaries.",
+      "status": "certified",
+      "supported_versions": {"plugin": "polylang/polylang.php", "range": {"max": "4.0.0", "min": "3.5"}},
+      "unsupported": [{"operation": "delete", "reason": "No Polylang deletion selector is declared.", "surface": "deletions.*"}]
+    },
+    "the-events-calendar": {
+      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]}, "entity_sections": ["post_types", "tables"], "field_sections": ["options", "post_meta"], "lifecycle_phases": [], "operations": ["capture", "compile", "plan", "apply", "recapture"]},
+      "default_authored_keyspaces": [],
+      "reason": "Experimental: grind evidence exists, but there is no conformance entry, plugin version contract, or current certification bundle.",
+      "status": "experimental",
+      "supported_versions": {"plugin": "unbound", "range": null},
+      "unsupported": [{"operation": "promote", "reason": "No exact version/evidence contract exists.", "surface": "production"}]
+    },
+    "woocommerce": {
+      "capabilities": {
+        "deletion_semantics": {"supported": ["post:product"], "unsupported": ["table:woocommerce_attribute_taxonomies"]},
+        "entity_sections": ["post_types", "tables", "taxonomy_patterns"],
+        "field_sections": ["options", "option_patterns", "option_name_refs", "post_meta", "meta_patterns", "term_meta", "block_attrs"],
+        "lifecycle_phases": ["retire", "activate", "verify"],
+        "operations": ["capture", "compile", "plan", "deploy", "apply", "delete", "recapture", "render-api"]
+      },
+      "default_authored_keyspaces": [],
+      "evidence": {"bundle_schema": "duo-certification-bundle/v1", "tests": ["exact-artifact-version-matrix"]},
+      "reason": "Certified product/catalog, typed-table, option-name reference, HPOS runtime-sovereignty, lifecycle, and product-delete subset.",
+      "status": "certified",
+      "supported_versions": {"plugin": "woocommerce/woocommerce.php", "range": {"max": "12.0.0", "min": "11.0.0"}},
+      "unsupported": [
+        {"operation": "delete", "reason": "The v1 guard/cascade grammar cannot express WooCommerce global-attribute semantic deletion.", "surface": "tables.woocommerce_attribute_taxonomies"},
+        {"operation": "capture", "reason": "Orders, customers, sessions, stock reservations, and Action Scheduler rows remain runtime-sovereign.", "surface": "tables.runtime"}
+      ]
+    },
+    "yoast": {
+      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]}, "entity_sections": ["tables"], "field_sections": ["options", "post_meta"], "lifecycle_phases": ["retire", "activate", "verify"], "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]},
+      "default_authored_keyspaces": [],
+      "evidence": {"bundle_schema": "duo-certification-bundle/v1", "tests": ["exact-artifact-version-matrix"]},
+      "reason": "Certified authored option/meta refs, target-local derived indexables, API/frontend behavior, and exact artifact boundaries.",
+      "status": "certified",
+      "supported_versions": {"plugin": "wordpress-seo/wp-seo.php", "range": {"max": "29.0.0", "min": "28.0"}},
+      "unsupported": [{"operation": "delete", "reason": "No Yoast-specific deletion selector is declared.", "surface": "deletions.*"}]
+    }
+  },
+  "profiles": {
+    "fse": {
+      "evidence": {"bundle_schema": "duo-certification-bundle/v1", "tests": ["fse-conformance"]},
+      "manifest": "core",
+      "reason": "Certified core full-site-editing profile for block themes, templates, template parts, navigation, reusable blocks, and theme taxonomies.",
+      "scope": {"post_types": ["wp_block", "wp_navigation", "wp_template", "wp_template_part"], "taxonomies": ["wp_pattern_category", "wp_template_part_area", "wp_theme"]},
+      "status": "certified",
+      "supported_versions": {"wordpress": {"source": "bundle.environment_summary.wordpress"}}
+    }
+  }
+}

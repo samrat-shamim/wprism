@@ -122,6 +122,7 @@ final class Apply {
             // derivative is safe.
             'uploads_inventory' => $compiled->uploads_inventory(),
             'effects_inventory' => $compiled->effects_inventory(),
+            'adapter_dispositions' => $this->policy->adapter_readiness_blockers(),
         ];
         $collisionCache = [];
         foreach ($tree as $uuid => $e) {
