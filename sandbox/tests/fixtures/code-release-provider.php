@@ -120,6 +120,9 @@ if (in_array($action, ['select_desired', 'restore_prior', 'verify_desired', 'ver
     $target = (string) $descriptor['release_id'];
     $current = is_file($pointer) ? trim((string) file_get_contents($pointer)) : '';
     $isVerify = str_starts_with($action, 'verify_');
+    // Refuse changed/unrecorded release contents before pointer mutation. The
+    // second verification below proves the selected world independently.
+    release_verify($releaseRoot, $descriptor);
     if (!$isVerify) {
         $otherRole = $role === 'desired' ? 'prior' : 'desired';
         $other = json_decode((string) file_get_contents((string) $request[$otherRole . '_descriptor_path']), true, 512, JSON_THROW_ON_ERROR);

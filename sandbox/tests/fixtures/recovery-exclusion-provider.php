@@ -26,6 +26,12 @@ $state = is_file($statePath)
     ? json_decode((string) file_get_contents($statePath), true, 512, JSON_THROW_ON_ERROR)
     : null;
 
+if ($action === 'keepalive' && is_file($statePath . '.fail-keepalive')) {
+    unlink($statePath . '.fail-keepalive');
+    fwrite(STDERR, "fixture keepalive unavailable; exclusion remains held\n");
+    exit(43);
+}
+
 if ($action === 'probe') {
     $token = null;
     $providerState = 'ready';

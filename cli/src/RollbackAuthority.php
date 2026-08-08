@@ -60,6 +60,11 @@ final class RollbackAuthority {
         return self::readStatus($transport, 'authority-status');
     }
 
+    /** Read canonical hash-only evidence for the complete signed chain. */
+    public static function audit(SshTransport $transport): array {
+        return self::readStatus($transport, 'audit');
+    }
+
     /** @return array<string,mixed> */
     private static function readStatus(SshTransport $transport, string $action): array {
         $runtime = self::runtimePath($transport);
@@ -428,6 +433,150 @@ final class RollbackAuthority {
         return $this->sendExclusion($this->exclusionPayload('keepalive', $status, $timestamp ?? self::timestamp()));
     }
 
+    /**
+     * Authorize one exact target recovery operation. Keeping authorization,
+     * execution, and completion as separate public steps is intentional: a
+     * fresh controller can resume after losing either the local process or
+     * the SSH command without inventing a second operation receipt.
+     *
+     * @param array<string,mixed> $input
+     * @return array{input_sha256:string,status:array<string,mixed>}
+     */
+    public function prepareOperation(
+        string $state,
+        string $adapter,
+        int $attempt,
+        array $input,
+        ?string $timestamp = null
+    ): array {
+        $status = $this->requiredActiveStatus();
+        self::assertOperationIdentity($adapter, $attempt);
+        if ((string) $status['state'] !== $state) {
+            throw new \RuntimeException(
+                "duo rollback: cannot prepare $adapter while target is {$status['state']} instead of $state"
+            );
+        }
+        $inputHash = hash('sha256', RollbackControl::canonical($input) . "\n");
+        $next = $this->append(
+            $state,
+            'prepared',
+            $adapter,
+            $attempt,
+            (string) $status['claimant'],
+            $inputHash,
+            str_repeat('0', 64),
+            $timestamp
+        );
+        return ['input_sha256' => $inputHash, 'status' => $next];
+    }
+
+    /**
+     * Execute an already-authorized operation through the adopted target
+     * runtime. The canonical input is uploaded as a mode-0600 handoff and is
+     * removed on every observed exit; its digest must match the signed open
+     * operation before any provider is invoked.
+     *
+     * @param array<string,mixed> $input
+     * @return array<string,mixed>
+     */
+    public function executeOperation(string $adapter, int $attempt, array $input): array {
+        $status = $this->requiredActiveStatus();
+        self::assertOperationIdentity($adapter, $attempt);
+        $local = tempnam(sys_get_temp_dir(), 'duo-rollback-input-');
+        if ($local === false) {
+            throw new \RuntimeException('duo rollback: could not allocate operation handoff');
+        }
+        $remote = '/tmp/duo-rollback-input-' . bin2hex(random_bytes(16)) . '.json';
+        try {
+            @chmod($local, 0600);
+            $bytes = RollbackControl::canonical($input) . "\n";
+            if (file_put_contents($local, $bytes, LOCK_EX) !== strlen($bytes)) {
+                throw new \RuntimeException('duo rollback: could not write operation handoff');
+            }
+            $upload = $this->transport->uploadFile($local, $remote);
+            if ($upload['exit'] !== 0) {
+                throw new \RuntimeException('duo rollback: operation upload failed: ' . trim($upload['stderr']));
+            }
+            $runtime = self::runtimePath($this->transport);
+            $root = self::controlRoot($this->transport);
+            $script = 'set -eu; input=' . escapeshellarg($remote)
+                . '; finish() { status=$?; rm -f "$input"; exit "$status"; }; trap finish EXIT; '
+                . 'chmod 600 "$input"; php ' . escapeshellarg($runtime) . ' execute'
+                . ' --root=' . escapeshellarg($root)
+                . ' --adapter=' . escapeshellarg($adapter)
+                . ' --operation-id=' . escapeshellarg($adapter)
+                . ' --attempt=' . escapeshellarg((string) $attempt)
+                . ' --claimant=' . escapeshellarg((string) $status['claimant'])
+                . ' --claim-epoch=' . escapeshellarg((string) $status['claim_epoch'])
+                . ' --input="$input"';
+            $result = $this->transport->captureRaw($script);
+            if ($result['exit'] !== 0) {
+                $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
+                throw new \RuntimeException(
+                    'duo rollback: target operation refused' . ($detail !== '' ? ': ' . $detail : '')
+                );
+            }
+            $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
+            $inputHash = hash('sha256', $bytes);
+            if (!is_array($decoded)
+                || RollbackControl::canonical($decoded) . "\n" !== $result['stdout']
+                || ($decoded['ok'] ?? null) !== true
+                || ($decoded['adapter'] ?? null) !== $adapter
+                || !hash_equals($inputHash, (string) ($decoded['input_sha256'] ?? ''))
+                || preg_match('/^[a-f0-9]{64}$/', (string) ($decoded['result_sha256'] ?? '')) !== 1) {
+                throw new \RuntimeException('duo rollback: target returned invalid operation evidence');
+            }
+            return $decoded;
+        } finally {
+            @unlink($local);
+            $this->transport->captureRaw('rm -f ' . escapeshellarg($remote));
+        }
+    }
+
+    /** @param array<string,mixed> $execution @return array<string,mixed> */
+    public function completeOperation(
+        string $state,
+        string $adapter,
+        int $attempt,
+        array $input,
+        array $execution,
+        ?string $timestamp = null
+    ): array {
+        $status = $this->requiredActiveStatus();
+        self::assertOperationIdentity($adapter, $attempt);
+        $inputHash = hash('sha256', RollbackControl::canonical($input) . "\n");
+        if (($execution['adapter'] ?? null) !== $adapter
+            || !hash_equals($inputHash, (string) ($execution['input_sha256'] ?? ''))
+            || preg_match('/^[a-f0-9]{64}$/', (string) ($execution['result_sha256'] ?? '')) !== 1) {
+            throw new \RuntimeException('duo rollback: operation completion evidence does not match its input');
+        }
+        return $this->append(
+            $state,
+            'completed',
+            $adapter,
+            $attempt,
+            (string) $status['claimant'],
+            $inputHash,
+            (string) $execution['result_sha256'],
+            $timestamp
+        );
+    }
+
+    /** @param array<string,mixed> $input @return array{execution:array<string,mixed>,status:array<string,mixed>} */
+    public function runOperation(
+        string $state,
+        string $adapter,
+        int $attempt,
+        array $input,
+        ?string $preparedAt = null,
+        ?string $completedAt = null
+    ): array {
+        $this->prepareOperation($state, $adapter, $attempt, $input, $preparedAt);
+        $execution = $this->executeOperation($adapter, $attempt, $input);
+        $status = $this->completeOperation($state, $adapter, $attempt, $input, $execution, $completedAt);
+        return ['execution' => $execution, 'status' => $status];
+    }
+
     /** Finish provider adoption after a takeover response/SSH disconnect gap. */
     public function adoptExclusion(?string $expectedClaimant = null, ?string $timestamp = null): array {
         if (!$this->transport->recoveryConfigured()) {
@@ -720,6 +869,12 @@ final class RollbackAuthority {
             throw new \RuntimeException('duo rollback: signing key must be canonical base64 Ed25519 secret bytes');
         }
         return $secret;
+    }
+
+    private static function assertOperationIdentity(string $adapter, int $attempt): void {
+        if ($attempt < 1 || preg_match('/^[a-z][a-z0-9_]{0,63}$/', $adapter) !== 1) {
+            throw new \RuntimeException('duo rollback: operation adapter/attempt is malformed');
+        }
     }
 
     private static function controlRoot(SshTransport $transport): string {

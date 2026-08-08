@@ -250,6 +250,9 @@ final class RollbackControl {
                 'claim_ttl_seconds' => (int) $receipt['claim_ttl_seconds'],
                 'claimant' => (string) $target['claimant'],
                 'checkpoint_sha256' => (string) $receipt['checkpoint_sha256'],
+                'code_release_metadata_sha256' => isset($receipt['code_release_metadata_sha256'])
+                    ? (string) $receipt['code_release_metadata_sha256']
+                    : null,
                 'encryption_key_id' => (string) $receipt['encryption_key_id'],
                 'exclusion_token_sha256' => (string) $receipt['exclusion_token_sha256'],
                 'lifecycle_receipts_sha256' => (string) $receipt['lifecycle_receipts_sha256'],
@@ -259,6 +262,7 @@ final class RollbackControl {
                 'ok' => true,
                 'open_operations' => count($verified['open_operations']),
                 'owner' => (string) $receipt['owner'],
+                'prior_code_descriptor_sha256' => (string) $receipt['prior_code_descriptor_sha256'],
                 'receipt_id' => (string) $receipt['receipt_id'],
                 'retention_until' => (string) $receipt['retention_until'],
                 'uploads_inventory_sha256' => (string) $receipt['uploads_inventory_sha256'],
@@ -292,6 +296,53 @@ final class RollbackControl {
                 'open_operations' => $verified['open_operations'],
                 'receipt' => $verified['receipt'],
                 'status' => self::statusFromVerified($target, $verified),
+            ];
+        });
+    }
+
+    /**
+     * Return hash-only audit evidence for the complete signed active chain.
+     * This is the supported export used by external certification; it never
+     * exposes provider tokens, checkpoint bytes, or signing material.
+     *
+     * @return array<string,mixed>
+     */
+    public static function auditEvidence(string $root): array {
+        return self::withLock($root, function () use ($root): array {
+            $target = self::readTarget($root);
+            if ($target['active_receipt'] === null) {
+                throw new \RuntimeException('duo rollback: no active receipt exists');
+            }
+            self::verifyActive($root, $target);
+            $receiptId = (string) $target['active_receipt'];
+            $directory = self::receiptDirectory($root, $receiptId);
+            $receiptPath = $directory . '/receipt.json';
+            $receiptHash = hash_file('sha256', $receiptPath);
+            $targetHash = hash_file('sha256', $root . '/target.json');
+            if (!is_string($receiptHash) || !is_string($targetHash)) {
+                throw new \RuntimeException('duo rollback: could not hash active audit evidence');
+            }
+            $eventFiles = glob($directory . '/events/*.json') ?: [];
+            sort($eventFiles, SORT_STRING);
+            $events = [];
+            foreach ($eventFiles as $index => $path) {
+                $hash = hash_file('sha256', $path);
+                if (!is_string($hash)) {
+                    throw new \RuntimeException('duo rollback: could not hash active event evidence');
+                }
+                $events[] = ['sequence' => $index + 1, 'sha256' => $hash];
+            }
+            return [
+                'event_chain_sha256' => hash('sha256', self::canonical($events) . "\n"),
+                'events' => $events,
+                'format' => 'duo-rollback-audit/v1',
+                'generation' => (int) $target['generation'],
+                'ok' => true,
+                'receipt_id' => $receiptId,
+                'receipt_sha256' => $receiptHash,
+                'state' => (string) $target['state'],
+                'target_id' => (string) $target['target_id'],
+                'target_record_sha256' => $targetHash,
             ];
         });
     }
@@ -1115,6 +1166,7 @@ function rollback_control_main(array $argv): int {
                 (string) ($args['input'] ?? '')
             ),
             'authority-status' => RollbackControl::status($root),
+            'audit' => RollbackControl::auditEvidence($root),
             'status' => RecoveryExecutor::decorateStatus($root, RollbackControl::status($root)),
             default => throw new \RuntimeException("duo rollback: unknown action '$action'"),
         };
