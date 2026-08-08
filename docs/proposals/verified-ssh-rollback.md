@@ -406,7 +406,11 @@ whose acceptance can be certified independently:
    claim/takeover, status, and refusal of stale authority.
 2. **DUO-3294 — Production SSH exclusion and fatal-safe recovery executor** — durable
    maintenance/non-Duo-writer adapter, raw-SSH recovery commands, disconnect
-   behavior, and protected runtime installation/update.
+   behavior, and protected runtime installation/update. Implemented by the
+   target-owned argv protocol in
+   [`../recovery-runtime.md`](../recovery-runtime.md); it remains a substrate,
+   not an automatic-rollback claim, until the dependent integration slices
+   close.
 3. **DUO-3296 — Atomic SSH code releases and restore verification** — immutable releases,
    atomic pointer, prior descriptor retention, exact file/path verification,
    and fail-closed fallback for unsupported in-place targets.

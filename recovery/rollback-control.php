@@ -235,6 +235,7 @@ final class RollbackControl {
                 'claim_expires_at' => (string) $target['claim_expires_at'],
                 'claim_ttl_seconds' => (int) $receipt['claim_ttl_seconds'],
                 'claimant' => (string) $target['claimant'],
+                'exclusion_token_sha256' => (string) $receipt['exclusion_token_sha256'],
                 'format' => self::TARGET_FORMAT,
                 'generation' => (int) $target['generation'],
                 'head_event_sha256' => (string) $target['head_event_sha256'],
@@ -246,6 +247,32 @@ final class RollbackControl {
                 'state' => (string) $target['state'],
                 'target_id' => (string) $target['target_id'],
                 'terminal' => in_array((string) $target['state'], self::TERMINAL_STATES, true),
+            ];
+        });
+    }
+
+    /** Verify a controller signature using only the adopted public key. */
+    public static function verifyEnvelope(string $root, array $signed, string $label): array {
+        return self::verifySigned($root, $signed, $label);
+    }
+
+    /**
+     * Return the verified receipt and open-operation set used by the isolated
+     * recovery executor. Nothing in this view is sourced from WordPress.
+     *
+     * @return array{receipt:array<string,mixed>,status:array<string,mixed>,open_operations:array<string,array<string,mixed>>}
+     */
+    public static function activeEvidence(string $root): array {
+        return self::withLock($root, function () use ($root): array {
+            $target = self::readTarget($root);
+            if ($target['active_receipt'] === null) {
+                throw new \RuntimeException('duo rollback: no active receipt exists');
+            }
+            $verified = self::verifyActive($root, $target);
+            return [
+                'open_operations' => $verified['open_operations'],
+                'receipt' => $verified['receipt'],
+                'status' => self::statusFromVerified($target, $verified),
             ];
         });
     }
@@ -289,6 +316,9 @@ final class RollbackControl {
         self::assertClaimExpiry($event, (int) $receipt['claim_ttl_seconds']);
         if (self::timeValue((string) $event['timestamp']) < self::timeValue((string) $receipt['created_at'])) {
             throw new \RuntimeException('duo rollback: first event predates its immutable receipt');
+        }
+        if (RecoveryExecutor::configured($root)) {
+            RecoveryExecutor::assertClaimExclusion($root, $receipt, $event);
         }
 
         $receiptId = (string) $receipt['receipt_id'];
@@ -575,6 +605,11 @@ final class RollbackControl {
     /** @return array<string,mixed> */
     private static function statusUnlocked(string $root, array $target): array {
         $verified = self::verifyActive($root, $target);
+        return self::statusFromVerified($target, $verified);
+    }
+
+    /** @param array{receipt:array<string,mixed>,open_operations:array<string,array<string,mixed>>,last_timestamp:int} $verified */
+    private static function statusFromVerified(array $target, array $verified): array {
         return [
             'active' => true,
             'artifact_hash' => (string) $target['artifact_hash'],
@@ -582,6 +617,7 @@ final class RollbackControl {
             'claim_expires_at' => (string) $target['claim_expires_at'],
             'claim_ttl_seconds' => (int) $verified['receipt']['claim_ttl_seconds'],
             'claimant' => (string) $target['claimant'],
+            'exclusion_token_sha256' => (string) $verified['receipt']['exclusion_token_sha256'],
             'format' => self::TARGET_FORMAT,
             'generation' => (int) $target['generation'],
             'head_event_sha256' => (string) $target['head_event_sha256'],
@@ -1017,7 +1053,20 @@ function rollback_control_main(array $argv): int {
                 return ['ok' => true];
             })(),
             'request' => RollbackControl::handleRequest($root, (string) ($args['request'] ?? '')),
-            'status' => RollbackControl::status($root),
+            'configure-recovery' => RecoveryExecutor::configureFromFile($root, (string) ($args['config'] ?? '')),
+            'recovery-probe' => RecoveryExecutor::probe($root),
+            'exclusion-request' => RecoveryExecutor::handleExclusionRequest($root, (string) ($args['request'] ?? '')),
+            'execute' => RecoveryExecutor::execute(
+                $root,
+                (string) ($args['adapter'] ?? ''),
+                (string) ($args['operation-id'] ?? ''),
+                (int) ($args['attempt'] ?? 0),
+                (string) ($args['claimant'] ?? ''),
+                (int) ($args['claim-epoch'] ?? 0),
+                (string) ($args['input'] ?? '')
+            ),
+            'authority-status' => RollbackControl::status($root),
+            'status' => RecoveryExecutor::decorateStatus($root, RollbackControl::status($root)),
             default => throw new \RuntimeException("duo rollback: unknown action '$action'"),
         };
         echo RollbackControl::canonical($result) . "\n";
@@ -1027,6 +1076,8 @@ function rollback_control_main(array $argv): int {
         return 1;
     }
 }
+
+require_once __DIR__ . '/RecoveryExecutor.php';
 
 if (isset($_SERVER['SCRIPT_FILENAME']) && realpath((string) $_SERVER['SCRIPT_FILENAME']) === __FILE__) {
     exit(rollback_control_main($argv));

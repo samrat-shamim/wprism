@@ -55,6 +55,14 @@ paths resolve from the registry file. Adoption derives and transfers only the
 public key; the secret never enters the archive, SSH command, or target.
 Rotation adds a new key id because installed key ids are immutable.
 
+For a host participating in the verified rollback profile, also configure its
+target-owned exclusion provider and four raw recovery adapters. Values are
+absolute argv arrays, not shell strings, and contain no token or credential.
+The schema and stdin/stdout protocol are in
+[recovery-runtime.md](recovery-runtime.md). Adoption fails unless the provider
+attests traffic, background jobs, package/self updates, filesystem writers,
+fail-closed disconnect behavior, and every adapter probes without site code.
+
 If the environment needs a dedicated SSH configuration, set `ssh_config` to
 that file. Relative paths resolve from the registry file that defines the
 environment. The same file is passed to both `ssh -F` and `scp -F`, so port,
@@ -97,7 +105,9 @@ Adoption performs these operations:
    - `repo_path/.duo/control/recovery-runtime/` (outside managed code);
 5. creates or verifies the protected `repo_path/.duo/control/` root and its
    stable target identity, and installs the configured public verification
-   key without copying controller secrets;
+   key without copying controller secrets; when `rollback_recovery` is set it
+   installs the path-only configuration and probes the exclusion provider plus
+   all four isolated adapters;
 6. creates `repo_path/site.duo.json` only when it is absent, initially pinning
    `core` with post/page/attachment and category/post_tag scope;
 7. starts fresh wp-cli processes to prove the remote `DUO_AGENT_VERSION`
@@ -123,9 +133,10 @@ The control root holds `target.json`, `target.lock`, immutable public keys,
 and the installed runtime. Receipts and signed event chains live beside it at
 `repo_path/.duo/rollback/<receipt-id>/`; re-adoption updates only the runtime
 and preserves the stable identity and all generations. This is the authority
-substrate, not automatic resource rollback: the current in-place promotion
-still uses the operator recovery procedure until the resource executors in
-the verified rollback design are implemented.
+substrate plus the fatal-safe executor, not automatic resource rollback: the
+current in-place promotion still uses the operator procedure until later
+checkpoint, code/storage, verifier, and integrated crash-matrix slices drive
+this executor through a complete promotion.
 
 ## Why the manifest directory is installed beside the agent
 

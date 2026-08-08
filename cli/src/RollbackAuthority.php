@@ -52,10 +52,21 @@ final class RollbackAuthority {
      * @return array<string,mixed>
      */
     public static function status(SshTransport $transport): array {
+        return self::readStatus($transport, 'status');
+    }
+
+    /** Read signed authority even when exclusion adoption is the failing edge. */
+    public static function authorityStatus(SshTransport $transport): array {
+        return self::readStatus($transport, 'authority-status');
+    }
+
+    /** @return array<string,mixed> */
+    private static function readStatus(SshTransport $transport, string $action): array {
         $runtime = self::runtimePath($transport);
         $root = self::controlRoot($transport);
         $script = 'if [ ! -f ' . escapeshellarg($runtime) . ' ]; then exit 44; fi; '
-            . 'php ' . escapeshellarg($runtime) . ' status --root=' . escapeshellarg($root);
+            . 'php ' . escapeshellarg($runtime) . ' ' . escapeshellarg($action)
+            . ' --root=' . escapeshellarg($root);
         $result = $transport->captureRaw($script);
         if ($result['exit'] === 44) {
             return ['available' => false, 'ok' => true, 'active' => false];
@@ -105,10 +116,47 @@ final class RollbackAuthority {
             );
         }
         $now = $timestamp ?? self::timestamp();
+        $generation = (int) ($status['generation'] ?? 0) + 1;
+        $receiptId = bin2hex(random_bytes(24));
+        if ($this->transport->recoveryConfigured()) {
+            if (array_key_exists('exclusion_token_sha256', $fields)) {
+                throw new \RuntimeException('duo rollback: exclusion_token_sha256 is provider-owned when recovery is configured');
+            }
+            if (($status['recovery_ready'] ?? false) !== true) {
+                throw new \RuntimeException('duo rollback: recovery provider and adapters did not pass preflight');
+            }
+            $reservation = $status['exclusion_reservation'] ?? null;
+            if (($status['exclusion_state'] ?? '') === 'held' && is_array($reservation)) {
+                foreach ([
+                    'artifact_hash' => (string) ($fields['artifact_hash'] ?? ''),
+                    'claimant' => $claimant,
+                    'generation' => $generation,
+                    'owner' => (string) ($fields['owner'] ?? ''),
+                ] as $key => $expected) {
+                    if ((string) ($reservation[$key] ?? '') !== (string) $expected) {
+                        throw new \RuntimeException("duo rollback: held exclusion reservation $key does not match this claim");
+                    }
+                }
+                $receiptId = (string) ($reservation['receipt_id'] ?? '');
+            }
+            $exclusion = $this->sendExclusion([
+                'action' => 'acquire',
+                'artifact_hash' => (string) ($fields['artifact_hash'] ?? ''),
+                'claim_epoch' => 1,
+                'claimant' => $claimant,
+                'format' => 'duo-exclusion-request/v1',
+                'generation' => $generation,
+                'owner' => (string) ($fields['owner'] ?? ''),
+                'receipt_id' => $receiptId,
+                'target_id' => (string) ($status['target_id'] ?? ''),
+                'timestamp' => $now,
+            ]);
+            $fields['exclusion_token_sha256'] = (string) $exclusion['token_sha256'];
+        }
         $receipt = $fields + [
             'format' => RollbackControl::RECEIPT_FORMAT,
-            'generation' => (int) ($status['generation'] ?? 0) + 1,
-            'receipt_id' => bin2hex(random_bytes(24)),
+            'generation' => $generation,
+            'receipt_id' => $receiptId,
             'signing_key_id' => $this->keyId,
             'target_id' => (string) ($status['target_id'] ?? ''),
         ];
@@ -202,11 +250,53 @@ final class RollbackAuthority {
             $now,
             (int) $status['claim_ttl_seconds']
         );
-        return $this->send([
+        $next = $this->send([
             'action' => 'append',
             'event' => RollbackControl::sign($event, $this->keyId, $this->secretKey),
             'receipt' => null,
         ]);
+        if ($this->transport->recoveryConfigured()) {
+            $this->sendExclusion($this->exclusionPayload('adopt', $next, $now));
+        }
+        return $next;
+    }
+
+    /** Refresh provider liveness without weakening disconnect fail-closed behavior. */
+    public function keepalive(?string $timestamp = null): array {
+        $status = $this->requiredActiveStatus();
+        if (!$this->transport->recoveryConfigured()) {
+            throw new \RuntimeException('duo rollback: no recovery exclusion provider is configured');
+        }
+        return $this->sendExclusion($this->exclusionPayload('keepalive', $status, $timestamp ?? self::timestamp()));
+    }
+
+    /** Finish provider adoption after a takeover response/SSH disconnect gap. */
+    public function adoptExclusion(?string $expectedClaimant = null, ?string $timestamp = null): array {
+        if (!$this->transport->recoveryConfigured()) {
+            throw new \RuntimeException('duo rollback: no recovery exclusion provider is configured');
+        }
+        $status = self::authorityStatus($this->transport);
+        if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
+            || ($status['active'] ?? false) !== true || !empty($status['terminal'])) {
+            throw new \RuntimeException('duo rollback: exclusion adoption requires valid nonterminal authority');
+        }
+        if ($expectedClaimant !== null && !hash_equals($expectedClaimant, (string) $status['claimant'])) {
+            throw new \RuntimeException('duo rollback: authority claimant does not match requested exclusion adopter');
+        }
+        return $this->sendExclusion($this->exclusionPayload('adopt', $status, $timestamp ?? self::timestamp()));
+    }
+
+    /** Release only after the target has verified a signed terminal receipt. */
+    public function releaseExclusion(?string $timestamp = null): array {
+        $status = self::status($this->transport);
+        if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
+            || ($status['active'] ?? false) !== true || empty($status['terminal'])) {
+            throw new \RuntimeException('duo rollback: exclusion release requires valid committed or rolled_back authority');
+        }
+        if (!$this->transport->recoveryConfigured()) {
+            throw new \RuntimeException('duo rollback: no recovery exclusion provider is configured');
+        }
+        return $this->sendExclusion($this->exclusionPayload('release', $status, $timestamp ?? self::timestamp()));
     }
 
     /** @return array<string,mixed> */
@@ -230,6 +320,22 @@ final class RollbackAuthority {
             'owner' => (string) $status['owner'],
             'receipt_id' => (string) $status['receipt_id'],
             'target_id' => (string) $status['target_id'],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function exclusionPayload(string $action, array $status, string $timestamp): array {
+        return [
+            'action' => $action,
+            'artifact_hash' => (string) $status['artifact_hash'],
+            'claim_epoch' => (int) $status['claim_epoch'],
+            'claimant' => (string) $status['claimant'],
+            'format' => 'duo-exclusion-request/v1',
+            'generation' => (int) $status['generation'],
+            'owner' => (string) $status['owner'],
+            'receipt_id' => (string) $status['receipt_id'],
+            'target_id' => (string) $status['target_id'],
+            'timestamp' => $timestamp,
         ];
     }
 
@@ -278,6 +384,19 @@ final class RollbackAuthority {
 
     /** @return array<string,mixed> */
     private function send(array $request): array {
+        return $this->sendRemote($request, 'request');
+    }
+
+    /** @return array<string,mixed> */
+    private function sendExclusion(array $payload): array {
+        return $this->sendRemote(
+            RollbackControl::sign($payload, $this->keyId, $this->secretKey),
+            'exclusion-request'
+        );
+    }
+
+    /** @return array<string,mixed> */
+    private function sendRemote(array $request, string $action): array {
         $local = tempnam(sys_get_temp_dir(), 'duo-rollback-request-');
         if ($local === false) {
             throw new \RuntimeException('duo rollback: could not allocate request handoff');
@@ -298,7 +417,8 @@ final class RollbackAuthority {
             $root = self::controlRoot($this->transport);
             $script = 'set -eu; request=' . escapeshellarg($remote)
                 . '; finish() { status=$?; rm -f "$request"; exit "$status"; }; trap finish EXIT; '
-                . 'php ' . escapeshellarg($runtime) . ' request --root=' . escapeshellarg($root)
+                . 'php ' . escapeshellarg($runtime) . ' ' . escapeshellarg($action)
+                . ' --root=' . escapeshellarg($root)
                 . ' --request="$request"';
             $result = $this->transport->captureRaw($script);
             if ($result['exit'] !== 0) {
