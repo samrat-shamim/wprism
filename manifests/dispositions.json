@@ -161,18 +161,19 @@
     },
     "woocommerce": {
       "capabilities": {
-        "deletion_semantics": {"supported": ["post:product"], "unsupported": ["table:woocommerce_attribute_taxonomies"]},
+        "deletion_semantics": {"supported": [], "unsupported": ["post:product", "table:woocommerce_attribute_taxonomies"]},
         "entity_sections": ["post_types", "tables", "taxonomy_patterns"],
         "field_sections": ["options", "option_patterns", "option_name_refs", "post_meta", "meta_patterns", "term_meta", "block_attrs"],
         "lifecycle_phases": ["retire", "activate", "verify"],
-        "operations": ["capture", "compile", "plan", "deploy", "apply", "delete", "recapture", "render-api"]
+        "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]
       },
       "default_authored_keyspaces": [],
       "evidence": {"bundle_schema": "duo-certification-bundle/v1", "tests": ["exact-artifact-version-matrix"]},
-      "reason": "Certified product/catalog, typed-table, option-name reference, HPOS runtime-sovereignty, lifecycle, and product-delete subset.",
+      "reason": "Certified product/catalog creation and update, typed-table configuration, option-name reference, HPOS runtime-sovereignty, lifecycle, and explicit fail-closed deletion boundaries.",
       "status": "certified",
       "supported_versions": {"plugin": "woocommerce/woocommerce.php", "range": {"max": "12.0.0", "min": "11.0.0"}},
       "unsupported": [
+        {"operation": "delete", "reason": "Product reverse references can live in downloads, subscriptions, order metadata, serialized values, and extension-owned custom tables that the v1 guard grammar cannot close safely.", "surface": "post_types.product"},
         {"operation": "delete", "reason": "The v1 guard/cascade grammar cannot express WooCommerce global-attribute semantic deletion.", "surface": "tables.woocommerce_attribute_taxonomies"},
         {"operation": "capture", "reason": "Orders, customers, sessions, stock reservations, and Action Scheduler rows remain runtime-sovereign.", "surface": "tables.runtime"}
       ]

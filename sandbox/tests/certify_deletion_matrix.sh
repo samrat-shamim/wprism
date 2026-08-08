@@ -1,22 +1,19 @@
 #!/usr/bin/env bash
-# Certify deletion matrix (DUO-3223 slice 4): --with-deletes scenarios for
-# the three manifests declaring their own deletions/guards blocks on
-# PLUGIN-owned typed-snapshot tables, beyond core's own post/term deletion
-# guards (already exhaustively covered by conformance/checks/core.sh,
-# task #88-era work). Proves the SAME generic guard mechanism
+# Certify deletion matrix (DUO-3223 slice 4): three plugin deletion
+# boundaries beyond core's own post/term deletion guards (already
+# exhaustively covered by conformance/checks/core.sh, task #88-era work).
+# WooCommerce now proves unsupported product intent refuses before mutation;
+# the other two prove the generic typed-table guard/delete mechanism
 # (Apply.php's count_guard_refs(), driven entirely by each manifest's own
 # declared deletions block) generalizes correctly from core's hardcoded
 # post-type guards to arbitrary plugin-declared table guards, with no new
 # engine code needed -- this is a certification of an existing mechanism,
 # not new capability work.
 #
-#   PART 1 (WooCommerce): post:product's wc_order_product_lookup guard --
-#     a product referenced by a real order can't be deleted unforced.
-#     Permanentizes sandbox/tests/spike_d_woo.sh's own already-proven
-#     referential-guard sequence (same command shapes, same action-
-#     scheduler polling detail) onto this pair.sh-based two-environment
-#     convention, matching how certify_merge.sh permanentized
-#     spike_b_merge.sh.
+#   PART 1 (WooCommerce): product deletion's fail-closed boundary. A real
+#     order proves why a partial guard is insufficient; review, download,
+#     subscription, and arbitrary extension custom-table references are not
+#     exhaustively representable, so neither deletion force flag is authority.
 #   PART 2 (Ninja Forms): table:nf3_forms's THREE-guard shape -- two
 #     cross-table guards (nf3_actions/nf3_fields referencing the form) and
 #     one postmeta guard (_form_id submissions). Notable, verified live
@@ -145,7 +142,7 @@ wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admi
 pass "baseline established on A, B converged"
 
 # ============================================================================
-# PART 1 — WooCommerce: post:product's wc_order_product_lookup guard
+# PART 1 — WooCommerce: product deletion is unsupported, fail closed
 # ============================================================================
 
 say "PART 1 — seed a product on A, capture, converge B"
@@ -188,54 +185,54 @@ done
 [ "$LOOKUP_ROWS" -ge "1" ] || fail "no wc_order_product_lookup row for the order (after polling the action scheduler)"
 pass "order #$ORDER_B placed on B; wc_order_product_lookup has $LOOKUP_ROWS row(s)"
 
-say "PART 1 — on A: delete the referenced product, capture, propagate"
-wp1 post delete "$PRODUCT_A" --force >/dev/null
-wp1 duo capture --repo=/siterepo >/dev/null
-$GIT_A add -A && $GIT_A commit -qm "A: delete Deletion Matrix Widget" && $GIT_A push -q origin main
-$GIT_B pull -q origin main
+say "PART 1 — hand-author a valid product tombstone; plan/apply must refuse before mutation"
+PRODUCT_FILE=$(find siterepo/delmatrix2/state/posts/product -name '*--deletion-matrix-widget.md' -print -quit)
+[ -n "$PRODUCT_FILE" ] || fail "captured product state file missing"
+PRODUCT_UUID=$(basename "$PRODUCT_FILE" | cut -d- -f1-5)
+EXPECTED_HASH=$(shasum -a 256 "$PRODUCT_FILE" | awk '{print $1}')
+EXPECTED_REVISION=$(wp2 eval 'echo \Duo\RepositoryCompiler::compile("/siterepo", \Duo\Policy::load("/siterepo"))->revision_hash();')
+SOURCE_PATH="posts/product/$(basename "$PRODUCT_FILE")"
+PRODUCT_BACKUP="siterepo/delmatrix2/.tmp-unsupported-product.md"
+mkdir -p siterepo/delmatrix2/state/deletions
+mv "$PRODUCT_FILE" "$PRODUCT_BACKUP"
+jq -n \
+  --arg expected_hash "$EXPECTED_HASH" \
+  --arg expected_revision "$EXPECTED_REVISION" \
+  --arg source_path "$SOURCE_PATH" \
+  --arg uuid "$PRODUCT_UUID" \
+  '{expected_hash:$expected_hash,expected_revision:$expected_revision,format:"duo-deletion/v1",kind:"post",source_path:$source_path,type:"product",uuid:$uuid}' \
+  > "siterepo/delmatrix2/state/deletions/$PRODUCT_UUID.json"
 
-say "PART 1 — B's plan must show the delete BLOCKED, naming the order guard"
-# May land in .delete[] or .delete_conflict[] (a target-side change since
-# the tombstone's own expected base -- e.g. WooCommerce's own lookup-table
-# housekeeping touching the product row -- can co-occur with the guard;
-# checks/core.sh's own deletion tests show both shapes). Only one entity
-# is being deleted here, so check both arrays' .blocked field rather than
-# requiring a specific one, matching this scenario's actual scope: proving
-# the guard fires and is named, not which specific plan bucket it lands in.
-PLAN1=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
-echo "$PLAN1" | jq .
-BLOCKED1=$(echo "$PLAN1" | jq -r '[.delete[]?, .delete_conflict[]?] | map(.blocked // empty) | join("\n")')
-[ -n "$BLOCKED1" ] || fail "plan did not show the product's delete as blocked at all: $PLAN1"
-echo "$BLOCKED1" | grep -qi "orders reference" || fail "plan did not name the wc_order_product_lookup guard: $BLOCKED1"
-pass "plan blocks the delete, naming the order reference"
-
-say "PART 1 — apply refuses without --force-delete-referenced"
 set +e
+PLAN1_ERR=$(wp2 duo plan --repo=/siterepo --format=json 2>&1)
+PLAN1_RC=$?
 APPLY1_ERR=$(wp2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1)
 APPLY1_RC=$?
+FORCE1_ERR=$(wp2 duo apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin 2>&1)
+FORCE1_RC=$?
 set -e
-echo "$APPLY1_ERR"
-[ "$APPLY1_RC" -ne 0 ] || fail "apply succeeded despite the referential guard"
-echo "$APPLY1_ERR" | grep -qi 'referential guard' || fail "failure did not mention the referential guard: $APPLY1_ERR"
-pass "apply refused the guarded delete"
+[ "$PLAN1_RC" -ne 0 ] && [ "$APPLY1_RC" -ne 0 ] && [ "$FORCE1_RC" -ne 0 ] \
+  || fail "product deletion was accepted by plan/apply or the force flag"
+for OUT in "$PLAN1_ERR" "$APPLY1_ERR" "$FORCE1_ERR"; do
+  grep -Fq 'deletion intent for post:product is unsupported' <<<"$OUT" \
+    || fail "product deletion refusal did not name the missing capability: $OUT"
+done
+pass "plan, apply, and forced apply all refuse unsupported product deletion"
 
-say "PART 1 — apply with --force-delete-referenced succeeds with a loud FORCED warning"
-FORCE1_OUT=$(wp2 duo apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin 2>&1)
-echo "$FORCE1_OUT"
-echo "$FORCE1_OUT" | grep -qi 'FORCED' || fail "no FORCED warning printed: $FORCE1_OUT"
-pass "forced delete applied with a loud warning"
-
-say "PART 1 — acceptance: product gone on B, order untouched, tombstone convergence idempotent on retry"
+say "PART 1 — acceptance: product and order stayed untouched; restore supported tree"
 REMAINING=$(wp2 post list --post_type=product --name=deletion-matrix-widget --field=ID)
-[ -z "$REMAINING" ] || fail "product still present on B"
+[ "$REMAINING" = "$PRODUCT_B" ] || fail "product changed across refused deletion"
 STILL=$(wp2 db query "SELECT COUNT(*) FROM wp_wc_order_product_lookup WHERE order_id=$ORDER_B" --skip-column-names)
 [ "$STILL" = "$LOOKUP_ROWS" ] || fail "order's lookup row(s) were disturbed by the delete"
 ORDER_STATUS=$(wp2 wc shop_order get "$ORDER_B" --field=status --user=admin)
 [ -n "$ORDER_STATUS" ] || fail "order no longer retrievable"
+rm "siterepo/delmatrix2/state/deletions/$PRODUCT_UUID.json"
+rmdir siterepo/delmatrix2/state/deletions
+mv "$PRODUCT_BACKUP" "$PRODUCT_FILE"
 RETRY1=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
 echo "$RETRY1" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0' >/dev/null \
   || fail "retry plan still shows pending deletes: $RETRY1"
-pass "PART 1 complete: product removed on B, order (status=$ORDER_STATUS) untouched, retry settles idempotently"
+pass "PART 1 complete: product and order (status=$ORDER_STATUS) untouched; supported tree settles idempotently"
 
 # ============================================================================
 # PART 2 — Ninja Forms: table:nf3_forms's THREE-guard shape
@@ -557,7 +554,7 @@ echo "$RETRY3" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) 
   || fail "retry plan still shows pending deletes: $RETRY3"
 pass "PART 3 complete: unguarded composite_ref delete converges cleanly, level and page both survive untouched, retry settles idempotently"
 
-printf '\n\033[1;32m✔ CERTIFY DELETION MATRIX PASSED (woocommerce order-lookup guard; ninja-forms three-guard shape + cascade/guard distinction; pmpro unguarded composite_ref delete)\033[0m\n'
+printf '\n\033[1;32m✔ CERTIFY DELETION MATRIX PASSED (woocommerce product deletion fail-closed; ninja-forms three-guard shape + cascade/guard distinction; pmpro unguarded composite_ref delete)\033[0m\n'
 
 say "cleanup: destroy the delmatrix pair (green run — 'destroy-when-green' convention; unreached on any earlier failure)"
 bash bin/pair.sh destroy delmatrix
