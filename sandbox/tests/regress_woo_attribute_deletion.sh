@@ -102,8 +102,11 @@ DELETE FROM wp_posts;
 ' >/dev/null
 APPLY_BASE=$(wp2 duo apply --repo=/siterepo --default-author=admin --format=json | tail -1)
 echo "$APPLY_BASE" | jq -e '
-  .warnings == ["rebuilder fired: '\''transient delete wc_attribute_taxonomies'\'' (exit 0)"]
-' >/dev/null || fail "baseline apply emitted anything except the required successful Woo cache-rebuilder notice: $APPLY_BASE"
+  (.warnings | length) == 3 and
+  (.warnings | any(. == "rebuilder fired: '\''transient delete wc_attribute_taxonomies'\'' (exit 0)")) and
+  (.warnings | any(test("WC_Cache_Helper") and endswith("(exit 0)"))) and
+  (.warnings | any(test("WooCommerceContract::rebuild") and endswith("(exit 0)")))
+' >/dev/null || fail "baseline apply did not emit exactly the three required successful Woo cache/projection rebuilder notices: $APPLY_BASE"
 PRODUCT2=$(wp2 post list --post_type=product --name=attribute-delete-probe-product --field=ID)
 VARIATION2=$(wp2 post list --post_type=product_variation --post_parent="$PRODUCT2" --field=ID)
 [ -n "$PRODUCT2" ] && [ -n "$VARIATION2" ] || fail "variable product/variation did not converge on target"
