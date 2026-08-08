@@ -1,7 +1,7 @@
 # Fixture staleness sweep
 
 DUO-3274 audits the repository's gap-characterization fixtures against the
-mechanisms present on `main` at `c3a7d567ff95851253d1b2252e73ba6a26f99967`.
+mechanisms present on `main` at `6bebb96e9c7ebed1c8eca91e141164a6a65444d4`.
 The denominator is every `sandbox/tests/{regress_,certify_,grind_,spike_}*.sh`
 or `.php` file at that revision: 103 regressions, 8 certifications, 8 grinds,
 and 7 spikes, 126 files total. The three `cli_*smoke.sh` fixtures are outside
@@ -41,11 +41,13 @@ Verdicts:
 | `grind_r3b_events.sh` | TEC's aggregate `/events/list/` always becomes ready within the fixture's former retry budget. | Individual routes and database rows are reliable, but the aggregate view can lag under load after data is complete. No root cause is claimed; DUO-3301 owns the focused investigation. | `unclear-escalate` |
 | `certify_deletion_matrix.sh` | WooCommerce product deletion could be forced after checking a known order-reference table. | DUO-3225 makes the product deletion capability explicitly unsupported because arbitrary extension references are not exhaustively representable. The certification now asserts that plan, apply, and forced apply all refuse before mutation. | `current` |
 | `certify_deletion_matrix.sh` | A forced Ninja Forms parent deletion left guard-survivor rows as an unresolved finding requiring manual cleanup. | DUO-3251 retained the mandatory ref-integrity refusal, added exact survivor warnings, and shipped `wp duo orphans` delete/reparent recovery. The fixture now characterizes the refusal as a safety checkpoint and proves both supported recovery actions plus clean plan/capture. | `aged-flip` |
-| `regress_woocommerce_contract.php`, `grind_r1b_shop.sh` | The DUO-3225 offline option inventory is complete for the exact WooCommerce 11.0.0 full-shop fixture. | A clean post-rebase R1-B run found five namespace-owned options with no exact classification: `woocommerce_catalog_columns`, `woocommerce_catalog_rows`, `woocommerce_cod_settings`, `woocommerce_enable_delayed_account_creation`, and `woocommerce_feature_wc_visual_attribute_enabled`. Capture correctly failed closed; DUO-3303 owns the policy decision and inventory extension. | `unclear-escalate` |
+| `regress_woocommerce_contract.php`, `grind_r1b_shop.sh` | The DUO-3225 offline option inventory is complete for the exact WooCommerce 11.0.0 full-shop fixture. | A clean post-rebase R1-B run found five namespace-owned options with no exact classification. DUO-3303/PR #118 classified all five exact authored options plus the later `wc_pending_batch_processes` runtime row, extended the inventory regression, passed exact-commit Woo conformance, and completed the full R1-B blocker stack. | `prior-reconciled` |
 | `regress_option_subkeys.sh` | The first apply leaves Polylang language relationships as drift and a retry/content change repairs them. | DUO-3280 is asserted on the single first apply; the no-op reapply must have zero drift. The later content update now proves ordinary preservation, not repair. | `prior-reconciled` |
 | `regress_option_subkeys.sh` | Deep lint catches IDs below language-slug keys in `nav_menus`. | The script explicitly does not assert this; the existing blind spot is filed as DUO-3241. | `unclear-escalate` |
 | `regress_option_ref_scope.sh` | In-scope-but-unminted references behave like ordinary dangling IDs. | The current script asserts the real scope-aware refusal/non-minting snapshot contract; reconciled in PR #51 (`926518c`). | `prior-reconciled` |
 | `regress_coverage.sh` | Coverage may report unattributed or previously unknown plugin surfaces. | This is the feature's advisory output, and the regression asserts it never gates capture/apply. It is not an implementation-gap claim. | `current` |
+| `regress_adapter_theme_range.sh` | A synthetic desired template that differs from the active stylesheet produces only a template-slot version finding. | Current deploy policy independently reports both the template's out-of-range version and the active stylesheet's parent-template mismatch. The fixture now asserts both findings instead of treating the newer invariant as noise. | `aged-flip` |
+| `regress_snapshot_meta.sh` | A typed-table-only policy could leave stock posts/pages/categories silently outside scope, and its no-op apply had exactly two unchanged entities. | DUO-3229 requires explicit whole-surface dispositions, so the fixture records runtime exclusions for the stock core rows in both policy variants. The no-op assertion now checks the semantic contract (nonempty unchanged set, zero create/update/applied) instead of an incidental entity total. | `aged-flip` |
 | `regress_woo_attribute_deletion.sh` | Woo global-attribute deletion is supported by generic row deletion. | The current contract is a deliberate loud refusal because semantic deletion is not representable; DUO-3288 records that boundary. | `current` |
 | `regress_promotion.sh`, `regress_effect_bundle.php` | Mail/HTTP lifecycle observations can certify prevention. | The effect contract deliberately treats report-only observation as insufficient; prevention/restoration evidence is the asserted boundary. | `current` |
 | `regress_manifest_dispositions.php`, `regress_multisite_refusal.sh` | Explicit unsupported surfaces are stale implementation gaps. | These are reviewed product boundaries with fail-closed assertions, not expected-to-fail placeholders. | `current` |
@@ -62,8 +64,8 @@ echo "$VALUE" | grep -q PATTERN
 With `set -o pipefail`, a successful early `grep -q` can close the pipe while
 `echo` is still writing, turning a successful match into status 141. The
 replacement is a here-string (`grep -q PATTERN <<<"$VALUE"`), which has no
-live producer process to race. This sweep replaced 185 such producer
-pipelines across 31 scripts. The only remaining literal occurrence is the
+live producer process to race. This sweep replaced 182 such producer
+pipelines across 30 scripts. The only remaining literal occurrence is the
 explanatory comment in `grind_r1a_forms.sh`; non-quiet consumers such as
 `grep -c` and `grep -o` remain pipelines because they consume the complete
 input.
@@ -198,7 +200,7 @@ with more specific or mixed verdicts are detailed in the ledger above.
 | `regress_user_meta.sh` | Regression contract: user meta. No unresolved gap characterization. | `current` |
 | `regress_widgets.sh` | Regression contract: widgets. No unresolved gap characterization. | `current` |
 | `regress_woo_attribute_deletion.sh` | Regression contract: woo attribute deletion. No unresolved gap characterization. | `current` |
-| `regress_woocommerce_contract.php` | The exact WooCommerce option-inventory claim is incomplete under the full-shop fixture; see the gap ledger. | `unclear-escalate` |
+| `regress_woocommerce_contract.php` | The exact WooCommerce option-inventory gap found by the full-shop fixture was reconciled by DUO-3303/PR #118; see the gap ledger. | `prior-reconciled` |
 | `spike_a_round_trip.sh` | Spike acceptance: a round trip. No unresolved gap characterization. | `current` |
 | `spike_b_merge.sh` | Spike acceptance: b merge. No unresolved gap characterization. | `current` |
 | `spike_c_provenance.sh` | Spike acceptance: c provenance. No unresolved gap characterization. | `current` |
@@ -213,16 +215,15 @@ with more specific or mixed verdicts are detailed in the ledger above.
   produced 4/4 `pa_*` relationships and all expected product languages with
   no manual target configuration or retry. The same run reproduced the
   separately filed DUO-3300 front-end failure.
-- `grind_r1b_shop.sh`: the pre-DUO-3225 full isolated run passed. The first
-  apply produced 4/4 `pa_*` relationships, and the strict comparison reported
-  only the two DUO-3302 timestamp-bearing files while proving every other byte
-  identical. A clean rerun after rebasing onto DUO-3225 reached the intended
-  successful capture and then failed closed on the five unclassified options
-  filed as DUO-3303; the owned Compose project was removed after inspection.
+- `grind_r1b_shop.sh`: the clean final blocker-stack run passed after
+  DUO-3303/PR #118 and DUO-3304/PR #117. The first apply produced 4/4 `pa_*`
+  relationships, the strict comparison reported only the two DUO-3302
+  timestamp-bearing files while proving every other byte identical, and both
+  environments converged on the editorially merged variation price.
 - `certify_deletion_matrix.sh`: full clean-room run passed on the rebased
   `main`. Woo product deletion refused before mutation, Ninja Forms completed
   the supported `duo orphans` recovery path, and the PMPro composite delete
   settled idempotently. Its owned pair destroyed itself after the green run.
-- `make regress-offline-all`: 53 offline suites green.
-- All 31 changed shell scripts pass `bash -n`; the repository has no
+- `make regress-offline-all`: 59 offline suites green.
+- All 30 changed shell scripts pass `bash -n`; the repository has no
   executable `echo "$VAR" | grep -q` assertion remaining.

@@ -37,9 +37,9 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 command -v jq >/dev/null || fail "jq required"
 
-PAIR=amergety
-PORT1=8944
-PORT2=8945
+PAIR="${ENTITY_TYPE_PAIR:-amergety}"
+PORT1="${ENTITY_TYPE_PORT1:-8944}"
+PORT2="${ENTITY_TYPE_PORT2:-8945}"
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
 COMPOSE="docker compose -p duo-$PAIR -f pair.yml"
 wp1() { $COMPOSE run --rm -T cli1 wp "$@"; }

@@ -54,9 +54,9 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 command -v jq >/dev/null || fail "jq required"
 
-PAIR=w1a
-PORT1=8870
-PORT2=8871
+PAIR="${SNAPSHOT_META_PAIR:-w1a}"
+PORT1="${SNAPSHOT_META_PORT1:-8870}"
+PORT2="${SNAPSHOT_META_PORT2:-8871}"
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" DUO_CODEBIND_PLUGIN=""
 
 wp1() { docker compose -p "duo-$PAIR" -f pair.yml run --rm -T cli1 wp "$@"; }
@@ -130,16 +130,16 @@ FORM_ID=$(wp1 db query "SELECT id FROM wp_nf3_forms WHERE title='Duo W1A Regress
 wp1 db query "INSERT INTO wp_nf3_form_meta (parent_id, \`key\`, value, meta_key, meta_value) VALUES ($FORM_ID, 'regress_marker', 'hello-world', 'regress_marker', 'hello-world')"
 pass "seeded form id=$FORM_ID on side 1 with one authored meta key (regress_marker=hello-world)"
 
-# Fresh site repo. post_types/taxonomies are deliberately EMPTY — this test
-# is scoped to the typed-snapshot tables mechanism only, and core.json's
+# Fresh site repo. Core post types/taxonomies are deliberately classified
+# runtime — this test is scoped to the typed-snapshot tables mechanism only,
+# and core.json's
 # default_category (ref:term) / wp_page_for_privacy_policy (ref:post) are
 # both non-zero on a stock WP install (a real "Uncategorized" term, a real
-# auto-created Privacy Policy page); with no taxonomies/post_types scoped,
-# Capture's task #73 unscoped-ref gate would otherwise abort capture on
-# both, which has nothing to do with what this script is testing. Site-
-# policy-reclassifying all five ref-typed core options 'env' sidesteps it
-# cleanly — an ordinary site-policy override, same mechanism any real site
-# would use to say "duo doesn't manage this."
+# auto-created Privacy Policy page). Site-policy reclassification excludes
+# those five ref-typed core options as env state, while explicit runtime scope
+# rules account for the stock post/page/category rows under DUO-3229's loud
+# whole-surface gate. Together they say "duo doesn't manage this" without
+# relying on the pre-gate silent scope shrinkage this fixture once assumed.
 say "site repo: policy scoped to ninja-forms tables only"
 rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1/.git" "siterepo/${PAIR}2" "siterepo/${PAIR}1/state" "siterepo/${PAIR}1/site.duo.json"
 git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
@@ -157,7 +157,16 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
     "post_meta": {},
     "term_meta": {},
     "post_types": [],
-    "taxonomies": []
+    "taxonomies": [],
+    "scope": {
+      "post_type": {
+        "page": {"class": "runtime"},
+        "post": {"class": "runtime"}
+      },
+      "taxonomy": {
+        "category": {"class": "runtime"}
+      }
+    }
   },
   "spec_version": 2
 }
@@ -215,8 +224,8 @@ assert_runtime_keys_intact() { # assert_runtime_keys_intact <context label>
 say "(3) re-apply the SAME revision — baseline only (see this file's header: an 'unchanged'-hash entity never reaches reconcile_meta() at all, so this proves no MORE than 'a no-op apply touches nothing', not the fix itself)"
 APPLY2=$(wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV" --format=json | tail -1)
 echo "$APPLY2"
-echo "$APPLY2" | jq -e '.plan.unchanged == 2 and .plan.update == 0' >/dev/null \
-  || fail "expected this re-apply to see the form as unchanged (plan: $APPLY2) — if this now shows 'update', the hash-basis semantics changed and this test's own baseline assumption needs revisiting"
+echo "$APPLY2" | jq -e '.plan.unchanged >= 1 and .plan.create == 0 and .plan.update == 0 and .applied == 0' >/dev/null \
+  || fail "expected this re-apply to be a true no-op with the form in the unchanged set (plan: $APPLY2) — if this now shows 'update', the hash-basis semantics changed and this test's own baseline assumption needs revisiting"
 assert_runtime_keys_intact "after no-op re-apply"
 pass "no-op re-apply touches nothing (plan confirms 'unchanged', not 'update') — runtime keys trivially intact, as expected"
 
@@ -281,6 +290,15 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
     "term_meta": {},
     "post_types": [],
     "taxonomies": [],
+    "scope": {
+      "post_type": {
+        "page": {"class": "runtime"},
+        "post": {"class": "runtime"}
+      },
+      "taxonomy": {
+        "category": {"class": "runtime"}
+      }
+    },
     "tables": {
       "nf3_form_meta": {
         "attached_to": {"column": "parent_id", "table": "nf3_forms"},
