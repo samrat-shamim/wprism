@@ -205,6 +205,7 @@ final class EffectBundle {
         $actualValue = (string) $actual['value'];
         if ($actualValue === '' || strlen($actualValue) > 512
             || preg_match('/[\x00-\x1f\x7f*?<>]/', $actualValue) === 1
+            || preg_match('/secret|credential|password|authorization|signed.?url|access.?token|api.?key/i', $actualValue) === 1
             || $actualValue === $declared['value']) {
             return false;
         }

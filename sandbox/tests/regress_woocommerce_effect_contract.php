@@ -568,10 +568,11 @@ foreach (['product', 'product_variation'] as $postType) {
         !$genericMatches(['scope' => 'external', 'type' => 'provider_resource', 'value' => 'item_042'])
             && !$genericMatches(['scope' => 'external', 'type' => 'provider_resource', 'value' => 'item_12345678901234567890'])
             && !$genericMatches(['scope' => 'external', 'type' => 'provider_resource', 'value' => 'attribute_PA_color'])
+            && !$genericMatches(['scope' => 'external', 'type' => 'provider_resource', 'value' => 'attribute_password'])
             && !$genericMatches(['scope' => 'external', 'type' => 'provider_resource', 'value' => 'generic-cache:v1'])
             && !$genericMatches(['scope' => 'external', 'type' => 'provider_resource', 'value' => 'item_*'])
             && !$genericMatches(['scope' => 'external', 'type' => 'provider_resource', 'value' => 'fixed-resource', 'extra' => true]),
-        "$postType generic provider-resource matcher rejects malformed values, aggregate-self, wildcards, and extra keys"
+        "$postType generic provider-resource matcher rejects malformed or secret-shaped values, aggregate-self, wildcards, and extra keys"
     );
     $compileMembers = new ReflectionMethod(EffectBundle::class, 'compileProviderResourceMembers');
     $compileMembers->setAccessible(true);

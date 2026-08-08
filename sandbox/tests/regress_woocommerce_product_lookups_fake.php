@@ -138,6 +138,7 @@ namespace {
         public string $postmeta = 'wp_postmeta';
         public string $posts = 'wp_posts';
         public string $last_error = '';
+        public ?string $failReadContaining = null;
         private bool $transactionActive = false;
         private array $transactionMeta = [];
         private array $transactionMetaLookup = [];
@@ -211,6 +212,10 @@ namespace {
 
         public function get_row(string $query, $output = null): ?array {
             global $fakeMetaLookup;
+            if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
+                $this->last_error = 'simulated read failure';
+                return null;
+            }
             if (preg_match('/FROM `wp_wc_product_meta_lookup` WHERE product_id = (\\d+)/', $query, $m)) {
                 return $fakeMetaLookup[(int) $m[1]] ?? null;
             }
@@ -225,6 +230,10 @@ namespace {
          */
         public function get_col(string $query): array {
             global $fakeGroupedChildren;
+            if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
+                $this->last_error = 'simulated read failure';
+                return [];
+            }
             if (!str_contains($query, "meta_key = '_children'")) {
                 return [];
             }
@@ -249,6 +258,10 @@ namespace {
 
         public function get_results(string $query, $output = null): array {
             global $fakeAttrLookup;
+            if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
+                $this->last_error = 'simulated read failure';
+                return [];
+            }
             if (str_contains($query, 'wc_product_attributes_lookup')) {
                 preg_match('/product_or_parent_id = (\\d+) OR product_id = (\\d+)/', $query, $m);
                 $root = (int) ($m[1] ?? 0);
@@ -261,6 +274,10 @@ namespace {
 
         public function get_var(string $query): mixed {
             global $fakeMetaLookup, $fakeAttrLookup;
+            if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
+                $this->last_error = 'simulated read failure';
+                return null;
+            }
             if (trim($query) === 'SELECT @@in_transaction') {
                 return $this->transactionActive ? '1' : '0';
             }
@@ -732,6 +749,52 @@ namespace {
         echo ($condition ? 'ok: ' : 'FAIL: ') . $message . "\n";
         if (!$condition) { $failures++; }
     };
+
+    $groupedDiscovery = new \ReflectionMethod($adapter, 'find_grouped_parent_ids');
+    $groupedDiscovery->setAccessible(true);
+    $wpdb->failReadContaining = "meta_key = '_children'";
+    $groupedReadFailedClosed = false;
+    try {
+        $groupedDiscovery->invoke($adapter, 11);
+    } catch (\Throwable $failure) {
+        $groupedReadFailedClosed = str_contains($failure->getMessage(), 'grouped parent discovery query failed');
+    }
+    $wpdb->failReadContaining = null;
+    $check($groupedReadFailedClosed,
+        'grouped-parent discovery fails closed when its database read fails');
+
+    $verifyExactState = new \ReflectionMethod($adapter, 'verify_exact_state');
+    $verifyExactState->setAccessible(true);
+    $wpdb->failReadContaining = 'wc_product_meta_lookup';
+    $deletionReadFailedClosed = false;
+    try {
+        $verifyExactState->invoke($adapter, [], [], [], [999 => 999], null);
+    } catch (\Throwable $failure) {
+        $deletionReadFailedClosed = str_contains(
+            $failure->getMessage(),
+            'product lookup deletion verification for product 999 query failed'
+        );
+    }
+    $wpdb->failReadContaining = null;
+    $check($deletionReadFailedClosed,
+        'lookup deletion verification cannot clear a receipt after a failed count query');
+
+    $actualAttributeRows = new \ReflectionMethod($adapter, 'actual_attribute_rows');
+    $actualAttributeRows->setAccessible(true);
+    $wpdb->failReadContaining = 'wc_product_attributes_lookup';
+    $attributeReadFailedClosed = false;
+    try {
+        $actualAttributeRows->invoke($adapter, 10);
+    } catch (\Throwable $failure) {
+        $attributeReadFailedClosed = str_contains(
+            $failure->getMessage(),
+            'product attribute lookup verification for product 10 query failed'
+        );
+    }
+    $wpdb->failReadContaining = null;
+    $check($attributeReadFailedClosed,
+        'attribute lookup verification cannot treat a failed query as an empty table');
+
     $ratingEqual = new \ReflectionMethod(\Duo\Regenerators\WoocommerceProductLookups::class, 'lookup_values_equal');
     $ratingEqual->setAccessible(true);
     $check((bool) $ratingEqual->invoke($adapter, '', '0.00', 'average_rating'),

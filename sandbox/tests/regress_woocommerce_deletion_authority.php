@@ -78,6 +78,7 @@ final class WooDeletionFakeWpdb {
     public bool $engineIntrospectionError = false;
     public bool $optionScanError = false;
     public bool $metadataProbeError = false;
+    public int $insert_id = 0;
     /** @var list<string> */
     public array $lockingQueries = [];
     /** @var list<string> */
@@ -110,6 +111,10 @@ final class WooDeletionFakeWpdb {
     public array $metaRows = [];
     /** @var list<array<string,mixed>> */
     public array $optionRows = [];
+    /** @var array<int,array<string,mixed>> */
+    public array $shippingMethodRows = [];
+    /** @var list<array<string,mixed>> */
+    public array $insertedShippingMethodRows = [];
 
     public function prepare(string $sql, ...$args): string {
         foreach ($args as $arg) {
@@ -147,7 +152,18 @@ final class WooDeletionFakeWpdb {
             if (str_contains($sql, 'wp_options')) {
                 return 'wp_options';
             }
+            if (str_contains($sql, 'wp_woocommerce_shipping_zone_methods')) {
+                return 'wp_woocommerce_shipping_zone_methods';
+            }
             return null;
+        }
+        if (preg_match(
+            '/SELECT `instance_id` FROM `wp_woocommerce_shipping_zone_methods` WHERE `instance_id` = (\d+) LIMIT 1/',
+            $sql,
+            $m
+        )) {
+            $id = (int) $m[1];
+            return isset($this->shippingMethodRows[$id]) ? $id : null;
         }
         if (preg_match("/SELECT local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $sql, $m)) {
             return $this->uuidToId[$m[2] . ':' . $m[1]] ?? null;
@@ -156,6 +172,50 @@ final class WooDeletionFakeWpdb {
             return $this->idToUuid[$m[1] . ':' . $m[2]] ?? null;
         }
         return null;
+    }
+
+    public function get_row(string $sql, $format = null): ?array {
+        if (preg_match(
+            "/SELECT entity_type, local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/",
+            $sql,
+            $m
+        )) {
+            $id = $this->uuidToId[$m[2] . ':' . $m[1]] ?? null;
+            return $id === null ? null : [
+                'entity_type' => 'woocommerce_shipping_zone_methods',
+                'local_id' => $id,
+            ];
+        }
+        if (preg_match(
+            "/SELECT uuid, entity_type FROM wp_duo_map WHERE id_kind = '([^']+)' AND local_id = (\d+)/",
+            $sql,
+            $m
+        )) {
+            $uuid = $this->idToUuid[$m[1] . ':' . $m[2]] ?? null;
+            return $uuid === null ? null : [
+                'uuid' => $uuid,
+                'entity_type' => 'woocommerce_shipping_zone_methods',
+            ];
+        }
+        return null;
+    }
+
+    public function insert(string $table, array $data, $format = null): int|false {
+        if ($table !== 'wp_woocommerce_shipping_zone_methods') {
+            return false;
+        }
+        $id = (int) ($data['instance_id'] ?? 0);
+        if ($id <= 0 || isset($this->shippingMethodRows[$id])) {
+            return false;
+        }
+        $this->shippingMethodRows[$id] = $data;
+        $this->insertedShippingMethodRows[] = $data;
+        $this->insert_id = $id;
+        return 1;
+    }
+
+    public function query(string $sql): int|false {
+        return 1;
     }
 
     public function get_results(string $sql, $format = null): array {
@@ -609,6 +669,7 @@ check($parentDeleted['count'] === 0 && $parentDeleted['error'] === null,
 
 $methodUuid = '33333333-3333-4333-8333-333333333333';
 $fakeWpdb->uuidToId["wc_zone_method:$methodUuid"] = 3;
+$fakeWpdb->idToUuid['wc_zone_method:3'] = $methodUuid;
 $fakeWpdb->optionRows = [[
     'guard_id' => 501,
     'option_name' => 'woocommerce_flat_rate_3_settings',
@@ -692,6 +753,27 @@ check(($preservedMethodIds['wc_zone_method'] ?? []) === [3],
     'dead wc_zone_method row preserves the mapped id for its surviving numeric settings option and canonical tombstone');
 check($optionRepaired['count'] === 0 && $optionRepaired['error'] === null,
     'supported option repair still converges after dead-row identity preservation');
+$restoredMethod = [
+    'type' => 'woocommerce_shipping_zone_methods',
+    'data' => [
+        'uuid' => $methodUuid,
+        'columns' => [
+            'is_enabled' => 1,
+            'method_id' => 'flat_rate',
+            'method_order' => 1,
+            'zone_id' => '{{wc_zone:44444444-4444-4444-8444-444444444444}}',
+        ],
+    ],
+];
+check(Snapshot::ensure_row($policy, $restoredMethod),
+    'apply recreates a missing typed row whose identity was retained for option-name recovery');
+check(count($fakeWpdb->insertedShippingMethodRows) === 1
+    && ($fakeWpdb->insertedShippingMethodRows[0]['instance_id'] ?? null) === 3
+    && ($fakeWpdb->insertedShippingMethodRows[0]['zone_id'] ?? null) === 0,
+    'retained typed-row recovery reuses the exact mapped primary key with unresolved refs held at zero');
+check(!Snapshot::ensure_row($policy, $restoredMethod)
+    && count($fakeWpdb->insertedShippingMethodRows) === 1,
+    'retained typed-row recovery is idempotent once the exact mapped row exists');
 $fakeWpdb->optionRows = [];
 $unrelatedCanonical = OptionState::document([
     "unrelated_{{wc_zone_method:$methodUuid}}_settings" => OptionState::deleted($previousSettings),

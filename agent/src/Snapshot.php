@@ -1649,13 +1649,37 @@ final class Snapshot {
         $idKind = $decl['id_kind'];
         $front = $entity['data'] ?? Canon::decode($entity['content']);
         $uuid = $front['uuid'];
-        if (Ledger::id_for($uuid, $idKind) !== null) {
-            return false;
-        }
+        $mappedId = Ledger::id_for($uuid, $idKind);
         $prefixed = $wpdb->prefix . $entity['type'];
+        $pk = $decl['pk'];
+
+        // An option-name reference can deliberately retain this identity
+        // after the typed row disappears so capture can still emit the
+        // paired settings tombstone.  That retained mapping is recovery
+        // evidence, not proof that the row still exists.  Re-read the exact
+        // primary key and, when absent, recreate it with the same id so the
+        // tokenized option name remains bound to the recovered row.
+        if ($mappedId !== null) {
+            $wpdb->last_error = '';
+            $existingId = $wpdb->get_var($wpdb->prepare(
+                "SELECT `$pk` FROM `$prefixed` WHERE `$pk` = %d LIMIT 1",
+                $mappedId
+            ));
+            if ((string) ($wpdb->last_error ?? '') !== '') {
+                throw new \RuntimeException(
+                    "duo: failed to verify retained typed-snapshot identity for {$entity['type']}"
+                );
+            }
+            if ($existingId !== null) {
+                return false;
+            }
+        }
         $colTypes = self::live_column_types($entity['type']) ?? [];
 
         $data = [];
+        if ($mappedId !== null) {
+            $data[$pk] = $mappedId;
+        }
         foreach ($decl['columns'] ?? [] as $col => $rule) {
             if (($rule['class'] ?? '') !== 'authored') {
                 continue;
@@ -1667,7 +1691,8 @@ final class Snapshot {
         }
         [$data, $format] = self::write_format($data, $colTypes);
         Db::insert($prefixed, $data, $format, "apply insert typed-snapshot row {$entity['type']}");
-        $localId = Db::insert_id("apply insert typed-snapshot row {$entity['type']}");
+        $localId = $mappedId
+            ?? Db::insert_id("apply insert typed-snapshot row {$entity['type']}");
         Ledger::set($uuid, $entity['type'], $idKind, $localId);
         return true;
     }
