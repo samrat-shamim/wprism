@@ -247,7 +247,8 @@ with more specific or mixed verdicts are detailed in the ledger above.
   `pa_*` attributes, shipping zones, coverage, and status truth.
 - Exact current-main WooCommerce conformance passed, as did the deletion
   matrix and reference-bundle certification (digest
-  `9702bc...`). `php scripts/capability-registry.php check` was clean.
+  `b41e5a3c46784874d24f6afefd6f9ee693a59d464657488c8eeb35590c53cc63`).
+  `php scripts/capability-registry.php check` was clean.
 - `make regress-offline-all`: 60 offline suites green.
 - All 29 branch-changed shell scripts pass `bash -n`; `git diff --check` is
   clean. No executable `echo "$VAR" | grep -q` assertion remains (only the
