@@ -203,10 +203,10 @@ it promised, with one real nuance:
 
 ## Polylang's own write-path reliability — the most expensive finding of this round
 
-Not a Duo issue anywhere in this section — proven precisely, each time, by
-checking that Duo's own capture/apply were never in the causal chain before
-concluding the fault lay elsewhere. Filed as task #121 (findings 5 and 7)
-and task #128:
+This section records the original round's observations. Task #121 owns the
+still-relevant API/config findings. The former task #128 observation is
+superseded by DUO-3300's action-boundary ruling below; it was never evidence
+of a Duo mutator.
 
 1. **Enabling a non-default post type/taxonomy for translation
    (`post_types`/`taxonomies` sub-arrays of the `polylang` option) is not
@@ -253,7 +253,8 @@ and task #128:
    observed, in one full run of the driver script, to silently not create
    the `post_translations` relationship at all — same broad symptom
    category as #2, different call site, root cause not yet unified.
-4. **A full front-end (apache) outage**, reproducible on a from-scratch
+4. **A full front-end (apache) outage was originally observed** on one
+   from-scratch
    pair: every HTTP request 500s with `WP_Translation_Controller::
    set_locale(): Argument #1 ($locale) must be of type string, null given`,
    traced into `PLL_OLT_Manager::load_textdomains()` reading a `language`
@@ -261,15 +262,37 @@ and task #128:
    config) is empty. Extensively ruled out as a Duo cause (`wp duo apply`
    is never called on the affected environment before the fatal starts;
    Duo treats this field as opaque verbatim bytes, never rewriting it) but
-   NOT fully root-caused in the time available — direct SQL repair of the
+   not root-caused in the original round — direct SQL repair of the
    description, confirmed correct via both raw SQL and `wp-cli`
-   `get_term_by()` reads, still left the front end 500ing. Filed as task
-   #128 with full detail for whoever has time to instrument Polylang's own
-   `PLL_Language_Factory` directly. The driver script degrades gracefully
-   around this (WARNs and skips the browser-facing render assertions
-   rather than failing the whole run) since every fact those checks would
-   have confirmed was already established via wp-cli throughout the rest
-   of the run.
+   `get_term_by()` reads, still left the front end 500ing. The original
+   driver therefore added an unconditional defensive repair and softened
+   the browser check. DUO-3300 later removed both accommodations after the
+   focused ruling below.
+
+### DUO-3300 ruling — historical empty-description observation not reproducible
+
+On 2026-08-08, DUO-3300 reran the current R3-A setup from destroyed webroot
+volumes and freshly created databases with the exact current boundaries
+(WordPress/PHP pair bootstrap, WooCommerce 11.0.0, Polylang 3.8.6). A raw-SQL
+probe checked both `language` rows after every source-side command from
+`languages->add()` through option configuration, translated terms/posts,
+WooCommerce products and variations, language relationships, menus, repeated
+capture/lint, excerpt updates, and WooCommerce product reads. Both descriptions
+remained valid 68-byte serialized arrays (`locale`, `rtl`, `flag_code`) at every
+boundary. The target descriptions were also valid after deploy/apply/capture,
+and unmodified EN/DE front-end requests returned HTTP 200.
+
+The first action that empties a description is therefore: **none in the
+current pinned fixture**. Code inspection confirms `wp duo capture` is
+read-only and the source receives no apply before the old observation. The
+historical one-run state cannot support assigning ownership to Polylang or
+Duo, and a silent write-back of plugin-owned state is not an acceptable
+fixture contract. The ruling is fixture ownership: remove the repair, validate
+the raw serialized locale record at durable source and target boundaries, and
+hard-fail the real HTTP checks. `regress_option_subkeys.sh` carries the focused
+Polylang regression; `grind_r3a_multilingual.sh` carries the broader scenario
+checkpoints. If the state ever recurs, the nearest checkpoint now identifies
+the phase instead of repairing away the evidence.
 
 **Takeaway for anyone else scripting Polylang content programmatically**:
 verify every write actually landed (`pll_get_post_language()`/
@@ -357,12 +380,12 @@ terms/categories/pages/product, per-item menu translation, everything else
   second half above), plus the Polylang write-path reliability findings
   (deactivate/reactivate is harmful, `pll_set_post_language()` silent
   no-op). Full acceptance criteria in the task.
-- **Task #128** — the front-end 500 fatal (Polylang's own language config
-  going empty under a trigger not yet identified). Explicitly NOT
-  characterized as a Duo bug, with the evidence for that ruling stated in
-  full; filed for whoever has time to dig further.
-
 ### Already resolved by other work landing mid-round (not a standing gap)
+
+- **Task #128 / DUO-3300** — resolved as a fixture ruling: the historical
+  empty-description state did not recur under action-boundary instrumentation
+  on the pinned stack. The defensive database mutation is removed; raw locale
+  records and HTTP 200 rendering are now hard regressions.
 
 - **Task #92** (dynamic taxonomy patterns, completed) — this round's own
   `pa_size`/`pa_color` self-provisioning observations
@@ -410,16 +433,15 @@ terms/categories/pages/product, per-item menu translation, everything else
   capabilities unaffected either way.
 - `Makefile` — additive `grind-r3a` target.
 - `sandbox/tests/grind_r3a_multilingual.sh` — new, the full narrative this
-  report describes; re-runnable (`make grind-r3a`), passes clean end to end
-  (front-end render assertions degrade to a WARN, not a FAIL, around the
-  still-open task #128 finding — everything else is a hard assertion).
+  report describes; re-runnable (`make grind-r3a`). DUO-3300 later made the
+  language-description and front-end render checks hard failures.
 - `docs/grind/r3a-multilingual-shop.md` — this report.
 - **Not touched**: `agent/src/**`, `manifests/woocommerce.json`,
   `sandbox/conformance/**`, any sibling round's env/profile/files.
-- **New tasks filed**: #121 (Polylang option sub-keys + write-path
+- **New tasks filed in the original round**: #121 (Polylang option sub-keys + write-path
   reliability, escalated with acceptance criteria), #122 (small
-  woocommerce.json term_meta gap), #128 (front-end 500 fatal, open,
-  unexplained).
+  woocommerce.json term_meta gap), #128 (front-end 500 observation,
+  subsequently resolved by DUO-3300's fixture ruling).
 
 ## Run tail (`make grind-r3a`)
 
