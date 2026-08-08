@@ -162,6 +162,52 @@ say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
+# DUO-3300's focused owning-layer regression. Polylang stores each language's
+# locale configuration as a PHP-serialized `language` term description. Read
+# the raw column (not WP_Term's cache) and refuse the empty/malformed state
+# that previously reached WP_Translation_Controller::set_locale(NULL).
+assert_language_descriptions() { # assert_language_descriptions <side> <checkpoint>
+  local side="$1" checkpoint="$2" out
+  out=$(wp_env "$side" eval '
+    global $wpdb;
+    foreach (["en" => "en_US", "de" => "de_DE"] as $slug => $locale) {
+      $description = $wpdb->get_var($wpdb->prepare(
+        "SELECT tt.description FROM {$wpdb->terms} t JOIN {$wpdb->term_taxonomy} tt ON tt.term_id=t.term_id WHERE tt.taxonomy=\"language\" AND t.slug=%s",
+        $slug
+      ));
+      $config = maybe_unserialize($description);
+      if (!is_string($description) || $description === "" || !is_array($config) || ($config["locale"] ?? null) !== $locale) {
+        fwrite(STDERR, sprintf("invalid language description for %s: raw=%s decoded=%s\n", $slug, var_export($description, true), var_export($config, true)));
+        exit(1);
+      }
+    }
+    echo "POLYLANG_LANGUAGE_DESCRIPTIONS_OK\n";
+  ' 2>&1) || { echo "$out"; fail "Polylang language descriptions invalid on side $side at checkpoint '$checkpoint'"; }
+  echo "$out" | grep -q 'POLYLANG_LANGUAGE_DESCRIPTIONS_OK' \
+    || fail "Polylang language-description probe produced no success marker on side $side at checkpoint '$checkpoint' (got: $out)"
+}
+
+prove_language_description_refusal() {
+  local original_hex out rc
+  original_hex=$(wp1 db query "SELECT HEX(tt.description) FROM wp_terms t JOIN wp_term_taxonomy tt ON tt.term_id=t.term_id WHERE tt.taxonomy='language' AND t.slug='en'" --skip-column-names | awk 'NF { row=$0 } END { print row }')
+  [ -n "$original_hex" ] || fail "negative control could not read the original English language description"
+
+  # Test-only fault injection: create the exact historical state, prove the
+  # new invariant refuses it, then restore the byte-exact plugin-owned value.
+  wp1 db query "UPDATE wp_term_taxonomy tt JOIN wp_terms t ON t.term_id=tt.term_id SET tt.description='' WHERE tt.taxonomy='language' AND t.slug='en'" >/dev/null
+  set +e
+  out=$( (assert_language_descriptions 1 "negative-control empty English description") 2>&1 )
+  rc=$?
+  set -e
+  wp1 db query "UPDATE wp_term_taxonomy tt JOIN wp_terms t ON t.term_id=tt.term_id SET tt.description=UNHEX('$original_hex') WHERE tt.taxonomy='language' AND t.slug='en'" >/dev/null
+
+  [ "$rc" -ne 0 ] || fail "negative control: an empty English language description passed the invariant"
+  echo "$out" | grep -q 'invalid language description for en' \
+    || fail "negative control failed without naming the invalid English language description (got: $out)"
+  assert_language_descriptions 1 "after byte-exact negative-control restoration"
+  pass "negative control: an injected empty language description is refused, and byte-exact restoration returns the fixture to valid plugin-owned state"
+}
+
 command -v jq >/dev/null || fail "jq required"
 command -v python3 >/dev/null || fail "python3 required"
 
@@ -209,6 +255,8 @@ for _ in 1 2 3 4 5 6 7 8; do
   echo "$OBJTYPE" | grep -q project && { OBJ_OK=1; break; }
 done
 [ "$OBJ_OK" = "1" ] || fail "language taxonomy's object_type does not include 'project' on side1 after 8 checks (got: $OBJTYPE)"
+assert_language_descriptions 1 "after language creation and the separate option write"
+prove_language_description_refusal
 pass "en/de added; project/project_type enabled for translation on side1"
 
 say "side1: translated project pair (English + German) -- language tag via wp_set_object_terms directly (pll_set_post_language()'s documented silent no-op, task #121 finding 7), translations linked via pll_save_post_translations()"
@@ -274,6 +322,7 @@ pass "site repo initialized"
 
 say "(1) capture: sub_keys carves out ONLY the declared keys"
 wp1 duo capture --repo=/siterepo >/dev/null
+assert_language_descriptions 1 "after source capture"
 POLYLANG_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']; print(sorted(d['polylang']['value'].keys()))")
 [ "$POLYLANG_KEYS" = "['nav_menus', 'post_types', 'taxonomies']" ] || fail "expected captured polylang option to carry EXACTLY [nav_menus, post_types, taxonomies], got: $POLYLANG_KEYS"
 for excluded in force_lang domains hide_default rewrite redirect_lang browser media_support sync default_lang first_activation previous_version version; do
@@ -293,6 +342,7 @@ pass "nav_menus per-language menu-term-ids correctly tokenized via json_refs"
 say "hard lint gate + capture-twice determinism (positive path)"
 wp1 duo lint --repo=/siterepo
 wp1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
+assert_language_descriptions 1 "after deterministic second source capture"
 diff -r siterepo/${PAIR}1/state siterepo/${PAIR}1/.tmp-state2 || fail "capture is not deterministic"
 rm -rf siterepo/${PAIR}1/.tmp-state2
 pass "lint clean, capture-twice diff empty"
@@ -314,6 +364,8 @@ APPLY1=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --adopt-by-slug
   || { echo "$APPLY1"; fail "single-attempt apply did not pass convergence on the fresh Polylang target -- DUO-3280's fix (taxes_by_object_type()'s manifest-declared option supplement, see header note (3)) is expected to make this pass on the FIRST and ONLY attempt now, no retry"; }
 echo "$APPLY1"
 echo "$APPLY1" | grep -qiE '"canary":"clean"|canary clean' || fail "apply canary was not clean"
+assert_language_descriptions 1 "after source capture and target apply"
+assert_language_descriptions 2 "after first target apply"
 pass "single-attempt apply succeeded on a fresh target, canary clean -- no retry wrapper involved"
 
 say "DUO-3282: this apply's own polylang.json rebuilder (DUO-3272's nav_menu_locations eval) fired -- a DIFFERENT rebuilder than DUO-3267/grind_r1a_forms.sh's own nf3_upgrades probe, same new confirmation-line mechanism (Apply::rebuild()'s per-declaration 'rebuilder fired' warning)"
@@ -394,6 +446,7 @@ APPLY_NOOP=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --default-a
   || { echo "$APPLY_NOOP"; fail "single-attempt no-op re-apply failed"; }
 echo "$APPLY_NOOP"
 echo "$APPLY_NOOP" | grep -q '"drift":0' || fail "expected ZERO drift on a no-op re-apply -- the language relationship should already be fully resolved by this point (got: $APPLY_NOOP)"
+assert_language_descriptions 2 "after no-op target apply"
 # DUO-3280 follow-up: was 16 -- stale relative to DUO-3264 (#67, landed on
 # main after PR #61), which gave theme_mods_<stylesheet> its own tracked
 # dynamic_options entity; APPLY1's own plan (create:11 + update:2 + adopt:4)
@@ -408,6 +461,7 @@ say "a genuine content change on BOTH posts, + a SECOND, still fully automated a
 wp1 post update "$PROJ_EN" --post_excerpt="A ground-up rebuild of the marketing site." >/dev/null
 wp1 post update "$PROJ_DE" --post_excerpt="Eine grundlegende Neugestaltung der Marketing-Website." >/dev/null
 wp1 duo capture --repo=/siterepo >/dev/null
+assert_language_descriptions 1 "after source content-update capture"
 git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test add -A
 git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test commit -qm "content: force reprocessing"
 git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test push -q origin main
@@ -417,6 +471,7 @@ APPLY2=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --default-autho
   || { echo "$APPLY2"; fail "single-attempt content-update apply failed"; }
 echo "$APPLY2"
 echo "$APPLY2" | grep -qiE '"canary":"clean"|canary clean' || fail "second apply canary was not clean"
+assert_language_descriptions 2 "after target content-update apply"
 
 say "(4) pll_get_post_language()/pll_get_post_translations() still resolve correctly on the target after a genuine content-update apply -- fresh process, target's OWN local ids, ZERO manual Settings replication (already true before this apply too -- see (3) above -- this confirms it SURVIVES an ordinary subsequent apply rather than being coincidentally correct only once)"
 LANG_FIXED=$(wp2 eval "echo json_encode(['en'=>pll_get_post_language($PROJ_EN_B2),'de'=>pll_get_post_language($PROJ_DE_B2),'trans'=>pll_get_post_translations($PROJ_EN_B2)]);")
@@ -435,19 +490,18 @@ sys.exit(0 if ('en' in t and 'de' in t and t['en'] != t['de']) else 1)
 pass "pll_get_post_language()/pll_get_post_translations() both resolve correctly on the target using the target's OWN local ids"
 
 say "(5) the correct per-language menu renders at its shared location -- real HTTP requests, zero manual menu reassignment"
+assert_language_descriptions 2 "immediately before target frontend rendering"
 BODY_EN=$(curl -s -w '\nHTTPSTATUS:%{http_code}' "http://localhost:${PORT2}/" || true)
 CODE_EN=$(echo "$BODY_EN" | grep -o 'HTTPSTATUS:[0-9]*' | cut -d: -f2)
 BODY_DE=$(curl -s -w '\nHTTPSTATUS:%{http_code}' "http://localhost:${PORT2}/de/" || true)
 CODE_DE=$(echo "$BODY_DE" | grep -o 'HTTPSTATUS:[0-9]*' | cut -d: -f2)
-if [ "$CODE_EN" = "200" ] && [ "$CODE_DE" = "200" ]; then
-  echo "$BODY_EN" | grep -q "EnglishMarkerLink" || fail "expected Main Menu's marker link on the EN homepage (got HTTP $CODE_EN)"
-  echo "$BODY_DE" | grep -q "GermanMarkerLink" || fail "expected Hauptmenu's marker link on the DE homepage (got HTTP $CODE_DE)"
-  echo "$BODY_EN" | grep -qi "localhost:${PORT1}" && fail "host:port leak: side1's port appears on side2's EN homepage"
-  echo "$BODY_DE" | grep -qi "localhost:${PORT1}" && fail "host:port leak: side1's port appears on side2's DE homepage"
-  pass "confirmed via real HTTP requests: EN shows Main Menu, DE shows Hauptmenu, at the SAME 'primary' location, zero manual reassignment; no host:port leaks"
-else
-  echo "WARNING: front end returned EN=$CODE_EN DE=$CODE_DE, not 200/200 -- render check skipped this run (see docs/grind/r3a-multilingual-shop.md's open task #128 Polylang front-end finding, confirmed unrelated to Duo). wp-cli-level checks above already proved the underlying data is correct."
-fi
+[ "$CODE_EN" = "200" ] && [ "$CODE_DE" = "200" ] \
+  || fail "front end returned EN=$CODE_EN DE=$CODE_DE, expected 200/200 with intact language descriptions"
+echo "$BODY_EN" | grep -q "EnglishMarkerLink" || fail "expected Main Menu's marker link on the EN homepage (got HTTP $CODE_EN)"
+echo "$BODY_DE" | grep -q "GermanMarkerLink" || fail "expected Hauptmenu's marker link on the DE homepage (got HTTP $CODE_DE)"
+echo "$BODY_EN" | grep -qi "localhost:${PORT1}" && fail "host:port leak: side1's port appears on side2's EN homepage"
+echo "$BODY_DE" | grep -qi "localhost:${PORT1}" && fail "host:port leak: side1's port appears on side2's DE homepage"
+pass "confirmed via real HTTP requests: EN shows Main Menu, DE shows Hauptmenu, at the SAME 'primary' location, zero manual reassignment; no host:port leaks"
 
 say "(8) negative: RepositoryAuthorization refuses an UNDECLARED sub-key smuggled into a captured polylang value"
 BAD_REPO=/siterepo/.tmp-duo3233-badsubkey
