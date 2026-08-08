@@ -11,7 +11,8 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
 	regress-snapshot-meta regress-ssh-adopt regress-tec-regen regress-user-meta \
 	regress-option-name-refs-wiring regress-offline-all regress-live-list regress-code-compatibility \
-	regress-coverage-offline regress-coverage regress-classification-batch
+	regress-coverage-offline regress-coverage regress-classification-batch \
+	regress-woo-attribute-deletion regress-bundle-coverage
 
 up:
 	$(COMPOSE) up -d
@@ -542,6 +543,21 @@ regress-user-meta:
 # fail-fast behavior a required CI gate wants (no point burning minutes
 # on suite 21 when suite 3 already broke). Live suites are deliberately
 # NOT here -- see regress-live-list.
+#
+# DUO-3285 fast-follow: +2. regress-coverage-offline (DUO-3290's own suite,
+# asub's PR #82) had a real Makefile target the whole time but landed after
+# this bundle's own survey was authored, so it slipped in unbundled exactly
+# the way this target exists to prevent -- team-lead caught it by
+# inspection. Re-running this issue's own survey logic (not just adding the
+# one flagged name) turned up a second orphan of the same shape:
+# regress-woo-attribute-deletion.sh (DUO-3288) had a real target too but no
+# bundle/live-list entry either -- it's LIVE (docker/pair.sh body scan, own
+# pair "wooattrdel"), so it's added to regress-live-list instead, not here
+# (see that target's own comment). regress-bundle-coverage (new, below) is
+# what makes this class of drift impossible to reintroduce silently going
+# forward: it runs this exact survey and fails loud the moment a
+# regress_*.{sh,php} file exists with neither a bundle nor a live-list
+# entry, so a suite must declare itself at birth or CI goes red.
 regress-offline-all: code-half-unit \
 	regress-capture-publish regress-adapter-contract regress-interpreter-policy \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan \
@@ -550,8 +566,9 @@ regress-offline-all: code-half-unit \
 	regress-dynamic-options-policy regress-env-options-policy regress-export-manifest-roundtrip \
 	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
-	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch
-	@echo "regress-offline-all: 35 offline suites green"
+	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch \
+	regress-coverage-offline regress-bundle-coverage
+	@echo "regress-offline-all: 37 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
@@ -593,5 +610,14 @@ regress-live-list:
 	@echo "  regress-ssh-adopt                         standalone SSH host, own docker image (NOT pair.sh) -- DUO-3257/DUO-3281"
 	@echo "  regress-tec-regen                         pair asnaptec"
 	@echo "  regress-user-meta                         pair umeta3268 9301/9302"
+	@echo "  regress-coverage                         needs an already-up pair with WooCommerce active (parameterized: DUO_PAIR)"
+	@echo "  regress-woo-attribute-deletion            pair wooattrdel 8996/8997 (parameterized: WOOATTRDEL_PAIR/WOOATTRDEL_PORT1/WOOATTRDEL_PORT2)"
 	@echo ""
 	@echo "grind-*/certify-* targets are a separate, already-governed category -- not listed here (see this target's own comment in the Makefile)."
+
+# DUO-3285 fast-follow: the drift guard. Runs the same "every regress_*
+# file needs a bundle or live-list entry" survey that built regress-
+# offline-all/regress-live-list in the first place, every time this runs --
+# see the suite's own header for why the one-off fix wasn't enough.
+regress-bundle-coverage:
+	bash sandbox/tests/regress_bundle_coverage.sh
