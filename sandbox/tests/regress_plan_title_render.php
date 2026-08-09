@@ -1,0 +1,105 @@
+<?php
+/**
+ * Offline regression — DUO-3345 (plan naming slice): plan rows that carry an
+ * authored WordPress display name (`title` for posts, `name` for terms and
+ * menus, projected by Apply::entity_display_title() into the row's `title`
+ * key) must be rendered with that name beside the repository path, and rows
+ * without one must render exactly as before. Pure PHP over the orchestrator
+ * renderer; no WordPress or Docker. The agent-side line renderer
+ * (agent/src/Cli.php) is the lockstep twin of this boundary and is proven
+ * through the live product path by the core conformance check's plan-naming
+ * scenario; this file pins the orchestrator half and the display rules:
+ *
+ *   1. the raw authored title is displayed in single quotes after the path;
+ *   2. whitespace runs collapse so one plan row stays one output line
+ *      (exactly-one-line assertions elsewhere depend on rows never wrapping);
+ *   3. a row without a title renders byte-identically to the pre-DUO-3345
+ *      form — absence of authored naming is never decorated or guessed.
+ *
+ * These assertions fail against the pre-DUO-3345 renderer, which showed only
+ * identifier-bearing paths.
+ */
+
+require_once __DIR__ . '/../../cli/src/PlanSummary.php';
+
+use Duo\Orchestrator\PlanSummary;
+
+$failures = [];
+$check = static function (bool $ok, string $message) use (&$failures): void {
+    if (!$ok) {
+        $failures[] = $message;
+    }
+    echo ($ok ? 'ok' : 'FAIL') . ": $message\n";
+};
+
+$empty = array_fill_keys([
+    'create', 'update', 'adopt', 'unchanged', 'drift', 'conflict',
+    'collision', 'delete', 'delete_conflict', 'deleted',
+], []);
+$empty['code_mismatch'] = [];
+
+$titled = $empty;
+$titled['conflict'] = [[
+    'uuid' => '019fdf2e-5e44-7677-89d1-c5917d723001',
+    'type' => 'page',
+    'path' => 'posts/page/019fdf2e-5e44-7677-89d1-c5917d723001--about.md',
+    'title' => 'About Our Store',
+]];
+$titled['drift'] = [[
+    'uuid' => '019fdf2e-5e44-7677-89d1-c5917d723002',
+    'type' => 'term',
+    'path' => 'terms/product_cat/019fdf2e-5e44-7677-89d1-c5917d723002--sale.md',
+    'title' => 'Sale  Items' . "\n" . 'Winter',
+]];
+$rendered = PlanSummary::render($titled);
+$lines = implode("\n", $rendered['lines']);
+
+$check(
+    str_contains($lines, "posts/page/019fdf2e-5e44-7677-89d1-c5917d723001--about.md 'About Our Store'"),
+    'a titled conflict row shows its WordPress name in single quotes after the path'
+);
+$check(
+    str_contains($lines, "terms/product_cat/019fdf2e-5e44-7677-89d1-c5917d723002--sale.md 'Sale Items Winter'"),
+    'display collapses whitespace runs and newlines so one row stays one line'
+);
+foreach ($rendered['lines'] as $line) {
+    if (str_contains($line, 'About Our Store') || str_contains($line, 'Sale Items Winter')) {
+        $check(!str_contains($line, "\n"), 'no rendered plan line embeds a newline');
+    }
+}
+
+$untitled = $empty;
+$untitled['conflict'] = [[
+    'uuid' => '019fdf2e-5e44-7677-89d1-c5917d723003',
+    'type' => 'option',
+    'path' => 'options/core.json',
+]];
+$renderedUntitled = PlanSummary::render($untitled);
+$untitledLines = implode("\n", $renderedUntitled['lines']);
+$check(
+    str_contains($untitledLines, '  - options/core.json'),
+    'a row without an authored name renders its path exactly as before'
+);
+$check(
+    !str_contains($untitledLines, "options/core.json '"),
+    'absence of an authored name is never decorated with a fabricated title'
+);
+
+$blank = $empty;
+$blank['drift'] = [[
+    'uuid' => '019fdf2e-5e44-7677-89d1-c5917d723004',
+    'type' => 'page',
+    'path' => 'posts/page/019fdf2e-5e44-7677-89d1-c5917d723004--blank.md',
+    'title' => '',
+]];
+$renderedBlank = PlanSummary::render($blank);
+$check(
+    !str_contains(implode("\n", $renderedBlank['lines']), "--blank.md '"),
+    'an empty title string renders as if absent'
+);
+
+if ($failures !== []) {
+    fwrite(STDERR, 'FAIL: ' . count($failures) . " plan title render check(s) failed\n");
+    exit(1);
+}
+echo "PASS: plan rows speak WordPress names beside repository paths\n";

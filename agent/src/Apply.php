@@ -137,6 +137,10 @@ final class Apply {
                 $lifecycleTransition
             );
             $row = ['uuid' => $uuid, 'type' => $e['type'], 'path' => $e['path']];
+            $title = self::entity_display_title($e['data']);
+            if ($title !== null) {
+                $row['title'] = $title;
+            }
             $this->annotate_natural_key_continuity(
                 $row,
                 (string) $uuid,
@@ -608,6 +612,28 @@ final class Apply {
                 $row['annotations'][] = $note;
             }
         }
+    }
+
+    /**
+     * WordPress-facing display name for a plan row. Posts carry authored
+     * `title` front matter and terms/menus carry `name`; options, sidebars,
+     * and typed tables are already named by their repository path. Only the
+     * authored value itself is projected — never a guessed or derived label
+     * (DUO-3345: plans must speak WordPress names, not identifier-bearing
+     * paths alone). The raw value lands in plan JSON; human renderers own
+     * any display sanitization.
+     */
+    private static function entity_display_title(mixed $data): ?string {
+        if (!is_array($data)) {
+            return null;
+        }
+        foreach (['title', 'name'] as $key) {
+            $value = $data[$key] ?? null;
+            if (is_string($value) && trim($value) !== '') {
+                return $value;
+            }
+        }
+        return null;
     }
 
     /**

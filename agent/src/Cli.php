@@ -394,6 +394,11 @@ final class Cli {
         foreach ($kinds as $kind) {
             foreach ($plan[$kind] as $r) {
                 $line = strtoupper(str_pad($kind, 9)) . ' ' . ($r['path'] ?? ($r['type'] . ' ' . $r['uuid']));
+                // Display-only: JSON keeps the raw authored title; the line
+                // renderer collapses whitespace so one row stays one line.
+                if (is_string($r['title'] ?? null) && $r['title'] !== '') {
+                    $line .= " '" . preg_replace('/\s+/', ' ', $r['title']) . "'";
+                }
                 if (isset($r['blocked'])) {
                     $line .= '  [BLOCKED: ' . $r['blocked'] . ']';
                 }

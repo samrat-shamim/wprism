@@ -134,6 +134,14 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   environment — DUO-3232, see "Env-bound value provisioning" below), and
   any plan-level warnings.
 
+  Entity rows that carry an authored WordPress display name — a post's
+  `title` front matter, a term's or menu's `name` — expose it as the row's
+  `title` key in plan JSON, and both human renderers (`duo status` here and
+  `wp duo plan`'s own output) print it in single quotes after the
+  repository path (DUO-3345). Rows without an authored name (options,
+  sidebars, typed tables, tombstones) render exactly as before; the name is
+  never guessed or derived.
+
   Exit non-zero ("not safe to promote") if the plan contains any
   `conflict`, `collision`, `code_mismatch`, or `code_drift` entry, any
   blocked delete, any ordinary state drift, a retained `incomplete_apply`

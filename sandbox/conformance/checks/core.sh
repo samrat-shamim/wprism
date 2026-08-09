@@ -169,6 +169,30 @@ diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-identity-recovered" \
 
 pass "copied and invalid _duo_uuid metadata block before atomic state publication; original identities recover deterministically"
 
+# DUO-3345 (plan naming slice): a planned change names its entity in
+# WordPress terms — the authored post title rides the plan row as `title`
+# in JSON and is rendered in single quotes beside the repository path by
+# the agent's human renderer. Proven through the real capture → push →
+# pull → plan → apply product path, and convergence is re-verified so the
+# probe leaves the pair exactly synchronized for the scenarios below.
+wp_conf1 post update "$A" --post_title='Branch A Renamed For Plan Naming' >/dev/null
+wp_conf1 duo capture --repo=/siterepo >/dev/null
+git -C "$CONF_REPO1" add -A
+git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: rename branch-a for plan naming'
+git -C "$CONF_REPO1" push -q origin main
+git -C "$CONF_REPO2" pull -q origin main
+TITLE_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e --arg uuid "$UA" \
+  '.update | any(.uuid == $uuid and .title == "Branch A Renamed For Plan Naming")' \
+  <<<"$TITLE_PLAN" >/dev/null || fail "planned update row does not carry its WordPress title: $TITLE_PLAN"
+TITLE_HUMAN=$(wp_conf2 duo plan --repo=/siterepo)
+grep -qE "^UPDATE +.*'Branch A Renamed For Plan Naming'" <<<"$TITLE_HUMAN" \
+  || fail "human plan line does not show the WordPress title: $TITLE_HUMAN"
+wp_conf2 duo apply --repo=/siterepo --default-author=admin >/dev/null
+[ "$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title)" = 'Branch A Renamed For Plan Naming' ] \
+  || fail "renamed page did not converge on target"
+pass "plan rows speak WordPress names in JSON (.title) and human output (DUO-3345)"
+
 # DUO-3210: absence alone is not authority; capture replaces the prior Home
 # page with a versioned tombstone. A target-only comment blocks deletion,
 # the explicit force path stays loud, comments are preserved, and the

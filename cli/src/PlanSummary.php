@@ -371,6 +371,13 @@ final class PlanSummary {
     }
 
     private static function label(array $r): string {
-        return $r['path'] ?? (($r['type'] ?? '?') . ' ' . ($r['uuid'] ?? '?'));
+        $label = $r['path'] ?? (($r['type'] ?? '?') . ' ' . ($r['uuid'] ?? '?'));
+        // Keep lockstep with agent/src/Cli.php's plan line renderer: the raw
+        // authored title stays in plan JSON; display collapses whitespace so
+        // one row stays one line (DUO-3345).
+        if (is_string($r['title'] ?? null) && $r['title'] !== '') {
+            $label .= " '" . preg_replace('/\s+/', ' ', (string) $r['title']) . "'";
+        }
+        return $label;
     }
 }
