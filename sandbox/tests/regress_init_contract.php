@@ -134,7 +134,7 @@ check(!str_contains(strtolower($agentSource), 'woocommerce'), 'generic target in
 check(str_contains($agentSource, "(\$rule['class'] ?? null) === 'authored'"), 'post-type scope expands only from authored manifest rulings');
 check(substr_count($agentSource, "(\$rule['class'] ?? null) === 'authored'") >= 2, 'post-type and taxonomy scope expand only from explicit authored manifest rulings');
 $lockedRecheck = strrpos($agentSource, 'self::assert_confirmed_proposal($proposal, $expectedDigest);');
-$siteWrite = strpos($agentSource, 'Canon::write_file($siteFile, Canon::encode($proposal[' . "'state'" . '][' . "'config'" . ']));');
+$siteWrite = strpos($agentSource, 'self::write_owned_file($siteFile, Canon::encode($proposal[' . "'state'" . '][' . "'config'" . ']), ' . "'site.duo.json'" . ');');
 check($lockedRecheck !== false && $siteWrite !== false && $lockedRecheck < $siteWrite, 'under-lock digest recheck precedes the site-config write');
 check(str_contains($agentSource, "'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => Code::SOURCE]"), 'site config declares code independently from state policy');
 check(str_contains($agentSource, 'Code::descriptor_from_source($stage)'), 'captured code is validated by the existing descriptor contract before publication');
@@ -152,6 +152,24 @@ check(
 );
 check(str_contains($agentSource, "git', 'init', '--initial-branch=main"), 'confirmation creates a verified Git worktree when absent');
 check(str_contains($agentSource, "\$finalGit['mode'] !== 'existing-worktree'"), 'success re-verifies Git readiness after the baseline transaction');
+check(
+    str_contains($agentSource, "'unsafe_site_config'")
+        && str_contains($agentSource, 'write_owned_file($siteFile')
+        && str_contains($agentSource, 'if (!@rename($tmp, $path))'),
+    'site config publication replaces an ordinary owned path without following links'
+);
+check(
+    str_contains($agentSource, "'unsafe_code_root'")
+        && str_contains($agentSource, "assert_absent_owned_path(\$codeRoot, 'code publication root')")
+        && str_contains($agentSource, 'if (!rename($stagedCode, $codeRoot))'),
+    'code baseline publishes its whole absent root atomically instead of traversing a link'
+);
+check(
+    str_contains($agentSource, "'unreadable_repository_root'")
+        && str_contains($agentSource, '$entries = @scandir($repo);')
+        && str_contains($agentSource, 'if ($entries === false)'),
+    'repository ownership fails closed when the root cannot be enumerated'
+);
 $adapterSource = (string) file_get_contents(__DIR__ . '/../../agent/src/AdapterSources.php');
 check(str_contains($adapterSource, 'file_exists($siteDir) || is_link($siteDir)'), 'adapter allowlist refuses every present non-directory boundary');
 

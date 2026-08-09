@@ -221,7 +221,15 @@ final class Init {
                 'remediation' => 'initialize a supported single-site target',
             ];
         }
-        if ($existing['mode'] === 'owned') {
+        if ($existing['mode'] === 'unsafe') {
+            $unsupported[] = [
+                'code' => 'unsafe_site_config',
+                'extension' => 'site.duo.json',
+                'kind' => 'repository',
+                'reason' => 'site.duo.json is present but is not an ordinary repository-owned regular file',
+                'remediation' => 'replace the link or special file with an ordinary adoption seed, or remove it',
+            ];
+        } elseif ($existing['mode'] === 'owned') {
             $unsupported[] = [
                 'code' => 'existing_configuration',
                 'extension' => 'site.duo.json',
@@ -230,17 +238,26 @@ final class Init {
                 'remediation' => 'use ordinary capture/plan workflows or move the existing repository before initialization',
             ];
         }
-        if (file_exists($repo . '/' . Code::SOURCE)) {
+        $codeRoot = $repo . '/code';
+        if (is_link($codeRoot) || (file_exists($codeRoot) && !is_dir($codeRoot))) {
+            $unsupported[] = [
+                'code' => 'unsafe_code_root',
+                'extension' => 'code',
+                'kind' => 'repository',
+                'reason' => 'the code publication root is present but is not an ordinary repository-owned directory',
+                'remediation' => 'remove the link or special file before initialization',
+            ];
+        } elseif (is_dir($codeRoot)) {
             $unsupported[] = [
                 'code' => 'existing_code_payload',
-                'extension' => Code::SOURCE,
+                'extension' => 'code',
                 'kind' => 'repository',
-                'reason' => 'the repository already contains a code payload that init does not own',
+                'reason' => 'the repository already contains a code root that init does not own',
                 'remediation' => 'review or move the existing code payload before initialization',
             ];
         }
         foreach (['state' => 'existing_state_payload', 'media' => 'existing_media_payload'] as $path => $codeName) {
-            if (file_exists($repo . '/' . $path)) {
+            if (file_exists($repo . '/' . $path) || is_link($repo . '/' . $path)) {
                 $unsupported[] = [
                     'code' => $codeName,
                     'extension' => $path,
@@ -320,6 +337,7 @@ final class Init {
         $previous = null;
         $publishedCode = false;
         $stagedCode = null;
+        $mediaCreated = false;
         try {
             if (getenv('DUO_TEST_MODE') === '1') {
                 $pauseMs = (int) (getenv('DUO_TEST_INIT_PAUSE_MS') ?: 0);
@@ -336,6 +354,7 @@ final class Init {
             }
             $stateDir = $repo . '/state';
             $lockPath = Publish::lock_path($stateDir);
+            self::assert_regular_file_or_absent($lockPath, 'state.capture.lock');
             $lockPathExisted = file_exists($lockPath);
             $publicationLock = Publish::lock($stateDir);
             $lockOwnedAndCreated = !$lockPathExisted;
@@ -353,20 +372,33 @@ final class Init {
             }
             [$previousGitignore, $gitignoreWritten] = self::ensure_gitignore($repo);
 
+            self::assert_regular_file_or_absent($siteFile, 'site.duo.json');
             $previous = is_file($siteFile) ? Canon::read_file($siteFile) : null;
             [$descriptor, $stagedCode] = self::capture_code($repo, $proposal['code']);
-            $codeTarget = $repo . '/' . Code::SOURCE;
-            $codeParent = dirname($codeTarget);
-            if (!is_dir($codeParent) && !mkdir($codeParent, 0775, true) && !is_dir($codeParent)) {
-                throw new \RuntimeException("duo: could not create code payload parent $codeParent");
+            $codeStage = $repo . '/.duo-init-code-root-' . bin2hex(random_bytes(8));
+            if (!mkdir($codeStage, 0775, true) && !is_dir($codeStage)) {
+                throw new \RuntimeException("duo: could not create code publication stage $codeStage");
             }
-            if (!rename($stagedCode, $codeTarget)) {
+            if (!rename($stagedCode, $codeStage . '/wp-content')) {
+                self::remove_tree($codeStage);
+                throw new \RuntimeException('duo: could not assemble the verified code baseline');
+            }
+            $stagedCode = $codeStage;
+            $codeRoot = $repo . '/code';
+            self::assert_absent_owned_path($codeRoot, 'code publication root');
+            if (!rename($stagedCode, $codeRoot)) {
                 throw new \RuntimeException('duo: could not publish the verified code baseline');
             }
             $stagedCode = null;
             $publishedCode = true;
-            Canon::write_file($siteFile, Canon::encode($proposal['state']['config']));
+            self::write_owned_file($siteFile, Canon::encode($proposal['state']['config']), 'site.duo.json');
             Policy::load($repo);
+            $mediaDir = $repo . '/media';
+            self::assert_absent_owned_path($mediaDir, 'media publication root');
+            if (!mkdir($mediaDir, 0775, true) && !is_dir($mediaDir)) {
+                throw new \RuntimeException("duo: could not create media publication root $mediaDir");
+            }
+            $mediaCreated = true;
             if (getenv('DUO_TEST_MODE') === '1') {
                 $pauseMs = (int) (getenv('DUO_TEST_INIT_PUBLICATION_PAUSE_MS') ?: 0);
                 if ($pauseMs > 0 && $pauseMs <= 10000) {
@@ -436,18 +468,17 @@ final class Init {
             if (is_string($stagedCode) && file_exists($stagedCode)) {
                 self::remove_tree($stagedCode);
             }
-            if ($publishedCode && file_exists($repo . '/' . Code::SOURCE)) {
-                self::remove_tree($repo . '/' . Code::SOURCE);
-                $codeParent = dirname($repo . '/' . Code::SOURCE);
-                if (is_dir($codeParent) && iterator_count(new \FilesystemIterator($codeParent)) === 0) {
-                    @rmdir($codeParent);
-                }
+            if ($mediaCreated && (file_exists($repo . '/media') || is_link($repo . '/media'))) {
+                self::remove_tree($repo . '/media');
+            }
+            if ($publishedCode && (file_exists($repo . '/code') || is_link($repo . '/code'))) {
+                self::remove_tree($repo . '/code');
             }
             if ($previous === null) {
                 @unlink($siteFile);
             } else {
                 try {
-                    Canon::write_file($siteFile, $previous);
+                    self::write_owned_file($siteFile, $previous, 'site.duo.json');
                 } catch (\Throwable $restoreError) {
                     throw new \RuntimeException(
                         $error->getMessage() . "\nduo: init could not restore the prior site.duo.json: " . $restoreError->getMessage(),
@@ -461,7 +492,7 @@ final class Init {
                 if ($previousGitignore === null) {
                     @unlink($gitignore);
                 } else {
-                    Canon::write_file($gitignore, $previousGitignore);
+                    self::write_owned_file($gitignore, $previousGitignore, '.gitignore');
                 }
             }
             if ($gitCreated && is_dir($repo . '/.git')) {
@@ -503,6 +534,9 @@ final class Init {
     /** @return array{mode:string} */
     private static function existing_config(string $repo): array {
         $file = $repo . '/site.duo.json';
+        if (is_link($file) || (file_exists($file) && !is_file($file))) {
+            return ['mode' => 'unsafe'];
+        }
         if (!is_file($file)) {
             return ['mode' => 'absent'];
         }
@@ -616,15 +650,39 @@ final class Init {
                 'remediation' => 'replace it with an ordinary repository-owned file',
             ];
         }
+        if (is_link($repo . '/.git')) {
+            $blockers[] = [
+                'code' => 'unsafe_git_metadata', 'extension' => '.git', 'kind' => 'repository',
+                'reason' => 'the repository Git metadata root is a symbolic link',
+                'remediation' => 'replace it with an ordinary worktree-owned .git directory or gitfile',
+            ];
+        }
+        $captureLock = $repo . '/state.capture.lock';
+        if (is_link($captureLock) || (file_exists($captureLock) && !is_file($captureLock))) {
+            $blockers[] = [
+                'code' => 'unsafe_capture_lock', 'extension' => 'state.capture.lock', 'kind' => 'repository',
+                'reason' => 'the state publication lock is present but is not an ordinary regular file',
+                'remediation' => 'remove the link or special file before initialization',
+            ];
+        }
 
         $allowed = array_fill_keys([
             '.', '..', '.duo', '.duo-env-values.json', '.duo-envs.json', '.git', '.gitignore', 'adapters',
             'code', 'media', 'site.duo.json', 'state', 'state.capture.lock',
         ], true);
         $unexpected = [];
-        foreach (scandir($repo) ?: [] as $entry) {
-            if (!isset($allowed[$entry])) {
-                $unexpected[] = $entry;
+        $entries = @scandir($repo);
+        if ($entries === false) {
+            $blockers[] = [
+                'code' => 'unreadable_repository_root', 'extension' => $repo, 'kind' => 'repository',
+                'reason' => 'the repository root cannot be enumerated, so init cannot prove that it contains only owned paths',
+                'remediation' => 'restore read and directory-enumeration permission, then rerun init',
+            ];
+        } else {
+            foreach ($entries as $entry) {
+                if (!isset($allowed[$entry])) {
+                    $unexpected[] = $entry;
+                }
             }
         }
         sort($unexpected, SORT_STRING);
@@ -695,8 +753,43 @@ final class Init {
             $next .= "\n";
         }
         $next .= "# Duo local publication and environment artifacts\n" . implode("\n", $missing) . "\n";
-        Canon::write_file($path, $next);
+        self::write_owned_file($path, $next, '.gitignore');
         return [$previous, true];
+    }
+
+    private static function assert_regular_file_or_absent(string $path, string $label): void {
+        if (is_link($path) || (file_exists($path) && !is_file($path))) {
+            throw new \RuntimeException("duo: init refuses non-regular repository-owned $label path $path");
+        }
+    }
+
+    private static function assert_absent_owned_path(string $path, string $label): void {
+        if (file_exists($path) || is_link($path)) {
+            throw new \RuntimeException("duo: init refuses pre-existing $label $path");
+        }
+    }
+
+    /** Publish one owned file by replacement, never by following its target. */
+    private static function write_owned_file(string $path, string $content, string $label): void {
+        self::assert_regular_file_or_absent($path, $label);
+        $dir = dirname($path);
+        if (is_link($dir) || !is_dir($dir)) {
+            throw new \RuntimeException("duo: init refuses unsafe parent for repository-owned $label path $path");
+        }
+        $tmp = $dir . '/.' . basename($path) . '.duo-init-' . bin2hex(random_bytes(8));
+        try {
+            Canon::write_file($tmp, $content);
+            self::assert_regular_file_or_absent($path, $label);
+            // rename replaces a raced symlink itself; it never follows the
+            // link to overwrite the external target as file_put_contents does.
+            if (!@rename($tmp, $path)) {
+                throw new \RuntimeException("duo: init could not publish repository-owned $label path $path");
+            }
+        } finally {
+            if (is_file($tmp) || is_link($tmp)) {
+                @unlink($tmp);
+            }
+        }
     }
 
     /** @return array{exit:int,stdout:string,stderr:string} */

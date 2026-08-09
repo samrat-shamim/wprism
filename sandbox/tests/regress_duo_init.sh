@@ -144,6 +144,69 @@ export DUO_CLI_IMAGE
   || fail "Git-enabled evidence target did not expose Git to the agent"
 pass "Git-enabled target fixture is ready"
 
+say "repository-owned config and code roots never traverse external links"
+wp1 eval '
+$seed = [
+    "manifests" => ["core"],
+    "policy" => [
+        "options" => [], "post_meta" => [], "term_meta" => [],
+        "post_types" => ["post", "page", "attachment"],
+        "taxonomies" => ["category", "post_tag"],
+    ],
+    "spec_version" => DUO_SPEC_VERSION,
+];
+file_put_contents(ABSPATH . "duo-init-external-site.json", \Duo\Canon::encode($seed));
+' >/dev/null
+EXTERNAL_SITE_SHA=$(wp1 eval 'echo hash_file("sha256", ABSPATH . "duo-init-external-site.json");')
+ln -s /var/www/html/duo-init-external-site.json "$HOST_REPO/site.duo.json"
+assert_exit 2 "symlinked valid adoption seed blocks init" "${DUO[@]}" init "${PAIR}1" --yes
+grep -q 'unsafe_site_config' <<<"$OUT" || fail "site config symlink omitted its ownership reason code"
+[ "$EXTERNAL_SITE_SHA" = "$(wp1 eval 'echo hash_file("sha256", ABSPATH . "duo-init-external-site.json");')" ] \
+  || fail "site config refusal changed the external adoption-seed sentinel"
+[ -L "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
+  || fail "site config symlink refusal mutated the repository"
+rm -f "$HOST_REPO/site.duo.json"
+wp1 eval 'unlink(ABSPATH . "duo-init-external-site.json");' >/dev/null
+
+wp1 eval '@unlink(ABSPATH . "duo-init-missing-site.json");' >/dev/null
+ln -s /var/www/html/duo-init-missing-site.json "$HOST_REPO/site.duo.json"
+assert_exit 2 "dangling site config symlink blocks init" "${DUO[@]}" init "${PAIR}1" --yes
+grep -q 'unsafe_site_config' <<<"$OUT" || fail "dangling site config omitted its ownership reason code"
+[ -L "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
+  || fail "dangling site config refusal mutated the repository"
+rm -f "$HOST_REPO/site.duo.json"
+
+wp1 eval '
+$dir = ABSPATH . "duo-init-external-code";
+wp_mkdir_p($dir);
+file_put_contents($dir . "/sentinel", "external code sentinel\n");
+' >/dev/null
+EXTERNAL_CODE_SHA=$(wp1 eval 'echo hash_file("sha256", ABSPATH . "duo-init-external-code/sentinel");')
+ln -s /var/www/html/duo-init-external-code "$HOST_REPO/code"
+assert_exit 2 "symlinked code root blocks init" "${DUO[@]}" init "${PAIR}1" --yes
+grep -q 'unsafe_code_root' <<<"$OUT" || fail "code root symlink omitted its ownership reason code"
+[ "$EXTERNAL_CODE_SHA" = "$(wp1 eval 'echo hash_file("sha256", ABSPATH . "duo-init-external-code/sentinel");')" ] \
+  || fail "code root refusal changed the external sentinel"
+[ -L "$HOST_REPO/code" ] && [ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
+  || fail "code root symlink refusal mutated the repository"
+rm -f "$HOST_REPO/code"
+wp1 eval 'unlink(ABSPATH . "duo-init-external-code/sentinel"); rmdir(ABSPATH . "duo-init-external-code");' >/dev/null
+pass "site config and code publication remain inside ordinary repository-owned roots"
+
+say "an unenumerable repository root is never mistaken for an empty one"
+chmod 0333 "$HOST_REPO"
+set +e
+OUT=$("${DUO[@]}" init "${PAIR}1" --yes 2>&1)
+CODE=$?
+set -e
+chmod 0777 "$HOST_REPO"
+printf '%s\n' "$OUT"
+[ "$CODE" -eq 2 ] || fail "unreadable repository root: expected exit 2, got $CODE"
+grep -q 'unreadable_repository_root' <<<"$OUT" || fail "unreadable root omitted its ownership reason code"
+[ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
+  || fail "unreadable repository refusal mutated the repository"
+pass "repository ownership requires a complete directory enumeration"
+
 say "site-owned adapter provenance is visible and remains uncertified"
 mkdir -p "$HOST_REPO/adapters"
 wp1 eval '
