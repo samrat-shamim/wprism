@@ -230,7 +230,16 @@ final class Refresh {
     /** @return array<string,mixed> */
     private static function readProduction(Transport $transport, string $productionCommit): array {
         self::assertTargetHead($transport, $productionCommit);
-        $result = $transport->captureWp(['duo', 'refresh-export', '--repo=' . $transport->repoPath(), '--format=json']);
+        // Boot only core + the protected Duo agent. Ordinary WP-CLI plugin,
+        // theme, or user-MU bootstrap runs before RefreshExport can open its
+        // READ ONLY transaction and can execute arbitrary production DML;
+        // that would make a nominal observation mutate the target before our
+        // server-enforced boundary even exists. Reuse the proven control
+        // bootstrap that shadows user MU code and skips regular plugins and
+        // themes while leaving manifest-owned providers available to Duo.
+        $result = $transport->captureWp(CodeDeploy::controlArgs([
+            'duo', 'refresh-export', '--repo=' . $transport->repoPath(), '--format=json',
+        ]));
         if (($result['exit'] ?? 1) !== 0) {
             throw new \RuntimeException('refresh-export failed for production environment ' . $transport->name()
                 . ': ' . self::transportReason($result));
@@ -286,7 +295,13 @@ final class Refresh {
     private static function assertTargetHead(Transport $transport, string $expected): void {
         $repo = escapeshellarg($transport->repoPath());
         $script = 'git -C ' . $repo . ' rev-parse --verify HEAD^{commit}'
-            . ' && git -C ' . $repo . ' status --porcelain --untracked-files=no';
+            . ' && git -C ' . $repo . ' status --porcelain=v1 --untracked-files=all'
+            // RepositoryCompiler consumes these canonical partitions from
+            // the filesystem, including ignored files. An ignored tombstone
+            // must not become production deletion authority while Git says
+            // the production ref has different bytes.
+            . ' && git -C ' . $repo
+            . ' ls-files --others --ignored --exclude-standard -- site.duo.json state media code manifests';
         $result = $transport->captureRaw($script);
         if (($result['exit'] ?? 1) !== 0) {
             throw new \RuntimeException('cannot verify production target Git HEAD: ' . self::transportReason($result));
@@ -294,7 +309,10 @@ final class Refresh {
         $lines = preg_split('/\r?\n/', trim((string) ($result['stdout'] ?? ''))) ?: [];
         $actual = array_shift($lines) ?? '';
         if (trim(implode("\n", $lines)) !== '') {
-            throw new \RuntimeException('production target repository has tracked changes; refusing a refresh-export from mutable code/policy/state bytes');
+            throw new \RuntimeException(
+                'production target repository has tracked, untracked, or ignored canonical changes; '
+                . 'refusing a refresh-export from bytes not identified by --production-ref'
+            );
         }
         if (!self::isGitOid($actual) || !hash_equals($expected, $actual)) {
             throw new \RuntimeException(

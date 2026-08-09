@@ -36,6 +36,7 @@ namespace Duo\Orchestrator {
 
 namespace {
 require dirname(__DIR__, 2) . '/cli/src/Transport.php';
+require dirname(__DIR__, 2) . '/cli/src/CodeDeploy.php';
 require dirname(__DIR__, 2) . '/cli/src/Refresh.php';
 
 use Duo\Orchestrator\Refresh;
@@ -115,17 +116,31 @@ try {
     ok_refresh(($result['context']['branch_commit'] ?? null) === $feature, 'branch HEAD is W input');
     ok_refresh(($result['context']['production_commit'] ?? null) === $production, 'target HEAD must equal production-ref');
     ok_refresh(is_file($result['plan_path']), 'immutable refresh plan is persisted locally');
-    ok_refresh($transport->wp === [['duo', 'refresh-export', '--repo=/target/repository', '--format=json']], 'P is obtained only through refresh-export');
+    $exportCall = $transport->wp[0] ?? [];
+    ok_refresh(count($transport->wp) === 1
+        && in_array('--skip-plugins', $exportCall, true)
+        && in_array('--skip-themes', $exportCall, true)
+        && count(array_filter($exportCall, static fn(string $arg): bool => str_starts_with($arg, '--exec=')
+            && str_contains($arg, 'DUO_CONTROL_PLANE')
+            && str_contains($arg, 'after_wp_config_load'))) === 1
+        && array_slice($exportCall, -4) === ['duo', 'refresh-export', '--repo=/target/repository', '--format=json'],
+        'P is obtained through refresh-export under the isolated control bootstrap');
+    ok_refresh(count(array_filter($transport->raw, static fn(string $script): bool =>
+        str_contains($script, '--untracked-files=all')
+        && str_contains($script, 'ls-files --others --ignored --exclude-standard')
+        && str_contains($script, 'state media code manifests'))) > 0,
+        'target verifier includes untracked and ignored canonical compiler inputs');
     ok_refresh(in_array('base', \Duo\Orchestrator\RefreshPlan::$roles, true)
         && in_array('branch', \Duo\Orchestrator\RefreshPlan::$roles, true)
         && in_array('production-code', \Duo\Orchestrator\RefreshPlan::$roles, true), 'Git artifacts are compiled by role, with production code-only');
     ok_refresh(run_refresh(['git', 'rev-parse', 'HEAD'], $repo) === $feature && run_refresh(['git', 'branch', '--show-current'], $repo) === 'feature', 'refresh leaves source checkout/ref untouched');
-    $dirty = new RefreshTransport($production, $export, " M site.duo.json\n");
+    $dirty = new RefreshTransport($production, $export, "?? state/deletions/untracked.json\n");
     try {
         Refresh::refresh($dirty, 'production');
         fail_refresh('tracked target repository state was accepted');
     } catch (Throwable $e) {
-        ok_refresh(str_contains($e->getMessage(), 'tracked changes') && $dirty->wp === [], 'target tracked state refuses before refresh-export');
+        ok_refresh(str_contains($e->getMessage(), 'untracked') && $dirty->wp === [],
+            'untracked canonical target state refuses before refresh-export');
     }
 
     try {
