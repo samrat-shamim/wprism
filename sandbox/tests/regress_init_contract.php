@@ -136,6 +136,7 @@ check(str_contains($agentSource, "['allowed_classes' => false]"), 'risk discover
 check(!str_contains($agentSource, 'maybe_unserialize('), 'read-only risk discovery never uses class-enabled WordPress unserialization');
 check(str_contains($agentSource, 'ORDER BY option_id ASC') && str_contains($agentSource, 'ORDER BY umeta_id ASC'), 'bounded risk discovery uses deterministic primary-key ordering');
 check(str_contains($agentSource, "git', 'init', '--initial-branch=main"), 'confirmation creates a verified Git worktree when absent');
+check(str_contains($agentSource, "\$finalGit['mode'] !== 'existing-worktree'"), 'success re-verifies Git readiness after the baseline transaction');
 
 $codeSource = file_get_contents(__DIR__ . '/../../agent/src/Code.php');
 check(is_string($codeSource), 'code lifecycle source is readable');

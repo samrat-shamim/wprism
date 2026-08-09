@@ -370,6 +370,12 @@ final class Init {
                 )) {
                 throw new \RuntimeException('duo: init capture returned no completed transaction-bound baseline receipt');
             }
+            $finalGit = self::git_probe($repo);
+            if ($finalGit['mode'] !== 'existing-worktree' || $finalGit['blockers'] !== []) {
+                throw new \RuntimeException(
+                    'duo: init baseline committed, but the target Git worktree changed before final verification'
+                );
+            }
             $succeeded = true;
             return [
                 'format' => 'duo-init-result/v1',
@@ -388,7 +394,7 @@ final class Init {
                     'lifecycle' => $codeBaseline,
                 ],
                 'state' => [
-                    'git' => self::git_probe($repo)['mode'],
+                    'git' => $finalGit['mode'],
                     'repository' => $repo,
                     'site_config' => $siteFile,
                 ],
