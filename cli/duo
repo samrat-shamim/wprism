@@ -14,6 +14,7 @@ declare(strict_types=1);
  */
 
 require __DIR__ . '/src/Registry.php';
+require __DIR__ . '/src/EnvironmentDriver.php';
 require __DIR__ . '/src/Transport.php';
 require __DIR__ . '/src/LocalTransport.php';
 require __DIR__ . '/src/DockerTransport.php';
@@ -39,6 +40,8 @@ require __DIR__ . '/src/Refresh.php';
 use Duo\Orchestrator\Doctor;
 use Duo\Orchestrator\Adopt;
 use Duo\Orchestrator\CodeDeploy;
+use Duo\Orchestrator\DriverCapabilityReport;
+use Duo\Orchestrator\EnvironmentDriver;
 use Duo\Orchestrator\Pending;
 use Duo\Orchestrator\PlanSummary;
 use Duo\Orchestrator\RollbackAuthority;
@@ -59,6 +62,7 @@ over local/docker/ssh transports and adds cross-environment ergonomics.
 Usage:
   duo envs
   duo doctor <env>
+  duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
   duo adopt  <env>
   duo status <env>
   duo capabilities <env> [--operation=<op>] [--surface=<surface>] [--revision=<sha>] [--format=json]
@@ -82,6 +86,11 @@ Verbs:
   doctor <env>            Check transport reachability, WordPress install, the
                           duo agent, and repo_path/site.duo.json. Non-zero exit
                           on any failing check.
+  driver-capabilities     Negotiate the host driver's closed, versioned
+    <env>                  capability report before contacting the target.
+    [--operation=<flow>]   Defaults to attach. Unsupported requirements are
+    [--format=json]        explicit and non-zero; destructive operations are
+                          never silently emulated.
   adopt <env>             Bootstrap this checkout's agent + manifests and a
                           seed site repo onto an SSH-only WordPress host, then
                           verify the exact agent version, policy load, and
@@ -262,7 +271,7 @@ function main(array $argv): int {
     }
 
     $verb = array_shift($rest);
-    $verbsNeedingEnv = ['doctor', 'adopt', 'status', 'capabilities', 'capture', 'plan', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage', 'refresh', 'rebase'];
+    $verbsNeedingEnv = ['doctor', 'driver-capabilities', 'adopt', 'status', 'capabilities', 'capture', 'plan', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage', 'refresh', 'rebase'];
 
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
@@ -282,6 +291,21 @@ function main(array $argv): int {
     $cfg = Registry::get($envs, $envName);
     $transport = Transport::make($envName, $cfg);
 
+    if ($verb === 'driver-capabilities') {
+        return cmd_driver_capabilities($transport, $extra);
+    }
+
+    try {
+        $driverReport = $transport->capabilityReport($verb);
+    } catch (\Throwable $e) {
+        fwrite(STDERR, "duo: driver preflight: {$e->getMessage()}\n");
+        return 1;
+    }
+    if (!$driverReport->ready()) {
+        render_driver_blockers($driverReport);
+        return 1;
+    }
+
     return match ($verb) {
         'doctor' => cmd_doctor($transport),
         'adopt' => cmd_adopt($transport, $extra),
@@ -294,6 +318,72 @@ function main(array $argv): int {
         'refresh' => cmd_refresh($transport, $extra),
         'rebase' => cmd_rebase($transport, $extra),
     };
+}
+
+/** The one canonical report drives both human and JSON output/exit status. */
+function cmd_driver_capabilities(EnvironmentDriver $driver, array $extra): int {
+    $operation = 'attach';
+    $operationSeen = false;
+    $json = false;
+    foreach ($extra as $arg) {
+        if ($arg === '--format=json') {
+            if ($json) {
+                fwrite(STDERR, "duo: driver-capabilities: duplicate --format=json\n");
+                return 1;
+            }
+            $json = true;
+            continue;
+        }
+        if (str_starts_with($arg, '--operation=')) {
+            if ($operationSeen) {
+                fwrite(STDERR, "duo: driver-capabilities: duplicate --operation\n");
+                return 1;
+            }
+            $operationSeen = true;
+            $operation = substr($arg, strlen('--operation='));
+            if ($operation === '') {
+                fwrite(STDERR, "duo: driver-capabilities: --operation cannot be empty\n");
+                return 1;
+            }
+            continue;
+        }
+        fwrite(STDERR, "duo: driver-capabilities: unsupported flag '$arg'\n");
+        return 1;
+    }
+
+    try {
+        $report = $driver->capabilityReport($operation);
+    } catch (\Throwable $e) {
+        fwrite(STDERR, "duo: driver-capabilities: {$e->getMessage()}\n");
+        return 1;
+    }
+    $body = $report->toArray();
+    if ($json) {
+        echo json_encode($body, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . "\n";
+    } else {
+        $state = $report->ready() ? 'READY' : 'BLOCKED';
+        echo "driver {$body['driver']['id']} protocol {$body['driver']['protocol']} "
+            . "environment {$body['driver']['environment']} operation {$body['operation']}: $state\n";
+        foreach ($body['requirements'] as $check) {
+            $mark = $check['state'] === 'supported' ? 'PASS' : 'BLOCKED';
+            echo "[$mark] {$check['capability']} — {$check['reason']}\n";
+        }
+        echo "report {$body['digest']}\n";
+    }
+    return $report->ready() ? 0 : 1;
+}
+
+function render_driver_blockers(DriverCapabilityReport $report): void {
+    $body = $report->toArray();
+    fwrite(
+        STDERR,
+        "duo: driver preflight blocked '{$body['operation']}' for environment "
+        . "'{$body['driver']['environment']}' ({$body['driver']['id']})\n"
+    );
+    foreach ($report->blockers() as $blocker) {
+        fwrite(STDERR, "  {$blocker['capability']}: {$blocker['reason']}\n");
+    }
+    fwrite(STDERR, "  report: {$body['digest']}\n");
 }
 
 /** @return array<string,string> */
@@ -359,7 +449,7 @@ function rebase_flags(array $extra): array {
     return ['flags' => $flags, 'resolution' => ['strategy' => $strategy, 'records' => $records]];
 }
 
-function cmd_refresh(Transport $t, array $extra): int {
+function cmd_refresh(EnvironmentDriver $t, array $extra): int {
     try {
         $flags = refresh_flags($extra, 'refresh');
         if (count($flags) !== 1 || !isset($flags['--production-ref'])) {
@@ -392,7 +482,7 @@ function cmd_refresh(Transport $t, array $extra): int {
     }
 }
 
-function cmd_rebase(Transport $t, array $extra): int {
+function cmd_rebase(EnvironmentDriver $t, array $extra): int {
     try {
         $parsed = rebase_flags($extra);
         $flags = $parsed['flags'];
@@ -435,7 +525,7 @@ function cmd_envs(?string $envsFileOverride): int {
     return 0;
 }
 
-function cmd_doctor(Transport $t): int {
+function cmd_doctor(EnvironmentDriver $t): int {
     $result = Doctor::run($t);
     foreach ($result['checks'] as $c) {
         // DUO-3231: an advisory check (DISALLOW_FILE_MODS today) never
@@ -454,7 +544,7 @@ function cmd_doctor(Transport $t): int {
     return $result['ok'] ? 0 : 1;
 }
 
-function cmd_adopt(Transport $t, array $extra): int {
+function cmd_adopt(EnvironmentDriver $t, array $extra): int {
     if ($extra !== []) {
         fwrite(STDERR, "duo: adopt accepts no extra arguments\n");
         return 1;
@@ -490,7 +580,7 @@ function cmd_adopt(Transport $t, array $extra): int {
     return cmd_doctor($t);
 }
 
-function cmd_status(Transport $t): int {
+function cmd_status(EnvironmentDriver $t): int {
     $r = $t->captureWp(['duo', 'plan', '--repo=' . $t->repoPath(), '--format=json']);
     if ($r['exit'] !== 0) {
         fwrite(STDERR, "duo: status: failed to fetch plan for '{$t->name()}' (exit {$r['exit']})\n");
@@ -517,7 +607,7 @@ function cmd_status(Transport $t): int {
 }
 
 /** Render externally verified rollback authority state for SSH targets. */
-function render_rollback_authority_status(Transport $t): bool {
+function render_rollback_authority_status(EnvironmentDriver $t): bool {
     if (!$t instanceof \Duo\Orchestrator\SshTransport) {
         return true;
     }
@@ -547,7 +637,7 @@ function render_rollback_authority_status(Transport $t): bool {
 }
 
 /** Refuse a new SSH mutation while external authority is corrupt or nonterminal. */
-function rollback_authority_fence(Transport $t, string $verb): bool {
+function rollback_authority_fence(EnvironmentDriver $t, string $verb): bool {
     if (!$t instanceof \Duo\Orchestrator\SshTransport) {
         return true;
     }
@@ -570,7 +660,7 @@ function rollback_authority_fence(Transport $t, string $verb): bool {
     return true;
 }
 
-function cmd_passthrough(Transport $t, string $verb, array $extra): int {
+function cmd_passthrough(EnvironmentDriver $t, string $verb, array $extra): int {
     $wpArgs = array_merge(['duo', $verb, '--repo=' . $t->repoPath()], $extra);
     return $t->streamWp($wpArgs);
 }
@@ -635,7 +725,7 @@ function deploy_force_flags(array $extra, string $verb): array {
  * stage/lifecycle/finalize sequence. Operators who need the coupled DB
  * checkpoint use `duo promote`.
  */
-function cmd_deploy(Transport $t, array $extra): int {
+function cmd_deploy(EnvironmentDriver $t, array $extra): int {
     try {
         $deployExtra = deploy_force_flags($extra, 'deploy');
     } catch (\Throwable $e) {
@@ -741,7 +831,7 @@ function cmd_deploy(Transport $t, array $extra): int {
  * artifact with no code descriptor still retires and activates in separate
  * processes, then applies state without materializing code.
  */
-function cmd_promote(Transport $t, array $extra): int {
+function cmd_promote(EnvironmentDriver $t, array $extra): int {
     foreach ($extra as $arg) {
         if (is_orchestrator_internal_flag($arg)) {
             fwrite(STDERR, "duo: promote owns its repository, compiled artifact/hash, code-materialization, and target lease flags; remove '$arg'\n");
@@ -1129,7 +1219,7 @@ function promote_verified_failed(
  * hard warning: never erase another promotion's lock to make this run look
  * clean.
  */
-function promotion_abort(Transport $t, string $owner, string $artifactHash): bool {
+function promotion_abort(EnvironmentDriver $t, string $owner, string $artifactHash): bool {
     $abort = $t->captureWp(CodeDeploy::abortArgs($owner, $artifactHash));
     if ($abort['exit'] === 0) {
         return true;
@@ -1142,7 +1232,7 @@ function promotion_abort(Transport $t, string $owner, string $artifactHash): boo
 
 /** Compensate only an ambiguous begin; a named live contender is definitive. */
 function compensate_uncertain_begin(
-    Transport $t,
+    EnvironmentDriver $t,
     array $begin,
     string $owner,
     string $artifactHash,
@@ -1160,7 +1250,7 @@ function compensate_uncertain_begin(
 
 /** Print row repair for a dump containing its lease; external exclusion is required. */
 function print_promotion_recovery(
-    Transport $t,
+    EnvironmentDriver $t,
     string $checkpoint,
     bool $codeMayHaveChanged,
     string $owner,
@@ -1188,7 +1278,7 @@ function print_promotion_recovery(
 }
 
 function promote_failed(
-    Transport $t,
+    EnvironmentDriver $t,
     string $phase,
     int $exit,
     string $checkpoint,
@@ -1215,7 +1305,7 @@ function promote_failed(
  *
  * @return array{ok:bool, exit:int, items:list<array<string,mixed>>}
  */
-function fetch_pending(Transport $t): array {
+function fetch_pending(EnvironmentDriver $t): array {
     $r = $t->captureWp(['duo', 'pending', '--repo=' . $t->repoPath(), '--format=json']);
     if ($r['exit'] !== 0) {
         fwrite(STDERR, "duo: pending: failed to fetch the review queue for '{$t->name()}' (exit {$r['exit']})\n");
@@ -1234,7 +1324,7 @@ function fetch_pending(Transport $t): array {
     return ['ok' => true, 'exit' => 0, 'items' => array_values($items)];
 }
 
-function cmd_pending(Transport $t, array $extra): int {
+function cmd_pending(EnvironmentDriver $t, array $extra): int {
     if (in_array('--format=json', $extra, true)) {
         // Raw passthrough, same precedent as `duo status` vs. `duo plan
         // --format=json` (see cli/README.md): `duo pending` parses and
@@ -1297,7 +1387,7 @@ function build_classify_args(array $decisions, bool $needAllowSecret): array {
     return $args;
 }
 
-function cmd_classify(Transport $t, array $extra): int {
+function cmd_classify(EnvironmentDriver $t, array $extra): int {
     $acceptProposals = in_array('--accept-proposals', $extra, true);
     $exportBatch = null;
     $applyBatch = null;
@@ -1358,7 +1448,7 @@ function cmd_classify(Transport $t, array $extra): int {
 }
 
 /** @param list<array<string,mixed>> $items */
-function cmd_classify_export_batch(Transport $t, array $items, string $path): int {
+function cmd_classify_export_batch(EnvironmentDriver $t, array $items, string $path): int {
     if ($path === '') {
         fwrite(STDERR, "duo: classify: --export-batch requires a path\n");
         return 1;
@@ -1390,7 +1480,7 @@ function cmd_classify_export_batch(Transport $t, array $items, string $path): in
 }
 
 /** @param list<array<string,mixed>> $items */
-function cmd_classify_apply_batch(Transport $t, array $items, string $path): int {
+function cmd_classify_apply_batch(EnvironmentDriver $t, array $items, string $path): int {
     if ($path === '') {
         fwrite(STDERR, "duo: classify: --apply-batch requires a path\n");
         return 1;
@@ -1424,7 +1514,7 @@ function cmd_classify_apply_batch(Transport $t, array $items, string $path): int
     return 0;
 }
 
-function cmd_classify_interactive(Transport $t, array $items): int {
+function cmd_classify_interactive(EnvironmentDriver $t, array $items): int {
     $result = Triage::run($items, STDIN, STDOUT);
 
     $exit = 0;
@@ -1443,7 +1533,7 @@ function cmd_classify_interactive(Transport $t, array $items): int {
  * turns a non-empty secretSkipped into a non-zero exit so a CI pipeline can
  * tell "nothing to do" apart from "a human needs to look at this."
  */
-function cmd_classify_accept_proposals(Transport $t, array $items): int {
+function cmd_classify_accept_proposals(EnvironmentDriver $t, array $items): int {
     $result = Triage::acceptProposals($items);
     $decisions = $result['decisions'];
     $secretSkipped = $result['secretSkipped'];

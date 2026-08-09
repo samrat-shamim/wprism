@@ -92,7 +92,7 @@ PHP;
      *
      * @return array{exit:int, stdout:string, stderr:string, summary:?array}
      */
-    public static function compile(Transport $transport, string $repo, string $artifact): array {
+    public static function compile(EnvironmentDriver $transport, string $repo, string $artifact): array {
         $result = $transport->captureWp(self::controlArgs([
             'duo', 'compile', '--repo=' . $repo, '--out=' . $artifact, '--format=json',
         ]));

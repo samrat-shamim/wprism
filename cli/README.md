@@ -5,9 +5,9 @@ Git stays git — branching, merging, and history all happen on the site repo
 exactly as before. `duo` only adds two things on top of the per-environment
 `wp duo capture|plan|apply` commands (see [agent/src/Cli.php](../agent/src/Cli.php)):
 
-1. **Transports** — so you don't have to remember whether a given
-   environment is reached over `ssh`, `docker compose run`, or a plain local
-   `wp --path=`.
+1. **Environment drivers** — one narrow workflow boundary with local,
+   container, and SSH transports, plus a closed capability report so Duo can
+   refuse unsupported operations before it contacts the target.
 2. **Cross-environment ergonomics** — `duo envs`/`duo doctor`/`duo status`,
    which no single-environment `wp duo …` call can give you.
 3. **Truthful code-and-state sequencing** — compilation produces one
@@ -27,6 +27,7 @@ binary and, per environment, whatever the transport itself needs (`ssh`,
 ```
 duo envs
 duo doctor <env>
+duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
 duo adopt  <env>
 duo status <env>
 duo capabilities <env> [--format=json]
@@ -80,6 +81,31 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   advisory/informational on this particular run (always 9; 6 whenever
   `DISALLOW_FILE_MODS` is genuinely unset; 5 only in the no-git case)
   passes.
+
+- **`duo driver-capabilities <env> [--operation=<workflow>]`
+  `[--format=json]`** — computes a target-free, versioned
+  `duo-environment-driver-capabilities/v1` preflight. The same canonical
+  report, readiness value, blocker list, and SHA-256 digest drive the human
+  output, JSON output, exit status, and the workflow gate itself. This is a
+  host capability contract, separate from plugin/adapter capability claims.
+
+  Capability IDs are closed and deliberately granular: attaching to an
+  existing environment is distinct from bootstrapping it; creating an
+  environment is distinct from destroying one; database snapshots are
+  distinct from media snapshots; and maintenance, URL, TTL, and operation
+  receipts are never inferred from generic shell or WP-CLI access. Unknown
+  operations and missing requirements are non-zero. A blocked workflow exits
+  before its first raw, WP-CLI, SSH, Compose, upload, artifact-directory,
+  lease, or checkpoint action.
+
+  Built-in local, container, and SSH drivers all attach to configured
+  pre-existing targets and use the same control/code/database proof
+  requirements. SSH additionally declares the product's existing explicit
+  `adopt` upload/bootstrap path. None of the built-ins currently claims host
+  provisioning, destroy/TTL, media snapshot, maintenance-mode, URL mutation,
+  or driver-owned operation receipts. Those stay visibly unsupported until a
+  driver implements them; provider provisioning remains an optional driver
+  extension rather than engine behavior.
 
 - **`duo adopt <env>`** — installs or updates this checkout's complete Duo
   agent and manifest library on a pre-existing SSH target, creates a minimal
