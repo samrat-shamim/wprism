@@ -22,9 +22,16 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 cleanup() {
   rm -f "$ENVS_FILE"
   bash sandbox/bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
-  rm -rf "$HOST_REPO" "$REPO_ROOT/sandbox/siterepo/${PAIR}2"
+  rm -rf "$HOST_REPO" \
+    "$REPO_ROOT/sandbox/siterepo/${PAIR}2" \
+    "$REPO_ROOT/sandbox/siterepo/origin-${PAIR}.git"
 }
 trap cleanup EXIT
+
+# The evidence pair is deliberately reusable. Start from the same verified
+# clean-room boundary that the EXIT trap establishes so a prior interrupted
+# or completed run cannot leak repository state into the read-only checks.
+cleanup
 
 assert_exit() {
   local expected="$1" description="$2"; shift 2

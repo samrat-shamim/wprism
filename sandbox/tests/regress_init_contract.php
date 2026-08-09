@@ -120,6 +120,7 @@ check(str_contains($agentSource, "(\$rule['class'] ?? 'authored') === 'authored'
 check(strpos($agentSource, 'hash_equals') < strpos($agentSource, 'Canon::write_file'), 'digest recheck precedes the first site-config write');
 check(str_contains($agentSource, "'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => Code::SOURCE]"), 'site config declares code independently from state policy');
 check(str_contains($agentSource, 'Code::descriptor_from_source($stage)'), 'captured code is validated by the existing descriptor contract before publication');
+check(str_contains($agentSource, 'RepositoryCompiler::compile($repo, $policy)'), 'confirmed baseline is compiled through the loaded policy contract');
 
 $woo = json_decode((string) file_get_contents(__DIR__ . '/../../manifests/woocommerce.json'), true, 512, JSON_THROW_ON_ERROR);
 foreach (['product_cat', 'product_tag', 'product_shipping_class', 'product_type'] as $taxonomy) {

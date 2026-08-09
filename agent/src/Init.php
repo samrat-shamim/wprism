@@ -280,9 +280,9 @@ final class Init {
             $stagedCode = null;
             $publishedCode = true;
             Canon::write_file($siteFile, Canon::encode($proposal['state']['config']));
-            Policy::load($repo);
+            $policy = Policy::load($repo);
             $capture = Capture::run($repo);
-            $compiled = RepositoryCompiler::compile($repo);
+            $compiled = RepositoryCompiler::compile($repo, $policy);
             return [
                 'format' => 'duo-init-result/v1',
                 'proposal_digest' => $expectedDigest,
