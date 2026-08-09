@@ -4542,7 +4542,7 @@ final class Apply {
             if ($row === null) {
                 // A previous apply may have committed the post delete and
                 // then failed during rebuild.  Reuse the durable pre-delete
-                // receipt rather than losing the variation's parent id on
+                // receipt rather than losing the deleted child's parent id on
                 // the retry just because the ledger row still exists.
                 $stored = Ledger::kv_get(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid);
                 $decoded = is_string($stored) ? json_decode($stored, true) : null;
@@ -5412,7 +5412,7 @@ final class Apply {
             }
             $kind = (string) ($context['kind'] ?? 'delete');
             if ($kind === 'reparent') {
-                // A marker-only retry still needs the live variation id so a
+                // A marker-only retry still needs the live child id so a
                 // plugin adapter can discover the new root after the old
                 // parent receipt was captured. If its ledger mapping has
                 // already disappeared, retain old/new context without

@@ -165,7 +165,7 @@ if ($hasRelationApi) {
     check($relationPolicy->parent_post_types('duo_isolated') === [],
         'a declared type without children has no inferred parent');
     check($relationPolicy->post_type_relation_closure(['duo_story', 'duo_isolated'])
-        === ['duo_album', 'duo_chapter', 'duo_isolated', 'duo_story'],
+        === ['duo_album', 'duo_asset', 'duo_chapter', 'duo_isolated', 'duo_story'],
         'relation closure walks child-to-parent and parent-to-child edges and retains every root');
     check($relationPolicy->post_type_relation_closure(['duo_not_declared']) === ['duo_not_declared'],
         'an undeclared root is safely self-only rather than guessed from a product convention');
