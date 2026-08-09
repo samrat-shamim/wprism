@@ -76,6 +76,8 @@ $proposal = [
             'options' => ['stripe key' => 1],
             'user_meta' => ['email address' => 2],
             'oversized' => ['options' => 3, 'user_meta' => 4],
+            'scanned' => ['options' => 120, 'user_meta' => 80],
+            'limits' => ['rows_per_surface' => 5000, 'bytes_per_surface' => 8388608],
             'truncated' => true,
         ],
     ],
@@ -99,6 +101,7 @@ check(str_contains($rendered, 'core, woocommerce'), 'rendering names selected ad
 check(str_contains($rendered, 'ADVISORY THEME shop-theme [active_theme_code_only]'), 'rendering exposes code-only active theme state coverage');
 check(str_contains($rendered, '1 secret-shaped option value(s), 2 PII-shaped user-meta value(s)'), 'rendering exposes redacted risk counts');
 check(str_contains($rendered, '3 oversized option value(s) and 4 oversized user-meta value(s) were not scanned'), 'rendering exposes redacted oversized omissions');
+check(str_contains($rendered, 'after scanning 120 option value(s) and 80 user-meta value(s)'), 'rendering exposes deterministic bounded-scan coverage');
 check(str_contains($rendered, 'redacted counts are incomplete'), 'rendering discloses a bounded risk scan instead of implying completeness');
 check(!str_contains($rendered, 'sk_live_') && !str_contains($rendered, '@example.'), 'rendering cannot expose secret or PII values from the count-only report');
 
@@ -142,9 +145,15 @@ check(str_contains($agentSource, 'Secrets::hard_match($window)'), 'every code by
 check(str_contains($agentSource, 'substr($window, -32768)'), 'streaming secret scan retains one full bounded-pattern chunk');
 check(str_contains($agentSource, "['allowed_classes' => false]"), 'risk discovery cannot instantiate serialized user-meta objects');
 check(!str_contains($agentSource, 'maybe_unserialize('), 'read-only risk discovery never uses class-enabled WordPress unserialization');
-check(str_contains($agentSource, 'ORDER BY option_id ASC') && str_contains($agentSource, 'ORDER BY umeta_id ASC'), 'bounded risk discovery uses deterministic primary-key ordering');
+check(
+    str_contains($agentSource, 'ORDER BY $idColumn ASC LIMIT $fetchLimit')
+        && str_contains($agentSource, "'option_id'") && str_contains($agentSource, "'umeta_id'"),
+    'bounded risk discovery uses deterministic primary-key keyset ordering'
+);
 check(str_contains($agentSource, "git', 'init', '--initial-branch=main"), 'confirmation creates a verified Git worktree when absent');
 check(str_contains($agentSource, "\$finalGit['mode'] !== 'existing-worktree'"), 'success re-verifies Git readiness after the baseline transaction');
+$adapterSource = (string) file_get_contents(__DIR__ . '/../../agent/src/AdapterSources.php');
+check(str_contains($adapterSource, 'file_exists($siteDir) || is_link($siteDir)'), 'adapter allowlist refuses every present non-directory boundary');
 
 $codeSource = file_get_contents(__DIR__ . '/../../agent/src/Code.php');
 check(is_string($codeSource), 'code lifecycle source is readable');
@@ -223,6 +232,10 @@ final class InitRiskWpdb {
     public bool $failOptions = false;
     public int $oversizedOptions = 0;
     public int $oversizedUserMeta = 0;
+    /** @var list<array<string,mixed>> */
+    public array $optionRows = [];
+    /** @var list<array<string,mixed>> */
+    public array $userMetaRows = [];
 
     public function get_results(string $sql, mixed $format): ?array {
         $this->last_error = '';
@@ -230,7 +243,16 @@ final class InitRiskWpdb {
             $this->last_error = 'sensitive database detail';
             return null;
         }
-        return [];
+        $rows = str_contains($sql, $this->usermeta) ? $this->userMetaRows : $this->optionRows;
+        preg_match('/> ([0-9]+).*LIMIT ([0-9]+)/s', $sql, $matches);
+        $lastId = (int) ($matches[1] ?? 0);
+        $limit = (int) ($matches[2] ?? 101);
+        $idColumn = str_contains($sql, $this->usermeta) ? 'umeta_id' : 'option_id';
+        $rows = array_values(array_filter(
+            $rows,
+            static fn(array $row): bool => (int) ($row[$idColumn] ?? 0) > $lastId
+        ));
+        return array_slice($rows, 0, $limit);
     }
 
     public function get_var(string $sql): int {
@@ -254,6 +276,19 @@ $GLOBALS['wpdb'] = $fakeWpdb;
 $boundedRisk = $riskProbe->invoke(null);
 check(($boundedRisk['oversized'] ?? null) === ['options' => 2, 'user_meta' => 3], 'risk probe reports only redacted oversized omission counts');
 check(($boundedRisk['truncated'] ?? false) === true, 'oversized values make risk readback explicitly incomplete');
+
+$fakeWpdb->oversizedOptions = 0;
+$fakeWpdb->oversizedUserMeta = 0;
+for ($i = 1; $i <= 130; $i++) {
+    $fakeWpdb->optionRows[] = [
+        'option_id' => $i,
+        'option_name' => "near_limit_$i",
+        'option_value' => str_repeat('O', 65536),
+    ];
+}
+$byteBoundedRisk = $riskProbe->invoke(null);
+check(($byteBoundedRisk['scanned']['options'] ?? null) === 128, 'near-limit values stop at the deterministic 8 MiB surface budget');
+check(($byteBoundedRisk['truncated'] ?? false) === true, 'byte-budget omission is reported as incomplete');
 
 $fakeWpdb->failOptions = true;
 try {

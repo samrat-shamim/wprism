@@ -548,6 +548,19 @@ final class AdapterSources {
         }
         $siteDir = rtrim($repo, '/') . '/' . self::SITE_DIR;
         if (!is_dir($siteDir)) {
+            if (file_exists($siteDir) || is_link($siteDir)) {
+                self::refuse(
+                    $collect,
+                    $refusals,
+                    self::SITE,
+                    self::REFUSAL_SOURCE_NOT_IN_REPOSITORY,
+                    [$siteDir],
+                    "duo: site adapter source $siteDir exists but is not a real directory — "
+                    . 'the repository-owned adapters boundary must be absent or an ordinary directory; '
+                    . 'move the foreign entry before loading policy',
+                    'remove the foreign adapters entry or replace it with an ordinary repository directory'
+                );
+            }
             $sources[] = [
                 'note' => "this repository has no $siteDir directory, so it installs no site adapter",
                 'path' => null,

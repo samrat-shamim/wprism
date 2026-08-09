@@ -14,6 +14,9 @@ namespace Duo;
  */
 final class Init {
     public const FORMAT = 'duo-init-plan/v1';
+    private const RISK_ROW_LIMIT = 5000;
+    private const RISK_BYTE_LIMIT = 8388608;
+    private const RISK_BATCH_SIZE = 100;
 
     /** @return array<string,mixed> */
     public static function proposal(string $repo): array {
@@ -1073,23 +1076,9 @@ final class Init {
         return ['attachments' => count($ids), 'local' => $local, 'provider' => $provider, 'unavailable' => $unavailable, 'strategy' => $strategy];
     }
 
-    /** @return array{options:array<string,int>,user_meta:array<string,int>,oversized:array{options:int,user_meta:int},truncated:bool} */
+    /** @return array{options:array<string,int>,user_meta:array<string,int>,oversized:array{options:int,user_meta:int},scanned:array{options:int,user_meta:int},limits:array{rows_per_surface:int,bytes_per_surface:int},truncated:bool} */
     private static function risk_probe(): array {
         global $wpdb;
-        $secretCounts = [];
-        $piiCounts = [];
-        $limit = 5000;
-        // The extra row determines truncation. Stable primary-key ordering
-        // makes the same unchanged large database produce the same bounded
-        // subset, aggregate counts, proposal digest, and confirmation token.
-        $options = $wpdb->get_results(
-            "SELECT option_id, option_name, option_value FROM {$wpdb->options} "
-            . "WHERE LENGTH(option_value) <= 65536 ORDER BY option_id ASC LIMIT " . ($limit + 1),
-            ARRAY_A
-        );
-        if (!is_array($options) || trim((string) $wpdb->last_error) !== '') {
-            throw new \RuntimeException('duo: init risk probe could not read option values safely');
-        }
         $oversizedOptions = $wpdb->get_var(
             "SELECT COUNT(*) FROM {$wpdb->options} WHERE LENGTH(option_value) > 65536"
         );
@@ -1097,21 +1086,6 @@ final class Init {
             throw new \RuntimeException('duo: init risk probe could not bound oversized option values safely');
         }
         $oversizedOptions = (int) $oversizedOptions;
-        $optionsTruncated = count($options) > $limit;
-        foreach (array_slice($options, 0, $limit) as $row) {
-            $value = (string) ($row['option_value'] ?? '');
-            $label = Secrets::hard_match($value);
-            if ($label === null && Secrets::suspicious((string) ($row['option_name'] ?? ''), $value)) $label = 'suspicious-name-and-shape';
-            if ($label !== null) $secretCounts[$label] = ($secretCounts[$label] ?? 0) + 1;
-        }
-        $userMeta = $wpdb->get_results(
-            "SELECT umeta_id, meta_key, meta_value FROM {$wpdb->usermeta} "
-            . "WHERE LENGTH(meta_value) <= 65536 ORDER BY umeta_id ASC LIMIT " . ($limit + 1),
-            ARRAY_A
-        );
-        if (!is_array($userMeta) || trim((string) $wpdb->last_error) !== '') {
-            throw new \RuntimeException('duo: init risk probe could not read user-meta values safely');
-        }
         $oversizedUserMeta = $wpdb->get_var(
             "SELECT COUNT(*) FROM {$wpdb->usermeta} WHERE LENGTH(meta_value) > 65536"
         );
@@ -1119,20 +1093,129 @@ final class Init {
             throw new \RuntimeException('duo: init risk probe could not bound oversized user-meta values safely');
         }
         $oversizedUserMeta = (int) $oversizedUserMeta;
-        $userMetaTruncated = count($userMeta) > $limit;
-        foreach (array_slice($userMeta, 0, $limit) as $row) {
-            $value = self::safe_risk_value((string) ($row['meta_value'] ?? ''));
-            $label = PersonalData::match_deep((string) ($row['meta_key'] ?? ''), $value);
-            if ($label !== null) $piiCounts[$label] = ($piiCounts[$label] ?? 0) + 1;
-        }
+
+        $options = self::bounded_risk_counts(
+            (string) $wpdb->options,
+            'option_id',
+            'option_name',
+            'option_value',
+            'option values',
+            static function (string $name, string $raw): ?string {
+                $label = Secrets::hard_match($raw);
+                return $label ?? (Secrets::suspicious($name, $raw) ? 'suspicious-name-and-shape' : null);
+            }
+        );
+        // $options now retains counts only. No row payload survives while the
+        // second surface is scanned, so the byte bound is real in PHP memory.
+        $userMeta = self::bounded_risk_counts(
+            (string) $wpdb->usermeta,
+            'umeta_id',
+            'meta_key',
+            'meta_value',
+            'user-meta values',
+            static fn(string $name, string $raw): ?string =>
+                PersonalData::match_deep($name, self::safe_risk_value($raw))
+        );
+        $secretCounts = $options['counts'];
+        $piiCounts = $userMeta['counts'];
         ksort($secretCounts, SORT_STRING); ksort($piiCounts, SORT_STRING);
         return [
             'options' => $secretCounts,
             'user_meta' => $piiCounts,
             'oversized' => ['options' => $oversizedOptions, 'user_meta' => $oversizedUserMeta],
-            'truncated' => $optionsTruncated || $userMetaTruncated
+            'scanned' => ['options' => $options['rows'], 'user_meta' => $userMeta['rows']],
+            'limits' => [
+                'rows_per_surface' => self::RISK_ROW_LIMIT,
+                'bytes_per_surface' => self::RISK_BYTE_LIMIT,
+            ],
+            'truncated' => $options['truncated'] || $userMeta['truncated']
                 || $oversizedOptions > 0 || $oversizedUserMeta > 0,
         ];
+    }
+
+    /**
+     * Deterministic keyset scan with both row and byte ceilings. Only one
+     * small batch is resident at a time; the returned structure contains no
+     * target values, only redacted labels and counts.
+     *
+     * @param callable(string,string):?string $classify
+     * @return array{counts:array<string,int>,rows:int,bytes:int,truncated:bool}
+     */
+    private static function bounded_risk_counts(
+        string $table,
+        string $idColumn,
+        string $nameColumn,
+        string $valueColumn,
+        string $failureLabel,
+        callable $classify
+    ): array {
+        global $wpdb;
+        $quotedTable = '`' . str_replace('`', '``', $table) . '`';
+        foreach ([$idColumn, $nameColumn, $valueColumn] as $column) {
+            if (preg_match('/^[A-Za-z0-9_]+$/D', $column) !== 1) {
+                throw new \RuntimeException('duo: init risk probe received an unsafe column boundary');
+            }
+        }
+        $counts = [];
+        $rows = 0;
+        $bytes = 0;
+        $lastId = 0;
+        $truncated = false;
+
+        while ($rows < self::RISK_ROW_LIMIT && $bytes < self::RISK_BYTE_LIMIT) {
+            $processLimit = min(self::RISK_BATCH_SIZE, self::RISK_ROW_LIMIT - $rows);
+            $fetchLimit = $processLimit + 1;
+            $batch = $wpdb->get_results(
+                "SELECT $idColumn, $nameColumn, $valueColumn FROM $quotedTable "
+                . "WHERE $idColumn > $lastId AND LENGTH($valueColumn) <= 65536 "
+                . "ORDER BY $idColumn ASC LIMIT $fetchLimit",
+                ARRAY_A
+            );
+            if (!is_array($batch) || trim((string) $wpdb->last_error) !== '') {
+                throw new \RuntimeException("duo: init risk probe could not read $failureLabel safely");
+            }
+            if ($batch === []) {
+                break;
+            }
+
+            $processed = 0;
+            $stoppedForBytes = false;
+            foreach ($batch as $row) {
+                if ($processed >= $processLimit) {
+                    break;
+                }
+                $raw = (string) ($row[$valueColumn] ?? '');
+                $size = strlen($raw);
+                if ($bytes + $size > self::RISK_BYTE_LIMIT) {
+                    $truncated = true;
+                    $stoppedForBytes = true;
+                    break;
+                }
+                $label = $classify((string) ($row[$nameColumn] ?? ''), $raw);
+                if ($label !== null) {
+                    $counts[$label] = ($counts[$label] ?? 0) + 1;
+                }
+                $lastId = (int) ($row[$idColumn] ?? 0);
+                $rows++;
+                $bytes += $size;
+                $processed++;
+            }
+
+            $hasUnprocessed = count($batch) > $processed;
+            unset($batch);
+            if ($stoppedForBytes) {
+                break;
+            }
+            if ($rows >= self::RISK_ROW_LIMIT || $bytes >= self::RISK_BYTE_LIMIT) {
+                $truncated = $truncated || $hasUnprocessed;
+                break;
+            }
+            if (!$hasUnprocessed) {
+                break;
+            }
+        }
+
+        return ['counts' => $counts, 'rows' => $rows, 'bytes' => $bytes, 'truncated' => $truncated];
     }
 
     /** Decode scalar/array metadata without ever instantiating stored PHP objects. */

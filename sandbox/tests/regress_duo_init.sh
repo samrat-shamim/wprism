@@ -171,6 +171,21 @@ wp1 plugin delete duo-init-site >/dev/null
 rm -rf "$HOST_REPO/adapters"
 pass "site adapter source remains distinct from a missing shipped adapter"
 
+say "the adapters allowlist never launders a foreign file or symlink"
+printf 'foreign repository payload\n' > "$HOST_REPO/adapters"
+assert_exit 1 "regular-file adapter boundary blocks init" "${DUO[@]}" init "${PAIR}1" --yes
+grep -q 'exists but is not a real directory' <<<"$OUT" || fail "regular-file adapter refusal omitted its ownership reason"
+[ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
+  || fail "regular-file adapter boundary mutated the repository"
+rm -f "$HOST_REPO/adapters"
+ln -s /tmp/duo-init-missing-adapters "$HOST_REPO/adapters"
+assert_exit 1 "dangling adapter symlink blocks init" "${DUO[@]}" init "${PAIR}1" --yes
+grep -q 'exists but is not a real directory' <<<"$OUT" || fail "adapter symlink refusal omitted its ownership reason"
+[ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
+  || fail "adapter symlink boundary mutated the repository"
+rm -f "$HOST_REPO/adapters"
+pass "only a real repository-owned adapters directory is allowlisted"
+
 say "unknown active plugin is an explicit blocker and the proposal is read-only"
 wp1 eval '
 $dir = WP_PLUGIN_DIR . "/duo-init-unknown";

@@ -57,7 +57,14 @@ final class Init {
                 . ' oversized user-meta value(s) were not scanned; values are never included';
         }
         if (!empty($risk['truncated'])) {
-            $lines[] = '    risk discovery reached its bounded scan limit; these redacted counts are incomplete';
+            $scanned = (array) ($risk['scanned'] ?? []);
+            $limits = (array) ($risk['limits'] ?? []);
+            $lines[] = '    risk discovery reached its bounded scan limit after scanning '
+                . (int) ($scanned['options'] ?? 0) . ' option value(s) and '
+                . (int) ($scanned['user_meta'] ?? 0) . ' user-meta value(s)'
+                . ' (maximum ' . (int) ($limits['rows_per_surface'] ?? 0) . ' rows / '
+                . (int) ($limits['bytes_per_surface'] ?? 0) . ' bytes per surface); '
+                . 'these redacted counts are incomplete';
         }
         foreach (($proposal['unsupported'] ?? []) as $row) {
             $lines[] = '  UNSUPPORTED ' . strtoupper((string) ($row['kind'] ?? 'capability')) . ' '
