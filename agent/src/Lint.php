@@ -172,7 +172,12 @@ final class Lint {
             }
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                 self::scan_structured_bare_ids(
-                    $value, $rel, 'meta.' . $key, $findings, (array) ($rule['json_refs'] ?? [])
+                    $value,
+                    $rel,
+                    'meta.' . $key,
+                    $findings,
+                    (array) ($rule['json_refs'] ?? []),
+                    isset($rule['key_refs']) ? (array) $rule['key_refs'] : null
                 );
                 continue;
             }
@@ -285,7 +290,12 @@ final class Lint {
                 $locator = $prefix . '.meta.' . $key;
                 if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                     self::scan_structured_bare_ids(
-                        $value, $rel, $locator, $findings, (array) ($rule['json_refs'] ?? [])
+                        $value,
+                        $rel,
+                        $locator,
+                        $findings,
+                        (array) ($rule['json_refs'] ?? []),
+                        isset($rule['key_refs']) ? (array) $rule['key_refs'] : null
                     );
                     continue;
                 }
@@ -333,7 +343,12 @@ final class Lint {
             }
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                 self::scan_structured_bare_ids(
-                    $value, $rel, 'meta.' . $key, $findings, (array) ($rule['json_refs'] ?? [])
+                    $value,
+                    $rel,
+                    'meta.' . $key,
+                    $findings,
+                    (array) ($rule['json_refs'] ?? []),
+                    isset($rule['key_refs']) ? (array) $rule['key_refs'] : null
                 );
                 continue; // structured value: the deep scan above supersedes the shallow one below
             }
@@ -789,7 +804,12 @@ final class Lint {
             }
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                 self::scan_structured_bare_ids(
-                    $value, $rel, 'meta.' . $key, $findings, (array) ($rule['json_refs'] ?? [])
+                    $value,
+                    $rel,
+                    'meta.' . $key,
+                    $findings,
+                    (array) ($rule['json_refs'] ?? []),
+                    isset($rule['key_refs']) ? (array) $rule['key_refs'] : null
                 );
                 continue;
             }
@@ -939,7 +959,12 @@ final class Lint {
             }
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                 self::scan_structured_bare_ids(
-                    $value, $rel, 'options.' . $key, $findings, (array) ($rule['json_refs'] ?? [])
+                    $value,
+                    $rel,
+                    'options.' . $key,
+                    $findings,
+                    (array) ($rule['json_refs'] ?? []),
+                    isset($rule['key_refs']) ? (array) $rule['key_refs'] : null
                 );
                 continue; // structured value: the deep scan above supersedes the shallow one below
             }
@@ -972,7 +997,12 @@ final class Lint {
             }
             if (!empty($subRule['json_refs']) || !empty($subRule['key_refs'])) {
                 self::scan_structured_bare_ids(
-                    $subVal, $rel, $locator, $findings, (array) ($subRule['json_refs'] ?? [])
+                    $subVal,
+                    $rel,
+                    $locator,
+                    $findings,
+                    (array) ($subRule['json_refs'] ?? []),
+                    isset($subRule['key_refs']) ? (array) $subRule['key_refs'] : null
                 );
                 continue;
             }
