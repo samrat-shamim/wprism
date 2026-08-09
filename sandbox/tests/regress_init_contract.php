@@ -51,6 +51,10 @@ $proposal = [
     'format' => 'duo-init-plan/v1',
     'digest' => $digest,
     'ready' => true,
+    'advisories' => [[
+        'code' => 'active_theme_code_only', 'extension' => 'shop-theme', 'kind' => 'theme',
+        'reason' => 'theme bytes are code-only', 'remediation' => 'install a theme adapter if needed',
+    ]],
     'environment' => [
         'wordpress' => '7.0.2', 'php' => '8.3.33',
         'database' => ['server' => '11.8.8-MariaDB'], 'home' => 'https://shop.example.test',
@@ -91,6 +95,7 @@ $rendered = implode("\n", Init::render($proposal));
 check(str_contains($rendered, 'code: managed-baseline-proposed'), 'rendering preserves the separate code/state contract');
 check(str_contains($rendered, 'active plugin: woocommerce/woocommerce.php 11.0.0'), 'rendering inventories active plugin versions');
 check(str_contains($rendered, 'core, woocommerce'), 'rendering names selected adapters');
+check(str_contains($rendered, 'ADVISORY THEME shop-theme [active_theme_code_only]'), 'rendering exposes code-only active theme state coverage');
 check(str_contains($rendered, '1 secret-shaped option value(s), 2 PII-shaped user-meta value(s)'), 'rendering exposes redacted risk counts');
 check(str_contains($rendered, 'redacted counts are incomplete'), 'rendering discloses a bounded risk scan instead of implying completeness');
 check(!str_contains($rendered, 'sk_live_') && !str_contains($rendered, '@example.'), 'rendering cannot expose secret or PII values from the count-only report');

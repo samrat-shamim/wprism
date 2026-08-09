@@ -187,7 +187,8 @@ pass "risk digest and no-object-execution boundary are deterministic"
 say "high-confidence credentials in captured code block with redacted output"
 wp1 eval '
 $token = "sk_" . "live_" . str_repeat("A", 24);
-file_put_contents(WP_PLUGIN_DIR . "/woocommerce/duo-init-secret.php", "<?php\n\$credential = \"$token\";\n");
+$payload = str_repeat("x", 32764) . $token;
+file_put_contents(WP_PLUGIN_DIR . "/woocommerce/duo-init-secret.php", $payload);
 ' >/dev/null
 assert_exit 2 "credential-bearing active code blocks init" "${DUO[@]}" init "${PAIR}1" --yes
 grep -q 'credential_bearing_code_file' <<<"$OUT" || fail "code credential blocker omitted its reason code"
@@ -295,7 +296,7 @@ CONCURRENT_PLAN=$(wp2 duo init --repo=/siterepo --format=json)
 CONCURRENT_DIGEST=$(jq -r .digest <<<"$CONCURRENT_PLAN")
 set +e
 "${COMPOSE[@]}" run --rm -T \
-  -e DUO_TEST_MODE=1 -e DUO_TEST_INIT_PAUSE_MS=3000 \
+  -e DUO_TEST_MODE=1 -e DUO_TEST_INIT_PAUSE_MS=3000 -e DUO_TEST_INIT_PUBLICATION_PAUSE_MS=5000 \
   cli2 wp duo init --repo=/siterepo --confirm="$CONCURRENT_DIGEST" --format=json \
   >"/tmp/${PAIR}-init-concurrent-1.log" 2>&1 &
 PID1=$!
@@ -304,8 +305,21 @@ sleep 0.5
   cli2 wp duo init --repo=/siterepo --confirm="$CONCURRENT_DIGEST" --format=json \
   >"/tmp/${PAIR}-init-concurrent-2.log" 2>&1 &
 PID2=$!
-wait "$PID1"; CODE1=$?
 wait "$PID2"; CODE2=$?
+for _ in $(seq 1 100); do
+  [ -f "$HOST_REPO2/site.duo.json" ] && break
+  sleep 0.1
+done
+[ -f "$HOST_REPO2/site.duo.json" ] || fail "concurrent winner never reached publication-lock phase"
+set +e
+CAPTURE_OUT=$(wp2 duo capture --repo=/siterepo --format=json 2>&1)
+CAPTURE_CODE=$?
+set -e
+[ "$CAPTURE_CODE" -ne 0 ] || fail "ordinary capture entered while init held its publication lock"
+grep -q 'another capture is already publishing' <<<"$CAPTURE_OUT" \
+  || fail "ordinary capture refusal did not name the held publication lock"
+set +e
+wait "$PID1"; CODE1=$?
 set -e
 if { [ "$CODE1" -eq 0 ] && [ "$CODE2" -eq 0 ]; } \
   || { [ "$CODE1" -ne 0 ] && [ "$CODE2" -ne 0 ]; }; then
@@ -331,6 +345,7 @@ grep -q 'Initialized separate code baseline' <<<"$OUT" || fail "init did not nam
 grep -q 'not a code-and-database rollback checkpoint' <<<"$OUT" || fail "init overstated rollback readiness"
 grep -q 'Managed state scope is clean' <<<"$OUT" || fail "init did not state the bounded clean result"
 grep -q 'Coverage outside the selected adapters remains advisory' <<<"$OUT" || fail "init claimed whole-site completeness"
+grep -q 'active_theme_code_only' <<<"$OUT" || fail "init hid the active theme code-only state advisory"
 for needle in branch 'duo capture' 'duo plan' 'duo promote' rollback; do
   grep -q "$needle" <<<"$OUT" || fail "workflow guide omitted $needle"
 done

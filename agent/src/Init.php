@@ -357,6 +357,12 @@ final class Init {
             $publishedCode = true;
             Canon::write_file($siteFile, Canon::encode($proposal['state']['config']));
             Policy::load($repo);
+            if (getenv('DUO_TEST_MODE') === '1') {
+                $pauseMs = (int) (getenv('DUO_TEST_INIT_PUBLICATION_PAUSE_MS') ?: 0);
+                if ($pauseMs > 0 && $pauseMs <= 10000) {
+                    usleep($pauseMs * 1000);
+                }
+            }
             $capture = Capture::run_initial_baseline($repo, $publicationLock);
             $revisionHash = (string) ($capture['revision_hash'] ?? '');
             $codeBaseline = $capture['initial_code_baseline'] ?? null;
