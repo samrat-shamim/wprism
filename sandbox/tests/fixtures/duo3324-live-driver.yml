@@ -1,0 +1,55 @@
+# Ephemeral public-CLI driver services for regress_environment_materializer_live.sh.
+#
+# `pair.sh` remains the sole lifecycle owner of the WordPress pair.  These
+# services merely attach the pair's already-created named volumes/network so
+# DockerTransport can execute the normal `wp` and raw-control argv against a
+# Git-capable CLI image.  No service here publishes a port or owns a database,
+# volume, or long-lived container.
+services:
+  source:
+    image: ${DUO3324_DRIVER_IMAGE}
+    user: "33:33"
+    working_dir: /var/www/html
+    networks: [duo-shared]
+    environment: &wp_env
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_HOST: duo-shared-db
+      WORDPRESS_DB_NAME: wp_${DUO3324_PAIR}1
+      DUO_MANIFESTS_DIR: /duo-manifests
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+    volumes:
+      - source_wp:/var/www/html
+      - ${DUO3324_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ${DUO3324_AGENT_SRC}/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ${DUO3324_MANIFESTS_SRC}:/duo-manifests:ro
+      - ${DUO3324_SITE1}:/siterepo
+
+  target:
+    image: ${DUO3324_DRIVER_IMAGE}
+    user: "33:33"
+    working_dir: /var/www/html
+    networks: [duo-shared]
+    environment:
+      <<: *wp_env
+      WORDPRESS_DB_NAME: wp_${DUO3324_PAIR}2
+    volumes:
+      - target_wp:/var/www/html
+      - ${DUO3324_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ${DUO3324_AGENT_SRC}/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ${DUO3324_MANIFESTS_SRC}:/duo-manifests:ro
+      - ${DUO3324_SITE2}:/siterepo
+
+networks:
+  duo-shared:
+    name: duo-shared
+    external: true
+
+volumes:
+  source_wp:
+    name: duo-${DUO3324_PAIR}_wp1
+    external: true
+  target_wp:
+    name: duo-${DUO3324_PAIR}_wp2
+    external: true

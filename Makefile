@@ -23,6 +23,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-environment-materializer \
 	regress-environment-materializer-ssh \
 	regress-environment-materializer-recovery \
+	regress-environment-materializer-live \
 	regress-frozen-materialization-promotion \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions \
@@ -599,6 +600,12 @@ regress-environment-materializer-ssh:
 regress-environment-materializer-recovery:
 	php sandbox/tests/regress_environment_materializer_recovery.php
 
+# DUO-3324: full public-CLI proof against one isolated pair.  This is live
+# deliberately: it owns source/target DB/media/repository resources and its
+# machine-local provider independently proves snapshot/fence/TTL cleanup.
+regress-environment-materializer-live:
+	bash sandbox/tests/regress_environment_materializer_live.sh
+
 regress-frozen-materialization-promotion:
 	php sandbox/tests/regress_frozen_materialization_promotion.php
 
@@ -831,6 +838,7 @@ regress-live-list:
 	@echo "  certify-ssh-rollback                     four disposable containers: two SSH hosts + two MariaDB servers"
 	@echo "  regress-tec-regen                         pair asnaptec"
 	@echo "  regress-user-meta                         pair umeta3268 9301/9302"
+	@echo "  regress-environment-materializer-live     pair codexmacb3324 9100/9101 (public env materialize/reap; user-authorized)"
 	@echo "  regress-coverage                         needs an already-up pair with WooCommerce active (parameterized: DUO_PAIR)"
 	@echo "  regress-woo-attribute-deletion            pair wooattrdel 8996/8997 (parameterized: WOOATTRDEL_PAIR/WOOATTRDEL_PORT1/WOOATTRDEL_PORT2)"
 	@echo "  grind-ecommerce-developer-live            explicit ECOMMERCE_PAIR/PORT1/PORT2; run only with owner authorization"
