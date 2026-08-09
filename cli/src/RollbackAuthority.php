@@ -74,7 +74,15 @@ final class RollbackAuthority {
             . ' --root=' . escapeshellarg($root);
         $result = $transport->captureRaw($script);
         if ($result['exit'] === 44) {
-            return ['available' => false, 'ok' => true, 'active' => false];
+            // `available` is still the capability/fallback discriminator, but
+            // absence is not successful verification. Keeping ok=false makes
+            // a future caller that checks only `ok` fail closed.
+            return [
+                'active' => false,
+                'available' => false,
+                'error' => 'rollback authority runtime is unavailable',
+                'ok' => false,
+            ];
         }
         if ($result['exit'] !== 0) {
             return [
@@ -125,6 +133,7 @@ final class RollbackAuthority {
         }
         $desiredCodeRevision = null;
         $desiredDescriptorHash = null;
+        $desiredCodeInventory = null;
         $uploadInventory = null;
         $effectInventory = null;
         if ($uploadProviderConfigured) {
@@ -164,15 +173,27 @@ final class RollbackAuthority {
                     'duo rollback: code release receipt hashes are provider-owned when certified code recovery is configured'
                 );
             }
-            foreach (['desired_code_revision', 'desired_descriptor_sha256'] as $required) {
-                if (!is_string($fields[$required] ?? null)
-                    || preg_match('/^[a-f0-9]{64}$/', (string) $fields[$required]) !== 1) {
-                    throw new \RuntimeException("duo rollback: code release claim needs sha256 $required");
-                }
+            if (!is_string($fields['desired_code_revision'] ?? null)
+                || preg_match('/^[a-f0-9]{64}$/', (string) $fields['desired_code_revision']) !== 1) {
+                throw new \RuntimeException('duo rollback: code release claim needs sha256 desired_code_revision');
+            }
+            $hasDescriptor = is_string($fields['desired_descriptor_sha256'] ?? null)
+                && preg_match('/^[a-f0-9]{64}$/', (string) $fields['desired_descriptor_sha256']) === 1;
+            $hasInventory = is_array($fields['desired_code_inventory'] ?? null)
+                && !array_is_list($fields['desired_code_inventory']);
+            if ($hasDescriptor === $hasInventory) {
+                throw new \RuntimeException(
+                    'duo rollback: code release claim needs exactly one desired descriptor hash or compiled code inventory'
+                );
             }
             $desiredCodeRevision = (string) $fields['desired_code_revision'];
-            $desiredDescriptorHash = (string) $fields['desired_descriptor_sha256'];
-            unset($fields['desired_code_revision'], $fields['desired_descriptor_sha256']);
+            $desiredDescriptorHash = $hasDescriptor ? (string) $fields['desired_descriptor_sha256'] : null;
+            $desiredCodeInventory = $hasInventory ? $fields['desired_code_inventory'] : null;
+            unset(
+                $fields['desired_code_revision'],
+                $fields['desired_descriptor_sha256'],
+                $fields['desired_code_inventory']
+            );
             if (!is_string($fields['retention_until'] ?? null) || $fields['retention_until'] === '') {
                 throw new \RuntimeException('duo rollback: code release claim needs retention_until');
             }
@@ -263,21 +284,27 @@ final class RollbackAuthority {
                 }
             }
             if ($codeReleaseConfigured) {
-                $release = $this->sendCodeRelease([
+                $releaseRequest = [
                     'action' => 'prepare',
                     'artifact_hash' => (string) ($fields['artifact_hash'] ?? ''),
                     'claim_epoch' => 1,
                     'claimant' => $claimant,
                     'desired_code_revision' => $desiredCodeRevision,
-                    'desired_descriptor_sha256' => $desiredDescriptorHash,
-                    'format' => 'duo-code-release-request/v1',
                     'generation' => $generation,
                     'owner' => (string) ($fields['owner'] ?? ''),
                     'receipt_id' => $receiptId,
                     'retention_until' => (string) ($fields['retention_until'] ?? ''),
                     'target_id' => (string) ($status['target_id'] ?? ''),
                     'timestamp' => $now,
-                ]);
+                ];
+                if ($desiredCodeInventory !== null) {
+                    $releaseRequest['desired_code_inventory'] = $desiredCodeInventory;
+                    $releaseRequest['format'] = 'duo-code-release-request/v2';
+                } else {
+                    $releaseRequest['desired_descriptor_sha256'] = $desiredDescriptorHash;
+                    $releaseRequest['format'] = 'duo-code-release-request/v1';
+                }
+                $release = $this->sendCodeRelease($releaseRequest);
                 $fields['prior_code_descriptor_sha256'] = (string) ($release['prior_code_descriptor_sha256'] ?? '');
                 $fields['code_release_metadata_sha256'] = (string) ($release['code_release_metadata_sha256'] ?? '');
             }

@@ -25,8 +25,9 @@ Add one absolute argv vector under `rollback_recovery`:
 evidence that the provider supports local storage, offload storage, or both;
 encrypts before-images; leaves no durable plaintext; performs read-after-
 restore verification; and emits no credentials. Missing support is a hard
-pre-mutation block. Without this provider, status reports
-`automatic_upload_rollback: false` and `upload_recovery: manual`.
+pre-mutation block for the automatic profile. Without this provider, status
+reports `upload_recovery: manual` and promotion warns before taking the
+operator-directed path.
 
 ## Compile inventory and preparation
 
@@ -51,7 +52,10 @@ Every present local path requires an encrypted before-image. Every present
 offload object requires a native version id or exact encrypted bytes. An
 absent row has neither and is only evidence that the exact path was absent.
 Duo independently hashes and validates the artifacts. The complete metadata
-hash becomes the signed receipt's existing `uploads_inventory_sha256`.
+hash becomes the signed receipt's existing `uploads_inventory_sha256`. Status
+does not expose a configuration-only `automatic_upload_rollback` boolean: a
+configured provider is capability, while an active receipt's `uploads`
+evidence is the live proof that this exact plan inventory was bound.
 
 ## Journaled mutation and derivative reporting
 

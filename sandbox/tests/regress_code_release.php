@@ -6,7 +6,9 @@ declare(strict_types=1);
 // receipt/generation/retention fences.
 
 require dirname(__DIR__, 2) . '/recovery/rollback-control.php';
+require dirname(__DIR__, 2) . '/agent/src/Canon.php';
 
+use Duo\Canon;
 use Duo\Recovery\CodeRelease;
 use Duo\Recovery\RecoveryExecutor;
 use Duo\Recovery\RollbackControl;
@@ -52,6 +54,21 @@ function cr_descriptor(string $role, string $release, string $artifact, string $
         'format' => 'duo-code-release-descriptor/v1', 'generation' => $generation,
         'owned_roots' => ['wp-content/plugins/acme'], 'release_id' => $release, 'role' => $role];
 }
+/** @return array<string,mixed> */
+function cr_code_inventory(string $fileHash): array {
+    $inventory = [
+        'files' => [['path' => 'plugins/acme/acme.php', 'sha256' => $fileHash]],
+        'format' => 'duo-code/v1',
+        'layout' => 'wp-content',
+        'owned_roots' => ['plugins/acme'],
+        'plugin_main_files' => [['basename' => 'acme/acme.php', 'path' => 'plugins/acme/acme.php', 'sha256' => $fileHash]],
+        'source' => 'code/wp-content',
+        'theme_slugs' => [],
+        'theme_templates' => [],
+    ];
+    $inventory['code_revision'] = hash('sha256', Canon::encode($inventory));
+    return $inventory;
+}
 
 try {
     mkdir($tmp, 0700, true);
@@ -68,16 +85,22 @@ try {
         'exclusion_provider' => [PHP_BINARY, $exclusion, $tmp . '/exclusion.json'], 'format' => 'duo-recovery-config/v1', 'timeout_seconds' => 3];
     $configPath = $tmp . '/config.json'; cr_write($configPath, RollbackControl::canonical($config) . "\n"); RecoveryExecutor::configureFromFile($root, $configPath);
     $probe = RecoveryExecutor::probe($root);
-    cr_ok(($probe['code_release']['build_resolution_off_target'] ?? false) === true && ($probe['code_release']['target_git_history'] ?? true) === false, 'preflight requires off-target build/resolution with no target Git or registry credentials');
+    cr_ok(($probe['code_release']['build_resolution_off_target'] ?? false) === true
+        && ($probe['code_release']['target_git_history'] ?? true) === false
+        && ($probe['code_release']['plan_bound_code_inventory'] ?? false) === true,
+        'preflight requires plan-bound off-target resolution with no target Git or registry credentials');
 
-    $artifact = hash('sha256', 'artifact-1'); $revision = hash('sha256', 'code-1'); $receiptId = str_repeat('c', 48);
-    $desiredDescriptor = cr_descriptor('desired', 'release-desired-1', $artifact, $revision, 1, (string) hash_file('sha256', $desiredFile));
-    $desiredDescriptorHash = hash('sha256', RollbackControl::canonical($desiredDescriptor) . "\n");
+    $artifact = hash('sha256', 'artifact-1');
+    $codeInventory = cr_code_inventory((string) hash_file('sha256', $desiredFile));
+    $revision = (string) $codeInventory['code_revision'];
+    $receiptId = str_repeat('c', 48);
     $exclusionPayload = ['action' => 'acquire', 'artifact_hash' => $artifact, 'claim_epoch' => 1, 'claimant' => 'worker-a', 'format' => 'duo-exclusion-request/v1', 'generation' => 1, 'owner' => 'controller:test', 'receipt_id' => $receiptId, 'target_id' => $initial['target_id'], 'timestamp' => '2020-01-01T00:00:00Z'];
     cr_signed($root, $exclusionPayload, 'exclusion', $keyId, $secret);
-    $prepare = ['action' => 'prepare', 'artifact_hash' => $artifact, 'claim_epoch' => 1, 'claimant' => 'worker-a', 'desired_code_revision' => $revision, 'desired_descriptor_sha256' => $desiredDescriptorHash, 'format' => 'duo-code-release-request/v1', 'generation' => 1, 'owner' => 'controller:test', 'receipt_id' => $receiptId, 'retention_until' => '2020-01-02T00:00:00Z', 'target_id' => $initial['target_id'], 'timestamp' => '2020-01-01T00:00:00Z'];
+    $prepare = ['action' => 'prepare', 'artifact_hash' => $artifact, 'claim_epoch' => 1, 'claimant' => 'worker-a', 'desired_code_inventory' => $codeInventory, 'desired_code_revision' => $revision, 'format' => 'duo-code-release-request/v2', 'generation' => 1, 'owner' => 'controller:test', 'receipt_id' => $receiptId, 'retention_until' => '2020-01-02T00:00:00Z', 'target_id' => $initial['target_id'], 'timestamp' => '2020-01-01T00:00:00Z'];
     $wrong = $prepare; $wrong['target_id'] = str_repeat('f', 32); cr_refuses(fn() => cr_signed($root, $wrong, 'release', $keyId, $secret), 'wrong target refuses before release upload');
     $wrong = $prepare; $wrong['generation'] = 2; cr_refuses(fn() => cr_signed($root, $wrong, 'release', $keyId, $secret), 'wrong target generation refuses before release upload');
+    $wrong = $prepare; $wrong['desired_code_inventory']['files'][0]['sha256'] = hash('sha256', 'substituted');
+    cr_refuses(fn() => cr_signed($root, $wrong, 'release', $keyId, $secret), 'substituted compiled code inventory refuses before release upload');
     rename($releaseRoot . '/release-prior', $releaseRoot . '/release-prior-missing'); cr_refuses(fn() => cr_signed($root, $prepare, 'release', $keyId, $secret), 'missing exact prior release refuses automatic rollback preparation'); rename($releaseRoot . '/release-prior-missing', $releaseRoot . '/release-prior');
     foreach (['kill-before-upload', 'kill-after-upload', 'kill-after-verification'] as $boundary) { touch($providerState . '.' . $boundary); cr_refuses(fn() => cr_signed($root, $prepare, 'release', $keyId, $secret), "disconnect at $boundary remains unprepared and retryable"); }
     $prepared = cr_signed($root, $prepare, 'release', $keyId, $secret);
@@ -128,7 +151,12 @@ try {
     $priorResult = RecoveryExecutor::execute($root, 'prior_verify', 'prior_verify', 1, 'worker-a', 1, $priorInput);
     $status = cr_authority($root, cr_event($receipt, $status, 'verifying_prior', 'completed', 'prior_verify', '2020-01-01T00:00:10Z', $priorHash, $priorResult['result_sha256']), null, $keyId, $secret);
     $status = cr_authority($root, cr_event($receipt, $status, 'rolled_back', 'state_transition', 'rollback-complete', '2020-01-01T00:00:11Z', $h('done'), str_repeat('0', 64)), null, $keyId, $secret);
-    $delete = $prepare; $delete['action'] = 'delete'; $delete['timestamp'] = '2020-01-01T23:59:59Z';
+    $delete = $prepare;
+    unset($delete['desired_code_inventory']);
+    $delete['action'] = 'delete';
+    $delete['desired_descriptor_sha256'] = $prepared['desired_descriptor_sha256'];
+    $delete['format'] = 'duo-code-release-request/v1';
+    $delete['timestamp'] = '2020-01-01T23:59:59Z';
     cr_refuses(fn() => cr_signed($root, $delete, 'release', $keyId, $secret), 'retained prior release cannot be deleted before rollback window');
     $delete['timestamp'] = '2020-01-02T00:00:00Z'; cr_refuses(fn() => cr_signed($root, $delete, 'release', $keyId, $secret), 'selected prior release cannot be deleted even after retention');
 

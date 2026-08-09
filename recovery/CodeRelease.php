@@ -13,8 +13,10 @@ namespace Duo\Recovery;
  * verification without loading WordPress or site code.
  */
 final class CodeRelease {
-    private const REQUEST_FORMAT = 'duo-code-release-request/v1';
-    private const PROVIDER_REQUEST_FORMAT = 'duo-code-release-provider-request/v1';
+    private const REQUEST_FORMAT_V1 = 'duo-code-release-request/v1';
+    private const REQUEST_FORMAT_V2 = 'duo-code-release-request/v2';
+    private const PROVIDER_REQUEST_FORMAT_V1 = 'duo-code-release-provider-request/v1';
+    private const PROVIDER_REQUEST_FORMAT_V2 = 'duo-code-release-provider-request/v2';
     private const PROVIDER_RESPONSE_FORMAT = 'duo-code-release-provider-response/v1';
     private const DESCRIPTOR_FORMAT = 'duo-code-release-descriptor/v1';
     private const METADATA_FORMAT = 'duo-code-release-metadata/v1';
@@ -74,7 +76,7 @@ final class CodeRelease {
         ]));
         self::assertExactKeys($response, [
             'atomic_pointer', 'available', 'build_resolution_off_target', 'format',
-            'immutable_releases', 'mutable_resolution', 'provider_id',
+            'immutable_releases', 'mutable_resolution', 'plan_bound_code_inventory', 'provider_id',
             'provider_version', 'state', 'target_generation_fenced',
             'target_git_history', 'target_registry_credentials',
             'verified_descriptors',
@@ -86,6 +88,7 @@ final class CodeRelease {
             || ($response['build_resolution_off_target'] ?? null) !== true
             || ($response['immutable_releases'] ?? null) !== true
             || ($response['mutable_resolution'] ?? null) !== false
+            || ($response['plan_bound_code_inventory'] ?? null) !== true
             || ($response['target_generation_fenced'] ?? null) !== true
             || ($response['target_git_history'] ?? null) !== false
             || ($response['target_registry_credentials'] ?? null) !== false
@@ -230,6 +233,7 @@ final class CodeRelease {
 
     /** @return array<string,mixed> */
     private static function prepare(string $root, array $payload): array {
+        $planBound = ($payload['format'] ?? '') === self::REQUEST_FORMAT_V2;
         $dir = self::receiptDirectory($root, (string) $payload['receipt_id']);
         self::ensureDirectory($dir, 0700);
         self::ensureDirectory($dir . '/artifacts', 0700);
@@ -239,11 +243,21 @@ final class CodeRelease {
             self::validateMetadata($metadata);
             self::assertIdentity($payload, $metadata, true);
             if (!hash_equals((string) $payload['desired_code_revision'], (string) $metadata['desired_code_revision'])
-                || !hash_equals((string) $payload['desired_descriptor_sha256'], (string) $metadata['desired_descriptor_sha256'])
                 || (string) $payload['retention_until'] !== (string) $metadata['retention_until']) {
                 throw new \RuntimeException('duo code release: prepare retry changed immutable release inputs');
             }
             self::verifyMetadataArtifacts($root, $metadata);
+            if ($planBound) {
+                self::assertDesiredInventory(
+                    (array) $payload['desired_code_inventory'],
+                    self::readDescriptor((string) $metadata['desired_descriptor_path'], 'desired')
+                );
+            } elseif (!hash_equals(
+                (string) $payload['desired_descriptor_sha256'],
+                (string) $metadata['desired_descriptor_sha256']
+            )) {
+                throw new \RuntimeException('duo code release: prepare retry changed immutable release inputs');
+            }
             return self::publicMetadata($metadata);
         }
         $desiredPath = $dir . '/artifacts/desired-code-descriptor.json';
@@ -258,7 +272,7 @@ final class CodeRelease {
         }
         self::syncDirectory($dir . '/artifacts');
         $config = RecoveryExecutor::configuration($root);
-        $request = self::providerRequest([
+        $providerFields = [
             'action' => 'prepare',
             'artifact_directory' => $dir . '/artifacts',
             'artifact_hash' => (string) $payload['artifact_hash'],
@@ -267,7 +281,6 @@ final class CodeRelease {
             'code_release_metadata_sha256' => null,
             'desired_code_revision' => (string) $payload['desired_code_revision'],
             'desired_descriptor_path' => $desiredPath,
-            'desired_descriptor_sha256' => (string) $payload['desired_descriptor_sha256'],
             'expected_from_pointer_sha256' => null,
             'generation' => (int) $payload['generation'],
             'input_path' => null,
@@ -279,13 +292,20 @@ final class CodeRelease {
             'receipt_id' => (string) $payload['receipt_id'],
             'release_id' => null,
             'target_id' => (string) $payload['target_id'],
-        ]);
+        ];
+        if ($planBound) {
+            $providerFields['desired_code_inventory'] = $payload['desired_code_inventory'];
+            $request = self::providerRequest($providerFields, self::PROVIDER_REQUEST_FORMAT_V2);
+        } else {
+            $providerFields['desired_descriptor_sha256'] = (string) $payload['desired_descriptor_sha256'];
+            $request = self::providerRequest($providerFields);
+        }
         $response = self::call($config, $request);
         self::assertExactKeys($response, [
             'atomic_pointer', 'available', 'build_resolution_off_target',
             'desired_descriptor_path', 'desired_descriptor_sha256',
             'desired_pointer_sha256', 'desired_release_id', 'format',
-            'immutable_releases', 'mutable_resolution', 'prior_descriptor_path',
+            'immutable_releases', 'mutable_resolution', 'plan_bound_code_inventory', 'prior_descriptor_path',
             'prior_descriptor_sha256', 'prior_pointer_sha256', 'prior_release_id',
             'provider_id', 'provider_version', 'state', 'target_generation',
             'target_generation_fenced', 'target_git_history',
@@ -298,6 +318,7 @@ final class CodeRelease {
             || ($response['build_resolution_off_target'] ?? null) !== true
             || ($response['immutable_releases'] ?? null) !== true
             || ($response['mutable_resolution'] ?? null) !== false
+            || ($response['plan_bound_code_inventory'] ?? null) !== true
             || ($response['target_generation_fenced'] ?? null) !== true
             || ($response['target_git_history'] ?? null) !== false
             || ($response['target_registry_credentials'] ?? null) !== false
@@ -310,7 +331,8 @@ final class CodeRelease {
         foreach (['desired_descriptor_sha256', 'desired_pointer_sha256', 'prior_descriptor_sha256', 'prior_pointer_sha256'] as $key) {
             self::assertHash((string) ($response[$key] ?? ''), "prepare $key");
         }
-        if (!hash_equals((string) $payload['desired_descriptor_sha256'], (string) $response['desired_descriptor_sha256'])) {
+        if (!$planBound
+            && !hash_equals((string) $payload['desired_descriptor_sha256'], (string) $response['desired_descriptor_sha256'])) {
             throw new \RuntimeException('duo code release: provider returned a different desired descriptor');
         }
         foreach (['desired_release_id', 'prior_release_id', 'provider_id', 'provider_version'] as $key) {
@@ -318,6 +340,9 @@ final class CodeRelease {
         }
         $desired = self::readDescriptor($desiredPath, 'desired');
         $prior = self::readDescriptor($priorPath, 'prior');
+        if ($planBound) {
+            self::assertDesiredInventory((array) $payload['desired_code_inventory'], $desired);
+        }
         if (!hash_equals((string) hash_file('sha256', $desiredPath), (string) $response['desired_descriptor_sha256'])
             || !hash_equals((string) hash_file('sha256', $priorPath), (string) $response['prior_descriptor_sha256'])
             || !hash_equals((string) $desired['artifact_hash'], (string) $payload['artifact_hash'])
@@ -454,8 +479,8 @@ final class CodeRelease {
         if (!is_int($descriptor['generation'] ?? null) || (int) $descriptor['generation'] < 0) {
             throw new \RuntimeException("duo code release: $role generation is invalid");
         }
-        if (!is_array($descriptor['owned_roots'] ?? null) || !array_is_list($descriptor['owned_roots']) || $descriptor['owned_roots'] === []) {
-            throw new \RuntimeException("duo code release: $role owned roots must be a non-empty list");
+        if (!is_array($descriptor['owned_roots'] ?? null) || !array_is_list($descriptor['owned_roots'])) {
+            throw new \RuntimeException("duo code release: $role owned roots must be a list");
         }
         $roots = [];
         foreach ($descriptor['owned_roots'] as $root) {
@@ -482,6 +507,168 @@ final class CodeRelease {
             if (!$owned) throw new \RuntimeException("duo code release: $role file escapes declared owned roots");
         }
         return $descriptor;
+    }
+
+    /**
+     * Prove that a provider-owned, generation-specific release descriptor is
+     * exactly the compiled code inventory. Release ids and directory rows are
+     * provider-owned; every managed root and regular-file hash is not.
+     *
+     * @param array<string,mixed> $inventory
+     * @param array<string,mixed> $desired
+     */
+    private static function assertDesiredInventory(array $inventory, array $desired): void {
+        [$roots, $files] = self::validateCompiledCodeInventory($inventory);
+        if (!hash_equals((string) $inventory['code_revision'], (string) $desired['code_revision'])) {
+            throw new \RuntimeException('duo code release: desired release revision disagrees with compiled plan');
+        }
+        $expectedRoots = array_map(static fn(string $root): string => 'wp-content/' . $root, $roots);
+        if ($desired['owned_roots'] !== $expectedRoots) {
+            throw new \RuntimeException('duo code release: desired release roots disagree with compiled plan');
+        }
+
+        $expected = [];
+        foreach ($roots as $root) {
+            $hasExactFile = array_key_exists($root, $files);
+            $hasDescendant = false;
+            foreach (array_keys($files) as $path) {
+                if (!str_starts_with($path, $root . '/')) continue;
+                $hasDescendant = true;
+                $directory = dirname($path);
+                while ($directory === $root || str_starts_with($directory, $root . '/')) {
+                    $releasePath = 'wp-content/' . $directory;
+                    $expected[$releasePath] = [
+                        'path' => $releasePath,
+                        'sha256' => hash('sha256', ''),
+                        'type' => 'directory',
+                    ];
+                    if ($directory === $root) break;
+                    $directory = dirname($directory);
+                }
+            }
+            if (!$hasExactFile && !$hasDescendant) {
+                $releasePath = 'wp-content/' . $root;
+                $expected[$releasePath] = [
+                    'path' => $releasePath,
+                    'sha256' => hash('sha256', ''),
+                    'type' => 'directory',
+                ];
+            }
+        }
+        foreach ($files as $path => $sha256) {
+            $releasePath = 'wp-content/' . $path;
+            if (isset($expected[$releasePath])) {
+                throw new \RuntimeException('duo code release: compiled plan treats one path as both file and directory');
+            }
+            $expected[$releasePath] = [
+                'path' => $releasePath,
+                'sha256' => $sha256,
+                'type' => 'file',
+            ];
+        }
+        ksort($expected, SORT_STRING);
+        if ($desired['files'] !== array_values($expected)) {
+            throw new \RuntimeException('duo code release: desired release paths or hashes disagree with compiled plan');
+        }
+    }
+
+    /**
+     * Validate the independently signed `duo-code/v1` inventory without
+     * loading WordPress or agent code into the recovery process.
+     *
+     * @param array<string,mixed> $inventory
+     * @return array{0:list<string>,1:array<string,string>}
+     */
+    private static function validateCompiledCodeInventory(array $inventory): array {
+        $legacy = ['code_revision', 'files', 'format', 'layout', 'owned_roots', 'plugin_main_files', 'source', 'theme_slugs'];
+        $current = [...$legacy, 'theme_templates'];
+        $keys = array_keys($inventory);
+        sort($keys, SORT_STRING);
+        sort($legacy, SORT_STRING);
+        sort($current, SORT_STRING);
+        if (($keys !== $legacy && $keys !== $current)
+            || ($inventory['format'] ?? '') !== 'duo-code/v1'
+            || ($inventory['layout'] ?? '') !== 'wp-content'
+            || ($inventory['source'] ?? '') !== 'code/wp-content'
+            || !is_array($inventory['owned_roots'] ?? null)
+            || !array_is_list($inventory['owned_roots'])
+            || !is_array($inventory['files'] ?? null)
+            || !array_is_list($inventory['files'])
+            || !is_array($inventory['plugin_main_files'] ?? null)
+            || !array_is_list($inventory['plugin_main_files'])
+            || !is_array($inventory['theme_slugs'] ?? null)
+            || !array_is_list($inventory['theme_slugs'])) {
+            throw new \RuntimeException('duo code release: compiled code inventory is malformed');
+        }
+        self::assertHash((string) ($inventory['code_revision'] ?? ''), 'compiled code revision');
+
+        $roots = [];
+        foreach ($inventory['owned_roots'] as $root) {
+            self::assertSafeRelativePath($root, 'compiled owned root');
+            $parts = explode('/', $root);
+            if (count($parts) !== 2
+                || !in_array($parts[0], ['mu-plugins', 'plugins', 'themes'], true)
+                || isset($roots[$root])) {
+                throw new \RuntimeException('duo code release: compiled owned roots are malformed');
+            }
+            $roots[$root] = true;
+        }
+        $rootList = array_keys($roots);
+        $sortedRoots = $rootList;
+        sort($sortedRoots, SORT_STRING);
+        if ($rootList !== $sortedRoots) {
+            throw new \RuntimeException('duo code release: compiled owned roots are not sorted');
+        }
+
+        $files = [];
+        foreach ($inventory['files'] as $row) {
+            if (!is_array($row) || array_keys($row) !== ['path', 'sha256']) {
+                throw new \RuntimeException('duo code release: compiled file inventory is malformed');
+            }
+            $path = $row['path'] ?? null;
+            self::assertSafeRelativePath($path, 'compiled file path');
+            self::assertHash((string) ($row['sha256'] ?? ''), 'compiled file hash');
+            if (isset($files[$path])) {
+                throw new \RuntimeException('duo code release: compiled file inventory contains a duplicate path');
+            }
+            $owned = false;
+            foreach ($rootList as $root) {
+                if ($path === $root || str_starts_with($path, $root . '/')) {
+                    $owned = true;
+                    break;
+                }
+            }
+            if (!$owned) {
+                throw new \RuntimeException('duo code release: compiled file escapes its owned roots');
+            }
+            $files[$path] = (string) $row['sha256'];
+        }
+        $filePaths = array_keys($files);
+        $sortedPaths = $filePaths;
+        sort($sortedPaths, SORT_STRING);
+        if ($filePaths !== $sortedPaths) {
+            throw new \RuntimeException('duo code release: compiled files are not sorted');
+        }
+
+        $withoutRevision = $inventory;
+        unset($withoutRevision['code_revision']);
+        $normalized = self::normalizeCompiledCode($withoutRevision);
+        $bytes = json_encode(
+            $normalized,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+        ) . "\n";
+        if (!hash_equals(hash('sha256', $bytes), (string) $inventory['code_revision'])) {
+            throw new \RuntimeException('duo code release: compiled code revision does not verify');
+        }
+        return [$rootList, $files];
+    }
+
+    private static function normalizeCompiledCode(mixed $value): mixed {
+        if (!is_array($value)) return $value;
+        $list = array_is_list($value);
+        foreach ($value as $key => $item) $value[$key] = self::normalizeCompiledCode($item);
+        if (!$list) ksort($value, SORT_STRING);
+        return $value;
     }
 
     private static function assertSafeRelativePath(mixed $path, string $label): void {
@@ -544,10 +731,28 @@ final class CodeRelease {
 
     /** @param array<string,mixed> $payload */
     private static function validateRequest(array $payload): void {
-        self::assertExactKeys($payload, ['action', 'artifact_hash', 'claim_epoch', 'claimant', 'desired_code_revision', 'desired_descriptor_sha256', 'format', 'generation', 'owner', 'receipt_id', 'retention_until', 'target_id', 'timestamp'], 'request payload');
-        if (($payload['format'] ?? '') !== self::REQUEST_FORMAT || !in_array($payload['action'] ?? null, ['prepare', 'delete'], true)) throw new \RuntimeException('duo code release: unsupported request');
+        $format = $payload['format'] ?? '';
+        if ($format === self::REQUEST_FORMAT_V2) {
+            self::assertExactKeys($payload, ['action', 'artifact_hash', 'claim_epoch', 'claimant', 'desired_code_inventory', 'desired_code_revision', 'format', 'generation', 'owner', 'receipt_id', 'retention_until', 'target_id', 'timestamp'], 'request payload');
+            if (($payload['action'] ?? null) !== 'prepare' || !is_array($payload['desired_code_inventory'] ?? null)) {
+                throw new \RuntimeException('duo code release: v2 is only a plan-bound prepare request');
+            }
+            self::validateCompiledCodeInventory($payload['desired_code_inventory']);
+            if (!hash_equals(
+                (string) ($payload['desired_code_revision'] ?? ''),
+                (string) ($payload['desired_code_inventory']['code_revision'] ?? '')
+            )) {
+                throw new \RuntimeException('duo code release: request revision disagrees with compiled code inventory');
+            }
+        } else {
+            self::assertExactKeys($payload, ['action', 'artifact_hash', 'claim_epoch', 'claimant', 'desired_code_revision', 'desired_descriptor_sha256', 'format', 'generation', 'owner', 'receipt_id', 'retention_until', 'target_id', 'timestamp'], 'request payload');
+            if ($format !== self::REQUEST_FORMAT_V1 || !in_array($payload['action'] ?? null, ['prepare', 'delete'], true)) {
+                throw new \RuntimeException('duo code release: unsupported request');
+            }
+            self::assertHash((string) ($payload['desired_descriptor_sha256'] ?? ''), 'request desired_descriptor_sha256');
+        }
         self::assertIdentityFields($payload);
-        foreach (['desired_code_revision', 'desired_descriptor_sha256'] as $key) self::assertHash((string) ($payload[$key] ?? ''), "request $key");
+        self::assertHash((string) ($payload['desired_code_revision'] ?? ''), 'request desired_code_revision');
         self::assertActor((string) ($payload['claimant'] ?? ''), 'request claimant');
         self::timeValue((string) ($payload['timestamp'] ?? '')); self::timeValue((string) ($payload['retention_until'] ?? ''));
     }
@@ -568,7 +773,12 @@ final class CodeRelease {
     }
 
     /** @param array<string,mixed> $request @return array<string,mixed> */
-    private static function providerRequest(array $request): array { return ['format' => self::PROVIDER_REQUEST_FORMAT] + $request; }
+    private static function providerRequest(
+        array $request,
+        string $format = self::PROVIDER_REQUEST_FORMAT_V1
+    ): array {
+        return ['format' => $format] + $request;
+    }
 
     /** @return array<string,mixed> */
     private static function call(array $config, array $request): array {

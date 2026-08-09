@@ -9,8 +9,12 @@ constructs a shell command.
 This is the fail-closed execution substrate. DUO-3299's production-form SSH
 harness composes its checkpoint, code/storage, effect, fresh-verifier, and
 external-authority paths end to end and certifies the closed crash matrix.
-The current in-place `duo promote` command does not select that automatic
-profile, so its operator-directed recovery contract remains unchanged.
+`duo promote` selects that automatic profile only when this complete provider
+set and the controller's explicit `verified_rollback` policy pass preflight;
+otherwise it warns and retains the operator-directed recovery contract.
+The code provider must additionally attest plan-bound compiled-code inventory;
+automatic preparation sends that inventory through the signed v2 request and
+refuses a generation-specific descriptor whose roots or file hashes diverge.
 
 ## Controller configuration
 
@@ -19,6 +23,11 @@ Put this in the gitignored `.duo-envs.json` SSH environment beside
 
 ```json
 {
+  "verified_rollback": {
+    "claim_ttl_seconds": 300,
+    "encryption_key_id": "production-kms-2026",
+    "retention_seconds": 86400
+  },
   "rollback_recovery": {
     "adapters": {
       "code_restore": ["/opt/duo/bin/code-restore"],
