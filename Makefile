@@ -581,7 +581,6 @@ regress-pair-bootstrap-unit:
 
 regress-woocommerce-contract:
 	php sandbox/tests/regress_woocommerce_contract.php
-	php sandbox/tests/woocommerce_contract_read_failures.php
 
 # --- live (docker/pair.sh-dependent), now in regress-live-list ---
 regress-acf-term-options-fields:
