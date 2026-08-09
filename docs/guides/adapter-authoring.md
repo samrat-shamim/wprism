@@ -485,9 +485,12 @@ the same per-manifest digest compiled artifacts record in `resolved_adapters`,
 including a declared interpreter's name and bytes, and load refuses a mismatch
 before any policy consumer or target contact.
 
-`manifest-pin` deliberately does **not** load `site.duo.json`. A stale declared
-digest must never prevent you from computing the reviewed replacement.
-Updating a pin is an explicit review act; it is never automatic.
+Without `--repo`, `manifest-pin` deliberately does **not** load
+`site.duo.json`; that is the shipped-library path. With `--repo=<site>`, it
+loads the repository's policy and site adapter source but overrides only the
+selected manifest pin, so a stale digest for that adapter cannot prevent you
+from computing its reviewed replacement. Unrelated repository errors still
+refuse. Updating a pin is an explicit review act; it is never automatic.
 
 ### 6. Exercise it
 
@@ -530,6 +533,58 @@ Capability *reduction* is a legitimate outcome of this process. Behavior that
 works but cannot be proven is removed and refused rather than shipped
 under-proven.
 
+## Site-installed adapters and external certification
+
+A site may install an additional, data-only adapter at
+`adapters/<name>.json`. Names are canonical lowercase ASCII slugs; the file
+basename and manifest `name` must be identical. This source overlays the
+shipped library but can never shadow it. It cannot supply an interpreter,
+regenerator, manifest-owned provider, trust root, disposition, or other PHP.
+Plugin-owned providers remain valid because their executable identity is the
+installed, active, version-bounded plugin and the ordinary provider
+negotiation/receipt contract—not the site manifest.
+
+Without a certificate, the adapter is usable for plan/apply but is visibly
+`uncertified`; readiness and host promotion remain blocked. Certification is a
+separate reviewer operation:
+
+1. Produce a passing `duo-certification-bundle/v1` whose bound inputs contain
+   exactly the raw `adapters/<name>.json` bytes and whose ratification contains
+   exactly one certified disposition for that name.
+2. Install the reviewer's public-key record under the agent-owned
+   `manifests/capabilities/adapter-authorities.json`. The site repository never
+   supplies a public key. Each `keys.<key-id>` record fixes Ed25519, the
+   `site_adapter_certification` scope, `trusted` or `revoked` status, exact
+   adapter names and permitted trust tiers, and the canonical public key.
+3. With a mode-0600 private-key file, sign and immediately verify the evidence:
+
+   ```sh
+   php scripts/adapter-certification.php sign \
+     --manifest-dir=manifests --repo=<site-repo> --name=<name> \
+     --bundle=<bundle-dir> --evidence-repo=<reviewed-checkout> \
+     --authority=<key-id> --secret-key-file=<private-key>
+
+   php scripts/adapter-certification.php verify \
+     --manifest-dir=manifests --repo=<site-repo> --name=<name>
+   ```
+
+   The only site output is the canonical, path-derived
+   `adapters/certifications/<name>.json` envelope. The tool prints a non-secret
+   summary, never the key or certificate body.
+4. Generate and commit the final source-and-digest pin:
+
+   ```sh
+   wp duo manifest-pin --repo=<site-repo> --name=<name>
+   ```
+
+A valid signature without that exact `{name,source:"site",digest}` pin is
+reported as `signed_unpinned` and remains blocked. A present malformed,
+tampered, stale-platform, unknown-key, or revoked-key certificate is a policy
+load refusal; it never falls back to unsigned support. The final adapter digest
+binds the source manifest plus authority, signed statement, envelope, bundle,
+ratification, and platform proof facts, while unrelated shipped adapter
+digests and `duo capabilities --all` remain unchanged.
+
 ## Planned: what an adapter cannot express yet
 
 Four shipped channels cover what a plugin needs to *do*: **native actions** for
@@ -537,12 +592,12 @@ core-owned operations, **providers** for plugin-owned ones, **regenerators**
 for per-entity derived rebuild, **interpreters** for schema-driven
 classification. What is still missing sits above them.
 
-**Adapter discovery, trust tiers, and a public capability catalog** are
-**Planned (DUO-3339)** — not yet shipped. Every manifest in the
-operator-controlled directory carries identical trust today; there are no tiers
-and no shims. Note what that does *not* mean: provider negotiation, identity
-matching, and digest binding all ship. What is absent is a tiering scheme on top
-of them, and any mechanism for discovering adapters you do not already have.
+**Remote adapter discovery, executable adapter packages, compatibility shims,
+and a public capability catalog** are **Planned (DUO-3339)**. Site-repository
+discovery, derived trust tiers, loud unsigned support, and agent-authority
+signed evidence ship now. What remains absent is a remote/catalog mechanism or
+any way for a site adapter to introduce executable code outside an installed
+plugin; do not work around that boundary with manifest fields or copied PHP.
 
 ### One naming trap
 
