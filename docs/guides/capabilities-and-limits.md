@@ -229,6 +229,13 @@ rather than working around it.
   have shipped; see
   [adapter-authoring.md](adapter-authoring.md#declaring-repair-work-actions-and-providers).
 - Scoped promotion and synchronization with dependency closure — **Planned (DUO-3344)** — not yet shipped.
+  Resolving and previewing a scope has shipped: `duo scope <env> --roots=<selectors>`
+  names the roots you asked for, everything pulled in by a declared dependency
+  edge (each row naming the edge responsible), references pointing into the
+  scope from outside, and how much unrelated state is excluded. It is read-only
+  — it captures, promotes, and deletes nothing, and no capture/promote/rollback
+  command accepts a scope yet. A root that does not resolve is refused rather
+  than silently dropped.
 - Field-level diff explanations and guided conflict resolution — **Planned (DUO-3345)** — not yet shipped.
   Plan rows already carry authored WordPress display names; that slice shipped.
 - Provider-backed plugin and theme replacement — **Planned (DUO-3357)** — not yet shipped.

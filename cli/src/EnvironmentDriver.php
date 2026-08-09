@@ -161,7 +161,7 @@ final class DriverCapabilityReport {
                 DriverCapability::ATTACH, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
             ],
             'status', 'capabilities', 'capture', 'plan', 'apply', 'env-set',
-            'pending', 'classify', 'coverage' => [
+            'pending', 'classify', 'coverage', 'scope' => [
                 DriverCapability::ATTACH, DriverCapability::WP_CONTROL,
             ],
             'refresh', 'rebase' => [
@@ -191,8 +191,8 @@ final class DriverCapabilityReport {
             'url' => [DriverCapability::URL_DISCOVER, DriverCapability::URL_SET],
             default => throw new \RuntimeException(
                 "unknown driver operation '$operation' (expected attach, doctor, status, capabilities, capture, "
-                . 'plan, apply, env-set, pending, classify, coverage, refresh, rebase, adopt, deploy, promote, '
-                . 'create, destroy, ttl, media-snapshot, maintenance, or url)'
+                . 'plan, apply, env-set, pending, classify, coverage, scope, refresh, rebase, adopt, deploy, '
+                . 'promote, create, destroy, ttl, media-snapshot, maintenance, or url)'
             ),
         };
         sort($requirements, SORT_STRING);

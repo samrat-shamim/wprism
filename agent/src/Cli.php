@@ -6,7 +6,7 @@ require_once __DIR__ . '/CommandRefusal.php';
 use WP_CLI;
 
 /**
- * wp duo <capture|refresh-export|plan|apply|capabilities|orphans|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
+ * wp duo <capture|refresh-export|plan|apply|scope|capabilities|orphans|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'duo-command-refusal/v1';
@@ -1215,6 +1215,142 @@ final class Cli {
         }
         WP_CLI::line('');
         WP_CLI::success('coverage report complete — this never blocks capture/plan/apply; run `wp duo pending` for the loud, blocking queue.');
+    }
+
+    /**
+     * DUO-3344: resolve a bounded scope from explicit roots and show what it
+     * would carry — the requested roots, everything pulled in by a declared
+     * dependency edge (each row naming the edge responsible), and how much
+     * unrelated state is left out.
+     *
+     * Read-only and offline by construction: it compiles the repository
+     * revision and walks the same declared edges the compiler validates, so
+     * it neither reads nor mutates this environment. Scoped capture,
+     * promote, delete, and rollback are deliberately NOT part of this
+     * command; resolving a scope is the shared, side-effect-free half those
+     * later operations will quote.
+     *
+     * Two things this preview will not do quietly. A root selector that does
+     * not resolve is refused rather than dropped, because a silently empty
+     * scope is indistinguishable from a correctly small one. And a reference
+     * pointing INTO the scope from outside is reported but never pulled in:
+     * it is not a dependency of the scope, it is what a later scoped delete
+     * would strand.
+     *
+     * Note this is entity selection, unrelated to `policy.scope` in
+     * site.duo.json — that classifies whole post types and taxonomies as
+     * authored/runtime/derived/env and is site-local policy. This command
+     * selects individual entities inside whatever policy already admits.
+     *
+     * ## OPTIONS
+     * --repo=<path>
+     * --roots=<selectors> : Comma-separated root selectors. One flag only —
+     *   wp-cli keeps the LAST occurrence of a repeated flag rather than
+     *   accumulating (see `classify`'s docblock for the same quirk). Forms:
+     *   post:<uuid>, term:<uuid>, table:<table>:<uuid>, menu:<slug>,
+     *   sidebar:<id>, user-meta:<login>, options,
+     *   path:<state-relative-path>, or `all` for the whole revision — a
+     *   full-site operation is this same model with a wider root set, not a
+     *   separate code path.
+     * [--format=<format>] : Output format. Accepts json (machine-readable,
+     *                        versioned by the report's own "format" field).
+     */
+    public function scope($args, $assoc) {
+        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
+        $roots = $assoc['roots'] ?? WP_CLI::error('--roots required (or --roots=all for the whole revision)');
+        try {
+            $policy = Policy::load($repo);
+            $report = ScopeClosure::resolve(
+                RepositoryCompiler::compile($repo, $policy),
+                $policy,
+                explode(',', (string) $roots)
+            );
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc);
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($report, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+
+        $t = $report['totals'];
+        WP_CLI::line(sprintf(
+            'scope: %d roots, %d entities in scope (%d closed over), %d excluded, %d media, %d inbound',
+            $t['roots'], $t['included'], $t['closure'], $t['excluded'], $t['media'], $t['inbound']
+        ));
+        WP_CLI::line('');
+        WP_CLI::line('ROOTS (' . count($report['roots']) . ') — requested explicitly');
+        foreach (self::scope_listing($report['roots'], 'roots') as $row) {
+            WP_CLI::line(sprintf('  - %-12s %s  [%s]', $row['type'], $row['path'], $row['selector']));
+        }
+
+        $closure = array_values(array_filter(
+            $report['included'],
+            static fn(array $r): bool => $r['reason'] !== 'root'
+        ));
+        WP_CLI::line('');
+        WP_CLI::line('INCLUDED BY CLOSURE (' . count($closure) . ') — each row names the declared edge that pulled it in');
+        foreach (self::scope_listing($closure, 'closure inclusions') as $row) {
+            WP_CLI::line(sprintf(
+                '  - %-12s %s  <- %s %s of %s',
+                $row['type'], $row['path'], $row['reason'], $row['locator'], $row['from_path']
+            ));
+        }
+
+        if ($report['media']) {
+            WP_CLI::line('');
+            WP_CLI::line('MEDIA (' . count($report['media']) . ') — blobs owned by included attachments');
+            foreach ($report['media'] as $blob) {
+                WP_CLI::line('  - ' . $blob);
+            }
+        }
+
+        if ($report['inbound']) {
+            WP_CLI::line('');
+            WP_CLI::line('INBOUND REFERENCES (' . count($report['inbound']) . ') — outside the scope, pointing into it; NOT included');
+            foreach (self::scope_listing($report['inbound'], 'inbound references') as $row) {
+                WP_CLI::line(sprintf('  - %s %s -> %s', $row['path'], $row['locator'], $row['target_path']));
+            }
+            WP_CLI::line('  these are unaffected by a scoped write, and are what a scoped delete would strand');
+        }
+
+        $excludedParts = [];
+        foreach ($report['excluded']['by_type'] as $type => $count) {
+            $excludedParts[] = "$type $count";
+        }
+        WP_CLI::line('');
+        WP_CLI::line(sprintf(
+            'EXCLUDED (%d)%s',
+            $report['excluded']['total'],
+            $excludedParts ? ' — ' . implode(', ', $excludedParts) : ' — this scope is the whole revision'
+        ));
+        WP_CLI::line('');
+        WP_CLI::success('scope resolved — this is a read-only preview; it captures, promotes, and deletes nothing.');
+    }
+
+    /**
+     * A resolved scope can legitimately be the whole site (--roots=all), so
+     * the human renderer truncates its listings while the counts beside them
+     * stay exact — same bargain `coverage` already strikes with its own
+     * large listings. JSON is never truncated.
+     *
+     * Deliberately BELOW scope(): a private helper between a command and its
+     * docblock silently orphans the wp-cli synopsis, leaving `wp duo scope
+     * --help` empty and the declared options unvalidated.
+     *
+     * @param list<array<string,mixed>> $rows
+     * @return list<array<string,mixed>>
+     */
+    private static function scope_listing(array $rows, string $noun): array {
+        if (count($rows) <= Coverage::LARGE_LISTING_THRESHOLD) {
+            return $rows;
+        }
+        WP_CLI::warning(sprintf(
+            '%d %s — showing the first %d; the count above is exact regardless. Use --format=json for the full listing.',
+            count($rows), $noun, Coverage::LARGE_LISTING_THRESHOLD
+        ));
+        return array_slice($rows, 0, Coverage::LARGE_LISTING_THRESHOLD);
     }
 
     /**

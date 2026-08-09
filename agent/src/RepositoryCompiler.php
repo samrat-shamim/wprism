@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/CodeCompatibility.php';
+require_once __DIR__ . '/ReferenceGraph.php';
 
 /**
  * One immutable, typed result of compiling a repository revision. The
@@ -1328,68 +1329,49 @@ final class RepositoryCompiler {
         }
     }
 
+    /**
+     * DUO-3344: the edge enumeration this validator needs is the same one
+     * scope resolution needs, so it lives in ReferenceGraph and both callers
+     * consume it — see that class's docblock for why a second walker would
+     * be a correctness trap rather than a duplication nuisance.
+     *
+     * Folding the walk into one enumerator also retired a silent hole here:
+     * the previous inline loop reused the tree's loop variable as the terms
+     * loop variable, so any post carrying a term assignment filed its
+     * post_parent edge under the last TERM's uuid. A genuine parent cycle
+     * therefore went undetected the moment its posts were categorized —
+     * pinned now by regress_scope_closure.sh.
+     */
     private function validate_graph(array $tree): void {
-        $kindTypes = [
-            'post' => ['post','menu_item'],
-            'term' => ['term','menu'],
-            'tt' => ['term','menu'],
-        ];
-        foreach (Snapshot::row_tables($this->policy) as $table => $decl) {
-            $kindTypes[(string) $decl['id_kind']] = [$table];
-        }
-        foreach ($this->policy->widget_types() as $type => $_decl) {
-            $kindTypes[SidebarState::kind((string) $type)] = ['widget'];
-        }
+        $kindTypes = ReferenceGraph::kind_types($this->policy);
         $parentGraph = [];
         $parentLocations = [];
-        foreach ($tree as $uuid => $entity) {
-            $path = $entity['path'];
-            $this->walk_tokens($entity['data'], '$', function (string $token, string $locator) use ($path, $kindTypes) {
-                $this->validate_token($token, $path, $locator, $kindTypes);
-            });
-            if ($entity['type'] === 'post') {
-                $this->walk_tokens($entity['body'], 'body', function (string $token, string $locator) use ($path, $kindTypes) {
-                    $this->validate_token($token, $path, $locator, $kindTypes);
-                });
-                foreach ((array) ($entity['data']['terms'] ?? []) as $tax => $uuids) {
-                    foreach ((array) $uuids as $i => $uuid) {
-                        $this->validate_raw_ref((string) $uuid, ['term'], $path, "terms.$tax[$i]");
-                    }
-                }
-                if (is_string($entity['data']['parent'] ?? null)
-                    && preg_match('/^\{\{post:([0-9a-f-]{36})\}\}$/', $entity['data']['parent'], $m)) {
-                    $parentGraph[(string) $uuid][] = $m[1];
-                    $parentLocations[(string) $uuid] = [$path, 'parent'];
-                }
-            } elseif ($entity['type'] === 'term') {
-                if (!empty($entity['data']['parent'])) {
-                    $this->validate_raw_ref((string) $entity['data']['parent'], ['term'], $path, 'parent');
-                    $parentGraph[(string) $uuid][] = (string) $entity['data']['parent'];
-                    $parentLocations[(string) $uuid] = [$path, 'parent'];
-                }
-                foreach ((array) ($entity['data']['relationships'] ?? []) as $tax => $uuids) {
-                    foreach ((array) $uuids as $i => $uuid) {
-                        $this->validate_raw_ref((string) $uuid, ['term'], $path, "relationships.$tax[$i]");
-                    }
-                }
-            } elseif ($entity['type'] === 'menu') {
-                $items = [];
-                foreach ((array) ($entity['data']['items'] ?? []) as $i => $item) {
-                    $items[(string) ($item['uuid'] ?? '')] = true;
-                    if (!empty($item['parent']) && !isset($items[(string) $item['parent']])) {
-                        // Parent may legally occur later in the list, so the
-                        // final membership test happens after indexing all.
-                        continue;
-                    }
-                }
-                foreach ((array) ($entity['data']['items'] ?? []) as $i => $item) {
-                    if (!empty($item['parent']) && !isset($items[(string) $item['parent']])) {
-                        $this->add('semantic_delete_reference', $path, "items[$i].parent", "menu-item parent {$item['parent']} is absent from this menu");
-                    } elseif (!empty($item['parent'])) {
-                        $itemUuid = (string) ($item['uuid'] ?? '');
-                        $parentGraph[$itemUuid][] = (string) $item['parent'];
-                        $parentLocations[$itemUuid] = [$path, "items[$i].parent"];
-                    }
+        foreach (ReferenceGraph::edges($tree, $this->policy) as $edge) {
+            if ($edge['check'] === ReferenceGraph::CHECK_TOKEN) {
+                $this->validate_token((string) $edge['token'], $edge['path'], $edge['locator'], $kindTypes);
+            } elseif ($edge['check'] === ReferenceGraph::CHECK_RAW) {
+                $this->validate_raw_ref($edge['target'], $edge['expects'], $edge['path'], $edge['locator']);
+            }
+            if ($edge['relation'] === ReferenceGraph::REL_PARENT) {
+                $parentGraph[$edge['from']][] = $edge['target'];
+                $parentLocations[$edge['from']] = [$edge['path'], $edge['locator']];
+            }
+        }
+        // A menu item's parent must live in the same menu. That is a
+        // membership question about one file rather than an edge, so the
+        // graph reports only the parents that do resolve and the missing
+        // ones are diagnosed here.
+        foreach ($tree as $entity) {
+            if ($entity['type'] !== 'menu') {
+                continue;
+            }
+            $items = [];
+            foreach ((array) ($entity['data']['items'] ?? []) as $item) {
+                $items[(string) ($item['uuid'] ?? '')] = true;
+            }
+            foreach ((array) ($entity['data']['items'] ?? []) as $i => $item) {
+                if (!empty($item['parent']) && !isset($items[(string) $item['parent']])) {
+                    $this->add('semantic_delete_reference', $entity['path'], "items[$i].parent", "menu-item parent {$item['parent']} is absent from this menu");
                 }
             }
         }
@@ -1679,31 +1661,6 @@ final class RepositoryCompiler {
             if (($state[$node] ?? 0) === 0) {
                 $visit((string) $node);
             }
-        }
-    }
-
-    private function walk_tokens($value, string $locator, callable $visit): void {
-        if (is_array($value)) {
-            foreach ($value as $key => $child) {
-                $next = $locator . (is_int($key) ? "[$key]" : '.' . $key);
-                if (is_string($key)) {
-                    $this->tokens_in_string($key, $next . ' (key)', $visit);
-                }
-                $this->walk_tokens($child, $next, $visit);
-            }
-            return;
-        }
-        if (is_string($value)) {
-            $this->tokens_in_string($value, $locator, $visit);
-        }
-    }
-
-    private function tokens_in_string(string $value, string $locator, callable $visit): void {
-        if (!preg_match_all('/\{\{([a-z][a-z0-9_]*):([^{}]+)\}\}/', $value, $matches, PREG_SET_ORDER)) {
-            return;
-        }
-        foreach ($matches as $m) {
-            $visit($m[0], $locator);
         }
     }
 
