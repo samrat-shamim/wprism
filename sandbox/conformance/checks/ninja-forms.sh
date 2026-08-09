@@ -138,7 +138,10 @@ wp_conf1 db query "
 STATE_STATUS_BEFORE=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 [ -z "$STATE_STATUS_BEFORE" ] || fail "source canonical state was dirty before parent-deletion refusal: $STATE_STATUS_BEFORE"
 CAPTURE_DELETE_RC=0
-CAPTURE_DELETE_OUT=$(wp_conf1 duo capture --repo=/siterepo --format=json 2>&1) || CAPTURE_DELETE_RC=$?
+# The command's versioned record is stdout. Compose writes container lifecycle
+# progress to stderr even for a healthy `run --rm`; folding both streams would
+# make jq judge Docker's prose as if it were part of Duo's machine contract.
+CAPTURE_DELETE_OUT=$(wp_conf1 duo capture --repo=/siterepo --format=json) || CAPTURE_DELETE_RC=$?
 [ "$CAPTURE_DELETE_RC" -ne 0 ] || fail "capture accepted unsupported table:nf3_forms deletion"
 jq -se '
   length == 1
