@@ -99,15 +99,17 @@ Sandbox discipline (see `docs/sandbox.md`):
 
 **Resource lifecycle (mandatory):**
 
-- **Budget:** at most **one running pair per agent** at a time. The
+- **Budget:** at most **one running pair per agent** at a time (relaxes
+  to two only while both are actively executing independent live suites —
+  see Work and verify's Evidence scoping, "Parallel pairs"). The
   host-wide budget is dynamic — **1 docker core per running pair**,
   RAM-guarded (~2 GiB per actively-verifying pair), computed from the
   machine's actual resources by `pair_budget()` in `sandbox/bin/pair.sh`
   and **enforced by `pair.sh up`**: a new pair over budget refuses, with
   `DUO_PAIR_BUDGET_OVERRIDE=1` as the named report-not-hide escape hatch —
   never set it unless the dispatch prompt explicitly says so. Check
-  `pair.sh list` before every `up`; need a second env? Stop or destroy
-  your first.
+  `pair.sh list` before every `up`; need a second env outside the
+  active-parallel-suites case below? Stop or destroy your first.
 - **Release when idle:** whenever you are not actively executing against
   your pair — polling Linear, waiting on a human/review, blocked, writing
   code or docs for more than ~15 minutes — `pair.sh stop <name>` (frees all
@@ -188,6 +190,73 @@ branch or edit files before this passes.
    suite you happened to think to run by name.
 5. Out-of-scope discoveries: report on the issue (or file a new one), never
    fix silently.
+
+### Evidence scoping
+
+- **Layer triggers, by diff.** `make regress-offline-all` (~5 min) is
+  unconditional for every issue (DUO-3285). Live-pair regressions run only
+  for suites whose covered mechanism the diff touches — consult each
+  suite's header, not habit. Conformance sweeps run for CHANGED manifests
+  and for harness changes (`sandbox/conformance/`, `sandbox/bin/` — the
+  code that produces the evidence needs at least one real sweep of its
+  own); a change to `agent/src`/`Policy.php` engine internals with no
+  manifest edit still needs at least one representative sweep, using the
+  cheapest affected manifest — and never fewer sweeps than Work and
+  verify step 4 already requires where manifests or the harness changed
+  (this subsection scopes WHEN layers apply; it never lowers step 4's
+  bar). The reference certification bundle
+  (`make certify-reference-bundle`) is REQUIRED per-issue only when
+  manifest/adapter bytes changed (`manifests/*.json`, `providers/`,
+  `interpreters/`, `regenerators/`, dispositions): those digests are what
+  Policy load-time validation binds, so a stale registry refuses at
+  runtime. The certification ATTESTATION additionally binds ~120 other
+  inputs (engine, cli, spec, harness bytes — see
+  `manifests/capabilities/evidence.json`), which such changes expire
+  WITHOUT any runtime refusal; refreshing that is batched maintenance
+  (run `php scripts/capability-registry.php check`; refresh when it
+  reports expiry), not a per-issue gate — that batching is the ratified
+  scoping decision this subsection records, not an oversight.
+- **Ordering: the bundle is always LAST.** Dispatch the independent review
+  before launching the bundle and land every finding first — a single
+  manifest-byte fix from review invalidates a running bundle wholesale
+  (observed live on DUO-3338: a review finding moved the elementor digest
+  and cost a full bundle restart). Re-fetch and rebase onto `origin/main`
+  immediately before launching, too: the certification attestation binds
+  digests of agent/cli/spec bytes as well as manifests, so ANOTHER agent's
+  merge to any bound input invalidates a running bundle just as thoroughly
+  (also observed live on DUO-3338 — four upstream merges landed mid-run
+  and cost the second restart). The bundle itself refuses linked
+  worktrees and dirty trees: run it from a clean standalone clone at the
+  branch's exact HEAD (the `duo-wp-cert-<issue>` pattern), never from
+  your issue worktree, with `CERT_BUNDLE_PAIR`/`CERT_BUNDLE_PORT1`/
+  `CERT_BUNDLE_PORT2` allocated from your `PORT_BASE` (its defaults —
+  `certbundle`, 8880/8881 — collide on a shared host). "The independent
+  review" here is the dispatch protocol's pre-merge review-only subagent
+  pass in its own checkout, recorded in the PR. Sequence: implement →
+  offline-all → targeted live suites → targeted sweeps → review → fixes +
+  registry regenerate → rebase onto fresh `origin/main` → bundle (clean
+  clone) → generated-evidence commit → merge promptly (Close gate order
+  unchanged).
+- **Registry regenerate after ANY manifest/provider byte change**
+  (`php scripts/capability-registry.php generate`, candidate state) before
+  running anything live — provider/interpreter file bytes are digest-bound
+  into adapter identity, so a stale registry refuses every `duo` command
+  (observed live, twice, on DUO-3338).
+- **Parallel pairs are safe and encouraged when the host budget allows**:
+  independent live suites may run concurrently on DISTINCT pairs (names/
+  ports parameterized from your `PORT_BASE`). The single-writer rule
+  applies only to two writers on ONE pair. The Resource lifecycle budget
+  of at most **one running pair per agent** (above) relaxes to two only
+  while both are actively executing suites, never while idle.
+- **Keep the standalone sweeps for changed manifests even though the
+  bundle re-runs them**: a sweep failure costs a ~2-minute re-run; the
+  same failure discovered inside the bundle costs the whole bundle.
+  Sweeps are discovery; the bundle is evidence generation.
+- **Cost yardstick (2026-08-09, this host):** offline-all ~5 min; one
+  live-pair suite 6–15 min (pair boot ~2–3 min of that); one conformance
+  sweep ~2–3 min; full bundle ~50–70 min. A worst-case blast radius
+  (engine + six manifests, DUO-3338) is ~2 h serial; a typical bounded
+  issue is 15–25 min.
 
 ## Close gate (distributed mode — strict order)
 
