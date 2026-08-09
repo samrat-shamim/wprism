@@ -447,6 +447,69 @@ final class Capture {
     }
 
     /**
+     * Strict observation twin of snapshot() for `duo explain`.
+     *
+     * Ordinary plan/apply intentionally retain their established maintenance
+     * boundary: ensure the ledger, repair historical widths, and prune stale
+     * identity rows before comparing state. An explanation has no authority
+     * to perform those repairs. It proves the existing ledger schema and every
+     * live identity through SELECTs, refuses missing/stale evidence, captures
+     * one coherent MVCC view, and performs no DDL/DML, map pruning, provider
+     * negotiation, or action invocation.
+     *
+     * @return array<string, array{type:string,hash:string,content:string,path:string}>
+     */
+    public static function snapshot_read_only(
+        string $repo,
+        bool $forceUnresolvedRefs = false,
+        ?CompiledRepository $compiled = null,
+        ?Policy $policy = null
+    ): array {
+        Canary::suppress_cron_spawn();
+        Ledger::assert_read_only_schema();
+        Identity::assert_embedded_unique();
+        $policy ??= Policy::load($repo);
+        self::verify_engine_support($policy);
+        $capture = new self($repo, $policy);
+        $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
+        $repositoryOptions = self::repository_options($repo, $policy, $repository);
+        $repositoryUserLogins = [];
+        foreach ($repository->tree() as $entity) {
+            if (($entity['type'] ?? '') === 'user-meta') {
+                $repositoryUserLogins[] = (string) ($entity['data']['login'] ?? '');
+            }
+        }
+
+        $build = self::run_in_consistent_snapshot(function () use (
+            $capture,
+            $forceUnresolvedRefs,
+            $repositoryOptions,
+            $repositoryUserLogins
+        ): array {
+            Identity::assert_embedded_unique();
+            $candidate = $capture->build(
+                false,
+                $forceUnresolvedRefs,
+                $repositoryOptions,
+                $repositoryUserLogins,
+                true
+            );
+            Identity::assert_entities_unique($candidate['entities']);
+            return $candidate;
+        });
+        $out = [];
+        foreach ($build['entities'] as $entity) {
+            $out[(string) $entity['uuid']] = [
+                'type' => (string) $entity['type'],
+                'hash' => hash('sha256', $entity['hash_basis'] ?? $entity['content']),
+                'content' => (string) $entity['content'],
+                'path' => (string) $entity['path'],
+            ];
+        }
+        return $out;
+    }
+
+    /**
      * Build a production-export candidate inside RefreshExport's already
      * opened READ ONLY consistent snapshot.  This is intentionally not a
      * variation of snapshot(): that older diagnostic path is allowed to

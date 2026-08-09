@@ -87,6 +87,7 @@ Usage:
   duo capabilities <env> [--operation=<op>] [--surface=<surface>] [--revision=<sha>] [--format=json]
   duo capture <env> [extra wp-cli flags...]
   duo plan    <env> [extra wp-cli flags...]
+  duo explain <env> <bucket>:<entity-key> [--format=json] [plan flags...]
   duo apply   <env> [extra wp-cli flags...]
   duo deploy  <env> [--force-code-mismatch] [--force-code-drift]
   duo env-set <env> --name=<name> (--value=<value> | --stdin)
@@ -219,6 +220,16 @@ Verbs:
                           returns the agent's canonical verdict.
   capture <env> [...]     `wp duo capture --repo=<repo_path> [...]`
   plan <env> [...]        `wp duo plan    --repo=<repo_path> [...]`
+  explain <env> <selector>
+    [--format=json]       Rebuild the current plan under a strict observation
+                          boundary, then trace one entity row from canonical
+                          source through its winning policy/manifest rules,
+                          declared dependency edges, exact rebuild surfaces,
+                          structured native/provider declarations, and the
+                          convergence verifier. Selector is
+                          `<bucket>:<entity-key>` from plan JSON. Canonical
+                          values, target-local ids, provider arguments, and
+                          private exception detail are never returned.
   apply <env> [...]       `wp duo apply   --repo=<repo_path> [...]`
                           Extra flags (e.g. --adopt-by-slug=terms
                           --default-author=admin, --with-deletes) are forwarded
@@ -369,7 +380,7 @@ function duo_fail(string $message, int $code = 1) {
 
 /** The host only owns JSON refusals for the agent passthroughs it preflights. */
 function wants_agent_refusal_json(string $verb, array $extra): bool {
-    if (!in_array($verb, ['capture', 'plan', 'apply'], true)) {
+    if (!in_array($verb, ['capture', 'plan', 'explain', 'apply'], true)) {
         return false;
     }
     foreach ($extra as $index => $arg) {
@@ -441,7 +452,7 @@ function main(array $argv): int {
     }
 
     $verb = array_shift($rest);
-    $verbsNeedingEnv = ['doctor', 'driver-capabilities', 'adopt', 'status', 'capabilities', 'capture', 'plan', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase'];
+    $verbsNeedingEnv = ['doctor', 'driver-capabilities', 'adopt', 'status', 'capabilities', 'capture', 'plan', 'explain', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase'];
 
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
@@ -547,7 +558,7 @@ function main(array $argv): int {
         'doctor' => cmd_doctor($transport),
         'adopt' => cmd_adopt($transport, $extra),
         'status' => cmd_status($transport),
-        'capabilities', 'capture', 'plan', 'apply', 'env-set', 'coverage' => cmd_passthrough($transport, $verb, $extra),
+        'capabilities', 'capture', 'plan', 'explain', 'apply', 'env-set', 'coverage' => cmd_passthrough($transport, $verb, $extra),
         'scope' => cmd_scope($transport, $extra),
         'deploy' => cmd_deploy($transport, $extra),
         'promote' => cmd_promote($transport, $extra),

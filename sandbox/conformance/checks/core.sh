@@ -238,6 +238,78 @@ for NEEDLE in \
   grep -Fq "$NEEDLE" <<<"$TITLE_HUMAN" \
     || fail "human conflict view is missing '$NEEDLE': $TITLE_HUMAN"
 done
+
+# DUO-3345 slice 4: the host-level public explain path re-observes this exact
+# conflict under a strict SELECT-only boundary. The selector printed by human
+# plan is hash-safe; the explanation is a separate value-free schema and may
+# not inherit plan's ledger maintenance or provider/action authority.
+EXPLAIN_ENTITY_HASH=$(printf '%s' "$UA" | shasum -a 256 | awk '{print $1}')
+EXPLAIN_SELECTOR="conflict:sha256:$EXPLAIN_ENTITY_HASH"
+grep -Fq "EXPLAIN wp duo explain $EXPLAIN_SELECTOR --repo=<repo>" <<<"$TITLE_HUMAN" \
+  || fail "human plan did not print the copyable hash-safe explain selector: $TITLE_HUMAN"
+EXPLAIN_REGISTRY=$(mktemp "${TMPDIR:-/tmp}/duo-explain-envs.XXXXXX.json")
+jq -n --arg compose "$PWD/pair.yml" '{envs:{target:{transport:"docker",compose_file:$compose,service:"cli2",repo_path:"/siterepo"}}}' \
+  >"$EXPLAIN_REGISTRY"
+EXPLAIN_DB_BEFORE=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null | shasum -a 256 | awk '{print $1}')
+EXPLAIN_REPO_BEFORE=$(git -C "$CONF_REPO2" status --porcelain --untracked-files=all)
+EXPLAIN_RC=0
+EXPLAIN_JSON=$(php ../cli/duo --envs-file="$EXPLAIN_REGISTRY" explain target "$EXPLAIN_SELECTOR" --format=json 2>/dev/null) \
+  || EXPLAIN_RC=$?
+EXPLAIN_HUMAN=''
+if [ "$EXPLAIN_RC" -eq 0 ]; then
+  EXPLAIN_HUMAN=$(php ../cli/duo --envs-file="$EXPLAIN_REGISTRY" explain target "$EXPLAIN_SELECTOR" 2>/dev/null) \
+    || EXPLAIN_RC=$?
+fi
+rm -f -- "$EXPLAIN_REGISTRY"
+[ "$EXPLAIN_RC" -eq 0 ] || fail "public host duo explain refused a valid current selector"
+jq -e --arg selector "$EXPLAIN_SELECTOR" --arg entity_hash "$EXPLAIN_ENTITY_HASH" '
+  .format == "duo-explain/v1"
+  and .ok == true
+  and .selector.bucket == "conflict"
+  and .selector.entity_identity_sha256 == $entity_hash
+  and .selector.copyable == $selector
+  and (.basis.artifact_sha256 | test("^[a-f0-9]{64}$"))
+  and (.basis.revision_sha256 | test("^[a-f0-9]{64}$"))
+  and .action.bucket == "conflict"
+  and .action.reason_code == "repository_and_target_changed_since_base"
+  and .source.kind == "canonical_entity"
+  and .source.path == "posts/page/<identity>.md"
+  and .source.content_binding == "compiled_artifact"
+  and (.rules | length) > 0
+  and (.references.status == "none_declared" or .references.status == "declared")
+  and .execution.mutation.apply_eligibility == "blocked"
+  and .execution.rebuild_surfaces == []
+  and .execution.actions == []
+  and .execution.provider_negotiation == "not_performed"
+  and .execution.action_invocation == "not_performed"
+  and .verification[0].verifier == "canonical-recapture/v1"
+  and .verification[0].when == "not_scheduled"
+  and .redaction.canonical_values == "omitted"' <<<"$EXPLAIN_JSON" >/dev/null \
+  || fail "public explain did not return the bounded source/rule/reference/action/verification contract: $EXPLAIN_JSON"
+for FORBIDDEN in \
+  "$UA" \
+  'Branch Repository Intent For Conflict' \
+  'Target Environment Intent For Conflict' \
+  '/siterepo'; do
+  ! grep -Fq "$FORBIDDEN" <<<"$EXPLAIN_JSON$EXPLAIN_HUMAN" \
+    || fail "public explain leaked raw entity/value/path evidence"
+done
+for NEEDLE in \
+  "EXPLAIN CONFLICT posts/page/<identity>.md" \
+  "selector: $EXPLAIN_SELECTOR" \
+  'intent: preserve_target_state (blocked)' \
+  'structured actions: none selected by this row' \
+  'values: omitted'; do
+  grep -Fq "$NEEDLE" <<<"$EXPLAIN_HUMAN" \
+    || fail "human explain is missing '$NEEDLE': $EXPLAIN_HUMAN"
+done
+EXPLAIN_DB_AFTER=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null | shasum -a 256 | awk '{print $1}')
+[ "$EXPLAIN_DB_AFTER" = "$EXPLAIN_DB_BEFORE" ] \
+  || fail "strict explain changed the target database"
+[ "$(git -C "$CONF_REPO2" status --porcelain --untracked-files=all)" = "$EXPLAIN_REPO_BEFORE" ] \
+  || fail "strict explain changed the target repository"
+pass "public duo explain traces one current row through a deterministic value-free contract with zero database/repository/provider/action mutation"
+
 CONFLICT_TARGET_BEFORE=$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title)
 CONFLICT_BASE_BEFORE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$UA'" --skip-column-names | tr -d '[:space:]')
 CONFLICT_RC=0

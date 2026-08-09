@@ -324,8 +324,12 @@ rather than working around it.
   from ordinary plugin/theme/MU bootstrap before compiling.
 - Field-level value diffs and an interactive conflict resolver — **Planned (DUO-3345)** — not yet shipped.
   Plan rows already carry authored WordPress display names and a stable,
-  hash-only three-way conflict view with bounded safe choices; those slices
-  shipped without serializing secret/PII-bearing entity values.
+  hash-only three-way conflict view with bounded safe choices. A separate
+  `duo explain` command now traces one current entity action through its
+  source shape, effective declarations, outbound reference edges, structured
+  actions, and verification under a strict no-repair/no-write observation
+  boundary. These slices shipped without serializing secret/PII-bearing
+  entity values; actual value diffs and interactive resolution remain.
 - Provider-backed plugin and theme replacement — **Planned (DUO-3357)** — not yet shipped.
 - Theme upgrade, downgrade refusal, and removal as a managed lifecycle — **Planned (DUO-3358)** — not yet shipped.
 - Moving WordPress cron as managed state — **Planned (DUO-3359)** — not yet shipped.

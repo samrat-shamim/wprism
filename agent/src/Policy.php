@@ -1729,6 +1729,25 @@ self::validate_post_type_children($manifest);
         return $out;
     }
 
+    /**
+     * The declaration source for the same last-pinned-wins widget rule that
+     * widget_types() returns. Reporting callers must not reconstruct a
+     * different precedence walk merely to name its owner.
+     *
+     * @return array{rule:?array,source:?string}
+     */
+    public function widget_type_rule_details(string $type): array {
+        $rule = null;
+        $source = null;
+        foreach ($this->manifests as $manifest) {
+            if (isset($manifest['widgets'][$type]) && is_array($manifest['widgets'][$type])) {
+                $rule = $manifest['widgets'][$type];
+                $source = (string) ($manifest['name'] ?? '?');
+            }
+        }
+        return ['rule' => $rule, 'source' => $source];
+    }
+
     /** blockName => list of {path, kind, type} rules, merged across manifests. */
     public function block_attr_rules(): array {
         $out = [];

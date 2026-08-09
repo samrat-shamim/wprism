@@ -73,6 +73,13 @@ namespace Duo {
             }
             return [];
         }
+
+        public static function explain($repo, string $selector, array $options): array {
+            if (self::$planFailure !== null) {
+                throw self::$planFailure;
+            }
+            return [];
+        }
     }
 
     final class Deploy {
@@ -128,6 +135,7 @@ namespace {
         'code_finalize' => 'code-finalize',
         'capture' => 'capture',
         'plan' => 'plan',
+        'explain' => 'explain',
         'apply' => 'apply',
         'deploy' => 'deploy',
     ];
@@ -138,7 +146,8 @@ namespace {
         check(($payload['command'] ?? null) === $command, "$command refusal names the public command");
         check(($payload['error'] ?? null) === 'invalid_arguments', "$command refusal has a stable argument error code");
         check(($payload['reason_code'] ?? null) === $payload['error'], "$command refusal exposes the error as a finite reason code");
-        check(($payload['message'] ?? null) === "--repo is required for $command", "$command refusal identifies the missing argument");
+        $missing = $command === 'explain' ? '<bucket>:<entity-key>' : '--repo';
+        check(($payload['message'] ?? null) === "$missing is required for $command", "$command refusal identifies the missing argument");
         check(is_string($payload['remediation'] ?? null) && $payload['remediation'] !== '', "$command refusal carries remediation");
     }
 
@@ -396,6 +405,21 @@ namespace {
         check($e->getMessage() === '--repo required', 'human missing-argument prose remains backward-compatible');
     }
     check(WP_CLI::$lines === [], 'human missing argument emits no JSON record');
+
+    WP_CLI::reset();
+    $explainSecret = 'provider failed with sk_live_1234567890EXPLAINHUMANMUSTNOTLEAK at /Users/private-customer/site';
+    \Duo\Apply::$planFailure = new RuntimeException($explainSecret);
+    try {
+        $cli->explain(['update:sha256:' . str_repeat('a', 64)], ['repo' => '/fixture']);
+        check(false, 'human explain failure exits through WP_CLI::error');
+    } catch (CliJsonHumanError $e) {
+        check(
+            $e->getMessage() === 'duo: explain refused at a private safety gate; run plan or capture for operator diagnosis, then rerun explain',
+            'human explain uses constant safe failure guidance'
+        );
+        check(!str_contains($e->getMessage(), $explainSecret), 'human explain never forwards private exception detail');
+    }
+    check(WP_CLI::$lines === [], 'human explain failure emits no JSON record');
 
     echo "\n== host preflight mirrors the same one-value contract ==\n";
     $tmp = sys_get_temp_dir() . '/duo-cli-json-refusal-' . bin2hex(random_bytes(6));

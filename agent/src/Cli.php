@@ -2,11 +2,12 @@
 namespace Duo;
 
 require_once __DIR__ . '/CommandRefusal.php';
+require_once __DIR__ . '/PlanExplanation.php';
 
 use WP_CLI;
 
 /**
- * wp duo <capture|refresh-export|plan|apply|scope|capabilities|orphans|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
+ * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|orphans|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'duo-command-refusal/v1';
@@ -128,6 +129,7 @@ final class Cli {
             'capture' => 'inspect private operator evidence and capture recovery state; classify, correct, or recover the blocker before another attempt',
             'compile' => 'fix every repository, policy, or code diagnostic before compiling again',
             'plan' => 'inspect private operator evidence and target state, then correct the repository, policy, capability, or target-state blocker',
+            'explain' => 'run the existing capture or identity-recovery gate if needed, then copy a current entity selector from plan and rerun explain',
             'apply' => 'inspect apply_in_progress and recovery evidence, then resume or recover according to the recorded phase',
             'deploy' => 'inspect lifecycle and promotion evidence, then restore or recover the exact recorded code and state release',
             'code-stage' => 'inspect the staging receipt and promotion lease, then resume or recover the exact immutable artifact',
@@ -522,6 +524,13 @@ final class Cli {
                     $line .= '  [BLOCKED: ' . $r['blocked'] . ']';
                 }
                 WP_CLI::line($line);
+                if (is_string($r['uuid'] ?? null) && $r['uuid'] !== '') {
+                    WP_CLI::line(
+                        '  EXPLAIN wp duo explain '
+                        . PlanExplanation::selectorForOutput($kind, $r['uuid'])
+                        . ' --repo=<repo>'
+                    );
+                }
                 foreach ($r['annotations'] ?? [] as $annotation) {
                     WP_CLI::line('  ' . $annotation);
                 }
@@ -699,6 +708,58 @@ final class Cli {
         $envMissingRequired = array_filter($plan['env_missing'] ?? [], fn($r) => !empty($r['required']));
         if ($envMissingRequired) {
             WP_CLI::warning('required env value(s) missing — provision with `wp duo env-set --name=<name> --value=<value>` (or --stdin) before promoting');
+        }
+    }
+
+    /**
+     * Explain one entity action from a freshly-observed plan.
+     *
+     * ## OPTIONS
+     * <selector> : `<bucket>:<entity-key>` copied from the current plan row.
+     * --repo=<path>
+     * [--adopt-by-slug=<kinds>] : Match the plan invocation being explained.
+     * [--force-unresolved-refs] : Match the plan invocation being explained.
+     * [--compiled=<path>] : Consume a previously emitted compiler artifact.
+     * [--format=<format>] : Output format. Accepts json.
+     */
+    public function explain($args, $assoc) {
+        try {
+            if (count($args) !== 1 || !is_string($args[0] ?? null) || $args[0] === '') {
+                throw CommandRefusalException::invalidArgument('explain', '<bucket>:<entity-key>');
+            }
+            $report = Apply::explain(
+                $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('explain', '--repo'),
+                $args[0],
+                [
+                    'adopt_by_slug' => $assoc['adopt-by-slug'] ?? '',
+                    'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
+                    'compiled' => $assoc['compiled'] ?? '',
+                ]
+            );
+            if (($assoc['format'] ?? '') === 'json') {
+                $encoded = json_encode(
+                    $report,
+                    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+                );
+                WP_CLI::line($encoded);
+                return;
+            }
+            foreach (PlanExplanation::render($report) as $line) {
+                WP_CLI::line($line);
+            }
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'explain');
+            // Explain's human contract is value-free too. Unlike the older
+            // operator-oriented commands, it never forwards exception text,
+            // target identities, or repository paths merely because JSON was
+            // not requested. A reviewed refusal can keep its public guidance;
+            // every other failure is diagnosed through plan/capture instead.
+            if ($t instanceof CommandRefusalException) {
+                WP_CLI::error($t->publicMessage . '; ' . $t->remediation);
+            }
+            WP_CLI::error(
+                'duo: explain refused at a private safety gate; run plan or capture for operator diagnosis, then rerun explain'
+            );
         }
     }
 

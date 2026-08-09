@@ -779,6 +779,37 @@ other effect type or provider resource.
    `guard_override=force_delete_referenced`. Missing that guard flag instead
    returns `status=incomplete` and omits the guard-override claim. It never fabricates
    the conflict choice that the guarded plan intentionally suppressed.
+
+   `wp duo explain <bucket>:<entity-key> --repo=<repo>` is an additive,
+   entity-row projection of a freshly rebuilt plan. Human plan output prints
+   a copyable hash-safe selector below each itemized row; the machine result is
+   separately versioned as `format:"duo-explain/v1"`, so the plan/status JSON
+   contract is unchanged. The accepted buckets are exactly `create`,
+   `update`, `adopt`, `unchanged`, `drift`, `conflict`, `collision`, `delete`,
+   `delete_conflict`, and `deleted`; code, lifecycle, capability, warning, and
+   other aggregate sections remain plan/status concerns. A selector is
+   current-plan-relative, resolves one opaque identity in memory, and is never
+   interpreted as a repository or filesystem path.
+
+   The explanation binds to the whole compiled artifact/revision/manifest/site
+   digests and projects only value-free evidence: a structural source locator,
+   effective policy/manifest coordinates and classification, declared outbound
+   reference edges with the other identity hashed, the exact rebuild surfaces
+   contributed by this row, structured native/provider declarations selected
+   by those surfaces in manifest order, and the convergence/readback verifier.
+   It never serializes canonical values, per-entity content hashes, raw entity
+   keys, repository paths, target-local ids, titles/logins, action arguments,
+   provider receipts, guard rows/reasons, or exception detail. Actions say
+   `readiness:not_checked`: selection is not negotiation or invocation, and a
+   deletion match remains conditional on apply's explicit authority gates.
+
+   Explain has no maintenance or mutation authority. It asserts the existing
+   ledger schema and embedded identities, captures one coherent strict target
+   snapshot, and refuses with `explain_observation_precondition_failed` when
+   repair is needed. It does not create/prune/repair ledger state, diagnose or
+   negotiate a provider, invoke a native/provider action, or write target
+   state. Invalid, unsupported, absent, ambiguous, and source-missing selectors
+   use finite refusal codes and never echo the untrusted selector.
 3. **Reference safety**: compilation blocks surviving canonical references. Adapter guards check runtime reverse references; a missing required guard table also blocks. `--force-delete-referenced` is an explicit report-not-hide escape hatch.
 4. **Canary armed**: listeners on `save_post`, `transition_post_status`, `created_term`, `wp_insert_comment` + `pre_wp_mail` + `pre_http_request`; any fire during apply = hard failure.
 5. **Phase 1** — upsert rows (posts, terms) with placeholder refs, direct `$wpdb`; mint local ids; write `_duo_uuid`.
@@ -788,7 +819,7 @@ other effect type or provider resource.
 9. **Verify convergence** — recapture the live target through the canonical snapshot reader in a fresh WordPress process before any convergence metadata advances. The verifier is pinned to the exact compiled artifact used by apply, avoiding stale pre-apply plugin models and refusing a concurrently changed repository. Every entity in the compiled tree must have the same type and canonical hash. Target-only entities remain untouched because absence is not deletion authority; when `--with-deletes` is explicit, every compiled tombstone UUID must be absent. A mismatch names the failed invariant, retains `apply_in_progress`, and leaves all base hashes and `applied_revision` unadvanced.
 10. **Receipts and retry** — only after verification passes, a successful or already-absent deletion stores the tombstone hash in `duo_state` with entity type `deletion`; re-planning returns `deleted`, so retries are idempotent. Live hashes and `applied_revision` update atomically with clearing `apply_in_progress`.
 
-For the primary `compile`, `capture`, `plan`, `apply`, `deploy`, `code-stage`,
+For the primary `compile`, `capture`, `plan`, `explain`, `apply`, `deploy`, `code-stage`,
 and `code-finalize` command path, a JSON-mode refusal wraps the stable object
 above in `format:"duo-command-refusal/v1"` and adds `command`, `reason_code`,
 reviewed public `message`, and reviewed public `remediation`. The established

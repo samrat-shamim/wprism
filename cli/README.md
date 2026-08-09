@@ -3,7 +3,7 @@
 `duo` is the host-agnostic, multi-environment front end for the Duo agent.
 Git stays git — branching, merging, and history all happen on the site repo
 exactly as before. `duo` only adds two things on top of the per-environment
-`wp duo capture|plan|apply` commands (see [agent/src/Cli.php](../agent/src/Cli.php)):
+`wp duo capture|plan|explain|apply` commands (see [agent/src/Cli.php](../agent/src/Cli.php)):
 
 1. **Environment drivers** — one narrow workflow boundary with local,
    container, and SSH transports, plus a closed capability report so Duo can
@@ -40,6 +40,7 @@ duo status <env>
 duo capabilities <env> [--format=json]
 duo capture <env> [extra wp-cli flags...]
 duo plan    <env> [extra wp-cli flags...]
+duo explain <env> <bucket>:<entity-key> [--format=json] [planning flags...]
 duo apply   <env> [extra wp-cli flags...]
 duo deploy  <env> [--force-code-mismatch] [--force-code-drift]
 duo env-set <env> --name=<name> (--value=<value> | --stdin)
@@ -305,6 +306,25 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   `duo status` parses and reformats; it does not print the raw JSON. Use
   `duo plan <env> --format=json` for that.
 
+- **`duo explain <env> <selector> [--format=json]`** — rebuilds the current
+  plan under a strict observation boundary and traces one itemized entity row
+  through its compiled source shape, effective policy/manifest declarations,
+  outbound declared reference edges, exact rebuild surfaces, selected
+  structured actions, and convergence verifier. Run human `duo plan <env>`
+  and copy its indented, hash-safe `EXPLAIN` selector. JSON uses the separate
+  `format:"duo-explain/v1"` contract; plan/status JSON remains unchanged.
+
+  Explain is observational: it asserts an already-provisioned ledger and a
+  coherent target snapshot, and refuses if identity repair is required. It
+  does not prune or repair the ledger, negotiate providers, invoke native or
+  provider actions, or write target state. Action rows mean “this entity
+  contributes to this declaration”; availability is deliberately
+  `not_checked`, because apply negotiates before mutation. Canonical values,
+  raw entity keys, repository paths, target-local ids, action arguments,
+  provider receipts, and exception detail are omitted. Global plan sections
+  are not selectors; use plan/status for lifecycle, code, capability, and
+  whole-plan findings.
+
 - **`duo capabilities <env> [--operation=<op>] [--surface=<surface>]`
   `[--revision=<sha>] [--format=json]`** — resolves the repository's exact
   manifest pins against [the generated capability registry](../manifests/capabilities/registry.json).
@@ -317,8 +337,9 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   --all` reports the complete shipped library. `duo status`, host
   deploy/promote, and `make release-gate` consume the same generated claims.
 
-- **`duo capture|plan|apply <env> [flags...]`** — pure passthrough to `wp duo
-  capture|plan|apply --repo=<repo_path> [flags...]` for that environment.
+- **`duo capture|plan|explain|apply <env> [flags...]`** — pure passthrough to
+  `wp duo capture|plan|explain|apply --repo=<repo_path> [flags...]` for that
+  environment.
   Every flag after `<env>` is forwarded verbatim — e.g.:
 
   ```
