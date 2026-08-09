@@ -51,8 +51,7 @@ final class Cli {
             $message = $t->publicMessage;
             $remediation = $t->remediation;
             $redacted = false;
-        } elseif (str_starts_with($t->getMessage(), 'duo: ')
-            && !CommandRefusalException::containsSensitivePublicDetail(['message' => $t->getMessage()])) {
+        } elseif (self::publishable_refusal($t->getMessage())) {
             // The engine's own refusal convention: a message deliberately
             // authored for the operator, prefixed `duo: ` at its throw site
             // (Deletion::capability(), Policy's validators, dozens more).
@@ -68,7 +67,10 @@ final class Cli {
             // embeds a secret-shaped value.
             $reasonCode = str_replace('-', '_', $command) . '_refused';
             $message = $t->getMessage();
-            $remediation = self::refusal_remediation($command);
+            // Not the generic "inspect private operator evidence" floor: the
+            // whole premise of this branch is that the message IS the public
+            // answer.
+            $remediation = 'the refusal message names the blocker; correct it, then retry the command';
             $specific = [
                 'error' => $reasonCode,
                 'diagnostics' => [[
@@ -149,6 +151,50 @@ final class Cli {
         }
         WP_CLI::line($encoded);
         WP_CLI::halt(1);
+    }
+
+    /**
+     * May this Throwable's message be published verbatim in the JSON
+     * refusal envelope?
+     *
+     * The `duo: ` prefix marks a refusal deliberately authored for the
+     * operator — but the prefix alone is not proof of authorship: three
+     * wrapper families re-prefix text the engine does NOT write (a
+     * provider/regenerator's own exit tail per DUO-3282, and wpdb's
+     * last_error on the deletion-guard paths — which Db.php's own header
+     * warns "can echo option/meta payloads"). Those stay redacted here even
+     * though their non-JSON rendering is unchanged. Beyond the shared
+     * sensitivity screen, two extra shapes are excluded from this branch
+     * only (scoped here, not in containsSensitivePublicDetail, so typed
+     * refusal payloads keep their existing semantics): user logins
+     * (`exact login '…'` — cli/README's redaction contract names logins
+     * explicitly, and guard_personal_data() deliberately keeps them
+     * operator-only) and absolute filesystem paths (the shared screen only
+     * catches home-dir shapes). A refusal excluded here falls back to the
+     * fully-redacted envelope — exactly the pre-DUO-3398 behavior, so
+     * fail-closed is never a regression. A multi-line refusal also stays
+     * redacted (the control-byte screen): the loud multi-line gates keep
+     * their non-JSON rendering and are a candidate for typed refusals, not
+     * for this branch.
+     */
+    private static function publishable_refusal(string $message): bool {
+        if (!str_starts_with($message, 'duo: ')) {
+            return false;
+        }
+        foreach ([
+            'duo: required manifest action',
+            'duo: batch regenerator',
+            'duo: deletion guard lock',
+        ] as $wrapperPrefix) {
+            if (str_starts_with($message, $wrapperPrefix)) {
+                return false;
+            }
+        }
+        if (preg_match("~\\bexact login '~", $message) === 1
+            || preg_match('~(?:^|[\s"\'(=])(?:[A-Za-z]:[\\\\/]|/)[^\s"\')]+~', substr($message, 5)) === 1) {
+            return false;
+        }
+        return !CommandRefusalException::containsSensitivePublicDetail(['message' => $message]);
     }
 
     private static function refusal_remediation(string $command): string {

@@ -262,9 +262,49 @@ namespace {
     );
     $secretRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
     check(
-        ($secretRefusal['details_redacted'] ?? null) === true
+        ($secretRefusal['error'] ?? null) === 'capture_failed'
+            && ($secretRefusal['details_redacted'] ?? null) === true
             && !str_contains((string) json_encode($secretRefusal), 'sk_live_1234567890ABCDEFGHIJ'),
-        'a duo:-prefixed refusal embedding a secret-shaped value is still redacted by the sensitivity screen'
+        'a duo:-prefixed refusal embedding a secret-shaped value is still redacted by the sensitivity screen — '
+        . 'and falls all the way back to the generic capture_failed shape, never a half-public _refused'
+    );
+
+    // The `duo: ` prefix is not proof of authorship: three wrapper families
+    // re-prefix text the engine does not write. Each must stay redacted.
+    foreach ([
+        'duo: required manifest action \'provider:probe/x\' failed — exit 1: PHP Warning with a payload tail',
+        'duo: batch regenerator \'woocommerce-product-lookups\' failed: wpdb said something with an option value in it',
+        'duo: deletion guard lock refused for post 7: guard query failed for wp_posts : Deadlock found MUSTNOTLEAK',
+    ] as $wrapped) {
+        \Duo\Capture::$failure = new RuntimeException($wrapped);
+        $wrappedRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+        check(
+            ($wrappedRefusal['error'] ?? null) === 'capture_failed'
+                && ($wrappedRefusal['details_redacted'] ?? null) === true
+                && !str_contains((string) json_encode($wrappedRefusal), 'MUSTNOTLEAK')
+                && !str_contains((string) json_encode($wrappedRefusal), 'payload tail'),
+        'a wrapper-prefixed refusal carrying foreign text stays redacted: ' . substr($wrapped, 0, 40)
+        );
+    }
+
+    \Duo\Capture::$failure = new RuntimeException(
+        "duo: user-meta exact login 'privateperson' disappeared after preflight; transaction rolled back"
+    );
+    $loginRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+    check(
+        ($loginRefusal['details_redacted'] ?? null) === true
+            && !str_contains((string) json_encode($loginRefusal), 'privateperson'),
+        'a refusal naming an exact login stays redacted — logins are in the redaction contract by name'
+    );
+
+    \Duo\Capture::$failure = new RuntimeException(
+        'duo: canonical state at /var/www/site/state is not writable'
+    );
+    $pathRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+    check(
+        ($pathRefusal['details_redacted'] ?? null) === true
+            && !str_contains((string) json_encode($pathRefusal), '/var/www'),
+        'a refusal embedding an absolute filesystem path stays redacted in the public branch'
     );
 
     \Duo\Capture::$failure = new RuntimeException('TypeError-shaped accident with no refusal prefix');
