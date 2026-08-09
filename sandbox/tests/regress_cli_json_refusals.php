@@ -256,6 +256,10 @@ namespace {
             && !array_key_exists('details_redacted', $captureRefusal),
         'the conformance-carried deletion refusal reaches JSON naming its table (the DUO-3398 regression)'
     );
+    check(
+        ($captureRefusal['remediation'] ?? null) === 'the refusal message names the blocker; correct it, then retry the command',
+        'a public refusal\'s remediation says the message is the answer — never a pointer at private evidence'
+    );
 
     \Duo\Capture::$failure = new RuntimeException(
         'duo: refusing capture — option sk_live_1234567890ABCDEFGHIJ looks like a live secret'
