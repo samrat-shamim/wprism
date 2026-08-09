@@ -32,7 +32,10 @@ mapfile -t CONF2_WPCF7_IDS < <(
   || fail "expected exactly one rendered _wpcf7 numeric id, got ${#CONF2_WPCF7_IDS[@]} (${CONF2_WPCF7_IDS[*]:-none})"
 CONF2_WPCF7_ID="${CONF2_WPCF7_IDS[0]}"
 
-CONF1_WPCF7_ID=$($COMPOSE run --rm -T cli1 wp post list --post_type=wpcf7_contact_form --field=ID | head -1)
+CONF1_WPCF7_ID=$($COMPOSE run --rm -T cli1 wp post list \
+  --post_type=wpcf7_contact_form --name=conformance-contact-form --format=ids)
+[[ "$CONF1_WPCF7_ID" =~ ^[0-9]+$ ]] \
+  || fail "expected one numeric source _wpcf7 id for conformance-contact-form, got '${CONF1_WPCF7_ID:-none}'"
 if [ "$CONF2_WPCF7_ID" = "$CONF1_WPCF7_ID" ]; then
     fail "conf2's rendered form uses conf1's numeric post id ($CONF1_WPCF7_ID) — ids should differ across environments"
 fi
