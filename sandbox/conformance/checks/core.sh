@@ -252,14 +252,14 @@ jq -n --arg compose "$PWD/pair.yml" '{envs:{target:{transport:"docker",compose_f
   >"$EXPLAIN_REGISTRY"
 # A real attachment is in scope. Register an offload adapter hook that would
 # abort if strict explain contacted it; local media is already present, so the
-# observation must bypass provider-owned code entirely.
-wp_conf2 eval '
-  wp_mkdir_p(WPMU_PLUGIN_DIR);
-  file_put_contents(
-    WPMU_PLUGIN_DIR . "/duo-explain-offload-guard.php",
-    "<?php\nadd_filter(\"duo_attachment_capture_source\", static function () { throw new RuntimeException(\"DUO_EXPLAIN_OFFLOAD_HOOK_WAS_INVOKED\"); });\n"
-  );
-' >/dev/null
+# observation must bypass provider-owned code entirely. The persistent web
+# volume is root-owned, so install the fixture through the pair's exact owned
+# web container, then prove WordPress actually registered it before relying on
+# the negative invocation assertion.
+$COMPOSE exec -T --user root wp2 sh -c \
+  'printf "%s\n" "<?php" "add_filter(\"duo_attachment_capture_source\", static function () { throw new RuntimeException(\"DUO_EXPLAIN_OFFLOAD_HOOK_WAS_INVOKED\"); });" > /var/www/html/wp-content/mu-plugins/duo-explain-offload-guard.php'
+[ "$(wp_conf2 eval 'echo has_filter("duo_attachment_capture_source") ? "registered" : "missing";')" = 'registered' ] \
+  || fail "the throwing attachment-offload premise hook was not registered"
 EXPLAIN_DB_BEFORE=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null | shasum -a 256 | awk '{print $1}')
 EXPLAIN_REPO_BEFORE=$(git -C "$CONF_REPO2" status --porcelain --untracked-files=all)
 EXPLAIN_RC=0
@@ -270,7 +270,7 @@ if [ "$EXPLAIN_RC" -eq 0 ]; then
   EXPLAIN_HUMAN=$(php ../cli/duo --envs-file="$EXPLAIN_REGISTRY" explain target "$EXPLAIN_SELECTOR" 2>/dev/null) \
     || EXPLAIN_RC=$?
 fi
-wp_conf2 eval 'unlink(WPMU_PLUGIN_DIR . "/duo-explain-offload-guard.php");' >/dev/null
+$COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/duo-explain-offload-guard.php
 rm -f -- "$EXPLAIN_REGISTRY"
 [ "$EXPLAIN_RC" -eq 0 ] || fail "public host duo explain refused a valid current selector"
 jq -e --arg selector "$EXPLAIN_SELECTOR" --arg entity_hash "$EXPLAIN_ENTITY_HASH" '
