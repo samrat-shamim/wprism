@@ -831,8 +831,13 @@ private home path (Unix, drive-letter, or UNC), or control byte, the whole
 diagnostic batch is omitted,
 the stable `error` remains, and `details_redacted:true` is returned. Unknown
 query- or fragment-bearing absolute URIs are conservatively treated as signed
-or credential-bearing rather than serialized from refusal evidence. Unknown
-throwables never contribute their message, cause, path, or trace. Known scope
+or credential-bearing rather than serialized from refusal evidence. An engine-authored
+refusal — a `duo: `-prefixed message that is single-line, wrapper-free, and
+passes the sensitivity screen (no secret shapes, no logins, no absolute
+paths) — is public verbatim under `<command>_refused` (DUO-3398): the
+message is the operator's answer, and redacting it withheld the answer.
+Every other unknown throwable never contributes its message, cause, path,
+or trace. Known scope
 and recovery gates use finite source-owned codes and remedies; an uncertain
 commit or ambiguous publication boundary explicitly instructs callers not to
 retry or discard retained evidence.
