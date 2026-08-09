@@ -1743,13 +1743,20 @@ cert_expect_throw(
     'orphan certificates without adapters/<name>.json are fatal'
 );
 unlink($site . '/adapters/certifications/orphan.json');
-cert_write($site . '/adapters/certifications/site-demo.JSON', $certificateRaw);
+// The near-miss extension carries its OWN base name. A case variant of a name
+// already present in the directory is not a second entry on a case-insensitive
+// filesystem: the write reopens the existing file and the dirent keeps its
+// original spelling, so the entry the scan must refuse could never exist there
+// (and the matching unlink would delete the real certificate). Named apart, the
+// dirent is preserved verbatim on both kinds of host — the same fixture shape
+// regress_adapter_sources.php uses for `adapters/Legacy.JSON`.
+cert_write($site . '/adapters/certifications/extension-case.JSON', $certificateRaw);
 cert_expect_throw(
     static fn() => AdapterCertification::verifyDirectory($agent, $site),
     'only direct',
     'case-variant certificate extensions are fatal rather than ignored'
 );
-unlink($site . '/adapters/certifications/site-demo.JSON');
+unlink($site . '/adapters/certifications/extension-case.JSON');
 cert_write($site . '/adapters/certifications/nested/other.json', $certificateRaw);
 cert_expect_throw(
     static fn() => AdapterCertification::verifyDirectory($agent, $site),
