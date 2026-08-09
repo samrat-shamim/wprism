@@ -160,6 +160,26 @@ trust decision. Certified, exercised, uncertified, incompatible, missing, and
 ambiguous capabilities must remain visibly different in `status`, `plan`, and
 adapter diagnostics.
 
+Those six words are this doctrine's, and the shipped vocabulary is smaller by
+design — a status word minted to match prose would read as reviewed evidence
+next to `dispositions.json`, which is precisely the substitution the
+certification separation exists to refuse (`agent/src/AdapterSources.php`
+states the same rationale for the fourth word `uncertified`). So the mapping is
+stated here instead of being invented in code:
+
+| Doctrine word | Where it is visibly reported today |
+|---|---|
+| certified | `dispositions.json` status `certified` + a `certified` verdict from `CapabilityRegistry::report()`; `duo adapter list` disposition column |
+| exercised | not a status. The evidence facts behind it are: `evidence.status` (`current`/`candidate`), `plugin_execution.status` (`verified`/`unverified`/`not-a-product-claim`), and each named test citation resolved against the bundle's own verdict — all three printed by `duo adapter inspect` |
+| uncertified | the fourth status word, carried by an out-of-tree adapter's synthesized provenance record; blocker code `adapter_source_uncertified` |
+| incompatible | two separate code sets, deliberately not merged: a **certification** verdict from `CapabilityRegistry::report()` whose reason names the mismatch (`plugin_version_mismatch`, `wordpress_version_mismatch`, `php_version_mismatch`, `database_version_mismatch`, `theme_version_mismatch`, `revision_not_certified`, `multisite_unsupported`), and a **negotiation** problem row from `Providers::diagnose()` (`outside_version_range`, `identity_mismatch`, `contract_shape`, `malformed_capability`, `invalid_capability_args`, `non_idempotent_capability`) |
+| missing | certification: `missing_registry_entry`. Negotiation: `missing_plugin`, `inactive_plugin`, `missing_plugin_provider`, `missing_capability`, `undeclared_provider`, `provider_code_unavailable` |
+| ambiguous | refused rather than reported as a status — `AdapterSources` refuses ambiguous identity, shadowing, declared-name collisions, and case-fold confusables at load, and `duo adapter doctor` reports the same conditions as refusal rows with codes `ambiguous_identity`, `shadows_shipped`, `name_collision`, `case_collision` |
+
+The requirement the table serves is unchanged: each of those states must be
+distinguishable wherever capabilities are reported. It is the *word* that is
+not minted, not the distinction.
+
 An unsupported or unverifiable capability fails before destructive writes.
 Duo reports the missing capability, responsible adapter/provider, compatible
 versions, and remediation path rather than guessing or silently degrading.

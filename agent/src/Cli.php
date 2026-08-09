@@ -598,6 +598,23 @@ final class Cli {
                 WP_CLI::line('  remediation: ' . $r['remediation']);
             }
         }
+        // DUO-3339: provider negotiation's problem rows, reported at plan for
+        // the first time (spec/repo-format.md's bound (4)). Row shape is
+        // Providers::problem()'s — {provider,manifest,plugin,code,expected,
+        // found,remediation,message}, no uuid/path — so it gets its own block,
+        // mirrored in cli/src/PlanSummary.php exactly like the block above it
+        // so `duo status` and a plain `wp duo plan` never differ.
+        foreach ($plan['provider_problems'] ?? [] as $r) {
+            WP_CLI::line(
+                'PROVIDER_PROBLEM ' . ($r['provider'] ?? '?')
+                . ' [manifest=' . ($r['manifest'] ?? '?') . ' plugin=' . ($r['plugin'] ?? '?')
+                . '] [' . ($r['code'] ?? 'unknown') . ']: expected ' . ($r['expected'] ?? '?')
+                . ', found ' . ($r['found'] ?? '?')
+            );
+            if (($r['remediation'] ?? '') !== '') {
+                WP_CLI::line('  remediation: ' . $r['remediation']);
+            }
+        }
         // regen_pending (DUO-3234, design review addition 1): a derived
         // table with a hard per-entity availability dependency whose
         // post-apply verification failed and hasn't resolved yet — see
@@ -650,6 +667,7 @@ final class Cli {
         $counts .= ', ' . count($plan['uploads_inventory'] ?? []) . ' upload_mutations';
         $counts .= ', ' . count($plan['effects_inventory'] ?? []) . ' declared_effects';
         $counts .= ', ' . count($plan['adapter_dispositions'] ?? []) . ' adapter_dispositions';
+        $counts .= ', ' . count($plan['provider_problems'] ?? []) . ' provider_problems';
         WP_CLI::success("plan: $counts");
         if ($plan['drift']) {
             WP_CLI::warning('environment drift detected — capture-first workflow recommended');
@@ -668,6 +686,12 @@ final class Cli {
         }
         if (!empty($plan['adapter_dispositions'])) {
             WP_CLI::warning('capability registry blocker(s) selected — readiness is not green and host promotion will refuse');
+        }
+        if (!empty($plan['provider_problems'])) {
+            WP_CLI::warning(
+                'declared provider capabilities are missing or incompatible here — duo apply refuses before mutation '
+                . 'on any of these its own work reaches'
+            );
         }
         if (!empty($plan['missing_user'])) {
             WP_CLI::warning('required exact login(s) missing — duo apply will refuse before target mutation');
@@ -1721,7 +1745,19 @@ final class Cli {
                 if ($registry === null) {
                     throw new \RuntimeException("duo: $dir has no generated capability registry");
                 }
-                $report = $registry->report($manifests, $query, null);
+                // DUO-3339: real provenance, not the absent-sources default.
+                // Every row here IS shipped, so the source word does not
+                // change — but the tier and the file each row came from are
+                // now READ from the same scan `--repo` uses instead of being
+                // reconstructed by report()'s fallback, so a shipped shim
+                // prints its tier and its path in the library view too. Two
+                // code paths agreeing today is not the same as one path.
+                $report = $registry->report(
+                    $manifests,
+                    $query,
+                    null,
+                    AdapterSources::discover($dir, null)->diagnostics($manifests)
+                );
             } else {
                 if ($repo === null || $repo === '') {
                     WP_CLI::error('--repo required unless --all is used');

@@ -30,6 +30,9 @@ duo env materialize <env> --from <production-env> --branch <ref> [--create] [--t
 duo env reap <env> [--format=json]
 duo manifest-validate <manifests-dir> [--manifest=<name>[,...]] [--pins=<name>[,...]|--all] [--site=<site-repo>] [--no-code] [--format=json]
 duo manifest-validate --emit-schema
+duo adapter list [--repo=<site-repo>] [--format=json]
+duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
+duo adapter doctor [--repo=<site-repo>] [--format=json]
 duo doctor <env>
 duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
 duo adopt  <env>
@@ -89,6 +92,42 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   half under `--no-code`, listed as `deferred`.
   See
   [docs/guides/adapter-authoring.md](../docs/guides/adapter-authoring.md#checking-the-grammar-offline).
+
+- **`duo adapter list|inspect|doctor`** — the installed-adapter catalog, and
+  the other verb here that needs no environment. It reports what is installed
+  across the two adapter sources the engine has — the agent's own manifest
+  library and, with `--repo=<site-repo>`, that repository's own `adapters/`
+  overlay — where each adapter came from, the executable authority its own
+  declarations reach, and what is wrong with any of it. No WordPress, no
+  database, no transport.
+  `list` is one row per adapter: name, source, derived trust tier
+  (`declarative_manifest`, `native_action`, `plugin_provider`,
+  `compatibility_shim`) with `tier_basis` naming the exact declaration that
+  produced it, reviewed disposition status (or `uncertified` for an
+  out-of-tree adapter), and an isolated grammar verdict from the engine's real
+  loader.
+  `inspect <name>` adds the reviewed disposition entry, the generated registry
+  claim (adapter digest, supported versions, operations, surfaces, explicit
+  unsupported boundaries, evidence bundle), the providers the manifest
+  requires with the capabilities each must advertise, and the verification
+  facts that already exist — `evidence.status`, the claim's
+  `plugin_execution.status`, and each cited test resolved against the bundle's
+  own verdict. There is no verification score, and inventing one next to
+  reviewed evidence is exactly what the certification separation refuses.
+  `doctor` adds this repository's readiness blockers (with `--repo`) and every
+  installed file the engine refuses to load — a shadowed adapter, an ambiguous
+  identity, a case-confusable name, a symlink, a nested or near-miss `.json`,
+  a reserved name — each as a ROW carrying the engine's own message, a stable
+  code, and its remediation. That is the point of the verb: `duo adapter
+  doctor` is what you can still run when the repository is in one of those
+  states, because every other command refuses first. The report format is
+  `duo-adapter-catalog/v1`.
+  Exit 0 healthy, 1 anything surfaced, 2 usage/IO. Every run, passing or
+  failing, ends with a `deferred` list: what needs a live target (plugin/theme
+  state, provider negotiation, certification against one environment), the
+  manifest-shipped PHP it names but deliberately never loads, and the
+  cross-manifest guards that belong to a pin set rather than to one adapter.
+  It never claims a live verdict.
 
 - **`duo doctor <env>`** — gated checks, each skipped (reported as a
   failure) once an earlier one fails, since a broken transport makes every

@@ -30,7 +30,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-capability-registry regress-woocommerce-contract regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
-	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock \
+	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog \
 	capability-registry-generate release-gate
 
 up:
@@ -465,6 +465,16 @@ regress-manifest-validate:
 regress-certbundle-lock:
 	bash sandbox/tests/regress_certbundle_lock.sh
 
+# DUO-3339: the installed-adapter catalog -- `duo adapter list|inspect|doctor`
+# over both adapter sources the engine has, plus AdapterSources::survey(), the
+# reporting half of the source scan. Drives the real host CLI as a subprocess
+# against the REAL shipped library and scratch site repositories, and pins the
+# architectural claim of the split by comparing each reported refusal against
+# the message AdapterSources::discover() throws for the same fixture, byte for
+# byte. Offline: file I/O and pure PHP only.
+regress-adapter-catalog:
+	bash sandbox/tests/regress_adapter_catalog.sh
+
 # DUO-3318 live counterpart: the parent-scoped natural key through capture,
 # deploy, apply, rename, and independent recapture across two environments
 # whose local ids genuinely differ. Own pair, so it is live-list material,
@@ -869,8 +879,8 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-cli-json-refusals regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
-	regress-manifest-validate regress-scope-closure regress-certbundle-lock
-	@echo "regress-offline-all: 91 offline suites green"
+	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog
+	@echo "regress-offline-all: 92 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

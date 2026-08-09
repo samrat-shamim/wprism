@@ -182,6 +182,73 @@ never through operator SQL. Where no force flag exists (`code_revision_stale`,
 `incomplete_lifecycle`, every `code_source_*` and `code_plugin_dependency_*`
 diagnostic), that absence is the design. Do not go looking for one.
 
+## Which adapters are installed, and what may they do?
+
+Three offline verbs answer that, with no environment and no WordPress:
+
+```
+duo adapter list    [--repo=<site-repo>] [--format=json]
+duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
+duo adapter doctor  [--repo=<site-repo>] [--format=json]
+```
+
+There are exactly **two adapter sources**: the agent's own manifest library,
+and — with `--repo` — that site repository's `adapters/` overlay. Nothing else
+is discovered, and pinning any other source is refused.
+
+Every adapter carries a **derived trust tier**, computed from the privileges
+its own declarations actually reach, never self-declared:
+
+| Tier | Reached by declaring | What it means |
+|---|---|---|
+| `declarative_manifest` | nothing executable | data only; classification, refs, guards |
+| `native_action` | `actions[].kind: "native"` | a closed operation implemented by reviewed engine code |
+| `plugin_provider` | `providers[].source: "plugin"` | executable semantics trusted as part of the installed plugin |
+| `compatibility_shim` | `interpreter`, a `regen_dependency.regenerator`, or `providers[].source: "manifest"` | Duo-owned executable code shipped with the manifest — the exceptional, quarantined case |
+
+The tier is the **highest** one a manifest reaches, not the first declaration
+you happen to notice, and the table's rows are in ascending order. Declaring a
+native action does not *get* you `native_action`: an adapter that also declares
+a `providers[].source: "plugin"` reports `plugin_provider`, and one that
+declares an interpreter, a regenerator, or a manifest-sourced provider reports
+`compatibility_shim` regardless of everything else. `native_action` is what a
+manifest reports when a native action is the *only* executable thing it
+declares. That is the whole point of deriving the tier instead of accepting a
+declared one — a manifest cannot report less authority than it asks for.
+
+`list` prints the tier next to `tier_basis`, the exact declaration that
+produced it, so a row reading `compatibility_shim` can be checked rather than
+believed. `inspect` adds the reviewed disposition entry, the generated registry
+claim, the providers the manifest requires with the capabilities each must
+advertise, and the verification facts that already exist — `evidence.status`,
+`plugin_execution.status`, and each cited test resolved against the bundle's
+own verdict. There is no verification *score*; the certification separation
+exists precisely so a new word cannot be minted next to reviewed evidence.
+
+`doctor` adds this repository's readiness blockers and, more importantly, every
+installed file the engine refuses to load — a shadowed adapter, an ambiguous
+identity, a case-confusable name, a symlink, a nested or near-miss `.json`, a
+reserved name — as ROWS with the engine's own message, a stable code, and a
+remediation. Those conditions make every other command refuse outright, which
+is why `duo adapter doctor` reports them instead of dying on them. Exit 0
+healthy, 1 anything surfaced, 2 usage. Each run ends with what it did *not*
+check; it never claims a live verdict.
+
+For the live half — is the plugin installed, active, and in range? does the
+provider answer? — `duo plan <env>` and `duo status <env>` now carry
+`provider_problems` rows, one per declared provider capability this environment
+cannot supply, each naming the declaring manifest, the owning plugin, and a
+remediation. They are reported and counted but do not by themselves flip
+`duo status`'s exit code: the diagnosis covers every *declared* provider
+action, which is wider than the set any one apply negotiates, and apply's own
+refusal stays where it belongs — immediately before the first mutation.
+
+Plan-time diagnosis constructs the same provider objects apply does — a
+manifest-sourced provider's file is required and its class constructed, and
+plugin-sourced providers come off the `duo_providers` filter — so plan/status
+now execute provider constructors and `identity()`/`capabilities()`. No
+capability is invoked.
+
 ## Where the line is
 
 Duo's boundaries fall into three kinds.
@@ -229,9 +296,14 @@ rather than working around it.
 
 - One-command bootstrap of a fresh site — **Planned (DUO-3336)** — not yet shipped.
   Today: adopt over SSH, or hand-write `site.duo.json`.
-- Adapter discovery, trust tiers, and a capability catalog — **Planned (DUO-3339)** — not yet shipped.
-  Structured native actions and plugin-owned providers, once bundled with this,
-  have shipped; see
+- Discovery of adapters you do not already have — **Planned (DUO-3339)** — not yet shipped.
+  The engine has exactly two adapter sources: its own manifest library, and a
+  site repository's `adapters/` overlay. A manifest a plugin ships inside its
+  own directory, or one installed as a versioned package, is discovered by
+  nothing, and pinning any other source is refused.
+  Trust tiers and the installed-adapter catalog over those two sources HAVE
+  shipped — see "Which adapters are installed, and what may they do?" above,
+  plus
   [adapter-authoring.md](adapter-authoring.md#declaring-repair-work-actions-and-providers).
 - Scoped promotion and synchronization with dependency closure — **Planned (DUO-3344)** — not yet shipped.
   Resolving and previewing a scope has shipped: `duo scope <env> --roots=<selectors>`

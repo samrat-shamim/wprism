@@ -74,6 +74,74 @@ final class AdapterSources {
     public const TIER_PLUGIN_PROVIDER = 'plugin_provider';
     public const TIER_COMPATIBILITY_SHIM = 'compatibility_shim';
 
+    /**
+     * A stable code for every condition the scan refuses (DUO-3339).
+     *
+     * Minted HERE rather than in the reporting layer, and for the same reason
+     * the refusal messages live here: one scan produces both the load-time
+     * exception and the reported row (see scan()), so a code invented by a
+     * reporter could name a condition this file no longer has. The message a
+     * code carries is byte-identical to the one discover() throws — a catalog
+     * that paraphrased an engine refusal would be a second, drifting copy of
+     * the rule.
+     */
+    public const REFUSAL_SOURCE_NOT_IN_REPOSITORY = 'source_not_in_repository';
+    public const REFUSAL_RESERVED_NAME = 'reserved_name';
+    public const REFUSAL_SYMLINK_SOURCE = 'symlink_source';
+    public const REFUSAL_NESTED_JSON = 'nested_json';
+    public const REFUSAL_EXTENSION_CASE_MISMATCH = 'extension_case_mismatch';
+    public const REFUSAL_SHADOWS_SHIPPED = 'shadows_shipped';
+    public const REFUSAL_AMBIGUOUS_IDENTITY = 'ambiguous_identity';
+    public const REFUSAL_NAME_COLLISION = 'name_collision';
+    public const REFUSAL_CASE_COLLISION = 'case_collision';
+    public const REFUSAL_MALFORMED_MANIFEST = 'malformed_manifest';
+    /**
+     * The four conditions DUO-3314's signed-certification pass added to this
+     * scan. They are codes here for the same reason the nine above are: every
+     * one of them is a whole-directory refusal, so an operator who hits one
+     * cannot run any other command to find out which file caused it.
+     */
+    public const REFUSAL_INVALID_NAME = 'invalid_adapter_name';
+    public const REFUSAL_OUT_OF_TREE_PRIVILEGE = 'out_of_tree_privilege';
+    public const REFUSAL_CERTIFICATION_SOURCE = 'certification_source';
+    public const REFUSAL_CERTIFICATE_INVALID = 'certificate_invalid';
+
+    /**
+     * The site repository's own policy file, which every grammar verdict
+     * loads. Not one of the scan's conditions at all — discover() never reads
+     * site.duo.json, Policy::load() opens it first — so it is a survey-only
+     * refusal, kept here because a consumer grouping refusal codes should not
+     * have to know which layer produced one.
+     */
+    public const REFUSAL_SITE_POLICY_UNREADABLE = 'site_policy_unreadable';
+
+    /**
+     * A surveyed adapter's grammar verdict (DUO-3339).
+     *
+     * `blocked_by_source_refusal` is a third word rather than an `error`
+     * because the two are different facts and only one of them is about this
+     * adapter. The engine refuses an adapter source WHOLE-DIRECTORY, before
+     * any manifest in it is validated, so once a sibling file is refused this
+     * adapter's own grammar has not been judged at all — reporting that as
+     * `error` would blame a manifest nobody has read yet, and counting it as a
+     * grammar error would inflate the number an operator uses to decide how
+     * much is broken.
+     */
+    /**
+     * A site adapter's certification word, which is DUO-3314's vocabulary plus
+     * one honest gap. `certification_unjudged` is the same shape as
+     * `blocked_by_source_refusal` above and exists for the same reason: when
+     * the certification source itself is refused, NO companion certificate is
+     * paired, so a signed adapter's evidence was never looked at. Reporting
+     * that as `uncertified` would be a judged negative for something never
+     * judged — the one failure mode this whole surface exists to remove.
+     */
+    public const CERTIFICATION_UNJUDGED = 'certification_unjudged';
+
+    public const GRAMMAR_OK = 'ok';
+    public const GRAMMAR_ERROR = 'error';
+    public const GRAMMAR_BLOCKED = 'blocked_by_source_refusal';
+
     /** @var array<string, array{source:string, file:string, path:string}> */
     private array $origins;
     /** @var array<string, array> synthesized disposition per out-of-tree name */
@@ -111,22 +179,97 @@ final class AdapterSources {
      * directory.
      */
     public static function discover(string $manifestDir, ?string $repo): self {
+        $refusals = [];
+        $scan = self::scan($manifestDir, $repo, false, $refusals);
+        return new self($scan['origins'], $scan['provenance'], $scan['certificates'], $scan['claims']);
+    }
+
+    /**
+     * The one scan, in its two modes.
+     *
+     * `$collect === false` is discover(): every condition below throws, with
+     * the same message, at the same point, in the same order it always did —
+     * a broken installation must not wait for a pin to reveal itself, and a
+     * caller that reaches a manifest has been told nothing was ambiguous.
+     *
+     * `$collect === true` is survey(): the identical conditions, identical
+     * messages, recorded as rows instead. That mode exists because the doctor
+     * view has to SHOW a shadowed or ambiguous adapter, and a command that
+     * died on the condition it was run to report would be useless exactly when
+     * it was needed. Sharing one body rather than writing a second scan is the
+     * whole point: a rule that moved in discover() and not in the reporter
+     * would be a catalog quietly describing an engine that no longer exists.
+     *
+     * The two modes diverge in exactly two places, both stated at their site:
+     * a refused site file is SKIPPED rather than aborting the walk, and
+     * collect mode decodes every shipped manifest up front (throw mode still
+     * decodes them only when a site source exists — see declared_names()).
+     *
+     * @param array<int, array<string,mixed>> $refusals collected in $collect mode
+     * @return array{origins:array<string,array>, provenance:array<string,array>, manifests:array<string,array>}
+     */
+    private static function scan(string $manifestDir, ?string $repo, bool $collect, array &$refusals): array {
         $origins = [];
         foreach (glob(rtrim($manifestDir, '/') . '/*.json') ?: [] as $file) {
             $name = basename($file, '.json');
             if ($name === 'dispositions') {
                 continue;
             }
-            self::assert_name($name, "shipped adapter '$file'");
+            if (!self::guarded(
+                $collect,
+                $refusals,
+                self::REFUSAL_INVALID_NAME,
+                [$file],
+                'rename the file to a canonical lowercase ASCII slug, or remove it from the manifest library',
+                static fn() => self::assert_name($name, "shipped adapter '$file'")
+            )) {
+                continue;
+            }
             $origins[$name] = ['source' => self::SHIPPED, 'file' => $file, 'path' => $file];
         }
         ksort($origins, SORT_STRING);
+        // Collect mode reports one row per adapter, so it needs every shipped
+        // manifest's own bytes whether or not a site source exists. Throw mode
+        // must not pay that I/O (see declared_names()), so the decode is here
+        // rather than in the glob above.
+        $manifests = [];
+        if ($collect) {
+            foreach ($origins as $name => $origin) {
+                $read = self::read_manifest((string) $origin['file']);
+                if ($read['stage'] !== 'ok') {
+                    self::refuse(
+                        $collect,
+                        $refusals,
+                        self::REFUSAL_MALFORMED_MANIFEST,
+                        [(string) $origin['path']],
+                        "duo: shipped adapter '{$origin['path']}' cannot be read as a manifest: " . $read['error'],
+                        self::repair_advice($read['stage'])
+                        . ', or restore it from the agent release this library shipped with'
+                    );
+                    unset($origins[$name]);
+                    continue;
+                }
+                $manifests[$name] = $read['manifest'];
+            }
+        }
         if ($repo === null) {
-            return new self($origins, []);
+            return [
+                'certificates' => [],
+                'claims' => [],
+                'manifests' => $manifests,
+                'origins' => $origins,
+                'provenance' => [],
+            ];
         }
         $siteDir = rtrim($repo, '/') . '/' . self::SITE_DIR;
         if (!is_dir($siteDir)) {
-            return new self($origins, []);
+            return [
+                'certificates' => [],
+                'claims' => [],
+                'manifests' => $manifests,
+                'origins' => $origins,
+                'provenance' => [],
+            ];
         }
         // is_dir() FOLLOWS symlinks, so the source directory itself has to be
         // proved before anything inside it is trusted: `adapters` checked in as
@@ -141,15 +284,31 @@ final class AdapterSources {
         $resolvedSite = realpath($siteDir);
         $expectedSite = $resolvedRepo === false ? '' : $resolvedRepo . '/' . self::SITE_DIR;
         if ($resolvedRepo === false || $resolvedSite === false || $resolvedSite !== $expectedSite) {
-            throw new \RuntimeException(
+            self::refuse(
+                $collect,
+                $refusals,
+                self::REFUSAL_SOURCE_NOT_IN_REPOSITORY,
+                [$siteDir],
                 "duo: site adapter source $siteDir resolves to "
                 . ($resolvedSite === false ? '(unresolvable)' : $resolvedSite)
                 . ', which is not ' . ($expectedSite !== '' ? $expectedSite : "this repository's own "
                     . self::SITE_DIR . ' directory')
                 . ' — an out-of-tree adapter source must be a real directory inside the site repository, because '
                 . 'every adapter it installs records a repo-relative provenance that travels with the repository. '
-                . 'Replace the link with the directory itself'
+                . 'Replace the link with the directory itself',
+                'replace the link with a real ' . self::SITE_DIR . '/ directory inside the site repository'
             );
+            // Collect mode stops HERE rather than continuing, unlike every
+            // other refusal below: the files behind this link are outside the
+            // repository, so surveying them would report adapters under
+            // repo-relative paths that no checkout of this repository holds.
+            return [
+                'certificates' => [],
+                'claims' => [],
+                'manifests' => $manifests,
+                'origins' => $origins,
+                'provenance' => [],
+            ];
         }
 
         // A site-local source that ships ratification data is asserting an
@@ -160,10 +319,16 @@ final class AdapterSources {
         // will run. Say so instead of ignoring the bytes.
         foreach (['dispositions.json' => 'certification data', 'capabilities' => 'capability registry data'] as $entry => $what) {
             if (file_exists($siteDir . '/' . $entry)) {
-                throw new \RuntimeException(
+                self::refuse(
+                    $collect,
+                    $refusals,
+                    self::REFUSAL_RESERVED_NAME,
+                    [self::SITE_DIR . '/' . $entry],
                     "duo: site adapter source $siteDir contains $entry — a site-local adapter source cannot supply "
                     . "$what for itself. Certification is external review evidence held with the agent's own "
-                    . 'manifest library; remove the file and treat these adapters as uncertified support'
+                    . 'manifest library; remove the file and treat these adapters as uncertified support',
+                    "remove $entry from " . self::SITE_DIR
+                        . '/ — these adapters are uncertified support and cannot ratify themselves'
                 );
             }
         }
@@ -173,53 +338,144 @@ final class AdapterSources {
         // exists to close.
         foreach (['interpreters', 'providers', 'regenerators'] as $codeDir) {
             if (file_exists($siteDir . '/' . $codeDir)) {
-                throw new \RuntimeException(
+                self::refuse(
+                    $collect,
+                    $refusals,
+                    self::REFUSAL_RESERVED_NAME,
+                    [self::SITE_DIR . '/' . $codeDir],
                     "duo: site adapter source $siteDir contains $codeDir, which the engine never loads — "
                     . 'out-of-tree adapters are data only. Install the adapter into the agent manifest library if it '
-                    . 'genuinely needs to ship executable code, or declare a plugin-owned provider instead'
+                    . 'genuinely needs to ship executable code, or declare a plugin-owned provider instead',
+                    "remove $codeDir from " . self::SITE_DIR . '/, install the adapter into the agent manifest '
+                        . 'library, or declare a plugin-owned provider instead'
                 );
             }
         }
-        self::assert_flat_json_source($siteDir);
+        self::assert_flat_json_source($siteDir, $collect, $refusals);
 
-        $shippedNames = self::declared_names($origins);
+        $shippedNames = self::declared_names($origins, $manifests, $collect, $refusals);
         $siteFiles = glob($siteDir . '/*.json') ?: [];
+        // `dispositions.json` was already refused above as a reserved name, and
+        // it is the one reserved entry this glob can also match. Reachable only
+        // in collect mode — throw mode never gets past that refusal — but there
+        // it mattered: the file went on to be judged AS AN ADAPTER and drew a
+        // second, misleading `ambiguous_identity` row about a manifest nobody
+        // ever claimed it was. One wrong file, one refusal. (The shipped glob
+        // above skips the same name for the same reason.)
+        $siteFiles = array_values(array_filter(
+            $siteFiles,
+            static fn(string $file): bool => basename($file, '.json') !== 'dispositions'
+        ));
         sort($siteFiles, SORT_STRING);
-        $certificateFiles = self::certification_files($siteDir, $siteFiles);
+        $certificateFiles = [];
+        self::guarded(
+            $collect,
+            $refusals,
+            self::REFUSAL_CERTIFICATION_SOURCE,
+            [self::SITE_DIR . '/' . self::CERTIFICATION_DIR],
+            'give every certificate an exact companion ' . self::SITE_DIR
+                . '/<name>.json, and choose names that are distinct without relying on letter case',
+            static function () use ($siteDir, $siteFiles, &$certificateFiles): void {
+                $certificateFiles = self::certification_files($siteDir, $siteFiles);
+            }
+        );
         $provenance = [];
         $certificates = [];
         $claims = [];
         foreach ($siteFiles as $file) {
             $name = basename($file, '.json');
             $relative = self::SITE_DIR . '/' . basename($file);
-            self::assert_name($name, "site adapter '$relative'");
+            if (!self::guarded(
+                $collect,
+                $refusals,
+                self::REFUSAL_INVALID_NAME,
+                [$relative],
+                'rename the file to a canonical lowercase ASCII slug',
+                static fn() => self::assert_name($name, "site adapter '$relative'")
+            )) {
+                continue;
+            }
             // Symlinks are already refused for the whole directory by
             // assert_flat_json_source() above — deliberately there rather than
             // here, so a symlinked README or subdirectory is caught too, and
             // so nothing in this source is read before the check runs.
             $collision = $origins[$name] ?? null;
             if ($collision !== null) {
-                throw new \RuntimeException(
+                self::refuse(
+                    $collect,
+                    $refusals,
+                    self::REFUSAL_SHADOWS_SHIPPED,
+                    [$relative, (string) $collision['path']],
                     "duo: site adapter '$relative' shadows the shipped adapter '$name' ({$collision['file']}) — "
                     . 'an out-of-tree adapter overlays the shipped set, it never replaces a member of it. Rename the '
-                    . 'site adapter, or remove it and pin the shipped adapter'
+                    . 'site adapter, or remove it and pin the shipped adapter',
+                    "rename the site adapter, or remove it and pin the shipped '$name'"
                 );
+                // Every per-file refusal below ends the same way in collect
+                // mode: the file is not an installable adapter, so it gets a
+                // refusal row and no adapter row, and the walk continues so
+                // one broken file cannot hide the rest of the source.
+                continue;
             }
-            $manifest = Canon::decode(Canon::read_file($file));
+            // TWO BEHAVIORAL DELTAS, stated rather than buried (DUO-3339).
+            // Both live at this call, and every OTHER refusal message in this
+            // scan is byte-identical to what discover() threw before.
+            //
+            // 1. An unreadable or unparseable site manifest used to propagate
+            //    Canon's own bare exception out of discover() — "duo: cannot
+            //    read <path>" or "duo: invalid JSON: <reason>", naming no
+            //    adapter source. It is now wrapped so the message names the
+            //    file AS a site adapter, which is what makes it reportable as
+            //    a row beside the other refusals.
+            // 2. A site manifest that is valid JSON but not an OBJECT (a
+            //    number, string, boolean, or non-empty array) used to fall
+            //    through to the declared-name check and refuse as
+            //    `ambiguous_identity` — "declares name NULL but its file name
+            //    is 'x'" — which described a manifest it was not. It now
+            //    refuses here as `malformed_manifest` with its actual top-level
+            //    type named. The shipped side had no refusal at all for this:
+            //    Canon::decode() returns whatever the document was, so a
+            //    scalar reached trust_tier(array $manifest) and killed the
+            //    survey with a TypeError.
+            $read = self::read_manifest($file);
+            if ($read['stage'] !== 'ok') {
+                self::refuse(
+                    $collect,
+                    $refusals,
+                    self::REFUSAL_MALFORMED_MANIFEST,
+                    [$relative],
+                    "duo: site adapter '$relative' cannot be read as a manifest: " . $read['error'],
+                    self::repair_advice($read['stage']) . ', or remove it from ' . self::SITE_DIR . '/'
+                );
+                continue;
+            }
+            $manifest = $read['manifest'];
             $declared = $manifest['name'] ?? null;
             if (!is_string($declared) || $declared !== $name) {
-                throw new \RuntimeException(
+                self::refuse(
+                    $collect,
+                    $refusals,
+                    self::REFUSAL_AMBIGUOUS_IDENTITY,
+                    [$relative],
                     "duo: site adapter '$relative' declares name " . self::render($declared)
                     . ' but its file name is ' . self::render($name) . ' — a pin names the file while every '
                     . 'downstream identity (dispositions, digests, diagnostics) keys off the declared name, so the '
-                    . 'two disagreeing is ambiguous identity. Make the declared name match the file name'
+                    . 'two disagreeing is ambiguous identity. Make the declared name match the file name',
+                    'make the declared name match the file name'
                 );
+                continue;
             }
             if (isset($shippedNames[$name])) {
-                throw new \RuntimeException(
+                self::refuse(
+                    $collect,
+                    $refusals,
+                    self::REFUSAL_NAME_COLLISION,
+                    [$relative, self::SHIPPED . ':' . $shippedNames[$name]],
                     "duo: site adapter '$relative' claims the name '$name', already declared by the shipped manifest "
-                    . "'{$shippedNames[$name]}' — two adapters cannot answer to one name"
+                    . "'{$shippedNames[$name]}' — two adapters cannot answer to one name",
+                    "choose a name no shipped manifest declares, or pin the shipped '{$shippedNames[$name]}' instead"
                 );
+                continue;
             }
             // Case-insensitive too: a name that differs from a shipped one only
             // by case is one name on a case-insensitive filesystem and two on a
@@ -231,34 +487,68 @@ final class AdapterSources {
             // rather than assumed shipped — a site-vs-site collision reported
             // as a shipped one would send the operator to the wrong directory.
             $folded = self::casefold($name);
+            $caseCollision = false;
             foreach ($origins as $otherName => $otherOrigin) {
                 if ((string) $otherName !== $name && self::casefold((string) $otherName) === $folded) {
-                    throw new \RuntimeException(
+                    self::refuse(
+                        $collect,
+                        $refusals,
+                        self::REFUSAL_CASE_COLLISION,
+                        [$relative, (string) $otherOrigin['path']],
                         "duo: site adapter '$relative' claims the name " . self::render($name)
                         . ', which differs only by letter case from the ' . $otherOrigin['source'] . ' adapter '
                         . self::render((string) $otherName) . " ({$otherOrigin['path']}) — one name on a "
                         . 'case-insensitive filesystem, two on a case-sensitive one. Choose a name that is '
-                        . 'distinct without relying on case'
+                        . 'distinct without relying on case',
+                        'choose a name that is distinct without relying on letter case'
                     );
+                    $caseCollision = true;
+                    break;
                 }
+            }
+            if ($caseCollision) {
+                continue;
             }
             foreach ($shippedNames as $declaredName => $declaringFile) {
                 if ((string) $declaredName !== $name && self::casefold((string) $declaredName) === $folded) {
-                    throw new \RuntimeException(
+                    self::refuse(
+                        $collect,
+                        $refusals,
+                        self::REFUSAL_CASE_COLLISION,
+                        [$relative, self::SHIPPED . ':' . $declaringFile],
                         "duo: site adapter '$relative' claims the name " . self::render($name)
                         . ', which differs only by letter case from the name ' . self::render((string) $declaredName)
                         . " declared by the shipped manifest '$declaringFile' — one name on a case-insensitive "
                         . 'filesystem, two on a case-sensitive one. Choose a name that is distinct without '
-                        . 'relying on case'
+                        . 'relying on case',
+                        'choose a name that is distinct without relying on letter case'
                     );
+                    $caseCollision = true;
+                    break;
                 }
+            }
+            if ($caseCollision) {
+                continue;
             }
             // Prove the data-only boundary before spending any authority on a
             // companion certificate. Policy repeats this after loading the
             // pinned manifest as defense in depth and frozen reconstruction
             // runs the same check.
-            self::assert_out_of_tree_contract($manifest, $name, $relative);
+            if (!self::guarded(
+                $collect,
+                $refusals,
+                self::REFUSAL_OUT_OF_TREE_PRIVILEGE,
+                [$relative],
+                "install this adapter into the agent's own manifest library, or declare a plugin-owned provider "
+                    . 'instead — an out-of-tree manifest is data and acquires no executable privileges',
+                static fn() => self::assert_out_of_tree_contract($manifest, $name, $relative)
+            )) {
+                continue;
+            }
             $origins[$name] = ['source' => self::SITE, 'file' => $file, 'path' => $relative];
+            if ($collect) {
+                $manifests[$name] = $manifest;
+            }
             $certificateFile = $certificateFiles[$name] ?? null;
             if ($certificateFile === null) {
                 $provenance[$name] = self::provenance_record($name, $relative, $manifest);
@@ -270,13 +560,33 @@ final class AdapterSources {
             // loading it at file scope would form a circular bootstrap and
             // make otherwise independent offline entry points order-sensitive.
             require_once __DIR__ . '/AdapterCertification.php';
-            $verified = AdapterCertification::verifyFile(
-                $manifestDir,
-                $repo,
-                $name,
-                $manifest,
-                $certificateFile
-            );
+            $verified = null;
+            if (!self::guarded(
+                $collect,
+                $refusals,
+                self::REFUSAL_CERTIFICATE_INVALID,
+                [self::SITE_DIR . '/' . self::CERTIFICATION_DIR . "/$name.json", $relative],
+                'obtain a certificate signed by an authority this agent trusts, or remove the companion and keep '
+                    . 'the adapter as uncertified support',
+                static function () use ($manifestDir, $repo, $name, $manifest, $certificateFile, &$verified): void {
+                    $verified = AdapterCertification::verifyFile(
+                        $manifestDir,
+                        $repo,
+                        $name,
+                        $manifest,
+                        $certificateFile
+                    );
+                }
+            )) {
+                // A certificate that does not verify is an authority claim the
+                // engine refuses, and discover() refuses the whole source over
+                // it. Collect mode drops the adapter for the same reason every
+                // other per-file refusal does: reporting it as installed beside
+                // a row saying it is refused would be two answers to one
+                // question. The refusal row carries the verifier's own message.
+                unset($origins[$name], $manifests[$name]);
+                continue;
+            }
             $provenance[$name] = $verified['disposition'];
             $certificates[$name] = $verified['envelope'];
             $claims[$name] = $verified['claim'];
@@ -285,7 +595,486 @@ final class AdapterSources {
         ksort($provenance, SORT_STRING);
         ksort($certificates, SORT_STRING);
         ksort($claims, SORT_STRING);
-        return new self($origins, $provenance, $certificates, $claims);
+        ksort($manifests, SORT_STRING);
+        return [
+            'certificates' => $certificates,
+            'claims' => $claims,
+            'manifests' => $manifests,
+            'origins' => $origins,
+            'provenance' => $provenance,
+        ];
+    }
+
+    /**
+     * Read one manifest file, distinguishing the three separate ways it can
+     * fail to BE one.
+     *
+     * They are kept apart because they take three different actions, and a
+     * single "repair the file so it decodes as JSON" would be actively wrong
+     * advice for two of them:
+     *
+     *   - `read`   — the bytes could not be obtained at all (permissions, a
+     *                dangling entry). Nothing is wrong with the JSON; nobody
+     *                has seen it.
+     *   - `decode` — the bytes are not JSON.
+     *   - `shape`  — the bytes are valid JSON that is not a manifest: a
+     *                number, a string, a boolean, or a non-empty array. This
+     *                one is not cosmetic. `Canon::decode()` returns whatever
+     *                the document was, so a shipped `123.json` used to reach
+     *                `trust_tier(array $manifest)` as an int and kill the
+     *                whole survey with a TypeError — an inventory taken down
+     *                by one of the files it exists to inventory. An empty
+     *                `[]`/`{}` is deliberately NOT refused here: the two are
+     *                indistinguishable after an associative decode, and an
+     *                empty object is a legitimately EMPTY manifest whose
+     *                verdict belongs to the grammar check, not to this scan.
+     *
+     * @return array{manifest:?array, stage:string, error:string}
+     */
+    private static function read_manifest(string $file): array {
+        try {
+            $raw = Canon::read_file($file);
+        } catch (\Throwable $t) {
+            return ['error' => self::unprefixed($t->getMessage()), 'manifest' => null, 'stage' => 'read'];
+        }
+        try {
+            $decoded = Canon::decode($raw);
+        } catch (\Throwable $t) {
+            return ['error' => self::unprefixed($t->getMessage()), 'manifest' => null, 'stage' => 'decode'];
+        }
+        if (!is_array($decoded) || (array_is_list($decoded) && $decoded !== [])) {
+            return [
+                'error' => 'its top level is ' . (is_array($decoded) ? 'a JSON array' : get_debug_type($decoded))
+                    . ', and a manifest is a JSON object',
+                'manifest' => null,
+                'stage' => 'shape',
+            ];
+        }
+        return ['error' => '', 'manifest' => $decoded, 'stage' => 'ok'];
+    }
+
+    /** The action each read_manifest() failure stage actually calls for. */
+    private static function repair_advice(string $stage): string {
+        return match ($stage) {
+            'read' => 'make the file readable by the user running duo',
+            'shape' => "replace the file's contents with a JSON object",
+            default => 'repair the file so it parses as JSON',
+        };
+    }
+
+    /**
+     * Drop one leading `duo: ` from a nested engine message, so a wrapped
+     * refusal does not read `duo: … : duo: …`. Only the prefix is touched;
+     * the engine's own wording is never edited.
+     */
+    private static function unprefixed(string $message): string {
+        return str_starts_with($message, 'duo: ') ? substr($message, strlen('duo: ')) : $message;
+    }
+
+    /**
+     * Throw the refusal, or record it — the one place the two scan modes
+     * differ about a condition they agree on completely.
+     *
+     * `message` is the exception discover() has always thrown, verbatim.
+     * `remediation` is a separate, short field rather than more message text:
+     * the existing messages already end with their own advice, and rewriting
+     * one to split it would change a string this project's regressions pin
+     * byte for byte.
+     *
+     * @param list<string> $paths every file or directory the condition is about
+     */
+    private static function refuse(
+        bool $collect,
+        array &$refusals,
+        string $code,
+        array $paths,
+        string $message,
+        string $remediation
+    ): void {
+        if (!$collect) {
+            throw new \RuntimeException($message);
+        }
+        $row = [
+            'code' => $code,
+            'message' => $message,
+            'paths' => array_values($paths),
+            'remediation' => $remediation,
+        ];
+        // One wrong file draws one refusal. Several checks legitimately cover
+        // the same condition from different directions — the flat-source scan
+        // validates every top-level `*.json` identity, and the adapter loop
+        // validates the same identity again as defense in depth — and in throw
+        // mode only the first of them is ever reached. Collect mode reaches
+        // both, so identity is enforced here rather than by remembering at
+        // each call site which earlier check already covered this file.
+        foreach ($refusals as $existing) {
+            if ($existing['code'] === $row['code'] && $existing['paths'] === $row['paths']) {
+                return;
+            }
+        }
+        $refusals[] = $row;
+    }
+
+    /**
+     * refuse(), for a condition that is expressed as a THROWING assertion
+     * rather than as an `if`.
+     *
+     * DUO-3314's signed-certification pass added several of those to this scan
+     * (canonical identity grammar, the out-of-tree privilege boundary, the
+     * certification directory's own shape, and the signature verification
+     * itself), each written as an `assert_*`/`verify*` call that throws. In
+     * throw mode this re-throws the ORIGINAL exception object, so discover()
+     * fails with the same type, the same message, and the same stack it always
+     * did. In collect mode the same message becomes a row and the caller
+     * decides what to skip — the identical bargain refuse() makes, reached
+     * through a call instead of a branch.
+     *
+     * @param list<string> $paths
+     * @return bool false when the assertion refused (collect mode only)
+     */
+    private static function guarded(
+        bool $collect,
+        array &$refusals,
+        string $code,
+        array $paths,
+        string $remediation,
+        callable $assert
+    ): bool {
+        try {
+            $assert();
+            return true;
+        } catch (\Throwable $t) {
+            if (!$collect) {
+                throw $t;
+            }
+            self::refuse($collect, $refusals, $code, $paths, $t->getMessage(), $remediation);
+            return false;
+        }
+    }
+
+    /**
+     * Every installed adapter and every refused one, reported rather than
+     * thrown (DUO-3339).
+     *
+     * This is the read side of discover(). It exists because the catalog and
+     * doctor surfaces have to be able to SHOW the conditions discover()
+     * refuses — a shadowed pair, an ambiguous identity, a confusable name —
+     * and an operator whose repository is in one of those states is exactly
+     * the operator who cannot run any other command to find out why. Both
+     * modes walk the SAME scan (see scan()), so a refusal here is the engine's
+     * own refusal with its own message, never a reporter's restatement of it.
+     *
+     * What it does NOT do, deliberately: it never loads manifest-shipped PHP.
+     * A declared `interpreter` or `regen_dependency.regenerator` is REPORTED
+     * (as an executable surface, and as the basis of the trust tier) but not
+     * resolved, because resolving one means running its top level and its
+     * constructor — the trust decision `duo manifest-validate` documents at
+     * length and takes deliberately. An inventory of what is installed must
+     * not be the command that executes it.
+     *
+     * The shipped library is Policy::manifests_dir() rather than a parameter,
+     * matching every other product entry point into the catalog: one process
+     * has one shipped library, and the grammar verdict below resolves it
+     * through Policy::load() anyway, so a second directory here could only
+     * ever describe adapters the verdict was not about.
+     *
+     * @param ?string $repo site repository whose adapters/ source also counts
+     * @return array{adapters:list<array<string,mixed>>, refusals:list<array<string,mixed>>}
+     */
+    public static function survey(?string $repo): array {
+        $manifestDir = Policy::manifests_dir();
+        $refusals = [];
+        $scan = self::scan($manifestDir, $repo, true, $refusals);
+
+        // The site's OWN policy file, checked once, here rather than in scan()
+        // — discover() never reads it (Policy::load() opens it first and
+        // throws its own message), so adding this to the shared scan would
+        // change discover()'s behavior for a fact discover() has no opinion
+        // about.
+        //
+        // Checked at all because every grammar verdict below loads that file:
+        // one unparseable site.duo.json would otherwise produce one identical,
+        // unattributed refusal on EVERY shipped row and no refusal row at all,
+        // which reads as "all fifteen of your adapters are broken" for a
+        // single misplaced comma in a file none of them is. Recorded as one
+        // refusal that names the file, after which the fallback below judges
+        // shipped adapters without the site half — the same thing it already
+        // does for every other whole-directory refusal.
+        if ($repo !== null) {
+            $siteFile = rtrim($repo, '/') . '/site.duo.json';
+            $sitePolicy = self::read_manifest($siteFile);
+            if ($sitePolicy['stage'] !== 'ok') {
+                $refusals[] = [
+                    'code' => self::REFUSAL_SITE_POLICY_UNREADABLE,
+                    'message' => "duo: site policy '$siteFile' cannot be read: " . $sitePolicy['error']
+                        . ' — every adapter grammar verdict loads this file, so none of them could be judged '
+                        . 'against this repository',
+                    'paths' => [$siteFile],
+                    'remediation' => self::repair_advice($sitePolicy['stage'])
+                        . '; until then shipped adapters are reported as they would be with no --repo at all',
+                ];
+            }
+        }
+
+        // The reviewed disposition set is a property of the shipped library,
+        // and its own one-for-one coverage check can refuse. That refusal is
+        // about the library rather than about any one adapter, so it degrades
+        // to "no reviewed status known" here instead of taking the inventory
+        // down; `duo capabilities` is where a library-level registry problem
+        // is the subject.
+        $dispositions = null;
+        if (class_exists(ManifestDispositions::class)) {
+            try {
+                $dispositions = ManifestDispositions::load($manifestDir);
+            } catch (\Throwable $t) {
+                $dispositions = null;
+            }
+        }
+
+        // A site adapter's certification word is DUO-3314's, not a second
+        // vocabulary invented here: a verified signature alone is
+        // `signed_unpinned`, and only a repository pin that binds both
+        // source "site" and the final certificate-derived digest elevates it
+        // to `third_party_signed`. diagnostics() draws exactly that
+        // distinction for `wp duo capabilities`, and a catalog that flattened
+        // the two would report an adapter as certified before the repository
+        // had reviewed the evidence — the elevation the pin exists to gate.
+        $sources = new self($scan['origins'], $scan['provenance'], $scan['certificates'], $scan['claims']);
+        $sources->bind_explicit_pins(self::surveyed_pins($repo));
+        // Whether this library HAS a reviewed certification story at all. A
+        // custom or test manifest directory carrying neither file makes no
+        // product claim (spec/repo-format.md says so in as many words), so a
+        // shipped row there defers its certification to nothing — and `null`
+        // is what says that. Answering `registry` would name a registry the
+        // consumer would then go looking for.
+        $hasRegistry = $dispositions !== null
+            && is_file(rtrim($manifestDir, '/') . '/capabilities/registry.json');
+
+        // A refused certification SOURCE means certification_files() returned
+        // nothing, so not one companion certificate was paired or opened. Every
+        // site row in this run is therefore unjudged rather than unsigned.
+        $certificationUnjudged = false;
+        foreach ($refusals as $refusal) {
+            if ($refusal['code'] === self::REFUSAL_CERTIFICATION_SOURCE) {
+                $certificationUnjudged = true;
+                break;
+            }
+        }
+
+        $adapters = [];
+        foreach ($scan['origins'] as $name => $origin) {
+            $name = (string) $name;
+            $manifest = $scan['manifests'][$name] ?? [];
+            $outOfTree = isset($scan['provenance'][$name]);
+            $entry = $dispositions === null || $outOfTree ? null : $dispositions->entry($name);
+            $tier = self::tier_decision($manifest);
+            $grammar = self::grammar_verdict($name, $outOfTree, $repo, $refusals);
+            $adapters[] = [
+                'certification' => $outOfTree
+                    ? self::site_certification($sources, $name, $certificationUnjudged, $grammar)
+                    : ($hasRegistry ? 'registry' : null),
+                'disposition_status' => is_array($entry) ? (string) ($entry['status'] ?? '') : null,
+                'executable_surfaces' => self::executable_surfaces($manifest),
+                'grammar' => $grammar,
+                'name' => $name,
+                'path' => (string) $origin['path'],
+                'required_providers' => self::required_providers($manifest),
+                // The canonical manifest hash, exactly the basis
+                // provenance_record() uses — so a survey row and a frozen
+                // provenance record describe one adapter with one number,
+                // rather than a file-byte hash here and a content hash there.
+                'sha256' => hash('sha256', Canon::encode($manifest)),
+                'source' => (string) $origin['source'],
+                'tier_basis' => $tier['tier_basis'],
+                'trust_tier' => $tier['trust_tier'],
+            ];
+        }
+
+        return ['adapters' => $adapters, 'refusals' => $refusals];
+    }
+
+    /**
+     * One out-of-tree adapter's certification word.
+     *
+     * Three facts decide it, and the order matters:
+     *
+     *   1. If the certification SOURCE was refused, nothing was paired and no
+     *      certificate was opened — so this adapter is `certification_unjudged`
+     *      whether or not it ships one. Calling it `uncertified` would report a
+     *      verdict on evidence nobody read.
+     *   2. A verified signature alone is `signed_unpinned`. Elevation to
+     *      `third_party_signed` additionally requires the repository pin to
+     *      bind both source "site" and the final certificate-derived digest.
+     *   3. Elevation is withheld unless this row's own grammar is `ok`.
+     *      bind_explicit_pins() checks the digest's SHAPE, not its value; the
+     *      engine compares the value (Policy's hash_equals) and refuses the
+     *      repository outright when it disagrees. Without this clause a
+     *      well-formed but WRONG 64-hex digest read as promotion-ready
+     *      third-party evidence in the catalog while every real command
+     *      refused the repo — the catalog contradicting the engine about the
+     *      one claim the pin exists to gate.
+     *
+     * @param array{status:string, message:?string} $grammar
+     */
+    private static function site_certification(
+        self $sources,
+        string $name,
+        bool $certificationUnjudged,
+        array $grammar
+    ): string {
+        if ($certificationUnjudged) {
+            return self::CERTIFICATION_UNJUDGED;
+        }
+        if (!$sources->is_certified($name)) {
+            return 'uncertified';
+        }
+        return !empty($sources->explicitPins[$name]) && $grammar['status'] === self::GRAMMAR_OK
+            ? 'third_party_signed'
+            : 'signed_unpinned';
+    }
+
+    /**
+     * The repository's own pins, for the elevation check above and nothing
+     * else.
+     *
+     * Read straight out of site.duo.json rather than through Policy::load(),
+     * which would refuse the whole repository over any unrelated policy
+     * defect and take an inventory down for a reason that is not about
+     * adapters at all. A pin list this cannot read is simply not an explicit
+     * pin, which is the fail-closed direction: a signed adapter then reports
+     * `signed_unpinned`, never `third_party_signed`.
+     *
+     * @return list<array{name:string,source?:string,digest?:string}>
+     */
+    private static function surveyed_pins(?string $repo): array {
+        if ($repo === null) {
+            return [];
+        }
+        try {
+            $site = Canon::decode(Canon::read_file(rtrim($repo, '/') . '/site.duo.json'));
+        } catch (\Throwable $t) {
+            return [];
+        }
+        $pins = [];
+        foreach ((array) (is_array($site) ? ($site['manifests'] ?? []) : []) as $raw) {
+            if (is_string($raw)) {
+                $pins[] = ['name' => $raw];
+                continue;
+            }
+            if (is_array($raw) && is_string($raw['name'] ?? null)) {
+                $pins[] = [
+                    'name' => $raw['name'],
+                    'digest' => is_string($raw['digest'] ?? null) ? $raw['digest'] : null,
+                    'source' => is_string($raw['source'] ?? null) ? $raw['source'] : null,
+                ];
+            }
+        }
+        return $pins;
+    }
+
+    /**
+     * One adapter's grammar verdict, from the REAL loader — the same posture
+     * `duo manifest-validate` takes, and for the same reason: a second
+     * validator here would be a grammar this engine does not enforce.
+     *
+     * Which repo the load gets is not cosmetic, and neither is what happens
+     * when it cannot be given one. The engine refuses an adapter source
+     * WHOLE-DIRECTORY, before any manifest in it is validated, so once
+     * anything in this survey is refused:
+     *
+     *   - a SHIPPED adapter is judged without the site half. It does not need
+     *     one to exist, and reporting one site file's refusal as fifteen
+     *     unrelated adapters' grammar errors is true and useless.
+     *   - a SITE adapter is judged not at all, and says so with its own status
+     *     rather than borrowing `error`. Its manifest has not been read yet;
+     *     calling that a grammar error would blame bytes nobody has looked at,
+     *     and would put it in the same count as an adapter that really is
+     *     malformed.
+     *
+     * @param list<array<string,mixed>> $refusals refusals this survey already collected
+     * @return array{status:string, message:?string}
+     */
+    private static function grammar_verdict(string $name, bool $outOfTree, ?string $repo, array $refusals): array {
+        if ($outOfTree && $refusals !== []) {
+            $first = $refusals[0];
+            return [
+                'message' => "this adapter's own grammar was not judged: its source carries "
+                    . count($refusals) . ' unresolved refusal(s) (first: ' . (string) $first['code'] . ' — '
+                    . implode(', ', (array) $first['paths']) . '), and the engine refuses an adapter source '
+                    . 'whole-directory before any manifest in it is validated. Resolve the refusals in this '
+                    . 'report, then re-run',
+                'status' => self::GRAMMAR_BLOCKED,
+            ];
+        }
+        try {
+            Policy::load($refusals === [] ? $repo : null, [$name]);
+            return ['message' => null, 'status' => self::GRAMMAR_OK];
+        } catch (\Throwable $t) {
+            return ['message' => $t->getMessage(), 'status' => self::GRAMMAR_ERROR];
+        }
+    }
+
+    /**
+     * The three channels that make a manifest more than data, listed even
+     * when empty: an inventory whose "no executable surfaces" row looked
+     * identical to a row that simply omitted the field would be the silence
+     * this whole surface exists to remove.
+     *
+     * @return array{interpreter:?string, manifest_providers:list<string>, regenerators:list<array{post_type:string, regenerator:string}>}
+     */
+    private static function executable_surfaces(array $manifest): array {
+        $interpreter = $manifest['interpreter'] ?? null;
+        $regenerators = [];
+        foreach ((array) ($manifest['post_types'] ?? []) as $postType => $declaration) {
+            $regenerator = is_array($declaration) ? ($declaration['regen_dependency']['regenerator'] ?? null) : null;
+            if ($regenerator !== null) {
+                $regenerators[] = [
+                    'post_type' => (string) $postType,
+                    'regenerator' => is_string($regenerator) ? $regenerator : var_export($regenerator, true),
+                ];
+            }
+        }
+        $manifestProviders = [];
+        foreach ((array) ($manifest['providers'] ?? []) as $declaration) {
+            if (is_array($declaration) && ($declaration['source'] ?? null) === 'manifest') {
+                $manifestProviders[] = (string) ($declaration['id'] ?? '?');
+            }
+        }
+        return [
+            'interpreter' => is_string($interpreter) ? $interpreter : null,
+            'manifest_providers' => $manifestProviders,
+            'regenerators' => $regenerators,
+        ];
+    }
+
+    /**
+     * The providers this adapter's declarations REQUIRE, with the capabilities
+     * each one has to advertise. Declared facts only: whether the owning
+     * plugin is installed, active, in range, and actually answering is
+     * negotiation's answer (Providers::diagnose()), and a catalog that guessed
+     * at it offline would be inventing the one fact it cannot have.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private static function required_providers(array $manifest): array {
+        $out = [];
+        foreach ((array) ($manifest['providers'] ?? []) as $declaration) {
+            if (!is_array($declaration)) {
+                continue;
+            }
+            $capabilities = [];
+            foreach ((array) ($declaration['capabilities'] ?? []) as $capability) {
+                $capabilities[] = is_string($capability) ? $capability : var_export($capability, true);
+            }
+            $out[] = [
+                'capabilities' => $capabilities,
+                'id' => (string) ($declaration['id'] ?? '?'),
+                'plugin' => (string) ($declaration['plugin'] ?? ''),
+                'source' => (string) ($declaration['source'] ?? ''),
+                'version' => (string) ($declaration['version'] ?? ''),
+            ];
+        }
+        return $out;
     }
 
     /**
@@ -302,43 +1091,73 @@ final class AdapterSources {
      * Non-JSON companions (README, .gitignore) are deliberately left alone:
      * they assert nothing about adapters and refusing them would be noise.
      */
-    private static function assert_flat_json_source(string $siteDir): void {
+    private static function assert_flat_json_source(string $siteDir, bool $collect, array &$refusals): void {
         foreach (scandir($siteDir) ?: [] as $entry) {
             if ($entry === '.' || $entry === '..') {
                 continue;
             }
             $full = $siteDir . '/' . $entry;
             if (is_link($full)) {
-                throw new \RuntimeException(
+                self::refuse(
+                    $collect,
+                    $refusals,
+                    self::REFUSAL_SYMLINK_SOURCE,
+                    [self::SITE_DIR . '/' . $entry],
                     "duo: site adapter source $siteDir contains the symbolic link '$entry' (-> "
                     . (readlink($full) ?: '?') . ') — an out-of-tree adapter source holds only real files inside '
-                    . 'the site repository, so that its recorded provenance travels with the repository'
+                    . 'the site repository, so that its recorded provenance travels with the repository',
+                    'replace the link with the real file, or remove it from ' . self::SITE_DIR . '/'
                 );
+                continue;
             }
             if (is_dir($full)) {
                 if ($entry === self::CERTIFICATION_DIR) {
-                    self::assert_certification_directory($siteDir, $full);
+                    self::guarded(
+                        $collect,
+                        $refusals,
+                        self::REFUSAL_CERTIFICATION_SOURCE,
+                        [self::SITE_DIR . '/' . $entry],
+                        'hold only real, exactly-named <adapter-name>.json certificate files there',
+                        static fn() => self::assert_certification_directory($siteDir, $full)
+                    );
                     continue;
                 }
                 $nested = self::first_nested_json($full);
                 if ($nested !== null) {
-                    throw new \RuntimeException(
+                    self::refuse(
+                        $collect,
+                        $refusals,
+                        self::REFUSAL_NESTED_JSON,
+                        [self::SITE_DIR . '/' . $entry . '/' . $nested],
                         "duo: site adapter source $siteDir contains a nested adapter '$entry/$nested' — adapters are "
                         . 'discovered only at the top level of this directory, so a nested file is never loaded. '
-                        . 'Move it to ' . self::SITE_DIR . '/<name>.json'
+                        . 'Move it to ' . self::SITE_DIR . '/<name>.json',
+                        'move it to ' . self::SITE_DIR . '/<name>.json'
                     );
                 }
                 continue;
             }
             if (preg_match('/\.json$/iD', $entry) === 1 && !str_ends_with($entry, '.json')) {
-                throw new \RuntimeException(
+                self::refuse(
+                    $collect,
+                    $refusals,
+                    self::REFUSAL_EXTENSION_CASE_MISMATCH,
+                    [self::SITE_DIR . '/' . $entry],
                     "duo: site adapter source $siteDir contains '$entry', whose extension is not exactly '.json' — "
                     . 'it would load on a case-insensitive filesystem and disappear on a case-sensitive one. '
-                    . 'Rename it to use a lowercase .json extension'
+                    . 'Rename it to use a lowercase .json extension',
+                    'rename it to use a lowercase .json extension'
                 );
             }
             if (str_ends_with($entry, '.json')) {
-                self::assert_name(basename($entry, '.json'), "site adapter '$entry'");
+                self::guarded(
+                    $collect,
+                    $refusals,
+                    self::REFUSAL_INVALID_NAME,
+                    [self::SITE_DIR . '/' . $entry],
+                    'rename the file to a canonical lowercase ASCII slug',
+                    static fn() => self::assert_name(basename($entry, '.json'), "site adapter '$entry'")
+                );
             }
         }
     }
@@ -546,15 +1365,49 @@ final class AdapterSources {
      * a repository with no `adapters/` directory must pay no new I/O and take
      * no new refusal path.
      *
+     * Collect mode has already decoded them (scan()), and has already refused
+     * any that would not decode, so it reads them out of $manifests instead of
+     * opening the same files a second time — and never re-refuses the ones it
+     * already reported.
+     *
+     * @param array<string, array> $manifests decoded shipped manifests ($collect only)
      * @return array<string, string> declared name => file name that declares it
      */
-    private static function declared_names(array $origins): array {
+    private static function declared_names(
+        array $origins,
+        array $manifests,
+        bool $collect,
+        array &$refusals
+    ): array {
         $names = [];
         foreach ($origins as $file => $origin) {
-            $manifest = Canon::decode(Canon::read_file($origin['file']));
+            if ($collect) {
+                $manifest = $manifests[$file] ?? null;
+                if ($manifest === null) {
+                    continue;
+                }
+            } else {
+                $manifest = Canon::decode(Canon::read_file($origin['file']));
+            }
             $declared = $manifest['name'] ?? null;
             if (is_string($declared) && $declared !== '') {
-                self::assert_name($declared, "shipped adapter '$file' declared name");
+                // Guarded like every other DUO-3314 assertion reachable from
+                // collect mode. A shipped manifest whose FILE name is a legal
+                // slug but whose DECLARED name is not is reachable through any
+                // DUO_MANIFESTS_DIR, and unguarded it made the catalog answer
+                // two different ways about one library: `duo adapter list`
+                // worked, `duo adapter list --repo=...` died with exit 2,
+                // because only the second reaches this function.
+                if (!self::guarded(
+                    $collect,
+                    $refusals,
+                    self::REFUSAL_INVALID_NAME,
+                    [(string) $origin['path']],
+                    "make the manifest's declared name a canonical lowercase ASCII slug",
+                    static fn() => self::assert_name($declared, "shipped adapter '$file' declared name")
+                )) {
+                    continue;
+                }
                 $names[$declared] = $file;
             }
         }
@@ -602,37 +1455,84 @@ final class AdapterSources {
      * privileges it actually asks for.
      */
     public static function trust_tier(array $manifest): string {
+        return self::tier_decision($manifest)['trust_tier'];
+    }
+
+    /**
+     * The tier AND the declaration that produced it, from one walk.
+     *
+     * `tier_basis` is the anti-masquerade receipt DUO-3339 needs: a diagnostic
+     * line saying `compatibility_shim` invites "says who?", and the honest
+     * answer is a coordinate inside the manifest the reader can go open. It is
+     * derived beside the tier rather than by a second reader for the reason
+     * CapabilityRegistry::adapter_digest() gives for its own pairing — two
+     * walks of one rule are two rules the moment either moves, and the one
+     * that moved silently would be the one printed next to the word "shim".
+     *
+     * @return array{trust_tier:string, tier_basis:string}
+     */
+    public static function tier_decision(array $manifest): array {
         // Presence, not well-formedness — the same reason
         // assert_out_of_tree_contract() keys on presence: a malformed
         // declaration must not be able to report a LOWER tier than the
         // privilege it is reaching for.
         if (array_key_exists('interpreter', $manifest) && $manifest['interpreter'] !== null) {
-            return self::TIER_COMPATIBILITY_SHIM;
+            return self::tier(
+                self::TIER_COMPATIBILITY_SHIM,
+                'interpreter ' . self::render_value($manifest['interpreter'])
+            );
         }
-        foreach ((array) ($manifest['post_types'] ?? []) as $declaration) {
+        foreach ((array) ($manifest['post_types'] ?? []) as $postType => $declaration) {
             if (is_array($declaration) && isset($declaration['regen_dependency']['regenerator'])) {
-                return self::TIER_COMPATIBILITY_SHIM;
+                return self::tier(
+                    self::TIER_COMPATIBILITY_SHIM,
+                    "post_types.$postType.regen_dependency.regenerator "
+                    . self::render_value($declaration['regen_dependency']['regenerator'])
+                );
             }
         }
         $tier = self::TIER_DECLARATIVE;
-        foreach ((array) ($manifest['providers'] ?? []) as $declaration) {
+        $basis = 'no interpreter, regenerator, provider, or native action is declared';
+        foreach ((array) ($manifest['providers'] ?? []) as $i => $declaration) {
             if (!is_array($declaration)) {
                 continue;
             }
             if (($declaration['source'] ?? null) === 'manifest') {
-                return self::TIER_COMPATIBILITY_SHIM;
+                return self::tier(
+                    self::TIER_COMPATIBILITY_SHIM,
+                    "providers[$i] source \"manifest\" (id " . self::render_value($declaration['id'] ?? null) . ')'
+                );
+            }
+            // The tier itself is set by EVERY non-manifest provider row, as it
+            // always was; only the basis is first-wins, because the basis
+            // answers "which declaration got you here", and the first one did.
+            if ($tier !== self::TIER_PLUGIN_PROVIDER) {
+                $basis = "providers[$i] source " . self::render_value($declaration['source'] ?? null)
+                    . ' (id ' . self::render_value($declaration['id'] ?? null) . ')';
             }
             $tier = self::TIER_PLUGIN_PROVIDER;
         }
         if ($tier === self::TIER_DECLARATIVE) {
-            foreach ((array) ($manifest['actions'] ?? []) as $action) {
+            foreach ((array) ($manifest['actions'] ?? []) as $i => $action) {
                 if (is_array($action) && ($action['kind'] ?? null) === 'native') {
-                    $tier = self::TIER_NATIVE_ACTION;
-                    break;
+                    return self::tier(
+                        self::TIER_NATIVE_ACTION,
+                        "actions[$i] kind \"native\" (action " . self::render_value($action['action'] ?? null) . ')'
+                    );
                 }
             }
         }
-        return $tier;
+        return self::tier($tier, $basis);
+    }
+
+    /** @return array{trust_tier:string, tier_basis:string} */
+    private static function tier(string $tier, string $basis): array {
+        return ['tier_basis' => $basis, 'trust_tier' => $tier];
+    }
+
+    /** A declaration value as it appears in a basis string, never trusted to be a string. */
+    private static function render_value($value): string {
+        return is_string($value) ? "'" . $value . "'" : var_export($value, true);
     }
 
     /**

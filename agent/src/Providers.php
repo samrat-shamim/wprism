@@ -165,6 +165,39 @@ final class Providers {
      * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>}
      */
     public static function negotiate(Policy $policy, array $selectedActions): array {
+        return self::diagnose($policy, $selectedActions);
+    }
+
+    /**
+     * The negotiation itself, as a READ-ONLY question (DUO-3339).
+     *
+     * negotiate() is this method — one body, not two — so that `plan` and
+     * `status` can answer "which declared provider capability is missing or
+     * incompatible here?" with exactly the rows apply will refuse on, rather
+     * than with a second implementation that would start agreeing and end up
+     * approximating. spec/repo-format.md's bound (4) was the standing debt:
+     * negotiation ran at apply only, so a missing provider was invisible until
+     * the promotion that needed it.
+     *
+     * "Read-only" is a precise claim, not a comfortable one. This method
+     * invokes NO capability and writes nothing — invoke() is the only thing
+     * that runs provider work, and nothing here calls it. It does LOAD code:
+     * a manifest-sourced provider's file is required and constructed, a
+     * plugin-sourced one is pulled off the `duo_providers` filter, and both
+     * are asked for identity() and capabilities(). There is no way to check a
+     * contract without the object, so that cost is negotiation's, was always
+     * negotiation's, and is now also plan's — which is why plan reports these
+     * rows rather than gating on them (see Apply::plan()).
+     *
+     * The one deliberate throw stays a throw: a manifest-sourced provider
+     * whose file or class is missing is a packaging fault in the adapter, not
+     * a fact about this environment. problems() below is what turns that into
+     * a reportable row for the surfaces that must not die on it.
+     *
+     * @param list<array<string,mixed>> $selectedActions Policy::actions_for()
+     * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>}
+     */
+    public static function diagnose(Policy $policy, array $selectedActions): array {
         $declarations = $policy->provider_declarations();
         $wanted = [];
         foreach ($selectedActions as $action) {
@@ -329,6 +362,107 @@ final class Providers {
             }
         }
         return ['problems' => $problems, 'providers' => $instances, 'capabilities' => $capabilities];
+    }
+
+    /**
+     * Every problem this environment has with every provider capability the
+     * PINNED manifests declare — the plan/status view.
+     *
+     * Two things are deliberately wider than apply's own gate, and both are
+     * the point rather than an accident:
+     *
+     *   1. The action set is `Policy::actions()`, not one run's selection.
+     *      The NARROWED set already exists and already gates: DUO-3314's
+     *      `Policy::provider_readiness_blockers($selectedActions)` negotiates
+     *      exactly what this plan's work touches and merges its rows into
+     *      `adapter_dispositions`, which IS part of `duo status`'s `ok`. That
+     *      is correct — an unrelated adapter's missing plugin must not refuse a
+     *      promotion that never reaches it. This method is the complement: a
+     *      readiness report answering only "for this diff" goes quiet the
+     *      moment a run happens to touch nothing, and "we found no problems"
+     *      would then mean "we did not look". So these rows are the wider,
+     *      deliberately NON-gating superset, and $gating below keeps the two
+     *      from double-reporting one fact.
+     *
+     *   2. A throw is reported here rather than propagated. Apply still throws
+     *      — that behavior is pinned byte for byte by
+     *      regress_provider_contract.php — because at apply a throw is a
+     *      refusal before mutation. On a reporting surface, a command that
+     *      died on one broken adapter would be hiding every other adapter's
+     *      verdict behind it, which is the failure mode this whole surface
+     *      exists to remove.
+     *
+     *      The two throws are told apart rather than collapsed, because they
+     *      call for opposite actions. A ProviderPackagingException is the
+     *      adapter's own fault, it names the exact file, and "repair
+     *      providers/<id>.php" is real advice. Anything ELSE reaching here is
+     *      third-party code misbehaving inside the diagnosis — a `duo_providers`
+     *      callback whose identity() throws, a provider whose capabilities()
+     *      throws, a lifecycle read that failed — and telling that operator to
+     *      go repair a `providers/<id>.php` (with a LITERAL `<id>`, since
+     *      nothing here knows which provider it was) would be a fabricated
+     *      coordinate on top of a real failure. That case gets its own code and
+     *      points at the message, which is the only thing actually known.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public static function problems(Policy $policy, array $gating = []): array {
+        // The same gate Policy::provider_readiness_blockers() takes, and for
+        // the same reason: without a loaded WordPress there is no plugin state
+        // to negotiate against, so every declared provider would report
+        // `missing_plugin` and an offline manifest-library load would
+        // manufacture a wall of findings about an environment it cannot see.
+        if (!self::runtime_negotiation_available()) {
+            return [];
+        }
+        // Rows the narrowed, GATING diagnosis already reported are dropped
+        // here. Both lists reach one operator in one plan render, so a
+        // selected inactive plugin appearing once as a blocked
+        // adapter_dispositions row and again as a PROVIDER_PROBLEM row is one
+        // fact stated twice — the shape AdapterSources::refuse() already
+        // refuses for installed files. What survives is exactly the useful
+        // remainder: declared capabilities this environment cannot supply that
+        // THIS revision's work does not reach, which is the gap the wider set
+        // exists to expose.
+        $reported = [];
+        foreach ($gating as $row) {
+            $key = (string) ($row['provider'] ?? '') . "\0" . (string) ($row['manifest'] ?? '')
+                . "\0" . (string) ($row['code'] ?? '');
+            $reported[$key] = true;
+        }
+        try {
+            $problems = self::diagnose($policy, $policy->actions())['problems'];
+            return array_values(array_filter(
+                $problems,
+                static function (array $problem) use ($reported): bool {
+                    $key = (string) ($problem['provider'] ?? '') . "\0" . (string) ($problem['manifest'] ?? '')
+                        . "\0" . (string) ($problem['code'] ?? '');
+                    return !isset($reported[$key]);
+                }
+            ));
+        } catch (ProviderPackagingException $t) {
+            return [self::problem(
+                $t->providerId(),
+                $t->manifest(),
+                '?',
+                'provider_code_unavailable',
+                "the manifest-sourced provider '{$t->providerId()}' to resolve to its shipped class",
+                $t->getMessage(),
+                "repair manifests/providers/{$t->providerId()}.php, which ships with manifest "
+                    . "'{$t->manifest()}', or unpin that manifest"
+            )];
+        } catch (\Throwable $t) {
+            return [self::problem(
+                '?',
+                '?',
+                '?',
+                'provider_diagnosis_failed',
+                'every declared provider to answer the negotiation questions without throwing',
+                get_class($t) . ': ' . $t->getMessage(),
+                'see the message — it comes from code this engine does not own, and no provider identity was '
+                    . 'established before it threw'
+            )];
+        }
     }
 
     /**
@@ -539,8 +673,15 @@ final class Providers {
         $id = (string) $declaration['id'];
         $manifest = (string) $declaration['manifest'];
         $file = Policy::manifests_dir() . '/providers/' . $id . '.php';
+        // ProviderPackagingException, not a bare RuntimeException: the message
+        // and the fail-before-mutation behavior are unchanged (it IS a
+        // RuntimeException), but a reporting caller can now tell "the adapter
+        // is packaged wrong, and here is exactly which file" apart from
+        // "somebody else's code threw during diagnosis" — see problems().
         if (!is_file($file)) {
-            throw new \RuntimeException(
+            throw new ProviderPackagingException(
+                $id,
+                $manifest,
                 "duo: manifest '$manifest' declares provider '$id' but $file is missing — "
                 . 'provider code ships with its manifest, not the engine'
             );
@@ -548,7 +689,9 @@ final class Providers {
         require_once $file;
         $class = '\\Duo\\Providers\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $id)));
         if (!class_exists($class)) {
-            throw new \RuntimeException(
+            throw new ProviderPackagingException(
+                $id,
+                $manifest,
                 "duo: provider file $file must define $class with identity(): array, "
                 . 'capabilities(): array, and invoke(string $capability, array $args): array'
             );
@@ -1123,5 +1266,41 @@ final class Providers {
             $parts[] = $key . '=' . (is_scalar($value) ? (string) $value : get_debug_type($value));
         }
         return implode(' ', $parts);
+    }
+}
+
+/**
+ * An adapter that declares manifest-sourced provider code the manifest does
+ * not actually ship.
+ *
+ * A RuntimeException subclass, so every existing catch, message, and
+ * fail-before-mutation behavior is unchanged — `Providers::negotiate()` throws
+ * exactly what it always threw, with exactly the wording
+ * regress_provider_contract.php pins. What the subclass adds is the ability to
+ * tell this apart from a throw that came out of code the engine does not own,
+ * and to do it WITHOUT string-matching a message or reading a stack trace.
+ * `Providers::problems()` is the caller that needs the distinction: this fault
+ * has a repairable file and a named owner, and everything else has neither, so
+ * one remediation could not honestly serve both.
+ *
+ * Co-located with the only class that throws it, the way
+ * RepositoryCompilationException sits in RepositoryCompiler.php.
+ */
+final class ProviderPackagingException extends \RuntimeException {
+    private string $providerId;
+    private string $manifest;
+
+    public function __construct(string $providerId, string $manifest, string $message) {
+        parent::__construct($message);
+        $this->providerId = $providerId;
+        $this->manifest = $manifest;
+    }
+
+    public function providerId(): string {
+        return $this->providerId;
+    }
+
+    public function manifest(): string {
+        return $this->manifest;
     }
 }

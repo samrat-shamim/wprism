@@ -53,8 +53,7 @@ function is_wp_error(mixed $thing): bool {
 }
 function apply_filters(string $hook, mixed $value): mixed {
     if ($hook === 'duo_providers' && $GLOBALS['duo_test_provider_registry_throw'] !== null) {
-        throw new \RuntimeException($GLOBALS['duo_test_provider_registry_throw']);
-    }
+        throw new \RuntimeException($GLOBALS['duo_test_provider_registry_throw']);    }
     return $hook === 'duo_providers' ? $GLOBALS['duo_test_providers'] : $value;
 }
 // Apply::rebuild() flushes the object cache before and after the action loop
@@ -75,6 +74,9 @@ require $root . '/agent/src/Policy.php';
 require $root . '/agent/src/CodeCompatibility.php';
 require $root . '/agent/src/Deploy.php';
 require $root . '/agent/src/Providers.php';
+// DUO-3339: `duo status`'s renderer is pure and is one half of the documented
+// two-renderer lockstep for plan rows, so it is driven directly below.
+require $root . '/cli/src/PlanSummary.php';
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -159,6 +161,14 @@ PHP);
 // file lives in the manifests providers/ dir (posing it as plugin-sourced
 // must therefore refuse).
 define('WP_PLUGIN_DIR', $dir . '/wp-plugins');
+// DUO-3339: this harness models a target that HAS WordPress loaded — that is
+// what makes negotiating plugin state meaningful here at all — and
+// Providers::runtime_negotiation_available() reads exactly the four symbols
+// that say so. Three were already present; ABSPATH is the fourth, and without
+// it the plan-time diagnosis correctly short-circuits to no findings (the
+// group below pins that short-circuit in its own process, where the constant
+// genuinely is absent).
+define('ABSPATH', $dir . '/wp/');
 @mkdir($dir . '/wp-plugins/probe', 0700, true);
 register_shutdown_function(static function () use ($dir): void {
     array_map('unlink', glob($dir . '/wp-plugins/probe/*.php') ?: []);
@@ -400,6 +410,256 @@ $check(($p['code'] ?? '') === 'contract_shape'
     && ($p['found'] ?? '') === 'identity() threw'
     && $opaqueProviderProblem($p),
     'a provider whose identity() throws becomes a structured, redacted contract problem');
+
+echo "\n== the same detection, reported at plan (DUO-3339) ==\n";
+// spec/repo-format.md's bound (4) was that negotiation ran at APPLY only, so a
+// missing or incompatible provider was invisible until the promotion that
+// needed it. It now runs as a read-only question at plan too — and the whole
+// value of that depends on it being the SAME question. These checks are what
+// makes "same" falsifiable: negotiate() must BE diagnose(), and the rows plan
+// reports must be the rows apply would refuse on.
+$reset();
+$GLOBALS['duo_test_active'] = [];
+$policy = $policyFor($manifest);
+$selected = $policy->actions_for(['post:probe']);
+$negotiated = \Duo\Providers::negotiate($policy, $selected);
+$diagnosed = \Duo\Providers::diagnose($policy, $selected);
+$check($negotiated == $diagnosed && $negotiated['problems'] !== [],
+    'diagnose() and negotiate() return the identical result for a broken selection — one body, not two implementations');
+$check(array_column($diagnosed['problems'], 'code') === ['inactive_plugin'],
+    'and it is the real problem row, with the real code, not an empty stand-in');
+
+$negotiateSource = implode("\n", array_slice(
+    (array) file($root . '/agent/src/Providers.php', FILE_IGNORE_NEW_LINES),
+    (new \ReflectionMethod(\Duo\Providers::class, 'negotiate'))->getStartLine() - 1,
+    2
+));
+$check((bool) preg_match('/return self::diagnose\(\$policy, \$selectedActions\);/', $negotiateSource),
+    'negotiate() is literally the delegation — a second copy of the loop could pass the equality check above on the '
+    . 'day it was written and drift the day after, so the sharing itself is pinned');
+
+$reset();
+$GLOBALS['duo_test_active'] = [];
+$policy = $policyFor($manifest);
+$check(\Duo\Providers::negotiate($policy, $policy->actions_for([]))['problems'] === [],
+    'a read-only apply selects no action, so apply negotiates nothing and refuses nothing');
+$planProblems = \Duo\Providers::problems($policy);
+$check(array_column($planProblems, 'code') === ['inactive_plugin'],
+    'while the PLAN view still reports the inactive plugin: it covers every provider action the PINNED manifests '
+    . 'declare, so "no problems" can never mean "this run happened to look at nothing"');
+$check(($planProblems[0]['manifest'] ?? '') === 'probe' && ($planProblems[0]['plugin'] ?? '') === 'probe/probe.php'
+    && trim($planProblems[0]['remediation'] ?? '') !== '',
+    'and each row names the declaring manifest, the owning plugin, and a remediation — the three things an operator '
+    . 'needs to know which pin to go fix');
+
+$reset();
+$policy = $policyFor($manifest);
+$check(\Duo\Providers::problems($policy) === [], 'a healthy environment reports no provider problems at plan');
+
+// DUO-3314 shipped the NARROWED, gating diagnosis: build_plan() merges
+// Policy::provider_readiness_blockers($selectedActions) into
+// adapter_dispositions, which duo status's exit code counts. The wide set must
+// therefore not restate what the narrow one already gated on — one fact, one
+// row, the same discipline AdapterSources::refuse() applies to installed files.
+//
+// That method needs a reviewed disposition set and a generated registry, which
+// this harness's synthetic manifests dir deliberately has neither of (it exists
+// to exercise the negotiation contract, not certification). So the row it would
+// promote is BUILT here from the same problem row it starts from, and the field
+// mapping is pinned against Policy's own source rather than assumed.
+$reset();
+$GLOBALS['duo_test_active'] = [];
+$policy = $policyFor($manifest);
+$wide = \Duo\Providers::problems($policy);
+$check(array_column($wide, 'code') === ['inactive_plugin'],
+    'the wide plan view reports the inactive plugin when nothing has gated on it yet');
+$policySource = (string) file_get_contents($root . '/agent/src/Policy.php');
+$check(str_contains($policySource, "'name' => \$manifest,")
+    && str_contains($policySource, "'provider' => (string) (\$problem['provider'] ?? '?'),")
+    && str_contains($policySource, "'manifest' => \$manifest,")
+    && str_contains($policySource, "'code' => (string) (\$problem['code'] ?? 'provider_negotiation_failed'),"),
+    'and the gating row Policy promotes carries the same provider, manifest, and code the problem row does — the '
+    . 'three fields the dedupe below keys on');
+$promoted = [[
+    'name' => $wide[0]['manifest'],
+    'provider' => $wide[0]['provider'],
+    'manifest' => $wide[0]['manifest'],
+    'plugin' => $wide[0]['plugin'],
+    'code' => $wide[0]['code'],
+    'status' => 'blocked',
+]];
+$check(\Duo\Providers::problems($policy, $promoted) === [],
+    'so once that row is gating, the wide plan view reports NOTHING for it — a selected inactive plugin is one '
+    . 'finding, not a BLOCKED disposition row plus a PROVIDER_PROBLEM row about the same provider');
+$check(array_column(\Duo\Providers::problems($policy), 'code') === ['inactive_plugin'],
+    'while the same call with no gating rows still reports it, so the dedupe is subtraction and never suppression');
+$check(\Duo\Providers::problems($policy, [['provider' => 'probe-cache', 'manifest' => 'probe', 'code' => 'other']])
+    !== [],
+    'and the key is (provider, manifest, code): a DIFFERENT code for the same provider is a different finding and survives');
+$reset();
+
+// The runtime gate DUO-3314 put on the narrowed diagnosis applies here too:
+// with no loaded WordPress there is no plugin state to negotiate against, so
+// every declared provider would report `missing_plugin` and an offline
+// manifest-library load would manufacture a wall of findings about an
+// environment it cannot see. This harness deliberately DOES define the four
+// symbols that say WordPress is loaded, so the short-circuit is proved in a
+// child process that defines three of them and omits ABSPATH — a constant
+// cannot be undefined once set.
+$gateProbe = $dir . '/gate-probe.php';
+file_put_contents($gateProbe, <<<'PROBE'
+<?php
+// Deliberately NO define('ABSPATH', ...) — that is the whole subject.
+define('DUO_SPEC_VERSION', 2);
+define('WP_PLUGIN_DIR', __DIR__ . '/wp-plugins');
+function apply_filters(string $hook, mixed $value): mixed { return $value; }
+function get_option(string $name, mixed $default = false): mixed { return $default; }
+function is_multisite(): bool { return false; }
+$root = dirname(__DIR__, 1);
+PROBE
+. "\n\$engine = " . var_export($root, true) . ";\n"
+. <<<'PROBE'
+require $engine . '/agent/src/Canon.php';
+require $engine . '/agent/src/OptionState.php';
+require $engine . '/agent/src/Policy.php';
+require $engine . '/agent/src/CodeCompatibility.php';
+require $engine . '/agent/src/Deploy.php';
+require $engine . '/agent/src/Providers.php';
+putenv('DUO_MANIFESTS_DIR=' . __DIR__);
+$manifest = json_decode(getenv('DUO_PROBE_MANIFEST'), true);
+$policy = Duo\Policy::from_snapshot([
+    'format' => 'duo-policy-snapshot/v4',
+    'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
+    'capabilities' => null,
+    'dispositions' => null,
+    'site' => [
+        'manifests' => [$manifest['name']],
+        'spec_version' => 2,
+        'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
+    ],
+    'manifests' => [$manifest],
+]);
+echo json_encode([
+    'gate' => Duo\Providers::runtime_negotiation_available(),
+    'problems' => count(Duo\Providers::problems($policy)),
+    'declared' => count(array_filter(
+        $policy->actions(),
+        static fn(array $a): bool => ($a['kind'] ?? null) === 'provider'
+    )),
+]), "
+";
+PROBE
+);
+$gateOut = [];
+exec(
+    'DUO_PROBE_MANIFEST=' . escapeshellarg((string) json_encode($manifest)) . ' '
+    . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($gateProbe) . ' 2>&1',
+    $gateOut,
+    $gateRc
+);
+$gate = json_decode(implode("\n", $gateOut), true);
+$check(is_array($gate) && $gateRc === 0 && $gate['gate'] === false,
+    'without ABSPATH the runtime negotiation gate reads false (child process said: ' . implode(' ', $gateOut) . ')');
+$check(is_array($gate) && ($gate['declared'] ?? 0) === 1 && ($gate['problems'] ?? null) === 0,
+    'and problems() reports NOTHING there even though the pinned manifest declares a provider action — an offline '
+    . 'library load cannot manufacture findings about an environment it cannot see');
+@unlink($gateProbe);
+
+// Both halves of the plan-time posture, on one fixture: apply throws the
+// packaging fault (asserted in this file's final group, unchanged), and the
+// reporting surface turns it into a row instead of dying on it.
+$reset();
+$policy = $policyFor($manifest);
+rename($dir . '/providers/probe-cache.php', $dir . '/providers/probe-cache.php.hidden');
+$faultProblems = \Duo\Providers::problems($policy);
+rename($dir . '/providers/probe-cache.php.hidden', $dir . '/providers/probe-cache.php');
+$check(count($faultProblems) === 1 && ($faultProblems[0]['code'] ?? '') === 'provider_code_unavailable'
+    && str_contains($faultProblems[0]['found'] ?? '', 'provider code ships with its manifest'),
+    'a packaging fault reaches the plan view as a ROW carrying the engine\'s own message, rather than taking the '
+    . 'whole plan down the way it (correctly) takes an apply down');
+$check(($faultProblems[0]['provider'] ?? '') === 'probe-cache'
+    && ($faultProblems[0]['manifest'] ?? '') === 'probe'
+    && str_contains($faultProblems[0]['remediation'] ?? '', 'providers/probe-cache.php')
+    && !str_contains($faultProblems[0]['remediation'] ?? '', '<id>'),
+    'and the row names the real provider, the real declaring manifest, and the real file to repair — not a '
+    . 'literal <id> placeholder standing in for a coordinate nobody looked up');
+
+// The OTHER branch, and the reason the two are not one code. DUO-3314 has
+// since converted every previously reachable foreign-throw path in diagnose()
+// into a structured problem row of its own — a `duo_providers` registry that
+// throws is now `provider_registry_unavailable`, and identity()/capabilities()
+// throwing are `contract_shape` — so the generic branch is a backstop with no
+// reachable trigger left in this fixture. It is asserted against source rather
+// than faked with a contrived throw: what matters is that a future unexpected
+// throw is NOT labelled as the adapter's packaging fault and does NOT invent a
+// providers/<id>.php coordinate for an identity nobody established.
+$problemsSource = implode("\n", array_slice(
+    (array) file($root . '/agent/src/Providers.php', FILE_IGNORE_NEW_LINES),
+    (new \ReflectionMethod(\Duo\Providers::class, 'problems'))->getStartLine() - 1,
+    (new \ReflectionMethod(\Duo\Providers::class, 'problems'))->getEndLine()
+        - (new \ReflectionMethod(\Duo\Providers::class, 'problems'))->getStartLine() + 1
+));
+$check(str_contains($problemsSource, 'catch (ProviderPackagingException $t)')
+    && str_contains($problemsSource, 'catch (\Throwable $t)'),
+    'problems() catches the adapter packaging fault SEPARATELY from anything else that could throw');
+$check(str_contains($problemsSource, "'provider_diagnosis_failed'")
+    && str_contains($problemsSource, "'see the message"),
+    'and the generic branch has its own code and points at the message instead of inventing a file to repair');
+$check(substr_count($problemsSource, 'providers/') === 1
+    && !str_contains($problemsSource, '<id>'),
+    'while only the packaging branch names a providers/ path at all, and never as a literal <id> placeholder');
+$reset();
+
+// Apply::plan() is not offline-drivable (it loads policy, compiles the
+// repository, snapshots a live target, and ensures a ledger), so its one
+// threading edge is asserted against its own source — the idiom this file
+// already uses for Apply::run() further down. Read textually rather than by
+// reflection because Apply.php is not loaded until the batch-assembly group
+// below; the slice boundaries are the two method signatures themselves, so a
+// moved method does not silently widen what is being asserted.
+$applySource = (string) file_get_contents($root . '/agent/src/Apply.php');
+$planAt = strpos($applySource, 'public static function plan(');
+$buildPlanAt = strpos($applySource, 'private function build_plan(');
+$check($planAt !== false && $buildPlanAt !== false && $planAt < $buildPlanAt,
+    'Apply::plan() and Apply::build_plan() are both present, in that order (the slice below depends on it)');
+$planSource = substr($applySource, (int) $planAt, (int) $buildPlanAt - (int) $planAt);
+$check((bool) preg_match(
+    "/\\\$plan\\['provider_problems'\\]\s*=\s*Providers::problems\(\s*\\\$policy,"
+    . "\s*\\\$plan\\['adapter_dispositions'\\] \?\? \[\]\s*\);/",
+    $planSource
+),
+    "Apply::plan() attaches the plan-time diagnosis AND hands it the plan's already-gating rows, so the wide set "
+    . 'and the narrowed one cannot report the same fact twice');
+$afterPlan = substr($applySource, (int) $buildPlanAt);
+$check(!str_contains($afterPlan, 'Providers::problems') && !str_contains($afterPlan, 'Providers::diagnose'),
+    'and nothing from build_plan() onward calls it: run() calls build_plan() twice around its own negotiation gate, '
+    . 'so diagnosing there would construct every declared provider three times per apply and move the first '
+    . 'construction ahead of the promotion lease, for a report apply never reads');
+
+// The two plan-row renderers are required to stay in lockstep (they are the
+// same advice to one operator through two commands). PlanSummary::render() is
+// pure and is driven for real; agent/src/Cli.php's half runs only inside a
+// wp-cli plan, so it is asserted against its source.
+$summary = \Duo\Orchestrator\PlanSummary::render(['provider_problems' => $planProblems]);
+$summaryText = implode("\n", $summary['lines']);
+$check(str_contains($summaryText, '1 provider_problems'), 'duo status counts provider problems in its summary line');
+$check(str_contains($summaryText, 'PROVIDER_PROBLEM (')
+    && str_contains($summaryText, 'manifest=probe plugin=probe/probe.php')
+    && str_contains($summaryText, '[inactive_plugin]')
+    && str_contains($summaryText, '    remediation: '),
+    'and renders the provider, its declaring manifest, its owning plugin, the code, and the remediation');
+$check($summary['ok'] === true,
+    'but does NOT by itself flip readiness: the diagnosis covers every DECLARED provider action, which is wider than '
+    . 'the set any one apply negotiates, so "will promoting this revision refuse?" is still answered by the buckets '
+    . 'that predict a refusal');
+$check(\Duo\Orchestrator\PlanSummary::render(['conflict' => [['uuid' => 'x', 'type' => 'post']]])['ok'] === false,
+    'while a bucket that DOES predict a refusal still flips it — the exclusion above is about width, not severity');
+
+$cliSource = (string) file_get_contents($root . '/agent/src/Cli.php');
+$check(str_contains($cliSource, "foreach (\$plan['provider_problems'] ?? [] as \$r) {")
+    && str_contains($cliSource, "'PROVIDER_PROBLEM '")
+    && str_contains($cliSource, "count(\$plan['provider_problems'] ?? []) . ' provider_problems'"),
+    'and `wp duo plan` renders and counts the same rows, so the two commands never give one operator different advice');
 
 echo "\n== plugin-sourced providers (a custom plugin advertising its own) ==\n";
 $pluginSourced = array_replace_recursive($manifest, ['providers' => [['source' => 'plugin']]]);

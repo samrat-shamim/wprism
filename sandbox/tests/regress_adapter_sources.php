@@ -1328,5 +1328,70 @@ check(
     'a shipped-only report retains the historical global evidence/platform shape unchanged'
 );
 
+// ======================================================================
+echo "\n== the shipped library view reports its own tiers, from the same scan (DUO-3339) ==\n";
+// ======================================================================
+// `wp duo capabilities --all` used to hand report() NO $sources, so every row
+// fell through to the absent-sources default. The default derived the same
+// tier — but by a second path, and it could not name the file a row came from
+// at all. Two code paths agreeing today is not one code path.
+WP_CLI::$lines = [];
+(new \Duo\Cli())->capabilities([], ['all' => true]);
+$allText = implode("\n", WP_CLI::$lines);
+check(
+    str_contains($allText, 'CAPABILITY acf ')
+    && preg_match('/CAPABILITY acf [A-Z]+\n  source: shipped \(' . preg_quote($shippedDir, '/') . '\/acf\.json\)\n'
+        . '  trust_tier: compatibility_shim\n/', $allText) === 1,
+    'the whole-library view names each row\'s own file and its derived tier — a shipped compatibility shim SAYS '
+    . 'compatibility_shim, where the doctrine requires an executable shim to be named in capability diagnostics'
+);
+check(
+    substr_count($allText, '  trust_tier: ') === substr_count($allText, 'CAPABILITY '),
+    'and every row carries a trust tier, not just the shim'
+);
+$allTiers = [];
+if (preg_match_all('/  trust_tier: ([a-z_]+)\n/', $allText, $tierMatches) > 0) {
+    $allTiers = array_values(array_unique($tierMatches[1]));
+    sort($allTiers, SORT_STRING);
+}
+check(
+    $allTiers === ['compatibility_shim', 'declarative_manifest', 'plugin_provider'],
+    'the shipped library really does span three tiers, so "every row says shipped/declarative" would be a visibly '
+    . 'wrong answer here (found: ' . implode(', ', $allTiers) . ')'
+);
+
+// ======================================================================
+echo "\n== the registry-absent blocker row carries what its renderers print (DUO-3339) ==\n";
+// ======================================================================
+// This branch of adapter_readiness_blockers() is a FAIL-CLOSED BACKSTOP with
+// no reachable product caller: both Policy::load() and Policy::from_snapshot()
+// refuse a library that has dispositions and no generated registry, so the row
+// can only be produced by constructing that state directly. It is asserted all
+// the same, because the two blocker renderers print `source` and `trust_tier`
+// for every row and used to INVENT them for this one from a `??` default.
+$backstop = new \ReflectionClass(Policy::class);
+$backstopPolicy = $backstop->newInstanceWithoutConstructor();
+$dispositionsProperty = $backstop->getProperty('manifestDispositions');
+$dispositionsProperty->setValue($backstopPolicy, \Duo\ManifestDispositions::load($shippedDir));
+$backstopRows = $backstopPolicy->adapter_readiness_blockers();
+check(
+    count($backstopRows) === 1 && $backstopRows[0]['code'] === 'missing_capability_registry',
+    'dispositions with no generated registry produce the one backstop blocker row'
+);
+check(
+    ($backstopRows[0]['source'] ?? null) === 'shipped'
+    && ($backstopRows[0]['trust_tier'] ?? null) === 'unknown'
+    && trim((string) ($backstopRows[0]['remediation'] ?? '')) !== '',
+    'and it now STATES its source, states that it has no trust tier to report, and carries a remediation — the '
+    . 'renderers no longer fill those in for it'
+);
+$backstopStatus = \Duo\Orchestrator\PlanSummary::render(['adapter_dispositions' => $backstopRows]);
+$backstopText = implode("\n", $backstopStatus['lines']);
+check(
+    str_contains($backstopText, 'source=shipped') && str_contains($backstopText, 'tier=unknown')
+    && str_contains($backstopText, '    remediation: '),
+    'duo status renders the row\'s own words rather than its own defaults'
+);
+
 echo $failures === 0 ? "\nALL PASSED\n" : "\nFAIL: $failures check(s) failed\n";
 exit($failures === 0 ? 0 : 1);
