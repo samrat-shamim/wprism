@@ -23,7 +23,7 @@ final class Registry {
 
         $siteFile = self::findUpwards($startDir, 'site.duo.json');
         if ($siteFile !== null) {
-            $envs = self::mergeIn($envs, self::readEnvsFile($siteFile), dirname($siteFile));
+            $envs = self::mergeIn($envs, self::readEnvsFile($siteFile), dirname($siteFile), false);
         }
 
         if ($overlayOverride !== null) {
@@ -35,7 +35,7 @@ final class Registry {
             $overlayFile = self::findUpwards($startDir, '.duo-envs.json');
         }
         if ($overlayFile !== null) {
-            $envs = self::mergeIn($envs, self::readEnvsFile($overlayFile), dirname($overlayFile));
+            $envs = self::mergeIn($envs, self::readEnvsFile($overlayFile), dirname($overlayFile), true);
         }
 
         return $envs;
@@ -71,9 +71,13 @@ final class Registry {
      * @param array<string, array<string, mixed>> $overlay
      * @return array<string, array<string, mixed>>
      */
-    private static function mergeIn(array $base, array $overlay, string $dir): array {
+    private static function mergeIn(array $base, array $overlay, string $dir, bool $machineLocal): array {
         foreach ($overlay as $name => $cfg) {
-            $base[$name] = $cfg + ['_dir' => $dir];
+            // These provenance fields are loader-owned. A checked-in file
+            // must not self-label privileged provider configuration as local.
+            $cfg['_dir'] = $dir;
+            $cfg['_machine_local'] = $machineLocal;
+            $base[$name] = $cfg;
         }
         return $base;
     }

@@ -15,6 +15,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/src/Registry.php';
 require __DIR__ . '/src/EnvironmentDriver.php';
+require __DIR__ . '/src/EnvironmentLifecycle.php';
 require __DIR__ . '/src/Transport.php';
 require __DIR__ . '/src/LocalTransport.php';
 require __DIR__ . '/src/DockerTransport.php';
@@ -42,6 +43,9 @@ use Duo\Orchestrator\Adopt;
 use Duo\Orchestrator\CodeDeploy;
 use Duo\Orchestrator\DriverCapabilityReport;
 use Duo\Orchestrator\EnvironmentDriver;
+use Duo\Orchestrator\CommandEnvironmentProvider;
+use Duo\Orchestrator\EnvironmentLifecycleJournal;
+use Duo\Orchestrator\EnvironmentMaterializer;
 use Duo\Orchestrator\Pending;
 use Duo\Orchestrator\PlanSummary;
 use Duo\Orchestrator\RollbackAuthority;
@@ -61,6 +65,8 @@ over local/docker/ssh transports and adds cross-environment ergonomics.
 
 Usage:
   duo envs
+  duo env materialize <env> --from=<production-env> --branch=<ref> [--create] [--ttl=<seconds>]
+  duo env reap <env>
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
   duo adopt  <env>
@@ -81,6 +87,18 @@ Usage:
   duo -h | --help
 
 Verbs:
+  env materialize         Materialize a branch environment from one coherent
+    <env> --from=<prod>   provider-owned production DB/media snapshot. The
+    --branch=<ref>        semantic B/P/W rebase remains separate from physical
+    [--create]            restore, then the existing code/lifecycle/state
+    [--ttl=<seconds>]     promotion path converges the candidate. Attach is the
+                          default; --create is explicit and requires exact
+                          create+destroy receipt capabilities. Optional TTL is
+                          provider-owned and identity/lease fenced.
+  env reap <env>          Destroy a created target or detach an attached one
+                          only through its explicit provider capability and an
+                          exact resource/lease/ownership compare-and-reap.
+                          Repeated reap is idempotent; stale identity refuses.
   envs                    List environments from site.duo.json + .duo-envs.json
                           (overlay wins per env name), with transport summaries.
   doctor <env>            Check transport reachability, WordPress install, the
@@ -276,6 +294,9 @@ function main(array $argv): int {
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
     }
+    if ($verb === 'env') {
+        return cmd_environment($rest, $envsFileOverride);
+    }
 
     if (!in_array($verb, $verbsNeedingEnv, true)) {
         fwrite(STDERR, "duo: unknown verb '$verb'\n\n" . duo_usage() . "\n");
@@ -384,6 +405,175 @@ function render_driver_blockers(DriverCapabilityReport $report): void {
         fwrite(STDERR, "  {$blocker['capability']}: {$blocker['reason']}\n");
     }
     fwrite(STDERR, "  report: {$body['digest']}\n");
+}
+
+/** Public nested environment lifecycle namespace. */
+function cmd_environment(array $args, ?string $envsFileOverride): int {
+    if (count($args) < 2) {
+        fwrite(STDERR, "duo: env requires materialize|reap and a target <env>\n");
+        return 1;
+    }
+    $action = array_shift($args);
+    $targetName = array_shift($args);
+    if (!in_array($action, ['materialize', 'reap'], true)) {
+        fwrite(STDERR, "duo: env: unknown action '$action' (expected materialize or reap)\n");
+        return 1;
+    }
+    try {
+        // Parse the complete public intent before registry/provider/journal
+        // construction. Caller mistakes never execute a privileged provider
+        // or even create operational state.
+        $options = $action === 'materialize' ? environment_materialize_flags($args) : null;
+        $reapJson = $action === 'reap' ? environment_reap_flags($args) : false;
+        $envs = Registry::load($envsFileOverride, getcwd() ?: '.');
+        $targetConfig = Registry::get($envs, $targetName);
+        $targetDriver = Transport::make($targetName, $targetConfig);
+        $targetProvider = CommandEnvironmentProvider::fromEnvironment($targetName, $targetConfig);
+        $journal = environment_lifecycle_journal();
+
+        if ($action === 'reap') {
+            $receipt = EnvironmentMaterializer::reap($targetDriver, $targetProvider, $journal);
+            render_environment_receipt($receipt, $reapJson, 'reap');
+            return 0;
+        }
+
+        if (!is_array($options)) throw new \RuntimeException('materialize intent is missing');
+        $sourceName = $options['source'];
+        $sourceConfig = Registry::get($envs, $sourceName);
+        $sourceDriver = Transport::make($sourceName, $sourceConfig);
+        $sourceProvider = CommandEnvironmentProvider::fromEnvironment($sourceName, $sourceConfig);
+        $receipt = EnvironmentMaterializer::materialize(
+            $sourceDriver,
+            $targetDriver,
+            $sourceProvider,
+            $targetProvider,
+            $journal,
+            [
+                'branch' => $options['branch'],
+                'create' => $options['create'],
+                'ttl_seconds' => $options['ttl_seconds'],
+            ],
+            static fn(EnvironmentDriver $driver): int => cmd_promote($driver, [])
+        );
+        render_environment_receipt($receipt, $options['json'], 'materialize');
+        return 0;
+    } catch (\Throwable $e) {
+        fwrite(STDERR, "duo: env $action: {$e->getMessage()}\n");
+        return 1;
+    }
+}
+
+/** @return array{source:string,branch:string,create:bool,ttl_seconds:int,json:bool} */
+function environment_materialize_flags(array $args): array {
+    $source = null;
+    $branch = null;
+    $create = false;
+    $ttl = 0;
+    $ttlSeen = false;
+    $json = false;
+    foreach ($args as $arg) {
+        if ($arg === '--create') {
+            if ($create) throw new \RuntimeException('duplicate --create');
+            $create = true;
+            continue;
+        }
+        if ($arg === '--format=json') {
+            if ($json) throw new \RuntimeException('duplicate --format=json');
+            $json = true;
+            continue;
+        }
+        if (str_starts_with($arg, '--from=')) {
+            if ($source !== null) throw new \RuntimeException('duplicate --from');
+            $source = substr($arg, strlen('--from='));
+            if ($source === '') throw new \RuntimeException('--from cannot be empty');
+            continue;
+        }
+        if (str_starts_with($arg, '--branch=')) {
+            if ($branch !== null) throw new \RuntimeException('duplicate --branch');
+            $branch = substr($arg, strlen('--branch='));
+            if ($branch === '' || str_starts_with($branch, '-') || str_contains($branch, "\0")) {
+                throw new \RuntimeException('--branch must be a safe Git ref');
+            }
+            continue;
+        }
+        if (str_starts_with($arg, '--ttl=')) {
+            if ($ttlSeen) throw new \RuntimeException('duplicate --ttl');
+            $ttlSeen = true;
+            $raw = substr($arg, strlen('--ttl='));
+            if (preg_match('/^[0-9]+$/D', $raw) !== 1) {
+                throw new \RuntimeException('--ttl must be whole seconds');
+            }
+            $ttl = (int) $raw;
+            if ($ttl < 60 || $ttl > 2592000) {
+                throw new \RuntimeException('--ttl must be between 60 and 2592000 seconds');
+            }
+            continue;
+        }
+        throw new \RuntimeException("unsupported flag '$arg'");
+    }
+    if ($source === null || $branch === null) {
+        throw new \RuntimeException('materialize requires exactly --from=<production-env> and --branch=<ref>');
+    }
+    return [
+        'source' => $source,
+        'branch' => $branch,
+        'create' => $create,
+        'ttl_seconds' => $ttl,
+        'json' => $json,
+    ];
+}
+
+function environment_reap_flags(array $args): bool {
+    if ($args === []) return false;
+    if ($args === ['--format=json']) return true;
+    throw new \RuntimeException('reap accepts only optional --format=json');
+}
+
+function environment_lifecycle_journal(): EnvironmentLifecycleJournal {
+    $process = proc_open(
+        ['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        getcwd() ?: null,
+        null,
+        ['bypass_shell' => true]
+    );
+    if (!is_resource($process)) {
+        throw new \RuntimeException('could not resolve Git operational directory');
+    }
+    fclose($pipes[0]);
+    $stdout = (string) stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    if (proc_close($process) !== 0 || trim($stdout) === '') {
+        throw new \RuntimeException('env materialize/reap must run inside a Git worktree');
+    }
+    return new EnvironmentLifecycleJournal(rtrim(trim($stdout), '/') . '/duo-environments');
+}
+
+/** @param array<string,mixed> $receipt */
+function render_environment_receipt(array $receipt, bool $json, string $action): void {
+    if ($json) {
+        echo json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n";
+        return;
+    }
+    echo "environment $action complete: operation=" . ($receipt['operation_id'] ?? '?')
+        . ' resource=' . ($receipt['resource_id'] ?? '?') . "\n";
+    if ($action === 'materialize') {
+        echo 'mode=' . ($receipt['mode'] ?? '?')
+            . ' branch=' . ($receipt['branch_commit'] ?? '?')
+            . ' snapshot=' . ($receipt['snapshot_set_id'] ?? '?') . "\n";
+        echo 'release code=' . ($receipt['code_revision'] ?? '?')
+            . ' state=' . ($receipt['state_revision'] ?? '?')
+            . ' outer=' . ($receipt['outer_artifact_hash'] ?? '?') . "\n";
+        echo 'url=' . ($receipt['url'] ?? '?')
+            . ' expires_at=' . ($receipt['expires_at'] ?? 'none') . "\n";
+    } else {
+        echo 'disposition=' . ($receipt['disposition'] ?? '?')
+            . ' absence_proof=' . ($receipt['absence_proof_sha256'] ?? '?') . "\n";
+    }
+    echo 'receipt=' . ($receipt['receipt_sha256'] ?? '?') . "\n";
 }
 
 /** @return array<string,string> */

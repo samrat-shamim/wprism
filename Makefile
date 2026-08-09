@@ -19,6 +19,8 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-refresh-compile-refs \
 	regress-refresh-rebase \
 	regress-environment-driver \
+	regress-environment-lifecycle \
+	regress-environment-materializer \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions \
 	regress-post-field-classification regress-capability-registry regress-woocommerce-contract \
@@ -575,6 +577,12 @@ regress-doctor-env-values:
 regress-environment-driver:
 	php sandbox/tests/regress_environment_driver.php
 
+regress-environment-lifecycle:
+	php sandbox/tests/regress_environment_lifecycle.php
+
+regress-environment-materializer:
+	php sandbox/tests/regress_environment_materializer.php
+
 regress-dynamic-options-policy:
 	bash sandbox/tests/regress_dynamic_options_policy.sh
 
@@ -747,7 +755,7 @@ regress-offline-all: code-half-unit \
 	regress-adopt-rollback regress-capture-publish regress-adapter-contract regress-manifest-dispositions regress-capability-registry regress-certification-bundle regress-interpreter-policy \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan \
 	regress-order-preserving \
-	regress-block-refs regress-composite-ref regress-doctor-env-values regress-environment-driver \
+	regress-block-refs regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-materializer \
 	regress-dynamic-options-policy regress-env-options-policy regress-export-manifest-roundtrip \
 	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \

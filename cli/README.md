@@ -26,6 +26,8 @@ binary and, per environment, whatever the transport itself needs (`ssh`,
 
 ```
 duo envs
+duo env materialize <env> --from=<production-env> --branch=<ref> [--create] [--ttl=<seconds>] [--format=json]
+duo env reap <env> [--format=json]
 duo doctor <env>
 duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
 duo adopt  <env>
@@ -106,6 +108,39 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   or driver-owned operation receipts. Those stay visibly unsupported until a
   driver implements them; provider provisioning remains an optional driver
   extension rather than engine behavior.
+
+- **`duo env materialize <env> --from=<production-env> --branch=<ref>`** —
+  creates the default short-lived branch environment without collapsing its
+  three separate contracts. `Refresh` first rebases the clean, currently
+  checked-out branch against live production semantic truth in an isolated
+  worktree. A separately configured host provider then issues one coherent,
+  opaque DB/media snapshot set bound to that exact semantic snapshot, attaches
+  to the target (the default) or explicitly creates it (`--create`), restores
+  the physical baseline, materializes the candidate repository commit, and
+  restores the provider-owned target URL. Finally the ordinary `duo promote`
+  path performs code-stage → lifecycle retire/activate → code-finalize → state
+  apply and a clean plan verifies convergence. The receipt retains separate
+  code and state release identities plus their binding outer artifact.
+
+  Every provider request is canonical JSON over absolute direct argv, with no
+  shell, a bounded timeout/output size, and redacted failure output. Source and
+  target capability reports are checked together before the first snapshot or
+  target mutation. Attach is never inferred to mean create; create is accepted
+  only when the provider also promises exact receipt-backed destroy. An
+  optional `--ttl=60..2592000` is a provider resource lease, not WordPress's
+  database-local promotion lock, and is set only with the target's exact
+  resource/lease/ownership tuple. Retries reuse the immutable operation id and
+  journal, so provider operations must be idempotent for that id.
+
+- **`duo env reap <env>`** — reads the latest immutable machine-local
+  materialization journal, re-inspects the provider resource, and performs a
+  provider-side compare-and-reap against its exact environment, resource,
+  lease generation/id, and ownership receipt. Created resources require
+  `environment.destroy`; attached resources require `environment.detach` and
+  are never destroyed. A reused name, changed lease/generation, tampered
+  receipt, or missing explicit capability refuses before the destructive call.
+  Repeated reap returns the existing absence proof without another provider
+  call.
 
 - **`duo adopt <env>`** — installs or updates this checkout's complete Duo
   agent and manifest library on a pre-existing SSH target, creates a minimal
@@ -531,6 +566,48 @@ Per-transport required keys:
 
 A missing required key is a loud, specific error naming the environment,
 the key, and the transport — never a guess.
+
+### Optional branch-environment provider
+
+Physical production snapshots, resource creation/cleanup, URLs, and host TTLs
+are privileged host operations, not transport primitives. An environment may
+therefore add this exact block only in the machine-local `.duo-envs.json`
+entry (checked-in `site.duo.json` is rejected even if it tries to forge loader
+provenance):
+
+```json
+{
+  "environment_provider": {
+    "command": ["/absolute/path/to/provider", "--site=example"],
+    "timeout_seconds": 30
+  }
+}
+```
+
+The command receives one canonical
+`duo-branch-environment-provider-request/v1` object on stdin and must return
+one canonical `duo-branch-environment-provider-response/v1` object on stdout.
+Protocol 1 has a closed capability vocabulary:
+
+```
+snapshot.set.create       snapshot.set.read        snapshot.set.restore
+environment.inspect      environment.attach       environment.create
+environment.destroy      environment.detach       environment.ttl
+environment.url.discover environment.url.set      repository.materialize
+operation.receipts
+```
+
+Operation responses contain only opaque IDs/digests and redacted operational
+evidence—never database/media bytes, credentials, signed URLs, or production
+PII. `snapshot-create` must return one `snapshot_set_id` binding database and
+media hashes, retention evidence, source identity, and the requested semantic
+production snapshot hash. Every mutating target request carries
+`expected_environment_identity`, `expected_resource_id`, `expected_lease_id`,
+`expected_lease_generation`, and `expected_ownership_receipt_sha256`; the
+provider must enforce those as a compare-and-set, especially for TTL,
+destroy, and detach. The host journal lives under Git's common directory at
+`duo-environments/` with mode-0600 immutable run/event records; it is
+operational recovery state and never canonical branch state.
 
 `ssh_config`, when present, is passed to both `ssh -F` and `scp -F` and may be
 relative to the registry file that defined the environment. This is the
