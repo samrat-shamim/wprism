@@ -31,7 +31,7 @@ final class Refresh {
      *
      * @return array{plan:array<string,mixed>,plan_path:string,context:array<string,mixed>}
      */
-    public static function refresh(Transport $transport, string $productionRef): array {
+    public static function refresh(EnvironmentDriver $transport, string $productionRef): array {
         $prepared = self::prepare($transport, $productionRef);
         return [
             'plan' => $prepared['plan'],
@@ -47,7 +47,7 @@ final class Refresh {
      *
      * @return array{plan_path:string,run_id:string,new_branch:string,head:string}
      */
-    public static function rebase(Transport $transport, string $productionRef, string $newBranch, array $resolution = []): array {
+    public static function rebase(EnvironmentDriver $transport, string $productionRef, string $newBranch, array $resolution = []): array {
         self::requirePlanner(['normalizeProductionSnapshot', 'compileGitWorktree', 'assertProductionCodeMatches', 'plan', 'normalizePlan', 'materialize', 'validateMaterialization']);
         $resolution = self::normalizeResolution($resolution);
         $prepared = self::prepare($transport, $productionRef);
@@ -157,7 +157,7 @@ final class Refresh {
     }
 
     /** @return array{plan:array<string,mixed>,plan_path:string,context:array<string,mixed>} */
-    private static function prepare(Transport $transport, string $productionRef): array {
+    private static function prepare(EnvironmentDriver $transport, string $productionRef): array {
         self::requirePlanner(['normalizeProductionSnapshot', 'compileGitWorktree', 'assertProductionCodeMatches', 'plan', 'normalizePlan']);
         $root = self::repositoryRoot();
         $branch = self::assertCleanAttachedBranch($root);
@@ -228,7 +228,7 @@ final class Refresh {
     }
 
     /** @return array<string,mixed> */
-    private static function readProduction(Transport $transport, string $productionCommit): array {
+    private static function readProduction(EnvironmentDriver $transport, string $productionCommit): array {
         self::assertTargetHead($transport, $productionCommit);
         // Boot only core + the protected Duo agent. Ordinary WP-CLI plugin,
         // theme, or user-MU bootstrap runs before RefreshExport can open its
@@ -292,7 +292,7 @@ final class Refresh {
         }
     }
 
-    private static function assertTargetHead(Transport $transport, string $expected): void {
+    private static function assertTargetHead(EnvironmentDriver $transport, string $expected): void {
         $repo = escapeshellarg($transport->repoPath());
         $script = 'git -C ' . $repo . ' rev-parse --verify HEAD^{commit}'
             . ' && git -C ' . $repo . ' status --porcelain=v1 --untracked-files=all'

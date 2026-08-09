@@ -9,7 +9,7 @@ namespace Duo\Orchestrator;
  */
 final class Doctor {
     /** @return array{ok:bool, checks: list<array{label:string, ok:bool, detail:string, advisory?:bool}>} */
-    public static function run(Transport $t): array {
+    public static function run(EnvironmentDriver $t): array {
         $checks = [];
 
         $r = $t->captureRaw('echo duo-reachable');

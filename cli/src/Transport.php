@@ -1,6 +1,8 @@
 <?php
 namespace Duo\Orchestrator;
 
+require_once __DIR__ . '/EnvironmentDriver.php';
+
 /**
  * Exact command surface required by the SSH adoption transaction.
  *
@@ -34,13 +36,16 @@ interface AdoptionTransport {
  * which parse output and must not have it corrupted by e.g. `docker compose
  * run`'s own container-lifecycle chatter, which lands on stderr).
  */
-abstract class Transport {
+abstract class Transport implements EnvironmentDriver {
     protected string $name;
     protected string $repoPath;
+    protected string $driverId;
 
     protected function __construct(string $name, array $cfg) {
         $this->name = $name;
         $this->repoPath = self::requireKey($cfg, $name, 'repo_path');
+        $configured = $cfg['transport'] ?? null;
+        $this->driverId = is_string($configured) && $configured !== '' ? $configured : 'fixture';
     }
 
     /** @param array<string, mixed> $cfg */
@@ -61,8 +66,29 @@ abstract class Transport {
         return $this->name;
     }
 
+    public function driverId(): string {
+        return $this->driverId;
+    }
+
     public function repoPath(): string {
         return $this->repoPath;
+    }
+
+    public function capabilityReport(string $operation): DriverCapabilityReport {
+        $supported = [
+            DriverCapability::ATTACH => true,
+            DriverCapability::WP_CONTROL => true,
+            DriverCapability::RAW_CONTROL => true,
+            DriverCapability::CODE_MATERIALIZE => true,
+            DriverCapability::DB_SNAPSHOT_CREATE => true,
+            DriverCapability::DB_SNAPSHOT_READ => true,
+            DriverCapability::DB_SNAPSHOT_RESTORE => true,
+        ];
+        if ($this instanceof AdoptionTransport) {
+            $supported[DriverCapability::BOOTSTRAP] = true;
+            $supported[DriverCapability::CODE_TRANSFER] = true;
+        }
+        return DriverCapabilityReport::forDriver($this->name, $this->driverId, $operation, $supported);
     }
 
     /** One-line description for `duo envs`. */
