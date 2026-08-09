@@ -145,9 +145,13 @@ final class Init {
             $selected = array_values(array_unique(array_merge(['core'], $selected)));
         }
         // The proposal has no site.duo.json yet, but its installed adapter
-        // source is already repository-owned. Load selected manifests through
-        // that source without pretending the not-yet-confirmed config exists.
-        $policy = Policy::load(null, $selected, false, $repo);
+        // source is already repository-owned. Resolve the selected manifests
+        // once to obtain their canonical digests/provenance, then reload the
+        // exact pins that init will publish. This second verification is what
+        // elevates a signed site adapter: name-only discovery must never grant
+        // authority, while a reviewed proposal must not remain permanently
+        // "signed_unpinned" merely because the config does not exist yet.
+        [$policy, $pins] = self::load_selected_policy($selected, $repo);
         $capabilities = $policy->capability_report(['operation' => 'capture']);
         foreach ($capabilities['blockers'] ?? [] as $blocker) {
             $unsupported[] = [
@@ -187,10 +191,8 @@ final class Init {
         sort($taxonomies, SORT_STRING);
 
         $resolved = RepositoryCompiler::resolved_adapters($policy);
-        $pins = [];
         $adapterRows = [];
         foreach ($resolved as $row) {
-            $pins[] = ['digest' => (string) $row['digest'], 'name' => (string) $row['name']];
             $adapterRows[] = [
                 'digest' => (string) $row['digest'],
                 'name' => (string) $row['name'],
@@ -339,6 +341,29 @@ final class Init {
         ];
         $proposal['digest'] = hash('sha256', Canon::encode($proposal));
         return $proposal;
+    }
+
+    /**
+     * Resolve discovery names into the exact source/digest pins the confirmed
+     * config will own, then re-verify readiness against those same pins.
+     *
+     * @param list<string> $selected
+     * @return array{0:Policy,1:list<array<string,string>>}
+     */
+    private static function load_selected_policy(array $selected, string $repo): array {
+        $discovered = Policy::load(null, $selected, false, $repo);
+        $pins = [];
+        foreach (RepositoryCompiler::resolved_adapters($discovered) as $row) {
+            $pin = [
+                'digest' => (string) $row['digest'],
+                'name' => (string) $row['name'],
+            ];
+            if (($row['source'] ?? AdapterSources::SHIPPED) === AdapterSources::SITE) {
+                $pin['source'] = AdapterSources::SITE;
+            }
+            $pins[] = $pin;
+        }
+        return [Policy::load(null, $pins, false, $repo), $pins];
     }
 
     /** @return array<string,mixed> */
