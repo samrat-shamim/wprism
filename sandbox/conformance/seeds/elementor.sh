@@ -27,7 +27,15 @@ CONF1_PORT="${CONF1_PORT:-8806}"
 
 TARGET_ID=$(wp_conf1 post create --post_type=page --post_title='Duo Elementor Target' --post_name=duo-elementor-target \
   --post_status=publish --post_content='<!-- wp:paragraph --><p>The link target.</p><!-- /wp:paragraph -->' --porcelain)
+# DUO-3381: assert the premise before anything consumes it — this page's own
+# permalink is the button widget's link, and checks/elementor.sh asserts
+# conf2 rebinds exactly that URL. A load-starved `docker compose run` can
+# return an empty --porcelain capture without a non-zero exit (see run.sh's
+# require_fixture_ids), which would leave the engine answering for a fixture
+# that never landed.
+require_fixture_ids TARGET_ID
 TARGET_URL=$(wp_conf1 post get "$TARGET_ID" --field=url)
+require_fixture_values TARGET_URL
 
 cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-elementor-seed.php <<PHP
 <?php

@@ -25,11 +25,21 @@ ABOUT_ID=$(wp_conf1 post create --post_type=page --post_title='Duo FSE About' --
   --post_status=publish --post_content='<!-- wp:paragraph --><p>About the conformance site.</p><!-- /wp:paragraph -->' --porcelain)
 CONTACT_ID=$(wp_conf1 post create --post_type=page --post_title='Duo FSE Contact' --post_name=duo-fse-contact \
   --post_status=publish --post_content='<!-- wp:paragraph --><p>Contact the conformance site.</p><!-- /wp:paragraph -->' --porcelain)
+# DUO-3381: assert the premise before anything consumes it. These ids are
+# interpolated straight into block attributes below ({"id":$ABOUT_ID},
+# {"ref":$NAV_ID}) — an empty capture from a load-starved `docker compose
+# run` (see run.sh's require_fixture_ids) produces syntactically invalid
+# block JSON that renders as nothing, and checks/fse.sh then reports conf2's
+# navigation/reusable-block render as an engine failure.
+require_fixture_ids ABOUT_ID CONTACT_ID
 ABOUT_URL=$(wp_conf1 post get "$ABOUT_ID" --field=url)
 CONTACT_URL=$(wp_conf1 post get "$CONTACT_ID" --field=url)
+require_fixture_values ABOUT_URL CONTACT_URL
 
 NEWS_ID=$(wp_conf1 term create category "Conformance FSE News" --slug=conformance-fse-news --porcelain)
+require_fixture_ids NEWS_ID
 NEWS_URL=$(wp_conf1 eval "echo get_term_link((int) $NEWS_ID, 'category');")
+require_fixture_values NEWS_URL
 
 # Uploads persist across pair.sh resets (the webroot volume is deliberately
 # kept — that's the reset-speed design, docs/sandbox.md), so a re-run's
@@ -55,7 +65,9 @@ EOF
 ATT_ID=$($COMPOSE run --rm -T cli1 bash -c \
   "wp eval-file /siterepo/.tmp-makeimg-fse.php >/dev/null && wp media import /tmp/conf-fse-cta.png --title='Conformance FSE CTA Image' --alt='Conformance FSE CTA image' --porcelain")
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-makeimg-fse.php
+require_fixture_ids ATT_ID
 ATT_URL=$(wp_conf1 eval "echo wp_get_attachment_url((int) $ATT_ID);")
+require_fixture_values ATT_URL
 
 # A reusable block (wp_block / pattern) containing an image — already-working
 # machinery per the report (core/image's existing id rule, core/block's
@@ -66,6 +78,7 @@ CTA_CONTENT="<!-- wp:image {\"id\":$ATT_ID,\"sizeSlug\":\"full\",\"linkDestinati
 <!-- /wp:image -->"
 CTA_ID=$(wp_conf1 post create --post_type=wp_block --post_title='Duo FSE CTA' --post_name=duo-fse-cta \
   --post_status=publish --post_content="$CTA_CONTENT" --porcelain)
+require_fixture_ids CTA_ID
 wp_conf1 term create wp_pattern_category "Conformance Patterns" --slug=conformance-patterns --porcelain >/dev/null
 wp_conf1 post term add "$CTA_ID" wp_pattern_category conformance-patterns --by=slug
 
@@ -85,6 +98,7 @@ NAV_CONTENT="<!-- wp:navigation-link {\"label\":\"About\",\"type\":\"page\",\"id
 <!-- wp:navigation-link {\"label\":\"External\",\"type\":\"custom\",\"url\":\"https://duo-conformance-external.example.test/features\",\"kind\":\"custom\"} /-->"
 NAV_ID=$(wp_conf1 post create --post_type=wp_navigation --post_title='Duo FSE Primary Nav' --post_name=duo-fse-primary-nav \
   --post_status=publish --post_content="$NAV_CONTENT" --porcelain)
+require_fixture_ids NAV_ID
 
 # A customized "footer" template part: wp_theme + wp_template_part_area terms
 # (a genuine taxonomy relationship, not postmeta — the report's own
@@ -96,6 +110,7 @@ NAV_ID=$(wp_conf1 post create --post_type=wp_navigation --post_title='Duo FSE Pr
 FOOTER_CONTENT="<!-- wp:paragraph --><p>Contact us: <a href=\"$CONTACT_URL\">Contact</a></p><!-- /wp:paragraph -->"
 FOOTER_ID=$(wp_conf1 post create --post_type=wp_template_part --post_title='Footer' --post_name=footer \
   --post_status=publish --post_content="$FOOTER_CONTENT" --porcelain)
+require_fixture_ids FOOTER_ID
 wp_conf1 post term add "$FOOTER_ID" wp_theme twentytwentyfive --by=slug
 wp_conf1 post term add "$FOOTER_ID" wp_template_part_area footer --by=slug
 wp_conf1 post meta update "$FOOTER_ID" origin theme
@@ -110,6 +125,7 @@ HOME_CONTENT="<!-- wp:template-part {\"slug\":\"header\",\"theme\":\"twentytwent
 <!-- wp:template-part {\"slug\":\"footer\",\"theme\":\"twentytwentyfive\"} /-->"
 HOME_ID=$(wp_conf1 post create --post_type=wp_template --post_title='Home' --post_name=home \
   --post_status=publish --post_content="$HOME_CONTENT" --porcelain)
+require_fixture_ids HOME_ID
 wp_conf1 post term add "$HOME_ID" wp_theme twentytwentyfive --by=slug
 wp_conf1 post meta update "$HOME_ID" origin theme
 

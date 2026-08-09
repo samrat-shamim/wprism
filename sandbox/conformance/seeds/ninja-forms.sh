@@ -61,10 +61,19 @@ if ($id) {
     $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}nf3_forms WHERE id = %d", $id));
     echo "removed this environment's own activation-created 'Contact Me' form (id=$id)\n";
 }
+// DUO-3381: report the POST-CONDITION, not just what was attempted. This
+// cleanup is the premise for run.sh's cross-environment byte-diff — a row
+// left behind here surfaces there as "round-trip mismatch between conf1
+// and conf2", an accusation against capture/apply for a fixture this
+// cleanup failed to establish.
+echo "contact_me_remaining=" . (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}nf3_forms WHERE title = 'Contact Me'") . "\n";
 PHPEOF
 printf '%s' "$REMOVE_CONTACT_ME_PHP" > "${CONF_REPO1:-siterepo/conf1}"/.tmp-nf-remove-contact-me.php
-wp_conf1 eval-file /siterepo/.tmp-nf-remove-contact-me.php
+NF_CLEANUP=$(wp_conf1 eval-file /siterepo/.tmp-nf-remove-contact-me.php)
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-nf-remove-contact-me.php
+printf '%s\n' "$NF_CLEANUP"
+require_fixture_state "conf1's own activation-created 'Contact Me' form is gone from nf3_forms" \
+  "contact_me_remaining=0" "$(grep -o 'contact_me_remaining=[0-9]*' <<<"$NF_CLEANUP" | tail -1)"
 
 cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-nf-import-step.php <<'PHPEOF'
 <?php

@@ -16,8 +16,17 @@ HOME_ID=$(wp_conf1 post create --post_type=page --post_title=Home --post_name=ho
 # different branches deliberately share the same slug.
 BRANCH_A=$(wp_conf1 post create --post_type=page --post_title='Branch A' --post_name=branch-a --post_status=publish --porcelain)
 BRANCH_B=$(wp_conf1 post create --post_type=page --post_title='Branch B' --post_name=branch-b --post_status=publish --porcelain)
+# DUO-3381: assert the premise before anything consumes it. Every id above
+# comes back from a `docker compose run` that can be starved of output under
+# host load without exiting non-zero (see run.sh's require_fixture_ids), and
+# an empty --post_parent silently casts to 0 — the two children below would
+# be created successfully, in the wrong place, and this manifest's own
+# hierarchy assertions (postdeploy/core.sh's ambiguous-key refusal,
+# checks/core.sh's shared-child guard) would then read as engine failures.
+require_fixture_ids NEWS_ID HOME_ID BRANCH_A BRANCH_B
 CHILD_A=$(wp_conf1 post create --post_type=page --post_title='Child A' --post_name=shared-child --post_parent="$BRANCH_A" --post_status=publish --porcelain)
 CHILD_B=$(wp_conf1 post create --post_type=page --post_title='Child B' --post_name=shared-child --post_parent="$BRANCH_B" --post_status=publish --porcelain)
+require_fixture_ids CHILD_A CHILD_B
 
 # Same-filename re-import across pair.sh resets gets WordPress's collision
 # suffix (uploads persist in the webroot volume; the reset only drops the
@@ -39,7 +48,14 @@ EOF
 ATT_ID=$($COMPOSE run --rm -T cli1 bash -c \
   "wp eval-file /siterepo/.tmp-makeimg.php >/dev/null && wp media import /tmp/conf-core-logo.png --title='Conformance Logo' --alt='Conformance logo' --porcelain")
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-makeimg.php
+# An empty capture here would embed `"id":` in the image block below —
+# invalid block JSON authored into canonical state — and leave checks/
+# core.sh's attachment scenarios (the branch-edit/forced-deletion block,
+# which finds this exact attachment by slug) failing as if apply had lost
+# the row (DUO-3381).
+require_fixture_ids ATT_ID
 UP_URL=$(wp_conf1 eval "echo wp_get_attachment_url($ATT_ID);")
+require_fixture_values UP_URL
 
 HELLO_CONTENT="<!-- wp:image {\"id\":$ATT_ID,\"sizeSlug\":\"full\",\"linkDestination\":\"none\"} -->
 <figure class=\"wp-block-image size-full\"><img src=\"$UP_URL\" alt=\"\" class=\"wp-image-$ATT_ID\"/></figure>
@@ -47,6 +63,11 @@ HELLO_CONTENT="<!-- wp:image {\"id\":$ATT_ID,\"sizeSlug\":\"full\",\"linkDestina
 <!-- wp:paragraph --><p>Hello from the core conformance seed.</p><!-- /wp:paragraph -->"
 HELLO_ID=$(wp_conf1 post create --post_type=post --post_title='Hello Conformance' --post_name=hello-conformance \
   --post_status=publish --post_category="$NEWS_ID" --post_content="$HELLO_CONTENT" --porcelain)
+# page_on_front/default_category/sticky_posts are the ref-typed options this
+# manifest exists to prove; `option update page_on_front ''` succeeds, so an
+# empty id here would be captured as authored state rather than refused
+# (DUO-3381).
+require_fixture_ids HELLO_ID
 
 wp_conf1 option update blogname 'Duo Conformance' >/dev/null
 wp_conf1 option update show_on_front page >/dev/null
@@ -76,6 +97,7 @@ wp_conf1 eval "set_theme_mod('background_color', '3c8c3c'); set_theme_mod('custo
 # sparse and later collide with unrelated target defaults; portable identity
 # comes only from duo_map, never from settings injected into these arrays.
 WIDGET_MENU_ID=$(wp_conf1 menu create 'Conformance Widget Menu' --porcelain)
+require_fixture_ids WIDGET_MENU_ID
 wp_conf1 menu item add-post "$WIDGET_MENU_ID" "$HOME_ID" >/dev/null
 wp_conf1 eval "
 \$menu=$WIDGET_MENU_ID; \$attachment=$ATT_ID; \$url='$UP_URL';

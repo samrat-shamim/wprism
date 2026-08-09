@@ -16,6 +16,13 @@ POST_ID=$(wp_conf1 post create --post_type=post --post_title='Conformance Yoast 
   --post_name=conformance-yoast-post --post_status=publish \
   --post_content='<!-- wp:paragraph --><p>Content for the Yoast conformance seed, long enough to exercise a readability/SEO score.</p><!-- /wp:paragraph -->' \
   --porcelain)
+# DUO-3381: assert the premise before anything consumes it. CAT_A is written
+# straight into _yoast_wpseo_primary_category below, and `post meta update
+# ... ""` succeeds silently — an empty capture from a load-starved `docker
+# compose run` (see run.sh's require_fixture_ids) would leave checks/yoast.sh
+# reporting "ref not rebound to conf2's own term id" for a ref this seed
+# never authored.
+require_fixture_ids CAT_A CAT_B POST_ID
 wp_conf1 post term add "$POST_ID" category conformance-primary --by=slug
 wp_conf1 post term add "$POST_ID" category conformance-secondary --by=slug
 
@@ -72,6 +79,9 @@ COMPANY_LOGO_ID=$(echo "$IMG_IDS" | grep -oE 'COMPANY_LOGO_ID=[0-9]+' | cut -d= 
 PERSON_LOGO_ID=$(echo "$IMG_IDS" | grep -oE 'PERSON_LOGO_ID=[0-9]+' | cut -d= -f2)
 OG_DEFAULT_ID=$(echo "$IMG_IDS" | grep -oE 'OG_DEFAULT_ID=[0-9]+' | cut -d= -f2)
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-makeimg-yoast.php
+# Four ids parsed out of one container's stdout: any line the container
+# failed to emit leaves its id empty here, not at the point of failure.
+require_fixture_ids OG_ID COMPANY_LOGO_ID PERSON_LOGO_ID OG_DEFAULT_ID
 
 cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-yoast-taxmeta-seed.php <<PHP
 <?php

@@ -10,6 +10,6 @@ set -euo pipefail
 
 FILLER_ID=$(wp_conf2 post create --post_type=post --post_status=draft \
   --post_title='CF7 conformance identity spacer' --porcelain)
-[ -n "$FILLER_ID" ] || fail "could not allocate CF7 target identity spacer"
+require_fixture_ids FILLER_ID
 wp_conf2 post delete "$FILLER_ID" --force >/dev/null
 pass "advanced conf2's post id sequence with disposable post $FILLER_ID so CF7 identity portability is exercised"
