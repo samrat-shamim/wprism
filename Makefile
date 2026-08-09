@@ -30,7 +30,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-capability-registry regress-woocommerce-contract regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
-	regress-pair-candidate-source regress-manifest-validate regress-scope-closure \
+	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock \
 	capability-registry-generate release-gate
 
 up:
@@ -458,6 +458,13 @@ regress-close-gate-parent-count:
 regress-manifest-validate:
 	bash sandbox/tests/regress_manifest_validate.sh
 
+# DUO-3382: the certification bundle's own per-host flock(2) — real racing
+# processes against a private rendezvous, so the mutual exclusion, the named
+# refusal, bounded waiting, and kernel reclaim of a killed holder are proven
+# on both lock backends without docker or a 50-minute bundle run.
+regress-certbundle-lock:
+	bash sandbox/tests/regress_certbundle_lock.sh
+
 # DUO-3318 live counterpart: the parent-scoped natural key through capture,
 # deploy, apply, rename, and independent recapture across two environments
 # whose local ids genuinely differ. Own pair, so it is live-list material,
@@ -854,8 +861,8 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-cli-json-refusals regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
-	regress-manifest-validate regress-scope-closure
-	@echo "regress-offline-all: 89 offline suites green"
+	regress-manifest-validate regress-scope-closure regress-certbundle-lock
+	@echo "regress-offline-all: 90 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
