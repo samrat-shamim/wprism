@@ -2,95 +2,115 @@
   "advanced-custom-fields": {
     "5.12.6": {
       "url": "https://downloads.wordpress.org/plugin/advanced-custom-fields.5.12.6.zip",
-      "sha256": "66499016b3864e507139be16319ef9c5026a399a4b1e7630c75eee4bfe3122a6"
+      "sha256": "66499016b3864e507139be16319ef9c5026a399a4b1e7630c75eee4bfe3122a6",
+      "role": "refusal-fixture"
     },
     "6.0.0": {
       "url": "https://downloads.wordpress.org/plugin/advanced-custom-fields.6.0.0.zip",
-      "sha256": "b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341"
+      "sha256": "b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341",
+      "role": "certified-boundary"
     },
     "6.8.7": {
       "url": "https://downloads.wordpress.org/plugin/advanced-custom-fields.6.8.7.zip",
-      "sha256": "f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2"
+      "sha256": "f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2",
+      "role": "certified-boundary"
     }
   },
   "contact-form-7": {
     "5.9.8": {
       "url": "https://downloads.wordpress.org/plugin/contact-form-7.5.9.8.zip",
-      "sha256": "357b13dab0e2b9996444664c95bd7ee7ca49fb18aced65db4c40c747543afcf4"
+      "sha256": "357b13dab0e2b9996444664c95bd7ee7ca49fb18aced65db4c40c747543afcf4",
+      "role": "refusal-fixture"
     },
     "6.0.1": {
       "url": "https://downloads.wordpress.org/plugin/contact-form-7.6.0.1.zip",
-      "sha256": "23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6"
+      "sha256": "23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6",
+      "role": "certified-boundary"
     },
     "6.1.6": {
       "url": "https://downloads.wordpress.org/plugin/contact-form-7.6.1.6.zip",
-      "sha256": "e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e"
+      "sha256": "e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e",
+      "role": "certified-boundary"
     }
   },
   "elementor": {
     "3.35.9": {
       "url": "https://downloads.wordpress.org/plugin/elementor.3.35.9.zip",
-      "sha256": "90a41a7b76980e611619ff19daf4e89dc170c7608da18fcb8bb1fed266eb40cc"
+      "sha256": "90a41a7b76980e611619ff19daf4e89dc170c7608da18fcb8bb1fed266eb40cc",
+      "role": "refusal-fixture"
     },
     "4.0.0": {
       "url": "https://downloads.wordpress.org/plugin/elementor.4.0.0.zip",
-      "sha256": "75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2"
+      "sha256": "75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2",
+      "role": "certified-boundary"
     },
     "4.2.2": {
       "url": "https://downloads.wordpress.org/plugin/elementor.4.2.2.zip",
-      "sha256": "4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db"
+      "sha256": "4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db",
+      "role": "certified-boundary"
     }
   },
   "ninja-forms": {
     "3.3.21.4": {
       "url": "https://downloads.wordpress.org/plugin/ninja-forms.3.3.21.4.zip",
-      "sha256": "54fc48a030a85d4929fe4c3dc364affdd996e1add175f42a5d1f90c08a43682f"
+      "sha256": "54fc48a030a85d4929fe4c3dc364affdd996e1add175f42a5d1f90c08a43682f",
+      "role": "refusal-fixture"
     },
     "3.4.34.2": {
       "url": "https://downloads.wordpress.org/plugin/ninja-forms.3.4.34.2.zip",
-      "sha256": "a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687"
+      "sha256": "a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687",
+      "role": "certified-boundary"
     },
     "3.14.11": {
       "url": "https://downloads.wordpress.org/plugin/ninja-forms.3.14.11.zip",
-      "sha256": "82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73"
+      "sha256": "82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73",
+      "role": "certified-boundary"
     }
   },
   "polylang": {
     "3.4.5": {
       "url": "https://downloads.wordpress.org/plugin/polylang.3.4.5.zip",
-      "sha256": "adf4ac84fe0f10a326a7e6cad9453075bfe02eb99286f9c8f57259787914c9ab"
+      "sha256": "adf4ac84fe0f10a326a7e6cad9453075bfe02eb99286f9c8f57259787914c9ab",
+      "role": "refusal-fixture"
     },
     "3.5": {
       "url": "https://downloads.wordpress.org/plugin/polylang.3.5.zip",
-      "sha256": "3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1"
+      "sha256": "3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1",
+      "role": "certified-boundary"
     },
     "3.8.6": {
       "url": "https://downloads.wordpress.org/plugin/polylang.3.8.6.zip",
-      "sha256": "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa"
+      "sha256": "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa",
+      "role": "certified-boundary"
     }
   },
   "woocommerce": {
     "10.9.4": {
       "url": "https://downloads.wordpress.org/plugin/woocommerce.10.9.4.zip",
-      "sha256": "6e58fc3ba9b18d1c9aee6b0227d3c3c09e4fe2c1332823bd2e0ac54ffcff64a9"
+      "sha256": "6e58fc3ba9b18d1c9aee6b0227d3c3c09e4fe2c1332823bd2e0ac54ffcff64a9",
+      "role": "refusal-fixture"
     },
     "11.0.0": {
       "url": "https://downloads.wordpress.org/plugin/woocommerce.11.0.0.zip",
-      "sha256": "ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666"
+      "sha256": "ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666",
+      "role": "certified-boundary"
     }
   },
   "wordpress-seo": {
     "27.9": {
       "url": "https://downloads.wordpress.org/plugin/wordpress-seo.27.9.zip",
-      "sha256": "eaca8321b8816da3541427b0b6774a5266a0f4ba8f9503f01ae056c0d8282052"
+      "sha256": "eaca8321b8816da3541427b0b6774a5266a0f4ba8f9503f01ae056c0d8282052",
+      "role": "refusal-fixture"
     },
     "28.0": {
       "url": "https://downloads.wordpress.org/plugin/wordpress-seo.28.0.zip",
-      "sha256": "348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f"
+      "sha256": "348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f",
+      "role": "certified-boundary"
     },
     "28.2": {
       "url": "https://downloads.wordpress.org/plugin/wordpress-seo.28.2.zip",
-      "sha256": "f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23"
+      "sha256": "f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23",
+      "role": "certified-boundary"
     }
   }
 }

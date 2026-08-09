@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# DUO-3223/DUO-3224 reference certification: core and FSE conformance, the executable
-# multisite refusal boundary, and the exact-artifact matrix (which includes
-# Ninja Forms' real typed-table graph). Every run, pass or fail, is reduced to
-# machine result/diff JSON plus full logs and published by content digest.
-# Own one disposable pair at a time; callers parameterize name/ports on a
-# shared host. Generated bundles live under an ignored output directory.
+# DUO-3306 reference certification: every shipped conformance manifest emits
+# named machine evidence, followed by the executable multisite refusal boundary
+# and exact-artifact version matrix. Every run, pass or fail, is reduced to
+# result/diff JSON plus a full log and published by content digest.
 set -euo pipefail
 cd "$(dirname "$0")/.."   # -> sandbox/
 REPO_ROOT=$(cd .. && pwd)
@@ -69,11 +67,14 @@ cleanup_work() {
 }
 trap cleanup_work EXIT
 
-CORE_LOG="$WORK_ROOT/core-conformance.log"
-FSE_LOG="$WORK_ROOT/fse-conformance.log"
-MULTISITE_LOG="$WORK_ROOT/multisite-refusal.log"
-MATRIX_LOG="$WORK_ROOT/version-matrix.log"
 ENV_FILE="$WORK_ROOT/environment.json"
+MULTISITE_LOG="$WORK_ROOT/multisite-refusal.log"
+MATRIX_LOG="$WORK_ROOT/exact-artifact-version-matrix.log"
+CONFORMANCE_MANIFESTS=(
+  core fse acf contact-form-7 elementor ninja-forms
+  polylang woocommerce yoast paid-memberships-pro
+)
+TEST_FRAGMENTS=()
 
 write_result() { # write_result <id> <rc> <reason> <assertions-json> <path>
   local id="$1" rc="$2" reason="$3" assertions="$4" path="$5" verdict=fail
@@ -84,48 +85,90 @@ write_result() { # write_result <id> <rc> <reason> <assertions-json> <path>
     '{schema_version:1,test:$test,verdict:$verdict,exit_code:$exit_code,reason:$reason,assertions:$assertions}' > "$path"
 }
 
-write_skipped() { # write_skipped <id> <log> <result> <diff>
-  local id="$1" log="$2" result="$3" diff="$4"
+write_fragment() { # write_fragment <id> <manifest> <result> <diff> <fragment>
+  jq -n --arg id "$1" --arg manifest "$2" --arg result "$3" --arg diff "$4" \
+    '{id:$id,manifest:$manifest,result:$result,diff:$diff}' > "$5"
+}
+
+write_skipped() { # write_skipped <id> <manifest> <log> <result> <diff> <fragment>
+  local id="$1" manifest="$2" log="$3" result="$4" diff="$5" fragment="$6"
   printf 'SKIPPED: blocked by an earlier failed reference-certification leg\n' > "$log"
   write_result "$id" 99 blocked_by_prior_failure '[]' "$result"
-  jq -n '{status:"unknown",reason:"blocked_by_prior_failure"}' > "$diff"
+  jq -n --arg manifest "$manifest" \
+    '{status:"unknown",manifest:$manifest,reason:"blocked_by_prior_failure"}' > "$diff"
+  write_fragment "$id" "$manifest" "$result" "$diff" "$fragment"
+}
+
+append_fragment() { # append_fragment <fragment> <log>
+  local fragment="$1" log="$2"
+  TEST_FRAGMENTS+=("$(jq -c --arg log "$log" '. + {log:$log} | del(.manifest)' "$fragment")")
+}
+
+destroy_own_pair() {
+  local rc
+  set +e
+  bash bin/pair.sh destroy "$PAIR"
+  rc=$?
+  set -e
+  return "$rc"
 }
 
 say "source/static preflight"
 php -l bin/certification-bundle.php >/dev/null
-bash -n tests/regress_multisite_refusal.sh tests/certify_version_matrix.sh
+bash -n conformance/run.sh tests/regress_multisite_refusal.sh tests/certify_version_matrix.sh
 bash bin/pair.sh list
 pass "bundle builder and all invoked harnesses parse; pair load inspected"
 
 overall=0
+leg=0
+total_legs=$((${#CONFORMANCE_MANIFESTS[@]} + 2))
+for manifest in "${CONFORMANCE_MANIFESTS[@]}"; do
+  leg=$((leg + 1))
+  id="conformance-$manifest"
+  log="$WORK_ROOT/$id.log"
+  result="$WORK_ROOT/$id.result.json"
+  diff="$WORK_ROOT/$id.diff.json"
+  fragment="$WORK_ROOT/$id.fragment.json"
 
-say "reference leg 1/4: core conformance through the real deploy/apply path"
-set +e
-CONF_PAIR="$PAIR" CONF1_PORT="$PORT1" CONF2_PORT="$PORT2" \
-  bash conformance/run.sh core > "$CORE_LOG" 2>&1
-core_rc=$?
-set -e
-tail -30 "$CORE_LOG"
-core_reason=passed
-if [ "$core_rc" -eq 0 ] && ! grep -qF '✔ CONFORMANCE PASSED (core)' "$CORE_LOG"; then
-  core_rc=70
-  core_reason=invalid_checker_output
-fi
-if [ "$core_rc" -ne 0 ]; then
-  overall=1
-  [ "$core_reason" = passed ] && core_reason=command_failed
-fi
-write_result core-conformance "$core_rc" "$core_reason" \
-  '["lint_json_valid","capture_twice_identical","deploy_activation_state","apply_canary_clean","cross_environment_recapture_identical","render_api_checks"]' \
-  "$WORK_ROOT/core-conformance.result.json"
-jq -n --arg status "$([ "$core_rc" -eq 0 ] && printf clean || printf unknown)" \
-  '{status:$status,diffs:["capture-twice","conf1-vs-conf2-recapture"]}' > "$WORK_ROOT/core-conformance.diff.json"
+  if [ "$overall" -eq 0 ]; then
+    say "reference leg $leg/$total_legs: $manifest conformance through the real deploy/apply path"
+    set +e
+    CONF_PAIR="$PAIR" CONF1_PORT="$PORT1" CONF2_PORT="$PORT2" \
+      CONFORMANCE_EVIDENCE_DIR="$WORK_ROOT" \
+      bash conformance/run.sh "$manifest" > "$log" 2>&1
+    rc=$?
+    set -e
 
-# Collect the exact runtime while the successful core pair still exists.
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
-COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml)
-set +e
-ENV_OUT=$("${COMPOSE[@]}" run --rm -T cli2 wp eval '
+    reason=passed
+    if [ "$rc" -eq 0 ] && ! grep -qF "✔ CONFORMANCE PASSED ($manifest)" "$log"; then
+      rc=70
+      reason=invalid_checker_output
+    fi
+    if [ "$rc" -eq 0 ] && ! jq -e \
+      --arg id "$id" --arg manifest "$manifest" --arg result "$result" --arg diff "$diff" \
+      '.id == $id and .manifest == $manifest and .result == $result and .diff == $diff' \
+      "$fragment" >/dev/null 2>&1; then
+      rc=70
+      reason=invalid_checker_output
+    fi
+    if [ "$rc" -eq 0 ] && ! jq -e --arg id "$id" \
+      '.test == $id and .verdict == "pass" and .exit_code == 0' "$result" >/dev/null 2>&1; then
+      rc=70
+      reason=invalid_checker_output
+    fi
+    if [ "$rc" -eq 0 ] && ! jq -e --arg manifest "$manifest" \
+      '.status == "clean" and .manifest == $manifest' "$diff" >/dev/null 2>&1; then
+      rc=70
+      reason=invalid_checker_output
+    fi
+
+    # Capture the exact environment while core's successful target still
+    # exists. All other conformance pairs can be destroyed immediately.
+    if [ "$manifest" = core ] && [ "$rc" -eq 0 ]; then
+      export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
+      COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml)
+      set +e
+      ENV_OUT=$("${COMPOSE[@]}" run --rm -T cli2 wp eval '
 global $wpdb;
 echo wp_json_encode([
   "wordpress" => get_bloginfo("version"),
@@ -137,56 +180,47 @@ echo wp_json_encode([
   "theme" => ["template" => get_option("template"), "stylesheet" => get_option("stylesheet")],
 ]);
 ' 2>"$WORK_ROOT/environment.stderr")
-env_rc=$?
-set -e
-if [ "$env_rc" -eq 0 ] && jq -e 'type == "object"' <<<"$ENV_OUT" >/dev/null 2>&1; then
-  printf '%s\n' "$ENV_OUT" | jq . > "$ENV_FILE"
-else
-  overall=1
-  core_rc=71
-  write_result core-conformance "$core_rc" environment_collection_failed '[]' "$WORK_ROOT/core-conformance.result.json"
-  jq -n --arg host_php "$(php -r 'echo PHP_VERSION;')" \
-    --arg diagnostic "$(tr '\n' ' ' < "$WORK_ROOT/environment.stderr")" \
-    '{collection:"failed",host_php:$host_php,diagnostic:$diagnostic}' > "$ENV_FILE"
-fi
+      env_rc=$?
+      set -e
+      if [ "$env_rc" -eq 0 ] && jq -e 'type == "object"' <<<"$ENV_OUT" >/dev/null 2>&1; then
+        printf '%s\n' "$ENV_OUT" | jq . > "$ENV_FILE"
+      else
+        rc=71
+        reason=environment_collection_failed
+      fi
+    fi
 
-if [ "$core_rc" -eq 0 ]; then
-  bash bin/pair.sh destroy "$PAIR"
-  pass "core conformance passed and its pair was destroyed"
-fi
+    if [ "$rc" -ne 0 ]; then
+      overall=1
+      [ "$reason" = passed ] && reason=command_failed
+      write_result "$id" "$rc" "$reason" '[]' "$result"
+      jq -n --arg manifest "$manifest" '{status:"unknown",manifest:$manifest}' > "$diff"
+      write_fragment "$id" "$manifest" "$result" "$diff" "$fragment"
+      if [ "$manifest" = core ] && [ ! -f "$ENV_FILE" ]; then
+        jq -n --arg host_php "$(php -r 'echo PHP_VERSION;')" \
+          '{collection:"failed",host_php:$host_php}' > "$ENV_FILE"
+      fi
+    fi
 
+    tail -30 "$log"
+    if ! destroy_own_pair; then
+      overall=1
+      printf 'FAIL: own pair %s could not be destroyed after %s\n' "$PAIR" "$manifest" >&2
+    elif [ "$rc" -eq 0 ]; then
+      pass "$manifest conformance passed; its named fragment was imported and pair destroyed"
+    fi
+  else
+    write_skipped "$id" "$manifest" "$log" "$result" "$diff" "$fragment"
+  fi
+  append_fragment "$fragment" "$log"
+done
+
+[ -f "$ENV_FILE" ] || jq -n --arg host_php "$(php -r 'echo PHP_VERSION;')" \
+  '{collection:"failed",host_php:$host_php}' > "$ENV_FILE"
+
+leg=$((leg + 1))
 if [ "$overall" -eq 0 ]; then
-  say "reference leg 2/4: FSE conformance through the real deploy/apply path"
-  set +e
-  CONF_PAIR="$PAIR" CONF1_PORT="$PORT1" CONF2_PORT="$PORT2" \
-    bash conformance/run.sh fse > "$FSE_LOG" 2>&1
-  fse_rc=$?
-  set -e
-  tail -30 "$FSE_LOG"
-  fse_reason=passed
-  if [ "$fse_rc" -eq 0 ] && ! grep -qF '✔ CONFORMANCE PASSED (fse)' "$FSE_LOG"; then
-    fse_rc=70
-    fse_reason=invalid_checker_output
-  fi
-  if [ "$fse_rc" -ne 0 ]; then
-    overall=1
-    [ "$fse_reason" = passed ] && fse_reason=command_failed
-  fi
-  write_result fse-conformance "$fse_rc" "$fse_reason" \
-    '["block_theme_fixture","templates","template_parts","navigation","reusable_blocks","theme_taxonomies","byte_identical_recapture"]' \
-    "$WORK_ROOT/fse-conformance.result.json"
-  jq -n --arg status "$([ "$fse_rc" -eq 0 ] && printf clean || printf unknown)" \
-    '{status:$status,diffs:["capture-twice","conf1-vs-conf2-recapture"]}' > "$WORK_ROOT/fse-conformance.diff.json"
-  if [ "$fse_rc" -eq 0 ]; then
-    bash bin/pair.sh destroy "$PAIR"
-    pass "FSE conformance passed and its pair was destroyed"
-  fi
-else
-  write_skipped fse-conformance "$FSE_LOG" "$WORK_ROOT/fse-conformance.result.json" "$WORK_ROOT/fse-conformance.diff.json"
-fi
-
-if [ "$overall" -eq 0 ]; then
-  say "reference leg 3/4: real WordPress multisite must refuse with zero mutation"
+  say "reference leg $leg/$total_legs: real WordPress multisite must refuse with zero mutation"
   set +e
   MULTISITE_PAIR="$PAIR" MULTISITE_PORT1="$PORT1" MULTISITE_PORT2="$PORT2" \
     bash tests/regress_multisite_refusal.sh > "$MULTISITE_LOG" 2>&1
@@ -206,13 +240,21 @@ if [ "$overall" -eq 0 ]; then
     '["wordpress_runtime_reports_multisite","capture_nonzero","actionable_single_site_boundary","no_repository_publication","authored_canary_unchanged"]' \
     "$WORK_ROOT/multisite-refusal.result.json"
   jq -n --arg status "$([ "$multisite_rc" -eq 0 ] && printf no_mutation || printf unknown)" \
-    '{status:$status,checked:["site.duo.json","state","capture-staging","capture-backup","wordpress-option-canary"]}' > "$WORK_ROOT/multisite-refusal.diff.json"
+    '{status:$status,checked:["site.duo.json","state","capture-staging","capture-backup","wordpress-option-canary"]}' \
+    > "$WORK_ROOT/multisite-refusal.diff.json"
+  destroy_own_pair || overall=1
 else
-  write_skipped multisite-refusal "$MULTISITE_LOG" "$WORK_ROOT/multisite-refusal.result.json" "$WORK_ROOT/multisite-refusal.diff.json"
+  write_skipped multisite-refusal multisite "$MULTISITE_LOG" \
+    "$WORK_ROOT/multisite-refusal.result.json" "$WORK_ROOT/multisite-refusal.diff.json" \
+    "$WORK_ROOT/multisite-refusal.fragment.json"
 fi
+write_fragment multisite-refusal multisite "$WORK_ROOT/multisite-refusal.result.json" \
+  "$WORK_ROOT/multisite-refusal.diff.json" "$WORK_ROOT/multisite-refusal.fragment.json"
+append_fragment "$WORK_ROOT/multisite-refusal.fragment.json" "$MULTISITE_LOG"
 
+leg=$((leg + 1))
 if [ "$overall" -eq 0 ]; then
-  say "reference leg 4/4: exact-artifact version matrix (includes Ninja Forms typed tables)"
+  say "reference leg $leg/$total_legs: exact-artifact version matrix (including typed tables and refusal fixtures)"
   bash bin/pair.sh list
   set +e
   VMATRIX_PAIR="$PAIR" VMATRIX_PORT1="$PORT1" VMATRIX_PORT2="$PORT2" \
@@ -233,10 +275,18 @@ if [ "$overall" -eq 0 ]; then
     '["digest_verified_artifacts","declared_min_boundaries","max_practical_boundaries","typed_table_ninja_forms","byte_identical_recapture","below_range_loud_refusal"]' \
     "$WORK_ROOT/exact-artifact-version-matrix.result.json"
   jq -n --arg status "$([ "$matrix_rc" -eq 0 ] && printf clean || printf unknown)" \
-    '{status:$status,diffs:["all-in-range-boundary-recaptures"],negative_controls:"all-below-range-releases-refused"}' > "$WORK_ROOT/exact-artifact-version-matrix.diff.json"
+    '{status:$status,diffs:["all-in-range-boundary-recaptures"],negative_controls:"all-below-range-releases-refused"}' \
+    > "$WORK_ROOT/exact-artifact-version-matrix.diff.json"
+  destroy_own_pair || overall=1
 else
-  write_skipped exact-artifact-version-matrix "$MATRIX_LOG" "$WORK_ROOT/exact-artifact-version-matrix.result.json" "$WORK_ROOT/exact-artifact-version-matrix.diff.json"
+  write_skipped exact-artifact-version-matrix version-matrix "$MATRIX_LOG" \
+    "$WORK_ROOT/exact-artifact-version-matrix.result.json" "$WORK_ROOT/exact-artifact-version-matrix.diff.json" \
+    "$WORK_ROOT/exact-artifact-version-matrix.fragment.json"
 fi
+write_fragment exact-artifact-version-matrix version-matrix \
+  "$WORK_ROOT/exact-artifact-version-matrix.result.json" "$WORK_ROOT/exact-artifact-version-matrix.diff.json" \
+  "$WORK_ROOT/exact-artifact-version-matrix.fragment.json"
+append_fragment "$WORK_ROOT/exact-artifact-version-matrix.fragment.json" "$MATRIX_LOG"
 
 say "materialize the content-addressed machine-readable bundle"
 BOUND_INPUTS=$({ git -C "$REPO_ROOT" ls-files \
@@ -248,27 +298,19 @@ BOUND_INPUTS=$({ git -C "$REPO_ROOT" ls-files \
   DESIGN.md spec/repo-format.md Makefile .github/workflows/conformance.yml; \
   printf '%s\n' manifests/dispositions.json; } \
   | grep -v '^manifests/capabilities/' | sort -u | jq -R . | jq -s .)
-ARTIFACTS=$(jq '[to_entries[] as $slug | $slug.value | to_entries[] | {name:$slug.key,version:.key,url:.value.url,sha256:.value.sha256}]' conformance/artifacts.lock.json)
+ARTIFACTS=$(jq '[to_entries[] as $slug | $slug.value | to_entries[] | {name:$slug.key,version:.key,url:.value.url,sha256:.value.sha256,role:.value.role}]' conformance/artifacts.lock.json)
+TESTS=$(printf '%s\n' "${TEST_FRAGMENTS[@]}" | jq -s .)
 CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 GIT_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
 jq -n \
   --arg repo_root "$REPO_ROOT" --arg created_at "$CREATED_AT" --arg git_revision "$GIT_REVISION" \
   --arg environment "$ENV_FILE" --argjson bound_inputs "$BOUND_INPUTS" --argjson artifacts "$ARTIFACTS" \
-  --arg ratification "$REPO_ROOT/manifests/dispositions.json" \
-  --arg core_result "$WORK_ROOT/core-conformance.result.json" --arg core_diff "$WORK_ROOT/core-conformance.diff.json" --arg core_log "$CORE_LOG" \
-  --arg fse_result "$WORK_ROOT/fse-conformance.result.json" --arg fse_diff "$WORK_ROOT/fse-conformance.diff.json" --arg fse_log "$FSE_LOG" \
-  --arg ms_result "$WORK_ROOT/multisite-refusal.result.json" --arg ms_diff "$WORK_ROOT/multisite-refusal.diff.json" --arg ms_log "$MULTISITE_LOG" \
-  --arg matrix_result "$WORK_ROOT/exact-artifact-version-matrix.result.json" --arg matrix_diff "$WORK_ROOT/exact-artifact-version-matrix.diff.json" --arg matrix_log "$MATRIX_LOG" \
+  --arg ratification "$REPO_ROOT/manifests/dispositions.json" --argjson tests "$TESTS" \
   '{
     repo_root:$repo_root,created_at:$created_at,git_revision:$git_revision,
-    harness:{name:"duo-reference-certification",version:2},force_hatches:[],
+    harness:{name:"duo-reference-certification",version:3},force_hatches:[],
     environment:$environment,ratification:$ratification,bound_inputs:$bound_inputs,artifacts:$artifacts,
-    tests:[
-      {id:"core-conformance",result:$core_result,diff:$core_diff,log:$core_log},
-      {id:"fse-conformance",result:$fse_result,diff:$fse_diff,log:$fse_log},
-      {id:"multisite-refusal",result:$ms_result,diff:$ms_diff,log:$ms_log},
-      {id:"exact-artifact-version-matrix",result:$matrix_result,diff:$matrix_diff,log:$matrix_log}
-    ]
+    tests:$tests
   }' > "$WORK_ROOT/spec.json"
 
 set +e

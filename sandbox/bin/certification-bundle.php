@@ -176,7 +176,8 @@ function cert_build(string $specPath, string $outputRoot): never {
                 || !is_string($artifact['name'] ?? null) || ($artifact['name'] ?? '') === ''
                 || !is_string($artifact['version'] ?? null) || ($artifact['version'] ?? '') === ''
                 || !preg_match('/^[0-9a-f]{64}$/', (string) ($artifact['sha256'] ?? ''))
-                || !filter_var($artifact['url'] ?? '', FILTER_VALIDATE_URL)) {
+                || !filter_var($artifact['url'] ?? '', FILTER_VALIDATE_URL)
+                || !in_array($artifact['role'] ?? null, ['certified-boundary', 'refusal-fixture'], true)) {
                 throw new RuntimeException("artifacts[$i] is malformed");
             }
         }

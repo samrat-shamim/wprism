@@ -368,9 +368,12 @@ function cap_docs(array $registry): string {
         if ($claim['status'] === 'excluded') {
             continue;
         }
+        $lifecyclePhases = $claim['lifecycle_phases'] === []
+            ? 'none declared'
+            : implode(', ', $claim['lifecycle_phases']);
         $out .= '- **' . $claim['name'] . '** (`' . $claim['adapter_digest'] . '`): '
             . implode(', ', array_map(fn(string $surface): string => '`' . $surface . '`', $claim['surfaces']))
-            . ". Lifecycle phases: " . implode(', ', $claim['lifecycle_phases']) . ".\n";
+            . ". Lifecycle phases: " . $lifecyclePhases . ".\n";
     }
     if ($registry['profiles'] !== []) {
         $out .= "\n## Certified profiles\n\n";

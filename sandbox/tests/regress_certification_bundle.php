@@ -135,6 +135,30 @@ mkdir($repo, 0777, true);
 mkdir($inputs, 0777, true);
 register_shutdown_function(fn() => remove_tree($root));
 
+echo "\n== shipped artifact roles distinguish certification from refusal ==\n";
+$artifactLock = json_decode(
+    (string) file_get_contents(__DIR__ . '/../conformance/artifacts.lock.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+$refusalArtifacts = array_fill_keys([
+    'advanced-custom-fields@5.12.6',
+    'contact-form-7@5.9.8',
+    'elementor@3.35.9',
+    'ninja-forms@3.3.21.4',
+    'polylang@3.4.5',
+    'woocommerce@10.9.4',
+    'wordpress-seo@27.9',
+], true);
+foreach ($artifactLock as $plugin => $versions) {
+    foreach ($versions as $version => $artifact) {
+        $key = "$plugin@$version";
+        $expectedRole = isset($refusalArtifacts[$key]) ? 'refusal-fixture' : 'certified-boundary';
+        check(($artifact['role'] ?? null) === $expectedRole, "$key is labeled $expectedRole");
+    }
+}
+
 file_put_contents("$repo/agent.php", "<?php // exact product input\n");
 file_put_contents("$repo/harness.sh", "#!/usr/bin/env bash\n# exact harness input\n");
 write_json("$inputs/environment.json", [
@@ -180,6 +204,7 @@ $spec = [
         'version' => '3.14.11',
         'url' => 'https://downloads.wordpress.org/plugin/ninja-forms.3.14.11.zip',
         'sha256' => str_repeat('b', 64),
+        'role' => 'certified-boundary',
     ]],
     'tests' => [[
         'id' => 'core-conformance',
@@ -206,11 +231,42 @@ $manifest = json_decode((string) file_get_contents("$bundle/bundle.json"), true)
 check(($manifest['environment_summary']['wordpress'] ?? null) === '6.8.2', 'bundle carries the environment record');
 check(($manifest['tests'][0]['id'] ?? null) === 'core-conformance', 'bundle carries named test evidence');
 check(($manifest['artifacts'][0]['version'] ?? null) === '3.14.11', 'bundle carries exact artifact/version evidence');
+check(($manifest['artifacts'][0]['role'] ?? null) === 'certified-boundary', 'bundle labels supported artifacts separately from refusal fixtures');
 check(($manifest['force_hatches'] ?? null) === [], 'bundle records that no force hatch was used');
 check(($manifest['ratification_summary']['certified_claims'][0] ?? null) === 'manifests.core', 'bundle names the certified claim backed by its test evidence');
 check(is_file("$bundle/ratification.json"), 'bundle embeds the exact ratification matrix as a hashed asset');
 
-echo "\n== deliberate defect 1: a changed bound code/harness input expires certification ==\n";
+echo "\n== deliberate defect 1: unlabeled artifact purpose fails closed ==\n";
+$missingRoleSpec = $spec;
+unset($missingRoleSpec['artifacts'][0]['role']);
+write_json("$inputs/missing-role-spec.json", $missingRoleSpec);
+$missingRole = run_bundle(['build', "$inputs/missing-role-spec.json", "$root/missing-role-bundles"]);
+check($missingRole['exit'] === 1, 'artifact without an explicit boundary/refusal role is rejected');
+check(($missingRole['json']['reason'] ?? null) === 'bundle_build_error', 'unlabeled artifact returns a bundle-build error');
+
+echo "\n== deliberate defect 2: a certified claim cannot cite absent evidence ==\n";
+$missingEvidenceRatification = [
+    'format' => 'duo-manifest-dispositions/v1',
+    'manifests' => [
+        'core' => [
+            'status' => 'certified',
+            'evidence' => [
+                'bundle_schema' => 'duo-certification-bundle/v1',
+                'tests' => ['conformance-core'],
+            ],
+        ],
+    ],
+    'profiles' => new stdClass(),
+];
+write_json("$inputs/missing-evidence-ratification.json", $missingEvidenceRatification);
+$missingEvidenceSpec = $spec;
+$missingEvidenceSpec['ratification'] = "$inputs/missing-evidence-ratification.json";
+write_json("$inputs/missing-evidence-spec.json", $missingEvidenceSpec);
+$missingEvidence = run_bundle(['build', "$inputs/missing-evidence-spec.json", "$root/missing-evidence-bundles"]);
+check($missingEvidence['exit'] === 1, 'certified claim citing a missing conformance test is rejected');
+check(str_contains((string) ($missingEvidence['json']['diagnostic'] ?? ''), 'absent bundle test'), 'missing evidence diagnostic names the absent bundle test');
+
+echo "\n== deliberate defect 3: a changed bound code/harness input expires certification ==\n";
 $originalInput = (string) file_get_contents("$repo/agent.php");
 file_put_contents("$repo/agent.php", $originalInput . "// deliberate drift\n");
 $expired = run_bundle(['verify', $bundle, $repo]);
@@ -219,7 +275,7 @@ check(($expired['json']['verdict'] ?? null) === 'expired', 'bound-input drift ma
 check(($expired['json']['expired_inputs'][0]['path'] ?? null) === 'agent.php', 'expiry names the exact changed input');
 file_put_contents("$repo/agent.php", $originalInput);
 
-echo "\n== deliberate defect 2: mutated evidence bytes are corrupt, never expired or valid ==\n";
+echo "\n== deliberate defect 4: mutated evidence bytes are corrupt, never expired or valid ==\n";
 $logPath = "$bundle/logs/core-conformance.txt";
 $originalLog = (string) file_get_contents($logPath);
 file_put_contents($logPath, $originalLog . "tampered\n");
@@ -228,7 +284,7 @@ check($corrupt['exit'] === 1, 'tampered evidence returns non-zero');
 check(($corrupt['json']['verdict'] ?? null) === 'corrupt', 'tampered evidence machine verdict is corrupt');
 file_put_contents($logPath, $originalLog);
 
-echo "\n== deliberate defect 3: malformed checker output produces a failed bundle ==\n";
+echo "\n== deliberate defect 5: malformed checker output produces a failed bundle ==\n";
 file_put_contents("$inputs/core.result.json", "not-json\n");
 $badBundles = "$root/bad-bundles";
 $badBuild = run_bundle(['build', "$inputs/spec.json", $badBundles]);
