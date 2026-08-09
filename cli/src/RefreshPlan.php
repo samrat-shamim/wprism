@@ -468,7 +468,7 @@ final class RefreshPlan {
             && class_exists(\Duo\CodeStateContract::class, false)) return;
         if (!defined('DUO_SPEC_VERSION')) define('DUO_SPEC_VERSION', 2);
         $root = dirname(__DIR__, 2);
-        foreach (['Uuid','OrderPreserved','Canon','OptionState','UserMetaState','Db','WooCommerceContract','Secrets','PersonalData','ManifestDispositions','CapabilityRegistry','Policy','Ledger','PromotionLock','Identity','IdentityBackup','Deletion','JsonRefs','Tokens','Blocks','PlainData','SidebarState','Shortcodes','Canary','IdentityNotes','Snapshot','Orphans','TransientDbException','Publish','Capture','RepositoryAuthorization','CodeCompatibility','Code','RepositoryCompiler','CodeStateContract'] as $file) {
+        foreach (['Uuid','OrderPreserved','Canon','OptionState','UserMetaState','Db','Secrets','PersonalData','ManifestDispositions','CapabilityRegistry','Policy','Ledger','PromotionLock','Identity','IdentityBackup','Deletion','JsonRefs','Tokens','Blocks','PlainData','SidebarState','Shortcodes','Canary','IdentityNotes','Snapshot','Orphans','TransientDbException','Publish','Capture','RepositoryAuthorization','CodeCompatibility','Code','RepositoryCompiler','CodeStateContract'] as $file) {
             require_once $root . '/agent/src/' . $file . '.php';
         }
     }
