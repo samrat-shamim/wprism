@@ -1,17 +1,20 @@
 # Quickstart: getting a site under Duo
 
-There are two ways a WordPress site arrives at Duo, and they are genuinely
-different procedures rather than two flavors of one wizard:
+`duo init <env>` is the shipped first-run path once the Duo agent is reachable
+on an existing WordPress target. How the agent gets there is transport-specific:
 
-1. **An existing site you already run**, reachable over SSH. `duo adopt`
-   installs the agent and manifest library onto it and seeds a site repo.
-2. **A fresh or local site** — a new docker sandbox, a laptop install, an
-   empty repo you intend to grow. Here you write `site.duo.json` by hand.
+1. **SSH:** `duo adopt` installs the agent, manifest library, and recovery
+   runtime first; then `duo init` discovers and captures the site.
+2. **Local or Docker:** the agent must already be installed or mounted; then
+   `duo init` uses that authenticated transport directly. Automatic local and
+   Docker agent delivery is a separate capability (DUO-3365), not something
+   init silently performs.
 
-Both paths converge on the same first-capture runbook, and neither is a
-one-command bootstrap. A golden path that takes an empty directory to a
-captured site in one step — `duo init` — is **Planned (DUO-3336)** — not yet
-shipped. Nothing below is a preview of it; everything below exists today.
+Init is not a WordPress installer. It starts from a working site and a reachable
+agent, proposes the exact managed boundary without mutation, requires explicit
+confirmation, and then creates separate code and canonical state/media
+baselines. Unsupported extensions, custom code layouts, stale repository
+payloads, or non-current certification evidence keep the proposal red.
 
 ## Before you start
 
@@ -21,11 +24,13 @@ free: no composer, no vendored packages, and no WordPress on the orchestrator
 host.
 
 An SSH target needs PHP 8+ with Sodium and a working `fsync()`, a working `wp`
-command, `tar`, and an installed WordPress. It does **not** need Git — the
-agent never shells out to git, and adoption ships files, not a clone. The SSH
-account must be able to write WordPress's actual `WPMU_PLUGIN_DIR` (discovered
-through the target's own `wp eval`, never guessed from `wp_path`) and the
-environment's configured `repo_path`.
+command, `tar`, and an installed WordPress. Adoption itself ships files rather
+than cloning a repository, but the subsequent `duo init` path also requires a
+working `git` binary on the target: init verifies or creates the target-owned
+Git worktree before publishing its baseline. The SSH account must be able to
+write WordPress's actual `WPMU_PLUGIN_DIR` (discovered through the target's own
+`wp eval`, never guessed from `wp_path`) and the environment's configured
+`repo_path`.
 
 The full prerequisite and safety contract is
 [docs/adoption.md](../adoption.md); this guide is the narrative around it.
@@ -94,7 +99,27 @@ Re-running `duo adopt` is the update mechanism. It replaces the agent and
 manifest trees with the ones beside the invoking CLI and leaves the site's
 policy untouched.
 
-### 3. Record what must not move
+### 3. Review and confirm the first baseline
+
+```sh
+cli/duo init production
+```
+
+Init reads WordPress, PHP, database, active plugin/theme, certified adapter,
+standard code-root, media, and value-redacted risk facts through the target
+agent. The proposal is read-only and content-addressed. Confirmation sends its
+digest—not a host-authored config—and refuses if any discovered fact changes.
+Use `--yes` only for automation that has already preserved the rendered
+proposal.
+
+On success the target repository is Git-ready and contains independent
+`site.duo.json`, `code/wp-content`, `state`, and content-addressed `media`
+contracts. Init finishes through ordinary `duo status`. Its clean statement is
+limited to the selected managed adapters; unsupported site state is never
+silently promoted into that claim, and the initial state capture is not a
+promotion rollback checkpoint.
+
+### 4. Record what must not move
 
 Before capture, record checksums for state that has to stay local to this
 runtime: plugin tokens, caches, derived indexes, custom-table rows. The exact
@@ -102,7 +127,7 @@ query is plugin-specific — keep both the command and its output with the chang
 record. You will re-run it after capture, and the comparison is the actual
 acceptance test.
 
-### 4. Measure, then review
+### 5. Measure, then review
 
 ```sh
 cli/duo coverage production --format=json > production-coverage.json
@@ -141,7 +166,7 @@ environment-local operational state, `derived` for state a declared
 regeneration path rebuilds, `env` for separately provisioned per-environment
 values, and `managed` for lifecycle-managed options.
 
-### 5. Apply the batch — then look again
+### 6. Apply the batch — then look again
 
 ```sh
 cli/duo classify production --apply-batch=production-review.json
@@ -157,13 +182,13 @@ the same reason.
 decisions routinely exposes another, so keep looping until `duo pending` prints
 `review queue is empty`.
 
-### 6. Capture, then check the checksums again
+### 7. Capture, then check the checksums again
 
 ```sh
 cli/duo capture production
 ```
 
-Then re-run the runtime checksums from step 3. **Any changed runtime checksum
+Then re-run the runtime checksums from step 4. **Any changed runtime checksum
 is a failed adoption, even when capture exits 0.** Capture is supposed to
 observe the site, not to perturb it; a moved checksum means something in the
 classification is wrong, and a green exit code does not overrule that.
@@ -172,11 +197,25 @@ Keep the source repo as the canonical artifact. Do not copy the WordPress
 database to another host to "prove" portability — that proves the database
 copied, which was never in question.
 
-## Path B — a fresh or local site
+## Path B — a local or Docker site
 
-There is no bootstrap command here. `duo adopt` is SSH-only, so for a local or
-containerized site you create the site repo yourself: an ordinary git
-repository containing a hand-written `site.duo.json`.
+`duo adopt` remains SSH-only. Install or mount the Duo agent and manifest
+library through the local environment's own control-plane setup, declare the
+environment, and run the same public initializer:
+
+```sh
+cli/duo init dev
+```
+
+The target needs WordPress, WP-CLI, Git, a standard supported `wp-content`
+layout, and a writable `repo_path`. Init may create the Git worktree and Duo
+contracts inside an absent or empty repository, but it does not install
+WordPress or deliver the agent. It refuses before confirmation when those
+prerequisites or the certified managed boundary are not present.
+
+Hand-author `site.duo.json` only when you intentionally need a policy that the
+discovered initializer cannot propose. The minimal manual shape remains the
+one the sandbox uses (`sandbox/setup.sh`):
 
 The minimal working shape is the one the sandbox uses (`sandbox/setup.sh`):
 
@@ -214,10 +253,12 @@ every teammate shares it):
 }
 ```
 
-Then run the same sequence Path A ends with — `duo doctor`, `duo pending`,
-`duo classify`, `duo capture`. A fresh site's first queue is usually short
+For a deliberately manual repository, run `duo doctor`, `duo pending`,
+`duo classify`, and `duo capture`. A fresh site's first queue is usually short
 enough for interactive triage (`duo classify dev` with no flags) rather than a
-batch artifact.
+batch artifact. Repositories created by `duo init` already include the required
+ignore rules and initial baseline; continue with pending review and the daily
+workflow rather than recapturing merely to manufacture a first snapshot.
 
 Both paths need the same `.gitignore`, and hand-rolling it is a mistake people
 make once. Copy the canonical template — exactly what `sandbox/setup.sh` does

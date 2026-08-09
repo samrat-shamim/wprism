@@ -183,6 +183,11 @@ check(
         && str_contains($agentSource, 'if ($entries === false)'),
     'repository ownership fails closed when the root cannot be enumerated'
 );
+check(
+    str_contains($agentSource, "'state.capture.lock', 'state.capture-receipt'")
+        && str_contains($agentSource, "'state.capture-intent', 'state.capture-receipt'"),
+    'final Git readiness allowlists the retained capture receipt and ignores no in-flight publication root'
+);
 $adapterSource = (string) file_get_contents(__DIR__ . '/../../agent/src/AdapterSources.php');
 check(str_contains($adapterSource, 'file_exists($siteDir) || is_link($siteDir)'), 'adapter allowlist refuses every present non-directory boundary');
 

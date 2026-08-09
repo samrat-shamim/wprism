@@ -676,7 +676,7 @@ final class Init {
 
         $allowed = array_fill_keys([
             '.', '..', '.duo', '.duo-env-values.json', '.duo-envs.json', '.git', '.gitignore', 'adapters',
-            'code', 'media', 'site.duo.json', 'state', 'state.capture.lock',
+            'code', 'media', 'site.duo.json', 'state', 'state.capture.lock', 'state.capture-receipt',
         ], true);
         $unexpected = [];
         $entries = @scandir($repo);
