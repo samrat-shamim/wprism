@@ -49,6 +49,9 @@ final class Init {
         $lines[] = '  redacted risk surfaces: ' . array_sum((array) ($risk['options'] ?? []))
             . ' secret-shaped option value(s), ' . array_sum((array) ($risk['user_meta'] ?? []))
             . ' PII-shaped user-meta value(s); values are never included';
+        if (!empty($risk['truncated'])) {
+            $lines[] = '    risk discovery reached its bounded scan limit; these redacted counts are incomplete';
+        }
         foreach (($proposal['unsupported'] ?? []) as $row) {
             $lines[] = '  UNSUPPORTED ' . strtoupper((string) ($row['kind'] ?? 'capability')) . ' '
                 . ($row['extension'] ?? '?') . ' [' . ($row['code'] ?? 'unsupported') . ']: '

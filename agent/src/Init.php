@@ -139,7 +139,7 @@ final class Init {
                 }
             }
             foreach (($manifest['taxonomies'] ?? []) as $taxonomy => $rule) {
-                if (is_array($rule) && ($rule['class'] ?? 'authored') === 'authored') {
+                if (is_array($rule) && ($rule['class'] ?? null) === 'authored') {
                     $taxonomies[] = (string) $taxonomy;
                 }
             }

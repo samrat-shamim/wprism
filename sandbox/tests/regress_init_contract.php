@@ -68,7 +68,11 @@ $proposal = [
         'repository' => '/srv/shop-state',
         'adapters' => [['name' => 'core'], ['name' => 'woocommerce']],
         'media' => ['strategy' => 'local', 'attachments' => 2, 'unavailable' => 0],
-        'risk_surfaces' => ['options' => ['stripe key' => 1], 'user_meta' => ['email address' => 2]],
+        'risk_surfaces' => [
+            'options' => ['stripe key' => 1],
+            'user_meta' => ['email address' => 2],
+            'truncated' => true,
+        ],
     ],
     'unsupported' => [],
 ];
@@ -88,6 +92,7 @@ check(str_contains($rendered, 'code: managed-baseline-proposed'), 'rendering pre
 check(str_contains($rendered, 'active plugin: woocommerce/woocommerce.php 11.0.0'), 'rendering inventories active plugin versions');
 check(str_contains($rendered, 'core, woocommerce'), 'rendering names selected adapters');
 check(str_contains($rendered, '1 secret-shaped option value(s), 2 PII-shaped user-meta value(s)'), 'rendering exposes redacted risk counts');
+check(str_contains($rendered, 'redacted counts are incomplete'), 'rendering discloses a bounded risk scan instead of implying completeness');
 check(!str_contains($rendered, 'sk_live_') && !str_contains($rendered, '@example.'), 'rendering cannot expose secret or PII values from the count-only report');
 
 $next = implode("\n", Init::nextSteps('shop'));
@@ -116,7 +121,7 @@ $agentSource = file_get_contents(__DIR__ . '/../../agent/src/Init.php');
 check(is_string($agentSource), 'target init source is readable');
 check(!str_contains(strtolower($agentSource), 'woocommerce'), 'generic target init has no plugin-name branch');
 check(str_contains($agentSource, "(\$rule['class'] ?? null) === 'authored'"), 'post-type scope expands only from authored manifest rulings');
-check(str_contains($agentSource, "(\$rule['class'] ?? 'authored') === 'authored'"), 'taxonomy scope expands only from authored manifest rulings');
+check(substr_count($agentSource, "(\$rule['class'] ?? null) === 'authored'") >= 2, 'post-type and taxonomy scope expand only from explicit authored manifest rulings');
 check(strpos($agentSource, 'hash_equals') < strpos($agentSource, 'Canon::write_file'), 'digest recheck precedes the first site-config write');
 check(str_contains($agentSource, "'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => Code::SOURCE]"), 'site config declares code independently from state policy');
 check(str_contains($agentSource, 'Code::descriptor_from_source($stage)'), 'captured code is validated by the existing descriptor contract before publication');
