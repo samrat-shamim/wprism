@@ -392,25 +392,31 @@ final class PlanSummary {
         //                     though lower-level agent calls stay available
         //                     to exercise experimental/test fixtures.
         // One bucket is rendered and counted above but deliberately NOT here:
-        //   - provider_problems (DUO-3339): these rows cover every provider
-        //                     capability the PINNED manifests declare, which
-        //                     is a SUPERSET of what any one apply negotiates
-        //                     — apply resolves providers only for the actions
-        //                     its own work selects, so a pinned adapter whose
-        //                     plugin is absent refuses nothing until a
-        //                     revision touches that adapter's surfaces. `ok`
-        //                     is the "will promoting this revision refuse?"
-        //                     answer, and flipping it on a capability this
-        //                     revision never reaches would report a refusal
-        //                     that is not going to happen. The rows stay loud
-        //                     and counted because the gap is real and the
-        //                     operator has to see it; the refusal stays where
-        //                     the doctrine puts it, at negotiation
-        //                     immediately before the first mutation
-        //                     (Apply::run()). If a future slice narrows the
-        //                     diagnosis to this run's own selection, that
-        //                     narrowed set belongs in `ok` — the reason for
-        //                     the exclusion is the width, not the severity.
+        //   - provider_problems (DUO-3339): the NARROWED provider diagnosis
+        //                     already exists and is already in `ok` — it just
+        //                     is not this bucket. DUO-3314's
+        //                     Policy::provider_readiness_blockers($selected)
+        //                     negotiates exactly the actions this plan's own
+        //                     work reaches and merges its rows into
+        //                     adapter_dispositions above, which the `ok`
+        //                     expression counts. So a provider this revision
+        //                     genuinely needs and cannot get DOES make status
+        //                     non-zero, through that bucket.
+        //                     provider_problems is the complement: every
+        //                     provider capability the PINNED manifests
+        //                     declare, minus the ones already reported as
+        //                     gating (Providers::problems() drops those, so
+        //                     one fact is never stated twice). What is left is
+        //                     real but not reached by this revision — a
+        //                     pinned adapter whose plugin is absent while
+        //                     nothing in this diff touches its surfaces. `ok`
+        //                     answers "will promoting THIS revision refuse?",
+        //                     and flipping it on a capability this revision
+        //                     never reaches would predict a refusal that is
+        //                     not going to happen. The rows stay loud and
+        //                     counted because the gap is real and an operator
+        //                     has to see it before it becomes the next
+        //                     revision's blocker.
         // Plain $plan['warnings'] entries are rendered loudly above but
         // never flip this by themselves: every warning either accompanies a
         // state already counted here, or is a deliberate, ratified warn-

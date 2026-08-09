@@ -472,6 +472,22 @@ $refusalCases = [
         'keeper' => site_adapter('keeper'),
         'broken' => "{ this is not json\n",
     ]),
+    // The three conditions DUO-3314 added to the same scan, each in its own
+    // fixture so the byte-comparison below covers them individually rather
+    // than only in the combined probe further down.
+    'out_of_tree_privilege' => site_repo(['keeper'], [
+        'keeper' => site_adapter('keeper'),
+        'shimmy' => site_adapter('shimmy', ['interpreter' => 'acf']),
+    ]),
+    'certification_source' => site_repo(['keeper'], ['keeper' => site_adapter('keeper')], [
+        'adapters/certifications/README' => "notes\n",
+    ]),
+    'certificate_invalid' => site_repo(['keeper'], [
+        'keeper' => site_adapter('keeper'),
+        'signed' => site_adapter('signed'),
+    ], [
+        'adapters/certifications/signed.json' => "not a certificate\n",
+    ]),
 ];
 foreach ($refusalCases as $code => $fixture) {
     $result = duo(['list', '--repo=' . $fixture, '--format=json']);
@@ -547,9 +563,11 @@ foreach ($refusalCases as $code => $fixture) {
             . 'by, nor the name its manifest declares'
         );
     }
-    // malformed_manifest is a decode failure, which discover() lets propagate
-    // from Canon rather than throwing itself; every other code below is a
-    // refusal discover() owns, so the byte-comparison covers them.
+    // malformed_manifest is the one deliberate message delta (see the two
+    // stated deltas at AdapterSources::scan()): discover() used to propagate
+    // Canon's bare exception, and the row wraps it so it names the file as a
+    // site adapter. Every other code — including the three DUO-3314 added —
+    // is a refusal discover() owns verbatim, so the byte-comparison covers it.
     if ($code === 'malformed_manifest') {
         continue;
     }
@@ -774,6 +792,17 @@ check(
     . 'facts diagnostics() uses for `wp duo capabilities`, so the two surfaces cannot disagree about whether an '
     . 'adapter is signed'
 );
+check(
+    str_contains($surveySource, "&& \$grammar['status'] === self::GRAMMAR_OK")
+    && str_contains($surveySource, "? 'third_party_signed'"),
+    "ELEVATION IS GATED ON THE ROW'S OWN GRAMMAR. bind_explicit_pins() checks the digest's SHAPE, never its value; "
+    . 'the engine compares the value and refuses the repository when it disagrees, so a well-formed but WRONG '
+    . '64-hex pin would otherwise read as promotion-ready third-party evidence in a catalog while every real '
+    . 'command refused the repo. Source-pinned rather than executed because reaching the signed branch at all '
+    . 'needs a trusted authority, a signed envelope, and a complete passing bundle — regress_site_adapter_'
+    . 'certification.php builds exactly that, in ~350 lines of fixture this suite would have to duplicate rather '
+    . 'than import (its helpers are inline, not a shared include). The neighbouring unjudged rule below IS executed'
+);
 $catalogWords = array_values(array_unique(array_map(
     static fn(array $r) => $r['certification'],
     array_merge($listReport['adapters'], $overlayReport['adapters'] ?? [])
@@ -781,8 +810,27 @@ $catalogWords = array_values(array_unique(array_map(
 sort($catalogWords, SORT_STRING);
 check(
     $catalogWords === ['registry', 'uncertified'],
-    'and the words it actually emits are from that closed set, never a minted fifth (found: '
+    'and the words it actually emits on these fixtures are from that closed set, never a minted extra (found: '
     . implode(', ', array_map(static fn($w) => var_export($w, true), $catalogWords)) . ')'
+);
+
+// R-5's shape, executed: a refused certification SOURCE means no companion was
+// paired or opened, so a site row there was never judged rather than judged
+// negative — the same distinction blocked_by_source_refusal draws for grammar.
+$unjudgedRepo = site_repo(['keeper'], ['keeper' => site_adapter('keeper')], [
+    'adapters/certifications/README' => "notes\n",
+]);
+$unjudgedReport = report(duo(['list', '--repo=' . $unjudgedRepo, '--format=json']));
+$unjudgedRow = row_named($unjudgedReport, 'keeper');
+check(
+    is_array($unjudgedRow) && $unjudgedRow['certification'] === 'certification_unjudged',
+    'a site adapter whose certification source is refused reports certification_unjudged, not uncertified — no '
+    . 'certificate was paired, so "unsigned" would be a verdict on evidence nobody read (found: '
+    . var_export(is_array($unjudgedRow) ? $unjudgedRow['certification'] : null, true) . ')'
+);
+check(
+    array_column(refusals_of($unjudgedReport), 'code') === ['certification_source'],
+    'and the refusal that caused it is the one row explaining why'
 );
 
 // ======================================================================
@@ -882,6 +930,31 @@ check(
     . var_export($shadowBlockers[0]['source'] ?? null, true) . ')'
 );
 
+// R-4: "not installed" and "installed but refused" are different answers, and
+// only one of them is a usage error.
+$refusedInspect = duo(['inspect', 'signed', '--repo=' . $refusalCases['certificate_invalid'], '--format=json']);
+$refusedInspectReport = report($refusedInspect);
+check(
+    $refusedInspect['exit'] === 1 && $refusedInspect['stderr'] === '',
+    'inspecting an adapter whose own certificate was refused exits 1 with a report, not 2 with a usage error — '
+    . 'the file is on disk and the operator was told it does not exist (exit ' . $refusedInspect['exit'] . ')'
+);
+check(
+    is_array($refusedInspectReport)
+    && array_column($refusedInspectReport['refused'] ?? [], 'code') === ['certificate_invalid'],
+    'and the report names the refusal standing against it'
+);
+check(
+    duo(['inspect', 'genuinely-absent', '--repo=' . $refusalCases['certificate_invalid']])['exit'] === 2,
+    'while a name nothing installs is still the usage refusal it always was'
+);
+$refusedText = duo(['inspect', 'signed', '--repo=' . $refusalCases['certificate_invalid']]);
+check(
+    str_contains($refusedText['stdout'], 'INSTALLED, AND REFUSED')
+    && str_contains($refusedText['stdout'], 'certificate_invalid'),
+    'and the human renderer says which of the two answers this is'
+);
+
 // ======================================================================
 echo "\n== a manifest library that is not this repository's ==\n";
 // ======================================================================
@@ -928,6 +1001,50 @@ check(
     . '`registry` that is not there (found: '
     . var_export($soloRow['certification'] ?? '(key absent)', true) . ')'
 );
+// R-2: the last DUO-3314 assertion reachable from collect mode that was still
+// unguarded. declared_names() is reached ONLY when a site source exists, so an
+// unguarded throw there made the catalog answer two different ways about one
+// library — which is the single thing an inventory may never do.
+$twoAnswers = scratch('two-answers');
+file_put_contents("$twoAnswers/legal-file-name.json", json_encode([
+    // The FILE name is a canonical slug; the DECLARED name is not.
+    'name' => 'Illegal Declared Name',
+    'spec_version' => DUO_SPEC_VERSION,
+    'option_autoload' => 'preserve',
+    'options' => ['solo_layout' => ['class' => 'authored']],
+]));
+$withoutRepo = duo(['list', '--format=json'], $twoAnswers);
+// The site source must be non-empty: declared_names() is reached ONLY when
+// one exists, which is exactly why the two runs used to disagree.
+$withRepo = duo(
+    ['list', '--repo=' . site_repo([], ['keeper' => site_adapter('keeper')]), '--format=json'],
+    $twoAnswers
+);
+check(
+    $withoutRepo['exit'] !== 2 && $withRepo['exit'] !== 2,
+    'NEITHER run dies over a manifest whose declared name is not a canonical slug: the --repo run used to exit 2 '
+    . 'from an unguarded assertion while the same library listed clean without --repo, so one library gave two '
+    . "answers and one of them was a crash (without --repo: {$withoutRepo['exit']}, with --repo: {$withRepo['exit']})"
+);
+check(
+    $withoutRepo['exit'] === 0 && $withRepo['exit'] === 1,
+    'the remaining difference is scope, not behavior, and it is DUO-3314\'s: declared names are only read when a '
+    . 'site source exists (the shipped set is decoded for that one collision check and no other), so the run that '
+    . 'never opens them cannot report what it never read — it reports the adapter, and the --repo run reports the '
+    . 'refusal'
+);
+$withRepoParsed = report($withRepo);
+check(
+    is_array($withRepoParsed)
+    && in_array('invalid_adapter_name', array_column(refusals_of($withRepoParsed), 'code'), true),
+    'and the --repo run reports it as an invalid_adapter_name ROW rather than dying with a usage exit (rows: '
+    . implode(', ', array_column(refusals_of($withRepoParsed), 'code')) . ')'
+);
+check(
+    $withRepo['stderr'] === '',
+    'writing nothing to stderr — the exit-2 IO path is for this command\'s own inputs, never for a manifest'
+);
+
 $plainText = duo(['inspect', 'solo'], $plainLibrary);
 check(
     str_contains($plainText['stdout'], 'certification:     (none —'),

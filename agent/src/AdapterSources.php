@@ -104,7 +104,16 @@ final class AdapterSources {
     public const REFUSAL_INVALID_NAME = 'invalid_adapter_name';
     public const REFUSAL_OUT_OF_TREE_PRIVILEGE = 'out_of_tree_privilege';
     public const REFUSAL_CERTIFICATION_SOURCE = 'certification_source';
-    public const REFUSAL_CERTIFICATE_INVALID = 'certificate_invalid';    public const REFUSAL_SITE_POLICY_UNREADABLE = 'site_policy_unreadable';
+    public const REFUSAL_CERTIFICATE_INVALID = 'certificate_invalid';
+
+    /**
+     * The site repository's own policy file, which every grammar verdict
+     * loads. Not one of the scan's conditions at all — discover() never reads
+     * site.duo.json, Policy::load() opens it first — so it is a survey-only
+     * refusal, kept here because a consumer grouping refusal codes should not
+     * have to know which layer produced one.
+     */
+    public const REFUSAL_SITE_POLICY_UNREADABLE = 'site_policy_unreadable';
 
     /**
      * A surveyed adapter's grammar verdict (DUO-3339).
@@ -118,6 +127,17 @@ final class AdapterSources {
      * grammar error would inflate the number an operator uses to decide how
      * much is broken.
      */
+    /**
+     * A site adapter's certification word, which is DUO-3314's vocabulary plus
+     * one honest gap. `certification_unjudged` is the same shape as
+     * `blocked_by_source_refusal` above and exists for the same reason: when
+     * the certification source itself is refused, NO companion certificate is
+     * paired, so a signed adapter's evidence was never looked at. Reporting
+     * that as `uncertified` would be a judged negative for something never
+     * judged — the one failure mode this whole surface exists to remove.
+     */
+    public const CERTIFICATION_UNJUDGED = 'certification_unjudged';
+
     public const GRAMMAR_OK = 'ok';
     public const GRAMMAR_ERROR = 'error';
     public const GRAMMAR_BLOCKED = 'blocked_by_source_refusal';
@@ -333,7 +353,7 @@ final class AdapterSources {
         }
         self::assert_flat_json_source($siteDir, $collect, $refusals);
 
-        $shippedNames = self::declared_names($origins, $manifests, $collect);
+        $shippedNames = self::declared_names($origins, $manifests, $collect, $refusals);
         $siteFiles = glob($siteDir . '/*.json') ?: [];
         // `dispositions.json` was already refused above as a reserved name, and
         // it is the one reserved entry this glob can also match. Reachable only
@@ -397,15 +417,26 @@ final class AdapterSources {
                 // one broken file cannot hide the rest of the source.
                 continue;
             }
-            // BEHAVIORAL DELTA, stated rather than buried (DUO-3339): before
-            // this refusal existed, an unreadable or unparseable site manifest
-            // propagated Canon's own bare exception out of discover() —
-            // "duo: cannot read <path>" or "duo: invalid JSON: <reason>" with
-            // nothing naming the adapter source. It is now wrapped so the
-            // message names the file AS a site adapter, which is what makes it
-            // reportable as a row beside the other refusals. Every OTHER
-            // refusal message in this scan is byte-identical to what
-            // discover() threw before; this one is deliberately not.
+            // TWO BEHAVIORAL DELTAS, stated rather than buried (DUO-3339).
+            // Both live at this call, and every OTHER refusal message in this
+            // scan is byte-identical to what discover() threw before.
+            //
+            // 1. An unreadable or unparseable site manifest used to propagate
+            //    Canon's own bare exception out of discover() — "duo: cannot
+            //    read <path>" or "duo: invalid JSON: <reason>", naming no
+            //    adapter source. It is now wrapped so the message names the
+            //    file AS a site adapter, which is what makes it reportable as
+            //    a row beside the other refusals.
+            // 2. A site manifest that is valid JSON but not an OBJECT (a
+            //    number, string, boolean, or non-empty array) used to fall
+            //    through to the declared-name check and refuse as
+            //    `ambiguous_identity` — "declares name NULL but its file name
+            //    is 'x'" — which described a manifest it was not. It now
+            //    refuses here as `malformed_manifest` with its actual top-level
+            //    type named. The shipped side had no refusal at all for this:
+            //    Canon::decode() returns whatever the document was, so a
+            //    scalar reached trust_tier(array $manifest) and killed the
+            //    survey with a TypeError.
             $read = self::read_manifest($file);
             if ($read['stage'] !== 'ok') {
                 self::refuse(
@@ -819,6 +850,17 @@ final class AdapterSources {
         $hasRegistry = $dispositions !== null
             && is_file(rtrim($manifestDir, '/') . '/capabilities/registry.json');
 
+        // A refused certification SOURCE means certification_files() returned
+        // nothing, so not one companion certificate was paired or opened. Every
+        // site row in this run is therefore unjudged rather than unsigned.
+        $certificationUnjudged = false;
+        foreach ($refusals as $refusal) {
+            if ($refusal['code'] === self::REFUSAL_CERTIFICATION_SOURCE) {
+                $certificationUnjudged = true;
+                break;
+            }
+        }
+
         $adapters = [];
         foreach ($scan['origins'] as $name => $origin) {
             $name = (string) $name;
@@ -826,15 +868,14 @@ final class AdapterSources {
             $outOfTree = isset($scan['provenance'][$name]);
             $entry = $dispositions === null || $outOfTree ? null : $dispositions->entry($name);
             $tier = self::tier_decision($manifest);
+            $grammar = self::grammar_verdict($name, $outOfTree, $repo, $refusals);
             $adapters[] = [
                 'certification' => $outOfTree
-                    ? ($sources->is_certified($name)
-                        ? (!empty($sources->explicitPins[$name]) ? 'third_party_signed' : 'signed_unpinned')
-                        : 'uncertified')
+                    ? self::site_certification($sources, $name, $certificationUnjudged, $grammar)
                     : ($hasRegistry ? 'registry' : null),
                 'disposition_status' => is_array($entry) ? (string) ($entry['status'] ?? '') : null,
                 'executable_surfaces' => self::executable_surfaces($manifest),
-                'grammar' => self::grammar_verdict($name, $outOfTree, $repo, $refusals),
+                'grammar' => $grammar,
                 'name' => $name,
                 'path' => (string) $origin['path'],
                 'required_providers' => self::required_providers($manifest),
@@ -850,6 +891,46 @@ final class AdapterSources {
         }
 
         return ['adapters' => $adapters, 'refusals' => $refusals];
+    }
+
+    /**
+     * One out-of-tree adapter's certification word.
+     *
+     * Three facts decide it, and the order matters:
+     *
+     *   1. If the certification SOURCE was refused, nothing was paired and no
+     *      certificate was opened — so this adapter is `certification_unjudged`
+     *      whether or not it ships one. Calling it `uncertified` would report a
+     *      verdict on evidence nobody read.
+     *   2. A verified signature alone is `signed_unpinned`. Elevation to
+     *      `third_party_signed` additionally requires the repository pin to
+     *      bind both source "site" and the final certificate-derived digest.
+     *   3. Elevation is withheld unless this row's own grammar is `ok`.
+     *      bind_explicit_pins() checks the digest's SHAPE, not its value; the
+     *      engine compares the value (Policy's hash_equals) and refuses the
+     *      repository outright when it disagrees. Without this clause a
+     *      well-formed but WRONG 64-hex digest read as promotion-ready
+     *      third-party evidence in the catalog while every real command
+     *      refused the repo — the catalog contradicting the engine about the
+     *      one claim the pin exists to gate.
+     *
+     * @param array{status:string, message:?string} $grammar
+     */
+    private static function site_certification(
+        self $sources,
+        string $name,
+        bool $certificationUnjudged,
+        array $grammar
+    ): string {
+        if ($certificationUnjudged) {
+            return self::CERTIFICATION_UNJUDGED;
+        }
+        if (!$sources->is_certified($name)) {
+            return 'uncertified';
+        }
+        return !empty($sources->explicitPins[$name]) && $grammar['status'] === self::GRAMMAR_OK
+            ? 'third_party_signed'
+            : 'signed_unpinned';
     }
 
     /**
@@ -1292,7 +1373,12 @@ final class AdapterSources {
      * @param array<string, array> $manifests decoded shipped manifests ($collect only)
      * @return array<string, string> declared name => file name that declares it
      */
-    private static function declared_names(array $origins, array $manifests, bool $collect): array {
+    private static function declared_names(
+        array $origins,
+        array $manifests,
+        bool $collect,
+        array &$refusals
+    ): array {
         $names = [];
         foreach ($origins as $file => $origin) {
             if ($collect) {
@@ -1305,7 +1391,23 @@ final class AdapterSources {
             }
             $declared = $manifest['name'] ?? null;
             if (is_string($declared) && $declared !== '') {
-                self::assert_name($declared, "shipped adapter '$file' declared name");
+                // Guarded like every other DUO-3314 assertion reachable from
+                // collect mode. A shipped manifest whose FILE name is a legal
+                // slug but whose DECLARED name is not is reachable through any
+                // DUO_MANIFESTS_DIR, and unguarded it made the catalog answer
+                // two different ways about one library: `duo adapter list`
+                // worked, `duo adapter list --repo=...` died with exit 2,
+                // because only the second reaches this function.
+                if (!self::guarded(
+                    $collect,
+                    $refusals,
+                    self::REFUSAL_INVALID_NAME,
+                    [(string) $origin['path']],
+                    "make the manifest's declared name a canonical lowercase ASCII slug",
+                    static fn() => self::assert_name($declared, "shipped adapter '$file' declared name")
+                )) {
+                    continue;
+                }
                 $names[$declared] = $file;
             }
         }

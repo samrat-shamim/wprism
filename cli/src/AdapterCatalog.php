@@ -267,12 +267,48 @@ final class AdapterCatalog {
                 }
             }
             if ($row === null) {
-                return self::fail(
-                    "no adapter named '$name' is installed in $manifestDir"
-                    . ($repo === null
-                        ? " (pass --repo=<site-repo> to include that repository's own adapters/ source)"
-                        : " or in $repo/" . AdapterSources::SITE_DIR)
-                );
+                // "Not installed" and "installed but refused" are different
+                // answers, and only one of them is a usage error. A file the
+                // scan refused is absent from the adapter rows by design, so
+                // without this an operator inspecting the very adapter they
+                // just installed was told it does not exist — while it sat on
+                // disk with a named, remediable refusal against it. Report the
+                // refusal and exit 1 (a surfaced finding), not 2 (bad input).
+                $about = array_values(array_filter(
+                    $survey['refusals'],
+                    static fn(array $r): bool => in_array(
+                        AdapterSources::SITE_DIR . "/$name.json",
+                        (array) ($r['paths'] ?? []),
+                        true
+                    ) || in_array(
+                        AdapterSources::SITE_DIR . '/' . AdapterSources::CERTIFICATION_DIR . "/$name.json",
+                        (array) ($r['paths'] ?? []),
+                        true
+                    )
+                ));
+                if ($about === []) {
+                    return self::fail(
+                        "no adapter named '$name' is installed in $manifestDir"
+                        . ($repo === null
+                            ? " (pass --repo=<site-repo> to include that repository's own adapters/ source)"
+                            : " or in $repo/" . AdapterSources::SITE_DIR)
+                    );
+                }
+                $report['adapter'] = null;
+                $report['refused'] = $about;
+                $report['status'] = 'error';
+                if ($json) {
+                    echo self::encode($report) . "\n";
+                } else {
+                    echo "manifests dir: {$report['manifests_dir']}\n";
+                    echo 'site repo:     ' . ($report['repo'] ?? '(none)') . "\n";
+                    echo "\nADAPTER $name — INSTALLED, AND REFUSED. It is on disk, and the scan will not load "
+                        . "it:\n";
+                    self::render_refusals($about);
+                    echo "\nNo further detail is available: the refusal happens before this adapter's own "
+                        . "manifest is read, so there is nothing yet to inspect.\n";
+                }
+                return 1;
             }
             $report['adapter'] = self::inspect_row($row, $manifestDir, $repo, $survey['adapters']);
             // `inspect` reports one adapter, but exit 0 is a claim about the

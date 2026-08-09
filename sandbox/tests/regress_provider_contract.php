@@ -161,6 +161,14 @@ PHP);
 // file lives in the manifests providers/ dir (posing it as plugin-sourced
 // must therefore refuse).
 define('WP_PLUGIN_DIR', $dir . '/wp-plugins');
+// DUO-3339: this harness models a target that HAS WordPress loaded — that is
+// what makes negotiating plugin state meaningful here at all — and
+// Providers::runtime_negotiation_available() reads exactly the four symbols
+// that say so. Three were already present; ABSPATH is the fourth, and without
+// it the plan-time diagnosis correctly short-circuits to no findings (the
+// group below pins that short-circuit in its own process, where the constant
+// genuinely is absent).
+define('ABSPATH', $dir . '/wp/');
 @mkdir($dir . '/wp-plugins/probe', 0700, true);
 register_shutdown_function(static function () use ($dir): void {
     array_map('unlink', glob($dir . '/wp-plugins/probe/*.php') ?: []);
@@ -448,6 +456,115 @@ $reset();
 $policy = $policyFor($manifest);
 $check(\Duo\Providers::problems($policy) === [], 'a healthy environment reports no provider problems at plan');
 
+// DUO-3314 shipped the NARROWED, gating diagnosis: build_plan() merges
+// Policy::provider_readiness_blockers($selectedActions) into
+// adapter_dispositions, which duo status's exit code counts. The wide set must
+// therefore not restate what the narrow one already gated on — one fact, one
+// row, the same discipline AdapterSources::refuse() applies to installed files.
+//
+// That method needs a reviewed disposition set and a generated registry, which
+// this harness's synthetic manifests dir deliberately has neither of (it exists
+// to exercise the negotiation contract, not certification). So the row it would
+// promote is BUILT here from the same problem row it starts from, and the field
+// mapping is pinned against Policy's own source rather than assumed.
+$reset();
+$GLOBALS['duo_test_active'] = [];
+$policy = $policyFor($manifest);
+$wide = \Duo\Providers::problems($policy);
+$check(array_column($wide, 'code') === ['inactive_plugin'],
+    'the wide plan view reports the inactive plugin when nothing has gated on it yet');
+$policySource = (string) file_get_contents($root . '/agent/src/Policy.php');
+$check(str_contains($policySource, "'name' => \$manifest,")
+    && str_contains($policySource, "'provider' => (string) (\$problem['provider'] ?? '?'),")
+    && str_contains($policySource, "'manifest' => \$manifest,")
+    && str_contains($policySource, "'code' => (string) (\$problem['code'] ?? 'provider_negotiation_failed'),"),
+    'and the gating row Policy promotes carries the same provider, manifest, and code the problem row does — the '
+    . 'three fields the dedupe below keys on');
+$promoted = [[
+    'name' => $wide[0]['manifest'],
+    'provider' => $wide[0]['provider'],
+    'manifest' => $wide[0]['manifest'],
+    'plugin' => $wide[0]['plugin'],
+    'code' => $wide[0]['code'],
+    'status' => 'blocked',
+]];
+$check(\Duo\Providers::problems($policy, $promoted) === [],
+    'so once that row is gating, the wide plan view reports NOTHING for it — a selected inactive plugin is one '
+    . 'finding, not a BLOCKED disposition row plus a PROVIDER_PROBLEM row about the same provider');
+$check(array_column(\Duo\Providers::problems($policy), 'code') === ['inactive_plugin'],
+    'while the same call with no gating rows still reports it, so the dedupe is subtraction and never suppression');
+$check(\Duo\Providers::problems($policy, [['provider' => 'probe-cache', 'manifest' => 'probe', 'code' => 'other']])
+    !== [],
+    'and the key is (provider, manifest, code): a DIFFERENT code for the same provider is a different finding and survives');
+$reset();
+
+// The runtime gate DUO-3314 put on the narrowed diagnosis applies here too:
+// with no loaded WordPress there is no plugin state to negotiate against, so
+// every declared provider would report `missing_plugin` and an offline
+// manifest-library load would manufacture a wall of findings about an
+// environment it cannot see. This harness deliberately DOES define the four
+// symbols that say WordPress is loaded, so the short-circuit is proved in a
+// child process that defines three of them and omits ABSPATH — a constant
+// cannot be undefined once set.
+$gateProbe = $dir . '/gate-probe.php';
+file_put_contents($gateProbe, <<<'PROBE'
+<?php
+// Deliberately NO define('ABSPATH', ...) — that is the whole subject.
+define('DUO_SPEC_VERSION', 2);
+define('WP_PLUGIN_DIR', __DIR__ . '/wp-plugins');
+function apply_filters(string $hook, mixed $value): mixed { return $value; }
+function get_option(string $name, mixed $default = false): mixed { return $default; }
+function is_multisite(): bool { return false; }
+$root = dirname(__DIR__, 1);
+PROBE
+. "\n\$engine = " . var_export($root, true) . ";\n"
+. <<<'PROBE'
+require $engine . '/agent/src/Canon.php';
+require $engine . '/agent/src/OptionState.php';
+require $engine . '/agent/src/Policy.php';
+require $engine . '/agent/src/CodeCompatibility.php';
+require $engine . '/agent/src/Deploy.php';
+require $engine . '/agent/src/Providers.php';
+putenv('DUO_MANIFESTS_DIR=' . __DIR__);
+$manifest = json_decode(getenv('DUO_PROBE_MANIFEST'), true);
+$policy = Duo\Policy::from_snapshot([
+    'format' => 'duo-policy-snapshot/v4',
+    'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
+    'capabilities' => null,
+    'dispositions' => null,
+    'site' => [
+        'manifests' => [$manifest['name']],
+        'spec_version' => 2,
+        'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
+    ],
+    'manifests' => [$manifest],
+]);
+echo json_encode([
+    'gate' => Duo\Providers::runtime_negotiation_available(),
+    'problems' => count(Duo\Providers::problems($policy)),
+    'declared' => count(array_filter(
+        $policy->actions(),
+        static fn(array $a): bool => ($a['kind'] ?? null) === 'provider'
+    )),
+]), "
+";
+PROBE
+);
+$gateOut = [];
+exec(
+    'DUO_PROBE_MANIFEST=' . escapeshellarg((string) json_encode($manifest)) . ' '
+    . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($gateProbe) . ' 2>&1',
+    $gateOut,
+    $gateRc
+);
+$gate = json_decode(implode("\n", $gateOut), true);
+$check(is_array($gate) && $gateRc === 0 && $gate['gate'] === false,
+    'without ABSPATH the runtime negotiation gate reads false (child process said: ' . implode(' ', $gateOut) . ')');
+$check(is_array($gate) && ($gate['declared'] ?? 0) === 1 && ($gate['problems'] ?? null) === 0,
+    'and problems() reports NOTHING there even though the pinned manifest declares a provider action — an offline '
+    . 'library load cannot manufacture findings about an environment it cannot see');
+@unlink($gateProbe);
+
 // Both halves of the plan-time posture, on one fixture: apply throws the
 // packaging fault (asserted in this file's final group, unchanged), and the
 // reporting surface turns it into a row instead of dying on it.
@@ -506,8 +623,13 @@ $buildPlanAt = strpos($applySource, 'private function build_plan(');
 $check($planAt !== false && $buildPlanAt !== false && $planAt < $buildPlanAt,
     'Apply::plan() and Apply::build_plan() are both present, in that order (the slice below depends on it)');
 $planSource = substr($applySource, (int) $planAt, (int) $buildPlanAt - (int) $planAt);
-$check((bool) preg_match("/\\\$plan\\['provider_problems'\\]\s*=\s*Providers::problems\(\\\$policy\);/", $planSource),
-    'Apply::plan() — the plan-only entry point — attaches the plan-time diagnosis to the plan it returns');
+$check((bool) preg_match(
+    "/\\\$plan\\['provider_problems'\\]\s*=\s*Providers::problems\(\s*\\\$policy,"
+    . "\s*\\\$plan\\['adapter_dispositions'\\] \?\? \[\]\s*\);/",
+    $planSource
+),
+    "Apply::plan() attaches the plan-time diagnosis AND hands it the plan's already-gating rows, so the wide set "
+    . 'and the narrowed one cannot report the same fact twice');
 $afterPlan = substr($applySource, (int) $buildPlanAt);
 $check(!str_contains($afterPlan, 'Providers::problems') && !str_contains($afterPlan, 'Providers::diagnose'),
     'and nothing from build_plan() onward calls it: run() calls build_plan() twice around its own negotiation gate, '

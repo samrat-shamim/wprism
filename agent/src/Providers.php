@@ -372,14 +372,17 @@ final class Providers {
      * the point rather than an accident:
      *
      *   1. The action set is `Policy::actions()`, not one run's selection.
-     *      apply negotiates exactly what its work touches, correctly: an
-     *      unrelated adapter's missing plugin must not refuse a promotion that
-     *      never reaches it. But a readiness report answering only "for this
-     *      diff" would go quiet the moment a run happened to touch nothing —
-     *      and "we found no problems" would then mean "we did not look".
-     *      Because the set is wider, these rows are REPORTED and counted, and
-     *      they do not by themselves make `duo status` non-zero; the refusal
-     *      stays where the doctrine puts it, immediately before mutation.
+     *      The NARROWED set already exists and already gates: DUO-3314's
+     *      `Policy::provider_readiness_blockers($selectedActions)` negotiates
+     *      exactly what this plan's work touches and merges its rows into
+     *      `adapter_dispositions`, which IS part of `duo status`'s `ok`. That
+     *      is correct — an unrelated adapter's missing plugin must not refuse a
+     *      promotion that never reaches it. This method is the complement: a
+     *      readiness report answering only "for this diff" goes quiet the
+     *      moment a run happens to touch nothing, and "we found no problems"
+     *      would then mean "we did not look". So these rows are the wider,
+     *      deliberately NON-gating superset, and $gating below keeps the two
+     *      from double-reporting one fact.
      *
      *   2. A throw is reported here rather than propagated. Apply still throws
      *      — that behavior is pinned byte for byte by
@@ -403,9 +406,40 @@ final class Providers {
      *
      * @return list<array<string,mixed>>
      */
-    public static function problems(Policy $policy): array {
+    public static function problems(Policy $policy, array $gating = []): array {
+        // The same gate Policy::provider_readiness_blockers() takes, and for
+        // the same reason: without a loaded WordPress there is no plugin state
+        // to negotiate against, so every declared provider would report
+        // `missing_plugin` and an offline manifest-library load would
+        // manufacture a wall of findings about an environment it cannot see.
+        if (!self::runtime_negotiation_available()) {
+            return [];
+        }
+        // Rows the narrowed, GATING diagnosis already reported are dropped
+        // here. Both lists reach one operator in one plan render, so a
+        // selected inactive plugin appearing once as a blocked
+        // adapter_dispositions row and again as a PROVIDER_PROBLEM row is one
+        // fact stated twice — the shape AdapterSources::refuse() already
+        // refuses for installed files. What survives is exactly the useful
+        // remainder: declared capabilities this environment cannot supply that
+        // THIS revision's work does not reach, which is the gap the wider set
+        // exists to expose.
+        $reported = [];
+        foreach ($gating as $row) {
+            $key = (string) ($row['provider'] ?? '') . "\0" . (string) ($row['manifest'] ?? '')
+                . "\0" . (string) ($row['code'] ?? '');
+            $reported[$key] = true;
+        }
         try {
-            return self::diagnose($policy, $policy->actions())['problems'];
+            $problems = self::diagnose($policy, $policy->actions())['problems'];
+            return array_values(array_filter(
+                $problems,
+                static function (array $problem) use ($reported): bool {
+                    $key = (string) ($problem['provider'] ?? '') . "\0" . (string) ($problem['manifest'] ?? '')
+                        . "\0" . (string) ($problem['code'] ?? '');
+                    return !isset($reported[$key]);
+                }
+            ));
         } catch (ProviderPackagingException $t) {
             return [self::problem(
                 $t->providerId(),

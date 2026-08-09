@@ -113,7 +113,14 @@ final class Apply {
         // change to the apply path, bought for a report apply does not read.
         // apply's refusal stays exactly where the doctrine puts it, at the
         // negotiation immediately before the first mutation.
-        $plan['provider_problems'] = Providers::problems($policy);
+        //
+        // The plan's own adapter_dispositions are handed over so the two
+        // provider diagnoses do not report one fact twice: build_plan() has
+        // already merged DUO-3314's NARROWED, gating rows
+        // (Policy::provider_readiness_blockers($selectedActions)) into that
+        // bucket, and what belongs here is only the remainder this revision's
+        // work never reaches.
+        $plan['provider_problems'] = Providers::problems($policy, $plan['adapter_dispositions'] ?? []);
         return $plan;
     }
 
