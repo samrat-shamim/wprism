@@ -20,12 +20,28 @@ final class Init {
 
     /** @return array<string,mixed> */
     public static function proposal(string $repo): array {
+        $logicalRepo = self::normalize_repository_path($repo);
+        $rootBlocker = self::repository_root_blocker($logicalRepo);
+        if ($rootBlocker !== null) {
+            return self::blocked_repository_proposal($logicalRepo, $rootBlocker);
+        }
+        $binding = self::bind_repository_root($logicalRepo);
+        try {
+            return self::proposal_bound('.', $logicalRepo, $binding['identity']);
+        } finally {
+            if (!@chdir($binding['previous_cwd'])) {
+                throw new \RuntimeException('duo: init could not restore its process working directory after proposal');
+            }
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private static function proposal_bound(string $repo, string $logicalRepo, string $rootIdentity): array {
         global $wpdb;
         if (!is_object($wpdb)) {
             throw new \RuntimeException('duo: init requires a loaded WordPress database connection');
         }
 
-        $repo = rtrim($repo, '/');
         $git = self::git_probe($repo);
         $ledger = self::ledger_probe();
         $existing = self::existing_config($repo);
@@ -312,7 +328,8 @@ final class Init {
                 'config' => $config,
                 'existing_config' => $existing['mode'],
                 'media' => $media,
-                'repository' => $repo,
+                'repository' => $logicalRepo,
+                'repository_identity' => $rootIdentity,
                 'git' => ['mode' => $git['mode'], 'version' => $git['version']],
                 'ledger' => ['rows' => $ledger['rows'], 'tables' => $ledger['tables']],
                 'risk_surfaces' => $risks,
@@ -326,24 +343,26 @@ final class Init {
 
     /** @return array<string,mixed> */
     public static function confirm(string $repo, string $expectedDigest): array {
-        $proposal = self::proposal($repo);
-        $repo = rtrim($repo, '/');
+        $logicalRepo = self::normalize_repository_path($repo);
+        $proposal = self::proposal($logicalRepo);
         self::assert_confirmed_proposal($proposal, $expectedDigest);
 
         // A connection-scoped database advisory lease is non-durable and
         // shared by every local/docker/SSH WP-CLI process using this target.
         // It prevents two confirmations from both taking ownership of an
         // absent config before the filesystem capture lock can exist.
-        $lease = self::acquire_init_lease($repo);
+        $lease = self::acquire_init_lease($logicalRepo);
         $publicationLock = null;
         $lockPathExisted = false;
         $lockOwnedAndCreated = false;
         $succeeded = false;
-        $repoCreated = false;
+        $previousCwd = null;
+        $rootStat = null;
+        $repo = null;
         $gitCreated = false;
         $gitignoreWritten = false;
         $previousGitignore = null;
-        $siteFile = $repo . '/site.duo.json';
+        $siteFile = null;
         $previous = null;
         $publishedCode = false;
         $stagedCode = null;
@@ -356,11 +375,18 @@ final class Init {
                 }
             }
 
-            if (!is_dir($repo)) {
-                if (!mkdir($repo, 0775, true) && !is_dir($repo)) {
-                    throw new \RuntimeException("duo: could not create repository directory $repo");
-                }
-                $repoCreated = true;
+            $binding = self::bind_repository_root($logicalRepo);
+            $previousCwd = $binding['previous_cwd'];
+            $rootStat = $binding['stat'];
+            $repo = '.';
+            $siteFile = './site.duo.json';
+            self::assert_repository_binding($logicalRepo, $rootStat);
+            $reviewedIdentity = $proposal['state']['repository_identity'] ?? null;
+            if (!is_string($reviewedIdentity)
+                || !hash_equals($reviewedIdentity, $binding['identity'])) {
+                throw new \RuntimeException(
+                    'duo: init repository identity changed after confirmation and before publication locking'
+                );
             }
             $stateDir = $repo . '/state';
             $lockPath = Publish::lock_path($stateDir);
@@ -368,20 +394,23 @@ final class Init {
             $lockPathExisted = file_exists($lockPath);
             $publicationLock = Publish::lock($stateDir);
             $lockOwnedAndCreated = !$lockPathExisted;
+            self::assert_repository_binding($logicalRepo, $rootStat);
 
             // Recompute while BOTH the init advisory lease and the shared
             // state publication lock are held. The operator confirms facts,
             // never a mutable config payload; neither a second init nor an
             // ordinary capture can publish between this recheck and commit.
-            $proposal = self::proposal($repo);
+            $proposal = self::proposal_bound($repo, $logicalRepo, $binding['identity']);
             self::assert_confirmed_proposal($proposal, $expectedDigest);
 
             if (($proposal['state']['git']['mode'] ?? null) === 'initialize-on-confirm') {
+                self::assert_repository_binding($logicalRepo, $rootStat);
                 $gitCreated = true;
                 self::initialize_git($repo);
             }
             [$previousGitignore, $gitignoreWritten] = self::ensure_gitignore($repo);
 
+            self::assert_repository_binding($logicalRepo, $rootStat);
             self::assert_regular_file_or_absent($siteFile, 'site.duo.json');
             $previous = is_file($siteFile) ? Canon::read_file($siteFile) : null;
             [$descriptor, $stagedCode] = self::capture_code($repo, $proposal['code']);
@@ -395,6 +424,7 @@ final class Init {
             }
             $stagedCode = $codeStage;
             $codeRoot = $repo . '/code';
+            self::assert_repository_binding($logicalRepo, $rootStat);
             self::assert_absent_owned_path($codeRoot, 'code publication root');
             if (!rename($stagedCode, $codeRoot)) {
                 throw new \RuntimeException('duo: could not publish the verified code baseline');
@@ -415,6 +445,7 @@ final class Init {
                     usleep($pauseMs * 1000);
                 }
             }
+            self::assert_repository_binding($logicalRepo, $rootStat);
             $capture = Capture::run_initial_baseline($repo, $publicationLock);
             $revisionHash = (string) ($capture['revision_hash'] ?? '');
             $codeBaseline = $capture['initial_code_baseline'] ?? null;
@@ -434,6 +465,7 @@ final class Init {
                     'duo: init baseline committed, but the target Git worktree changed before final verification'
                 );
             }
+            self::assert_repository_binding($logicalRepo, $rootStat);
             $succeeded = true;
             return [
                 'format' => 'duo-init-result/v1',
@@ -453,12 +485,15 @@ final class Init {
                 ],
                 'state' => [
                     'git' => $finalGit['mode'],
-                    'repository' => $repo,
-                    'site_config' => $siteFile,
+                    'repository' => $logicalRepo,
+                    'site_config' => $logicalRepo . '/site.duo.json',
                 ],
                 'unsupported' => [],
             ];
         } catch (\Throwable $error) {
+            if ($previousCwd === null || $repo !== '.') {
+                throw $error;
+            }
             // Once Capture has swapped state or written an intent, its
             // transaction/receipt protocol is the authority. Never delete
             // config/code around a possibly committed state tree; retain the
@@ -485,7 +520,9 @@ final class Init {
                 self::remove_tree($repo . '/code');
             }
             if ($previous === null) {
-                @unlink($siteFile);
+                if (is_string($siteFile)) {
+                    @unlink($siteFile);
+                }
             } else {
                 try {
                     self::write_owned_file($siteFile, $previous, 'site.duo.json');
@@ -516,9 +553,9 @@ final class Init {
             if (!$succeeded && $lockOwnedAndCreated) {
                 @unlink(Publish::lock_path($repo . '/state'));
             }
-            if (!$succeeded && $repoCreated && is_dir($repo)
-                && iterator_count(new \FilesystemIterator($repo)) === 0) {
-                @rmdir($repo);
+            if ($previousCwd !== null && !@chdir($previousCwd)) {
+                self::release_init_lease($lease);
+                throw new \RuntimeException('duo: init could not restore its process working directory after confirmation');
             }
             self::release_init_lease($lease);
         }
@@ -627,6 +664,154 @@ final class Init {
             $rows += (int) $count;
         }
         return ['tables' => count($tables), 'rows' => $rows];
+    }
+
+    private static function normalize_repository_path(string $repo): string {
+        $repo = rtrim(trim($repo), '/');
+        if ($repo === '' || $repo === '/' || !str_starts_with($repo, '/')) {
+            throw new \RuntimeException('duo: init requires an absolute, non-root repository path');
+        }
+        if (preg_match('#(?:^|/)\.{1,2}(?:/|$)#', $repo) === 1
+            || str_contains($repo, '//')
+            || preg_match('/[\x00-\x1F\x7F]/', $repo) === 1) {
+            throw new \RuntimeException('duo: init requires a normalized repository path without traversal or control bytes');
+        }
+        return $repo;
+    }
+
+    /** @return ?array<string,string> */
+    private static function repository_root_blocker(string $repo): ?array {
+        $current = '';
+        $parts = explode('/', ltrim($repo, '/'));
+        foreach ($parts as $index => $part) {
+            $current .= '/' . $part;
+            $stat = self::fresh_lstat($current);
+            if ($stat === false) {
+                return [
+                    'code' => 'repository_root_missing', 'extension' => $repo, 'kind' => 'repository',
+                    'reason' => 'the repository root and every parent must already exist before init can bind it safely',
+                    'remediation' => 'create the ordinary repository root through the environment bootstrap/adopt path, then rerun init',
+                ];
+            }
+            $type = ((int) $stat['mode']) & 0170000;
+            if ($type === 0120000) {
+                return [
+                    'code' => 'unsafe_repository_root', 'extension' => $current, 'kind' => 'repository',
+                    'reason' => 'the repository path contains a symbolic-link boundary',
+                    'remediation' => 'use an existing ordinary directory reached through ordinary parent directories only',
+                ];
+            }
+            if ($type !== 0040000) {
+                return [
+                    'code' => 'unsafe_repository_root', 'extension' => $current, 'kind' => 'repository',
+                    'reason' => $index === count($parts) - 1
+                        ? 'the repository root is not an ordinary directory'
+                        : 'a repository parent is not an ordinary directory',
+                    'remediation' => 'use an existing ordinary directory reached through ordinary parent directories only',
+                ];
+            }
+        }
+        return null;
+    }
+
+    /** @return array{previous_cwd:string,stat:array<string|int,mixed>,identity:string} */
+    private static function bind_repository_root(string $repo): array {
+        $blocker = self::repository_root_blocker($repo);
+        if ($blocker !== null) {
+            throw new \RuntimeException('duo: init cannot bind repository root: ' . $blocker['reason']);
+        }
+        $before = self::fresh_lstat($repo);
+        $previous = getcwd();
+        if ($before === false || !is_string($previous) || $previous === '') {
+            throw new \RuntimeException('duo: init could not inspect its repository process boundary');
+        }
+        if (!@chdir($repo)) {
+            throw new \RuntimeException('duo: init could not bind the reviewed repository directory');
+        }
+        try {
+            $bound = self::fresh_lstat('.');
+            if ($bound === false || !self::same_directory_identity($before, $bound)) {
+                throw new \RuntimeException('duo: init repository root changed while it was being bound');
+            }
+            self::assert_repository_binding($repo, $bound);
+            return [
+                'previous_cwd' => $previous,
+                'stat' => $bound,
+                'identity' => 'sha256:' . hash('sha256', Canon::encode([
+                    'device' => (string) $bound['dev'],
+                    'inode' => (string) $bound['ino'],
+                ])),
+            ];
+        } catch (\Throwable $error) {
+            @chdir($previous);
+            throw $error;
+        }
+    }
+
+    /** @param array<string|int,mixed> $expected */
+    private static function assert_repository_binding(string $repo, array $expected): void {
+        $blocker = self::repository_root_blocker($repo);
+        $lexical = $blocker === null ? self::fresh_lstat($repo) : false;
+        $bound = self::fresh_lstat('.');
+        if ($blocker !== null || $lexical === false || $bound === false
+            || !self::same_directory_identity($expected, $lexical)
+            || !self::same_directory_identity($expected, $bound)) {
+            throw new \RuntimeException('duo: init repository root changed after review; no lexical child path will be followed');
+        }
+    }
+
+    /** @param array<string|int,mixed> $left @param array<string|int,mixed> $right */
+    private static function same_directory_identity(array $left, array $right): bool {
+        return (((int) ($left['mode'] ?? 0)) & 0170000) === 0040000
+            && (((int) ($right['mode'] ?? 0)) & 0170000) === 0040000
+            && (string) ($left['dev'] ?? '') === (string) ($right['dev'] ?? '')
+            && (string) ($left['ino'] ?? '') === (string) ($right['ino'] ?? '');
+    }
+
+    /** @return array<string|int,mixed>|false */
+    private static function fresh_lstat(string $path): array|false {
+        clearstatcache(true, $path);
+        return @lstat($path);
+    }
+
+    /** @param array<string,string> $blocker @return array<string,mixed> */
+    private static function blocked_repository_proposal(string $repo, array $blocker): array {
+        global $wpdb;
+        if (!is_object($wpdb)) {
+            throw new \RuntimeException('duo: init requires a loaded WordPress database connection');
+        }
+        $proposal = [
+            'format' => self::FORMAT,
+            'advisories' => [],
+            'environment' => [
+                'database' => ['access' => 'not-probed', 'server' => 'unknown'],
+                'home' => (string) get_option('home', ''),
+                'php' => PHP_VERSION,
+                'wordpress' => (string) get_bloginfo('version'),
+            ],
+            'code' => [
+                'management' => 'unsupported-repository-root', 'files' => 0, 'bytes' => 0,
+                'source_revision' => null, 'roots' => [], 'active_plugins' => [], 'active_theme' => [],
+            ],
+            'state' => [
+                'adapters' => [], 'baseline' => 'not-probed', 'existing_config' => 'not-probed',
+                'media' => ['strategy' => 'not-probed', 'attachments' => 0, 'unavailable' => 0],
+                'repository' => $repo, 'repository_identity' => null,
+                'git' => ['mode' => 'not-probed', 'version' => 'not-probed'],
+                'ledger' => ['rows' => 0, 'tables' => 0],
+                'risk_surfaces' => [
+                    'options' => [], 'user_meta' => [],
+                    'oversized' => ['options' => 0, 'user_meta' => 0],
+                    'scanned' => ['options' => 0, 'user_meta' => 0],
+                    'limits' => ['rows_per_surface' => self::RISK_ROW_LIMIT, 'bytes_per_surface' => self::RISK_BYTE_LIMIT],
+                    'truncated' => false,
+                ],
+            ],
+            'unsupported' => [$blocker],
+            'ready' => false,
+        ];
+        $proposal['digest'] = hash('sha256', Canon::encode($proposal));
+        return $proposal;
     }
 
     /** @return array{mode:string,version:string,blockers:list<array<string,string>>} */

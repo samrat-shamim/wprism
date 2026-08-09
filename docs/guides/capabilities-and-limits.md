@@ -345,11 +345,13 @@ slice that has already landed and says so. It is listed so you can tell
 "Duo cannot do this" apart from "Duo will not do this", and route the former
 rather than working around it.
 
- - Bounded first-run initialization of an existing site — **Shipped (DUO-3336)**.
+- Bounded first-run initialization of an existing site — **Shipped (DUO-3336)**.
   `duo init <env>` proposes and, after explicit confirmation, captures separate
   code and state/media baselines once the agent is reachable and the target has
-  Git. It does not install WordPress or deliver the agent; SSH delivery remains
-  `duo adopt`, and automatic local/Docker delivery is a separate capability.
+  Git plus a pre-existing ordinary `repo_path` reached without symbolic-link
+  ancestors. It does not create that control directory, install WordPress, or
+  deliver the agent; SSH delivery remains `duo adopt`, and automatic local/Docker
+  delivery is a separate capability.
 - Automatic local/Docker control-plane delivery — **Planned (DUO-3365)** — not yet shipped.
 - Discovery of adapters from a REMOTE source — a registry, an index, a URL you
   do not already have a copy of — **Planned** — not yet shipped. Every adapter

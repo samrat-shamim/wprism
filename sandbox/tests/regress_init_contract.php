@@ -16,8 +16,8 @@ final class InitTransport extends Transport {
     public array $calls = [];
 
     /** @param list<array{exit:int,stdout:string,stderr:string}> $responses */
-    public function __construct(array $responses) {
-        parent::__construct('shop', ['repo_path' => '/srv/shop-state']);
+    public function __construct(array $responses, string $repo = '/srv/shop-state') {
+        parent::__construct('shop', ['repo_path' => $repo]);
         $this->responses = $responses;
     }
 
@@ -47,6 +47,13 @@ function response(array $body): array {
 }
 
 $digest = str_repeat('a', 64);
+$stateRevision = str_repeat('b', 64);
+$codeRevision = str_repeat('c', 64);
+$lifecycle = [
+    'enabled' => true,
+    'completed' => true,
+    'code_revision' => $codeRevision,
+];
 $proposal = [
     'format' => 'duo-init-plan/v1',
     'digest' => $digest,
@@ -57,20 +64,39 @@ $proposal = [
     ]],
     'environment' => [
         'wordpress' => '7.0.2', 'php' => '8.3.33',
-        'database' => ['server' => '11.8.8-MariaDB'], 'home' => 'https://shop.example.test',
+        'database' => ['access' => 'verified-read', 'server' => '11.8.8-MariaDB'],
+        'home' => 'https://shop.example.test',
     ],
     'code' => [
         'management' => 'managed-baseline-proposed',
         'files' => 42,
         'bytes' => 8192,
-        'source_revision' => str_repeat('c', 64),
-        'roots' => ['plugins' => '/var/www/html/wp-content/plugins'],
+        'source_revision' => $codeRevision,
+        'roots' => [
+            'content' => '/var/www/html/wp-content',
+            'mu_plugins' => '/var/www/html/wp-content/mu-plugins',
+            'plugins' => '/var/www/html/wp-content/plugins',
+            'themes' => '/var/www/html/wp-content/themes',
+        ],
+        'components' => ['plugins' => ['woocommerce'], 'themes' => ['shop-theme']],
+        'declaration' => ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'],
         'active_plugins' => [['basename' => 'woocommerce/woocommerce.php', 'version' => '11.0.0']],
         'active_theme' => ['stylesheet' => 'shop-theme', 'template' => 'shop-theme'],
     ],
     'state' => [
+        'baseline' => 'capture-consistent-snapshot',
+        'existing_config' => 'absent',
         'repository' => '/srv/shop-state',
+        'repository_identity' => 'sha256:' . str_repeat('d', 64),
         'adapters' => [['name' => 'core'], ['name' => 'woocommerce']],
+        'config' => [
+            'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'],
+            'manifests' => [['digest' => str_repeat('d', 64), 'name' => 'core']],
+            'policy' => ['post_types' => ['post'], 'taxonomies' => ['category']],
+            'spec_version' => 2,
+        ],
+        'git' => ['mode' => 'initialize-on-confirm', 'version' => 'git version 2.51.0'],
+        'ledger' => ['rows' => 0, 'tables' => 0],
         'media' => ['strategy' => 'local', 'attachments' => 2, 'unavailable' => 0],
         'risk_surfaces' => [
             'options' => ['stripe key' => 1],
@@ -85,7 +111,22 @@ $proposal = [
 ];
 $result = [
     'format' => 'duo-init-result/v1',
-    'baseline' => ['kind' => 'state-capture', 'revision_hash' => str_repeat('b', 64)],
+    'proposal_digest' => $digest,
+    'baseline' => ['kind' => 'state-capture', 'revision_hash' => $stateRevision],
+    'capture' => ['revision_hash' => $stateRevision, 'initial_code_baseline' => $lifecycle],
+    'code' => [
+        'descriptor' => ['code_revision' => $codeRevision],
+        'lifecycle' => $lifecycle,
+        'management' => 'managed-baseline',
+        'revision_hash' => $codeRevision,
+        'source' => 'code/wp-content',
+    ],
+    'state' => [
+        'git' => 'existing-worktree',
+        'repository' => '/srv/shop-state',
+        'site_config' => '/srv/shop-state/site.duo.json',
+    ],
+    'unsupported' => [],
 ];
 
 $transport = new InitTransport([response($proposal), response($result)]);
@@ -93,6 +134,10 @@ check(Init::proposal($transport) === $proposal, 'proposal JSON is returned witho
 check($transport->calls[0] === ['duo', 'init', '--repo=/srv/shop-state', '--format=json'], 'proposal uses the authenticated target agent and repository path');
 check(Init::confirm($transport, $digest) === $result, 'confirmation result is returned');
 check($transport->calls[1] === ['duo', 'init', '--repo=/srv/shop-state', '--confirm=' . $digest, '--format=json'], 'confirmation sends only the reviewed digest, never a mutable config payload');
+
+$slashTransport = new InitTransport([response($proposal), response($result)], '/srv/shop-state/');
+check(Init::proposal($slashTransport) === $proposal, 'host normalizes a configured trailing slash when validating the target proposal');
+check(Init::confirm($slashTransport, $digest) === $result, 'host normalizes a configured trailing slash when validating the target result');
 
 $rendered = implode("\n", Init::render($proposal));
 check(str_contains($rendered, 'code: managed-baseline-proposed'), 'rendering preserves the separate code/state contract');
@@ -118,6 +163,56 @@ try {
     fail('invalid target JSON was accepted');
 } catch (RuntimeException $expected) {
     check(str_contains($expected->getMessage(), 'invalid JSON'), 'invalid target JSON fails closed');
+}
+
+foreach ([
+    'empty proposal' => [],
+    'wrong proposal format' => array_replace($proposal, ['format' => 'duo-init-plan/v0']),
+    'malformed proposal digest' => array_replace($proposal, ['digest' => 'abc']),
+    'non-boolean proposal readiness' => array_replace($proposal, ['ready' => 1]),
+    'sparse ready proposal' => [
+        'format' => 'duo-init-plan/v1', 'digest' => $digest, 'ready' => true,
+        'environment' => [], 'code' => [],
+        'state' => ['repository' => '/srv/shop-state', 'repository_identity' => 'sha256:' . str_repeat('d', 64)],
+        'unsupported' => [], 'advisories' => [],
+    ],
+    'blocked proposal without blockers' => array_replace($proposal, ['ready' => false]),
+    'proposal for another repository' => array_replace_recursive($proposal, ['state' => ['repository' => '/srv/other']]),
+] as $label => $invalidProposal) {
+    try {
+        Init::proposal(new InitTransport([response($invalidProposal)]));
+        fail("$label was accepted");
+    } catch (RuntimeException $expected) {
+        check(str_contains($expected->getMessage(), 'incompatible or incomplete contract'), "$label fails closed");
+    }
+}
+
+foreach ([
+    'empty result' => [],
+    'wrong result format' => array_replace($result, ['format' => 'duo-init-result/v0']),
+    'mismatched proposal digest' => array_replace($result, ['proposal_digest' => str_repeat('e', 64)]),
+    'malformed state baseline hash' => array_replace_recursive($result, ['baseline' => ['revision_hash' => 'bad']]),
+    'capture baseline mismatch' => array_replace_recursive($result, ['capture' => ['revision_hash' => str_repeat('d', 64)]]),
+    'malformed code baseline hash' => array_replace_recursive($result, ['code' => ['revision_hash' => 'bad']]),
+    'descriptor revision mismatch' => array_replace_recursive($result, ['code' => ['descriptor' => ['code_revision' => str_repeat('d', 64)]]]),
+    'incomplete lifecycle receipt' => array_replace_recursive($result, ['code' => ['lifecycle' => ['completed' => false]]]),
+    'capture lifecycle mismatch' => array_replace_recursive($result, ['capture' => ['initial_code_baseline' => ['completed' => false]]]),
+    'result for another repository' => array_replace_recursive($result, ['state' => ['repository' => '/srv/other']]),
+    'result retaining unsupported coverage' => array_replace($result, ['unsupported' => [['code' => 'still-blocked']]]),
+] as $label => $invalidResult) {
+    try {
+        Init::confirm(new InitTransport([response($invalidResult)]), $digest);
+        fail("$label was accepted");
+    } catch (RuntimeException $expected) {
+        check(str_contains($expected->getMessage(), 'incompatible or incomplete result'), "$label fails closed");
+    }
+}
+
+try {
+    Init::confirm(new InitTransport([]), 'not-a-digest');
+    fail('malformed caller confirmation digest was accepted');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(), 'exact 64-hex'), 'malformed caller digest refuses before target contact');
 }
 
 $failed = new InitTransport([['exit' => 17, 'stdout' => '', 'stderr' => 'adapter unsupported']]);
@@ -170,6 +265,25 @@ $rootAbsentCheck = strpos($agentSource, 'if (!file_exists($repo))');
 check(
     $rootLinkCheck !== false && $rootAbsentCheck !== false && $rootLinkCheck < $rootAbsentCheck,
     'dangling repository-root links refuse before the absent-root path'
+);
+check(
+    str_contains($agentSource, 'self::repository_root_blocker($logicalRepo)')
+        && str_contains($agentSource, "return self::proposal_bound('.', \$logicalRepo, \$binding['identity'])")
+        && str_contains($agentSource, "\$repo = '.';")
+        && str_contains($agentSource, 'self::fresh_lstat($repo)'),
+    'proposal and confirmation bind a freshly inspected ordinary repository inode before child traversal'
+);
+$reviewedIdentity = strpos($agentSource, "\$reviewedIdentity = \$proposal['state']['repository_identity'] ?? null;");
+$publicationLock = strpos($agentSource, '$publicationLock = Publish::lock($stateDir);');
+check(
+    $reviewedIdentity !== false && $publicationLock !== false && $reviewedIdentity < $publicationLock
+        && str_contains($agentSource, "hash_equals(\$reviewedIdentity, \$binding['identity'])"),
+    'a replacement ordinary directory refuses before the first publication-lock write'
+);
+check(
+    str_contains($agentSource, "'repository_root_missing'")
+        && str_contains($agentSource, 'the repository root and every parent must already exist'),
+    'missing repository roots are an explicit bootstrap prerequisite rather than a racy init mutation'
 );
 check(
     str_contains($agentSource, "'unsafe_site_config'")
@@ -252,6 +366,19 @@ check(
     substr_count($liveHarness, '-e DUO_TEST_INIT_PUBLICATION_PAUSE_MS=5000') >= 2,
     'both concurrent init contenders pause whichever winner holds the publication lock'
 );
+check(
+    str_contains($liveHarness, 'wait_for_init_lease /siterepo/swap-link')
+        && str_contains($liveHarness, 'wait_for_init_lease /siterepo/swap-directory')
+        && substr_count($liveHarness, '-e DUO_TEST_INIT_PAUSE_MS=10000') >= 2,
+    'live root replacement races wait for the post-proposal init lease before swapping paths'
+);
+check(
+    str_contains($liveHarness, 'symlinked repository ancestor blocks init')
+        && str_contains($liveHarness, 'repository_root_missing')
+        && str_contains($liveHarness, 'replacement ordinary directory received a repository write')
+        && str_contains($liveHarness, 'post-proposal symlink replacement received a repository write'),
+    'live root suite covers missing, ancestor-link, symlink-swap, and ordinary-directory replacement boundaries'
+);
 
 $unsafeRoot = __DIR__ . '/../unsafe1';
 $unsafeSentinel = $unsafeRoot . '/sentinel';
@@ -272,6 +399,7 @@ exec(
     $invalidExit
 );
 check($invalidExit === 2, 'invalid live pair name refuses before Docker or cleanup');
+check(str_contains(implode("\n", $invalidOutput), 'invalid DUO_INIT_PAIR'), 'invalid-pair regression reaches the pair guard');
 check(is_file($unsafeSentinel), 'invalid live pair name cannot escape siterepo and delete the sentinel');
 
 // Exercise the target-only bounded risk probe without WordPress. Query

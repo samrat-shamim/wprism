@@ -5,17 +5,24 @@ namespace Duo\Orchestrator;
 final class Init {
     /** @return array<string,mixed> */
     public static function proposal(EnvironmentDriver $transport): array {
-        return self::request($transport, [
+        $proposal = self::request($transport, [
             'duo', 'init', '--repo=' . $transport->repoPath(), '--format=json',
         ], 'proposal');
+        self::assertProposal($transport, $proposal);
+        return $proposal;
     }
 
     /** @return array<string,mixed> */
     public static function confirm(EnvironmentDriver $transport, string $digest): array {
-        return self::request($transport, [
+        if (preg_match('/^[a-f0-9]{64}$/', $digest) !== 1) {
+            throw new \RuntimeException('duo init confirmation requires the exact 64-hex proposal digest');
+        }
+        $result = self::request($transport, [
             'duo', 'init', '--repo=' . $transport->repoPath(),
             '--confirm=' . $digest, '--format=json',
         ], 'confirmation');
+        self::assertResult($transport, $result, $digest);
+        return $result;
     }
 
     /** @return list<string> */
@@ -114,5 +121,197 @@ final class Init {
             throw new \RuntimeException("duo init $phase returned invalid JSON for '{$transport->name()}'");
         }
         return $decoded;
+    }
+
+    /** @param array<string,mixed> $proposal */
+    private static function assertProposal(EnvironmentDriver $transport, array $proposal): void {
+        $environment = $proposal['environment'] ?? null;
+        $code = $proposal['code'] ?? null;
+        $state = $proposal['state'] ?? null;
+        $unsupported = $proposal['unsupported'] ?? null;
+        $ready = $proposal['ready'] ?? null;
+        $expectedRepo = self::expectedRepository($transport);
+        $valid = ($proposal['format'] ?? null) === 'duo-init-plan/v1'
+            && is_bool($ready)
+            && is_string($proposal['digest'] ?? null)
+            && preg_match('/^[a-f0-9]{64}$/', (string) $proposal['digest']) === 1
+            && is_array($environment)
+            && is_array($code)
+            && is_array($state)
+            && ($state['repository'] ?? null) === $expectedRepo
+            && is_array($unsupported)
+            && array_is_list($unsupported)
+            && is_array($proposal['advisories'] ?? null)
+            && array_is_list($proposal['advisories']);
+        if ($valid) {
+            $valid = $ready === ($unsupported === []);
+        }
+        if ($valid && $ready === true) {
+            $database = $environment['database'] ?? null;
+            $media = $state['media'] ?? null;
+            $git = $state['git'] ?? null;
+            $ledger = $state['ledger'] ?? null;
+            $config = $state['config'] ?? null;
+            $components = $code['components'] ?? null;
+            $declaration = $code['declaration'] ?? null;
+            $valid = is_string($environment['wordpress'] ?? null)
+                && trim((string) $environment['wordpress']) !== ''
+                && is_string($environment['php'] ?? null)
+                && trim((string) $environment['php']) !== ''
+                && is_string($environment['home'] ?? null)
+                && is_array($database)
+                && ($database['access'] ?? null) === 'verified-read'
+                && is_string($database['server'] ?? null)
+                && trim((string) $database['server']) !== ''
+                && ($code['management'] ?? null) === 'managed-baseline-proposed'
+                && is_int($code['files'] ?? null) && $code['files'] >= 0
+                && is_int($code['bytes'] ?? null) && $code['bytes'] >= 0
+                && is_string($code['source_revision'] ?? null)
+                && preg_match('/^[a-f0-9]{64}$/', (string) $code['source_revision']) === 1
+                && self::validCodeRoots($code['roots'] ?? null)
+                && self::validComponents($components)
+                && is_array($declaration)
+                && $declaration === ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content']
+                && self::listOfArrays($code['active_plugins'] ?? null)
+                && is_array($code['active_theme'] ?? null)
+                && is_string($code['active_theme']['stylesheet'] ?? null)
+                && is_string($code['active_theme']['template'] ?? null)
+                && ($state['baseline'] ?? null) === 'capture-consistent-snapshot'
+                && in_array($state['existing_config'] ?? null, ['absent', 'adoption-seed'], true)
+                && is_string($state['repository_identity'] ?? null)
+                && preg_match('/^sha256:[a-f0-9]{64}$/', (string) $state['repository_identity']) === 1
+                && is_array($config)
+                && ($config['code'] ?? null) === ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content']
+                && self::listOfArrays($config['manifests'] ?? null)
+                && is_array($config['policy'] ?? null)
+                && ($config['spec_version'] ?? null) === 2
+                && self::listOfArrays($state['adapters'] ?? null)
+                && is_array($media)
+                && is_string($media['strategy'] ?? null)
+                && is_int($media['attachments'] ?? null) && $media['attachments'] >= 0
+                && is_int($media['unavailable'] ?? null) && $media['unavailable'] >= 0
+                && is_array($git)
+                && in_array($git['mode'] ?? null, ['initialize-on-confirm', 'existing-worktree'], true)
+                && is_string($git['version'] ?? null) && trim((string) $git['version']) !== ''
+                && is_array($ledger)
+                && ($ledger['rows'] ?? null) === 0
+                && is_int($ledger['tables'] ?? null) && $ledger['tables'] >= 0
+                && self::validRiskEnvelope($state['risk_surfaces'] ?? null);
+        }
+        if (!$valid) {
+            throw new \RuntimeException(
+                "duo init proposal returned an incompatible or incomplete contract for '{$transport->name()}'"
+            );
+        }
+    }
+
+    /** @param array<string,mixed> $result */
+    private static function assertResult(EnvironmentDriver $transport, array $result, string $digest): void {
+        $baseline = $result['baseline'] ?? null;
+        $capture = $result['capture'] ?? null;
+        $code = $result['code'] ?? null;
+        $descriptor = is_array($code) ? ($code['descriptor'] ?? null) : null;
+        $lifecycle = is_array($code) ? ($code['lifecycle'] ?? null) : null;
+        $state = $result['state'] ?? null;
+        $unsupported = $result['unsupported'] ?? null;
+        $expectedRepo = self::expectedRepository($transport);
+        $valid = ($result['format'] ?? null) === 'duo-init-result/v1'
+            && ($result['proposal_digest'] ?? null) === $digest
+            && is_array($baseline)
+            && ($baseline['kind'] ?? null) === 'state-capture'
+            && is_string($baseline['revision_hash'] ?? null)
+            && preg_match('/^[a-f0-9]{64}$/', (string) $baseline['revision_hash']) === 1
+            && is_array($capture)
+            && ($capture['revision_hash'] ?? null) === $baseline['revision_hash']
+            && is_array($code)
+            && ($code['management'] ?? null) === 'managed-baseline'
+            && ($code['source'] ?? null) === 'code/wp-content'
+            && is_string($code['revision_hash'] ?? null)
+            && preg_match('/^[a-f0-9]{64}$/', (string) $code['revision_hash']) === 1
+            && is_array($descriptor)
+            && ($descriptor['code_revision'] ?? null) === $code['revision_hash']
+            && is_array($lifecycle)
+            && ($lifecycle['enabled'] ?? null) === true
+            && ($lifecycle['completed'] ?? null) === true
+            && ($lifecycle['code_revision'] ?? null) === $code['revision_hash']
+            && ($capture['initial_code_baseline'] ?? null) === $lifecycle
+            && is_array($state)
+            && ($state['repository'] ?? null) === $expectedRepo
+            && ($state['site_config'] ?? null) === $expectedRepo . '/site.duo.json'
+            && ($state['git'] ?? null) === 'existing-worktree'
+            && is_array($unsupported)
+            && array_is_list($unsupported)
+            && $unsupported === [];
+        if (!$valid) {
+            throw new \RuntimeException(
+                "duo init confirmation returned an incompatible or incomplete result for '{$transport->name()}'"
+            );
+        }
+    }
+
+    private static function expectedRepository(EnvironmentDriver $transport): string {
+        $repo = rtrim($transport->repoPath(), '/');
+        if ($repo === '' || !str_starts_with($repo, '/')) {
+            throw new \RuntimeException(
+                "duo init requires an absolute, non-root repository path for '{$transport->name()}'"
+            );
+        }
+        return $repo;
+    }
+
+    private static function validCodeRoots(mixed $roots): bool {
+        if (!is_array($roots)) return false;
+        foreach (['content', 'mu_plugins', 'plugins', 'themes'] as $name) {
+            if (!is_string($roots[$name] ?? null) || trim((string) $roots[$name]) === '') return false;
+        }
+        return true;
+    }
+
+    private static function validComponents(mixed $components): bool {
+        if (!is_array($components)) return false;
+        foreach (['plugins', 'themes'] as $name) {
+            if (!is_array($components[$name] ?? null) || !array_is_list($components[$name])) return false;
+            foreach ($components[$name] as $component) {
+                if (!is_string($component) || $component === '') return false;
+            }
+        }
+        return true;
+    }
+
+    private static function listOfArrays(mixed $rows): bool {
+        if (!is_array($rows) || !array_is_list($rows)) return false;
+        foreach ($rows as $row) {
+            if (!is_array($row)) return false;
+        }
+        return true;
+    }
+
+    private static function validRiskEnvelope(mixed $risk): bool {
+        if (!is_array($risk)
+            || !self::countMap($risk['options'] ?? null)
+            || !self::countMap($risk['user_meta'] ?? null)
+            || !is_bool($risk['truncated'] ?? null)) {
+            return false;
+        }
+        foreach ([
+            'oversized' => ['options', 'user_meta'],
+            'scanned' => ['options', 'user_meta'],
+            'limits' => ['rows_per_surface', 'bytes_per_surface'],
+        ] as $bucket => $keys) {
+            $values = $risk[$bucket] ?? null;
+            if (!is_array($values)) return false;
+            foreach ($keys as $key) {
+                if (!is_int($values[$key] ?? null) || $values[$key] < 0) return false;
+            }
+        }
+        return true;
+    }
+
+    private static function countMap(mixed $counts): bool {
+        if (!is_array($counts)) return false;
+        foreach ($counts as $label => $count) {
+            if (!is_string($label) || !is_int($count) || $count < 0) return false;
+        }
+        return true;
     }
 }

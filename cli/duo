@@ -1181,6 +1181,13 @@ function cmd_status(EnvironmentDriver $t): int {
         render_rollback_authority_status($t);
         return 1;
     }
+    try {
+        PlanSummary::assertContract($plan);
+    } catch (\Throwable $e) {
+        fwrite(STDERR, "duo: status: agent returned an incomplete plan contract for '{$t->name()}': {$e->getMessage()}\n");
+        render_rollback_authority_status($t);
+        return 1;
+    }
     $summary = PlanSummary::render($plan);
     foreach ($summary['lines'] as $line) {
         echo $line . "\n";

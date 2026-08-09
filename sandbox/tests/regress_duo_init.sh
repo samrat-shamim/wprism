@@ -5,6 +5,24 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+PAIR="${DUO_INIT_PAIR:-codexmaca3336}"
+PORT1="${DUO_INIT_PORT1:-9300}"
+PORT2="${DUO_INIT_PORT2:-9301}"
+if [[ ! "$PAIR" =~ ^[a-z][a-z0-9]*$ ]]; then
+  printf 'FAIL: invalid DUO_INIT_PAIR %q\n' "$PAIR" >&2
+  exit 2
+fi
+if [[ ! "$PORT1" =~ ^[0-9]+$ ]] || [[ ! "$PORT2" =~ ^[0-9]+$ ]]; then
+  printf 'FAIL: DUO init ports must be decimal integers\n' >&2
+  exit 2
+fi
+PORT1=$((10#$PORT1))
+PORT2=$((10#$PORT2))
+if (( PORT1 < 8900 || PORT1 > 65534 || PORT1 % 2 != 0 || PORT2 != PORT1 + 1 )); then
+  printf 'FAIL: DUO init ports must be an even port >=8900 plus its adjacent successor\n' >&2
+  exit 2
+fi
+
 SOURCE_SHA="$(git rev-parse --verify 'HEAD^{commit}')" || {
   printf 'FAIL: init evidence source has no resolvable Git HEAD\n' >&2
   exit 2
@@ -23,24 +41,6 @@ if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
   exit 2
 fi
 export DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA"
-
-PAIR="${DUO_INIT_PAIR:-codexmaca3336}"
-PORT1="${DUO_INIT_PORT1:-9300}"
-PORT2="${DUO_INIT_PORT2:-9301}"
-if [[ ! "$PAIR" =~ ^[a-z][a-z0-9]*$ ]]; then
-  printf 'FAIL: invalid DUO_INIT_PAIR %q\n' "$PAIR" >&2
-  exit 2
-fi
-if [[ ! "$PORT1" =~ ^[0-9]+$ ]] || [[ ! "$PORT2" =~ ^[0-9]+$ ]]; then
-  printf 'FAIL: DUO init ports must be decimal integers\n' >&2
-  exit 2
-fi
-PORT1=$((10#$PORT1))
-PORT2=$((10#$PORT2))
-if (( PORT1 < 8900 || PORT1 > 65534 || PORT1 % 2 != 0 || PORT2 != PORT1 + 1 )); then
-  printf 'FAIL: DUO init ports must be an even port >=8900 plus its adjacent successor\n' >&2
-  exit 2
-fi
 HOST_REPO="$REPO_ROOT/sandbox/siterepo/${PAIR}1"
 HOST_REPO2="$REPO_ROOT/sandbox/siterepo/${PAIR}2"
 ENVS_FILE="$REPO_ROOT/sandbox/siterepo/${PAIR}-envs.json"
@@ -74,7 +74,8 @@ cleanup() {
     return 1
   fi
   rm -f "$ENVS_FILE"
-  rm -f "/tmp/${PAIR}-init-concurrent-1.log" "/tmp/${PAIR}-init-concurrent-2.log"
+  rm -f "/tmp/${PAIR}-init-concurrent-1.log" "/tmp/${PAIR}-init-concurrent-2.log" \
+    "/tmp/${PAIR}-init-root-symlink.log" "/tmp/${PAIR}-init-root-directory.log"
   rm -rf "$HOST_REPO" \
     "$REPO_ROOT/sandbox/siterepo/${PAIR}2" \
     "$REPO_ROOT/sandbox/siterepo/origin-${PAIR}.git"
@@ -110,6 +111,19 @@ COMPOSE=(docker compose -p "duo-$PAIR" -f "$COMPOSE_FILE")
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 git1() { "${COMPOSE[@]}" run --rm -T --entrypoint git cli1 -C /siterepo "$@"; }
+wait_for_init_lease() {
+  local repo="$1" name holder
+  name="duo-init:$(php -r 'echo substr(hash("sha256", "wp_" . chr(0) . $argv[1]), 0, 48);' "$repo")"
+  for _ in $(seq 1 100); do
+    holder=$(docker exec -e MYSQL_PWD=root duo-shared-db \
+      mariadb -uroot -N -B --raw -e "SELECT COALESCE(IS_USED_LOCK('$name'), 0)" 2>/dev/null || true)
+    if [[ "$holder" =~ ^[1-9][0-9]*$ ]]; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  fail "confirmation never acquired the init lease for $repo"
+}
 
 say "install the exact certified WooCommerce boundary and representative authored entities"
 wp1 plugin install woocommerce --version=11.0.0 --activate >/dev/null
@@ -152,6 +166,18 @@ cat > "$ENVS_FILE" <<EOF
       "compose_file": "$COMPOSE_FILE",
       "service": "cli1",
       "repo_path": "/siterepo/dangling-root"
+    },
+    "${PAIR}missing": {
+      "transport": "docker",
+      "compose_file": "$COMPOSE_FILE",
+      "service": "cli1",
+      "repo_path": "/siterepo/missing-root"
+    },
+    "${PAIR}ancestor": {
+      "transport": "docker",
+      "compose_file": "$COMPOSE_FILE",
+      "service": "cli1",
+      "repo_path": "/siterepo/ancestor-link/child"
     }
   }
 }
@@ -176,19 +202,33 @@ export DUO_CLI_IMAGE
 pass "Git-enabled target fixture is ready"
 
 say "repository-root links refuse before any child path can escape"
+rm -rf "$HOST_REPO/missing-root"
+assert_exit 2 "missing repository root blocks init" "${DUO[@]}" init "${PAIR}missing" --yes
+grep -q 'repository_root_missing' <<<"$OUT" || fail "missing repository root omitted its bootstrap reason code"
+[ ! -e "$HOST_REPO/missing-root" ] || fail "missing-root proposal materialized its repository directory"
+
 wp1 eval '
 $dir = ABSPATH . "duo-init-external-root";
 wp_mkdir_p($dir);
+wp_mkdir_p($dir . "/adapters");
 file_put_contents($dir . "/sentinel", "external root sentinel\n");
+file_put_contents($dir . "/site.duo.json", "{duo-init-root-poison");
+file_put_contents($dir . "/adapters/poison.json", "{duo-init-adapter-poison");
 ' >/dev/null
 EXTERNAL_ROOT_SHA=$(wp1 eval 'echo hash_file("sha256", ABSPATH . "duo-init-external-root/sentinel");')
 ln -s /var/www/html/duo-init-external-root "$HOST_REPO/linked-root"
 assert_exit 2 "symlinked repository root blocks init" "${DUO[@]}" init "${PAIR}root" --yes
 grep -q 'unsafe_repository_root' <<<"$OUT" || fail "repository root link omitted its ownership reason code"
+! grep -q 'duo-init-root-poison\|duo-init-adapter-poison' <<<"$OUT" \
+  || fail "repository root refusal traversed an external config or adapter child"
 [ "$EXTERNAL_ROOT_SHA" = "$(wp1 eval 'echo hash_file("sha256", ABSPATH . "duo-init-external-root/sentinel");')" ] \
   || fail "repository root refusal changed the external sentinel"
 rm -f "$HOST_REPO/linked-root"
-wp1 eval 'unlink(ABSPATH . "duo-init-external-root/sentinel"); rmdir(ABSPATH . "duo-init-external-root");' >/dev/null
+wp1 eval '
+$dir = ABSPATH . "duo-init-external-root";
+unlink($dir . "/sentinel"); unlink($dir . "/site.duo.json");
+unlink($dir . "/adapters/poison.json"); rmdir($dir . "/adapters"); rmdir($dir);
+' >/dev/null
 
 wp1 eval '@rmdir(ABSPATH . "duo-init-missing-root");' >/dev/null
 ln -s /var/www/html/duo-init-missing-root "$HOST_REPO/dangling-root"
@@ -197,7 +237,103 @@ grep -q 'unsafe_repository_root' <<<"$OUT" || fail "dangling repository root omi
 [ -L "$HOST_REPO/dangling-root" ] && [ ! -e "$HOST_REPO/dangling-root" ] \
   || fail "dangling repository root refusal materialized its external target"
 rm -f "$HOST_REPO/dangling-root"
-pass "valid and dangling repository-root links remain outside init ownership"
+
+wp1 eval '
+$dir = ABSPATH . "duo-init-ancestor-external/child";
+wp_mkdir_p($dir . "/adapters");
+file_put_contents($dir . "/sentinel", "ancestor sentinel\n");
+file_put_contents($dir . "/site.duo.json", "{duo-init-ancestor-poison");
+file_put_contents($dir . "/adapters/poison.json", "{duo-init-ancestor-adapter-poison");
+' >/dev/null
+ANCESTOR_SENTINEL_SHA=$(wp1 eval 'echo hash_file("sha256", ABSPATH . "duo-init-ancestor-external/child/sentinel");')
+ln -s /var/www/html/duo-init-ancestor-external "$HOST_REPO/ancestor-link"
+assert_exit 2 "symlinked repository ancestor blocks init" "${DUO[@]}" init "${PAIR}ancestor" --yes
+grep -q 'unsafe_repository_root' <<<"$OUT" || fail "repository ancestor link omitted its ownership reason code"
+! grep -q 'duo-init-ancestor-poison\|duo-init-ancestor-adapter-poison' <<<"$OUT" \
+  || fail "repository ancestor refusal traversed external child content"
+[ ! -e "$HOST_REPO/ancestor-link/child/state.capture.lock" ] \
+  && [ ! -e "$HOST_REPO/ancestor-link/child/.git" ] \
+  && [ ! -e "$HOST_REPO/ancestor-link/child/code" ] \
+  || fail "repository ancestor refusal mutated the external child"
+[ "$ANCESTOR_SENTINEL_SHA" = "$(wp1 eval 'echo hash_file("sha256", ABSPATH . "duo-init-ancestor-external/child/sentinel");')" ] \
+  || fail "repository ancestor refusal changed the external sentinel"
+rm -f "$HOST_REPO/ancestor-link"
+wp1 eval '
+$dir = ABSPATH . "duo-init-ancestor-external/child";
+unlink($dir . "/sentinel"); unlink($dir . "/site.duo.json");
+unlink($dir . "/adapters/poison.json"); rmdir($dir . "/adapters");
+rmdir($dir); rmdir(dirname($dir));
+' >/dev/null
+pass "missing, terminal-link, dangling-link, and ancestor-link roots remain outside init ownership"
+
+say "post-proposal repository replacement refuses before the first repository write"
+mkdir -p "$HOST_REPO/swap-link"
+SWAP_LINK_PLAN=$(wp1 duo init --repo=/siterepo/swap-link --format=json)
+SWAP_LINK_DIGEST=$(jq -r .digest <<<"$SWAP_LINK_PLAN")
+wp1 eval '
+$dir = ABSPATH . "duo-init-swap-external";
+wp_mkdir_p($dir . "/adapters");
+file_put_contents($dir . "/sentinel", "swap sentinel\n");
+file_put_contents($dir . "/site.duo.json", "{duo-init-swap-poison");
+file_put_contents($dir . "/adapters/poison.json", "{duo-init-swap-adapter-poison");
+' >/dev/null
+SWAP_SENTINEL_SHA=$(wp1 eval 'echo hash_file("sha256", ABSPATH . "duo-init-swap-external/sentinel");')
+set +e
+"${COMPOSE[@]}" run --rm -T \
+  -e DUO_TEST_MODE=1 -e DUO_TEST_INIT_PAUSE_MS=10000 \
+  cli1 wp duo init --repo=/siterepo/swap-link --confirm="$SWAP_LINK_DIGEST" --format=json \
+  >"/tmp/${PAIR}-init-root-symlink.log" 2>&1 &
+SWAP_LINK_PID=$!
+set -e
+wait_for_init_lease /siterepo/swap-link
+mv "$HOST_REPO/swap-link" "$HOST_REPO/swap-link-reviewed"
+ln -s /var/www/html/duo-init-swap-external "$HOST_REPO/swap-link"
+set +e
+wait "$SWAP_LINK_PID"; SWAP_LINK_CODE=$?
+set -e
+[ "$SWAP_LINK_CODE" -ne 0 ] || fail "post-proposal symlink replacement unexpectedly initialized"
+! grep -q 'duo-init-swap-poison\|duo-init-swap-adapter-poison' "/tmp/${PAIR}-init-root-symlink.log" \
+  || fail "post-proposal symlink replacement traversed external child content"
+[ ! -e "$HOST_REPO/swap-link/state.capture.lock" ] \
+  && [ ! -e "$HOST_REPO/swap-link/.git" ] \
+  && [ ! -e "$HOST_REPO/swap-link/code" ] \
+  && [ ! -e "$HOST_REPO/swap-link/state" ] \
+  || fail "post-proposal symlink replacement received a repository write"
+[ "$SWAP_SENTINEL_SHA" = "$(wp1 eval 'echo hash_file("sha256", ABSPATH . "duo-init-swap-external/sentinel");')" ] \
+  || fail "post-proposal symlink replacement changed the external sentinel"
+rm -f "$HOST_REPO/swap-link"
+rmdir "$HOST_REPO/swap-link-reviewed"
+wp1 eval '
+$dir = ABSPATH . "duo-init-swap-external";
+unlink($dir . "/sentinel"); unlink($dir . "/site.duo.json");
+unlink($dir . "/adapters/poison.json"); rmdir($dir . "/adapters"); rmdir($dir);
+' >/dev/null
+
+mkdir -p "$HOST_REPO/swap-directory" "$HOST_REPO/swap-directory-replacement"
+SWAP_DIR_PLAN=$(wp1 duo init --repo=/siterepo/swap-directory --format=json)
+SWAP_DIR_DIGEST=$(jq -r .digest <<<"$SWAP_DIR_PLAN")
+set +e
+"${COMPOSE[@]}" run --rm -T \
+  -e DUO_TEST_MODE=1 -e DUO_TEST_INIT_PAUSE_MS=10000 \
+  cli1 wp duo init --repo=/siterepo/swap-directory --confirm="$SWAP_DIR_DIGEST" --format=json \
+  >"/tmp/${PAIR}-init-root-directory.log" 2>&1 &
+SWAP_DIR_PID=$!
+set -e
+wait_for_init_lease /siterepo/swap-directory
+mv "$HOST_REPO/swap-directory" "$HOST_REPO/swap-directory-reviewed"
+mv "$HOST_REPO/swap-directory-replacement" "$HOST_REPO/swap-directory"
+set +e
+wait "$SWAP_DIR_PID"; SWAP_DIR_CODE=$?
+set -e
+[ "$SWAP_DIR_CODE" -ne 0 ] || fail "post-proposal ordinary-directory replacement unexpectedly initialized"
+[ -z "$(find "$HOST_REPO/swap-directory" -mindepth 1 -maxdepth 1 -print -quit)" ] \
+  || fail "replacement ordinary directory received a repository write before digest refusal"
+[ -z "$(find "$HOST_REPO/swap-directory-reviewed" -mindepth 1 -maxdepth 1 -print -quit)" ] \
+  || fail "reviewed ordinary directory retained a failed-init write"
+rmdir "$HOST_REPO/swap-directory" "$HOST_REPO/swap-directory-reviewed"
+[ "$(wp1 db query "SHOW TABLES LIKE 'wp_duo_%'" --skip-column-names | wc -l | tr -d ' ')" = "0" ] \
+  || fail "root replacement tests created ledger tables"
+pass "symlink and ordinary-directory replacement both refuse before repository or ledger mutation"
 
 say "a partial first Git initialization is fully compensated"
 GIT_FAIL_PLAN=$(wp1 duo init --repo=/siterepo --format=json)

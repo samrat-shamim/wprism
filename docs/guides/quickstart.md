@@ -27,7 +27,12 @@ An SSH target needs PHP 8+ with Sodium and a working `fsync()`, a working `wp`
 command, `tar`, and an installed WordPress. Adoption itself ships files rather
 than cloning a repository, but the subsequent `duo init` path also requires a
 working `git` binary on the target: init verifies or creates the target-owned
-Git worktree before publishing its baseline. The SSH account must be able to
+Git worktree before publishing its baseline. The configured `repo_path` itself
+must already be an ordinary directory reached without symbolic-link ancestors;
+SSH adoption creates it, while local/Docker control-plane setup or the site's
+bind mount must create it before init. Init binds that exact directory before
+reading or writing repository children and refuses if its identity changes.
+The SSH account must be able to
 write WordPress's actual `WPMU_PLUGIN_DIR` (discovered through the target's own
 `wp eval`, never guessed from `wp_path`) and the environment's configured
 `repo_path`.
@@ -208,9 +213,10 @@ cli/duo init dev
 ```
 
 The target needs WordPress, WP-CLI, Git, a standard supported `wp-content`
-layout, and a writable `repo_path`. Init may create the Git worktree and Duo
-contracts inside an absent or empty repository, but it does not install
-WordPress or deliver the agent. It refuses before confirmation when those
+layout, and a writable, pre-existing ordinary `repo_path` with no symbolic-link
+ancestor. Init may create the Git worktree and Duo contracts inside that empty
+or adoption-seed directory, but it does not create the directory, install
+WordPress, or deliver the agent. It refuses before confirmation when those
 prerequisites or the certified managed boundary are not present.
 
 Hand-author `site.duo.json` only when you intentionally need a policy that the
@@ -256,8 +262,8 @@ every teammate shares it):
 For a deliberately manual repository, run `duo doctor`, `duo pending`,
 `duo classify`, and `duo capture`. A fresh site's first queue is usually short
 enough for interactive triage (`duo classify dev` with no flags) rather than a
-batch artifact. Repositories created by `duo init` already include the required
-ignore rules and initial baseline; continue with pending review and the daily
+batch artifact. Repositories initialized by `duo init` already include the
+required ignore rules and initial baseline; continue with pending review and the daily
 workflow rather than recapturing merely to manufacture a first snapshot.
 
 Both paths need the same `.gitignore`, and hand-rolling it is a mistake people
