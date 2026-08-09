@@ -60,6 +60,13 @@ target-owned exclusion provider, checkpoint provider, and four raw recovery
 adapters. Values are absolute argv arrays, not shell strings, and contain no
 token or credential. The checkpoint provider is optional only while installing
 the executor substrate without database rollback capability.
+Automatic promotion additionally requires all code-release, upload, and effect
+providers plus the controller-only `verified_rollback` object naming the claim
+TTL, external encryption-key id, and retention window. Duo selects the profile
+from those declared capabilities and runtime preflight, never from the host's
+filesystem layout. Code-release preflight includes an explicit
+`plan_bound_code_inventory` attestation; the automatic profile is unavailable
+to a legacy provider that cannot consume the signed compiled inventory.
 The schema and stdin/stdout protocol are in
 [recovery-runtime.md](recovery-runtime.md). Adoption fails unless the provider
 attests traffic, background jobs, package/self updates, filesystem writers,

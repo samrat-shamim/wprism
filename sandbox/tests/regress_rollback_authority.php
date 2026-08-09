@@ -6,7 +6,16 @@ declare(strict_types=1);
 // detection, and retry after every receipt/event/target publication boundary.
 
 require dirname(__DIR__, 2) . '/recovery/rollback-control.php';
+require dirname(__DIR__, 2) . '/agent/src/Canon.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport.php';
+require dirname(__DIR__, 2) . '/cli/src/SshTransport.php';
+require dirname(__DIR__, 2) . '/cli/src/RollbackAuthority.php';
+require dirname(__DIR__, 2) . '/cli/src/VerifiedRollbackProfile.php';
 
+use Duo\Canon;
+use Duo\Orchestrator\RollbackAuthority;
+use Duo\Orchestrator\SshTransport;
+use Duo\Orchestrator\VerifiedRollbackProfile;
 use Duo\Recovery\RollbackControl;
 
 $runtime = dirname(__DIR__, 2) . '/recovery/rollback-control.php';
@@ -384,6 +393,117 @@ try {
     $legacyEvent = event($legacyReceipt, 1, str_repeat('0', 64), 'prepared', 'state_transition', 'promotion-claim', 1, 'legacy-worker', 1, '2026-01-02T00:00:00Z');
     $legacyClaim = submit($legacyRoot, signed_request('claim', $legacyEvent, $legacyReceipt, $secret));
     ok_test($legacyClaim['state'] === 'prepared' && $legacyClaim['code_release_metadata_sha256'] === null, 'existing v1 receipts remain readable but carry no certified code-release metadata');
+
+    $compiledUploads = [['attachment_uuid' => 'plan-upload-marker']];
+    $compiledEffects = [['effect' => ['id' => 'plan-effect-marker']]];
+    $compiledCode = [
+        'files' => [['path' => 'plugins/acme/acme.php', 'sha256' => hash('sha256', 'plan-code')]],
+        'format' => 'duo-code/v1',
+        'layout' => 'wp-content',
+        'owned_roots' => ['plugins/acme'],
+        'plugin_main_files' => [['basename' => 'acme/acme.php', 'path' => 'plugins/acme/acme.php', 'sha256' => hash('sha256', 'plan-code')]],
+        'source' => 'code/wp-content',
+        'theme_slugs' => [],
+        'theme_templates' => [],
+    ];
+    $compiledCode['code_revision'] = hash('sha256', Canon::encode($compiledCode));
+    $compiledPlan = [
+        'artifact_hash' => hash('sha256', 'plan-artifact'),
+        'code' => $compiledCode,
+        'effects_inventory' => $compiledEffects,
+        'resolved_adapters' => [['name' => 'plan-adapter', 'version' => '1.0.0']],
+        'uploads_inventory' => $compiledUploads,
+    ];
+    $claimFields = VerifiedRollbackProfile::claimFields(
+        $compiledPlan,
+        ['claim_ttl_seconds' => 90, 'encryption_key_id' => 'kms-plan', 'retention_seconds' => 3600],
+        'controller:plan-test',
+        '2026-08-08T00:00:00Z'
+    );
+    ok_test(
+        $claimFields['upload_inventory'] === $compiledUploads
+            && $claimFields['effect_inventory'] === $compiledEffects,
+        'automatic profile carries the exact compiled plan inventories into the receipt claim'
+    );
+    ok_test(
+        ($claimFields['desired_code_inventory'] ?? null) === $compiledCode
+            && !array_key_exists('desired_descriptor_sha256', $claimFields)
+            && $claimFields['retention_until'] === '2026-08-08T01:00:00Z',
+        'automatic claim binds compiled code identity and explicit retention policy'
+    );
+    $providerCommand = ['/bin/true'];
+    $automaticTransport = new SshTransport('automatic-test', [
+        'host' => 'fixture-host',
+        'repo_path' => '/srv/site',
+        'rollback_key_id' => 'offline-key',
+        'rollback_recovery' => [
+            'adapters' => [
+                'code_restore' => $providerCommand,
+                'database_restore' => $providerCommand,
+                'prior_verify' => $providerCommand,
+                'storage_restore' => $providerCommand,
+            ],
+            'checkpoint_provider' => $providerCommand,
+            'code_release_provider' => $providerCommand,
+            'effect_provider' => $providerCommand,
+            'exclusion_provider' => $providerCommand,
+            'timeout_seconds' => 5,
+            'upload_provider' => $providerCommand,
+        ],
+        'rollback_signing_key' => '/tmp/offline-signing-key',
+        'transport' => 'ssh',
+        'verified_rollback' => [
+            'claim_ttl_seconds' => 90,
+            'encryption_key_id' => 'kms-plan',
+            'retention_seconds' => 3600,
+        ],
+        'wp_path' => '/srv/wordpress',
+    ]);
+    $selection = VerifiedRollbackProfile::select(
+        $automaticTransport,
+        $compiledPlan,
+        ['available' => true, 'ok' => true, 'recovery_ready' => true]
+    );
+    ok_test(
+        $selection['automatic'] === true,
+        'automatic profile selection is capability-based when every provider and policy is ready'
+    );
+    $manualTransport = new SshTransport('manual-test', [
+        'host' => 'fixture-host',
+        'repo_path' => '/srv/site',
+        'transport' => 'ssh',
+        'wp_path' => '/srv/wordpress',
+    ]);
+    $manualSelection = VerifiedRollbackProfile::select($manualTransport, $compiledPlan, []);
+    ok_test(
+        $manualSelection['automatic'] === false
+            && str_contains($manualSelection['reason'], 'missing'),
+        'missing declared capabilities select the loud operator-directed fallback without filesystem inference'
+    );
+    $fakeBin = $tmp . '/fake-bin';
+    mkdir($fakeBin, 0700, true);
+    file_put_contents($fakeBin . '/ssh', "#!/bin/sh\nexit 44\n");
+    chmod($fakeBin . '/ssh', 0700);
+    $oldPath = (string) getenv('PATH');
+    putenv('PATH=' . $fakeBin . ':' . $oldPath);
+    try {
+        $missingRuntime = RollbackAuthority::status($manualTransport);
+    } finally {
+        putenv('PATH=' . $oldPath);
+    }
+    ok_test(
+        $missingRuntime['available'] === false && $missingRuntime['ok'] === false,
+        'missing authority runtime is unavailable and never reports ok=true'
+    );
+    refuses(
+        fn() => VerifiedRollbackProfile::claimFields(
+            array_replace($compiledPlan, ['effects_inventory' => null]),
+            ['claim_ttl_seconds' => 90, 'encryption_key_id' => 'kms-plan', 'retention_seconds' => 3600],
+            'controller:plan-test',
+            '2026-08-08T00:00:00Z'
+        ),
+        'automatic claim refuses a missing compiled plan inventory'
+    );
 
     $claimHooks = [
         'receipt:before-write', 'receipt:after-file-fsync', 'receipt:after-rename', 'receipt:after-dir-fsync',

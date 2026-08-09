@@ -10,6 +10,8 @@ final class SshTransport extends Transport {
     private ?string $rollbackSigningKey;
     /** @var ?array<string,mixed> */
     private ?array $rollbackRecovery;
+    /** @var ?array{claim_ttl_seconds:int,encryption_key_id:string,retention_seconds:int} */
+    private ?array $verifiedRollback;
 
     public function __construct(string $name, array $cfg) {
         parent::__construct($name, $cfg);
@@ -55,13 +57,25 @@ final class SshTransport extends Transport {
                 "env '$name': rollback_recovery requires rollback_key_id + rollback_signing_key"
             );
         }
+
+        $verified = $cfg['verified_rollback'] ?? null;
+        if ($verified !== null && !is_array($verified)) {
+            throw new \RuntimeException("env '$name': verified_rollback must be an object");
+        }
+        $this->verifiedRollback = is_array($verified)
+            ? self::validateVerifiedRollback($name, $verified)
+            : null;
+        if ($this->verifiedRollback !== null && $this->rollbackRecovery === null) {
+            throw new \RuntimeException("env '$name': verified_rollback requires rollback_recovery");
+        }
     }
 
     public function describe(): string {
         $config = $this->configFile !== null ? " ssh_config={$this->configFile}" : '';
         $rollback = $this->rollbackKeyId !== null ? " rollback_key_id={$this->rollbackKeyId}" : '';
         $recovery = $this->rollbackRecovery !== null ? ' rollback_recovery=configured' : '';
-        return "ssh    host={$this->host} wp_path={$this->wpPath} repo_path={$this->repoPath}{$config}{$rollback}{$recovery}";
+        $verified = $this->verifiedRollback !== null ? ' verified_rollback=configured' : '';
+        return "ssh    host={$this->host} wp_path={$this->wpPath} repo_path={$this->repoPath}{$config}{$rollback}{$recovery}{$verified}";
     }
 
     public function rollbackConfigured(): bool {
@@ -98,6 +112,15 @@ final class SshTransport extends Transport {
     public function effectProviderConfigured(): bool {
         return is_array($this->rollbackRecovery)
             && array_key_exists('effect_provider', $this->rollbackRecovery);
+    }
+
+    public function verifiedRollbackConfigured(): bool {
+        return $this->verifiedRollback !== null;
+    }
+
+    /** @return ?array{claim_ttl_seconds:int,encryption_key_id:string,retention_seconds:int} */
+    public function verifiedRollbackConfig(): ?array {
+        return $this->verifiedRollback;
     }
 
     /** @return ?array<string,mixed> */
@@ -214,6 +237,43 @@ final class SshTransport extends Transport {
             );
         }
         return $normalized;
+    }
+
+    /**
+     * Controller-owned policy for the automatic profile. Keeping this outside
+     * rollback_recovery is deliberate: adoption copies only target provider
+     * argv, while retention and the external KMS key label remain a local
+     * promotion decision.
+     *
+     * @param array<string,mixed> $config
+     * @return array{claim_ttl_seconds:int,encryption_key_id:string,retention_seconds:int}
+     */
+    private static function validateVerifiedRollback(string $env, array $config): array {
+        $keys = array_keys($config);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['claim_ttl_seconds', 'encryption_key_id', 'retention_seconds']) {
+            throw new \RuntimeException(
+                "env '$env': verified_rollback requires exactly claim_ttl_seconds, encryption_key_id, retention_seconds"
+            );
+        }
+        $ttl = $config['claim_ttl_seconds'];
+        if (!is_int($ttl) || $ttl < 30 || $ttl > 3600) {
+            throw new \RuntimeException("env '$env': verified_rollback.claim_ttl_seconds must be 30..3600");
+        }
+        $retention = $config['retention_seconds'];
+        if (!is_int($retention) || $retention < 60 || $retention > 31536000) {
+            throw new \RuntimeException("env '$env': verified_rollback.retention_seconds must be 60..31536000");
+        }
+        $key = $config['encryption_key_id'];
+        if (!is_string($key)
+            || preg_match('/^[A-Za-z0-9._:@+-]{1,128}$/', $key) !== 1) {
+            throw new \RuntimeException("env '$env': verified_rollback.encryption_key_id is invalid");
+        }
+        return [
+            'claim_ttl_seconds' => $ttl,
+            'encryption_key_id' => $key,
+            'retention_seconds' => $retention,
+        ];
     }
 
     /** @return list<string> */

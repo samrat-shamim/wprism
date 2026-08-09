@@ -68,6 +68,7 @@ try {
     $configPath = $tmp . '/recovery.json'; eb_write($configPath, RollbackControl::canonical($config) . "\n"); RecoveryExecutor::configureFromFile($root, $configPath);
     touch($state . '.leak'); eb_refuses(fn() => RecoveryExecutor::probe($root), 'secret-shaped provider evidence is redacted and refused'); unlink($state . '.leak');
     $probe = RecoveryExecutor::probe($root); eb_ok(($probe['effects']['outbox_prevention'] ?? false) === true && ($probe['effects']['inverse_readback'] ?? false) === true, 'effect provider preflights outbox prevention and fresh inverse readback');
+    $readyStatus = RecoveryExecutor::decorateStatus($root, RollbackControl::status($root)); eb_ok(!array_key_exists('automatic_effect_rollback', $readyStatus), 'status drops configuration-only automatic effect boolean before a receipt is bound');
     $artifact = hash('sha256', 'artifact'); $receiptId = str_repeat('e', 48); $time = '2020-01-01T00:00:00Z'; $retention = '2020-01-02T00:00:00Z';
     $missingRoot = $tmp . '/missing-checkpoint-site/.duo/control'; $missingInitial = RollbackControl::initialize($missingRoot); RollbackControl::installPublicKey($missingRoot, $keyId, base64_encode($public));
     $missingState = $tmp . '/missing-checkpoint-effects'; $missingConfig = $config; $missingConfig['effect_provider'] = [PHP_BINARY, $provider, $missingState, $tmp . '/missing-checkpoint-site']; $missingConfig['exclusion_provider'] = [PHP_BINARY, $exclusion, $tmp . '/missing-checkpoint-exclusion.json']; unset($missingConfig['checkpoint_provider']);

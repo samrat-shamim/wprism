@@ -2,16 +2,19 @@
 
 > **Design ruling (DUO-3291, 2026-08-08; authority foundation DUO-3293,
 > checkpoint DUO-3295, code release DUO-3296, uploads DUO-3297, effect
-> contracts DUO-3298, integrated certification DUO-3299).**
+> contracts DUO-3298, integrated certification DUO-3299, promote wiring
+> DUO-3310).**
 > The protected target identity, never-reused generation fence, immutable
 > signed receipt, signed event hash chain, claimant takeover, status evidence,
 > SSH adoption wiring, encrypted checkpoint executor, and immutable atomic
 > code-release executor, upload journal, lifecycle/rebuilder effect bundle,
 > resumable controller operation API, and signed production-form SSH crash
-> certification described below are implemented. The existing in-place
-> `duo promote` command does not yet select this automatic profile. Current promotion
-> therefore remains operator-directed as specified in `spec/repo-format.md`;
-> a successful database import is not a verified rollback.
+> certification described below are implemented. `duo promote` now selects
+> this profile only from explicit SSH runtime/provider capability plus local
+> `verified_rollback` policy, carries the compiled plan inventories into the
+> signed claim, and drives signed terminal admission. Targets missing any
+> capability warn and retain the operator-directed path; a successful database
+> import by itself is still not a verified rollback.
 
 ## 1. Claim and scope
 

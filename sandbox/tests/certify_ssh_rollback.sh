@@ -154,6 +154,17 @@ ssh_target 'chmod 0600 /home/duo/provider-state/db.json'
 php -r '$pair=sodium_crypto_sign_keypair();file_put_contents($argv[1],base64_encode(sodium_crypto_sign_secretkey($pair))."\n");file_put_contents($argv[2],base64_encode(sodium_crypto_sign_publickey($pair))."\n");' "$TMP/signing.key" "$TMP/public.key"
 chmod 0600 "$TMP/signing.key"
 
+# These are the two immutable compiled-plan identities exercised by the
+# certification generations. The driver consumes these plan inventories via
+# VerifiedRollbackProfile::claimFields; it no longer manufactures a second,
+# potentially divergent upload/effect inventory beside the product wiring.
+ARTIFACT_1="$(printf %s artifact-generation-1 | shasum -a 256 | awk '{print $1}')"
+ARTIFACT_2="$(printf %s artifact-generation-2 | shasum -a 256 | awk '{print $1}')"
+CODE_FILE_SHA_1="$(shasum -a 256 "$TMP/desired-1.php" | awk '{print $1}')"
+CODE_FILE_SHA_2="$(shasum -a 256 "$TMP/desired-2.php" | awk '{print $1}')"
+CODE_REVISION_1="$(php -r 'require $argv[1];$sha=$argv[2];$code=["files"=>[["path"=>"plugins/acme/acme.php","sha256"=>$sha]],"format"=>"duo-code/v1","layout"=>"wp-content","owned_roots"=>["plugins/acme"],"plugin_main_files"=>[["basename"=>"acme/acme.php","path"=>"plugins/acme/acme.php","sha256"=>$sha]],"source"=>"code/wp-content","theme_slugs"=>[],"theme_templates"=>[]];echo hash("sha256",Duo\Canon::encode($code));' "$ROOT/agent/src/Canon.php" "$CODE_FILE_SHA_1")"
+CODE_REVISION_2="$(php -r 'require $argv[1];$sha=$argv[2];$code=["files"=>[["path"=>"plugins/acme/acme.php","sha256"=>$sha]],"format"=>"duo-code/v1","layout"=>"wp-content","owned_roots"=>["plugins/acme"],"plugin_main_files"=>[["basename"=>"acme/acme.php","path"=>"plugins/acme/acme.php","sha256"=>$sha]],"source"=>"code/wp-content","theme_slugs"=>[],"theme_templates"=>[]];echo hash("sha256",Duo\Canon::encode($code));' "$ROOT/agent/src/Canon.php" "$CODE_FILE_SHA_2")"
+
 cat >"$TMP/envs.json" <<EOF
 {
   "envs": {
@@ -165,6 +176,11 @@ cat >"$TMP/envs.json" <<EOF
       "transport": "ssh", "host": "duo-rollback-target", "ssh_config": "$TMP/ssh_config",
       "wp_path": "/var/www/html", "repo_path": "/home/duo/site",
       "rollback_key_id": "duo-3299-live", "rollback_signing_key": "$TMP/signing.key",
+      "verified_rollback": {
+        "claim_ttl_seconds": 120,
+        "encryption_key_id": "ssh-kms-fixture",
+        "retention_seconds": 86400
+      },
       "rollback_recovery": {
         "adapters": {
           "code_restore": ["/usr/local/bin/php", "/home/duo/providers/recovery-adapter.php"],
@@ -179,6 +195,42 @@ cat >"$TMP/envs.json" <<EOF
         "timeout_seconds": 30,
         "upload_provider": ["/usr/local/bin/php", "/home/duo/providers/upload-provider.php", "/home/duo/provider-state/uploads", "/home/duo/uploads", "/home/duo/offload", "/home/duo/media", "/home/duo/provider-state/upload.key"]
       }
+    }
+  },
+  "plans": {
+    "1": {
+      "artifact_hash": "$ARTIFACT_1",
+      "code": {
+        "code_revision": "$CODE_REVISION_1",
+        "files": [{"path":"plugins/acme/acme.php","sha256":"$CODE_FILE_SHA_1"}],
+        "format": "duo-code/v1", "layout": "wp-content", "owned_roots": ["plugins/acme"],
+        "plugin_main_files": [{"basename":"acme/acme.php","path":"plugins/acme/acme.php","sha256":"$CODE_FILE_SHA_1"}],
+        "source": "code/wp-content", "theme_slugs": [], "theme_templates": []
+      },
+      "effects_inventory": [
+        {"effect":{"adapter":{"id":"fixture-file","inverse":"restore-bytes","inverse_inputs":["path","prior_sha256"],"verifier":"fresh-readback","verifier_inputs":["path","prior_sha256"],"version":"1.0.0"},"id":"lifecycle-file","kind":"filesystem","mode":"reversible","selector":{"scope":"external","type":"path","value":"wp-content/uploads/duo-rollback-effect.txt"}},"manifest":"rollback-fixture","phase":"lifecycle","source":"lifecycle_effects"},
+        {"effect":{"id":"rebuild-table","kind":"database","mode":"restorable","selector":{"scope":"database_checkpoint","type":"table","value":"duo_cert_state"}},"manifest":"rollback-fixture","phase":"rebuild","source":"rebuilders[0].effects"},
+        {"effect":{"id":"prevent-http","kind":"http","mode":"prevented","prevention":"receipt_outbox","selector":{"scope":"external","type":"url_prefix","value":"https://rollback.invalid/hooks/"}},"manifest":"rollback-fixture","phase":"lifecycle","source":"lifecycle_effects"}
+      ],
+      "resolved_adapters": [{"name":"rollback-fixture","version":"1.0.0"}],
+      "uploads_inventory": [{"attachment_uuid":"11111111-1111-4111-8111-111111111111","derivative_basename_prefix":"photo-","derivative_directory":"2026/08","media_blob":"$MEDIA_BLOB","original_path":"2026/08/photo.jpg","original_sha256":"$MEDIA_SHA"}]
+    },
+    "2": {
+      "artifact_hash": "$ARTIFACT_2",
+      "code": {
+        "code_revision": "$CODE_REVISION_2",
+        "files": [{"path":"plugins/acme/acme.php","sha256":"$CODE_FILE_SHA_2"}],
+        "format": "duo-code/v1", "layout": "wp-content", "owned_roots": ["plugins/acme"],
+        "plugin_main_files": [{"basename":"acme/acme.php","path":"plugins/acme/acme.php","sha256":"$CODE_FILE_SHA_2"}],
+        "source": "code/wp-content", "theme_slugs": [], "theme_templates": []
+      },
+      "effects_inventory": [
+        {"effect":{"adapter":{"id":"fixture-file","inverse":"restore-bytes","inverse_inputs":["path","prior_sha256"],"verifier":"fresh-readback","verifier_inputs":["path","prior_sha256"],"version":"1.0.0"},"id":"lifecycle-file","kind":"filesystem","mode":"reversible","selector":{"scope":"external","type":"path","value":"wp-content/uploads/duo-rollback-effect.txt"}},"manifest":"rollback-fixture","phase":"lifecycle","source":"lifecycle_effects"},
+        {"effect":{"id":"rebuild-table","kind":"database","mode":"restorable","selector":{"scope":"database_checkpoint","type":"table","value":"duo_cert_state"}},"manifest":"rollback-fixture","phase":"rebuild","source":"rebuilders[0].effects"},
+        {"effect":{"id":"prevent-http","kind":"http","mode":"prevented","prevention":"receipt_outbox","selector":{"scope":"external","type":"url_prefix","value":"https://rollback.invalid/hooks/"}},"manifest":"rollback-fixture","phase":"lifecycle","source":"lifecycle_effects"}
+      ],
+      "resolved_adapters": [{"name":"rollback-fixture","version":"1.0.0"}],
+      "uploads_inventory": [{"attachment_uuid":"11111111-1111-4111-8111-111111111111","derivative_basename_prefix":"photo-","derivative_directory":"2026/08","media_blob":"$MEDIA_BLOB","original_path":"2026/08/photo.jpg","original_sha256":"$MEDIA_SHA"}]
     }
   },
   "fixture": {
@@ -205,7 +257,7 @@ SOURCE_DB_HASH="$(ssh_source "cd /var/www/html && wp db query 'SELECT @@hostname
 TARGET_DB_HASH="$(ssh_target "cd /var/www/html && wp db query 'SELECT @@hostname,DATABASE()' --skip-column-names" | shasum -a 256 | awk '{print $1}')"
 [ "$SOURCE_HOST_HASH" != "$TARGET_HOST_HASH" ] || fail "SSH host fingerprints are not independent"
 [ "$SOURCE_DB_HASH" != "$TARGET_DB_HASH" ] || fail "database fingerprints are not independent"
-HARNESS_REVISION="$(shasum -a 256 sandbox/tests/certify_ssh_rollback.sh sandbox/tests/fixtures/ssh-rollback-certify-driver.php sandbox/bin/ssh-rollback-certification.php recovery/*.php cli/src/RollbackAuthority.php | shasum -a 256 | awk '{print $1}')"
+HARNESS_REVISION="$(shasum -a 256 sandbox/tests/certify_ssh_rollback.sh sandbox/tests/fixtures/ssh-rollback-certify-driver.php sandbox/bin/ssh-rollback-certification.php recovery/*.php cli/src/RollbackAuthority.php cli/src/VerifiedRollbackProfile.php | shasum -a 256 | awk '{print $1}')"
 php sandbox/tests/fixtures/ssh-rollback-certify-driver.php "$TMP/envs.json" "$TMP/spec.raw.json" \
   "$SOURCE_HOST_HASH" "$SOURCE_DB_HASH" "$TARGET_HOST_HASH" "$TARGET_DB_HASH" "$HARNESS_REVISION"
 pass "198 injected cases produced signed-chain evidence and only verified rollback/commit outcomes"

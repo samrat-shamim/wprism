@@ -677,10 +677,9 @@ regress-offline-all: code-half-unit \
 # own "1 docker core per RUNNING pair" discipline) -- enumerable instead, so
 # a claim touching a mechanism can find its own suite without grepping this
 # file by hand. Prints name + pair/environment requirement per suite; runs
-# nothing. grind-*/certify-* targets are a DIFFERENT, already-governed
-# category (grind-* are whole-scenario exercises with their own docs/grind/
-# reports; certify-* are explicitly excluded from CI by owner decision,
-# commit 1efb6df) and are intentionally not listed here.
+# nothing. Most grind-*/certify-* targets remain a separate category, but the
+# production SSH rollback certification is the live merge gate for the
+# automatic promote profile and is therefore discoverable here.
 regress-live-list:
 	@echo "regress-* live suites (docker/pair.sh-dependent) -- run individually, own pair each:"
 	@echo ""
@@ -711,12 +710,13 @@ regress-live-list:
 	@echo "  regress-scope-gate                        pair codexmac3229 8900/8901"
 	@echo "  regress-snapshot-meta                     pair w1a"
 	@echo "  regress-ssh-adopt                         standalone SSH host, own docker image (NOT pair.sh) -- DUO-3257/DUO-3281"
+	@echo "  certify-ssh-rollback                     four disposable containers: two SSH hosts + two MariaDB servers"
 	@echo "  regress-tec-regen                         pair asnaptec"
 	@echo "  regress-user-meta                         pair umeta3268 9301/9302"
 	@echo "  regress-coverage                         needs an already-up pair with WooCommerce active (parameterized: DUO_PAIR)"
 	@echo "  regress-woo-attribute-deletion            pair wooattrdel 8996/8997 (parameterized: WOOATTRDEL_PAIR/WOOATTRDEL_PORT1/WOOATTRDEL_PORT2)"
 	@echo ""
-	@echo "grind-*/certify-* targets are a separate, already-governed category -- not listed here (see this target's own comment in the Makefile)."
+	@echo "Other grind-*/certify-* targets are a separate, already-governed category (see this target's comment)."
 
 # DUO-3285 fast-follow: the drift guard. Runs the same "every regress_*
 # file needs a bundle or live-list entry" survey that built regress-
