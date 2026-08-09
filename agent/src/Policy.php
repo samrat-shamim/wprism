@@ -149,10 +149,9 @@ final class Policy {
             : null;
         foreach ($pins as $pin) {
             $name = $pin['name'];
-            // basename() is the pre-existing traversal guard on a pin name; it
-            // stays the single lookup key so an origin, its file, and its
-            // provenance can never be resolved from three different strings.
-            $key = basename($name);
+            // normalize_manifest_pins() has already proved this exact identity
+            // path-free and canonical; never rewrite it into a different key.
+            $key = $name;
             $manifest = Canon::decode(Canon::read_file($p->adapterSources->file($key, $dir)));
             if ($p->adapterSources->is_out_of_tree($key)) {
                 AdapterSources::assert_out_of_tree_contract(
@@ -494,6 +493,7 @@ self::validate_post_type_children($manifest);
         $pins = [];
         foreach ($rawPins as $i => $raw) {
             if (is_string($raw) && $raw !== '') {
+                AdapterSources::assert_name($raw, "site.duo.json manifests[$i]");
                 $pins[] = ['name' => $raw, 'digest' => null, 'source' => null];
                 continue;
             }
@@ -503,6 +503,7 @@ self::validate_post_type_children($manifest);
                     . 'a non-empty string name and optional digest and source'
                 );
             }
+            AdapterSources::assert_name($raw['name'], "site.duo.json manifests[$i].name");
             $unknown = array_diff(array_keys($raw), ['name', 'digest', 'source']);
             if ($unknown !== []) {
                 throw new \RuntimeException(
@@ -543,7 +544,7 @@ self::validate_post_type_children($manifest);
             if ($pin['source'] === null) {
                 continue;
             }
-            $actual = $sources->source(basename($pin['name']));
+            $actual = $sources->source($pin['name']);
             if ($actual !== $pin['source']) {
                 throw new \RuntimeException(
                     "duo: manifest '{$pin['name']}' is pinned to the {$pin['source']} adapter source but resolves "

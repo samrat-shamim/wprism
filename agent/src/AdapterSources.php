@@ -193,6 +193,7 @@ final class AdapterSources {
         foreach ($siteFiles as $file) {
             $name = basename($file, '.json');
             $relative = self::SITE_DIR . '/' . basename($file);
+            self::assert_name($name, "site adapter '$relative'");
             // Symlinks are already refused for the whole directory by
             // assert_flat_json_source() above — deliberately there rather than
             // here, so a symlinked README or subdirectory is caught too, and
@@ -331,6 +332,9 @@ final class AdapterSources {
                     . 'Rename it to use a lowercase .json extension'
                 );
             }
+            if (str_ends_with($entry, '.json')) {
+                self::assert_name(basename($entry, '.json'), "site adapter '$entry'");
+            }
         }
     }
 
@@ -360,12 +364,16 @@ final class AdapterSources {
                     . 'file — certificates may not be symlinks, directories, or external paths'
                 );
             }
-            if (preg_match('/^[^\\/]+\.json$/D', $entry) !== 1) {
+            if (!str_ends_with($entry, '.json')) {
                 throw new \RuntimeException(
                     "duo: site adapter certification source $dir contains '$entry' — every entry must be an exact "
                     . 'lowercase <adapter-name>.json certificate'
                 );
             }
+            self::assert_name(
+                basename($entry, '.json'),
+                "site adapter certificate '" . self::SITE_DIR . '/' . self::CERTIFICATION_DIR . "/$entry'"
+            );
         }
     }
 
@@ -476,6 +484,23 @@ final class AdapterSources {
     }
 
     /**
+     * One canonical identity grammar is shared by file names, repository pins,
+     * and frozen records. Keeping it ASCII and lowercase makes the same bytes
+     * resolve on case-folding and Unicode-normalizing filesystems; allowing
+     * dots, underscores, and hyphens internally preserves ordinary slug-like
+     * names without admitting hidden files or traversal components.
+     */
+    public static function assert_name(string $name, string $label = 'adapter name'): void {
+        if (preg_match('/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/D', $name) !== 1) {
+            throw new \RuntimeException(
+                "duo: $label uses " . self::render($name)
+                . ' — adapter names must be canonical lowercase ASCII slugs, beginning and ending with a letter '
+                . 'or digit and containing only letters, digits, dots, underscores, or hyphens'
+            );
+        }
+    }
+
+    /**
      * Shipped manifests are decoded only when a site source actually exists.
      * The declared-name collision check is the only thing that needs them, and
      * a repository with no `adapters/` directory must pay no new I/O and take
@@ -579,7 +604,10 @@ final class AdapterSources {
     public static function assert_out_of_tree_contract(array $manifest, string $name, string $relativePath): void {
         $remedy = "install the adapter into the agent's own manifest library (where its code ships, digest-binds, and "
             . 'is reviewed with it), or declare a plugin-owned provider whose code the installed plugin already owns';
-        foreach (['authority', 'certification', 'disposition', 'evidence', 'public_key', 'signature'] as $reserved) {
+        foreach ([
+            'adapter_certificate', 'authority', 'authority_id', 'certificate', 'certification',
+            'certification_authority', 'disposition', 'evidence', 'key_id', 'public_key', 'signature', 'trust_tier',
+        ] as $reserved) {
             if (array_key_exists($reserved, $manifest)) {
                 throw new \RuntimeException(
                     "duo: site adapter '$relativePath' declares reserved authority field '$reserved' — a data-only "
@@ -776,10 +804,10 @@ final class AdapterSources {
 
     /**
      * Freeze the provenance a verification process must reconstruct. Only the
-     * out-of-tree records travel: a name absent from this map is shipped, and
-     * from_snapshot() proves that by requiring the shipped manifest directory to
-     * still hold it, so "absent" can never be a way to launder a site adapter
-     * into looking shipped.
+     * out-of-tree records travel. In v2, a name absent from this map is shipped
+     * only when from_snapshot() proves that the trusted manifest directory
+     * still holds those exact bytes, so "absent" cannot launder a site adapter.
+     * The legacy v1 read path retains its pre-existing custom-library contract.
      */
     public function export(): array {
         if ($this->wireFormat === self::LEGACY_FORMAT) {
@@ -805,17 +833,16 @@ final class AdapterSources {
      * the frozen manifest, and the trust tier is re-derived from that manifest's
      * declarations rather than read off the record.
      *
-     * Deliberately no filesystem probe for the shipped side: this method exists
-     * to reconstruct a policy "without reopening mutable repository files"
-     * (Policy::export_snapshot()), and two existing bindings already close the
-     * laundering path a probe would guard. Dropping an `out_of_tree` entry to
-     * make a site adapter look shipped (1) hands that manifest to
-     * ManifestDispositions/CapabilityRegistry::from_snapshot(), which refuse a
-     * manifest with no reviewed entry and no claim, and (2) changes the
-     * adapter digest, because manifest_rows() folds the provenance record into
-     * the very hash the compiled artifact independently binds. Editing a record
-     * in place fails the same way through validate_frozen_record() and the
-     * digest.
+     * The mutable site repository is never reopened. In the v2 wire, a name
+     * absent from `out_of_tree` is claiming agent-owned shipped authority, so
+     * it is compared byte-for-byte (canonically) with the trusted agent
+     * manifest library. This is required even when a caller reconstructs a
+     * snapshot without disposition/registry data: deleting one provenance row
+     * must not relabel arbitrary site bytes as shipped. Legacy v1 snapshots
+     * retain their historical already-bound custom-library behavior and cannot
+     * carry certificates; every new live export uses v2. Editing an
+     * out-of-tree record in place separately fails through
+     * validate_frozen_record() and the adapter digest binding.
      */
     public static function from_snapshot(array $data, array $manifests): self {
         $keys = array_keys($data);
@@ -839,9 +866,37 @@ final class AdapterSources {
         $claims = [];
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '');
+            self::assert_name($name, 'frozen adapter source record name');
             $record = $frozen[$name] ?? null;
             if ($record === null) {
-                $file = rtrim(Policy::manifests_dir(), '/') . '/' . basename($name) . '.json';
+                if ($legacy) {
+                    // v1 predates an authoritative shipped-membership proof
+                    // and remains readable for existing custom policy
+                    // snapshots. It cannot carry certificates, while every
+                    // newly exported policy uses the fail-closed v2 path.
+                    $file = rtrim(Policy::manifests_dir(), '/') . '/' . $name . '.json';
+                    $origins[$name] = ['source' => self::SHIPPED, 'file' => $file, 'path' => $file];
+                    continue;
+                }
+                // Absence from out_of_tree is a positive shipped claim, not a
+                // default. Prove it against the trusted agent library before
+                // assigning shipped authority; otherwise deleting one frozen
+                // provenance row could launder arbitrary site bytes into the
+                // executable shipped source.
+                $file = rtrim(Policy::manifests_dir(), '/') . '/' . $name . '.json';
+                if (!is_file($file)) {
+                    throw new \RuntimeException(
+                        "duo: frozen adapter '$name' is absent from out_of_tree but no shipped manifest exists at "
+                        . $file
+                    );
+                }
+                $shipped = Canon::decode(Canon::read_file($file));
+                if (Canon::encode($shipped) !== Canon::encode($manifest)) {
+                    throw new \RuntimeException(
+                        "duo: frozen adapter '$name' is absent from out_of_tree but its bytes do not match the "
+                        . 'trusted shipped manifest — frozen provenance cannot relabel site content as shipped'
+                    );
+                }
                 $origins[$name] = ['source' => self::SHIPPED, 'file' => $file, 'path' => $file];
                 continue;
             }
@@ -943,13 +998,7 @@ final class AdapterSources {
             || preg_match('/^[0-9a-f]{64}$/D', (string) ($provenance['sha256'] ?? '')) !== 1) {
             throw new \RuntimeException("duo: frozen adapter source record for '$name' is malformed");
         }
-        if ($name === '' || str_contains($name, '/') || str_contains($name, '\\')
-            || in_array($name, ['.', '..'], true)) {
-            throw new \RuntimeException(
-                "duo: frozen adapter source record names " . self::render($name)
-                . ', which is not a usable adapter name — a name is a single path-free file name'
-            );
-        }
+        self::assert_name($name, 'frozen adapter source record name');
         $expected = self::SITE_DIR . '/' . $name . '.json';
         if (!hash_equals($expected, (string) $provenance['path'])) {
             throw new \RuntimeException(

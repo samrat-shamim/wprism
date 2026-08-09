@@ -148,6 +148,8 @@ final class CapabilityRegistry {
         $revision = isset($query['revision']) ? (string) $query['revision'] : null;
         $rows = [];
         $blockers = [];
+        $perRowEvidence = [];
+        $hasOutOfTree = false;
 
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '?');
@@ -159,6 +161,7 @@ final class CapabilityRegistry {
                 'trust_tier' => AdapterSources::trust_tier($manifest),
             ];
             $outOfTree = ($source['source'] ?? AdapterSources::SHIPPED) !== AdapterSources::SHIPPED;
+            $hasOutOfTree = $hasOutOfTree || $outOfTree;
             $external = is_array($externalContexts[$name] ?? null) ? $externalContexts[$name] : null;
             $externalClaim = is_array($external['claim'] ?? null) ? $external['claim'] : null;
             $explicitPin = ($external['explicit_pin'] ?? false) === true;
@@ -262,6 +265,13 @@ final class CapabilityRegistry {
             $row['source'] = $source;
             $row['verdict'] = ['status' => $verdict, 'reasons' => $reasons];
             $rows[] = $row;
+            $perRowEvidence[] = [
+                'evidence' => $selectedEvidence,
+                'platform' => $selectedPlatform,
+                'scope' => $outOfTree
+                    ? ($externalClaim === null ? 'none' : 'site_certificate')
+                    : 'shipped_registry',
+            ];
             foreach ($reasons as $reason) {
                 $blockers[] = [
                     'name' => $name,
@@ -275,15 +285,28 @@ final class CapabilityRegistry {
             }
         }
 
-        return [
+        // A mixed report has no single evidence/platform authority. Preserve
+        // the historical top-level shipped fields byte-for-byte for --all and
+        // shipped-only callers, but make mixed reports explicitly per-row so
+        // a signed site claim can never appear to inherit the shipped bundle.
+        if ($hasOutOfTree) {
+            foreach ($rows as $i => &$row) {
+                $row['evidence'] = $perRowEvidence[$i]['evidence'];
+                $row['platform'] = $perRowEvidence[$i]['platform'];
+                $row['evidence_scope'] = $perRowEvidence[$i]['scope'];
+            }
+            unset($row);
+        }
+
+        $report = [
             'schema_version' => self::FORMAT,
             'registry_sha256' => hash('sha256', Canon::encode($this->data)),
-            'platform' => $this->data['platform'],
-            'evidence' => $this->data['evidence'],
+            'platform' => $hasOutOfTree ? null : $this->data['platform'],
+            'evidence' => $hasOutOfTree ? null : $this->data['evidence'],
             'query' => [
                 'operation' => $operation,
                 'surface' => $surface,
-                'revision' => $revision ?? $this->data['evidence']['git_revision'],
+                'revision' => $revision ?? ($hasOutOfTree ? null : $this->data['evidence']['git_revision']),
             ],
             'target' => $target,
             'ready' => $blockers === [],
@@ -291,6 +314,10 @@ final class CapabilityRegistry {
             'manifests' => $rows,
             'profiles' => $this->profiles(),
         ];
+        if ($hasOutOfTree) {
+            $report['evidence_scope'] = 'per_manifest';
+        }
+        return $report;
     }
 
     /** Collect only facts needed to decide the certified target boundary. */
