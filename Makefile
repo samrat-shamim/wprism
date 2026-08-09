@@ -2,9 +2,9 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 
 .PHONY: regress-lifecycle-options-snapshot
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half grind-code-half-ecosystem grind-code-half-first-sync pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-reference-bundle certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-fetch-artifact regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-executor regress-checkpoint-bundle regress-code-release code-half-unit \
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half grind-code-half-ecosystem grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-reference-bundle certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-fetch-artifact regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-executor regress-checkpoint-bundle regress-code-release code-half-unit \
 	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy \
-	regress-env-options-policy regress-export-manifest-roundtrip regress-manifest-reclassification-policy \
+	regress-env-options-policy regress-export-manifest-roundtrip regress-manifest-reclassification-policy regress-ecommerce-developer-matrix \
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
 	regress-woocommerce-product-lookups regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-rebuilder-scope regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity \
@@ -91,6 +91,19 @@ grind-r1a:
 # r1b2 :8817, profile r1b). See docs/grind/r1b-shop.md for the full report.
 grind-r1b:
 	bash sandbox/tests/grind_r1b_shop.sh
+
+# DUO-3337: the full ecommerce developer proof is live-only and deliberately
+# outside regress-offline-all.  Require an explicit disposable pair and free
+# ports so an accidental `make grind-ecommerce-developer-live` cannot consume
+# the shared Docker/MariaDB budget or collide with another agent.
+#
+#   make grind-ecommerce-developer-live \
+#     ECOMMERCE_PAIR=ecom3337 PORT1=9100 PORT2=9101
+grind-ecommerce-developer-live:
+	@test -n "$(ECOMMERCE_PAIR)" || { echo 'ECOMMERCE_PAIR is required; use a unique disposable pair name' >&2; exit 2; }
+	@test -n "$(PORT1)" || { echo 'PORT1 is required; choose a free host port' >&2; exit 2; }
+	@test -n "$(PORT2)" || { echo 'PORT2 is required; choose a free host port' >&2; exit 2; }
+	ECOMMERCE_PAIR="$(ECOMMERCE_PAIR)" ECOMMERCE_PORT1="$(PORT1)" ECOMMERCE_PORT2="$(PORT2)" bash sandbox/tests/grind_ecommerce_developer.sh
 
 # Sandbox redesign (task #74): one parameterized pair (sandbox/pair.yml)
 # against one shared MariaDB (sandbox/db.yml), driven by sandbox/bin/pair.sh
@@ -368,6 +381,9 @@ regress-post-field-classification:
 
 regress-ecommerce-developer-static:
 	bash sandbox/tests/regress_ecommerce_developer_static.sh
+
+regress-ecommerce-developer-matrix:
+	bash sandbox/tests/regress_ecommerce_developer_matrix.sh
 
 regress-ecommerce-extension-migration:
 	php sandbox/tests/regress_ecommerce_extension_migration.php
@@ -696,9 +712,9 @@ regress-offline-all: code-half-unit \
 	regress-effect-bundle regress-woocommerce-effect-contract regress-woocommerce-product-lookups \
 	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-rebuilder-scope regress-pair-bootstrap-unit \
-	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
+	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit
-	@echo "regress-offline-all: 70 offline suites green"
+	@echo "regress-offline-all: 71 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
@@ -743,6 +759,7 @@ regress-live-list:
 	@echo "  regress-user-meta                         pair umeta3268 9301/9302"
 	@echo "  regress-coverage                         needs an already-up pair with WooCommerce active (parameterized: DUO_PAIR)"
 	@echo "  regress-woo-attribute-deletion            pair wooattrdel 8996/8997 (parameterized: WOOATTRDEL_PAIR/WOOATTRDEL_PORT1/WOOATTRDEL_PORT2)"
+	@echo "  grind-ecommerce-developer-live            explicit ECOMMERCE_PAIR/PORT1/PORT2; run only with owner authorization"
 	@echo ""
 	@echo "Other grind-*/certify-* targets are a separate, already-governed category (see this target's comment)."
 
