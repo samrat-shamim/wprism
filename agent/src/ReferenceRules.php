@@ -186,7 +186,16 @@ final class ReferenceRules {
                 if (!is_string($keyRefs['path'])) {
                     throw new \RuntimeException("duo: $where.key_refs.path must be a string");
                 }
-                ReferencePath::parse($keyRefs['path']);
+                $keySegments = ReferencePath::parse($keyRefs['path']);
+                foreach ($paths as $valuePath) {
+                    if (self::path_can_be_ancestor($valuePath['segments'], $keySegments)) {
+                        throw new \RuntimeException(
+                            "duo: $where json_refs path '{$valuePath['path']}' is equal to or an ancestor of "
+                            . "key_refs path '{$keyRefs['path']}'; one location cannot be both a scalar "
+                            . 'reference and an id-keyed map'
+                        );
+                    }
+                }
             }
         }
         if ($requireRef && $jsonRefs === [] && $keyRefs === null) {
@@ -226,6 +235,36 @@ final class ReferenceRules {
                 foreach (self::path_transitions($right, $ri) as [$rlabel, $rnext]) {
                     if ($llabel === null || $rlabel === null || $llabel === $rlabel) {
                         $queue[] = [$lnext, $rnext];
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether some node selected by $ancestor can be the same node as, or a
+     * parent of, a node selected by $descendant. This is the same product-NFA
+     * walk as paths_overlap(), except the left path accepting while the right
+     * still has segments is success rather than requiring both to accept.
+     */
+    private static function path_can_be_ancestor(array $ancestor, array $descendant): bool {
+        $queue = [[0, 0]];
+        $seen = [];
+        while ($queue) {
+            [$ai, $di] = array_shift($queue);
+            $state = "$ai:$di";
+            if (isset($seen[$state])) {
+                continue;
+            }
+            $seen[$state] = true;
+            if ($ai === count($ancestor)) {
+                return true;
+            }
+            foreach (self::path_transitions($ancestor, $ai) as [$alabel, $anext]) {
+                foreach (self::path_transitions($descendant, $di) as [$dlabel, $dnext]) {
+                    if ($alabel === null || $dlabel === null || $alabel === $dlabel) {
+                        $queue[] = [$anext, $dnext];
                     }
                 }
             }

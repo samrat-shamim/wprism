@@ -1471,7 +1471,25 @@ final class RepositoryCompiler {
                         ? $this->policy->canonical_option_name_ref_details((string) $name)
                         : $this->policy->option_rule_details_for_option((string) $name, $allOptions);
                     $rule = $details['rule'] ?? [];
-                    if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                    if (!empty($rule['sub_keys']) && is_array($value)) {
+                        foreach ($value as $subKey => $subValue) {
+                            $subRule = (array) ($rule['sub_keys'][$subKey] ?? []);
+                            if (($subRule['class'] ?? '') !== 'authored') {
+                                continue; // RepositoryAuthorization reports ownership violations.
+                            }
+                            $subLocator = 'options.' . $name . '.' . $subKey;
+                            if (!empty($subRule['json_refs']) || !empty($subRule['key_refs'])) {
+                                $this->validate_structured_rule($subValue, $subRule, $path, $subLocator);
+                            } elseif (!empty($subRule['ref'])) {
+                                $this->validate_declared_ref(
+                                    $subValue,
+                                    (string) $subRule['ref'],
+                                    $path,
+                                    $subLocator
+                                );
+                            }
+                        }
+                    } elseif (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                         $this->validate_structured_rule($value, $rule, $path, 'options.' . $name);
                     } elseif (!empty($rule['ref'])) {
                         $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'options.' . $name);
@@ -1565,7 +1583,7 @@ final class RepositoryCompiler {
             return;
         }
         $validateMap = function ($map, string $mapLocator) use ($keyRefs, $path, $locator): void {
-            if (!is_array($map) || array_is_list($map)) {
+            if (!is_array($map) || ($map !== [] && array_is_list($map))) {
                 $this->add(
                     'nonportable_reference',
                     $path,

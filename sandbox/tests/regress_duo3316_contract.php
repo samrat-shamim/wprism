@@ -56,6 +56,7 @@ foreach ([
 }
 
 use Duo\Canon;
+use Duo\OptionState;
 use Duo\Policy;
 use Duo\RepositoryCompiler;
 
@@ -143,6 +144,19 @@ function fixture_manifest(string $sidecar = 'a'): array {
                 'object_type' => ['post'],
                 'update_count_callback' => '_update_post_term_count',
                 'object_keyspace' => 'term',
+            ],
+        ],
+        'options' => [
+            'dks_structured_option' => [
+                'class' => 'env',
+                'autoload' => 'yes',
+                'required' => false,
+                'sub_keys' => [
+                    'payload' => [
+                        'class' => 'authored',
+                        'key_refs' => ['path' => '$.term_map', 'kind' => 'term'],
+                    ],
+                ],
             ],
         ],
         'tables' => [
@@ -294,6 +308,11 @@ function write_compile_tree(string $root, string $rawSurface = 'none', string $s
             'nested' => ['linked_term' => $term],
             'term_map' => [$mapKey => 'english'],
         ],
+        'fr' => [
+            'linked_post' => $postToken,
+            'nested' => ['linked_term' => $termToken],
+            'term_map' => [],
+        ],
     ];
     put_json("$root/state/terms/dks_term_relation/$termUuid--dks-term.json", [
         'description' => $description,
@@ -329,6 +348,12 @@ function write_compile_tree(string $root, string $rawSurface = 'none', string $s
         'table' => 'dks_entries',
         'uuid' => $entryUuid,
     ]);
+    $optionMapKey = $rawSurface === 'option_subkey' ? 708 : $termToken;
+    put_json("$root/state/options/core.json", OptionState::document([
+        'dks_structured_option' => OptionState::present([
+            'payload' => ['term_map' => [$optionMapKey => 'option-attached']],
+        ], 'yes'),
+    ]));
     return [$termUuid, $postUuid, $entryUuid];
 }
 
@@ -452,6 +477,28 @@ $invalid['taxonomies']['dks_term_relation']['description_refs']['json_refs'][] =
 expect_throw(fn() => load_fixture_policy($tmp, $invalid), 'overlapping wildcard/recursive description refs with different kinds are refused at manifest load');
 
 $invalid = fixture_manifest();
+$invalid['taxonomies']['dks_term_relation']['description_refs'] = [
+    'json_refs' => [['path' => '$.links', 'kind' => 'post']],
+    'key_refs' => ['path' => '$.links', 'kind' => 'term'],
+];
+expect_throw(
+    fn() => load_fixture_policy($tmp, $invalid),
+    'a json_refs scalar path equal to a key_refs map path is refused at manifest load'
+);
+
+$validNested = fixture_manifest();
+$validNested['taxonomies']['dks_term_relation']['description_refs'] = [
+    'json_refs' => [['path' => '$.links.*.post_id', 'kind' => 'post']],
+    'key_refs' => ['path' => '$.links', 'kind' => 'term'],
+];
+try {
+    load_fixture_policy($tmp, $validNested);
+    check(true, 'json_refs below a key_refs map remain a valid combined declaration');
+} catch (Throwable $e) {
+    check(false, 'json_refs below a key_refs map remain a valid combined declaration (' . $e->getMessage() . ')');
+}
+
+$invalid = fixture_manifest();
 $invalid['taxonomies']['dks_term_relation']['object_keyspace'] = 'comment';
 expect_throw(fn() => load_fixture_policy($tmp, $invalid), 'unsupported taxonomy object_keyspace is refused at manifest load');
 
@@ -524,6 +571,16 @@ $snapshot['manifests'][0]['taxonomies']['dks_term_relation']['object_keyspace'] 
 expect_throw(fn() => Policy::from_snapshot($snapshot), 'frozen policy refuses an invalid object_keyspace before consumers run');
 
 $snapshot = $policy->export_snapshot();
+$snapshot['manifests'][0]['taxonomies']['dks_term_relation']['description_refs'] = [
+    'json_refs' => [['path' => '$.links', 'kind' => 'post']],
+    'key_refs' => ['path' => '$.links.by_term', 'kind' => 'term'],
+];
+expect_throw(
+    fn() => Policy::from_snapshot($snapshot),
+    'frozen policy refuses a json_refs scalar path that is an ancestor of a key_refs map path'
+);
+
+$snapshot = $policy->export_snapshot();
 $conflictingFrozen = fixture_manifest();
 $conflictingFrozen['name'] = 'duo3316-conflicting-description';
 $conflictingFrozen['taxonomies']['dks_term_relation']['description_refs']['key_refs']['kind'] = 'post';
@@ -591,6 +648,10 @@ foreach ([
     ],
     'scalar_ref' => [
         'message' => 'compiler refuses raw numeric ids at the existing scalar attached ref path',
+        'diagnostic' => 'nonportable_reference',
+    ],
+    'option_subkey' => [
+        'message' => 'compiler refuses raw numeric map keys at ordinary option sub-key key_refs paths',
         'diagnostic' => 'nonportable_reference',
     ],
 ] as $surface => $expectation) {
