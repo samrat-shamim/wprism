@@ -27,7 +27,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-environment-materializer-live \
 	regress-frozen-materialization-promotion \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
-	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions \
+	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-capability-registry regress-woocommerce-contract regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
 	regress-pair-candidate-source regress-manifest-validate regress-scope-closure \
@@ -302,6 +302,9 @@ regress-capability-registry:
 
 regress-adapter-sources:
 	bash sandbox/tests/regress_adapter_sources.sh
+
+regress-site-adapter-certification:
+	bash sandbox/tests/regress_site_adapter_certification.sh
 
 capability-registry-generate:
 	php scripts/capability-registry.php generate
@@ -836,7 +839,7 @@ regress-user-meta:
 # suites, followed by lifecycle/rebuild effect contracts and DUO-3299's
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all: code-half-unit \
-	regress-adopt-rollback regress-capture-publish regress-adapter-contract regress-adapter-sources regress-manifest-dispositions regress-capability-registry regress-certification-bundle regress-interpreter-policy \
+	regress-adopt-rollback regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-manifest-dispositions regress-capability-registry regress-certification-bundle regress-interpreter-policy \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan \
 	regress-order-preserving \
 	regress-block-refs regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-materializer regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion \

@@ -113,6 +113,99 @@ final class CapabilityRegistry {
     }
 
     /**
+     * Project one reviewed disposition into the generic capability-row shape
+     * without assigning an adapter digest or consulting this registry's global
+     * evidence.  Shipped registry generation and separately authenticated site
+     * adapters can therefore share operations/surface/environment semantics;
+     * callers bind their own source-specific evidence and may add the final
+     * digest only after the disposition source is settled.
+     *
+     * @return array<string,mixed>
+     */
+    public static function claim_from_disposition(
+        array $manifest,
+        array $disposition,
+        array $evidence,
+        array $platform,
+        ?array $pluginExecution = null
+    ): array {
+        $name = (string) ($manifest['name'] ?? '');
+        if ($name === '' || !is_array($disposition['capabilities'] ?? null)
+            || !is_array($platform['compatibility'] ?? null)) {
+            throw new \RuntimeException('duo: cannot project a malformed manifest disposition capability claim');
+        }
+        $status = (string) ($disposition['status'] ?? 'unsupported');
+        $execution = $pluginExecution ?? [
+            'mode' => 'unmodified',
+            'status' => $status === 'certified'
+                ? 'verified'
+                : ($status === 'excluded' ? 'not-a-product-claim' : 'unverified'),
+        ];
+        $capabilities = $disposition['capabilities'];
+        $surfaces = [];
+        foreach (array_merge(
+            (array) ($capabilities['entity_sections'] ?? []),
+            (array) ($capabilities['field_sections'] ?? [])
+        ) as $section) {
+            if (!is_string($section) || $section === '') {
+                throw new \RuntimeException("duo: manifest disposition '$name' has a malformed capability section");
+            }
+            $surfaces[] = $section;
+            $value = $manifest[$section] ?? null;
+            if (is_array($value) && !array_is_list($value)) {
+                foreach (array_keys($value) as $key) {
+                    $surfaces[] = $section . '.' . $key;
+                }
+            }
+        }
+        foreach ((array) (($capabilities['deletion_semantics']['supported'] ?? [])) as $selector) {
+            if (!is_string($selector) || $selector === '') {
+                throw new \RuntimeException("duo: manifest disposition '$name' has a malformed deletion selector");
+            }
+            $surfaces[] = 'deletions.' . $selector;
+        }
+        $surfaces = array_values(array_unique($surfaces, SORT_STRING));
+        sort($surfaces, SORT_STRING);
+
+        $operations = array_values((array) ($capabilities['operations'] ?? []));
+        if (in_array('deploy', $operations, true) && in_array('apply', $operations, true)) {
+            $operations[] = 'promote';
+        }
+        foreach ($operations as $operation) {
+            if (!is_string($operation) || $operation === '') {
+                throw new \RuntimeException("duo: manifest disposition '$name' has a malformed operation");
+            }
+        }
+        $operations = array_values(array_unique($operations, SORT_STRING));
+        sort($operations, SORT_STRING);
+
+        return [
+            'name' => $name,
+            'status' => $status,
+            'reason' => (string) ($disposition['reason'] ?? ''),
+            'plugin_execution' => $execution,
+            'authored_state' => [
+                'status' => $status === 'excluded' ? 'unsupported' : $status,
+                'scope' => 'only the exact registered surfaces and operations below',
+            ],
+            'supported_versions' => $disposition['supported_versions'] ?? new \stdClass(),
+            'environment_assumptions' => [
+                'site_mode' => $platform['site_mode'] ?? null,
+                'php' => $platform['compatibility']['php'] ?? new \stdClass(),
+                'database' => $platform['compatibility']['database'] ?? new \stdClass(),
+                'wordpress' => $platform['compatibility']['wordpress'] ?? new \stdClass(),
+            ],
+            'operations' => $operations,
+            'surfaces' => $surfaces,
+            'lifecycle_phases' => $capabilities['lifecycle_phases'] ?? [],
+            'deletion_semantics' => $capabilities['deletion_semantics'] ?? new \stdClass(),
+            'unsupported' => $disposition['unsupported'] ?? [],
+            'evidence' => $evidence,
+            'platform' => $platform,
+        ];
+    }
+
+    /**
      * Return product-readiness blockers for selected manifests. With no live
      * target facts this is the immutable/source gate. A real wp-cli request
      * supplies target facts and additionally proves runtime compatibility.
