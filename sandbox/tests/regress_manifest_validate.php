@@ -628,6 +628,25 @@ check(
     'the site-policy half is a PERMANENT row in the always-emitted deferred list — present even on a --site run, because that list states the boundary of the check, never the outcome of one'
 );
 
+// --- a malformed site.duo.json is ONE usage-level refusal, not a verdict about
+// anybody's manifest. Every phase loads that same file, so without a pre-flight
+// the site's single refusal is repeated once per manifest plus once for the pin
+// set — sixteen "your manifest is broken" rows for one broken line that is in
+// none of them.
+$badSite = site_repo(['tables' => ['site_rooms' => ['class' => 'not_a_class']]], ['a', 'b']);
+$result = duo([$repo . '/manifests', '--site=' . $badSite]);
+check(
+    $result['exit'] === 2
+        && str_starts_with($result['stderr'], 'duo: manifest-validate: ')
+        && str_contains($result['stderr'], 'site.duo.json this command cannot load')
+        && str_contains($result['stderr'], "table 'site_rooms' (declared by site.duo.json)"),
+    'a malformed site.duo.json is refused ONCE, as a usage error naming site.duo.json and carrying the engine\'s own reason'
+);
+check(
+    $result['stdout'] === '' && substr_count($result['stderr'], 'not_a_class') === 1,
+    'exactly one report and exactly one copy of the site\'s refusal — no per-manifest rows were produced at all'
+);
+
 // ======================================================================
 echo "\n== the code half a manifest NAMES: interpreters and regenerators are resolved, not deferred ==\n";
 
@@ -690,6 +709,90 @@ $result = duo([$withInterpreter, '--format=json']);
 check(
     $result['exit'] === 0,
     'and a correct one loads — the check is the real loading contract, not a file-exists proxy for it'
+);
+
+// ======================================================================
+echo "\n== --no-code: the trust boundary that resolution creates, and the escape from it ==\n";
+
+// Resolving a declared interpreter EXECUTES it — the file's top level runs on
+// require, and its constructor runs on instantiation. That is not a claim to
+// take on trust either: the fixture below writes a marker file from its top
+// level, so "did this command run hostile code" is answered by looking for the
+// marker rather than by reading the implementation. Both directions, because
+// only the pair proves anything: the default mode must still resolve (and so
+// must still trip the marker), and --no-code must not.
+$evilDir = fixtures(['b' => solo_b(['interpreter' => 'acme-evil'])]);
+$marker = $evilDir . '/EVIL_RAN';
+mkdir("$evilDir/interpreters", 0777, true);
+file_put_contents(
+    "$evilDir/interpreters/acme-evil.php",
+    "<?php\nnamespace Duo\\Interpreters;\n"
+        . "file_put_contents('" . $marker . "', 'top level ran');\n"
+        . "final class AcmeEvil {\n"
+        . "    public function __construct(private object \$policy) {}\n"
+        . "    public function post_meta_rule(string \$key, array \$allMeta): ?array { return null; }\n}\n"
+);
+register_shutdown_function(static function () use ($marker) {
+    @unlink($marker);
+});
+
+@unlink($marker);
+$result = duo([$evilDir, '--format=json']);
+check(
+    $result['exit'] === 0 && is_file($marker),
+    'DEFAULT mode really does execute a declared interpreter file — the marker it writes from its own top level is on disk, which is why the trust boundary is documented rather than assumed'
+);
+
+@unlink($marker);
+$result = duo([$evilDir, '--no-code', '--format=json']);
+$report = report($result);
+check(
+    !is_file($marker),
+    '--no-code does NOT execute it: the same fixture, the same directory, and the marker was never written'
+);
+check(
+    $result['exit'] === 0 && (row($report, 'b')['status'] ?? null) === 'ok'
+        && ($report['code'] ?? null) === 'skipped',
+    'and the declaration half is still fully validated under --no-code, with the report stating code=skipped'
+);
+$noCodeRow = null;
+foreach ($report['deferred'] ?? [] as $entry) {
+    if (str_starts_with((string) ($entry['why'] ?? ''), '--no-code:')) {
+        $noCodeRow = $entry;
+    }
+}
+check(
+    ($noCodeRow['why'] ?? null) === '--no-code: declared interpreter/regenerator PHP was not loaded or '
+        . 'contract-checked — use for a first look at an untrusted package; a full validation requires a trusted dir',
+    'and the always-emitted list carries a not-performed row saying exactly what was skipped and when to use the flag'
+);
+check(
+    ($noCodeRow['status'] ?? null) === 'deferred'
+        && ($noCodeRow['check'] ?? null) === 'Policy::interpreters() / Policy::regenerators()',
+    'naming the two engine symbols that were not run, in the same shape as every other row'
+);
+
+$noCodeText = duo([$evilDir, '--no-code']);
+check(
+    str_contains($noCodeText['stdout'], 'manifest code: --no-code')
+        && str_contains($noCodeText['stdout'], 'declared interpreter/regenerator PHP was not loaded or contract-checked'),
+    'text mode says it in the header AND in the list — a --no-code pass can never be read as a full one'
+);
+
+// The counterpart: --no-code cannot hide a broken declaration, only unread code.
+$result = duo([$evilDir, '--no-code', '--manifest=b', '--format=json']);
+check($result['exit'] === 0, '--no-code composes with the ordinary selection flags');
+$missingRegen = fixtures(['a' => manifest_a()]);
+unlink("$missingRegen/regenerators/acme-a.php");
+$report = report(duo([$missingRegen, '--no-code', '--format=json']));
+check(
+    (row($report, 'a')['status'] ?? null) === 'ok',
+    'a missing regenerator file passes under --no-code — which is precisely why the skip is reported: the flag really does buy less checking, not the same checking more safely'
+);
+$report = report(duo([$missingRegen, '--format=json']));
+check(
+    (row($report, 'a')['status'] ?? null) === 'error',
+    'and the identical directory still fails without the flag, so the default has not quietly become the weaker one'
 );
 
 // ======================================================================
@@ -1426,6 +1529,10 @@ foreach ([
     '--site pointing at a directory with no site.duo.json' => [$repo . '/manifests', '--site=' . $repo . '/manifests'],
     'a repeated --site' => [$repo . '/manifests', '--site=' . $repo, '--site=' . $repo],
     '--emit-schema together with --site' => ['--emit-schema', '--site=' . $repo],
+    // A trust flag is the last place last-wins is acceptable, and the grammar
+    // document has no code half to skip in the first place.
+    'a repeated --no-code' => [$repo . '/manifests', '--no-code', '--no-code'],
+    '--emit-schema together with --no-code' => ['--emit-schema', '--no-code'],
 ] as $label => $args) {
     $result = duo($args);
     check(

@@ -218,6 +218,7 @@ duo manifest-validate manifests/
 duo manifest-validate manifests/ --manifest=contact-form-7
 duo manifest-validate manifests/ --pins=core,woocommerce --format=json
 duo manifest-validate manifests/ --site=/path/to/site-repo
+duo manifest-validate ./untrusted-adapter-package --no-code
 ```
 
 It needs no environment, no database, and no docker. Every manifest in the
@@ -229,7 +230,7 @@ provider ids, duplicate table `id_kind`s). `--manifest` narrows what is checked
 individually; `--pins`/`--all` choose the co-loaded set. A declared
 `interpreter` or `regen_dependency.regenerator` is resolved too: the named file
 must exist under `interpreters/`/`regenerators/` in the same directory and must
-define the contract class, which is a pure question about those bytes.
+define the contract class.
 
 Refusals are the engine's own, printed verbatim with their exact coordinates
 (`manifest 'x' actions[0].args.name …`, `table 'y' … identity.columns …`). A
@@ -237,6 +238,32 @@ per-manifest row carries that manifest's file path; the pin-set row carries the
 paths of everything co-loaded, because a cross-manifest refusal names manifests
 rather than one file. Exit status is `0` when everything is valid, `1` when
 anything is not, and `2` for a usage or IO problem.
+
+### Point it only at a manifests directory you trust
+
+Resolving a declared interpreter or regenerator means **loading that PHP**: the
+file's top level runs when it is `require`d, and its constructor runs when the
+class contract is checked. There is no way to answer "does this file define
+`\Duo\Interpreters\Acme` with the right method" without doing that. So this
+command is exactly as safe as the directory you point it at — which is the same
+trust decision running the agent itself already makes about its manifests
+directory, no more and no less. Treat a manifests directory as code, not as
+data, and do not run this against a package you would not install.
+
+For the one case that boundary does not cover — a **first look at an unfamiliar
+out-of-tree package** — `--no-code` validates every declaration and skips the
+code half entirely:
+
+```sh
+duo manifest-validate ./untrusted-adapter-package --no-code
+```
+
+Nothing is loaded and nothing is instantiated, so a hostile `interpreters/*.php`
+never runs. The trade is real and the report states it rather than implying a
+clean bill: the run prints `manifest code: --no-code …` in its header and carries
+an explicit not-performed row in the deferred list. A `--no-code` pass therefore
+means "the declarations are well-formed", never "this package is fine" — read
+the code, then re-run without the flag from a directory you trust.
 
 ### `--site`, and why leaving it off can refuse a valid manifest
 
@@ -288,6 +315,7 @@ server can consume directly:
   "spec_version": 2,
   "manifests_dir": "/path/to/manifests",
   "site": null,
+  "code": "resolved",
   "status": "ok",
   "manifests": [{"name": "core", "file": "/path/to/manifests/core.json",
                  "status": "ok", "message": null}],
@@ -300,7 +328,8 @@ server can consume directly:
 }
 ```
 
-`site` is the resolved `--site` repo, or `null` when the run had none. A
+`site` is the resolved `--site` repo, or `null` when the run had none; `code` is
+`"resolved"` or `"skipped"` (`--no-code`). A
 `manifests[]` row whose `status` is `error` carries the engine message in
 `message` and the file it belongs to in `file`; the `pinned_set` row carries
 `files`, the path of every co-loaded manifest. A row may additionally carry:

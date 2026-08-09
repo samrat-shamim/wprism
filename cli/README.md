@@ -28,7 +28,7 @@ binary and, per environment, whatever the transport itself needs (`ssh`,
 duo envs
 duo env materialize <env> --from <production-env> --branch <ref> [--create] [--ttl <seconds>] [--format=json]
 duo env reap <env> [--format=json]
-duo manifest-validate <manifests-dir> [--manifest=<name>[,...]] [--pins=<name>[,...]|--all] [--site=<site-repo>] [--format=json]
+duo manifest-validate <manifests-dir> [--manifest=<name>[,...]] [--pins=<name>[,...]|--all] [--site=<site-repo>] [--no-code] [--format=json]
 duo manifest-validate --emit-schema
 duo doctor <env>
 duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
@@ -76,9 +76,17 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   option two manifests declare differently), so without it a manifest that is
   valid on its real site can be refused here — and such a refusal is annotated
   as possibly site-resolvable rather than rewritten.
+  Point it only at a manifests directory you trust as much as the agent's own:
+  a declared `interpreter`/`regenerator` is resolved, and resolving one LOADS
+  that PHP (top level plus constructor), which is the only way to check its
+  class contract. `--no-code` is the escape for a first look at an unfamiliar
+  out-of-tree package — every declaration is still validated, the code half is
+  skipped, and the run says so in its header and in an explicit not-performed
+  row rather than passing quietly.
   Exit 0 all valid, 1 any invalid, 2 usage/IO. An authoring aid, not a gate —
   it ends every run, passing or failing, with the checks that need a live
-  target, plus the missing site half in no-`--site` mode, listed as `deferred`.
+  target, plus the missing site half in no-`--site` mode and the skipped code
+  half under `--no-code`, listed as `deferred`.
   See
   [docs/guides/adapter-authoring.md](../docs/guides/adapter-authoring.md#checking-the-grammar-offline).
 

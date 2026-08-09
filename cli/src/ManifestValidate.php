@@ -12,10 +12,14 @@ use Duo\Policy;
  * An adapter author writing a manifest has, until now, had exactly one way to
  * find out whether the declaration is well-formed: install the agent on a
  * WordPress target, pin the manifest, and run a command that reaches that
- * target. That is a slow loop for a question that is a pure function of the
- * manifest bytes — every validator this command drives already refuses at
- * `Policy::load()` time, before any target contact, which is precisely why it
- * can run here on a laptop with no WordPress, no database, and no docker.
+ * target. That is a slow loop for a question that is answered entirely from
+ * the manifest artifact's own bytes — every validator this command drives
+ * already refuses at `Policy::load()` time, before any target contact, which is
+ * precisely why it can run here on a laptop with no WordPress, no database, and
+ * no docker. "From the artifact's own bytes" is not the same as "pure": a
+ * manifest declaring an interpreter or regenerator names a PHP FILE in that
+ * artifact, and checking the file's class contract means loading it. See the
+ * trust boundary below.
  *
  * This is an authoring aid. It is not a gate on anything, and it deliberately
  * says so in its own output: the checks that genuinely need a live target are
@@ -52,6 +56,13 @@ use Duo\Policy;
  * (Policy::closed_vocabularies(), Policy::grammar_patterns(),
  * NativeActions::vocabulary()/arg_schemas()). None of it is authored here, so
  * it cannot describe a grammar the engine stopped enforcing.
+ *
+ * Trust boundary: point this command only at a manifests directory trusted
+ * as much as the agent's own — validating a manifest that declares an
+ * interpreter or regenerator LOADS that PHP (top level + constructor), the
+ * unavoidable cost of checking the class contract at all. For a first look
+ * at an unfamiliar out-of-tree package, --no-code skips the code half and
+ * reports it as not-performed instead.
  */
 final class ManifestValidate {
     /** Envelope of the validation report (both output modes carry it). */
@@ -104,10 +115,25 @@ final class ManifestValidate {
      * and an author who never passes `--site` would otherwise have no way to
      * learn that half of two guards' input was simply absent.
      *
+     * `--no-code` adds a third species: a check this command CAN perform and
+     * was told not to. It appears only on a run that passed the flag, because
+     * on any other run it would be false — but on a run that did pass it, it
+     * appears in the same always-emitted list as everything else, so a
+     * `--no-code` pass can never be mistaken for a full one.
+     *
      * @return list<array{status:string, surface:string, check:string, why:string}>
      */
-    private static function deferred(): array {
-        $rows = [
+    private static function deferred(bool $noCode = false): array {
+        $rows = [];
+        if ($noCode) {
+            $rows[] = [
+                'surface' => 'interpreter / post_types[].regen_dependency.regenerator',
+                'check' => 'Policy::interpreters() / Policy::regenerators()',
+                'why' => '--no-code: declared interpreter/regenerator PHP was not loaded or contract-checked — '
+                    . 'use for a first look at an untrusted package; a full validation requires a trusted dir',
+            ];
+        }
+        $rows = array_merge($rows, [
             [
                 'surface' => 'site.duo.json policy.tables / policy.options',
                 'check' => 'Policy::validate_ref_kinds() / Policy::validate_no_conflicting_option_rules()',
@@ -170,7 +196,7 @@ final class ManifestValidate {
                     . 'entity, and the home-URL rewriting those findings are computed against, are read off a '
                     . 'live site',
             ],
-        ];
+        ]);
         foreach ($rows as $i => $row) {
             $rows[$i] = ['status' => 'deferred'] + $row;
         }
@@ -189,6 +215,7 @@ final class ManifestValidate {
         $all = false;
         $json = false;
         $emitSchema = false;
+        $noCode = false;
 
         // A repeated flag is refused rather than last-wins (the same posture
         // `duo driver-capabilities` takes): a second --pins silently replacing
@@ -205,6 +232,11 @@ final class ManifestValidate {
             }
             if ($arg === '--emit-schema') {
                 $emitSchema = true;
+            } elseif ($arg === '--no-code') {
+                // Duplicate-refused by the $seen check above, like every other
+                // flag: a repeated --no-code is a command line nobody wrote on
+                // purpose, and last-wins on a TRUST flag is the wrong default.
+                $noCode = true;
             } elseif ($arg === '--all') {
                 $all = true;
             } elseif ($arg === '--format=json') {
@@ -237,10 +269,12 @@ final class ManifestValidate {
             return self::fail('--pins and --all are mutually exclusive');
         }
         if ($emitSchema) {
-            if ($dir !== null || $manifestSelection !== null || $pinSelection !== null || $all || $siteArg !== null) {
+            if ($dir !== null || $manifestSelection !== null || $pinSelection !== null || $all
+                || $siteArg !== null || $noCode) {
                 return self::fail(
-                    '--emit-schema takes no manifests dir, no manifest/pin selection, and no --site — the grammar '
-                    . 'is read from the engine, not from a directory of declarations or one site'
+                    '--emit-schema takes no manifests dir, no manifest/pin selection, no --site, and no --no-code '
+                    . '— the grammar is read from the engine, not from a directory of declarations, one site, or '
+                    . 'any manifest-shipped code'
                 );
             }
             return self::emitSchema();
@@ -312,6 +346,24 @@ final class ManifestValidate {
         }
         putenv('DUO_MANIFESTS_DIR=' . $resolved);
 
+        // Pre-flight the site half ALONE, before any manifest is judged against
+        // it. A malformed site.duo.json is an input this command was handed, not
+        // a verdict about anybody's manifest — but every phase below loads that
+        // same file, so without this the site's own single refusal is repeated
+        // once per manifest plus once for the pin set, and an author reads
+        // sixteen "your manifest is broken" rows for one broken line that is not
+        // in any of them. Empty pins so nothing but the site half can speak.
+        if ($site !== null) {
+            try {
+                Policy::load($site, []);
+            } catch (\Throwable $t) {
+                return self::fail(
+                    "--site '$site' has a site.duo.json this command cannot load, so no manifest was judged "
+                    . 'against it: ' . $t->getMessage()
+                );
+            }
+        }
+
         $rows = [];
         foreach ($selected as $name) {
             $row = ['name' => $name, 'file' => $available[$name], 'status' => 'ok', 'message' => null];
@@ -320,7 +372,13 @@ final class ManifestValidate {
                 // declaration does not hide every later manifest's verdict —
                 // an author fixing three manifests should need one run, not
                 // three.
-                self::resolve(Policy::load($site, [$name]));
+                $policy = Policy::load($site, [$name]);
+                // --no-code stops here: resolving the declared code half means
+                // loading it, and an author looking at an untrusted package
+                // asked not to. The skip is reported, never silent.
+                if (!$noCode) {
+                    self::resolve($policy);
+                }
             } catch (\Throwable $t) {
                 $row['status'] = 'error';
                 $row['message'] = $t->getMessage();
@@ -338,7 +396,10 @@ final class ManifestValidate {
         }
         $pinned = ['names' => $pins, 'files' => $pinnedFiles, 'status' => 'ok', 'message' => null];
         try {
-            self::resolve(Policy::load($site, $pins));
+            $policy = Policy::load($site, $pins);
+            if (!$noCode) {
+                self::resolve($policy);
+            }
         } catch (\Throwable $t) {
             $pinned['status'] = 'error';
             $pinned['message'] = $t->getMessage();
@@ -382,10 +443,11 @@ final class ManifestValidate {
             'spec_version' => DUO_SPEC_VERSION,
             'manifests_dir' => $resolved,
             'site' => $site,
+            'code' => $noCode ? 'skipped' : 'resolved',
             'status' => $status,
             'manifests' => $rows,
             'pinned_set' => $pinned,
-            'deferred' => self::deferred(),
+            'deferred' => self::deferred($noCode),
             'summary' => ['checked' => count($rows), 'ok' => count($rows) - $errors, 'error' => $errors],
         ];
 
@@ -411,14 +473,25 @@ final class ManifestValidate {
      * the one thing this command did not look at.
      *
      * Both resolutions are fully offline — the files live inside the very
-     * manifests directory being validated, and the contract is `is_file()` plus
-     * `class_exists()`/`method_exists()`. Calling them here, inside the caller's
-     * try/catch, turns their refusals into ordinary per-manifest errors carrying
-     * the engine's own message (which already names the exact missing path or
-     * the exact class it wanted).
+     * manifests directory being validated, and nothing about them needs a
+     * target. Calling them here, inside the caller's try/catch, turns their
+     * refusals into ordinary per-manifest errors carrying the engine's own
+     * message (which already names the exact missing path or the exact class it
+     * wanted).
      *
-     * Nothing is invoked: instantiation is the contract, `post_meta_rule()` /
-     * `regenerate()` are live operations and stay deferred.
+     * Offline is not inert, and this is the honest statement of the cost:
+     * checking that a file defines `\Duo\Interpreters\<Name>` requires the file
+     * to have been `require`d, so its top level RUNS, and `new $class($this)`
+     * runs its constructor. That is the same trust decision Policy::
+     * manifests_dir() already documents for the agent itself — the manifests
+     * directory is operator-controlled — and it is why this command's own
+     * docblock says to point it only at a directory trusted that far. What is
+     * NOT invoked is the contract methods: `post_meta_rule()` / `regenerate()`
+     * are live operations and stay deferred.
+     *
+     * `--no-code` is the escape for the one case that boundary does not cover —
+     * a first look at an untrusted package — and skipping is reported, never
+     * silent (see deferred()).
      */
     private static function resolve(Policy $policy): void {
         $policy->interpreters();
@@ -514,6 +587,9 @@ final class ManifestValidate {
     private static function render(array $report): void {
         echo "manifests dir: {$report['manifests_dir']}\n";
         echo 'site repo:     ' . ($report['site'] ?? '(none — site policy is NOT part of this check; see deferred)') . "\n";
+        echo 'manifest code: ' . ($report['code'] === 'skipped'
+            ? '--no-code — declared interpreter/regenerator PHP was NOT loaded or contract-checked'
+            : 'resolved (declared interpreter/regenerator files were loaded and contract-checked)') . "\n";
         echo "spec_version:  {$report['spec_version']}\n";
         echo "\nper manifest (each loaded on its own, so every verdict shows in one run):\n";
         foreach ($report['manifests'] as $row) {

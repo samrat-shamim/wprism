@@ -71,7 +71,7 @@ Usage:
   duo env reap <env>
   duo manifest-validate <manifests-dir> [--manifest=<name>[,...]]
                         [--pins=<name>[,...]|--all] [--site=<site-repo>]
-                        [--format=json]
+                        [--no-code] [--format=json]
   duo manifest-validate --emit-schema
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
@@ -113,9 +113,9 @@ Verbs:
     [--pins=<names>]      manifest is loaded on its own (so every verdict shows
     [--all]               in one run), then the requested pin set is co-loaded
     [--site=<site-repo>]  so the cross-manifest guards run too; --manifest
-    [--format=json]       narrows what is checked individually, --pins/--all the
-    [--emit-schema]       co-loaded set (default: every manifest in the dir).
-                          Engine messages carry their own exact coordinates and
+    [--no-code]           narrows what is checked individually, --pins/--all the
+    [--format=json]       co-loaded set (default: every manifest in the dir).
+    [--emit-schema]       Engine messages carry their own exact coordinates and
                           are surfaced verbatim; a per-manifest row carries the
                           manifest's file path, the pin-set row the paths of
                           everything co-loaded. --site names a duo SITE REPO
@@ -125,9 +125,16 @@ Verbs:
                           policy as input, so without it a manifest valid on its
                           real site can be refused here; such a refusal is
                           annotated as possibly site-resolvable rather than
-                          rewritten. Checks that genuinely need a live target,
-                          and the missing site half itself, are listed as
-                          `deferred` on EVERY run — silence never means verified.
+                          rewritten. TRUST: point this only at a manifests dir
+                          you trust as much as the agent's own — a declared
+                          interpreter/regenerator is resolved, which LOADS that
+                          PHP (top level + constructor). --no-code skips that
+                          code half for a first look at an untrusted package;
+                          every declaration is still checked and the skip is
+                          reported, never silent. Checks that genuinely need a
+                          live target, the missing site half, and a skipped code
+                          half are listed as `deferred` on EVERY run — silence
+                          never means verified.
                           --emit-schema prints the machine-readable grammar
                           document instead, read from the engine's own closed
                           vocabularies at emission time (with a `coverage` note
