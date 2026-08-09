@@ -451,6 +451,22 @@ agent/content-root mapping rather than weakening this proof with guessed paths.
 
 `site.duo.json` may declare an `"envs"` object, keyed by environment name, describing the environments that materialize this site repo for the `duo` orchestrator CLI (see [cli/README.md](../cli/README.md)). Each entry names a `transport` (`local`, `docker`, or `ssh`) and a `repo_path` — this site repo's path *as seen from inside that environment*. Entries here are shared via git and must contain no secrets; anything machine-specific or sensitive belongs instead in a gitignored, machine-local `.duo-envs.json` overlay next to it, which replaces same-named entries whole. `envs` is orchestrator convenience, not part of the branchable state contract — the agent's `wp duo …` commands (this spec's actual subject) never read it.
 
+Host provisioning remains outside the repository format. In particular,
+`environment_provider` is a privileged, machine-local `.duo-envs.json` field
+and is rejected when it originates in checked-in `site.duo.json` or an
+auto-discovered, Git-tracked `.duo-envs.json`. An explicit `--envs-file` is an
+operator-selected trust input, not repository policy. Its opaque
+snapshot/resource/lease receipts live under the orchestrator checkout's Git
+common directory, never under `state/`, `media/`, `code/`, manifests, or any
+other canonical repository surface. Providers do not interpret plugin state;
+their source-freeze, immutable snapshot-set, target mutation-fence, and TTL
+readback receipts are opaque host evidence. TTL is observable expiry metadata,
+never autonomous deletion authority: only an explicit identity-, ownership-,
+and lease-fenced reap may destroy or detach a resource. The engine still
+materializes the provider-restored production baseline through the separately
+compiled code and state halves, and promotion consumes the exact compiled
+artifact rather than a provider-specific or plugin-specific substitute.
+
 ## Manifests (registry format)
 
 `manifests/<name>.json` in the platform repo (shipped with the agent; version-range pinning lands with the plugin-manifest workstream):

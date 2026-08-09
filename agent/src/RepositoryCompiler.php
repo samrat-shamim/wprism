@@ -838,6 +838,7 @@ final class RepositoryCompiler {
             return [
                 'type' => 'options', 'path' => $path,
                 'hash' => hash('sha256', $content), 'source_hash' => hash('sha256', $content),
+                'content' => $content,
                 'data' => $data,
             ];
         }
@@ -859,6 +860,7 @@ final class RepositoryCompiler {
             return [
                 'type' => 'user-meta', 'path' => $path,
                 'hash' => hash('sha256', $content), 'source_hash' => hash('sha256', $content),
+                'content' => $content,
                 'data' => $data,
             ];
         }
@@ -868,6 +870,7 @@ final class RepositoryCompiler {
             return [
                 'type' => SidebarState::ENTITY_TYPE, 'path' => $path,
                 'hash' => hash('sha256', $content), 'source_hash' => hash('sha256', $content),
+                'content' => $content,
                 'data' => $data,
             ];
         }
@@ -893,7 +896,8 @@ final class RepositoryCompiler {
             $entry = [
                 'type' => 'post', 'post_type' => (string) ($data['type'] ?? ''), 'path' => $path,
                 'hash' => hash('sha256', Canon::post_hash_basis($data, (string) $body, $this->policy)),
-                'source_hash' => hash('sha256', $content), 'data' => $data, 'body' => (string) $body,
+                'source_hash' => hash('sha256', $content), 'content' => $content,
+                'data' => $data, 'body' => (string) $body,
             ];
             $this->validate_attachment($path, $data);
             return $entry;
@@ -920,6 +924,7 @@ final class RepositoryCompiler {
         return [
             'type' => $type, 'path' => $path,
             'hash' => hash('sha256', $content), 'source_hash' => hash('sha256', $content),
+            'content' => $content,
             'data' => $data,
         ];
     }

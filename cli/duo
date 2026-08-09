@@ -15,6 +15,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/src/Registry.php';
 require __DIR__ . '/src/EnvironmentDriver.php';
+require __DIR__ . '/src/EnvironmentLifecycle.php';
 require __DIR__ . '/src/Transport.php';
 require __DIR__ . '/src/LocalTransport.php';
 require __DIR__ . '/src/DockerTransport.php';
@@ -42,6 +43,9 @@ use Duo\Orchestrator\Adopt;
 use Duo\Orchestrator\CodeDeploy;
 use Duo\Orchestrator\DriverCapabilityReport;
 use Duo\Orchestrator\EnvironmentDriver;
+use Duo\Orchestrator\CommandEnvironmentProvider;
+use Duo\Orchestrator\EnvironmentLifecycleJournal;
+use Duo\Orchestrator\EnvironmentMaterializer;
 use Duo\Orchestrator\Pending;
 use Duo\Orchestrator\PlanSummary;
 use Duo\Orchestrator\RollbackAuthority;
@@ -61,6 +65,8 @@ over local/docker/ssh transports and adds cross-environment ergonomics.
 
 Usage:
   duo envs
+  duo env materialize <env> --from <production-env> --branch <ref> [--create] [--ttl <seconds>]
+  duo env reap <env>
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
   duo adopt  <env>
@@ -81,6 +87,18 @@ Usage:
   duo -h | --help
 
 Verbs:
+  env materialize         Materialize a branch environment from one coherent
+    <env> --from=<prod>   provider-owned production DB/media snapshot. The
+    --branch=<ref>        semantic B/P/W rebase remains separate from physical
+    [--create]            restore, then the existing code/lifecycle/state
+    [--ttl=<seconds>]     promotion path converges the candidate. Attach is the
+                          default; --create is explicit and requires exact
+                          create+destroy receipt capabilities. Optional TTL is
+                          provider-owned and identity/lease fenced.
+  env reap <env>          Destroy a created target or detach an attached one
+                          only through its explicit provider capability and an
+                          exact resource/lease/ownership compare-and-reap.
+                          Repeated reap is idempotent; stale identity refuses.
   envs                    List environments from site.duo.json + .duo-envs.json
                           (overlay wins per env name), with transport summaries.
   doctor <env>            Check transport reachability, WordPress install, the
@@ -218,8 +236,9 @@ Verbs:
                           by an interrupted run journal.
 
 Global flags:
-  --envs-file=<path>      Load the machine-local overlay registry from <path>
-                          instead of searching upward from the cwd for .duo-envs.json.
+  --envs-file=<path>      Explicitly trust and load the machine-local overlay
+                          registry at <path> instead of auto-discovering an
+                          untracked .duo-envs.json upward from the cwd.
   -h, --help              Show this help.
 
 Environment registry ('envs' key, in site.duo.json and/or .duo-envs.json):
@@ -275,6 +294,9 @@ function main(array $argv): int {
 
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
+    }
+    if ($verb === 'env') {
+        return cmd_environment($rest, $envsFileOverride);
     }
 
     if (!in_array($verb, $verbsNeedingEnv, true)) {
@@ -384,6 +406,216 @@ function render_driver_blockers(DriverCapabilityReport $report): void {
         fwrite(STDERR, "  {$blocker['capability']}: {$blocker['reason']}\n");
     }
     fwrite(STDERR, "  report: {$body['digest']}\n");
+}
+
+/** Public nested environment lifecycle namespace. */
+function cmd_environment(array $args, ?string $envsFileOverride): int {
+    if (count($args) < 2) {
+        fwrite(STDERR, "duo: env requires materialize|reap and a target <env>\n");
+        return 1;
+    }
+    $action = array_shift($args);
+    $targetName = array_shift($args);
+    if (!in_array($action, ['materialize', 'reap'], true)) {
+        fwrite(STDERR, "duo: env: unknown action '$action' (expected materialize or reap)\n");
+        return 1;
+    }
+    try {
+        // Parse the complete public intent before registry/provider/journal
+        // construction. Caller mistakes never execute a privileged provider
+        // or even create operational state.
+        $options = $action === 'materialize' ? environment_materialize_flags($args) : null;
+        $reapJson = $action === 'reap' ? environment_reap_flags($args) : false;
+        $envs = Registry::load($envsFileOverride, getcwd() ?: '.');
+        $targetConfig = Registry::get($envs, $targetName);
+        $targetDriver = Transport::make($targetName, $targetConfig);
+        $targetProvider = CommandEnvironmentProvider::fromEnvironment($targetName, $targetConfig);
+        $journal = environment_lifecycle_journal();
+
+        if ($action === 'reap') {
+            $sourceProvider = null;
+            $latest = $journal->latestForTarget($targetName);
+            $sourceName = $latest === null ? null : environment_reap_source_name($latest);
+            if ($sourceName !== null) {
+                $sourceConfig = Registry::get($envs, $sourceName);
+                $sourceProvider = CommandEnvironmentProvider::fromEnvironment($sourceName, $sourceConfig);
+            }
+            $receipt = EnvironmentMaterializer::reap(
+                $targetDriver,
+                $targetProvider,
+                $journal,
+                $sourceProvider
+            );
+            render_environment_receipt($receipt, $reapJson, 'reap');
+            return 0;
+        }
+
+        if (!is_array($options)) throw new \RuntimeException('materialize intent is missing');
+        $sourceName = $options['source'];
+        $sourceConfig = Registry::get($envs, $sourceName);
+        $sourceDriver = Transport::make($sourceName, $sourceConfig);
+        $sourceProvider = CommandEnvironmentProvider::fromEnvironment($sourceName, $sourceConfig);
+        $receipt = EnvironmentMaterializer::materialize(
+            $sourceDriver,
+            $targetDriver,
+            $sourceProvider,
+            $targetProvider,
+            $journal,
+            [
+                'branch' => $options['branch'],
+                'create' => $options['create'],
+                'ttl_seconds' => $options['ttl_seconds'],
+            ],
+            static fn(EnvironmentDriver $driver, array $context): array|int => cmd_promote_frozen($driver, $context)
+        );
+        render_environment_receipt($receipt, $options['json'], 'materialize');
+        return 0;
+    } catch (\Throwable $e) {
+        fwrite(STDERR, "duo: env $action: {$e->getMessage()}\n");
+        return 1;
+    }
+}
+
+/** @return array{source:string,branch:string,create:bool,ttl_seconds:int,json:bool} */
+function environment_materialize_flags(array $args): array {
+    $source = null;
+    $branch = null;
+    $create = false;
+    $ttl = 0;
+    $ttlSeen = false;
+    $json = false;
+    for ($index = 0, $count = count($args); $index < $count; $index++) {
+        $arg = $args[$index];
+        if ($arg === '--create') {
+            if ($create) throw new \RuntimeException('duplicate --create');
+            $create = true;
+            continue;
+        }
+        if ($arg === '--format=json') {
+            if ($json) throw new \RuntimeException('duplicate --format=json');
+            $json = true;
+            continue;
+        }
+        if ($arg === '--from' || str_starts_with($arg, '--from=')) {
+            if ($source !== null) throw new \RuntimeException('duplicate --from');
+            $source = $arg === '--from' ? ($args[++$index] ?? null) : substr($arg, strlen('--from='));
+            if (!is_string($source) || $source === '' || str_starts_with($source, '-')) {
+                throw new \RuntimeException('--from requires an environment name');
+            }
+            continue;
+        }
+        if ($arg === '--branch' || str_starts_with($arg, '--branch=')) {
+            if ($branch !== null) throw new \RuntimeException('duplicate --branch');
+            $branch = $arg === '--branch' ? ($args[++$index] ?? null) : substr($arg, strlen('--branch='));
+            if (!is_string($branch)) throw new \RuntimeException('--branch requires a Git ref');
+            if ($branch === '' || str_starts_with($branch, '-') || str_contains($branch, "\0")) {
+                throw new \RuntimeException('--branch must be a safe Git ref');
+            }
+            continue;
+        }
+        if ($arg === '--ttl' || str_starts_with($arg, '--ttl=')) {
+            if ($ttlSeen) throw new \RuntimeException('duplicate --ttl');
+            $ttlSeen = true;
+            $raw = $arg === '--ttl' ? ($args[++$index] ?? null) : substr($arg, strlen('--ttl='));
+            if (!is_string($raw)) throw new \RuntimeException('--ttl requires whole seconds');
+            if (preg_match('/^[0-9]+$/D', $raw) !== 1) {
+                throw new \RuntimeException('--ttl must be whole seconds');
+            }
+            $ttl = (int) $raw;
+            if ($ttl < 60 || $ttl > 2592000) {
+                throw new \RuntimeException('--ttl must be between 60 and 2592000 seconds');
+            }
+            continue;
+        }
+        throw new \RuntimeException("unsupported flag '$arg'");
+    }
+    if ($source === null || $branch === null) {
+        throw new \RuntimeException('materialize requires exactly --from <production-env> and --branch <ref>');
+    }
+    return [
+        'source' => $source,
+        'branch' => $branch,
+        'create' => $create,
+        'ttl_seconds' => $ttl,
+        'json' => $json,
+    ];
+}
+
+/**
+ * Resolve the source provider only when pre-target cleanup can still need it.
+ * A completed immutable snapshot or an acquired/acquiring target has no
+ * source session for `reap` to abort.
+ *
+ * @param array{run:array<string,mixed>,events:list<array<string,mixed>>} $latest
+ */
+function environment_reap_source_name(array $latest): ?string {
+    $events = [];
+    foreach ($latest['events'] as $event) {
+        if (is_string($event['event'] ?? null)) $events[$event['event']] = true;
+    }
+    if (isset($events['target-acquired']) || isset($events['target-acquire-intent'])
+        || isset($events['snapshot-read']) || isset($events['snapshot-aborted'])
+        || (!isset($events['snapshot-prepared']) && !isset($events['snapshot-prepare-intent']))) {
+        return null;
+    }
+    $source = $latest['run']['source_environment'] ?? null;
+    if (!is_string($source) || $source === '') {
+        throw new \RuntimeException('unfinished source snapshot has no journaled source environment');
+    }
+    return $source;
+}
+
+function environment_reap_flags(array $args): bool {
+    if ($args === []) return false;
+    if ($args === ['--format=json']) return true;
+    throw new \RuntimeException('reap accepts only optional --format=json');
+}
+
+function environment_lifecycle_journal(): EnvironmentLifecycleJournal {
+    $process = proc_open(
+        ['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        getcwd() ?: null,
+        null,
+        ['bypass_shell' => true]
+    );
+    if (!is_resource($process)) {
+        throw new \RuntimeException('could not resolve Git operational directory');
+    }
+    fclose($pipes[0]);
+    $stdout = (string) stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    if (proc_close($process) !== 0 || trim($stdout) === '') {
+        throw new \RuntimeException('env materialize/reap must run inside a Git worktree');
+    }
+    return new EnvironmentLifecycleJournal(rtrim(trim($stdout), '/') . '/duo-environments');
+}
+
+/** @param array<string,mixed> $receipt */
+function render_environment_receipt(array $receipt, bool $json, string $action): void {
+    if ($json) {
+        echo json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n";
+        return;
+    }
+    echo "environment $action complete: operation=" . ($receipt['operation_id'] ?? '?')
+        . ' resource=' . ($receipt['resource_id'] ?? '?') . "\n";
+    if ($action === 'materialize') {
+        echo 'mode=' . ($receipt['mode'] ?? '?')
+            . ' branch=' . ($receipt['branch_commit'] ?? '?')
+            . ' snapshot=' . ($receipt['snapshot_set_id'] ?? '?') . "\n";
+        echo 'release code=' . ($receipt['code_revision'] ?? '?')
+            . ' state=' . ($receipt['state_revision'] ?? '?')
+            . ' outer=' . ($receipt['outer_artifact_hash'] ?? '?') . "\n";
+        echo 'url=' . ($receipt['url'] ?? '?')
+            . ' expires_at=' . ($receipt['expires_at'] ?? 'none') . "\n";
+    } else {
+        echo 'disposition=' . ($receipt['disposition'] ?? '?')
+            . ' absence_proof=' . ($receipt['absence_proof_sha256'] ?? '?') . "\n";
+    }
+    echo 'receipt=' . ($receipt['receipt_sha256'] ?? '?') . "\n";
 }
 
 /** @return array<string,string> */
@@ -824,14 +1056,60 @@ function cmd_deploy(EnvironmentDriver $t, array $extra): int {
 }
 
 /**
+ * Normal public promotion entry point.
+ *
+ * Keep the historical integer exit-code surface for `duo promote`; the
+ * environment materializer uses cmd_promote_frozen() below so it can bind the
+ * operation to the artifact it already compiled.
+ */
+function cmd_promote(EnvironmentDriver $t, array $extra): int {
+    $result = cmd_promote_internal($t, $extra, null);
+    return is_int($result) ? $result : 1;
+}
+
+/**
+ * Promote one already-compiled materialization artifact.
+ *
+ * This is an additive host-shell contract for EnvironmentMaterializer. The
+ * caller owns the operation journal and supplies one deterministic identity:
+ *
+ *   {
+ *     "operation_id": "<journal operation>",
+ *     "promotion_owner": "duo-env-promotion-<operation_id>",
+ *     "artifact_path": "<repo>/.duo/artifacts/materialize-<operation_id>.json",
+ *     "checkpoint_path": "<repo>/.duo/checkpoints/materialize-<operation_id>.sql",
+ *     "compiled_summary": { ... exact `duo compile --format=json` result ... }
+ *   }
+ *
+ * On success the result is the lifecycle's canonical
+ * duo-branch-environment-promotion-receipt/v1 object.
+ * On failure it returns the same non-zero integer used by cmd_promote(), after
+ * printing the existing recovery guidance. No compile is performed here.
+ *
+ * @param array<string,mixed> $context
+ * @return array<string,mixed>|int
+ */
+function cmd_promote_frozen(EnvironmentDriver $t, array $context, array $extra = []): array|int {
+    return cmd_promote_internal($t, $extra, $context);
+}
+
+/**
  * Promotion's fail-closed state machine. It first binds the target lease to
  * the compiled outer artifact, then takes the DB checkpoint under that lease.
  * It keeps the hook-firing lifecycle window distinct from apply's canary, now
  * with an optional code stage and finalize around those lifecycle phases. An
  * artifact with no code descriptor still retires and activates in separate
  * processes, then applies state without materializing code.
+ *
+ * A non-null frozen context is deliberately only an input boundary: all target
+ * phases still use the same generic CodeDeploy/agent commands as ordinary
+ * promotion. In particular, this function never interprets plugin names or
+ * descriptor fields.
+ *
+ * @param ?array<string,mixed> $frozenContext
+ * @return array<string,mixed>|int
  */
-function cmd_promote(EnvironmentDriver $t, array $extra): int {
+function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozenContext): array|int {
     foreach ($extra as $arg) {
         if (is_orchestrator_internal_flag($arg)) {
             fwrite(STDERR, "duo: promote owns its repository, compiled artifact/hash, code-materialization, and target lease flags; remove '$arg'\n");
@@ -843,29 +1121,42 @@ function cmd_promote(EnvironmentDriver $t, array $extra): int {
     }
 
     $repo = rtrim($t->repoPath(), '/');
-    $runId = orchestrator_run_id();
+    $frozen = $frozenContext === null ? null : normalize_frozen_promotion_context($frozenContext, $repo);
+    $runId = $frozen['promotion_owner'] ?? orchestrator_run_id();
     $duoDir = $repo . '/.duo';
-    $artifact = "$duoDir/artifacts/promote-$runId.json";
-    $checkpoint = "$duoDir/checkpoints/promote-$runId.sql";
-    $mkdir = $t->captureRaw(
-        'mkdir -p ' . escapeshellarg(dirname($artifact)) . ' ' . escapeshellarg(dirname($checkpoint))
-    );
-    if ($mkdir['exit'] !== 0) {
-        fwrite(STDERR, "duo: promote: could not create target checkpoint directories\n");
-        print_transport_detail($mkdir);
-        return $mkdir['exit'] !== 0 ? $mkdir['exit'] : 1;
+    $artifact = $frozen['artifact_path'] ?? "$duoDir/artifacts/promote-$runId.json";
+    $checkpoint = $frozen['checkpoint_path'] ?? "$duoDir/checkpoints/promote-$runId.sql";
+    if ($frozen === null) {
+        $mkdir = $t->captureRaw(
+            'mkdir -p ' . escapeshellarg(dirname($artifact)) . ' ' . escapeshellarg(dirname($checkpoint))
+        );
+        if ($mkdir['exit'] !== 0) {
+            fwrite(STDERR, "duo: promote: could not create target checkpoint directories\n");
+            print_transport_detail($mkdir);
+            return $mkdir['exit'] !== 0 ? $mkdir['exit'] : 1;
+        }
     }
 
-    echo "promote phase: compile\n";
-    $compile = CodeDeploy::compile($t, $repo, $artifact);
-    if ($compile['exit'] !== 0) {
-        fwrite(STDERR, "duo: promote: compile failed; no checkpoint or target mutation occurred\n");
-        print_transport_detail($compile);
-        return $compile['exit'] !== 0 ? $compile['exit'] : 1;
-    }
-    if ($compile['summary'] === null) {
-        fwrite(STDERR, "duo: promote: compile returned no valid artifact hash; no checkpoint or target mutation occurred\n");
-        return 1;
+    if ($frozen !== null) {
+        $compile = [
+            'exit' => 0,
+            'stdout' => '',
+            'stderr' => '',
+            'summary' => $frozen['compiled_summary'],
+        ];
+        echo "promote phase: compile (frozen artifact)\n";
+    } else {
+        echo "promote phase: compile\n";
+        $compile = CodeDeploy::compile($t, $repo, $artifact);
+        if ($compile['exit'] !== 0) {
+            fwrite(STDERR, "duo: promote: compile failed; no checkpoint or target mutation occurred\n");
+            print_transport_detail($compile);
+            return $compile['exit'] !== 0 ? $compile['exit'] : 1;
+        }
+        if ($compile['summary'] === null) {
+            fwrite(STDERR, "duo: promote: compile returned no valid artifact hash; no checkpoint or target mutation occurred\n");
+            return 1;
+        }
     }
     $dispositionBlockers = CodeDeploy::dispositionBlockers($compile['summary']);
     if ($dispositionBlockers) {
@@ -877,6 +1168,14 @@ function cmd_promote(EnvironmentDriver $t, array $extra): int {
     }
     $artifactHash = (string) $compile['summary']['artifact_hash'];
     $codeEnabled = CodeDeploy::enabled($compile['summary']);
+    if ($frozen !== null) {
+        try {
+            frozen_promotion_assert_no_symlinks($t, $repo, $frozen);
+        } catch (\Throwable $e) {
+            fwrite(STDERR, "duo: promote: frozen promotion path inspection failed: {$e->getMessage()}\n");
+            return 1;
+        }
+    }
 
     if ($t instanceof \Duo\Orchestrator\SshTransport) {
         try {
@@ -887,26 +1186,74 @@ function cmd_promote(EnvironmentDriver $t, array $extra): int {
             return 1;
         }
         if ($selection['automatic']) {
+            if ($frozen !== null) {
+                try {
+                    $verifiedReceipt = frozen_promotion_verified_reconcile($t, $repo, $frozen);
+                    if ($verifiedReceipt !== null) {
+                        echo "promote resume: verified frozen provider commit\n";
+                        return $verifiedReceipt;
+                    }
+                } catch (\Throwable $e) {
+                    fwrite(STDERR, "duo: promote: verified frozen promotion reconciliation failed: {$e->getMessage()}\n");
+                    return 1;
+                }
+            }
             // The external exclusion provider must be able to reconcile an
             // interrupted prepare from a fresh process. Bind its claimant and
             // the WordPress promotion lease to the immutable artifact instead
             // of the temporary artifact filename's random invocation id.
-            $verifiedRunId = 'verified-' . $artifactHash;
-            return cmd_promote_verified(
+            $verifiedRunId = $frozen['promotion_owner'] ?? ('verified-' . $artifactHash);
+            $verifiedResult = cmd_promote_verified(
                 $t,
                 $compile['summary'],
                 $repo,
                 $artifact,
                 $verifiedRunId,
                 $artifactHash,
-                $extra
+                $extra,
+                $frozen
             );
+            return $verifiedResult;
         }
         fwrite(
             STDERR,
             "duo: promote: WARN automatic verified rollback unavailable ({$selection['reason']}); "
             . "using operator-directed checkpoint/recovery\n"
         );
+    }
+
+    if ($frozen !== null) {
+        // A completed materialization can lose the controller response after
+        // target apply has released its lease. Verify exact target evidence
+        // before attempting any new begin/checkpoint/phase calls. An existing
+        // empty checkpoint is evidence of an interrupted export, not an
+        // absent checkpoint that this operation may overwrite.
+        try {
+            if (frozen_promotion_checkpoint_state($t, $frozen['checkpoint_path']) === 'invalid') {
+                throw new \RuntimeException('frozen promotion checkpoint exists but is empty or truncated');
+            }
+            // Receipt publication is a separate crash edge from target apply.
+            // Before beginning any new lease/checkpoint/phase, reconcile the
+            // exact frozen artifact through the target's read-only plan path.
+            // A clean exact plan proves the prior apply converged even when
+            // the controller lost the response before its receipt write.
+            $recoveredReceipt = frozen_promotion_reconcile($t, $repo, $frozen);
+            if ($recoveredReceipt !== null) {
+                echo "promote resume: reconciled frozen artifact after receipt publication loss\n";
+                return $recoveredReceipt;
+            }
+        } catch (\Throwable $e) {
+            fwrite(STDERR, "duo: promote: frozen promotion receipt is invalid; refusing retry: {$e->getMessage()}\n");
+            return 1;
+        }
+        $mkdir = $t->captureRaw(
+            'mkdir -p ' . escapeshellarg(dirname($artifact)) . ' ' . escapeshellarg(dirname($checkpoint))
+        );
+        if ($mkdir['exit'] !== 0) {
+            fwrite(STDERR, "duo: promote: could not create target checkpoint directories\n");
+            print_transport_detail($mkdir);
+            return $mkdir['exit'] !== 0 ? $mkdir['exit'] : 1;
+        }
     }
 
     echo "promote phase: promotion-begin\n";
@@ -919,7 +1266,9 @@ function cmd_promote(EnvironmentDriver $t, array $extra): int {
     }
 
     echo "promote phase: checkpoint\n";
-    $export = $t->captureWp(['db', 'export', $checkpoint, '--porcelain']);
+    $export = $frozen === null
+        ? $t->captureWp(['db', 'export', $checkpoint, '--porcelain'])
+        : frozen_promotion_checkpoint($t, $frozen);
     if ($export['exit'] !== 0) {
         fwrite(STDERR, "duo: promote: database checkpoint failed; deploy/apply were not started\n");
         print_transport_detail($export);
@@ -928,6 +1277,14 @@ function cmd_promote(EnvironmentDriver $t, array $extra): int {
             fwrite(STDERR, "duo: promote: promotion lease cleanup confirmed; no usable checkpoint was produced\n");
         }
         return $export['exit'] !== 0 ? $export['exit'] : 1;
+    }
+    if ($frozen !== null) {
+        try {
+            $frozen['_checkpoint_hash'] = frozen_promotion_hash($t, $checkpoint);
+        } catch (\Throwable $e) {
+            fwrite(STDERR, "duo: promote: frozen checkpoint readback failed: {$e->getMessage()}\n");
+            return promote_failed($t, 'checkpoint', 1, $checkpoint, false, $runId, $artifactHash);
+        }
     }
     echo "database checkpoint: $checkpoint\n";
 
@@ -973,24 +1330,451 @@ function cmd_promote(EnvironmentDriver $t, array $extra): int {
     }
 
     echo "promote phase: apply\n";
-    $apply = $t->streamWp(array_merge(
+    if ($frozen === null) {
+        $apply = $t->streamWp(array_merge(
+            [
+                'duo', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
+                '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
+            ],
+            $extra
+        ));
+        if ($apply !== 0) {
+            return promote_failed($t, 'apply', $apply, $checkpoint, $codeEnabled, $runId, $artifactHash);
+        }
+
+        echo $codeEnabled
+            ? "promote complete: code-stage -> lifecycle-retire -> lifecycle-activate -> code-finalize -> apply\n"
+            : "promote complete: lifecycle-retire -> lifecycle-activate -> apply\n";
+        echo "database checkpoint retained: $checkpoint\n";
+        return 0;
+    }
+
+    // The lifecycle materializer needs a machine-readable result bound to
+    // the same frozen artifact and owner. Keep normal promote's streaming
+    // output/exit behavior above unchanged.
+    $applyResult = $t->captureWp(array_merge(
         [
             'duo', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
             '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
+            '--format=json',
         ],
         $extra
     ));
-    if ($apply !== 0) {
-        return promote_failed($t, 'apply', $apply, $checkpoint, $codeEnabled, $runId, $artifactHash);
+    if (($applyResult['exit'] ?? 1) !== 0) {
+        print_transport_detail($applyResult);
+        return promote_failed(
+            $t,
+            'apply',
+            ($applyResult['exit'] ?? 1) !== 0 ? (int) $applyResult['exit'] : 1,
+            $checkpoint,
+            $codeEnabled,
+            $runId,
+            $artifactHash
+        );
     }
-
+    try {
+        $applySummary = json_decode(trim((string) ($applyResult['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($applySummary)) {
+            throw new \RuntimeException('apply returned a non-object JSON result');
+        }
+        $receipt = frozen_promotion_receipt(
+            $frozen,
+            $artifactHash,
+            $checkpoint,
+            $applySummary,
+            frozen_promotion_code_revision($compile['summary'])
+        );
+    } catch (\Throwable $e) {
+        fwrite(STDERR, "duo: promote: apply receipt could not be verified or retained: {$e->getMessage()}\n");
+        return 1;
+    }
     echo $codeEnabled
         ? "promote complete: code-stage -> lifecycle-retire -> lifecycle-activate -> code-finalize -> apply\n"
         : "promote complete: lifecycle-retire -> lifecycle-activate -> apply\n";
     echo "database checkpoint retained: $checkpoint\n";
-    return 0;
+    return $receipt;
 }
 
+/**
+ * Normalize the additive frozen-promotion callback contract.
+ *
+ * The lifecycle journal supplies one operation-scoped identity and the exact
+ * compile summary already produced by EnvironmentMaterializer. Normal callers
+ * never enter this boundary and retain cmd_promote()'s integer exit contract.
+ *
+ * @param array<string,mixed> $context
+ * @return array<string,mixed>
+ */
+function normalize_frozen_promotion_context(array $context, string $repo): array {
+    $expectedKeys = ['artifact_path', 'checkpoint_path', 'compiled_summary', 'operation_id', 'promotion_owner'];
+    $actualKeys = array_keys($context);
+    sort($actualKeys, SORT_STRING);
+    sort($expectedKeys, SORT_STRING);
+    if ($actualKeys !== $expectedKeys) {
+        throw new \InvalidArgumentException('frozen promotion context must contain exactly its five lifecycle fields');
+    }
+    $operationId = $context['operation_id'];
+    $owner = $context['promotion_owner'];
+    $artifact = $context['artifact_path'];
+    $checkpoint = $context['checkpoint_path'];
+    $summary = $context['compiled_summary'];
+    if (!is_string($operationId) || preg_match('/^[0-9]{8}-[0-9]{6}-[a-f0-9]{24}$/D', $operationId) !== 1
+        || !is_string($owner) || preg_match('/^[A-Za-z0-9._:-]{8,128}$/D', $owner) !== 1
+        || !is_string($artifact) || !is_string($checkpoint)
+        || !is_array($summary) || array_is_list($summary)) {
+        throw new \InvalidArgumentException('frozen promotion context is malformed');
+    }
+    $expectedArtifact = rtrim($repo, '/') . '/.duo/artifacts/materialize-' . $operationId . '.json';
+    $expectedCheckpoint = rtrim($repo, '/') . '/.duo/checkpoints/materialize-' . $operationId . '.sql';
+    if ($artifact !== $expectedArtifact || $checkpoint !== $expectedCheckpoint) {
+        throw new \InvalidArgumentException('frozen promotion artifact/checkpoint paths are not operation-canonical');
+    }
+    $artifact = frozen_promotion_path($artifact, $repo, 'artifact');
+    $checkpoint = frozen_promotion_path($checkpoint, $repo, 'checkpoint');
+    if ($artifact === $checkpoint) {
+        throw new \InvalidArgumentException('frozen promotion artifact and checkpoint must differ');
+    }
+    if (!CodeDeploy::validArtifactHash($summary)
+        || !is_string($summary['revision_hash'] ?? null)
+        || preg_match('/^[a-f0-9]{64}$/D', (string) $summary['revision_hash']) !== 1) {
+        throw new \InvalidArgumentException('frozen promotion summary has no valid artifact/state identity');
+    }
+    if (isset($summary['code']) && $summary['code'] !== []
+        && (!is_array($summary['code']) || !is_string($summary['code']['code_revision'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/D', (string) $summary['code']['code_revision']) !== 1)) {
+        throw new \InvalidArgumentException('frozen promotion summary has an invalid code revision');
+    }
+    if ($owner !== 'duo-env-promotion-' . $operationId) {
+        throw new \InvalidArgumentException('frozen promotion owner must be the deterministic operation owner');
+    }
+    return [
+        'operation_id' => $operationId,
+        'promotion_owner' => $owner,
+        'artifact_path' => $artifact,
+        'checkpoint_path' => $checkpoint,
+        'compiled_summary' => $summary,
+    ];
+}
+
+/** Keep every lifecycle-owned target path below the target repository's .duo directory. */
+function frozen_promotion_path(string $path, string $repo, string $label): string {
+    $duo = rtrim($repo, '/') . '/.duo';
+    $prefix = $duo . '/';
+    if ($path === '' || $path[0] !== '/' || !str_starts_with($path, $prefix)) {
+        throw new \InvalidArgumentException("frozen promotion $label path must be below target /.duo");
+    }
+    $relative = substr($path, strlen($prefix));
+    if ($relative === '' || str_contains($relative, "\0") || str_contains($relative, '//')) {
+        throw new \InvalidArgumentException("frozen promotion $label path is malformed");
+    }
+    foreach (explode('/', $relative) as $part) {
+        if ($part === '' || $part === '.' || $part === '..') {
+            throw new \InvalidArgumentException("frozen promotion $label path is malformed");
+        }
+    }
+    return $path;
+}
+
+/** @return array{exit:int,stdout:string,stderr:string} */
+function frozen_promotion_raw(EnvironmentDriver $driver, string $script): array {
+    $result = $driver->captureRaw($script);
+    return [
+        'exit' => (int) ($result['exit'] ?? 1),
+        'stdout' => (string) ($result['stdout'] ?? ''),
+        'stderr' => (string) ($result['stderr'] ?? ''),
+    ];
+}
+
+/** Refuse target-side symlink evidence before following a frozen path. */
+function frozen_promotion_assert_no_symlinks(EnvironmentDriver $driver, string $repo, array $context): void {
+    $paths = [
+        rtrim($repo, '/') . '/.duo',
+        dirname($context['artifact_path']),
+        $context['artifact_path'],
+        dirname($context['checkpoint_path']),
+        $context['checkpoint_path'],
+    ];
+    foreach (array_values(array_unique($paths)) as $path) {
+        $result = frozen_promotion_raw($driver, 'test -L ' . escapeshellarg($path));
+        if ($result['exit'] === 0) {
+            throw new \RuntimeException("frozen promotion path is a symbolic link: $path");
+        }
+        if ($result['exit'] !== 1) {
+            throw new \RuntimeException('could not inspect frozen promotion path type');
+        }
+    }
+}
+
+function frozen_promotion_present(EnvironmentDriver $driver, string $path, string $test = '-e'): bool {
+    $result = frozen_promotion_raw($driver, 'test ' . $test . ' ' . escapeshellarg($path));
+    if ($result['exit'] === 0) return true;
+    if ($result['exit'] === 1) return false;
+    throw new \RuntimeException('could not inspect frozen promotion checkpoint');
+}
+
+/** @return 'absent'|'complete'|'invalid' */
+function frozen_promotion_checkpoint_state(EnvironmentDriver $driver, string $path): string {
+    if (!frozen_promotion_present($driver, $path, '-e')) return 'absent';
+    if (!frozen_promotion_present($driver, $path, '-f')
+        || !frozen_promotion_present($driver, $path, '-s')) {
+        return 'invalid';
+    }
+    return 'complete';
+}
+
+/** Hash target bytes through PHP, which is available on every supported target. */
+function frozen_promotion_hash(EnvironmentDriver $driver, string $path): string {
+    $program = 'if (!is_file($argv[1])) { exit(1); } '
+        . '$hash = hash_file("sha256", $argv[1]); '
+        . 'if (!is_string($hash)) { exit(1); } echo $hash, PHP_EOL;';
+    $result = frozen_promotion_raw(
+        $driver,
+        'php -r ' . escapeshellarg($program) . ' -- ' . escapeshellarg($path)
+    );
+    $hash = trim($result['stdout']);
+    if ($result['exit'] !== 0 || preg_match('/^[a-f0-9]{64}$/D', $hash) !== 1) {
+        throw new \RuntimeException('frozen promotion checkpoint hash is unavailable');
+    }
+    return $hash;
+}
+
+/** Verify the target artifact's content address before synthesizing recovery. */
+function frozen_promotion_artifact_hash(EnvironmentDriver $driver, string $path): string {
+    $program = <<<'PHP'
+$path = (string) ($argv[1] ?? '');
+$bytes = $path !== '' ? @file_get_contents($path) : false;
+if (!is_string($bytes)) { exit(1); }
+try {
+    $artifact = json_decode($bytes, true, 512, JSON_THROW_ON_ERROR);
+} catch (\Throwable $e) {
+    exit(1);
+}
+if (!is_array($artifact) || array_is_list($artifact) || !is_string($artifact['artifact_hash'] ?? null)) {
+    exit(1);
+}
+$expected = $artifact['artifact_hash'];
+unset($artifact['artifact_hash']);
+$normalize = static function (mixed $value) use (&$normalize): mixed {
+    if (!is_array($value)) { return $value; }
+    if (!array_is_list($value)) { ksort($value, SORT_STRING); }
+    foreach ($value as $key => $child) { $value[$key] = $normalize($child); }
+    return $value;
+};
+try {
+    $canonical = json_encode(
+        $normalize($artifact),
+        JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+    ) . "\n";
+} catch (\Throwable $e) {
+    exit(1);
+}
+$actual = hash('sha256', $canonical);
+if (!hash_equals($expected, $actual)) { exit(1); }
+echo $actual, PHP_EOL;
+PHP;
+    $result = frozen_promotion_raw(
+        $driver,
+        'php -r ' . escapeshellarg($program) . ' -- ' . escapeshellarg($path)
+    );
+    $hash = trim($result['stdout']);
+    if ($result['exit'] !== 0 || preg_match('/^[a-f0-9]{64}$/D', $hash) !== 1) {
+        throw new \RuntimeException('frozen promotion artifact hash is unavailable');
+    }
+    return $hash;
+}
+
+/**
+ * Prepare one deterministic checkpoint. The temporary export is renamed only
+ * after WP-CLI confirms success, so a retry never treats a partial export as
+ * the original pre-promotion dump.
+ *
+ * @return array{exit:int,stdout:string,stderr:string}
+ */
+function frozen_promotion_checkpoint(EnvironmentDriver $driver, array $context): array {
+    $checkpoint = $context['checkpoint_path'];
+    $state = frozen_promotion_checkpoint_state($driver, $checkpoint);
+    if ($state === 'complete') {
+        return ['exit' => 0, 'stdout' => 'reused frozen checkpoint' . "\n", 'stderr' => ''];
+    }
+    if ($state === 'invalid') {
+        return [
+            'exit' => 1,
+            'stdout' => '',
+            'stderr' => 'frozen promotion checkpoint exists but is empty or truncated; refusing overwrite',
+        ];
+    }
+    $temporary = $checkpoint . '.tmp';
+    frozen_promotion_raw($driver, 'rm -f -- ' . escapeshellarg($temporary));
+    $export = $driver->captureWp(['db', 'export', $temporary, '--porcelain']);
+    if (($export['exit'] ?? 1) !== 0) {
+        frozen_promotion_raw($driver, 'rm -f -- ' . escapeshellarg($temporary));
+        return [
+            'exit' => (int) ($export['exit'] ?? 1),
+            'stdout' => (string) ($export['stdout'] ?? ''),
+            'stderr' => (string) ($export['stderr'] ?? ''),
+        ];
+    }
+    $moved = frozen_promotion_raw(
+        $driver,
+        'mv -f -- ' . escapeshellarg($temporary) . ' ' . escapeshellarg($checkpoint)
+    );
+    if ($moved['exit'] !== 0) return $moved;
+    if (frozen_promotion_checkpoint_state($driver, $checkpoint) !== 'complete') {
+        return [
+            'exit' => 1,
+            'stdout' => '',
+            'stderr' => 'frozen promotion checkpoint export completed without a regular non-empty file',
+        ];
+    }
+    return [
+        'exit' => 0,
+        'stdout' => (string) ($export['stdout'] ?? ''),
+        'stderr' => (string) ($export['stderr'] ?? ''),
+    ];
+}
+
+/** @return ?array<string,mixed> */
+function frozen_promotion_reconcile(EnvironmentDriver $driver, string $repo, array &$context): ?array {
+    if (($context['_checkpoint_provider'] ?? null) !== null
+        || frozen_promotion_checkpoint_state($driver, $context['checkpoint_path']) !== 'complete') {
+        return null;
+    }
+    $summary = $context['compiled_summary'];
+    if (frozen_promotion_artifact_hash($driver, $context['artifact_path']) !== $summary['artifact_hash']) {
+        throw new \RuntimeException('target frozen artifact does not match the compiled summary');
+    }
+    $planResult = $driver->captureWp([
+        'duo', 'plan', '--repo=' . $repo, '--compiled=' . $context['artifact_path'], '--format=json',
+    ]);
+    if (($planResult['exit'] ?? 1) !== 0) return null;
+    try {
+        $plan = json_decode(trim((string) ($planResult['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
+    } catch (\Throwable $e) {
+        return null;
+    }
+    if (!is_array($plan) || !PlanSummary::render($plan)['ok']) return null;
+    $context['_checkpoint_hash'] = frozen_promotion_hash($driver, $context['checkpoint_path']);
+    return frozen_promotion_receipt(
+        $context,
+        (string) $summary['artifact_hash'],
+        $context['checkpoint_path'],
+        [
+            'artifact' => [
+                'hash' => $summary['artifact_hash'],
+                'revision' => $summary['revision_hash'],
+            ],
+        ],
+        frozen_promotion_code_revision($summary)
+    );
+}
+
+/**
+ * Reconcile a terminal verified-provider commit before trying another claim.
+ * The provider's checkpoint digest and exact compiled clean plan are the only
+ * target evidence needed to synthesize the same lifecycle receipt.
+ *
+ * @return ?array<string,mixed>
+ */
+function frozen_promotion_verified_reconcile(
+    \Duo\Orchestrator\SshTransport $driver,
+    string $repo,
+    array &$context
+): ?array {
+    $status = RollbackAuthority::status($driver);
+    if (($status['active'] ?? false) !== true
+        || ($status['state'] ?? '') !== 'committed'
+        || ($status['artifact_hash'] ?? null) !== ($context['compiled_summary']['artifact_hash'] ?? null)
+        || ($status['owner'] ?? null) !== $context['promotion_owner']) {
+        return null;
+    }
+    $checkpointHash = (string) ($status['checkpoint_sha256'] ?? '');
+    if (preg_match('/^[a-f0-9]{64}$/D', $checkpointHash) !== 1) {
+        throw new \RuntimeException('verified rollback status has no checkpoint identity');
+    }
+    $summary = $context['compiled_summary'];
+    if (frozen_promotion_artifact_hash($driver, $context['artifact_path']) !== $summary['artifact_hash']) {
+        throw new \RuntimeException('target frozen artifact does not match the compiled summary');
+    }
+    $planResult = $driver->captureWp([
+        'duo', 'plan', '--repo=' . $repo, '--compiled=' . $context['artifact_path'], '--format=json',
+    ]);
+    if (($planResult['exit'] ?? 1) !== 0) return null;
+    try {
+        $plan = json_decode(trim((string) ($planResult['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
+    } catch (\Throwable $e) {
+        return null;
+    }
+    if (!is_array($plan) || !PlanSummary::render($plan)['ok']) return null;
+    $context['_checkpoint_hash'] = $checkpointHash;
+    return frozen_promotion_receipt(
+        $context,
+        (string) $summary['artifact_hash'],
+        $context['checkpoint_path'],
+        [
+            'artifact' => [
+                'hash' => $summary['artifact_hash'],
+                'revision' => $summary['revision_hash'],
+            ],
+        ],
+        frozen_promotion_code_revision($summary)
+    );
+}
+
+/**
+ * Build the exact receipt lifecycle journals. The receipt deliberately has a
+ * minimal locked schema so a response-loss retry can synthesize byte-for-byte
+ * equivalent evidence from the frozen artifact, checkpoint, and clean plan.
+ *
+ * @param array<string,mixed> $context
+ * @param array<string,mixed> $applySummary
+ * @return array<string,mixed>
+ */
+function frozen_promotion_receipt(
+    array $context,
+    string $artifactHash,
+    string $checkpoint,
+    array $applySummary,
+    ?string $codeRevision
+): array {
+    $summary = $context['compiled_summary'];
+    $stateRevision = (string) $summary['revision_hash'];
+    if ($artifactHash !== $summary['artifact_hash'] || $checkpoint !== $context['checkpoint_path']
+        || !is_array($applySummary['artifact'] ?? null)
+        || ($applySummary['artifact']['hash'] ?? null) !== $artifactHash
+        || ($applySummary['artifact']['revision'] ?? null) !== $stateRevision) {
+        throw new \RuntimeException('apply receipt does not match the frozen artifact/release');
+    }
+    $checkpointHash = (string) ($context['_checkpoint_hash'] ?? '');
+    if (preg_match('/^[a-f0-9]{64}$/D', $checkpointHash) !== 1) {
+        throw new \RuntimeException('frozen promotion checkpoint identity is unavailable');
+    }
+    $expectedCode = frozen_promotion_code_revision($summary);
+    if ($codeRevision !== $expectedCode) {
+        throw new \RuntimeException('frozen promotion code revision does not match the compiled summary');
+    }
+    $receipt = [
+        'artifact_hash' => $artifactHash,
+        'checkpoint_identity' => $checkpointHash,
+        'code_revision' => $codeRevision,
+        'format' => 'duo-branch-environment-promotion-receipt/v1',
+        'operation_id' => $context['operation_id'],
+        'owner' => $context['promotion_owner'],
+        'state_revision' => $stateRevision,
+        'status' => 'completed',
+    ];
+    $receipt['receipt_sha256'] = hash('sha256', frozen_promotion_canonical($receipt));
+    return $receipt;
+}
+
+/** Return the nullable code identity without converting state-only to ''. */
+function frozen_promotion_code_revision(array $summary): ?string {
+    if (!CodeDeploy::enabled($summary)) return null;
+    return (string) $summary['code']['code_revision'];
+}
+
+function frozen_promotion_canonical(mixed $value): string {
+    return \Duo\Orchestrator\EnvironmentLifecycleCanon::encode($value);
+}
 /**
  * Provider-backed SSH promotion. The external receipt/checkpoint is prepared
  * before the target's database lease or code pointer can change. Every failure
@@ -1004,12 +1788,14 @@ function cmd_promote_verified(
     string $artifact,
     string $runId,
     string $artifactHash,
-    array $extra
-): int {
+    array $extra,
+    ?array $frozenContext = null
+): array|int {
     $profile = new VerifiedRollbackProfile($t);
     $codeSelected = false;
     $uploadsApplied = false;
     $effectsTouched = false;
+    $claimReceipt = null;
 
     echo "promote profile: automatic verified rollback\n";
     echo "promote phase: rollback-claim\n";
@@ -1017,6 +1803,15 @@ function cmd_promote_verified(
         $claim = $profile->claim($plan, $runId, $runId);
         if (($claim['status']['state'] ?? '') !== 'prepared') {
             throw new \RuntimeException('target did not publish the prepared receipt');
+        }
+        $claimReceipt = is_array($claim['receipt'] ?? null) ? $claim['receipt'] : null;
+        if ($frozenContext !== null) {
+            $checkpointHash = (string) ($claimReceipt['checkpoint_sha256'] ?? '');
+            if (preg_match('/^[a-f0-9]{64}$/D', $checkpointHash) !== 1) {
+                throw new \RuntimeException('verified rollback claim has no checkpoint identity');
+            }
+            $frozenContext['_checkpoint_hash'] = $checkpointHash;
+            $frozenContext['_checkpoint_provider'] = 'verified-rollback';
         }
         $profile->startPromotion();
     } catch (\Throwable $e) {
@@ -1144,17 +1939,57 @@ function cmd_promote_verified(
     }
 
     echo "promote phase: apply\n";
-    $apply = $t->streamWp(array_merge(
-        [
-            'duo', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
-            '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
-        ],
-        $extra
-    ));
-    if ($apply !== 0) {
-        return promote_verified_failed(
-            $profile, 'apply', $apply, $effectsTouched, $uploadsApplied, $codeSelected
-        );
+    if ($frozenContext === null) {
+        $apply = $t->streamWp(array_merge(
+            [
+                'duo', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
+                '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
+            ],
+            $extra
+        ));
+        if ($apply !== 0) {
+            return promote_verified_failed(
+                $profile, 'apply', $apply, $effectsTouched, $uploadsApplied, $codeSelected
+            );
+        }
+    } else {
+        $applyResult = $t->captureWp(array_merge(
+            [
+                'duo', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
+                '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
+                '--format=json',
+            ],
+            $extra
+        ));
+        if (($applyResult['exit'] ?? 1) !== 0) {
+            print_transport_detail($applyResult);
+            return promote_verified_failed(
+                $profile,
+                'apply',
+                ($applyResult['exit'] ?? 1) !== 0 ? (int) $applyResult['exit'] : 1,
+                $effectsTouched,
+                $uploadsApplied,
+                $codeSelected
+            );
+        }
+        try {
+            $applySummary = json_decode(trim((string) ($applyResult['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
+            if (!is_array($applySummary)) {
+                throw new \RuntimeException('apply returned a non-object JSON result');
+            }
+            $receipt = frozen_promotion_receipt(
+                $frozenContext,
+                $artifactHash,
+                $frozenContext['checkpoint_path'],
+                $applySummary,
+                frozen_promotion_code_revision($plan)
+            );
+        } catch (\Throwable $e) {
+            fwrite(STDERR, "duo: promote: verified apply receipt could not be constructed: {$e->getMessage()}\n");
+            return promote_verified_failed(
+                $profile, 'apply-receipt', 1, $effectsTouched, $uploadsApplied, $codeSelected
+            );
+        }
     }
 
     try {
@@ -1168,6 +2003,9 @@ function cmd_promote_verified(
             $uploadsApplied,
             $codeSelected
         );
+    }
+    if ($frozenContext !== null) {
+        return $receipt;
     }
     echo "promote complete: verified committed receipt; traffic exclusion released\n";
     return 0;

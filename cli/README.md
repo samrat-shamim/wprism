@@ -26,6 +26,8 @@ binary and, per environment, whatever the transport itself needs (`ssh`,
 
 ```
 duo envs
+duo env materialize <env> --from <production-env> --branch <ref> [--create] [--ttl <seconds>] [--format=json]
+duo env reap <env> [--format=json]
 duo doctor <env>
 duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
 duo adopt  <env>
@@ -106,6 +108,50 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   or driver-owned operation receipts. Those stay visibly unsupported until a
   driver implements them; provider provisioning remains an optional driver
   extension rather than engine behavior.
+
+- **`duo env materialize <env> --from <production-env> --branch <ref>`** —
+  creates the default short-lived branch environment without collapsing its
+  three separate contracts. `Refresh` first rebases the clean, currently
+  checked-out branch against live production semantic truth in an isolated
+  worktree. A separately configured host provider freezes the production
+  snapshot session while that semantic export is produced, creates one
+  coherent opaque DB/media snapshot set, and serves an immutable readback that
+  binds the physical hashes to that exact semantic snapshot. The provider then
+  attaches to the target (the default) or explicitly creates it (`--create`),
+  restores the physical baseline, materializes the candidate repository
+  commit, and restores the provider-owned target URL. Finally the ordinary
+  promotion state machine consumes the exact already-compiled outer artifact
+  under a deterministic operation owner; it never compiles a second release.
+  A clean plan verifies convergence, and the receipt retains the apply receipt
+  plus separate code and state release identities.
+
+  Every provider request is canonical JSON over absolute direct argv, with no
+  shell, a bounded timeout/output size, and redacted failure output. Source and
+  target capability reports are checked together before the first snapshot or
+  target mutation. Attach is never inferred to mean create; create is accepted
+  only when the provider also promises exact receipt-backed destroy. An
+  operation-scoped provider mutation fence is held across physical restore,
+  repository/URL materialization, promotion, convergence, and TTL publication.
+  Optional `--ttl=60..2592000` is a provider resource lease, not WordPress's
+  database-local promotion lock; its exact generation/id/expiry is read back
+  before the mutation fence is released. It is observable expiry metadata, not
+  deletion authority: a provider must never autonomously destroy or detach the
+  resource when that time passes. Cleanup happens only through an explicit,
+  identity- and lease-fenced `duo env reap`. Retries reuse the immutable
+  operation id, skip every journaled phase, and reconcile an uncertain phase
+  with the same inputs and ownership tuple, so provider actions must be
+  idempotent for that id.
+
+- **`duo env reap <env>`** — reads the latest immutable machine-local
+  materialization journal, re-inspects the provider resource, and performs a
+  provider-side compare-and-reap against its exact environment, resource,
+  ownership lease, mutation fence, and optional TTL generation/id. Created
+  resources require `environment.destroy`; attached resources require
+  `environment.detach` and are never destroyed. A reused name, changed
+  lease/generation, tampered
+  receipt, or missing explicit capability refuses before the destructive call.
+  Repeated reap returns the existing absence proof without another provider
+  call. A changed TTL or mutation lease refuses before detach or destroy.
 
 - **`duo adopt <env>`** — installs or updates this checkout's complete Duo
   agent and manifest library on a pre-existing SSH target, creates a minimal
@@ -532,6 +578,66 @@ Per-transport required keys:
 A missing required key is a loud, specific error naming the environment,
 the key, and the transport — never a guess.
 
+### Optional branch-environment provider
+
+Physical production snapshots, resource creation/cleanup, URLs, and host TTLs
+are privileged host operations, not transport primitives. An environment may
+therefore add this exact block only in the machine-local `.duo-envs.json`
+entry (checked-in `site.duo.json` is rejected even if it tries to forge loader
+provenance):
+
+```json
+{
+  "environment_provider": {
+    "command": ["/absolute/path/to/provider", "--site=example"],
+    "timeout_seconds": 30
+  }
+}
+```
+
+The command receives one canonical
+`duo-branch-environment-provider-request/v1` object on stdin and must return
+one canonical `duo-branch-environment-provider-response/v1` object on stdout.
+Protocol 1 has a closed capability vocabulary:
+
+```
+snapshot.set.prepare      snapshot.set.create      snapshot.set.read
+snapshot.set.abort        snapshot.set.restore
+environment.inspect       environment.attach       environment.create
+environment.destroy       environment.detach       environment.ttl
+environment.ttl.read      environment.mutation.acquire
+environment.mutation.read environment.mutation.release
+environment.url.discover  environment.url.set      repository.materialize
+operation.receipts
+```
+
+Operation responses contain only opaque IDs/digests and redacted operational
+evidence—never database/media bytes, credentials, signed URLs, or production
+PII. `snapshot-prepare` acquires a provider-owned source freeze and returns one
+operation-bound session/lease receipt. While that freeze is held, Duo exports
+semantic production truth; `snapshot-create` consumes the same session and
+returns one `snapshot_set_id` binding database and media hashes, retention
+evidence, source identity, and that semantic snapshot hash. `snapshot-read`
+must return the immutable set before restore; `snapshot-abort` idempotently
+releases an unfinished session. There is no raw or independently timed DB/media
+fallback.
+
+`mutation-acquire` obtains an exclusive operation-scoped target fence before
+the first target mutation. `mutation-read` reconciles it after an interruption,
+and `mutation-release` publishes an idempotent release receipt only after
+promotion convergence and TTL readback. Only that held-to-released transition
+may mint a new mutation receipt; every held or released `mutation-read` must
+return the exact receipt already journaled for its current state. Every
+mutating target request carries
+`expected_environment_identity`, `expected_resource_id`, `expected_lease_id`,
+`expected_lease_generation`, and `expected_ownership_receipt_sha256`; the
+provider must also enforce the held mutation fence tuple. `ttl-set`/`ttl-read`
+publish and verify expiry metadata only; they must not schedule or perform
+automatic destruction. Reap compares both leases before its explicit destroy
+or detach. The host journal lives under Git's common directory at
+`duo-environments/` with mode-0600 immutable run/event records; it is
+operational recovery state and never canonical branch state.
+
 `ssh_config`, when present, is passed to both `ssh -F` and `scp -F` and may be
 relative to the registry file that defined the environment. This is the
 single place to configure a non-default port, identity, proxy jump, and
@@ -623,10 +729,13 @@ Relative filesystem paths inside an environment entry (currently just
 that entry** — not the current working directory — so a registry file
 keeps working no matter where you invoke `duo` from.
 
-Pass `--envs-file=<path>` to load the overlay from an explicit path instead
-of searching for `.duo-envs.json`. `site.duo.json` discovery is unaffected
-by this flag — it's specifically an override for the machine-local half of
-the registry.
+Pass `--envs-file=<path>` to explicitly trust and load the overlay at that
+path instead of searching for `.duo-envs.json`. Auto-discovery refuses a
+Git-tracked `.duo-envs.json`, because repository content cannot authorize a
+privileged host provider; the explicit flag is an operator trust decision and
+must never be populated from an untrusted repository or script.
+`site.duo.json` discovery is unaffected by this flag — it's specifically an
+override for the machine-local half of the registry.
 
 ### Suggested `.gitignore` line
 

@@ -438,7 +438,15 @@ final class RefreshPlan {
 
     /** @return array<string,mixed> */
     private static function recordFromCompiled(string $identity, array $row): array {
-        $content = (string) ($row['content'] ?? '');
+        // A parsed tree cannot recover every source-level semantic detail:
+        // Capture's order-preserved subtrees deliberately lose their marker
+        // after JSON decoding.  The compiler therefore binds exact validated
+        // state bytes into each row.  Refresh must relay those bytes, never
+        // reserialize decoded data and silently reorder a map.
+        if (!array_key_exists('content', $row) || !is_string($row['content'])) {
+            throw new \RuntimeException("compiled record '$identity' has no exact validated content");
+        }
+        $content = $row['content'];
         return [
             'identity' => $identity,
             'type' => (string) ($row['type'] ?? ''),
