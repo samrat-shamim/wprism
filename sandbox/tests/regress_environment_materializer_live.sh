@@ -42,11 +42,59 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 source_wp() { docker compose -f "$DRIVER_COMPOSE" run --rm -T source wp "$@"; }
 target_wp() { docker compose -f "$DRIVER_COMPOSE" run --rm -T target wp "$@"; }
 
+# `pair.sh list` deliberately reports bare pair names (`  - foo`), not
+# Docker project names.  Keep this parser strict so a leaked/other-owner pair
+# can never be mistaken for absent merely because its project is `duo-foo`.
+pair_list_has_exact() { # pair_list_has_exact <bare-pair-name>; reads list on stdin
+  local pair=$1
+  grep -Eq "^[[:space:]]*-[[:space:]]*${pair}[[:space:]]*$"
+}
+
+assert_pair_list_parser() {
+  local sample near
+  sample=$'== live sandbox pairs ==\n  - codexmacb3324\n== stopped pairs ==\n  - r3b'
+  near=$'  - duo-codexmacb3324\n  - codexmacb33240'
+  pair_list_has_exact "$PAIR" <<<"$sample" || fail "pair-list parser missed its exact live/stopped entry"
+  if pair_list_has_exact "$PAIR" <<<"$near"; then
+    fail "pair-list parser accepts a Docker project prefix or pair-name prefix"
+  fi
+}
+
+owned_pair_unpause() {
+  local container paused
+  for container in "$SOURCE_CONTAINER" "$TARGET_CONTAINER"; do
+    docker inspect "$container" >/dev/null 2>&1 || continue
+    paused="$(docker inspect --format '{{.State.Paused}}' "$container")" || return 1
+    case "$paused" in
+      false) ;;
+      true)
+        printf 'fixture cleanup: unpausing exact owned container %s\n' "$container" >&2
+        docker unpause "$container" >/dev/null || return 1
+        ;;
+      *) return 1 ;;
+    esac
+  done
+}
+
+assert_owned_pair_unpaused() {
+  local container paused
+  for container in "$SOURCE_CONTAINER" "$TARGET_CONTAINER"; do
+    docker inspect "$container" >/dev/null 2>&1 || continue
+    paused="$(docker inspect --format '{{.State.Paused}}' "$container")" || return 1
+    [ "$paused" = false ] || return 1
+  done
+}
+
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
   set +e
   if [ "$PAIR_OWNED" -eq 1 ]; then
+    # A failed freeze must never strand either web runtime paused.  Only these
+    # exact pair containers are touched; the shared DB is intentionally never
+    # paused or unpaused by this fixture.
+    owned_pair_unpause || status=1
+    assert_owned_pair_unpaused || status=1
     bash "$ROOT/sandbox/bin/pair.sh" destroy "$PAIR" >/dev/null 2>&1 || status=1
     rm -rf -- "$SITE1" "$SITE2" || status=1
   fi
@@ -59,7 +107,7 @@ cleanup() {
   # The final list is evidence that this script did not leave its pair alive.
   local list
   list="$(bash "$ROOT/sandbox/bin/pair.sh" list 2>&1)" || status=1
-  if grep -Fq "duo-${PAIR}" <<<"$list"; then
+  if pair_list_has_exact "$PAIR" <<<"$list"; then
     printf 'FAIL: cleanup left pair %s running:\n%s\n' "$PAIR" "$list" >&2
     status=1
   fi
@@ -67,6 +115,14 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
+
+# Zero-allocation parser regression for the safety boundary above.  It is kept
+# opt-in so normal live runs exercise the same self-check in their preflight.
+if [ "${DUO3324_SELF_TEST_PAIR_PARSER:-0}" = 1 ]; then
+  assert_pair_list_parser
+  pass "exact bare pair-list parser rejects project/prefix lookalikes"
+  exit 0
+fi
 
 extract_final_json() { # extract_final_json <mixed-output-file> <receipt-file>
   php -r '
@@ -158,12 +214,16 @@ php -l "$PROVIDER" >/dev/null || fail "provider PHP syntax failed"
 bash -n "$0" || fail "live harness shell syntax failed"
 bash -n "$ROOT/sandbox/bin/pair.sh" || fail "pair lifecycle shell syntax failed"
 git diff --check || fail "working tree has whitespace errors"
+assert_pair_list_parser
+if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  fail "fixture image '$IMAGE' already exists; refusing to overwrite or delete an image not created by this run"
+fi
 pass "shell/PHP/static checks pass before pair creation"
 
 # Never take over an occupied namespace. Pair directories are likewise
 # intentionally rejected rather than reset: only the creator may destroy it.
 PAIR_LIST="$(bash "$ROOT/sandbox/bin/pair.sh" list)" || fail "could not inspect pair budget/state"
-if grep -Fq "duo-${PAIR}" <<<"$PAIR_LIST"; then
+if pair_list_has_exact "$PAIR" <<<"$PAIR_LIST"; then
   fail "owned pair name '$PAIR' is already live; refusing to touch it"
 fi
 if [ -e "$SITE1" ] || [ -e "$SITE2" ]; then
@@ -335,6 +395,10 @@ run_duo_json attach-reap "$ATTACH_REAP" env reap branchattach --format=json
 assert_receipt "$ATTACH_REAP" duo-branch-environment-reap/v1 detached
 grep -Fxq detach <<<"$(provider_actions)" || fail "attached target was not detached by the provider"
 if grep -Fxq destroy <<<"$(provider_actions)"; then fail "attached target was incorrectly destroyed"; fi
+[ "$(source_dump_hash after-attach-reap)" = "$SOURCE_DB_BEFORE" ] \
+  || fail "source database changed during attached target reap"
+[ "$(docker exec "$SOURCE_CONTAINER" sha256sum /var/www/html/wp-content/uploads/duo3324/source-media.txt | awk '{print $1}')" = "$SOURCE_MEDIA_BEFORE" ] \
+  || fail "source media changed during attached target reap"
 pass "attach cleanup is an exact detach, never destroy"
 
 say "publish a TTL, prove changed-TTL reap refusal, then restore exact lease and detach"
@@ -374,11 +438,12 @@ fi
 pass "explicit create is distinct from attach and destroy clears only its owned target resource"
 
 say "final exact pair teardown and resource audit"
+assert_owned_pair_unpaused || fail "fixture left an owned source or target web container paused"
 bash "$ROOT/sandbox/bin/pair.sh" destroy "$PAIR"
 PAIR_OWNED=0
 rm -rf -- "$SITE1" "$SITE2"
 FINAL_LIST="$(bash "$ROOT/sandbox/bin/pair.sh" list)"
-if grep -Fq "duo-${PAIR}" <<<"$FINAL_LIST"; then
+if pair_list_has_exact "$PAIR" <<<"$FINAL_LIST"; then
   fail "final pair audit still lists $PAIR"
 fi
 pass "all pair containers, volumes, databases, site repositories, fixture state, and image are cleanup-owned"
