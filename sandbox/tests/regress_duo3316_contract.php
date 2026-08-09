@@ -56,6 +56,7 @@ foreach ([
 }
 
 use Duo\Canon;
+use Duo\JsonRefs;
 use Duo\OptionState;
 use Duo\Policy;
 use Duo\RepositoryCompiler;
@@ -418,6 +419,32 @@ check(
         && $policy->taxonomy_object_keyspace('dks_post_relation') === 'post'
         && $policy->taxonomy_object_keyspace('dks_pattern_relation') === 'term',
     'normal Policy::load resolves exact and taxonomy_patterns object_keyspaces'
+);
+
+$liveSidecarManifest = json_decode(
+    (string) file_get_contents(__DIR__ . '/fixtures/duo-sidecar-refs/manifest.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+$listRule = $liveSidecarManifest['tables']['dks_entry_meta']['keys']['payload']['json_refs'][1] ?? null;
+$listPayload = ['nested' => [['term_id' => 4]]];
+$listMatches = [];
+if (is_array($listRule) && is_string($listRule['path'] ?? null)) {
+    JsonRefs::walk(
+        $listPayload,
+        JsonRefs::parse_path($listRule['path']),
+        static function (&$container, $key, string $locator) use (&$listMatches): void {
+            $listMatches[] = $locator;
+            $container[$key] = '{{term:fixture}}';
+        },
+        ''
+    );
+}
+check(
+    ($listPayload['nested'][0]['term_id'] ?? null) === '{{term:fixture}}'
+        && $listMatches === ['.nested[0].term_id'],
+    'the live attached-sidecar fixture uses array-transparent JSON-path semantics for nested list references'
 );
 
 echo "\n== normal/frozen policy loads ==\n";

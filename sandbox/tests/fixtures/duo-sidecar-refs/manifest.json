@@ -24,7 +24,7 @@
           "class": "authored",
           "json_refs": [
             {"kind": "post", "path": "$.post_id"},
-            {"kind": "term", "path": "$.nested.*.term_id"}
+            {"kind": "term", "path": "$.nested.term_id"}
           ],
           "key_refs": {"kind": "term", "path": "$.by_term"}
         },
