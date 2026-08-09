@@ -2420,7 +2420,18 @@ final class AdapterSources {
                 . self::SITE_DIR . '/' . self::CERTIFICATION_DIR . ' directory'
             );
         }
-        foreach (scandir($dir) ?: [] as $entry) {
+        if (!is_readable($dir)) {
+            throw new \RuntimeException(
+                "duo: site adapter certification source $dir is not readable — authority-bearing bytes cannot be treated as absent"
+            );
+        }
+        $entries = @scandir($dir);
+        if ($entries === false) {
+            throw new \RuntimeException(
+                "duo: site adapter certification source $dir could not be enumerated — authority-bearing bytes cannot be treated as absent"
+            );
+        }
+        foreach ($entries as $entry) {
             if ($entry === '.' || $entry === '..') {
                 continue;
             }
@@ -2463,7 +2474,13 @@ final class AdapterSources {
             $adapterNames[basename($file, '.json')] = true;
         }
         $out = [];
-        foreach (glob($dir . '/*.json') ?: [] as $file) {
+        $files = glob($dir . '/*.json');
+        if ($files === false) {
+            throw new \RuntimeException(
+                "duo: site adapter certification source $dir could not be enumerated — authority-bearing bytes cannot be treated as absent"
+            );
+        }
+        foreach ($files as $file) {
             $name = basename($file, '.json');
             if (!isset($adapterNames[$name])) {
                 $folded = self::casefold($name);

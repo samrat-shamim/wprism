@@ -917,6 +917,104 @@ echo "\n== P10: symlinked publication roots fail closed ==\n";
 
 // ======================================================================
 echo "\n";
+
+// ======================================================================
+// P11 — strict first-publication ownership and compensation
+// ======================================================================
+echo "\n== P11: strict first-publication ownership ==\n";
+{
+    $root = fresh_root('initial_lock_identity');
+    $stateDir = "$root/state";
+    $lock = Publish::lock_new($stateDir);
+    Publish::assert_lock_path($lock, $stateDir);
+    unlink(Publish::lock_path($stateDir));
+    Canon::write_file(Publish::lock_path($stateDir), "foreign-lock\n");
+    $lockFailure = null;
+    try {
+        Publish::assert_lock_path($lock, $stateDir);
+    } catch (Throwable $t) {
+        $lockFailure = $t;
+    }
+    check($lockFailure instanceof RuntimeException, 'P11a: detached flock inode is refused before publication');
+    check(file_get_contents(Publish::lock_path($stateDir)) === "foreign-lock\n", 'P11a: replacement lock bytes are preserved');
+    Publish::unlock($lock);
+
+    $root = fresh_root('initial_stage_manifest');
+    $stateDir = "$root/state";
+    $staging = Publish::stage_dir($stateDir);
+    $manifest = Publish::write_entities_fresh($staging, [
+        ['path' => 'options/core.json', 'content' => "{}\n"],
+        ['path' => 'posts/a.json', 'content' => "{\"a\":1}\n"],
+    ]);
+    Publish::assert_owned_tree($staging, $manifest, 'strict staging fixture');
+    $original = "$staging/options/core.json.original";
+    rename("$staging/options/core.json", $original);
+    Canon::write_file("$staging/options/core.json", "{}\n");
+    $replaceFailure = null;
+    try {
+        Publish::remove_owned_tree($staging, $manifest, 'strict staging fixture');
+    } catch (Throwable $t) {
+        $replaceFailure = $t;
+    }
+    check($replaceFailure instanceof RuntimeException, 'P11b: same-byte inode replacement blocks recursive compensation');
+    check(is_file("$staging/options/core.json") && is_file($original), 'P11b: both replacement and retained evidence survive refusal');
+
+    $root = fresh_root('initial_stage_injection');
+    $stateDir = "$root/state";
+    $staging = Publish::stage_dir($stateDir);
+    $manifest = Publish::write_entities_fresh($staging, [
+        ['path' => 'options/core.json', 'content' => "{}\n"],
+    ]);
+    Canon::write_file("$staging/foreign-sentinel", "must-survive\n");
+    $injectFailure = null;
+    try {
+        Publish::remove_owned_tree($staging, $manifest, 'strict staging fixture');
+    } catch (Throwable $t) {
+        $injectFailure = $t;
+    }
+    check($injectFailure instanceof RuntimeException, 'P11c: injected child blocks recursive compensation');
+    check(file_get_contents("$staging/foreign-sentinel") === "must-survive\n", 'P11c: injected child is never deleted');
+
+    $root = fresh_root('initial_media_parent');
+    $media = "$root/media";
+    mkdir($media);
+    $mediaManifest = Publish::tree_ownership_manifest($media);
+    rename($media, "$root/original-media");
+    mkdir($media);
+    Canon::write_file("$media/sentinel", "must-survive\n");
+    $mediaFailure = null;
+    try {
+        Publish::write_file_fresh("$media/blob", "blob\n", 'media fixture', $mediaManifest['root']);
+    } catch (Throwable $t) {
+        $mediaFailure = $t;
+    }
+    check($mediaFailure instanceof RuntimeException, 'P11d: replacement media root refuses before writing a blob');
+    check(!file_exists("$media/blob") && file_get_contents("$media/sentinel") === "must-survive\n", 'P11d: replacement media root receives no Duo bytes');
+
+    $root = fresh_root('initial_state_swap');
+    $stateDir = "$root/state";
+    mkdir($stateDir);
+    $stateManifest = Publish::tree_ownership_manifest($stateDir);
+    $staging = Publish::stage_dir($stateDir);
+    $stagingManifest = Publish::write_entities_fresh($staging, [
+        ['path' => 'options/core.json', 'content' => "{}\n"],
+    ]);
+    rename($stateDir, "$root/original-state");
+    mkdir($stateDir);
+    Canon::write_file("$stateDir/foreign-sentinel", "must-survive\n");
+    $swapFailure = null;
+    try {
+        Publish::swap_initial($stateDir, $stateManifest, $stagingManifest);
+    } catch (Throwable $t) {
+        $swapFailure = $t;
+    }
+    check($swapFailure instanceof RuntimeException, 'P11e: foreign state substitution blocks the initial swap');
+    check(file_get_contents("$stateDir/foreign-sentinel") === "must-survive\n", 'P11e: foreign state remains at its canonical path');
+    check(is_dir($staging), 'P11e: verified candidate remains staged for inspection');
+}
+
+// ======================================================================
+echo "\n";
 if ($failures > 0) {
     echo "FAIL: $failures check(s) failed\n";
     exit(1);

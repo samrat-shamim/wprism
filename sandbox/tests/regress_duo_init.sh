@@ -744,6 +744,7 @@ grep -q 'not a code-and-database rollback checkpoint' <<<"$OUT" || fail "init ov
 grep -q 'Managed state scope is clean' <<<"$OUT" || fail "init did not state the bounded clean result"
 grep -q 'Coverage outside the selected adapters remains advisory' <<<"$OUT" || fail "init claimed whole-site completeness"
 grep -q 'active_theme_code_only' <<<"$OUT" || fail "init hid the active theme code-only state advisory"
+grep -q 'repository_external_writer_exclusion' <<<"$OUT" || fail "init hid the non-Duo repository-writer exclusion advisory"
 for needle in branch 'duo capture' 'duo plan' 'duo promote' rollback; do
   grep -q "$needle" <<<"$OUT" || fail "workflow guide omitted $needle"
 done
@@ -789,6 +790,32 @@ say "ordinary public status remains the truth source for the managed scope"
 assert_exit 0 "duo status after init" "${DUO[@]}" status "${PAIR}1"
 grep -q '0 conflict' <<<"$OUT" || fail "clean status did not report zero conflicts"
 grep -q '0 drift' <<<"$OUT" || fail "clean status did not report zero drift"
+
+say "retained post-commit cleanup cannot masquerade as successful init"
+find "$HOST_REPO2" -mindepth 1 -delete
+wp2 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
+RETAINED_PLAN=$(wp2 duo init --repo=/siterepo --format=json)
+RETAINED_DIGEST=$(jq -r .digest <<<"$RETAINED_PLAN")
+set +e
+OUT=$("${COMPOSE[@]}" run --rm -T \
+  -e DUO_TEST_MODE=1 \
+  -e DUO_TEST_PUBLISH_FAIL_PHASE=post-commit-cleanup \
+  cli2 wp duo init --repo=/siterepo --confirm="$RETAINED_DIGEST" --format=json 2>&1)
+CODE=$?
+set -e
+printf '%s\n' "$OUT"
+[ "$CODE" -ne 0 ] || fail "retained post-commit cleanup was reported as successful init"
+[ -f "$HOST_REPO2/state.capture-lock" ] && fail "unexpected misspelled capture-lock artifact"
+[ -f "$HOST_REPO2/state.capture.lock" ] \
+  && [ -f "$HOST_REPO2/state.capture-intent" ] \
+  && [ -f "$HOST_REPO2/state.capture-receipt" ] \
+  && [ -d "$HOST_REPO2/state" ] \
+  || fail "retained cleanup did not preserve its complete recovery tuple and canonical lock"
+assert_exit 0 "ordinary capture completes retained init cleanup" wp2 duo capture --repo=/siterepo --format=json
+[ ! -e "$HOST_REPO2/state.capture-intent" ] && [ ! -e "$HOST_REPO2/state.capture-backup" ] \
+  || fail "ordinary capture did not finish retained init publication cleanup"
+assert_exit 0 "status after retained init cleanup recovery" "${DUO[@]}" status "${PAIR}2"
+pass "retained init cleanup is explicit and the canonical lock remains the recovery rendezvous"
 
 ELAPSED=$((SECONDS - STARTED_AT))
 [ "$ELAPSED" -le 900 ] || fail "golden path exceeded 15 minutes (${ELAPSED}s)"

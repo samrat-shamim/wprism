@@ -30,7 +30,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-frozen-materialization-promotion \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
-	regress-post-field-classification regress-capability-registry regress-woocommerce-contract regress-duo3316-contract \
+	regress-post-field-classification regress-capability-registry regress-capability-registry-import regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
 	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-scope-contract regress-conformance-asserts \
 	capability-registry-generate release-gate
@@ -301,6 +301,9 @@ regress-manifest-dispositions:
 
 regress-capability-registry:
 	bash sandbox/tests/regress_capability_registry.sh
+
+regress-capability-registry-import:
+	bash sandbox/tests/regress_capability_registry_import.sh
 
 regress-adapter-sources:
 	bash sandbox/tests/regress_adapter_sources.sh
@@ -895,7 +898,7 @@ regress-user-meta:
 # suites, followed by lifecycle/rebuild effect contracts and DUO-3299's
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all: code-half-unit \
-	regress-adopt-rollback regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-manifest-dispositions regress-capability-registry regress-certification-bundle regress-interpreter-policy \
+	regress-adopt-rollback regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-manifest-dispositions regress-capability-registry regress-capability-registry-import regress-certification-bundle regress-interpreter-policy \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan \
 	regress-order-preserving \
 	regress-block-refs regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-materializer regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion \
@@ -911,7 +914,7 @@ regress-offline-all: code-half-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract regress-conformance-asserts
-	@echo "regress-offline-all: 97 offline suites green"
+	@echo "regress-offline-all: 98 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

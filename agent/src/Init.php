@@ -36,7 +36,12 @@ final class Init {
     }
 
     /** @return array<string,mixed> */
-    private static function proposal_bound(string $repo, string $logicalRepo, string $rootIdentity): array {
+    private static function proposal_bound(
+        string $repo,
+        string $logicalRepo,
+        string $rootIdentity,
+        bool $ownsCaptureLock = false
+    ): array {
         global $wpdb;
         if (!is_object($wpdb)) {
             throw new \RuntimeException('duo: init requires a loaded WordPress database connection');
@@ -45,6 +50,7 @@ final class Init {
         $git = self::git_probe($repo);
         $ledger = self::ledger_probe();
         $existing = self::existing_config($repo);
+        $gitignoreIdentity = self::owned_file_boundary_identity($repo . '/.gitignore', '.gitignore');
         $manifests = self::installed_manifests($repo);
         $activePlugins = array_values(array_filter(
             (array) get_option('active_plugins', []),
@@ -53,7 +59,13 @@ final class Init {
 
         $selected = ['core'];
         $unsupported = [];
-        $advisories = [];
+        $advisories = [[
+            'code' => 'repository_external_writer_exclusion',
+            'extension' => $logicalRepo,
+            'kind' => 'repository',
+            'reason' => 'the init lease and capture lock serialize Duo writers only; first publication requires every non-Duo writer to remain quiescent across the repository namespace',
+            'remediation' => 'pause package managers, self-updaters, Git or shell automation, and any process that can write .git, code, media, state, or state.capture* until init or retained recovery finishes',
+        ]];
         $byPlugin = [];
         $byTheme = [];
         foreach ($manifests as $name => $manifest) {
@@ -295,6 +307,16 @@ final class Init {
                 'remediation' => 'preserve and review the receipt with its original state/ledger history; initialize a genuinely empty repository instead',
             ];
         }
+        $captureLock = $repo . '/state.capture.lock';
+        if (!$ownsCaptureLock && (file_exists($captureLock) || is_link($captureLock))) {
+            $unsupported[] = [
+                'code' => 'existing_capture_lock',
+                'extension' => 'state.capture.lock',
+                'kind' => 'repository',
+                'reason' => 'the repository already contains a capture-lock boundary that first init does not own',
+                'remediation' => 'verify no publisher uses the repository, preserve any forensic bytes, and initialize an empty repository',
+            ];
+        }
         if ($ledger['rows'] > 0) {
             $unsupported[] = [
                 'code' => 'existing_duo_ledger',
@@ -328,11 +350,13 @@ final class Init {
                 'adapters' => $adapterRows,
                 'baseline' => 'capture-consistent-snapshot',
                 'config' => $config,
+                'config_identity' => $existing['identity'],
                 'existing_config' => $existing['mode'],
                 'media' => $media,
                 'repository' => $logicalRepo,
                 'repository_identity' => $rootIdentity,
                 'git' => ['mode' => $git['mode'], 'version' => $git['version']],
+                'gitignore_identity' => $gitignoreIdentity,
                 'ledger' => ['rows' => $ledger['rows'], 'tables' => $ledger['tables']],
                 'risk_surfaces' => $risks,
             ],
@@ -378,20 +402,29 @@ final class Init {
         // absent config before the filesystem capture lock can exist.
         $lease = self::acquire_init_lease($logicalRepo);
         $publicationLock = null;
-        $lockPathExisted = false;
         $lockOwnedAndCreated = false;
+        $lockPublication = null;
+        $retainPublicationLock = false;
         $succeeded = false;
         $previousCwd = null;
         $rootStat = null;
         $repo = null;
         $gitCreated = false;
-        $gitignoreWritten = false;
-        $previousGitignore = null;
+        $gitIdentity = null;
+        $gitRootIdentity = null;
+        $gitignorePublication = null;
         $siteFile = null;
-        $previous = null;
+        $sitePublication = null;
         $publishedCode = false;
+        $codeRootCreated = false;
+        $codeRootEmptyIdentity = null;
+        $publishedCodeIdentity = null;
         $stagedCode = null;
+        $stagedCodeIdentity = null;
         $mediaCreated = false;
+        $mediaIdentity = null;
+        $stateReserved = false;
+        $stateIdentity = null;
         try {
             if (getenv('DUO_TEST_MODE') === '1') {
                 $pauseMs = (int) (getenv('DUO_TEST_INIT_PAUSE_MS') ?: 0);
@@ -415,55 +448,107 @@ final class Init {
             }
             $stateDir = $repo . '/state';
             $lockPath = Publish::lock_path($stateDir);
-            self::assert_regular_file_or_absent($lockPath, 'state.capture.lock');
-            $lockPathExisted = file_exists($lockPath);
-            $publicationLock = Publish::lock($stateDir);
-            $lockOwnedAndCreated = !$lockPathExisted;
+            self::assert_absent_owned_path($lockPath, 'state.capture.lock');
+            $publicationLock = Publish::lock_new($stateDir);
+            $lockOwnedAndCreated = true;
+            Publish::assert_lock_path($publicationLock, $stateDir);
+            $lockPublication = [
+                'previous' => null,
+                'published' => self::regular_file_identity($lockPath, 'state.capture.lock'),
+            ];
             self::assert_repository_binding($logicalRepo, $rootStat);
+            Publish::assert_lock_path($publicationLock, $stateDir);
 
             // Recompute while BOTH the init advisory lease and the shared
             // state publication lock are held. The operator confirms facts,
             // never a mutable config payload; neither a second init nor an
             // ordinary capture can publish between this recheck and commit.
-            $proposal = self::proposal_bound($repo, $logicalRepo, $binding['identity']);
+            $proposal = self::proposal_bound($repo, $logicalRepo, $binding['identity'], true);
             self::assert_confirmed_proposal($proposal, $expectedDigest);
 
             if (($proposal['state']['git']['mode'] ?? null) === 'initialize-on-confirm') {
+                Publish::assert_lock_path($publicationLock, $stateDir);
                 self::assert_repository_binding($logicalRepo, $rootStat);
+                self::assert_absent_owned_path($repo . '/.git', 'Git metadata root');
+                if (!mkdir($repo . '/.git', 0775)) {
+                    throw new \RuntimeException('duo: could not reserve the target Git metadata root');
+                }
                 $gitCreated = true;
+                $gitRootIdentity = self::directory_inode_identity($repo . '/.git', 'Git metadata root');
+                self::assert_directory_inode($repo . '/.git', $gitRootIdentity, 'Git metadata root');
                 self::initialize_git($repo);
+                self::assert_directory_inode($repo . '/.git', $gitRootIdentity, 'Git metadata root');
+                $gitIdentity = self::directory_identity($repo . '/.git', 'Git metadata root');
+                if (getenv('DUO_TEST_MODE') === '1'
+                    && getenv('DUO_TEST_INIT_FAIL_AFTER_GIT_CREATE') === '1') {
+                    throw new \RuntimeException('duo: injected init failure after Git metadata creation');
+                }
             }
-            [$previousGitignore, $gitignoreWritten] = self::ensure_gitignore($repo);
+            $gitignorePublication = self::ensure_gitignore(
+                $repo,
+                (string) ($proposal['state']['gitignore_identity'] ?? '')
+            );
 
             self::assert_repository_binding($logicalRepo, $rootStat);
-            self::assert_regular_file_or_absent($siteFile, 'site.duo.json');
-            $previous = is_file($siteFile) ? Canon::read_file($siteFile) : null;
-            [$descriptor, $stagedCode] = self::capture_code($repo, $proposal['code']);
-            $codeStage = $repo . '/.duo-init-code-root-' . bin2hex(random_bytes(8));
-            if (!mkdir($codeStage, 0775, true) && !is_dir($codeStage)) {
-                throw new \RuntimeException("duo: could not create code publication stage $codeStage");
-            }
-            if (!rename($stagedCode, $codeStage . '/wp-content')) {
-                self::remove_tree($codeStage);
-                throw new \RuntimeException('duo: could not assemble the verified code baseline');
-            }
-            $stagedCode = $codeStage;
+            Publish::assert_lock_path($publicationLock, $stateDir);
+            [$descriptor, $stagedCode, $stagedCodeIdentity] = self::capture_code($repo, $proposal['code']);
             $codeRoot = $repo . '/code';
             self::assert_repository_binding($logicalRepo, $rootStat);
             self::assert_absent_owned_path($codeRoot, 'code publication root');
-            if (!rename($stagedCode, $codeRoot)) {
-                throw new \RuntimeException('duo: could not publish the verified code baseline');
+            if (!mkdir($codeRoot, 0700)) {
+                throw new \RuntimeException('duo: could not reserve the code publication root');
+            }
+            $codeRootCreated = true;
+            $codeRootIdentity = self::directory_inode_identity($codeRoot, 'code publication root');
+            $codeRootEmptyIdentity = self::directory_identity($codeRoot, 'code publication root');
+            self::assert_directory_inode($codeRoot, $codeRootIdentity, 'code publication root');
+            self::assert_absent_owned_path($codeRoot . '/wp-content', 'code baseline child');
+            if (!hash_equals(
+                (string) $stagedCodeIdentity,
+                self::directory_identity($stagedCode, 'code capture staging directory')
+            )) {
+                throw new \RuntimeException('duo: verified code staging changed before publication');
+            }
+            if (!rename($stagedCode, $codeRoot . '/wp-content')) {
+                throw new \RuntimeException('duo: could not publish the verified code baseline into its reserved root');
             }
             $stagedCode = null;
+            $stagedCodeIdentity = null;
             $publishedCode = true;
-            self::write_owned_file($siteFile, Canon::encode($proposal['state']['config']), 'site.duo.json');
+            @chmod($codeRoot, 0775);
+            self::assert_directory_inode($codeRoot, $codeRootIdentity, 'code publication root');
+            $publishedDescriptor = Code::descriptor_from_source($codeRoot . '/wp-content');
+            if (Canon::encode($publishedDescriptor) !== Canon::encode($descriptor)) {
+                throw new \RuntimeException('duo: published code baseline differs from its reviewed descriptor');
+            }
+            $publishedCodeIdentity = self::directory_identity($codeRoot, 'code publication root');
+            if (getenv('DUO_TEST_MODE') === '1') {
+                $pauseMs = (int) (getenv('DUO_TEST_INIT_CONFIG_PAUSE_MS') ?: 0);
+                if ($pauseMs > 0 && $pauseMs <= 10000) {
+                    usleep($pauseMs * 1000);
+                }
+            }
+            $sitePublication = self::publish_owned_file(
+                $siteFile,
+                Canon::encode($proposal['state']['config']),
+                (string) ($proposal['state']['config_identity'] ?? ''),
+                'site.duo.json'
+            );
             Policy::load($repo);
+            Publish::assert_lock_path($publicationLock, $stateDir);
             $mediaDir = $repo . '/media';
             self::assert_absent_owned_path($mediaDir, 'media publication root');
-            if (!mkdir($mediaDir, 0775, true) && !is_dir($mediaDir)) {
+            if (!mkdir($mediaDir, 0775)) {
                 throw new \RuntimeException("duo: could not create media publication root $mediaDir");
             }
             $mediaCreated = true;
+            $mediaIdentity = self::directory_identity($mediaDir, 'media publication root');
+            self::assert_absent_owned_path($stateDir, 'initial state reservation');
+            if (!mkdir($stateDir, 0775)) {
+                throw new \RuntimeException('duo: could not reserve the initial state publication root');
+            }
+            $stateReserved = true;
+            $stateIdentity = self::directory_identity($stateDir, 'initial state reservation');
             if (getenv('DUO_TEST_MODE') === '1') {
                 $pauseMs = (int) (getenv('DUO_TEST_INIT_PUBLICATION_PAUSE_MS') ?: 0);
                 if ($pauseMs > 0 && $pauseMs <= 10000) {
@@ -471,7 +556,64 @@ final class Init {
                 }
             }
             self::assert_repository_binding($logicalRepo, $rootStat);
-            $capture = Capture::run_initial_baseline($repo, $publicationLock);
+            Publish::assert_lock_path($publicationLock, $stateDir);
+            if (!hash_equals(
+                (string) $lockPublication['published'],
+                self::regular_file_identity($lockPath, 'state.capture.lock')
+            )) {
+                throw new \RuntimeException('duo: init capture lock pathname no longer names the held lock inode');
+            }
+            if (!hash_equals(
+                (string) $sitePublication['published'],
+                self::regular_file_identity($siteFile, 'site.duo.json')
+            )) {
+                throw new \RuntimeException('duo: init site.duo.json changed before initial capture');
+            }
+            if (is_array($gitignorePublication) && !hash_equals(
+                (string) $gitignorePublication['published'],
+                self::regular_file_identity($repo . '/.gitignore', '.gitignore')
+            )) {
+                throw new \RuntimeException('duo: init .gitignore changed before initial capture');
+            }
+            $reviewedGitignore = (string) ($proposal['state']['gitignore_identity'] ?? '');
+            if (!is_array($gitignorePublication)
+                && !hash_equals(
+                    $reviewedGitignore,
+                    self::owned_file_boundary_identity($repo . '/.gitignore', '.gitignore')
+                )) {
+                throw new \RuntimeException('duo: init .gitignore changed before initial capture');
+            }
+            if (!hash_equals(
+                (string) $publishedCodeIdentity,
+                self::directory_identity($codeRoot, 'code publication root')
+            )) {
+                throw new \RuntimeException('duo: init code root changed before initial capture');
+            }
+            if (!hash_equals(
+                (string) $mediaIdentity,
+                self::directory_identity($mediaDir, 'media publication root')
+            )) {
+                throw new \RuntimeException('duo: init media root changed before initial capture');
+            }
+            if ($gitCreated && !hash_equals(
+                (string) $gitIdentity,
+                self::directory_identity($repo . '/.git', 'Git metadata root')
+            )) {
+                throw new \RuntimeException('duo: init Git metadata changed before initial capture');
+            }
+            $capture = Capture::run_initial_baseline(
+                $repo,
+                $publicationLock,
+                (string) $stateIdentity,
+                (string) $mediaIdentity,
+                (string) ($sitePublication['published'] ?? '')
+            );
+            $stateReserved = false;
+            if (($capture['initial_publication_cleanup'] ?? null) !== 'clean') {
+                throw new \RuntimeException(
+                    'duo: init baseline committed but publication cleanup was retained; recover the durable receipt before declaring initialization complete'
+                );
+            }
             $revisionHash = (string) ($capture['revision_hash'] ?? '');
             $codeBaseline = $capture['initial_code_baseline'] ?? null;
             if (!preg_match('/^[0-9a-f]{64}$/', $revisionHash)
@@ -488,6 +630,14 @@ final class Init {
             if ($finalGit['mode'] !== 'existing-worktree' || $finalGit['blockers'] !== []) {
                 throw new \RuntimeException(
                     'duo: init baseline committed, but the target Git worktree changed before final verification'
+                );
+            }
+            if (!hash_equals(
+                (string) $publishedCodeIdentity,
+                self::directory_identity($codeRoot, 'code publication root')
+            ) || Canon::encode(Code::descriptor_from_source($codeRoot . '/wp-content')) !== Canon::encode($descriptor)) {
+                throw new \RuntimeException(
+                    'duo: init baseline committed, but the code tree changed before final verification'
                 );
             }
             self::assert_repository_binding($logicalRepo, $rootStat);
@@ -525,9 +675,17 @@ final class Init {
             // complete set for deterministic recovery instead of creating a
             // ghost baseline. All failures before that boundary are fully
             // compensated below while both leases remain held.
-            $crossedPublication = is_dir($repo . '/state')
-                || file_exists(Publish::intent_path($repo . '/state'));
+            $hasIntent = file_exists(Publish::intent_path($repo . '/state'));
+            $hasReceipt = file_exists(Publish::receipt_path($repo . '/state'));
+            $boundaryRefusal = $error instanceof InitialStateBoundaryException
+                && !$hasIntent && !$hasReceipt;
+            $crossedPublication = !$boundaryRefusal && (
+                !$stateReserved && is_dir($repo . '/state')
+                || $hasIntent
+                || $hasReceipt
+            );
             if ($crossedPublication) {
+                $retainPublicationLock = true;
                 throw new \RuntimeException(
                     'duo: init publication crossed its durable receipt boundary; retained config, code, state, and ledger together for recovery: '
                     . $error->getMessage(),
@@ -535,48 +693,56 @@ final class Init {
                     $error
                 );
             }
-            if (is_string($stagedCode) && file_exists($stagedCode)) {
-                self::remove_tree($stagedCode);
+            if (is_string($stagedCode) && is_string($stagedCodeIdentity)
+                && (file_exists($stagedCode) || is_link($stagedCode))) {
+                self::remove_owned_tree($stagedCode, $stagedCodeIdentity, 'code staging root');
             }
-            if ($mediaCreated && (file_exists($repo . '/media') || is_link($repo . '/media'))) {
-                self::remove_tree($repo . '/media');
+            if ($mediaCreated && is_string($mediaIdentity)
+                && (file_exists($repo . '/media') || is_link($repo . '/media'))) {
+                self::remove_owned_tree($repo . '/media', $mediaIdentity, 'media publication root');
             }
-            if ($publishedCode && (file_exists($repo . '/code') || is_link($repo . '/code'))) {
-                self::remove_tree($repo . '/code');
+            if ($stateReserved && is_string($stateIdentity)
+                && is_dir($repo . '/state')
+                && hash_equals($stateIdentity, self::directory_identity($repo . '/state', 'initial state reservation'))) {
+                self::remove_owned_tree($repo . '/state', $stateIdentity, 'initial state reservation');
             }
-            if ($previous === null) {
-                if (is_string($siteFile)) {
-                    @unlink($siteFile);
-                }
-            } else {
+            if ($publishedCode && is_string($publishedCodeIdentity)
+                && (file_exists($repo . '/code') || is_link($repo . '/code'))) {
+                self::remove_owned_tree($repo . '/code', $publishedCodeIdentity, 'code publication root');
+            } elseif ($codeRootCreated && is_string($codeRootEmptyIdentity)
+                && (file_exists($repo . '/code') || is_link($repo . '/code'))) {
+                self::remove_owned_tree($repo . '/code', $codeRootEmptyIdentity, 'empty code publication root');
+            }
+            if (is_array($sitePublication)) {
                 try {
-                    self::write_owned_file($siteFile, $previous, 'site.duo.json');
+                    self::compensate_owned_file($siteFile, $sitePublication, 'site.duo.json');
                 } catch (\Throwable $restoreError) {
                     throw new \RuntimeException(
-                        $error->getMessage() . "\nduo: init could not restore the prior site.duo.json: " . $restoreError->getMessage(),
+                        $error->getMessage() . "\nduo: init could not compensate its site.duo.json publication: " . $restoreError->getMessage(),
                         0,
                         $error
                     );
                 }
             }
-            if ($gitignoreWritten) {
-                $gitignore = $repo . '/.gitignore';
-                if ($previousGitignore === null) {
-                    @unlink($gitignore);
-                } else {
-                    self::write_owned_file($gitignore, $previousGitignore, '.gitignore');
-                }
+            if (is_array($gitignorePublication)) {
+                self::compensate_owned_file($repo . '/.gitignore', $gitignorePublication, '.gitignore');
             }
-            if ($gitCreated && (file_exists($repo . '/.git') || is_link($repo . '/.git'))) {
-                self::remove_tree($repo . '/.git');
+            if ($gitCreated && is_string($gitIdentity)
+                && (file_exists($repo . '/.git') || is_link($repo . '/.git'))) {
+                self::remove_owned_tree($repo . '/.git', $gitIdentity, 'Git metadata root');
             }
             throw $error;
         } finally {
+            if (!$succeeded && !$retainPublicationLock && $lockOwnedAndCreated
+                && is_array($lockPublication) && is_resource($publicationLock)) {
+                self::compensate_owned_file(
+                    Publish::lock_path($repo . '/state'),
+                    $lockPublication,
+                    'state.capture.lock'
+                );
+            }
             if (is_resource($publicationLock)) {
                 Publish::unlock($publicationLock);
-            }
-            if (!$succeeded && $lockOwnedAndCreated) {
-                @unlink(Publish::lock_path($repo . '/state'));
             }
             if ($previousCwd !== null && !@chdir($previousCwd)) {
                 self::release_init_lease($lease);
@@ -603,16 +769,17 @@ final class Init {
         return $out;
     }
 
-    /** @return array{mode:string} */
+    /** @return array{mode:string,identity:string} */
     private static function existing_config(string $repo): array {
         $file = $repo . '/site.duo.json';
         if (is_link($file) || (file_exists($file) && !is_file($file))) {
-            return ['mode' => 'unsafe'];
+            return ['mode' => 'unsafe', 'identity' => 'unsafe'];
         }
         if (!is_file($file)) {
-            return ['mode' => 'absent'];
+            return ['mode' => 'absent', 'identity' => 'absent'];
         }
-        $data = Canon::decode(Canon::read_file($file));
+        $raw = Canon::read_file($file);
+        $data = Canon::decode($raw);
         $seed = [
             'manifests' => ['core'],
             'policy' => [
@@ -622,7 +789,10 @@ final class Init {
             ],
             'spec_version' => DUO_SPEC_VERSION,
         ];
-        return ['mode' => Canon::encode($data) === Canon::encode($seed) ? 'adoption-seed' : 'owned'];
+        return [
+            'mode' => Canon::encode($data) === Canon::encode($seed) ? 'adoption-seed' : 'owned',
+            'identity' => self::regular_file_identity($file, 'site.duo.json'),
+        ];
     }
 
     /** @param array<string,mixed> $proposal */
@@ -871,10 +1041,11 @@ final class Init {
             ];
             return ['mode' => 'invalid', 'version' => $version, 'blockers' => $blockers];
         }
-        if (is_link($repo . '/.gitignore')) {
+        if (is_link($repo . '/.gitignore')
+            || (file_exists($repo . '/.gitignore') && !is_file($repo . '/.gitignore'))) {
             $blockers[] = [
                 'code' => 'unsafe_gitignore', 'extension' => '.gitignore', 'kind' => 'repository',
-                'reason' => 'the repository ignore file is a symbolic link',
+                'reason' => 'the repository ignore path is not an ordinary regular file',
                 'remediation' => 'replace it with an ordinary repository-owned file',
             ];
         }
@@ -950,23 +1121,22 @@ final class Init {
 
     private static function initialize_git(string $repo): void {
         $result = self::run_process(['git', 'init', '--initial-branch=main', $repo]);
-        if (getenv('DUO_TEST_MODE') === '1'
-            && getenv('DUO_TEST_INIT_FAIL_AFTER_GIT_CREATE') === '1'
-            && (file_exists($repo . '/.git') || is_link($repo . '/.git'))) {
-            throw new \RuntimeException('duo: injected init failure after Git metadata creation');
-        }
         if ($result['exit'] !== 0 || self::git_probe($repo)['mode'] !== 'existing-worktree') {
             throw new \RuntimeException('duo: init could not create and verify the target Git worktree');
         }
     }
 
-    /** @return array{0:?string,1:bool} previous bytes and whether a write occurred */
-    private static function ensure_gitignore(string $repo): array {
+    /** @return ?array{previous:?string,published:string} */
+    private static function ensure_gitignore(string $repo, string $expectedIdentity): ?array {
         $path = $repo . '/.gitignore';
         if (is_link($path) || (file_exists($path) && !is_file($path))) {
             throw new \RuntimeException('duo: init refuses a non-file .gitignore boundary');
         }
         $previous = is_file($path) ? Canon::read_file($path) : null;
+        $identity = $previous === null ? 'absent' : self::regular_file_identity($path, '.gitignore');
+        if ($expectedIdentity === '' || !hash_equals($expectedIdentity, $identity)) {
+            throw new \RuntimeException('duo: init .gitignore boundary changed after proposal review');
+        }
         $required = [
             '.tmp*', 'state.capture.lock', 'state.capture-staging/', 'state.capture-backup/',
             'state.capture-intent', 'state.capture-receipt', 'state.capture-intent.tmp.*',
@@ -976,7 +1146,7 @@ final class Init {
         $known = array_fill_keys(is_array($lines) ? $lines : [], true);
         $missing = array_values(array_filter($required, static fn(string $line): bool => !isset($known[$line])));
         if ($missing === []) {
-            return [$previous, false];
+            return null;
         }
         $next = $previous ?? '';
         if ($next !== '' && !str_ends_with($next, "\n")) {
@@ -986,8 +1156,7 @@ final class Init {
             $next .= "\n";
         }
         $next .= "# Duo local publication and environment artifacts\n" . implode("\n", $missing) . "\n";
-        self::write_owned_file($path, $next, '.gitignore');
-        return [$previous, true];
+        return self::publish_owned_file($path, $next, $identity, '.gitignore');
     }
 
     private static function assert_regular_file_or_absent(string $path, string $label): void {
@@ -1002,27 +1171,132 @@ final class Init {
         }
     }
 
-    /** Publish one owned file by replacement, never by following its target. */
-    private static function write_owned_file(string $path, string $content, string $label): void {
-        self::assert_regular_file_or_absent($path, $label);
+    private static function regular_file_identity(string $path, string $label): string {
+        clearstatcache(true, $path);
+        if (is_link($path) || !is_file($path)) {
+            throw new \RuntimeException("duo: init lost ownership of repository-owned $label path $path");
+        }
+        $stat = @lstat($path);
+        $raw = Canon::read_file($path);
+        if (!is_array($stat) || !isset($stat['dev'], $stat['ino'])) {
+            throw new \RuntimeException("duo: init could not identify repository-owned $label path $path");
+        }
+        return 'sha256:' . hash('sha256', Canon::encode([
+            'dev' => (string) $stat['dev'],
+            'ino' => (string) $stat['ino'],
+            'sha256' => hash('sha256', $raw),
+        ]));
+    }
+
+    private static function owned_file_boundary_identity(string $path, string $label): string {
+        if (is_link($path) || (file_exists($path) && !is_file($path))) {
+            return 'unsafe';
+        }
+        return is_file($path) ? self::regular_file_identity($path, $label) : 'absent';
+    }
+
+    /**
+     * Publish a complete file without replacing a raced path. Existing bytes
+     * are first moved to a private claim and verified there; a hard link then
+     * supplies atomic create-if-absent semantics for the new canonical name.
+     *
+     * @return array{previous:?string,published:string}
+     */
+    private static function publish_owned_file(
+        string $path,
+        string $content,
+        string $expectedIdentity,
+        string $label
+    ): array {
         $dir = dirname($path);
         if (is_link($dir) || !is_dir($dir)) {
             throw new \RuntimeException("duo: init refuses unsafe parent for repository-owned $label path $path");
         }
         $tmp = $dir . '/.' . basename($path) . '.duo-init-' . bin2hex(random_bytes(8));
+        $claim = null;
+        $previous = null;
         try {
             Canon::write_file($tmp, $content);
-            self::assert_regular_file_or_absent($path, $label);
-            // rename replaces a raced symlink itself; it never follows the
-            // link to overwrite the external target as file_put_contents does.
-            if (!@rename($tmp, $path)) {
-                throw new \RuntimeException("duo: init could not publish repository-owned $label path $path");
+            if ($expectedIdentity === 'absent') {
+                if (!@link($tmp, $path)) {
+                    throw new \RuntimeException(
+                        "duo: init $label boundary changed after review; a concurrent writer was preserved"
+                    );
+                }
+            } else {
+                if (preg_match('/^sha256:[a-f0-9]{64}$/D', $expectedIdentity) !== 1) {
+                    throw new \RuntimeException("duo: init has no valid reviewed identity for $label");
+                }
+                self::assert_regular_file_or_absent($path, $label);
+                $claim = $dir . '/.' . basename($path) . '.duo-init-previous-' . bin2hex(random_bytes(8));
+                if (!@rename($path, $claim)) {
+                    throw new \RuntimeException("duo: init could not claim the reviewed $label boundary");
+                }
+                if (!hash_equals($expectedIdentity, self::regular_file_identity($claim, $label))) {
+                    self::restore_claimed_file($claim, $path, $label);
+                    $claim = null;
+                    throw new \RuntimeException(
+                        "duo: init $label boundary changed after review; the concurrent bytes were preserved"
+                    );
+                }
+                $previous = Canon::read_file($claim);
+                if (!@link($tmp, $path)) {
+                    self::restore_claimed_file($claim, $path, $label);
+                    $claim = null;
+                    throw new \RuntimeException(
+                        "duo: init $label publication lost its create-if-absent boundary; retained the reviewed bytes"
+                    );
+                }
+                @unlink($claim);
+                $claim = null;
             }
+            return ['previous' => $previous, 'published' => self::regular_file_identity($path, $label)];
         } finally {
             if (is_file($tmp) || is_link($tmp)) {
                 @unlink($tmp);
             }
+            // A non-null claim may contain bytes owned by a concurrent writer.
+            // Never unlink it in generic cleanup; the thrown diagnostic names
+            // the boundary and a human can recover the retained hidden file.
         }
+    }
+
+    private static function restore_claimed_file(string $claim, string $path, string $label): void {
+        if (!is_file($claim) || is_link($claim) || !@link($claim, $path)) {
+            throw new \RuntimeException(
+                "duo: init retained a raced $label boundary at $claim because $path is no longer absent"
+            );
+        }
+        @unlink($claim);
+    }
+
+    /** @param array{previous:?string,published:string} $publication */
+    private static function compensate_owned_file(string $path, array $publication, string $label): void {
+        if (!is_file($path) || is_link($path)
+            || !hash_equals((string) $publication['published'], self::regular_file_identity($path, $label))) {
+            throw new \RuntimeException("duo: init preserved a replacement $label instead of deleting external bytes");
+        }
+        $dir = dirname($path);
+        $claim = $dir . '/.' . basename($path) . '.duo-init-compensate-' . bin2hex(random_bytes(8));
+        if (!@rename($path, $claim)) {
+            throw new \RuntimeException("duo: init could not claim its published $label for compensation");
+        }
+        if (!hash_equals((string) $publication['published'], self::regular_file_identity($claim, $label))) {
+            self::restore_claimed_file($claim, $path, $label);
+            throw new \RuntimeException("duo: init preserved a raced $label during compensation");
+        }
+        $previous = $publication['previous'];
+        if ($previous !== null) {
+            $restore = $dir . '/.' . basename($path) . '.duo-init-restore-' . bin2hex(random_bytes(8));
+            Canon::write_file($restore, $previous);
+            if (!@link($restore, $path)) {
+                throw new \RuntimeException(
+                    "duo: init retained its prior $label at $restore because a concurrent writer owns $path"
+                );
+            }
+            @unlink($restore);
+        }
+        @unlink($claim);
     }
 
     /** @return array{exit:int,stdout:string,stderr:string} */
@@ -1257,7 +1531,7 @@ final class Init {
         return null;
     }
 
-    /** @return array{0:array<string,mixed>,1:string} verified descriptor and unpublished staging root */
+    /** @return array{0:array<string,mixed>,1:string,2:string} descriptor, staging root, ownership identity */
     private static function capture_code(string $repo, array $code): array {
         $blockers = [];
         $inventory = self::code_inventory((array) ($code['roots'] ?? []), (array) ($code['components'] ?? []), $blockers);
@@ -1270,53 +1544,76 @@ final class Init {
         }
 
         $stage = $repo . '/.duo-init-code-' . bin2hex(random_bytes(8));
-        if (!mkdir($stage, 0775, true) && !is_dir($stage)) {
-            throw new \RuntimeException("duo: could not create code capture staging directory $stage");
-        }
+        $stageParent = dirname($stage);
+        $stagePublication = Publish::create_directory_fresh(
+            $stageParent,
+            Publish::directory_ownership_identity($stageParent),
+            basename($stage),
+            0775,
+            'code capture staging directory'
+        );
+        $stageIdentity = self::directory_identity($stage, 'code capture staging directory');
+        $stageRootIdentity = self::directory_inode_identity($stage, 'code capture staging directory');
+        $ownedDirs = ['' => $stagePublication];
         try {
             foreach ((array) ($code['components'] ?? []) as $rootName => $names) {
                 $sourceRoot = (string) (($code['roots'][$rootName] ?? null) ?: '');
                 foreach ((array) $names as $name) {
+                    self::assert_directory_inode($stage, $stageRootIdentity, 'code capture staging directory');
                     self::copy_code_path(
                         rtrim($sourceRoot, '/') . '/' . $name,
-                        $stage . '/' . $rootName . '/' . $name
+                        $stage . '/' . $rootName . '/' . $name,
+                        $stage,
+                        $stageRootIdentity,
+                        $ownedDirs,
+                        $stageIdentity
                     );
                 }
             }
+            self::assert_directory_inode($stage, $stageRootIdentity, 'code capture staging directory');
             self::assert_staged_code_no_secrets($stage);
             $descriptor = Code::descriptor_from_source($stage);
             $copiedRevision = hash('sha256', Canon::encode($descriptor['files']));
             if (!hash_equals($revision, $copiedRevision)) {
                 throw new \RuntimeException('duo: code changed while the baseline was being copied; rerun init');
             }
-            return [$descriptor, $stage];
+            return [$descriptor, $stage, self::directory_identity($stage, 'code capture staging directory')];
         } catch (\Throwable $error) {
-            self::remove_tree($stage);
+            self::remove_owned_tree($stage, $stageIdentity, 'code capture staging directory');
             throw $error;
         }
     }
 
-    private static function copy_code_path(string $source, string $destination): void {
+    /** @param array<string,array<string,string>> $ownedDirs */
+    private static function copy_code_path(
+        string $source,
+        string $destination,
+        string $stage,
+        string $stageRootIdentity,
+        array &$ownedDirs,
+        string &$stageIdentity
+    ): void {
         if (is_link($source)) {
             throw new \RuntimeException("duo: refusing symbolic-link code source $source");
         }
         if (is_file($source)) {
             $parent = dirname($destination);
-            if (!is_dir($parent) && !mkdir($parent, 0775, true) && !is_dir($parent)) {
-                throw new \RuntimeException("duo: could not create code directory $parent");
-            }
-            if (!copy($source, $destination)) {
-                throw new \RuntimeException("duo: could not copy code file $source");
-            }
-            @chmod($destination, fileperms($source) & 0777);
+            self::ensure_code_stage_directory($stage, $parent, $stageRootIdentity, $ownedDirs, $stageIdentity);
+            $parentKey = trim(substr($parent, strlen(rtrim($stage, '/'))), '/');
+            self::copy_code_file_fresh(
+                $source,
+                $destination,
+                $stage,
+                $stageRootIdentity,
+                $ownedDirs[$parentKey]
+            );
+            $stageIdentity = self::directory_identity($stage, 'code capture staging directory');
             return;
         }
         if (!is_dir($source)) {
             throw new \RuntimeException("duo: code source disappeared before copy: $source");
         }
-        if (!mkdir($destination, 0775, true) && !is_dir($destination)) {
-            throw new \RuntimeException("duo: could not create code component $destination");
-        }
+        self::ensure_code_stage_directory($stage, $destination, $stageRootIdentity, $ownedDirs, $stageIdentity);
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($source, \FilesystemIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::SELF_FIRST
@@ -1328,16 +1625,91 @@ final class Init {
                 throw new \RuntimeException("duo: refusing symbolic-link code source $path");
             }
             if ($item->isDir()) {
-                if (!is_dir($target) && !mkdir($target, 0775, true) && !is_dir($target)) {
-                    throw new \RuntimeException("duo: could not create code directory $target");
-                }
+                self::ensure_code_stage_directory($stage, $target, $stageRootIdentity, $ownedDirs, $stageIdentity);
                 continue;
             }
-            if (!$item->isFile() || !copy($path, $target)) {
+            if (!$item->isFile()) {
                 throw new \RuntimeException("duo: could not copy regular code file $path");
             }
-            @chmod($target, fileperms($path) & 0777);
+            self::ensure_code_stage_directory($stage, dirname($target), $stageRootIdentity, $ownedDirs, $stageIdentity);
+            $parentKey = trim(substr(dirname($target), strlen(rtrim($stage, '/'))), '/');
+            self::copy_code_file_fresh(
+                $path,
+                $target,
+                $stage,
+                $stageRootIdentity,
+                $ownedDirs[$parentKey]
+            );
+            $stageIdentity = self::directory_identity($stage, 'code capture staging directory');
         }
+    }
+
+    /** @param array<string,array<string,string>> $ownedDirs */
+    private static function ensure_code_stage_directory(
+        string $stage,
+        string $directory,
+        string $stageRootIdentity,
+        array &$ownedDirs,
+        string &$stageIdentity
+    ): void {
+        self::assert_directory_inode($stage, $stageRootIdentity, 'code capture staging directory');
+        $prefix = rtrim($stage, '/') . '/';
+        if (!str_starts_with($directory . '/', $prefix)) {
+            throw new \RuntimeException('duo: code staging destination escaped its owned root');
+        }
+        $relative = trim(substr($directory, strlen(rtrim($stage, '/'))), '/');
+        $current = rtrim($stage, '/');
+        $key = '';
+        foreach ($relative === '' ? [] : explode('/', $relative) as $part) {
+            if (!self::safe_component($part)) {
+                throw new \RuntimeException('duo: code staging destination has an unsafe component');
+            }
+            $key = $key === '' ? $part : $key . '/' . $part;
+            if (!isset($ownedDirs[$key])) {
+                $parentKey = str_contains($key, '/') ? substr($key, 0, (int) strrpos($key, '/')) : '';
+                $ownedDirs[$key] = Publish::create_directory_fresh(
+                    $current,
+                    $ownedDirs[$parentKey],
+                    $part,
+                    0775,
+                    'code staging child directory'
+                );
+                $current .= '/' . $part;
+                $stageIdentity = self::directory_identity($stage, 'code capture staging directory');
+            } else {
+                $current .= '/' . $part;
+                if (Publish::directory_ownership_identity($current) !== $ownedDirs[$key]) {
+                    throw new \RuntimeException('duo: code staging child directory changed identity');
+                }
+            }
+        }
+        self::assert_directory_inode($stage, $stageRootIdentity, 'code capture staging directory');
+    }
+
+    private static function copy_code_file_fresh(
+        string $source,
+        string $destination,
+        string $stage,
+        string $stageRootIdentity,
+        array $expectedParent
+    ): void {
+        self::assert_directory_inode($stage, $stageRootIdentity, 'code capture staging directory');
+        if (file_exists($destination) || is_link($destination)) {
+            throw new \RuntimeException('duo: code staging gained an unowned destination file');
+        }
+        $digest = @hash_file('sha256', $source);
+        $mode = @fileperms($source);
+        if (!is_string($digest) || !is_int($mode)) {
+            throw new \RuntimeException('duo: could not identify the reviewed code source before copy');
+        }
+        Publish::copy_file_fresh(
+            $source,
+            $destination,
+            $digest,
+            $mode & 0777,
+            'code staging file',
+            $expectedParent
+        );
     }
 
     /** The exact copied bytes get their own redacted credential gate. */
@@ -1361,6 +1733,97 @@ final class Init {
     private static function safe_component(string $value): bool {
         return $value !== '' && $value !== '.' && $value !== '..'
             && preg_match('/^[A-Za-z0-9._-]+$/', $value) === 1;
+    }
+
+    private static function directory_inode_identity(string $path, string $label): string {
+        clearstatcache(true, $path);
+        if (is_link($path) || !is_dir($path)) {
+            throw new \RuntimeException("duo: init lost ownership of $label $path");
+        }
+        $stat = @lstat($path);
+        if (!is_array($stat) || !isset($stat['dev'], $stat['ino'])) {
+            throw new \RuntimeException("duo: init could not identify $label $path");
+        }
+        return 'sha256:' . hash('sha256', Canon::encode([
+            'dev' => (string) $stat['dev'],
+            'ino' => (string) $stat['ino'],
+        ]));
+    }
+
+    private static function assert_directory_inode(string $path, string $expected, string $label): void {
+        $actual = self::directory_inode_identity($path, $label);
+        if (!hash_equals($expected, $actual)) {
+            throw new \RuntimeException("duo: init preserved a replacement $label instead of writing through it");
+        }
+    }
+
+    private static function directory_identity(string $path, string $label): string {
+        $inode = self::directory_inode_identity($path, $label);
+        $stat = @lstat($path);
+        if (!is_array($stat) || !isset($stat['dev'], $stat['ino'])) {
+            throw new \RuntimeException("duo: init could not identify $label $path");
+        }
+        $rows = [];
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+        $prefixLength = strlen(rtrim($path, '/')) + 1;
+        foreach ($iterator as $item) {
+            $itemPath = $item->getPathname();
+            $relative = substr($itemPath, $prefixLength);
+            $childStat = @lstat($itemPath);
+            if (!is_array($childStat) || !isset($childStat['dev'], $childStat['ino'])) {
+                throw new \RuntimeException("duo: init could not identify $label child $relative");
+            }
+            $ownership = ['dev' => (string) $childStat['dev'], 'ino' => (string) $childStat['ino']];
+            if ($item->isLink()) {
+                $rows[] = ['path' => $relative, 'type' => 'link', 'ownership' => $ownership, 'target' => (string) readlink($itemPath)];
+            } elseif ($item->isDir()) {
+                $rows[] = ['path' => $relative, 'type' => 'directory', 'ownership' => $ownership];
+            } elseif ($item->isFile()) {
+                $digest = hash_file('sha256', $itemPath);
+                if (!is_string($digest)) {
+                    throw new \RuntimeException("duo: init could not hash $label child $relative");
+                }
+                $rows[] = ['path' => $relative, 'type' => 'file', 'ownership' => $ownership, 'sha256' => $digest];
+            } else {
+                $rows[] = ['path' => $relative, 'type' => 'special', 'ownership' => $ownership];
+            }
+        }
+        usort($rows, static fn(array $a, array $b): int => $a['path'] <=> $b['path']);
+        return 'sha256:' . hash('sha256', Canon::encode([
+            'inode' => $inode,
+            'tree' => $rows,
+        ]));
+    }
+
+    /**
+     * Claim and remove a manifest-matching tree. Stable replacements are
+     * preserved; the operator-confirmed external-writer exclusion remains
+     * authoritative across the claim/recursive-cleanup window.
+     */
+    private static function remove_owned_tree(string $path, string $identity, string $label): void {
+        if (!file_exists($path) && !is_link($path)) {
+            return;
+        }
+        if (is_link($path) || !is_dir($path)
+            || !hash_equals($identity, self::directory_identity($path, $label))) {
+            throw new \RuntimeException("duo: init preserved a replacement $label instead of deleting external data");
+        }
+        $claim = dirname($path) . '/.' . basename($path) . '.duo-init-remove-' . bin2hex(random_bytes(8));
+        if (!@rename($path, $claim)) {
+            throw new \RuntimeException("duo: init could not claim its $label for cleanup");
+        }
+        if (!hash_equals($identity, self::directory_identity($claim, $label))) {
+            if (!file_exists($path) && !is_link($path)) {
+                @rename($claim, $path);
+            }
+            throw new \RuntimeException(
+                "duo: init retained a raced $label at $claim instead of recursively deleting unowned data"
+            );
+        }
+        self::remove_tree($claim);
     }
 
     private static function remove_tree(string $path): void {

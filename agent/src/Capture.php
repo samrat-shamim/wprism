@@ -6,6 +6,7 @@ require_once __DIR__ . '/CommandRefusal.php';
 require_once __DIR__ . '/PlainData.php';
 require_once __DIR__ . '/StructuredValue.php';
 require_once __DIR__ . '/Canon.php';
+require_once __DIR__ . '/Publish.php';
 
 /**
  * Capture: environment DB -> canonical state tree.
@@ -112,11 +113,35 @@ final class Capture {
      * @param resource $publicationLock
      * @return array summary
      */
-    public static function run_initial_baseline(string $repo, $publicationLock): array {
+    public static function run_initial_baseline(
+        string $repo,
+        $publicationLock,
+        string $initialStateIdentity,
+        string $initialMediaIdentity,
+        string $initialConfigIdentity
+    ): array {
         if (!is_resource($publicationLock)) {
             throw new \InvalidArgumentException('duo: init capture requires its held publication lock');
         }
-        return self::run_internal($repo, null, false, $publicationLock, true);
+        if (preg_match('/^sha256:[a-f0-9]{64}$/D', $initialStateIdentity) !== 1) {
+            throw new \InvalidArgumentException('duo: init capture requires an exact empty-state reservation identity');
+        }
+        if (preg_match('/^sha256:[a-f0-9]{64}$/D', $initialMediaIdentity) !== 1) {
+            throw new \InvalidArgumentException('duo: init capture requires an exact empty-media reservation identity');
+        }
+        if (preg_match('/^sha256:[a-f0-9]{64}$/D', $initialConfigIdentity) !== 1) {
+            throw new \InvalidArgumentException('duo: init capture requires an exact confirmed-config identity');
+        }
+        return self::run_internal(
+            $repo,
+            null,
+            false,
+            $publicationLock,
+            true,
+            $initialStateIdentity,
+            $initialMediaIdentity,
+            $initialConfigIdentity
+        );
     }
 
     /** @param null|resource $publicationLock @return array summary */
@@ -126,6 +151,9 @@ final class Capture {
         bool $forceUnresolvedRefs,
         $publicationLock,
         bool $initialBaseline,
+        ?string $initialStateIdentity = null,
+        ?string $initialMediaIdentity = null,
+        ?string $initialConfigIdentity = null,
         ?array $scopeRequest = null
     ): array {
         Canary::suppress_cron_spawn();
@@ -133,7 +161,6 @@ final class Capture {
         // lock or Ledger work: an unsupported multisite request is a clean
         // refusal, not a request that may initialize or rewrite Duo state
         // before eventually discovering it cannot be certified.
-        $policy = Policy::load($repo);
         $intoRepo = ($outDir === null);
         $repoPath = rtrim($repo, '/');
         $stateDir = $intoRepo ? $repoPath . '/state' : rtrim($outDir, '/');
@@ -141,6 +168,13 @@ final class Capture {
             throw new \RuntimeException(
                 'duo: scoped capture publishes a bounded overlay into its associated repository; --out is unsupported'
             );
+        }
+        if ($initialBaseline) {
+            self::assert_initial_config_identity($repoPath . '/site.duo.json', (string) $initialConfigIdentity);
+        }
+        $policy = Policy::load($repo);
+        if ($initialBaseline) {
+            self::assert_initial_config_identity($repoPath . '/site.duo.json', (string) $initialConfigIdentity);
         }
 
         // DUO-3213: a capture lock serializes concurrent publishers to this
@@ -154,6 +188,7 @@ final class Capture {
         $lock = $publicationLock ?? Publish::lock($stateDir);
         $testPhaseMarked = false;
         $publicationPhase = [];
+        $initialPublicationCleanup = $initialBaseline ? 'pending' : 'not-applicable';
         try {
             // Scoped recovery first reconciles any prior durable publication,
             // then binds the new immutable evidence before this run's first
@@ -163,6 +198,14 @@ final class Capture {
             $scopeContract = null;
             $scoped = false;
             $scopeSourceTreeSha256 = null;
+            if ($initialBaseline) {
+                self::assert_initial_state_reservation($stateDir, (string) $initialStateIdentity);
+                self::assert_initial_state_reservation($repoPath . '/media', (string) $initialMediaIdentity);
+                Publish::assert_lock_path($lock, $stateDir);
+                self::assert_initial_protocol_boundaries($stateDir);
+                $publicationPhase['media_manifest'] = Publish::tree_ownership_manifest($repoPath . '/media');
+                $publicationPhase['state_manifest'] = Publish::tree_ownership_manifest($stateDir);
+            }
             // The destination lock is deliberately acquired BEFORE even
             // Ledger::ensure(): schema migration and every row mutation below
             // belong to the same destination's serialized publication.
@@ -208,17 +251,20 @@ final class Capture {
             // behind MUST happen before this run builds anything of its
             // own — see Publish::recover()'s docblock for why holding the
             // lock is what makes "leftover staging/backup dir" unambiguous.
-            $recoveryWarnings = Publish::recover(
-                $stateDir,
-                static function (array $intent) use ($stateDir): bool {
-                    return self::publication_commit_status($stateDir, $intent);
+            $recoveryWarnings = [];
+            if (!$initialBaseline) {
+                $recoveryWarnings = Publish::recover(
+                    $stateDir,
+                    static function (array $intent) use ($stateDir): bool {
+                        return self::publication_commit_status($stateDir, $intent);
+                    }
+                );
+                try {
+                    self::clear_publication_marker_if_clean($stateDir);
+                } catch (\Throwable $markerCleanupFailure) {
+                    $recoveryWarnings[] = 'capture recovery completed, but its stale database commit marker could not be removed: '
+                        . $markerCleanupFailure->getMessage();
                 }
-            );
-            try {
-                self::clear_publication_marker_if_clean($stateDir);
-            } catch (\Throwable $markerCleanupFailure) {
-                $recoveryWarnings[] = 'capture recovery completed, but its stale database commit marker could not be removed: '
-                    . $markerCleanupFailure->getMessage();
             }
             if ($scopeRequest !== null) {
                 if (!is_dir($repoPath . '/state')) {
@@ -283,7 +329,7 @@ final class Capture {
             // field classified correctly on this repo's first-ever capture —
             // proof the previous revision's own priming was leaking forward
             // into the new one's classification instead of a fresh lookup.
-            $previous = $scopedPrevious ?? (is_dir($c->repo . '/state')
+            $previous = $scopedPrevious ?? (!$initialBaseline && is_dir($c->repo . '/state')
                 ? RepositoryCompiler::compile_for_diff($c->repo, Policy::load($repo))
                 : null);
             $previousOptions = $previous?->tree()['options/core']['data'] ?? null;
@@ -304,7 +350,9 @@ final class Capture {
             $build = self::run_in_consistent_snapshot(function () use (
                 $c, $policy, $repo, $forceUnresolvedRefs, $previous, $previousOptions,
                 $previousUserLogins, $intoRepo, $stateDir, &$publicationPhase,
-                $initialBaseline, $scoped, $scopeContract, $scopeSourceTreeSha256, $repoPath
+                $initialStateIdentity, $initialMediaIdentity, $initialConfigIdentity,
+                $lock, $initialBaseline, $scoped, $scopeContract,
+                $scopeSourceTreeSha256, $repoPath, &$publicationPhase
             ): array {
                 // All map/state mutations which can happen while deciding
                 // whether this candidate is publishable are transactionally
@@ -421,7 +469,21 @@ final class Capture {
                 // therefore rolls back all identity/map DML above rather
                 // than leaving a candidate identity behind a refused tree.
                 $staging = Publish::stage_dir($stateDir);
-                Publish::write_entities($staging, array_merge($candidate['entities'], $candidate['deletions']));
+                if ($initialBaseline) {
+                    self::assert_initial_config_identity(
+                        $c->repo . '/site.duo.json',
+                        (string) $initialConfigIdentity
+                    );
+                    Publish::assert_lock_path($lock, $stateDir);
+                    self::assert_initial_state_reservation($stateDir, (string) $initialStateIdentity);
+                    self::assert_initial_protocol_boundaries($stateDir);
+                    $publicationPhase['staging_manifest'] = Publish::write_entities_fresh(
+                        $staging,
+                        array_merge($candidate['entities'], $candidate['deletions'])
+                    );
+                } else {
+                    Publish::write_entities($staging, array_merge($candidate['entities'], $candidate['deletions']));
+                }
                 $lint = Lint::scan_tree($staging, $c->policy);
                 if ($lint) {
                     $candidate['warnings'][] = count($lint)
@@ -464,13 +526,50 @@ final class Capture {
                     // reaches its post-swap COMMIT.
                     foreach ($candidate['media'] as $file => $source) {
                         $dst = $c->repo . '/media/' . $file;
-                        if (!is_file($dst)) {
+                        if ($initialBaseline) {
+                            $bytes = array_key_exists('bytes', $source)
+                                ? $source['bytes']
+                                : Canon::read_file($source['path']);
+                            Publish::assert_lock_path($lock, $stateDir);
+                            $identity = Publish::write_file_fresh(
+                                $dst,
+                                $bytes,
+                                'media blob',
+                                $publicationPhase['media_manifest']['root']
+                            );
+                            $publicationPhase['new_media'][] = ['path' => $dst, 'identity' => $identity];
+                            $row = $identity;
+                            $row['path'] = basename($dst);
+                            $publicationPhase['media_manifest']['entries'][] = $row;
+                        } elseif (!is_file($dst)) {
                             $bytes = array_key_exists('bytes', $source)
                                 ? $source['bytes']
                                 : Canon::read_file($source['path']);
                             Canon::write_file($dst, $bytes);
-                            if ($initialBaseline) {
-                                $publicationPhase['new_media'][] = $dst;
+                        }
+                    }
+                    if ($initialBaseline) {
+                        usort(
+                            $publicationPhase['media_manifest']['entries'],
+                            static fn(array $a, array $b): int => $a['path'] <=> $b['path']
+                        );
+                        Publish::assert_owned_tree(
+                            $c->repo . '/media',
+                            $publicationPhase['media_manifest'],
+                            'initial media root'
+                        );
+                        Publish::assert_owned_tree(
+                            $staging,
+                            $publicationPhase['staging_manifest'],
+                            'initial capture staging'
+                        );
+                        Publish::assert_lock_path($lock, $stateDir);
+                        self::assert_initial_state_reservation($stateDir, (string) $initialStateIdentity);
+                        foreach ([Publish::backup_dir($stateDir), Publish::intent_path($stateDir), Publish::receipt_path($stateDir)] as $sibling) {
+                            if (file_exists($sibling) || is_link($sibling)) {
+                                throw new InitialStateBoundaryException(
+                                    'duo: initial capture protocol boundary changed before publication'
+                                );
                             }
                         }
                     }
@@ -526,10 +625,45 @@ final class Capture {
                 // intent even though no rename has started yet; init must run
                 // the publication recovery protocol instead of treating that
                 // case like an ordinary unpublished staging failure.
+                if ($initialBaseline) {
+                    Publish::assert_lock_path($lock, $stateDir);
+                    self::assert_initial_state_reservation($stateDir, (string) $initialStateIdentity);
+                    Publish::assert_owned_tree(
+                        $staging,
+                        $publicationPhase['staging_manifest'],
+                        'initial capture staging'
+                    );
+                    Publish::assert_owned_tree(
+                        $c->repo . '/media',
+                        $publicationPhase['media_manifest'],
+                        'initial media root'
+                    );
+                }
                 $publicationPhase['publication_started'] = true;
-                $intent = Publish::begin_intent($stateDir, $staging);
+                $intent = Publish::begin_intent($stateDir, $staging, $initialBaseline);
                 $publicationPhase['filesystem_swapped'] = true;
-                Publish::swap($stateDir, true);
+                if ($initialBaseline) {
+                    self::assert_initial_state_reservation($stateDir, (string) $initialStateIdentity);
+                }
+                if ($initialBaseline) {
+                    Publish::swap_initial(
+                        $stateDir,
+                        $publicationPhase['state_manifest'],
+                        $publicationPhase['staging_manifest']
+                    );
+                } else {
+                    Publish::swap($stateDir, true);
+                }
+                if ($initialBaseline) {
+                    self::assert_initial_config_identity(
+                        $c->repo . '/site.duo.json',
+                        (string) $initialConfigIdentity
+                    );
+                    self::assert_initial_state_reservation(
+                        Publish::backup_dir($stateDir),
+                        (string) $initialStateIdentity
+                    );
+                }
                 $intent = Publish::mark_swapped($stateDir, $intent);
                 if ($initialBaseline) {
                     Db::checkpoint('init capture after filesystem swap');
@@ -597,16 +731,42 @@ final class Capture {
             // capture lock. If receipt publication fails, recovery refuses
             // to guess whether COMMIT was durable and never retries.
             if (isset($build['_publication_intent'])) {
-                $receipt = Publish::write_receipt($stateDir, $build['_publication_intent']);
+                if ($initialBaseline) {
+                    self::assert_initial_config_identity(
+                        $repoPath . '/site.duo.json',
+                        (string) $initialConfigIdentity
+                    );
+                    Publish::assert_lock_path($lock, $stateDir);
+                    $publicationPhase['intent_identity'] = Publish::file_ownership_identity(
+                        Publish::intent_path($stateDir)
+                    );
+                }
+                $receipt = Publish::write_receipt($stateDir, $build['_publication_intent'], $initialBaseline);
                 try {
-                    Publish::cleanup_committed($stateDir, $receipt);
+                    if ($initialBaseline) {
+                        Publish::assert_lock_path($lock, $stateDir);
+                        Publish::cleanup_committed_initial(
+                            $stateDir,
+                            $receipt,
+                            $publicationPhase['state_manifest'],
+                            $publicationPhase['intent_identity']
+                        );
+                    } else {
+                        Publish::cleanup_committed($stateDir, $receipt);
+                    }
                     self::clear_publication_marker_if_clean($stateDir);
+                    if ($initialBaseline) {
+                        $initialPublicationCleanup = 'clean';
+                    }
                 } catch (\Throwable $cleanupFailure) {
                     // Receipt durability makes this cleanup idempotent. Keep
                     // the successful capture successful; the next run will
                     // retry cleanup while holding the same destination lock.
                     $build['warnings'][] = 'capture committed; retained publication cleanup will retry on the next run: '
                         . $cleanupFailure->getMessage();
+                    if ($initialBaseline) {
+                        $initialPublicationCleanup = 'retained';
+                    }
                 }
                 unset($build['_publication_intent']);
             }
@@ -617,7 +777,14 @@ final class Capture {
             // created. Ordinary capture retains its historical recovery
             // behavior unchanged.
             $safeToCompensate = $initialBaseline && empty($publicationPhase['publication_started']);
-            if ($initialBaseline && !empty($publicationPhase['publication_started'])) {
+            if ($initialBaseline && $failure instanceof InitialStateBoundaryException) {
+                // Strict first-publication refusals never invoke ordinary
+                // recovery because it may remove legacy-named siblings.
+                $safeToCompensate = !file_exists(Publish::intent_path($stateDir))
+                    && !is_link(Publish::intent_path($stateDir))
+                    && !file_exists(Publish::receipt_path($stateDir))
+                    && !is_link(Publish::receipt_path($stateDir));
+            } elseif ($initialBaseline && !empty($publicationPhase['publication_started'])) {
                 try {
                     Publish::recover(
                         $stateDir,
@@ -638,18 +805,19 @@ final class Capture {
                 }
             }
             if ($safeToCompensate) {
-                $staging = Publish::stage_dir($stateDir);
-                if (is_dir($staging)) {
-                    Publish::rrmdir($staging);
-                }
-                foreach ((array) ($publicationPhase['new_media'] ?? []) as $path) {
-                    if (is_string($path) && is_file($path)) {
-                        @unlink($path);
+                foreach (array_reverse((array) ($publicationPhase['new_media'] ?? [])) as $created) {
+                    if (is_array($created) && is_string($created['path'] ?? null)
+                        && is_array($created['identity'] ?? null)) {
+                        Publish::remove_owned_file($created['path'], $created['identity'], 'initial media blob');
                     }
                 }
-                $mediaDir = $repoPath . '/media';
-                if (is_dir($mediaDir) && iterator_count(new \FilesystemIterator($mediaDir)) === 0) {
-                    @rmdir($mediaDir);
+                if (isset($publicationPhase['staging_manifest'])
+                    && (is_dir(Publish::stage_dir($stateDir)) || is_link(Publish::stage_dir($stateDir)))) {
+                    Publish::remove_owned_tree(
+                        Publish::stage_dir($stateDir),
+                        $publicationPhase['staging_manifest'],
+                        'initial capture staging'
+                    );
                 }
             }
             throw $failure;
@@ -687,6 +855,7 @@ final class Capture {
             'state_dir' => $stateDir,
             'revision_hash' => $build['_revision_hash'] ?? null,
             'initial_code_baseline' => $build['_initial_code_baseline'] ?? null,
+            'initial_publication_cleanup' => $initialPublicationCleanup,
         ];
         if (isset($build['_scope'])) {
             $summary['scope'] = $build['_scope'];
@@ -1636,6 +1805,67 @@ final class Capture {
             );
         }
         return true;
+    }
+
+    /** First init never recovers or adopts pre-existing protocol siblings. */
+    private static function assert_initial_protocol_boundaries(string $stateDir): void {
+        foreach ([
+            Publish::stage_dir($stateDir),
+            Publish::backup_dir($stateDir),
+            Publish::intent_path($stateDir),
+            Publish::receipt_path($stateDir),
+        ] as $path) {
+            if (file_exists($path) || is_link($path)) {
+                throw new InitialStateBoundaryException(
+                    'duo: initial capture protocol namespace gained an unreviewed sibling'
+                );
+            }
+        }
+    }
+
+    private static function assert_initial_config_identity(string $path, string $expected): void {
+        clearstatcache(true, $path);
+        if (is_link($path) || !is_file($path)) {
+            throw new InitialStateBoundaryException('duo: confirmed init configuration changed type before capture');
+        }
+        $stat = @lstat($path);
+        $bytes = Canon::read_file($path);
+        if (!is_array($stat) || !isset($stat['dev'], $stat['ino'])) {
+            throw new InitialStateBoundaryException('duo: confirmed init configuration identity is unavailable');
+        }
+        $actual = 'sha256:' . hash('sha256', Canon::encode([
+            'dev' => (string) $stat['dev'],
+            'ino' => (string) $stat['ino'],
+            'sha256' => hash('sha256', $bytes),
+        ]));
+        if (!hash_equals($expected, $actual)) {
+            throw new InitialStateBoundaryException('duo: confirmed init configuration changed before capture');
+        }
+    }
+
+    /** First init reserves one exact empty state directory before Capture. */
+    private static function assert_initial_state_reservation(string $path, string $expected): void {
+        clearstatcache(true, $path);
+        if (is_link($path) || !is_dir($path)) {
+            throw new InitialStateBoundaryException('duo: initial state boundary changed before publication');
+        }
+        $entries = @scandir($path);
+        $stat = @lstat($path);
+        if ($entries === false || !is_array($stat) || !isset($stat['dev'], $stat['ino'])) {
+            throw new InitialStateBoundaryException('duo: initial state boundary could not be verified before publication');
+        }
+        $children = array_values(array_diff($entries, ['.', '..']));
+        if ($children !== []) {
+            throw new InitialStateBoundaryException('duo: initial state boundary gained unreviewed content before publication');
+        }
+        $inode = 'sha256:' . hash('sha256', Canon::encode([
+            'dev' => (string) $stat['dev'],
+            'ino' => (string) $stat['ino'],
+        ]));
+        $actual = 'sha256:' . hash('sha256', Canon::encode(['inode' => $inode, 'tree' => []]));
+        if (!hash_equals($expected, $actual)) {
+            throw new InitialStateBoundaryException('duo: initial state directory identity changed before publication');
+        }
     }
 
     /** Commit proof is needed only while filesystem recovery artifacts exist. */

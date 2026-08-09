@@ -61,6 +61,9 @@ $proposal = [
     'advisories' => [[
         'code' => 'active_theme_code_only', 'extension' => 'shop-theme', 'kind' => 'theme',
         'reason' => 'theme bytes are code-only', 'remediation' => 'install a theme adapter if needed',
+    ], [
+        'code' => 'repository_external_writer_exclusion', 'extension' => '/srv/shop-state', 'kind' => 'repository',
+        'reason' => 'Duo locks serialize Duo writers only', 'remediation' => 'quiesce non-Duo repository writers',
     ]],
     'environment' => [
         'wordpress' => '7.0.2', 'php' => '8.3.33',
@@ -85,6 +88,7 @@ $proposal = [
     ],
     'state' => [
         'baseline' => 'capture-consistent-snapshot',
+        'config_identity' => 'absent',
         'existing_config' => 'absent',
         'repository' => '/srv/shop-state',
         'repository_identity' => 'sha256:' . str_repeat('d', 64),
@@ -96,6 +100,7 @@ $proposal = [
             'spec_version' => 2,
         ],
         'git' => ['mode' => 'initialize-on-confirm', 'version' => 'git version 2.51.0'],
+        'gitignore_identity' => 'absent',
         'ledger' => ['rows' => 0, 'tables' => 0],
         'media' => ['strategy' => 'local', 'attachments' => 2, 'unavailable' => 0],
         'risk_surfaces' => [
@@ -113,7 +118,11 @@ $result = [
     'format' => 'duo-init-result/v1',
     'proposal_digest' => $digest,
     'baseline' => ['kind' => 'state-capture', 'revision_hash' => $stateRevision],
-    'capture' => ['revision_hash' => $stateRevision, 'initial_code_baseline' => $lifecycle],
+    'capture' => [
+        'revision_hash' => $stateRevision,
+        'initial_code_baseline' => $lifecycle,
+        'initial_publication_cleanup' => 'clean',
+    ],
     'code' => [
         'descriptor' => ['code_revision' => $codeRevision],
         'lifecycle' => $lifecycle,
@@ -144,6 +153,7 @@ check(str_contains($rendered, 'code: managed-baseline-proposed'), 'rendering pre
 check(str_contains($rendered, 'active plugin: woocommerce/woocommerce.php 11.0.0'), 'rendering inventories active plugin versions');
 check(str_contains($rendered, 'core, woocommerce'), 'rendering names selected adapters');
 check(str_contains($rendered, 'ADVISORY THEME shop-theme [active_theme_code_only]'), 'rendering exposes code-only active theme state coverage');
+check(str_contains($rendered, 'ADVISORY REPOSITORY /srv/shop-state [repository_external_writer_exclusion]'), 'rendering exposes the first-init external-writer exclusion');
 check(str_contains($rendered, '1 secret-shaped option value(s), 2 PII-shaped user-meta value(s)'), 'rendering exposes redacted risk counts');
 check(str_contains($rendered, '3 oversized option value(s) and 4 oversized user-meta value(s) were not scanned'), 'rendering exposes redacted oversized omissions');
 check(str_contains($rendered, 'after scanning 120 option value(s) and 80 user-meta value(s)'), 'rendering exposes deterministic bounded-scan coverage');
@@ -197,6 +207,7 @@ foreach ([
     'descriptor revision mismatch' => array_replace_recursive($result, ['code' => ['descriptor' => ['code_revision' => str_repeat('d', 64)]]]),
     'incomplete lifecycle receipt' => array_replace_recursive($result, ['code' => ['lifecycle' => ['completed' => false]]]),
     'capture lifecycle mismatch' => array_replace_recursive($result, ['capture' => ['initial_code_baseline' => ['completed' => false]]]),
+    'retained initial publication cleanup' => array_replace_recursive($result, ['capture' => ['initial_publication_cleanup' => 'retained']]),
     'result for another repository' => array_replace_recursive($result, ['state' => ['repository' => '/srv/other']]),
     'result retaining unsupported coverage' => array_replace($result, ['unsupported' => [['code' => 'still-blocked']]]),
 ] as $label => $invalidResult) {
@@ -225,15 +236,21 @@ try {
 
 $agentSource = file_get_contents(__DIR__ . '/../../agent/src/Init.php');
 check(is_string($agentSource), 'target init source is readable');
+check(str_contains($agentSource, "'code' => 'repository_external_writer_exclusion'"), 'target proposal binds the generic repository writer-exclusion advisory');
 check(!str_contains(strtolower($agentSource), 'woocommerce'), 'generic target init has no plugin-name branch');
 check(str_contains($agentSource, "(\$rule['class'] ?? null) === 'authored'"), 'post-type scope expands only from authored manifest rulings');
 check(substr_count($agentSource, "(\$rule['class'] ?? null) === 'authored'") >= 2, 'post-type and taxonomy scope expand only from explicit authored manifest rulings');
 $lockedRecheck = strrpos($agentSource, 'self::assert_confirmed_proposal($proposal, $expectedDigest);');
-$siteWrite = strpos($agentSource, 'self::write_owned_file($siteFile, Canon::encode($proposal[' . "'state'" . '][' . "'config'" . ']), ' . "'site.duo.json'" . ');');
+$siteWrite = $lockedRecheck === false ? false : strpos($agentSource, '$sitePublication = self::publish_owned_file(', $lockedRecheck);
 check($lockedRecheck !== false && $siteWrite !== false && $lockedRecheck < $siteWrite, 'under-lock digest recheck precedes the site-config write');
 check(str_contains($agentSource, "'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => Code::SOURCE]"), 'site config declares code independently from state policy');
 check(str_contains($agentSource, 'Code::descriptor_from_source($stage)'), 'captured code is validated by the existing descriptor contract before publication');
-check(str_contains($agentSource, 'Capture::run_initial_baseline($repo, $publicationLock)'), 'confirmed baseline uses the init-wide publication transaction');
+check(
+    str_contains($agentSource, 'Capture::run_initial_baseline(')
+        && str_contains($agentSource, '(string) $stateIdentity')
+        && str_contains($agentSource, '(string) $mediaIdentity'),
+    'confirmed baseline uses the init-wide strict publication transaction'
+);
 check(str_contains($agentSource, 'SELECT GET_LOCK(%s, 0)'), 'concurrent confirmations share a target advisory lease');
 check(
     str_contains($agentSource, "'existing_state_payload'")
@@ -274,7 +291,7 @@ check(
     'proposal and confirmation bind a freshly inspected ordinary repository inode before child traversal'
 );
 $reviewedIdentity = strpos($agentSource, "\$reviewedIdentity = \$proposal['state']['repository_identity'] ?? null;");
-$publicationLock = strpos($agentSource, '$publicationLock = Publish::lock($stateDir);');
+$publicationLock = strpos($agentSource, '$publicationLock = Publish::lock_new($stateDir);');
 check(
     $reviewedIdentity !== false && $publicationLock !== false && $reviewedIdentity < $publicationLock
         && str_contains($agentSource, "hash_equals(\$reviewedIdentity, \$binding['identity'])"),
@@ -287,15 +304,26 @@ check(
 );
 check(
     str_contains($agentSource, "'unsafe_site_config'")
-        && str_contains($agentSource, 'write_owned_file($siteFile')
-        && str_contains($agentSource, 'if (!@rename($tmp, $path))'),
-    'site config publication replaces an ordinary owned path without following links'
+        && str_contains($agentSource, 'self::publish_owned_file(')
+        && str_contains($agentSource, 'self::regular_file_identity($claim, $label)')
+        && str_contains($agentSource, 'if (!@link($tmp, $path))'),
+    'site config publication uses reviewed inode/bytes and create-if-absent replacement'
 );
 check(
     str_contains($agentSource, "'unsafe_code_root'")
         && str_contains($agentSource, "assert_absent_owned_path(\$codeRoot, 'code publication root')")
-        && str_contains($agentSource, 'if (!rename($stagedCode, $codeRoot))'),
-    'code baseline publishes its whole absent root atomically instead of traversing a link'
+        && str_contains($agentSource, "mkdir(\$codeRoot, 0700)")
+        && str_contains($agentSource, "rename(\$stagedCode, \$codeRoot . '/wp-content')"),
+    'code baseline reserves an owned root before publishing its verified child'
+);
+$publishSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Publish.php');
+check(
+    str_contains($publishSource, 'public static function lock_new(')
+        && str_contains($publishSource, 'public static function assert_lock_path(')
+        && str_contains($publishSource, 'public static function write_entities_fresh(')
+        && str_contains($publishSource, 'public static function swap_initial(')
+        && str_contains($publishSource, 'public static function cleanup_committed_initial('),
+    'initial publication has fresh lock, strict staging, swap, and exact cleanup primitives'
 );
 check(
     str_contains($agentSource, "'unreadable_repository_root'")

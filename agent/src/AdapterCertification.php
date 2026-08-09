@@ -197,8 +197,19 @@ final class AdapterCertification {
                 'duo: site adapter certifications must be a real directory at ' . self::CERTIFICATE_DIR
             );
         }
+        if (!is_readable($directory)) {
+            throw new \RuntimeException(
+                'duo: site adapter certifications are not readable; authority-bearing bytes cannot be treated as absent'
+            );
+        }
+        $entries = @scandir($directory);
+        if ($entries === false) {
+            throw new \RuntimeException(
+                'duo: site adapter certifications could not be enumerated; authority-bearing bytes cannot be treated as absent'
+            );
+        }
         $out = [];
-        foreach (scandir($directory) ?: [] as $entry) {
+        foreach ($entries as $entry) {
             if ($entry === '.' || $entry === '..') {
                 continue;
             }

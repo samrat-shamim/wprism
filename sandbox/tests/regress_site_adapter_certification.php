@@ -2047,6 +2047,22 @@ cert_expect_throw(
 );
 cert_remove_tree($site . '/adapters/certifications/nested');
 
+chmod($site . '/adapters/certifications', 0000);
+try {
+    cert_expect_throw(
+        static fn() => \Duo\AdapterSources::discover(dirname(__DIR__, 2) . '/manifests', $site),
+        'not readable',
+        'adapter discovery cannot launder an unreadable authority directory into an uncertified absence'
+    );
+    cert_expect_throw(
+        static fn() => AdapterCertification::verifyDirectory($agent, $site),
+        'not readable',
+        'direct certificate verification cannot report an unreadable authority directory as empty'
+    );
+} finally {
+    chmod($site . '/adapters/certifications', 0777);
+}
+
 $emptySite = $root . '/empty-site';
 mkdir($emptySite, 0777, true);
 cert_check(AdapterCertification::verifyDirectory($agent, $emptySite) === [], 'absence of certifications remains an uncertified, nonfatal state');

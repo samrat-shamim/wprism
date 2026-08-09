@@ -178,6 +178,10 @@ final class Init {
                 && is_string($code['active_theme']['template'] ?? null)
                 && ($state['baseline'] ?? null) === 'capture-consistent-snapshot'
                 && in_array($state['existing_config'] ?? null, ['absent', 'adoption-seed'], true)
+                && is_string($state['config_identity'] ?? null)
+                && (($state['existing_config'] === 'absent' && $state['config_identity'] === 'absent')
+                    || ($state['existing_config'] === 'adoption-seed'
+                        && preg_match('/^sha256:[a-f0-9]{64}$/', $state['config_identity']) === 1))
                 && is_string($state['repository_identity'] ?? null)
                 && preg_match('/^sha256:[a-f0-9]{64}$/', (string) $state['repository_identity']) === 1
                 && is_array($config)
@@ -193,6 +197,9 @@ final class Init {
                 && is_array($git)
                 && in_array($git['mode'] ?? null, ['initialize-on-confirm', 'existing-worktree'], true)
                 && is_string($git['version'] ?? null) && trim((string) $git['version']) !== ''
+                && is_string($state['gitignore_identity'] ?? null)
+                && (($state['gitignore_identity'] ?? null) === 'absent'
+                    || preg_match('/^sha256:[a-f0-9]{64}$/', (string) $state['gitignore_identity']) === 1)
                 && is_array($ledger)
                 && ($ledger['rows'] ?? null) === 0
                 && is_int($ledger['tables'] ?? null) && $ledger['tables'] >= 0
@@ -223,6 +230,7 @@ final class Init {
             && preg_match('/^[a-f0-9]{64}$/', (string) $baseline['revision_hash']) === 1
             && is_array($capture)
             && ($capture['revision_hash'] ?? null) === $baseline['revision_hash']
+            && ($capture['initial_publication_cleanup'] ?? null) === 'clean'
             && is_array($code)
             && ($code['management'] ?? null) === 'managed-baseline'
             && ($code['source'] ?? null) === 'code/wp-content'

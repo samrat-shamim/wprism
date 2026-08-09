@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+final class InitialStateBoundaryException extends \RuntimeException {}
+
 require_once __DIR__ . '/CommandRefusal.php';
 
 require_once __DIR__ . '/Canon.php';
@@ -115,6 +117,34 @@ final class Publish {
         if ($fh === false) {
             throw new \RuntimeException("duo: cannot open capture lock file $path");
         }
+        return self::acquire_lock_handle($fh, $stateDir, $path);
+    }
+
+    /**
+     * Init's first publication owns an absent repository boundary. Opening
+     * with `x` makes creation and ownership one atomic operation: a raced
+     * ordinary file is never mistaken for the inode whose flock we hold.
+     *
+     * @return resource
+     */
+    public static function lock_new(string $stateDir) {
+        self::assert_protocol_roots($stateDir);
+        $path = self::lock_path($stateDir);
+        $dir = dirname($path);
+        if (!is_dir($dir)) {
+            throw new \RuntimeException("duo: cannot create first capture lock outside an existing repository root");
+        }
+        $fh = @fopen($path, 'x');
+        if ($fh === false) {
+            throw new \RuntimeException(
+                "duo: first capture lock boundary changed after review; preserving the existing path $path"
+            );
+        }
+        return self::acquire_lock_handle($fh, $stateDir, $path);
+    }
+
+    /** @param resource $fh @return resource */
+    private static function acquire_lock_handle($fh, string $stateDir, string $path) {
         if (!flock($fh, LOCK_EX | LOCK_NB)) {
             fclose($fh);
             $operatorMessage = "duo: capture refused — another capture is already publishing to $stateDir (lock held: $path).\n"
@@ -140,6 +170,33 @@ final class Publish {
         @fwrite($fh, sprintf("pid=%d host=%s started=%s\n", getmypid(), (string) gethostname(), date('c')));
         @fflush($fh);
         return $fh;
+    }
+
+    /**
+     * Prove that the canonical lock pathname still names the inode whose
+     * open descriptor owns the flock. An unlink/recreate race leaves the
+     * descriptor locked but would otherwise let another publisher lock the
+     * replacement pathname and interleave publication.
+     *
+     * @param resource $handle
+     */
+    public static function assert_lock_path($handle, string $stateDir): void {
+        if (!is_resource($handle)) {
+            throw new \InvalidArgumentException('duo: capture lock assertion requires an open descriptor');
+        }
+        $path = self::lock_path($stateDir);
+        clearstatcache(true, $path);
+        $fd = @fstat($handle);
+        $named = @lstat($path);
+        if (is_link($path) || !is_file($path)
+            || !is_array($fd) || !is_array($named)
+            || !isset($fd['dev'], $fd['ino'], $named['dev'], $named['ino'])
+            || (string) $fd['dev'] !== (string) $named['dev']
+            || (string) $fd['ino'] !== (string) $named['ino']) {
+            throw new \RuntimeException(
+                "duo: capture lock pathname changed while its original descriptor remained held: $path"
+            );
+        }
     }
 
     public static function unlock($handle): void {
@@ -466,6 +523,476 @@ final class Publish {
     }
 
     /**
+     * Strict first-publication writer. Unlike write_entities(), this never
+     * recovers or removes an existing staging path and every child is created
+     * with create-if-absent semantics. The returned manifest binds every
+     * directory/file inode plus file bytes; stable changes are preserved and
+     * refused. Cleanup still relies on the proposal's repository-wide
+     * external-writer exclusion, as required by the v0 filesystem contract.
+     *
+     * @param array<int, array{path:string,content:string}> $entities
+     * @return array{root:array{dev:string,ino:string},entries:list<array<string,mixed>>}
+     */
+    public static function write_entities_fresh(string $stagingDir, array $entities): array {
+        self::assert_protocol_roots(str_replace('.capture-staging', '', $stagingDir));
+        if (file_exists($stagingDir) || is_link($stagingDir)) {
+            throw new InitialStateBoundaryException('duo: initial capture staging boundary was not absent');
+        }
+        $stagingParent = dirname($stagingDir);
+        $createdDirs = [
+            '' => self::create_directory_fresh(
+                $stagingParent,
+                self::path_identity($stagingParent, 'directory'),
+                basename($stagingDir),
+                0777,
+                'capture staging root'
+            ),
+        ];
+        $createdFiles = [];
+        try {
+            foreach ($entities as $entity) {
+                self::assert_path_identity($stagingDir, $createdDirs[''], 'directory');
+                $relative = (string) ($entity['path'] ?? '');
+                self::assert_relative_entity_path($relative);
+                $parts = explode('/', $relative);
+                $fileName = array_pop($parts);
+                $parent = $stagingDir;
+                $prefix = '';
+                foreach ($parts as $part) {
+                    $parentKey = $prefix;
+                    self::assert_path_identity($parent, $createdDirs[$parentKey], 'directory');
+                    $prefix = $prefix === '' ? $part : $prefix . '/' . $part;
+                    if (!isset($createdDirs[$prefix])) {
+                        $createdDirs[$prefix] = self::create_directory_fresh(
+                            $parent,
+                            $createdDirs[$parentKey],
+                            $part,
+                            0777,
+                            'capture staging parent'
+                        );
+                    } else {
+                        self::assert_path_identity($parent . '/' . $part, $createdDirs[$prefix], 'directory');
+                    }
+                    $parent .= '/' . $part;
+                }
+                self::assert_path_identity($stagingDir, $createdDirs[''], 'directory');
+                self::assert_path_identity($parent, $createdDirs[$prefix], 'directory');
+                $destination = $parent . '/' . $fileName;
+                if (file_exists($destination) || is_link($destination)) {
+                    throw new InitialStateBoundaryException(
+                        'duo: initial capture staging gained an unowned entity path'
+                    );
+                }
+                $createdFiles[$relative] = self::write_file_fresh(
+                    $destination,
+                    (string) ($entity['content'] ?? ''),
+                    'capture entity',
+                    $createdDirs[$prefix]
+                );
+            }
+            self::fsync_dir($stagingDir);
+            $manifest = self::tree_ownership_manifest($stagingDir);
+            self::assert_created_entries($manifest, $createdDirs, $createdFiles);
+            return $manifest;
+        } catch (\Throwable $failure) {
+            try {
+                $manifest = self::tree_ownership_manifest($stagingDir);
+                self::assert_created_entries($manifest, $createdDirs, $createdFiles);
+                self::remove_owned_tree($stagingDir, $manifest, 'initial capture staging');
+            } catch (\Throwable $cleanupFailure) {
+                throw new InitialStateBoundaryException(
+                    'duo: initial capture refused and retained changed staging evidence: ' . $failure->getMessage(),
+                    0,
+                    $failure
+                );
+            }
+            throw $failure;
+        }
+    }
+
+    /** @return array{root:array{dev:string,ino:string},entries:list<array<string,mixed>>} */
+    public static function tree_ownership_manifest(string $dir): array {
+        $root = self::path_identity($dir, 'directory');
+        $entries = [];
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+        $prefix = strlen(rtrim($dir, '/')) + 1;
+        foreach ($iterator as $item) {
+            $path = $item->getPathname();
+            $relative = substr($path, $prefix);
+            if ($item->isLink()) {
+                $row = self::path_identity($path, 'link');
+                $row['target'] = (string) readlink($path);
+            } elseif ($item->isDir()) {
+                $row = self::path_identity($path, 'directory');
+            } elseif ($item->isFile()) {
+                $row = self::path_identity($path, 'file');
+            } else {
+                $row = self::path_identity($path, 'special');
+            }
+            $row['path'] = $relative;
+            $entries[] = $row;
+        }
+        usort($entries, static fn(array $a, array $b): int => $a['path'] <=> $b['path']);
+        return ['root' => $root, 'entries' => $entries];
+    }
+
+    /** @param array{root:array<string,string>,entries:list<array<string,mixed>>} $manifest */
+    public static function assert_owned_tree(string $path, array $manifest, string $label): void {
+        if (self::tree_ownership_manifest($path) !== $manifest) {
+            throw new InitialStateBoundaryException("duo: $label changed after Duo created it; preserving it");
+        }
+    }
+
+    /** @param array{root:array<string,string>,entries:list<array<string,mixed>>} $manifest */
+    public static function remove_owned_tree(string $path, array $manifest, string $label): void {
+        self::assert_owned_tree($path, $manifest, $label);
+        $claim = dirname($path) . '/.' . basename($path) . '.duo-claim-' . bin2hex(random_bytes(8));
+        if (!@rename($path, $claim)) {
+            throw new InitialStateBoundaryException("duo: could not claim $label for compensation");
+        }
+        try {
+            self::assert_owned_tree($claim, $manifest, $label);
+        } catch (\Throwable $failure) {
+            if (!file_exists($path) && !is_link($path)) {
+                @rename($claim, $path);
+            }
+            throw $failure;
+        }
+        self::rrmdir($claim);
+    }
+
+    /** @return array{type:string,dev:string,ino:string,sha256:string} */
+    public static function write_file_fresh(
+        string $path,
+        string $bytes,
+        string $label,
+        ?array $expectedParent = null
+    ): array {
+        $parent = dirname($path);
+        if (is_link($parent) || !is_dir($parent) || file_exists($path) || is_link($path)) {
+            throw new InitialStateBoundaryException("duo: initial $label boundary was not absent");
+        }
+        $expectedParent ??= self::path_identity($parent, 'directory');
+        $identity = self::run_bound_operation($parent, [
+            'op' => 'write',
+            'name' => basename($path),
+            'mode' => 0666,
+            'parent' => $expectedParent,
+        ], $bytes, $label);
+        if (self::path_identity($path, 'file') !== $identity) {
+            throw new InitialStateBoundaryException("duo: initial $label changed immediately after its bound write");
+        }
+        self::fsync_dir($parent);
+        return $identity;
+    }
+
+    /** @return array{type:string,dev:string,ino:string} */
+    public static function directory_ownership_identity(string $path): array {
+        return self::path_identity($path, 'directory');
+    }
+
+    /**
+     * @param array{type:string,dev:string,ino:string} $expectedParent
+     * @return array{type:string,dev:string,ino:string}
+     */
+    public static function create_directory_fresh(
+        string $parent,
+        array $expectedParent,
+        string $name,
+        int $mode,
+        string $label
+    ): array {
+        if (file_exists($parent . '/' . $name) || is_link($parent . '/' . $name)) {
+            throw new InitialStateBoundaryException("duo: initial $label boundary was not absent");
+        }
+        $identity = self::run_bound_operation($parent, [
+            'op' => 'mkdir',
+            'name' => $name,
+            'mode' => $mode,
+            'parent' => $expectedParent,
+        ], '', $label);
+        if (self::path_identity($parent . '/' . $name, 'directory') !== $identity) {
+            throw new InitialStateBoundaryException("duo: initial $label changed immediately after its bound mkdir");
+        }
+        return $identity;
+    }
+
+    /**
+     * @param array{type:string,dev:string,ino:string} $expectedParent
+     * @return array{type:string,dev:string,ino:string,sha256:string}
+     */
+    public static function copy_file_fresh(
+        string $source,
+        string $path,
+        string $expectedSha256,
+        int $mode,
+        string $label,
+        array $expectedParent
+    ): array {
+        $parent = dirname($path);
+        if (file_exists($path) || is_link($path)) {
+            throw new InitialStateBoundaryException("duo: initial $label boundary was not absent");
+        }
+        $identity = self::run_bound_operation($parent, [
+            'op' => 'copy',
+            'name' => basename($path),
+            'mode' => $mode,
+            'parent' => $expectedParent,
+            'source' => $source,
+            'sha256' => $expectedSha256,
+        ], '', $label);
+        if (self::path_identity($path, 'file') !== $identity) {
+            throw new InitialStateBoundaryException("duo: initial $label changed immediately after its bound copy");
+        }
+        return $identity;
+    }
+
+    /** @param array{type:string,dev:string,ino:string,sha256:string} $identity */
+    public static function remove_owned_file(string $path, array $identity, string $label): void {
+        if (self::path_identity($path, 'file') !== $identity) {
+            throw new InitialStateBoundaryException("duo: changed $label was preserved during compensation");
+        }
+        $claim = dirname($path) . '/.' . basename($path) . '.duo-claim-' . bin2hex(random_bytes(8));
+        if (!@rename($path, $claim)) {
+            throw new InitialStateBoundaryException("duo: could not claim $label during compensation");
+        }
+        if (self::path_identity($claim, 'file') !== $identity) {
+            if (!file_exists($path) && !is_link($path)) {
+                @link($claim, $path);
+            }
+            throw new InitialStateBoundaryException("duo: raced $label was retained during compensation");
+        }
+        @unlink($claim);
+    }
+
+    /** @return array{type:string,dev:string,ino:string,sha256:string} */
+    public static function file_ownership_identity(string $path): array {
+        return self::path_identity($path, 'file');
+    }
+
+    private static function assert_relative_entity_path(string $path): void {
+        if ($path === '' || str_starts_with($path, '/') || str_contains($path, "\0")) {
+            throw new \RuntimeException('duo: capture entity has an unsafe repository path');
+        }
+        foreach (explode('/', $path) as $part) {
+            if ($part === '' || $part === '.' || $part === '..') {
+                throw new \RuntimeException('duo: capture entity has an unsafe repository path');
+            }
+        }
+    }
+
+    /**
+     * Execute one child mutation with the reviewed parent directory as the
+     * helper process' CWD. Once proc_open has entered that directory, `.` is
+     * an inode-bound capability: replacing the lexical parent path can make
+     * the identity check fail, but cannot redirect the relative mkdir/open.
+     * Fresh files use fopen(x+b) and are compared with the canonical name
+     * before the helper exits. The repository-wide external-writer exclusion
+     * remains authoritative for the chmod/name window (PHP has no fchmod).
+     *
+     * @param array<string,mixed> $request
+     * @return array<string,string>
+     */
+    private static function run_bound_operation(
+        string $parent,
+        array $request,
+        string $bytes,
+        string $label
+    ): array {
+        if (!function_exists('proc_open') || !defined('PHP_BINARY') || PHP_BINARY === '') {
+            throw new InitialStateBoundaryException("duo: initial $label requires the bound-filesystem helper");
+        }
+        $script = <<<'PHP'
+$fail = static function (string $message): void {
+    fwrite(STDERR, $message . "\n");
+    exit(73);
+};
+$line = fgets(STDIN);
+$request = is_string($line) ? json_decode($line, true) : null;
+if (!is_array($request)) $fail('invalid request');
+$name = $request['name'] ?? null;
+$parent = $request['parent'] ?? null;
+$op = $request['op'] ?? null;
+$mode = $request['mode'] ?? null;
+if (!is_string($name) || $name === '' || $name === '.' || $name === '..'
+    || str_contains($name, '/') || str_contains($name, "\0")
+    || !is_array($parent) || !is_int($mode)) {
+    $fail('unsafe request');
+}
+$cwd = @lstat('.');
+if (!is_array($cwd) || !is_dir('.')
+    || (string) ($cwd['dev'] ?? '') !== (string) ($parent['dev'] ?? '')
+    || (string) ($cwd['ino'] ?? '') !== (string) ($parent['ino'] ?? '')) {
+    $fail('parent identity changed');
+}
+if ($op === 'mkdir') {
+    if (file_exists($name) || is_link($name) || !@mkdir($name, $mode & 0777)) {
+        $fail('fresh directory boundary changed');
+    }
+    $stat = @lstat($name);
+    if (!is_array($stat) || is_link($name) || !is_dir($name)) {
+        $fail('fresh directory changed after creation');
+    }
+    fwrite(STDOUT, json_encode([
+        'type' => 'directory', 'dev' => (string) $stat['dev'], 'ino' => (string) $stat['ino'],
+    ], JSON_UNESCAPED_SLASHES));
+    exit(0);
+}
+if ($op !== 'write' && $op !== 'copy') $fail('unsupported operation');
+$input = STDIN;
+if ($op === 'copy') {
+    $source = $request['source'] ?? null;
+    if (!is_string($source) || $source === '' || is_link($source) || !is_file($source)) {
+        $fail('copy source changed');
+    }
+    $input = @fopen($source, 'rb');
+    if (!is_resource($input)) $fail('copy source unreadable');
+}
+$output = @fopen($name, 'x+b');
+if (!is_resource($output)) {
+    if ($op === 'copy' && is_resource($input)) fclose($input);
+    $fail('fresh file boundary changed');
+}
+$hash = hash_init('sha256');
+$ok = true;
+while (!feof($input)) {
+    $chunk = fread($input, 65536);
+    if (!is_string($chunk)) { $ok = false; break; }
+    if ($chunk === '') continue;
+    hash_update($hash, $chunk);
+    $offset = 0;
+    $length = strlen($chunk);
+    while ($offset < $length) {
+        $written = fwrite($output, substr($chunk, $offset));
+        if (!is_int($written) || $written < 1) { $ok = false; break 2; }
+        $offset += $written;
+    }
+}
+if ($op === 'copy' && is_resource($input)) fclose($input);
+if (!$ok || !fflush($output) || !@chmod($name, $mode & 0777)) {
+    fclose($output);
+    $fail('fresh file write failed');
+}
+if (function_exists('fsync')) @fsync($output);
+$opened = fstat($output);
+$digest = hash_final($hash);
+$named = @lstat($name);
+$same = is_array($opened) && is_array($named) && !is_link($name) && is_file($name)
+    && (string) ($opened['dev'] ?? '') === (string) ($named['dev'] ?? '')
+    && (string) ($opened['ino'] ?? '') === (string) ($named['ino'] ?? '');
+fclose($output);
+if (!$same) $fail('fresh file name changed after creation');
+if ($op === 'copy' && (!is_string($request['sha256'] ?? null)
+    || !hash_equals($request['sha256'], $digest))) {
+    $fail('copy source digest changed');
+}
+fwrite(STDOUT, json_encode([
+    'type' => 'file', 'dev' => (string) $named['dev'], 'ino' => (string) $named['ino'],
+    'sha256' => $digest,
+], JSON_UNESCAPED_SLASHES));
+PHP;
+        $pipes = [];
+        $process = @proc_open(
+            [PHP_BINARY, '-r', $script],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            $parent
+        );
+        if (!is_resource($process)) {
+            throw new InitialStateBoundaryException("duo: initial $label could not start its bound-filesystem helper");
+        }
+        $header = json_encode($request, JSON_UNESCAPED_SLASHES);
+        if (!is_string($header)) {
+            @proc_terminate($process);
+            throw new InitialStateBoundaryException("duo: initial $label could not encode its bound-filesystem request");
+        }
+        $remaining = $header . "\n" . $bytes;
+        while ($remaining !== '') {
+            $written = @fwrite($pipes[0], $remaining);
+            if (!is_int($written) || $written < 1) {
+                break;
+            }
+            $remaining = (string) substr($remaining, $written);
+        }
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $exit = proc_close($process);
+        $identity = is_string($stdout) ? json_decode($stdout, true) : null;
+        if ($remaining !== '' || $exit !== 0 || !is_array($identity)) {
+            $reason = trim(is_string($stderr) ? $stderr : '');
+            throw new InitialStateBoundaryException(
+                "duo: initial $label refused at its inode-bound parent"
+                    . ($reason === '' ? '' : ': ' . $reason)
+            );
+        }
+        return array_map('strval', $identity);
+    }
+
+    /** @return array{type:string,dev:string,ino:string,sha256?:string} */
+    private static function path_identity(string $path, string $type): array {
+        clearstatcache(true, $path);
+        $stat = @lstat($path);
+        if (!is_array($stat) || !isset($stat['dev'], $stat['ino'])) {
+            throw new InitialStateBoundaryException('duo: initial publication path identity is unavailable');
+        }
+        $identity = ['type' => $type, 'dev' => (string) $stat['dev'], 'ino' => (string) $stat['ino']];
+        if ($type === 'file') {
+            if (is_link($path) || !is_file($path)) {
+                throw new InitialStateBoundaryException('duo: initial publication regular file changed type');
+            }
+            $digest = @hash_file('sha256', $path);
+            if (!is_string($digest)) {
+                throw new InitialStateBoundaryException('duo: initial publication regular file could not be hashed');
+            }
+            $identity['sha256'] = $digest;
+        }
+        return $identity;
+    }
+
+    /** @param array<string,string> $expected */
+    private static function assert_path_identity(string $path, array $expected, string $type): void {
+        if (self::path_identity($path, $type) !== $expected) {
+            throw new InitialStateBoundaryException('duo: initial publication parent path changed identity');
+        }
+    }
+
+    /**
+     * @param array{root:array<string,string>,entries:list<array<string,mixed>>} $manifest
+     * @param array<string,array<string,string>> $dirs
+     * @param array<string,array<string,string>> $files
+     */
+    private static function assert_created_entries(array $manifest, array $dirs, array $files): void {
+        $expected = [];
+        foreach ($dirs as $path => $identity) {
+            if ($path !== '') {
+                $expected[$path] = $identity;
+            }
+        }
+        foreach ($files as $path => $identity) {
+            $expected[$path] = $identity;
+        }
+        ksort($expected, SORT_STRING);
+        $actual = [];
+        foreach ($manifest['entries'] as $row) {
+            $path = (string) $row['path'];
+            unset($row['path']);
+            $actual[$path] = $row;
+        }
+        ksort($actual, SORT_STRING);
+        if ($actual !== $expected) {
+            throw new InitialStateBoundaryException(
+                'duo: initial publication tree contains content not created by this attempt'
+            );
+        }
+    }
+
+    /**
      * The atomic two-step swap described in the class docblock. Throws
      * loudly and leaves the filesystem in a recoverable state on any
      * failure — never silently continues past a rename that didn't happen.
@@ -524,6 +1051,54 @@ final class Publish {
     }
 
     /**
+     * First-publication swap over two exact owned manifests. A changed state
+     * reservation is restored to its canonical name rather than being treated
+     * as historical state or recursively removed.
+     *
+     * @param array{root:array<string,string>,entries:list<array<string,mixed>>} $stateManifest
+     * @param array{root:array<string,string>,entries:list<array<string,mixed>>} $stagingManifest
+     */
+    public static function swap_initial(
+        string $stateDir,
+        array $stateManifest,
+        array $stagingManifest
+    ): void {
+        self::assert_protocol_roots($stateDir);
+        $staging = self::stage_dir($stateDir);
+        $backup = self::backup_dir($stateDir);
+        self::assert_owned_tree($stateDir, $stateManifest, 'initial state reservation');
+        self::assert_owned_tree($staging, $stagingManifest, 'initial capture staging');
+        if (file_exists($backup) || is_link($backup)) {
+            throw new InitialStateBoundaryException('duo: initial capture backup boundary was not absent');
+        }
+        self::fault_checkpoint('pre-swap');
+        if (!@rename($stateDir, $backup)) {
+            throw new InitialStateBoundaryException('duo: initial state reservation could not be claimed for publication');
+        }
+        try {
+            self::assert_owned_tree($backup, $stateManifest, 'initial state reservation');
+        } catch (\Throwable $failure) {
+            if (!file_exists($stateDir) && !is_link($stateDir)) {
+                @rename($backup, $stateDir);
+            }
+            throw $failure;
+        }
+        self::fault_checkpoint('after-backup-rename');
+        if (file_exists($stateDir) || is_link($stateDir) || !@rename($staging, $stateDir)) {
+            if (!file_exists($stateDir) && !is_link($stateDir)) {
+                @rename($backup, $stateDir);
+            }
+            throw new InitialStateBoundaryException(
+                'duo: initial published-state boundary changed during the atomic swap'
+            );
+        }
+        self::assert_owned_tree($stateDir, $stagingManifest, 'initial published state');
+        self::assert_owned_tree($backup, $stateManifest, 'initial state reservation');
+        self::fsync_dir(dirname($stateDir));
+        self::fault_checkpoint('after-state-rename');
+    }
+
+    /**
      * Start a durable capture publication record. Call this only after the
      * complete staged candidate has passed all read/validation gates and
      * while the capture transaction is still open. The returned record is
@@ -532,7 +1107,7 @@ final class Publish {
      *
      * @return array{format:string,id:string,phase:string,candidate_sha256:string,previous_sha256:string,created_at:string}
      */
-    public static function begin_intent(string $stateDir, string $candidateDir): array {
+    public static function begin_intent(string $stateDir, string $candidateDir, bool $createOnly = false): array {
         self::assert_protocol_roots($stateDir);
         self::assert_not_symlink_root($candidateDir, 'capture candidate');
         if (!is_dir($candidateDir)) {
@@ -548,7 +1123,7 @@ final class Publish {
             'previous_sha256' => $previous,
             'created_at' => gmdate('c'),
         ];
-        $intent = self::write_record(self::intent_path($stateDir), $intent, 'intent');
+        $intent = self::write_record(self::intent_path($stateDir), $intent, 'intent', $createOnly);
         self::fault_checkpoint('intent-written');
         return $intent;
     }
@@ -562,7 +1137,7 @@ final class Publish {
             throw self::ambiguous_recovery('capture swap completed but its durable intent is missing or changed');
         }
         $intent['phase'] = 'swapped';
-        $intent = self::write_record(self::intent_path($stateDir), $intent, 'intent');
+        $intent = self::write_record(self::intent_path($stateDir), $intent, 'intent', false, $onDisk);
         self::fault_checkpoint('intent-swapped');
         return $intent;
     }
@@ -581,7 +1156,7 @@ final class Publish {
             throw self::ambiguous_recovery('capture cannot mark COMMIT-ready because its durable intent is missing or changed');
         }
         $intent['phase'] = 'ready';
-        $intent = self::write_record(self::intent_path($stateDir), $intent, 'intent');
+        $intent = self::write_record(self::intent_path($stateDir), $intent, 'intent', false, $onDisk);
         self::fault_checkpoint('intent-ready');
         return $intent;
     }
@@ -599,7 +1174,7 @@ final class Publish {
         // marker write is represented by `committing` and is fail-closed.
         self::fault_checkpoint('commit-attempt');
         $intent['phase'] = 'committing';
-        $intent = self::write_record(self::intent_path($stateDir), $intent, 'intent');
+        $intent = self::write_record(self::intent_path($stateDir), $intent, 'intent', false, $onDisk);
         self::fault_checkpoint('after-commit-marker');
         return $intent;
     }
@@ -610,7 +1185,7 @@ final class Publish {
      *
      * @return array{format:string,intent_id:string,phase:string,candidate_sha256:string,previous_sha256:string,committed_at:string}
      */
-    public static function write_receipt(string $stateDir, array $intent): array {
+    public static function write_receipt(string $stateDir, array $intent, bool $createOnly = false): array {
         self::assert_protocol_roots($stateDir);
         self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
         if (!is_dir($stateDir)) {
@@ -640,7 +1215,7 @@ final class Publish {
             'previous_sha256' => (string) $intent['previous_sha256'],
             'committed_at' => gmdate('c'),
         ];
-        $receipt = self::write_record(self::receipt_path($stateDir), $receipt, 'receipt');
+        $receipt = self::write_record(self::receipt_path($stateDir), $receipt, 'receipt', $createOnly);
         self::fault_checkpoint('receipt-written');
         return $receipt;
     }
@@ -692,6 +1267,42 @@ final class Publish {
         if (is_file($intent)) {
             self::remove_record($intent, 'intent');
         }
+        self::fsync_dir(dirname($stateDir));
+    }
+
+    /**
+     * Strict first-publication cleanup deletes only the exact empty state
+     * reservation and final intent inode owned by this attempt. Any changed
+     * artifact is retained for fail-closed recovery.
+     *
+     * @param array{root:array<string,string>,entries:list<array<string,mixed>>} $backupManifest
+     * @param array{type:string,dev:string,ino:string,sha256:string} $intentIdentity
+     */
+    public static function cleanup_committed_initial(
+        string $stateDir,
+        array $receipt,
+        array $backupManifest,
+        array $intentIdentity
+    ): void {
+        self::assert_protocol_roots($stateDir);
+        self::assert_record($receipt, 'receipt', 'duo-capture-receipt/v1');
+        if (!is_dir($stateDir)
+            || !hash_equals((string) $receipt['candidate_sha256'], self::tree_digest($stateDir))) {
+            throw self::ambiguous_recovery('initial committed state no longer matches its receipt');
+        }
+        $backup = self::backup_dir($stateDir);
+        $intent = self::intent_path($stateDir);
+        if (is_dir(self::stage_dir($stateDir)) || is_link(self::stage_dir($stateDir))) {
+            throw self::ambiguous_recovery('initial committed capture retained an unexpected staging boundary');
+        }
+        self::assert_owned_tree($backup, $backupManifest, 'initial retained state reservation');
+        $onDisk = self::read_record($intent, 'intent');
+        if ($onDisk === null || ($onDisk['id'] ?? null) !== ($receipt['intent_id'] ?? null)) {
+            throw self::ambiguous_recovery('initial committed capture intent changed before cleanup');
+        }
+        self::fault_checkpoint('post-commit-cleanup');
+        self::remove_owned_tree($backup, $backupManifest, 'initial retained state reservation');
+        self::remove_owned_file($intent, $intentIdentity, 'initial capture intent');
         self::fsync_dir(dirname($stateDir));
     }
 
@@ -749,14 +1360,52 @@ final class Publish {
     }
 
     /** @param array<string,mixed> $record @return array<string,mixed> */
-    private static function write_record(string $path, array $record, string $label): array {
+    private static function write_record(
+        string $path,
+        array $record,
+        string $label,
+        bool $createOnly = false,
+        ?array $expectedExisting = null
+    ): array {
         self::assert_not_symlink_root($path, "$label record");
         $record = self::seal_record($record);
         $tmp = $path . '.tmp.' . getmypid() . '.' . bin2hex(random_bytes(6));
         try {
             Canon::write_file($tmp, Canon::encode($record));
             self::fsync_file($tmp);
-            if (!@rename($tmp, $path)) {
+            if ($createOnly) {
+                if (!@link($tmp, $path)) {
+                    throw new InitialStateBoundaryException(
+                        "duo: initial capture $label boundary changed before durable publication"
+                    );
+                }
+                @unlink($tmp);
+            } elseif ($expectedExisting !== null) {
+                $claim = $path . '.claim.' . getmypid() . '.' . bin2hex(random_bytes(6));
+                if (!@rename($path, $claim)) {
+                    throw self::ambiguous_recovery("capture $label record changed before its transition");
+                }
+                try {
+                    $claimed = self::read_record($claim, $label);
+                    if ($claimed === null || Canon::encode($claimed) !== Canon::encode($expectedExisting)) {
+                        if (!file_exists($path) && !is_link($path)) {
+                            @link($claim, $path);
+                        }
+                        throw self::ambiguous_recovery("capture $label record changed during its transition");
+                    }
+                    if (!@link($tmp, $path)) {
+                        if (!file_exists($path) && !is_link($path)) {
+                            @link($claim, $path);
+                        }
+                        throw self::ambiguous_recovery("capture $label record lost its create-if-absent transition boundary");
+                    }
+                    @unlink($claim);
+                    @unlink($tmp);
+                } finally {
+                    // A surviving claim may contain raced evidence. Never
+                    // unlink it without the exact-record proof above.
+                }
+            } elseif (!@rename($tmp, $path)) {
                 throw new \RuntimeException("duo: cannot publish durable capture $label record $path");
             }
             self::fsync_dir(dirname($path));

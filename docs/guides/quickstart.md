@@ -117,6 +117,13 @@ digest—not a host-authored config—and refuses if any discovered fact changes
 Use `--yes` only for automation that has already preserved the rendered
 proposal.
 
+Before confirming, quiesce every non-Duo writer to the repository namespace,
+including package managers, self-updaters, Git/shell automation, and processes
+that can write `.git`, `code/`, `media/`, `state/`, or `state.capture*`. Init's
+database lease and capture lock serialize Duo processes; they do not turn the
+v0 PHP filesystem layer into an adversarial race sandbox. Keep that exclusion
+in place until init succeeds or any retained recovery evidence is resolved.
+
 On success the target repository is Git-ready and contains independent
 `site.duo.json`, `code/wp-content`, `state`, and content-addressed `media`
 contracts. Init finishes through ordinary `duo status`. Its clean statement is

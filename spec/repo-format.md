@@ -954,6 +954,9 @@ The target database lease serializes Duo promotions; it cannot exclude a
 package manager, self-updater, shell user, or compromised process that writes
 the code tree directly. Code stage/finalize therefore require operational
 exclusion of every non-Duo writer from `WP_CONTENT_DIR` for their duration.
+The same contract applies to first initialization across the complete site
+repository namespace (`.git`, `code/`, `media/`, `state/`, and every
+`state.capture*` sibling) until init or retained recovery completes.
 The v0 PHP materializer refuses stable symlinks, unsafe paths, type changes,
 and hash-changed removals and publishes each file by temporary rename, but does
 not claim `openat(O_NOFOLLOW)`-grade safety against an adversarial concurrent
