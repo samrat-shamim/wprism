@@ -28,7 +28,8 @@
 #   - uncommitted agent/manifests bytes: refusal, same fail-closed point;
 #   - `reset` (a sweep's first mutation) is gated ahead of DROP/CREATE;
 #   - `start` verifies the source BAKED into existing containers, not what
-#     canonical_root() resolves today;
+#     canonical_root() resolves today, reading BOTH of them and refusing when
+#     they disagree;
 #   - DUO-3277's own dead-mount refusal (and its recovery text) still fires
 #     for a vanished baked source, gate or no gate;
 #   - an ungated run from a copy of pair.sh outside any checkout still works,
@@ -128,15 +129,21 @@ if [ "${1:-}" = inspect ]; then
   # Container existence is configured per case. mounted_agent_source() probes
   # existence first and only then asks for the mount table, so both answers
   # come from the same variable: no configured mounts means no container.
-  [ -n "${DUO_PAIR_TEST_MOUNTS:-}" ] || exit 1
+  # wp2 can be given its OWN mount table, which is how a case expresses two
+  # web containers baked against different checkouts.
+  mounts="${DUO_PAIR_TEST_MOUNTS:-}"
+  case "${2:-}" in
+    *-wp2-1) mounts="${DUO_PAIR_TEST_MOUNTS_WP2:-$mounts}" ;;
+  esac
+  [ -n "$mounts" ] || exit 1
   if [ "${3:-}" = --format ]; then
     case "${4:-}" in
       # pair.sh asks two different mount questions: source+destination pairs
       # (mounted_agent_source) and bare sources (check_dead_mounts). Answering
       # both from one tab-separated fixture keeps a source path from ever
       # being mistaken for a "src<TAB>dest" string by the dead-mount probe.
-      *Destination*) printf '%s\n' "$DUO_PAIR_TEST_MOUNTS" ;;
-      *) printf '%s\n' "$DUO_PAIR_TEST_MOUNTS" | cut -f1 ;;
+      *Destination*) printf '%s\n' "$mounts" ;;
+      *) printf '%s\n' "$mounts" | cut -f1 ;;
     esac
   fi
 elif [ "${1:-}" = info ]; then
@@ -225,6 +232,7 @@ run_pair() { # run_pair <expected-sha-or-empty> <subcommand> [args...]
     && env PATH="$FAKE_BIN:$ORIGINAL_PATH" \
        DUO_PAIR_TEST_LOG="$LOG" \
        DUO_PAIR_TEST_MOUNTS="${MOUNTS:-}" \
+       DUO_PAIR_TEST_MOUNTS_WP2="${MOUNTS_WP2:-}" \
        DUO_PAIR_TEST_CONTAINERS="${CONTAINERS:-}" \
        DUO_PAIR_TEST_LIVE_FILE="${LIVE_FILE:-}" \
        DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
@@ -330,6 +338,12 @@ run_dirty_source_refusal_case() {
     "$label did not list the modified mounted file"
   assert_file_contains "$OUTPUT" 'manifests/scratch.json' \
     "$label did not list the untracked mounted file"
+  # Every porcelain line carries the two-space indent, not just the first:
+  # printf with one multi-line argument silently indents only line one.
+  grep -qE '^  [ M?]{1,2} .*agent/duo\.php' "$OUTPUT" \
+    || fail "$label did not indent the modified-file line"
+  grep -qE '^  [ M?]{1,2} .*manifests/scratch\.json' "$OUTPUT" \
+    || fail "$label did not indent the second dirty line (multi-line listing lost its indent)"
   assert_no_pair_mutation "$label" "$CASE_ROOT" "$pair"
   pass "$label: uncommitted agent/manifests bytes refuse before any mutation"
 }
@@ -449,6 +463,48 @@ run_dead_baked_mount_case() {
   assert_file_lacks "$LOG" '<start>' "$label resumed containers under the gate"
   MOUNTS=""; LIVE_FILE=""
   pass "$label: DUO-3277's dead-mount protection is intact, and the gate refuses earlier still"
+}
+
+run_disagreeing_baked_sources_case() {
+  local label=disagreeing_baked_sources pair=disagree
+  build_fixture "$label"
+  # wp1 and wp2 baked against DIFFERENT checkouts. Compose cannot produce this
+  # from one pair.yml today, which is exactly why reading only wp1 would be a
+  # trap rather than an optimization: there is no single answer to "which code
+  # does this pair run", so the only honest outcome is a refusal naming both.
+  MOUNTS="$CANONICAL/agent"$'\t/var/www/html/wp-content/mu-plugins/duo'
+  MOUNTS_WP2="$WORKTREE/agent"$'\t/var/www/html/wp-content/mu-plugins/duo'
+  CONTAINERS="duo-${pair}-wp1-1"
+  LIVE_FILE="$CASE_ROOT/live.json"
+
+  if run_pair "$SHA_CANONICAL" start "$pair"; then
+    cat "$OUTPUT" >&2
+    fail "$label started a pair whose two web containers mount different sources"
+  fi
+  assert_file_contains "$OUTPUT" 'DISAGREEING agent bind-mount sources' \
+    "$label did not refuse containers baked against different checkouts"
+  assert_file_contains "$OUTPUT" "duo-${pair}-wp1-1: $CANONICAL/agent" \
+    "$label did not name the wp1 baked source"
+  assert_file_contains "$OUTPUT" "duo-${pair}-wp2-1: $WORKTREE/agent" \
+    "$label did not name the wp2 baked source"
+  assert_file_lacks "$LOG" '<start>' "$label resumed containers before refusing"
+  assert_file_lacks "$LOG" 'docker <compose> <ls>' \
+    "$label reserved budget before refusing"
+
+  # Deliberately ungated, and the ONE place this issue's changes refuse
+  # without DUO_EXPECTED_SOURCE_SHA: a pair whose two containers mount
+  # different code is broken whether or not the run is candidate-bound, which
+  # is the same judgement check_dead_mounts already makes on `start` for the
+  # structurally identical "baked mount is incoherent" case.
+  if run_pair "" start "$pair"; then
+    cat "$OUTPUT" >&2
+    fail "$label started disagreeing containers once the gate was unset"
+  fi
+  assert_file_contains "$OUTPUT" 'DISAGREEING agent bind-mount sources' \
+    "$label made an incoherent pair's refusal depend on the gate being set"
+  assert_file_lacks "$LOG" '<start>' "$label resumed containers on the ungated path"
+  MOUNTS=""; MOUNTS_WP2=""; CONTAINERS=""; LIVE_FILE=""
+  pass "$label: both web containers are read, and disagreement refuses instead of picking one"
 }
 
 run_non_git_copy_case() {
@@ -577,6 +633,9 @@ run_start_baked_source_case
 
 say "DUO-3277's dead-mount protection survives the gate"
 run_dead_baked_mount_case
+
+say "web containers baked against different sources refuse instead of picking one"
+run_disagreeing_baked_sources_case
 
 say "an ungated run from a non-Git copy keeps working; a gated one refuses"
 run_non_git_copy_case

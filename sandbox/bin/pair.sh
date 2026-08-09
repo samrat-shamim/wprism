@@ -124,11 +124,27 @@ AGENT_MOUNT_DEST=/var/www/html/wp-content/mu-plugins/duo
 # which is not necessarily what canonical_root() resolves today -- compose
 # start reuses whatever a container was CREATED with (the same fact
 # check_dead_mounts above exists for), so a pair created before DUO-3277
-# shipped can still carry a different source path. Empty (return 1) when this
-# pair has no container yet, or when docker can't answer: `up` is then the
-# path that decides the source, and it resolves it canonically.
+# shipped can still carry a different source path.
+#
+# BOTH web containers are read, not just the first one that answers -- the
+# same pair of containers check_dead_mounts beside this walks. Compose creates
+# wp1/wp2 from one pair.yml in a single transaction, so they cannot currently
+# disagree; short-circuiting on wp1 anyway would leave this function quietly
+# reporting half an answer the day something else can create them separately,
+# which is precisely the class of silent half-truth this whole issue exists to
+# remove. Disagreement is therefore a refusal, not a coin flip.
+#
+# The answer comes back in PAIR_BAKED_AGENT_SRC rather than on stdout: a
+# refusal in here has to kill the RUN, and inside the `$(...)` this used to be
+# called from, fail's exit would only have ended the subshell and been
+# swallowed by the caller's `|| true`. Returns non-zero (with the variable
+# empty) when this pair has no container yet, or when docker cannot answer --
+# `up` is then the path that decides the source, and it resolves it
+# canonically.
+PAIR_BAKED_AGENT_SRC=""
 mounted_agent_source() { # mounted_agent_source <name>
-  local name="$1" container mounts source destination
+  local name="$1" container mounts source destination found="" seen=()
+  PAIR_BAKED_AGENT_SRC=""
   for container in "duo-${name}-wp1-1" "duo-${name}-wp2-1"; do
     docker inspect "$container" >/dev/null 2>&1 || continue
     mounts=$(docker inspect "$container" \
@@ -136,11 +152,19 @@ mounted_agent_source() { # mounted_agent_source <name>
       2>/dev/null) || continue
     while IFS=$'\t' read -r source destination; do
       [ "${destination:-}" = "$AGENT_MOUNT_DEST" ] || continue
-      printf '%s\n' "$source"
-      return 0
+      seen+=("$container: $source")
+      if [ -z "$found" ]; then
+        found="$source"
+      elif [ "$found" != "$source" ]; then
+        fail "pair '$name' has DISAGREEING agent bind-mount sources baked into its two web containers, so there is no single answer to 'which code does this pair run' -- refusing before any pair mutation:
+$(printf '  %s\n' "${seen[@]}")
+recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used]\" to recreate BOTH containers against this checkout's canonical agent/manifests (compose detects the config drift and recreates automatically); this pair's own databases and webroot volumes are untouched either way"
+      fi
+      break   # one agent mount per container; the rest of its mounts are other trees
     done <<< "$mounts"
   done
-  return 1
+  PAIR_BAKED_AGENT_SRC="$found"
+  [ -n "$found" ]
 }
 
 # DUO-3377: the exact-source gate. DUO-3277 made every pair's agent/manifests
@@ -177,7 +201,7 @@ mounted_agent_source() { # mounted_agent_source <name>
 # left exported in someone's shell.
 assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-dir]
   local subcommand="$1" baked="${2:-}"
-  local canonical source_root actual expected dirt origin=""
+  local canonical source_root actual expected dirt dirt_err origin=""
 
   # An unresolvable canonical root is NOT this function's failure to report
   # while the gate is off: `reset` never needed git at all (it only touches
@@ -263,12 +287,38 @@ or, if the canonical checkout genuinely IS the intended source, set DUO_EXPECTED
   # check would refuse over bytes no container ever sees. What the gate
   # promises is that the MOUNTED bytes are exactly this commit's, which is
   # precisely this query.
-  if ! dirt="$(git -C "$source_root" status --porcelain=v1 --untracked-files=all -- agent manifests 2>&1)"; then
-    fail "could not check the mounted source for uncommitted agent/manifests changes ($source_root) -- refusing before any pair mutation: $dirt"
+  #
+  # Two details this query is fussy about, both found in review:
+  # - stderr is captured SEPARATELY, never merged into the porcelain output.
+  #   git can warn while still exiting 0 (an unreadable directory, for one),
+  #   and a merged capture turns that warning text into a phantom "DIRTY"
+  #   refusal quoting a message that names no file at all.
+  # - --no-optional-locks, because this runs against the SHARED canonical
+  #   checkout other agents are working in concurrently: a plain `git status`
+  #   takes index.lock and writes the refreshed index back, which is both an
+  #   unwanted write on someone else's checkout and a flaky-refusal risk if it
+  #   loses that race.
+  dirt_err="$(mktemp "${TMPDIR:-/tmp}/duo-pair-source-dirt.XXXXXX")" \
+    || fail "could not create a temporary file to capture git's own diagnostics -- refusing before any pair mutation"
+  if ! dirt="$(git -C "$source_root" --no-optional-locks status --porcelain=v1 \
+      --untracked-files=all -- agent manifests 2>"$dirt_err")"; then
+    local why
+    why="$(cat "$dirt_err" 2>/dev/null || true)"
+    rm -f -- "$dirt_err"
+    fail "could not check the mounted source for uncommitted agent/manifests changes ($source_root) -- refusing before any pair mutation: ${why:-git status failed without a diagnostic}"
   fi
+  rm -f -- "$dirt_err"
   if [ -n "$dirt" ]; then
+    # One array element per porcelain line, so every line gets the indent --
+    # printf with a single multi-line argument indents only the first (the
+    # same array/loop form check_dead_mounts uses for its own listing).
+    local -a dirt_lines=()
+    local dirt_line
+    while IFS= read -r dirt_line; do
+      [ -n "$dirt_line" ] && dirt_lines+=("$dirt_line")
+    done <<< "$dirt"
     fail "candidate source is DIRTY -- refusing before any pair mutation. The agent/manifests bytes about to be mounted from $source_root do not correspond to $actual:
-$(printf '  %s\n' "$dirt")
+$(printf '  %s\n' "${dirt_lines[@]}")
 remedy: commit or stash those changes, or produce this evidence from a clean standalone clone at the expected commit (git clone --branch <branch> $canonical /path/to/duo-wp-live-<issue>). Uncommitted mount bytes make the evidence unreproducible -- nothing records what they were"
   fi
   pass "mounted source is exactly $expected, clean — this run's evidence is bound to that commit" >&2
@@ -1159,8 +1209,12 @@ cmd_start() {
   # source this gate must verify is the BAKED one, not whatever
   # canonical_root() resolves today -- they differ for any pair created before
   # DUO-3277 shipped. check_dead_mounts below still owns the separate "that
-  # source no longer exists at all" case.
-  assert_candidate_source start "$(mounted_agent_source "$name" || true)"
+  # source no longer exists at all" case. Called as a plain statement, never
+  # inside `$(...)`: mounted_agent_source can itself refuse (disagreeing
+  # containers), and that refusal has to end this run rather than a
+  # command-substitution subshell that `|| true` would then swallow.
+  mounted_agent_source "$name" || true
+  assert_candidate_source start "$PAIR_BAKED_AGENT_SRC"
   arm_budget_up_cleanup
   reserve_pair_budget "$name"
   # Keep the existing resume contract: the shared MariaDB must be healthy
