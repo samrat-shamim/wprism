@@ -712,6 +712,80 @@ check(
 );
 
 // ======================================================================
+echo "\n== the signed-certification conditions DUO-3314 added to the same scan ==\n";
+// ======================================================================
+// Those conditions were written as THROWS, against the pre-split file. Each
+// one has to work identically in throw mode and report a row in collect mode,
+// or the catalog would die on exactly the installations it exists to explain.
+$certRepo = site_repo(['keeper'], [
+    'keeper' => site_adapter('keeper'),
+    'shimmy' => site_adapter('shimmy', ['interpreter' => 'acf']),
+], [
+    'adapters/certifications/keeper.json' => "not a certificate\n",
+    'adapters/certifications/README' => "notes\n",
+]);
+$certResult = duo(['list', '--repo=' . $certRepo, '--format=json']);
+$certReport = report($certResult);
+$certCodes = array_column(refusals_of($certReport), 'code');
+sort($certCodes, SORT_STRING);
+check(
+    $certCodes === ['certificate_invalid', 'certification_source', 'out_of_tree_privilege'],
+    'a garbage certificate, a stray file in adapters/certifications/, and an out-of-tree manifest reaching for an '
+    . 'interpreter are three refusal ROWS, not three ways to kill the command (rows: '
+    . implode(', ', $certCodes) . ')'
+);
+check($certResult['exit'] === 1, 'and the run is non-zero');
+check(
+    row_named($certReport, 'shimmy') === null,
+    'the manifest asking for executable privilege it cannot have is ABSENT from the adapter rows — discovery '
+    . 'refuses it, so listing it as installed would be the masquerade the boundary exists to stop'
+);
+check(
+    row_named($certReport, 'keeper') === null,
+    'and so is the adapter whose companion certificate does not verify — a signature the engine rejects is an '
+    . 'authority claim, never a downgrade to unsigned'
+);
+foreach (refusals_of($certReport) as $refusalRow) {
+    check(
+        trim((string) $refusalRow['remediation']) !== '' && ($refusalRow['paths'] ?? []) !== [],
+        'the ' . $refusalRow['code'] . ' row names its file(s) and carries a remediation'
+    );
+}
+// The same three conditions must still be THROWS on the loading path.
+foreach (['certification_source', 'certificate_invalid', 'out_of_tree_privilege'] as $code) {
+    $thrown = discover_message($certRepo);
+    check(
+        $thrown !== null,
+        "discover() still refuses this repository outright (it is not merely reported): "
+        . substr((string) $thrown, 0, 90) . '...'
+    );
+    break;
+}
+
+// The certification WORD is DUO-3314's, drawn from DUO-3314's own two
+// predicates. A real Ed25519 fixture is regress_site_adapter_certification's
+// subject and is not rebuilt here; what this suite owns is that the catalog
+// reads the same state rather than inventing a parallel vocabulary.
+$surveySource = (string) file_get_contents($repo . '/agent/src/AdapterSources.php');
+check(
+    str_contains($surveySource, "? 'third_party_signed' : 'signed_unpinned'")
+    && str_contains($surveySource, '$sources->is_certified($name)'),
+    "survey() derives a site row's certification from is_certified() and the explicit-pin state — the same two "
+    . 'facts diagnostics() uses for `wp duo capabilities`, so the two surfaces cannot disagree about whether an '
+    . 'adapter is signed'
+);
+$catalogWords = array_values(array_unique(array_map(
+    static fn(array $r) => $r['certification'],
+    array_merge($listReport['adapters'], $overlayReport['adapters'] ?? [])
+)));
+sort($catalogWords, SORT_STRING);
+check(
+    $catalogWords === ['registry', 'uncertified'],
+    'and the words it actually emits are from that closed set, never a minted fifth (found: '
+    . implode(', ', array_map(static fn($w) => var_export($w, true), $catalogWords)) . ')'
+);
+
+// ======================================================================
 echo "\n== a broken source is never reported as a healthy one ==\n";
 // ======================================================================
 // `inspect` reports ONE adapter, but exit 0 is a claim about the whole run.
