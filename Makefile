@@ -7,7 +7,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-env-options-policy regress-export-manifest-roundtrip regress-manifest-reclassification-policy regress-ecommerce-developer-matrix \
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
 	regress-woocommerce-product-lookups regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
-	regress-woocommerce-regen-engine regress-rebuilder-scope regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity \
+	regress-woocommerce-regen-engine regress-action-scope regress-provider-contract regress-actions-providers regress-provider-contract-live regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity \
 	regress-term-meta regress-url-query-refs regress-acf-term-options-fields regress-collision \
 	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
@@ -261,7 +261,7 @@ regress-attachment-portability:
 	bash sandbox/tests/regress_attachment_portability.sh
 
 # DUO-3206: offline wpdb return semantics plus a live, isolated failure-
-# injection matrix for insert/update/delete/transactions/rebuilders/ledger.
+# injection matrix for insert/update/delete/transactions/rebuild-actions/ledger.
 regress-fatal-mutations-unit:
 	bash sandbox/tests/regress_fatal_mutations_unit.sh
 
@@ -392,8 +392,26 @@ regress-ecommerce-extension-migration:
 regress-capture-atomicity:
 	php sandbox/tests/regress_capture_atomicity.php
 
-regress-rebuilder-scope:
-	php sandbox/tests/regress_rebuilder_scope.php
+regress-action-scope:
+	php sandbox/tests/regress_action_scope.php
+
+regress-provider-contract:
+	php sandbox/tests/regress_provider_contract.php
+
+# DUO-3338: the structured native-action vocabulary and the plugin-owned
+# provider contract. One target, two harnesses (see the wrapper's header):
+# the load-time half never stubs a WordPress function, the runtime half stubs
+# exactly the lifecycle primitives negotiation reads. regress-provider-contract
+# above stays addressable on its own for iterating on that half alone; the
+# bundle entry is this wrapper, so neither harness runs twice.
+regress-actions-providers:
+	bash sandbox/tests/regress_actions_providers.sh
+
+# DUO-3338 live counterpart: a custom sandbox plugin advertising its OWN
+# provider through the `duo_providers` filter, negotiated and invoked against a
+# real target. Own pair, so it is live-list material, never offline-all.
+regress-provider-contract-live:
+	bash sandbox/tests/regress_provider_contract_live.sh
 
 regress-code-revision-enforcement:
 	php sandbox/tests/regress_code_revision_enforcement.php
@@ -708,7 +726,7 @@ regress-user-meta:
 # entry, so a suite must declare itself at birth or CI goes red.
 # DUO-3293/3294/3295/3296/3297/3298 add the external authority, exclusion executor,
 # encrypted checkpoint, immutable atomic code-release, and upload/media bundle
-# suites, followed by lifecycle/rebuilder effect contracts and DUO-3299's
+# suites, followed by lifecycle/rebuild effect contracts and DUO-3299's
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all: code-half-unit \
 	regress-adopt-rollback regress-capture-publish regress-adapter-contract regress-manifest-dispositions regress-capability-registry regress-certification-bundle regress-interpreter-policy \
@@ -723,10 +741,10 @@ regress-offline-all: code-half-unit \
 	regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-upload-bundle \
 	regress-effect-bundle regress-woocommerce-effect-contract regress-woocommerce-product-lookups \
 	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
-	regress-woocommerce-regen-engine regress-rebuilder-scope regress-pair-bootstrap-unit \
+	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render
-	@echo "regress-offline-all: 73 offline suites green"
+	@echo "regress-offline-all: 74 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
@@ -750,6 +768,7 @@ regress-live-list:
 	@echo "  regress-fatal-mutations                   pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"
 	@echo "  regress-adapter-theme-range               pair asub3222tr 8918/8919"
+	@echo "  regress-provider-contract-live            pair claudemacb3338 8930/8931"
 	@echo "  regress-menu-item-meta-gate               pair asub3275 8954/8955"
 	@echo "  regress-widgets                           pair awid3278 8960/..."
 	@echo "  regress-promotion                         pair codexmaca3216 8920/... (also runs in CI as code-half-grind's sibling)"

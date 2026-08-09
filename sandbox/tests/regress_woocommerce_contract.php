@@ -94,10 +94,13 @@ foreach (['wc_product_meta_lookup', 'wc_product_attributes_lookup', 'wc_category
 }
 woo_ok(($declaredTables['wc_tax_rate_classes']['class'] ?? '') === 'authored_snapshot', 'merchant tax classes are portable authored state');
 
-$rebuilders = $policy->rebuilders();
-woo_ok(count($rebuilders) === 2
-    && !str_contains(implode(' ', array_map(static fn(array $row): string => (string) ($row['command'] ?? ''), $rebuilders)), 'WooCommerceContract::rebuild'),
-    'manifest keeps only bounded attribute and shipping/tax cache rebuilders; the whole-catalog projection is not automatic');
+$actions = $policy->actions();
+$actionSources = array_map(
+    static fn(array $row): string => \Duo\Policy::action_source($row, (int) $row['index']),
+    $actions
+);
+woo_ok($actionSources === ['native:transient.delete', 'provider:woocommerce-cache/invalidate_cache_groups'],
+    'manifest keeps only the bounded attribute-transient and shipping/tax cache repairs; the whole-catalog projection is not automatic');
 // DUO-3341: the legacy whole-catalog projection class is deleted outright,
 // not quarantined. Engine core must carry no WooCommerce-named production
 // source and the bootstrap must not load one; Woo semantics live in

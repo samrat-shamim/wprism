@@ -62,7 +62,7 @@ not appear in configuration or argv; providers own any credentials they need.
 `upload_provider` is optional; without it, upload recovery is explicitly
 manual. When present it must prepare encrypted local/offload evidence before
 the receipt can be claimed.
-`effect_provider` is optional; without it, lifecycle/rebuilder effect recovery
+`effect_provider` is optional; without it, lifecycle/rebuild-action effect recovery
 is explicitly manual. When present it prepares the compiled bounded inventory,
 prior inverse inputs, and receipt outboxes before receipt publication. See
 [effect-bundle.md](effect-bundle.md).
@@ -142,7 +142,7 @@ uses the generic adapter only without `upload_provider`. With the provider,
 Duo adds `storage_apply` in `promoting` and routes it and `storage_restore`
 through the bounded upload journal. See [upload-bundle.md](upload-bundle.md).
 With `effect_provider`, Duo adds `effects_inverse` in `rolling_back` and routes
-it through immutable lifecycle/rebuilder evidence plus a fresh provider-process
+it through immutable lifecycle/rebuild-action evidence plus a fresh provider-process
 readback. It is intentionally not one of the four generic adapters.
 
 ## Operator probes

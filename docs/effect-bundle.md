@@ -1,6 +1,6 @@
 # Lifecycle and rebuild effect rollback contracts
 
-The effect bundle is the lifecycle/rebuilder/regenerator slice of verified
+The effect bundle is the lifecycle/rebuild-action/regenerator slice of verified
 SSH rollback. It compiles every possible mutation into an immutable inventory,
 prepares prior evidence while maintenance exclusion is held, binds that
 evidence to the signed rollback receipt, and refuses undeclared runtime effects.
@@ -10,8 +10,10 @@ receipt evidence and inverse operation under the signed generation fence.
 
 ## Manifest grammar
 
-Plugin/theme lifecycle effects use top-level `lifecycle_effects`. A rebuilder
-uses `rebuilders[].effects`; a row-keyed regenerator uses
+Plugin/theme lifecycle effects use top-level `lifecycle_effects`. A rebuild
+action (DUO-3338's structured `actions` channel, which retired the free-form
+`rebuilders` command strings) uses `actions[].effects`; a row-keyed regenerator
+uses
 `post_types.<type>.regen_dependency.effects`. Each is a non-empty list. Every
 effect has exact `id`, `kind`, `mode`, and `selector` fields:
 
@@ -45,7 +47,7 @@ Modes have intentionally different proof obligations:
 Selectors use exact `{scope,type,value}` objects. Wildcards, control bytes,
 traversal, unbounded or query-bearing URLs, secret-shaped values, missing
 fields, and unknown fields are rejected during policy compilation. Missing
-lifecycle/rebuilder/regenerator declarations compile to explicit
+lifecycle/action/regenerator declarations compile to explicit
 `irreversible` rows; they never silently disappear from the inventory.
 
 The compiled artifact and plan carry a deterministically sorted
@@ -56,10 +58,10 @@ through its pinned inverse/readback contract.
 ## WooCommerce boundary
 
 The committed WooCommerce manifest declares plugin lifecycle as
-`irreversible`. Its rebuilders and product regenerators name the exact
+`irreversible`. Its rebuild actions and product regenerators name the exact
 checkpoint-restorable database surfaces they can mutate, including the real
 `_transient_*` option rows used by WordPress rather than Woo's logical
-transient names. The attribute-taxonomy and shipping rebuilders bind the
+transient names. The attribute-taxonomy and shipping declarations bind the
 specific `wc_attribute_taxonomies` and `shipping-transient-version` logical
 keys to bounded provider resources; neither uses the generic `transient`
 namespace as a selector.
@@ -205,7 +207,7 @@ receipt's provider-owned `lifecycle_receipts_sha256`; callers cannot supply it.
 
 ## Runtime reconciliation and rollback
 
-Every actual lifecycle, rebuilder, or regenerator effect must reconcile by
+Every actual lifecycle, rebuild-action, or regenerator effect must reconcile by
 manifest, phase, effect id, kind, and exact selector to the prepared inventory.
 An undeclared or broadened effect is a hard refusal and does not add authority.
 For prevented effects, the provider must return a receipt-bound outbox digest

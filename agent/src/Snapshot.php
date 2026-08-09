@@ -264,16 +264,18 @@ namespace Duo;
  * carve-out). WooCommerce's analogous hazard (wc_attribute_taxonomies
  * TRANSIENT survives a raw table write, confirmed in docs/grind/
  * r1b-shop.md) needs no equivalent here: it is blanket, not row-id-keyed,
- * so the EXISTING top-level manifest `"rebuilders"` mechanism (a real
- * wp-cli command, `transient delete wc_attribute_taxonomies`) already
- * covers it with zero new engine code — see manifests/woocommerce.json.
+ * so the top-level manifest `"actions"` channel already covers it with zero
+ * plugin logic in engine code: the closed native action `transient.delete`,
+ * named with `wc_attribute_taxonomies` as structured data — see
+ * manifests/woocommerce.json.
  *
  * ---- What this file does NOT do (by design, this round) ----
  *
  * - No direct WooCommerce CRUD/API or plugin-hook emulation for typed-row
  *   deletes: authored Woo rows and option-name refs are represented and
  *   guarded generically from their manifest declarations, while Woo's
- *   version-pinned cache boundaries are run by Apply's manifest rebuilder.
+ *   version-pinned cache boundaries are run by Apply's manifest-declared
+ *   rebuild actions.
  *   Plugin-specific side effects outside those declared state and cache
  *   boundaries remain unsupported until a manifest capability grants them
  *   explicit authority.

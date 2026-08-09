@@ -5,7 +5,7 @@ declare(strict_types=1);
  * Offline WooCommerce rollback-effect contract regression.
  *
  * The committed Woo manifest owns lifecycle, bounded attribute/shipping/tax
- * cache rebuilders, and product/variation lookup plus sale-action
+ * cache actions, and product/variation lookup plus sale-action
  * regeneration. This test pins the exact database-checkpoint and external-
  * cache surfaces for all of them.
  *
@@ -286,7 +286,7 @@ function woo_effect_product_regenerator(string $postType): array {
 /**
  * @return list<array<string,mixed>>
  */
-function woo_effect_attribute_rebuilder(): array {
+function woo_effect_attribute_action(): array {
     return [
         woo_effect_db_option('woocommerce-attribute-transient-value', '_transient_wc_attribute_taxonomies'),
         woo_effect_db_option('woocommerce-attribute-transient-timeout', '_transient_timeout_wc_attribute_taxonomies'),
@@ -297,7 +297,7 @@ function woo_effect_attribute_rebuilder(): array {
 }
 
 /** @return list<array<string,mixed>> */
-function woo_effect_shipping_tax_rebuilder(): array {
+function woo_effect_shipping_tax_action(): array {
     return [
         woo_effect_db_option('woocommerce-shipping-transient-value', '_transient_shipping-transient-version'),
         woo_effect_db_option('woocommerce-shipping-transient-timeout', '_transient_timeout_shipping-transient-version'),
@@ -379,27 +379,30 @@ $wooRows = array_values(array_filter(
 ));
 $manifestPath = dirname(__DIR__, 2) . '/manifests/woocommerce.json';
 $wooManifest = json_decode((string) file_get_contents($manifestPath), true, 512, JSON_THROW_ON_ERROR);
-$attributeCommand = 'transient delete wc_attribute_taxonomies';
-$cacheCommand = (string) ($wooManifest['rebuilders'][1]['command'] ?? '');
+// DUO-3338: the effect inventory's `source` is now each action's closed
+// identity (the native vocabulary entry, or provider/capability) rather than
+// the wp-cli command text the retired channel carried.
+$attributeSource = 'native:transient.delete';
+$cacheSource = 'provider:woocommerce-cache/invalidate_cache_groups';
 $expectedWooRows = [[
     'manifest' => 'woocommerce',
     'phase' => 'lifecycle',
     'source' => 'woocommerce/woocommerce.php',
     'effect' => woo_effect_lifecycle(),
 ]];
-foreach (woo_effect_attribute_rebuilder() as $effect) {
+foreach (woo_effect_attribute_action() as $effect) {
     $expectedWooRows[] = [
         'manifest' => 'woocommerce',
         'phase' => 'rebuild',
-        'source' => $attributeCommand,
+        'source' => $attributeSource,
         'effect' => $effect,
     ];
 }
-foreach (woo_effect_shipping_tax_rebuilder() as $effect) {
+foreach (woo_effect_shipping_tax_action() as $effect) {
     $expectedWooRows[] = [
         'manifest' => 'woocommerce',
         'phase' => 'rebuild',
-        'source' => $cacheCommand,
+        'source' => $cacheSource,
         'effect' => $effect,
     ];
 }
@@ -424,21 +427,85 @@ woo_effect_check(
         && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 127,
     'Woo inventory exposes exact transient/version, bounded sale-action, and Action Scheduler hook boundaries, keeps every unproven boundary irreversible, and uses unique effect IDs'
 );
+$cacheProviderSource = (string) file_get_contents(dirname(__DIR__, 2) . '/manifests/providers/woocommerce-cache.php');
 woo_effect_check(
-    ($wooManifest['rebuilders'][0]['command'] ?? null) === $attributeCommand
-        && str_contains($cacheCommand, '"woocommerce-attributes"')
-        && str_contains($cacheCommand, '"shipping_zones"')
-        && str_contains($cacheCommand, '"taxes"')
-        && str_contains($cacheCommand, 'get_transient_version("shipping", true)')
-        && str_contains($cacheCommand, 'get_transient_version("shipping", false)')
-        && str_contains($cacheCommand, 'freshShippingVersion !== $shippingVersion')
-        && !str_contains(implode(' ', array_map(
-            static fn(array $rebuilder): string => (string) ($rebuilder['command'] ?? ''),
-            (array) ($wooManifest['rebuilders'] ?? [])
-        )), 'WooCommerceContract::rebuild')
-        && ($wooManifest['rebuilders'][0]['triggers'] ?? []) === ['table:woocommerce_attribute_taxonomies']
-        && in_array('option:woocommerce_calc_taxes', (array) ($wooManifest['rebuilders'][1]['triggers'] ?? []), true),
-    'Woo rebuild commands are bounded by exact authored surfaces and the cache command proves fresh-read persistence'
+    ($wooManifest['actions'][0]['kind'] ?? null) === 'native'
+        && ($wooManifest['actions'][0]['action'] ?? null) === 'transient.delete'
+        && ($wooManifest['actions'][0]['args'] ?? null) === ['name' => 'wc_attribute_taxonomies']
+        && ($wooManifest['actions'][0]['triggers'] ?? []) === ['table:woocommerce_attribute_taxonomies']
+        && ($wooManifest['actions'][1]['kind'] ?? null) === 'provider'
+        && ($wooManifest['actions'][1]['provider'] ?? null) === 'woocommerce-cache'
+        && ($wooManifest['actions'][1]['capability'] ?? null) === 'invalidate_cache_groups'
+        && ($wooManifest['actions'][1]['args']['groups'] ?? null)
+            === ['woocommerce-attributes', 'shipping_zones', 'taxes']
+        && in_array('option:woocommerce_calc_taxes', (array) ($wooManifest['actions'][1]['triggers'] ?? []), true)
+        && $wooManifest['actions'] === array_values(array_filter(
+            $wooManifest['actions'],
+            static fn(array $action): bool => !array_key_exists('command', $action)
+        )),
+    'Woo rebuild actions are structured data bounded by exact authored surfaces, with no executable command string'
+);
+// The DUO-3338 migration had to preserve the retired channel's scoping
+// BYTE-FOR-BYTE: this is the exact trigger list manifests/woocommerce.json
+// carried as `rebuilders[1].triggers` at the last pre-migration revision
+// (da93360), pinned here so a later edit that widens or narrows Woo's cache
+// invalidation has to say so out loud instead of arriving as a diff nobody
+// reads. The key-set assertions close the entries: a leftover `command`, or a
+// native key on the provider entry, is not merely refused at load — it cannot
+// be present at all.
+$cacheTriggers = [
+    'table:woocommerce_attribute_taxonomies',
+    'table:woocommerce_shipping_zone_locations',
+    'table:woocommerce_shipping_zone_methods',
+    'table:woocommerce_shipping_zones',
+    'table:woocommerce_tax_rate_locations',
+    'table:woocommerce_tax_rates',
+    'option:woocommerce_all_except_countries',
+    'option:woocommerce_allowed_countries',
+    'option:woocommerce_calc_taxes',
+    'option:woocommerce_default_country',
+    'option:woocommerce_prices_include_tax',
+    'option:woocommerce_ship_to_countries',
+    'option:woocommerce_ship_to_destination',
+    'option:woocommerce_shipping_cost_requires_address',
+    'option:woocommerce_shipping_hide_rates_when_free',
+    'option:woocommerce_shipping_tax_class',
+    'option:woocommerce_tax_based_on',
+    'option:woocommerce_tax_classes',
+    'option:woocommerce_tax_display_cart',
+    'option:woocommerce_tax_display_shop',
+    'option:woocommerce_tax_round_at_subtotal',
+    'option:woocommerce_tax_total_display',
+];
+$nativeKeys = array_keys((array) ($wooManifest['actions'][0] ?? []));
+$providerKeys = array_keys((array) ($wooManifest['actions'][1] ?? []));
+sort($nativeKeys, SORT_STRING);
+sort($providerKeys, SORT_STRING);
+woo_effect_check(
+    count((array) ($wooManifest['actions'] ?? [])) === 2
+        && $nativeKeys === ['action', 'args', 'effects', 'kind', 'triggers']
+        && $providerKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
+        && ($wooManifest['actions'][1]['triggers'] ?? null) === $cacheTriggers
+        && ($wooManifest['actions'][1]['args'] ?? null) === ['groups' => ['woocommerce-attributes', 'shipping_zones', 'taxes']],
+    'the migrated Woo actions carry exactly the retired channel\'s trigger surfaces and argument values, and no key beyond the two closed entry shapes'
+);
+woo_effect_check(
+    ($wooManifest['providers'] ?? null) === [[
+        'id' => 'woocommerce-cache',
+        'version' => '1.0.0',
+        'source' => 'manifest',
+        'plugin' => 'woocommerce/woocommerce.php',
+        'capabilities' => ['invalidate_cache_groups'],
+    ]],
+    'the Woo provider declaration is one manifest-shipped identity owned by the version-pinned plugin, advertising exactly the capability its action names'
+);
+woo_effect_check(
+    str_contains($cacheProviderSource, "get_transient_version('shipping', true)")
+        && str_contains($cacheProviderSource, "get_transient_version('shipping', false)")
+        && str_contains($cacheProviderSource, '$freshShippingVersion !== $shippingVersion')
+        && str_contains($cacheProviderSource, 'did not persist across a fresh read')
+        && !str_contains($cacheProviderSource, 'WooCommerceContract::rebuild'),
+    'the manifest-shipped cache provider keeps the version-pinned public boundary and its fresh-read persistence proof'
 );
 woo_effect_check(
     str_contains((string) ($wooManifest['notes']['category lookup boundary (WooCommerce 11.0.0)'] ?? ''), 'outside the automatic convergence guarantee')

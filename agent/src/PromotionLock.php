@@ -700,7 +700,7 @@ final class PromotionLock {
         self::assert_identity($owner, $artifactHash);
 
         // Most failures happen outside a transaction (preconditions,
-        // rebuilders, or probes). Keep their normal WordPress connection
+        // rebuild actions, or probes). Keep their normal WordPress connection
         // alive for shutdown hooks; only cross the independent cleanup
         // boundary when MariaDB proves this process still owns a transaction.
         $inTransaction = $wpdb->get_var('SELECT @@in_transaction');

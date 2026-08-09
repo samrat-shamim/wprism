@@ -2,8 +2,16 @@
 declare(strict_types=1);
 
 /**
- * Offline regression for exact manifest rebuilder selection and Apply's
- * canonical surface projection. No WordPress target or WP-CLI is contacted.
+ * Offline regression for exact manifest ACTION selection (DUO-3338) and
+ * Apply's canonical surface projection. No WordPress target or WP-CLI is
+ * contacted.
+ *
+ * The selection semantics under test are deliberately identical to the ones
+ * the retired free-form `rebuilders` channel had — scoped declarations fire
+ * only on an exact canonical-surface match, un-triggered declarations remain
+ * unscoped, and an empty surface set fires nothing — because DUO-3338 was a
+ * channel migration, not a behavior change. The probe fixture uses the closed
+ * native action so the harness needs no provider code on disk.
  */
 
 define('DUO_SPEC_VERSION', 2);
@@ -39,23 +47,31 @@ $manifest = [
     'spec_version' => DUO_SPEC_VERSION,
     'plugin' => 'trigger-probe/trigger-probe.php',
     'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
-    'rebuilders' => [
+    'actions' => [
         [
-            'command' => 'probe product',
+            'kind' => 'native',
+            'action' => 'transient.delete',
+            'args' => ['name' => 'probe_product'],
             'triggers' => ['post:product'],
             'effects' => [$effect('probe-product')],
         ],
         [
-            'command' => 'probe legacy',
+            'kind' => 'native',
+            'action' => 'transient.delete',
+            'args' => ['name' => 'probe_legacy'],
             'effects' => [$effect('probe-legacy')],
         ],
         [
-            'command' => 'probe category',
+            'kind' => 'native',
+            'action' => 'transient.delete',
+            'args' => ['name' => 'probe_category'],
             'triggers' => ['term:product_cat'],
             'effects' => [$effect('probe-category')],
         ],
         [
-            'command' => 'probe woo option',
+            'kind' => 'native',
+            'action' => 'transient.delete',
+            'args' => ['name' => 'probe_woo_option'],
             'triggers' => ['option:woocommerce_calc_taxes'],
             'effects' => [$effect('probe-woo-option')],
         ],
@@ -79,34 +95,36 @@ $policy = \Duo\Policy::from_snapshot([
     'manifests' => [$manifest],
 ]);
 
-$commands = static fn(array $rows): array => array_values(array_map(
-    static fn(array $row): string => (string) $row['command'],
+// Identify a selected row by the one field that distinguishes these four
+// declarations from each other: the transient each names.
+$selected = static fn(array $rows): array => array_values(array_map(
+    static fn(array $row): string => (string) $row['args']['name'],
     $rows
 ));
 
 $check(
-    $commands($policy->rebuilders_for(['post:product'])) === ['probe product', 'probe legacy'],
-    'an exact post surface selects its scoped rebuilder and the backward-compatible unscoped rebuilder'
+    $selected($policy->actions_for(['post:product'])) === ['probe_product', 'probe_legacy'],
+    'an exact post surface selects its scoped action and the unscoped one'
 );
 $check(
-    $commands($policy->rebuilders_for(['post:product_variation'])) === ['probe legacy'],
+    $selected($policy->actions_for(['post:product_variation'])) === ['probe_legacy'],
     'near-match post types do not select an exact trigger'
 );
 $check(
-    $commands($policy->rebuilders_for(['term:product_cat'])) === ['probe legacy', 'probe category'],
+    $selected($policy->actions_for(['term:product_cat'])) === ['probe_legacy', 'probe_category'],
     'term selection preserves declaration order across manifests'
 );
 $check(
-    $commands($policy->rebuilders_for(['option:woocommerce_currency'])) === ['probe legacy'],
-    'an unrelated option surface does not select a Woo option rebuilder'
+    $selected($policy->actions_for(['option:woocommerce_currency'])) === ['probe_legacy'],
+    'an unrelated option surface does not select the option-scoped action'
 );
 $check(
-    $commands($policy->rebuilders_for(['option:woocommerce_calc_taxes'])) === ['probe legacy', 'probe woo option'],
-    'the exact Woo option surface selects its scoped rebuilder'
+    $selected($policy->actions_for(['option:woocommerce_calc_taxes'])) === ['probe_legacy', 'probe_woo_option'],
+    'the exact option surface selects its scoped action'
 );
 $check(
-    $policy->rebuilders_for([]) === [],
-    'an empty/no-op surface set launches no rebuilder'
+    $policy->actions_for([]) === [],
+    'an empty/no-op surface set fires no action'
 );
 
 $expectThrow = static function (array $badManifest, string $needle, string $label) use ($check): void {
@@ -128,17 +146,17 @@ $expectThrow = static function (array $badManifest, string $needle, string $labe
     }
 };
 $bad = $manifest;
-$bad['rebuilders'][0]['triggers'] = ['post:*'];
+$bad['actions'][0]['triggers'] = ['post:*'];
 $expectThrow($bad, 'exact canonical surface', 'wildcard trigger');
 $bad = $manifest;
-$bad['rebuilders'][0]['triggers'] = ['post:product:42'];
+$bad['actions'][0]['triggers'] = ['post:product:42'];
 $expectThrow($bad, 'exact canonical surface', 'id-bearing trigger');
 $bad = $manifest;
-$bad['rebuilders'][0]['triggers'] = ['post:product', 'post:product'];
+$bad['actions'][0]['triggers'] = ['post:product', 'post:product'];
 $expectThrow($bad, 'repeats exact surface', 'duplicate trigger');
 $bad = $manifest;
-$bad['rebuilders'][0]['unexpected'] = true;
-$expectThrow($bad, 'unknown key', 'unknown rebuilder key');
+$bad['actions'][0]['unexpected'] = true;
+$expectThrow($bad, 'unknown key', 'unknown action key');
 
 $apply = (new ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
 $policyProperty = new ReflectionProperty(\Duo\Apply::class, 'policy');
@@ -243,8 +261,8 @@ $unrelatedOptions = $surfaceMethod->invoke(
     []
 );
 $check(
-    $commands($policy->rebuilders_for($unrelatedOptions)) === ['probe legacy'],
-    'Apply carries only the touched unrelated option and leaves the Woo option rebuilder skipped'
+    $selected($policy->actions_for($unrelatedOptions)) === ['probe_legacy'],
+    'Apply carries only the touched unrelated option and leaves the option-scoped action skipped'
 );
 $retryOptions = $surfaceMethod->invoke(
     $apply,
@@ -253,7 +271,7 @@ $retryOptions = $surfaceMethod->invoke(
     []
 );
 $check(
-    $commands($policy->rebuilders_for($retryOptions)) === ['probe legacy', 'probe woo option'],
+    $selected($policy->actions_for($retryOptions)) === ['probe_legacy', 'probe_woo_option'],
     'an incomplete-apply retry widens the options row to all canonical records'
 );
 $check(!in_array('option:woocommerce_noop', $retryOptions, true),
@@ -265,8 +283,8 @@ $filteredOptionSurfaces = $surfaceMethod->invoke(
     []
 );
 $check(
-    $filteredOptionSurfaces === [] && $commands($policy->rebuilders_for($filteredOptionSurfaces)) === [],
-    'all-absent or lifecycle-managed option work contributes no surface and launches no rebuilder'
+    $filteredOptionSurfaces === [] && $selected($policy->actions_for($filteredOptionSurfaces)) === [],
+    'all-absent or lifecycle-managed option work contributes no surface and fires no action'
 );
 
 $retrySurfaces = $surfaceMethod->invoke(
@@ -276,8 +294,8 @@ $retrySurfaces = $surfaceMethod->invoke(
     [['deletion_kind' => 'table', 'deletion_type' => 'woocommerce_attribute_taxonomies']]
 );
 $check(
-    $commands($policy->rebuilders_for($retrySurfaces)) === ['probe legacy'],
-    'a retry-only tombstone still contributes a surface while unrelated scoped rebuilders stay skipped'
+    $selected($policy->actions_for($retrySurfaces)) === ['probe_legacy'],
+    'a retry-only tombstone still contributes a surface while unrelated scoped actions stay skipped'
 );
 
 exit($failures === 0 ? 0 : 1);

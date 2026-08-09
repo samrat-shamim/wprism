@@ -1314,7 +1314,43 @@ final class Deploy {
         return is_array($raw) ? array_values(array_map('strval', $raw)) : [];
     }
 
-    private static function in_range(string $installed, string $min, string $max): bool {
+    /**
+     * The live existence/lifecycle/version facts about one plugin basename,
+     * read through the exact primitives code_mismatch() above uses:
+     * validate_plugin() for existence (WordPress's own validation primitive,
+     * correct for both `slug/slug.php` and legacy single-file plugins),
+     * get_option('active_plugins') for the lifecycle state, and WordPress's
+     * plugin-header parser for the installed version.
+     *
+     * Public because DUO-3338's provider negotiation asks the same question
+     * about a provider's owning plugin from Providers::negotiate(). Sharing
+     * this accessor — rather than letting a second class learn where the live
+     * plugin facts live and which wp-admin include has to be loaded first —
+     * is what keeps "installed", "active", and "which version" from acquiring
+     * two definitions that can disagree.
+     *
+     * @return array{installed:bool, active:bool, version:string}
+     */
+    public static function plugin_runtime_state(string $plugin): array {
+        self::require_plugin_admin_functions();
+        $installed = !is_wp_error(validate_plugin($plugin));
+        $all = $installed ? get_plugins() : [];
+        return [
+            'installed' => $installed,
+            'active' => in_array($plugin, self::current_active_plugins(), true),
+            'version' => (string) ($all[$plugin]['Version'] ?? ''),
+        ];
+    }
+
+    /**
+     * Min inclusive, max exclusive — the whole of the version_range mechanic
+     * (Policy::version_ranges()'s docblock explains why it is two
+     * version_compare() calls and not a semver-range parser). Public so
+     * DUO-3338's provider negotiation bounds a provider by the identical
+     * arithmetic that bounds its manifest's classification guarantees,
+     * instead of a second copy that could drift on an edge case.
+     */
+    public static function in_range(string $installed, string $min, string $max): bool {
         return version_compare($installed, $min, '>=') && version_compare($installed, $max, '<');
     }
 

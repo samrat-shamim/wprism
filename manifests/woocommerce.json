@@ -23,9 +23,14 @@
   "term_meta": {
     "thumbnail_id": {"class": "authored", "ref": "post"}
   },
-  "rebuilders": [
+  "providers": [
+    {"id": "woocommerce-cache", "version": "1.0.0", "source": "manifest", "plugin": "woocommerce/woocommerce.php", "capabilities": ["invalidate_cache_groups"]}
+  ],
+  "actions": [
     {
-      "command": "transient delete wc_attribute_taxonomies",
+      "kind": "native",
+      "action": "transient.delete",
+      "args": {"name": "wc_attribute_taxonomies"},
       "triggers": ["table:woocommerce_attribute_taxonomies"],
       "effects": [
         {"id": "woocommerce-attribute-transient-value", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "_transient_wc_attribute_taxonomies"}},
@@ -36,7 +41,10 @@
       ]
     },
     {
-      "command": "eval 'if (!class_exists(\"WC_Cache_Helper\") || !is_callable([\"WC_Cache_Helper\", \"invalidate_cache_group\"]) || !is_callable([\"WC_Cache_Helper\", \"get_transient_version\"])) { WP_CLI::error(\"WooCommerce 11.x cache invalidation API is unavailable\"); } foreach ([\"woocommerce-attributes\", \"shipping_zones\", \"taxes\"] as $group) { if (!WC_Cache_Helper::invalidate_cache_group($group)) { WP_CLI::error(\"WooCommerce cache invalidation failed for \" . $group); } } $shippingVersion = WC_Cache_Helper::get_transient_version(\"shipping\", true); $freshShippingVersion = WC_Cache_Helper::get_transient_version(\"shipping\", false); if (!is_string($shippingVersion) || $shippingVersion === \"\" || $freshShippingVersion !== $shippingVersion) { WP_CLI::error(\"WooCommerce shipping transient version did not persist across a fresh read\"); }'",
+      "kind": "provider",
+      "provider": "woocommerce-cache",
+      "capability": "invalidate_cache_groups",
+      "args": {"groups": ["woocommerce-attributes", "shipping_zones", "taxes"]},
       "triggers": [
         "table:woocommerce_attribute_taxonomies",
         "table:woocommerce_shipping_zone_locations",
@@ -93,6 +101,7 @@
     {"match": "^pa_", "object_type": ["product"], "update_count_callback": "_update_post_term_count"}
   ],
   "notes": {
+    "structured actions (DUO-3338)": "DUO-3338 (structured actions supersede the free-form `rebuilders` channel): the two declarations this manifest carried as wp-cli command strings — `transient delete wc_attribute_taxonomies` and a `wp eval` payload calling WC_Cache_Helper — are now `actions` entries, with their triggers and effects preserved byte-for-byte, so which surfaces select them and which effects they declare are unchanged. The transient clear became the closed engine-owned native action `transient.delete` (WordPress core semantics, argument `name` as data, verified by a checked readback proving both option rows and the object-cache entry are gone). The cache invalidation became provider `woocommerce-cache` capability `invalidate_cache_groups` (manifests/providers/woocommerce-cache.php), which ports the eval payload's exact guards, exact group list — supplied as structured `args`, not spliced into a string — and its exact three-condition fresh-read persistence check on the shipping transient version. This entry supersedes the earlier notes below that describe the mechanism as a `rebuilders` entry or a wp-cli/eval command; their WooCommerce-side reasoning about WHY those cache boundaries are required is unchanged and still current.",
     "shipping/tax typed-row deletion cache boundary (DUO-329x)": "Typed shipping-zone/method and tax-rate/location creation and update are portable, and the generic synthetic deletion contract exercises child ordering, option-name guards, and cache inventory. The shipped Woo adapter deliberately grants no deletion authority for these rows: Woo CRUD/API effects, extension reverse references, and every persistent-cache consequence are not a closed semantic-delete contract. WooCommerce 11.x exposes WC_Cache_Helper::invalidate_cache_group() for the woocommerce-attributes, shipping_zones, and taxes groups plus WC_Cache_Helper::get_transient_version('shipping', true); the mandatory fresh-process rebuilder invokes those version-pinned boundaries after supported writes. These calls remain required on persistent object-cache deployments. The effect inventory remains useful evidence for future deletion work, but no shipped tombstone can reach it.",
     "product.modified_timestamps (post fields)": "WooCommerce's product and variation CRUD saves update wp_posts.post_modified and post_modified_gmt as persistence timestamps even when the authored product inputs are unchanged (the ecommerce run observed this after target-only stock saves). These front-matter fields remain captured verbatim for operator visibility and are still written as starting values when Duo creates a row, but are classified derived for product and product_variation so Canon's hash basis ignores timestamp-only differences and Apply preserves the target's existing timestamps instead of replaying stale source times. This declaration is intentionally scoped to Woo products and variations; every undeclared post type keeps authored timestamp semantics.",
     "merchant_settings": "Exact authored coverage now includes woocommerce_calc_taxes and woocommerce_cod_settings: the conformance seed writes distinctive COD settings and the target check verifies both the option blob and WooCommerce's COD gateway API; COD has no secret fields in this fixture.",

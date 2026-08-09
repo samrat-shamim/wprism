@@ -7,9 +7,14 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-PAIR=codexmaca3206
-PORT1=9210
-PORT2=9211
+# Pair/name/ports are overridable so a co-hosted agent can run this suite in
+# its own namespace instead of the original author's (docs/agents/
+# linear-loop.md's field notes record a live cross-agent pair-reset incident,
+# DUO-3252, caused by exactly this kind of hardcoded stanza). Defaults are
+# byte-identical to the historical values.
+PAIR="${FATAL_MUTATIONS_PAIR:-codexmaca3206}"
+PORT1="${FATAL_MUTATIONS_PORT1:-9210}"
+PORT2="${FATAL_MUTATIONS_PORT2:-9211}"
 SITEREPO="$REPO_ROOT/sandbox/siterepo/${PAIR}1"
 COMPOSE=(docker compose -p "duo-$PAIR" -f sandbox/pair.yml)
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
@@ -228,47 +233,216 @@ wp1 duo apply --repo=/siterepo --revision=ledger-recovered >/dev/null
 reset_baseline
 pass "ledger metadata transition rolled back atomically and retried"
 
-say "manifest-declared rebuilder failure is fatal before ledger advancement"
-mkdir -p "$SITEREPO/test-manifests"
+# DUO-3338 gave the manifest rebuild channel a gate DUO-3206 could not have:
+# an unavailable capability is refused BEFORE the first target mutation, so
+# nothing is attempted and the retry marker is deliberately absent. That is an
+# ADDITIONAL property, not a replacement -- DUO-3206's own guarantee (a rebuild
+# that fails AFTER the authored commit leaves applied_revision unadvanced, the
+# retry marker set, and a retry that recovers) is exercised by the case
+# immediately after this one, through the same new channel.
+say "manifest-declared provider capability that is unavailable refuses before any target mutation"
+mkdir -p "$SITEREPO/test-manifests/providers"
 cp "$REPO_ROOT/manifests/core.json" "$SITEREPO/test-manifests/core.json"
-cat > "$SITEREPO/test-manifests/duo-3206-fatal-rebuilder.json" <<'EOF'
+cat > "$SITEREPO/test-manifests/duo-3338-missing-provider.json" <<'EOF'
 {
-  "name": "duo-3206-fatal-rebuilder",
+  "name": "duo-3338-missing-provider",
   "spec_version": 2,
-  "rebuilders": [{"command": "duo-3206-command-that-does-not-exist"}]
+  "providers": [
+    {"id": "duo-3338-absent", "version": "1.0.0", "source": "plugin", "plugin": "duo-3338-absent/duo-3338-absent.php", "capabilities": ["rebuild"]}
+  ],
+  "actions": [
+    {"kind": "provider", "provider": "duo-3338-absent", "capability": "rebuild", "args": {}}
+  ]
 }
 EOF
-jq '.manifests = ["core", "duo-3206-fatal-rebuilder"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"
+jq '.manifests = ["core", "duo-3338-missing-provider"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"
 mv "$SITEREPO/site.duo.json.tmp" "$SITEREPO/site.duo.json"
-edit_blogname "DUO 3206 manifest rebuilder failure"
-if OUT=$(wp1_test_manifests duo apply --repo=/siterepo --revision=bad-manifest 2>&1); then
+BLOGNAME_BEFORE=$(wp1 option get blogname | tr -d '\r')
+edit_blogname "DUO 3338 unavailable provider capability"
+if OUT=$(wp1_test_manifests duo apply --repo=/siterepo --revision=missing-provider 2>&1); then
   echo "$OUT"
-  fail "unknown required manifest rebuilder unexpectedly succeeded"
+  fail "apply with an unavailable provider capability unexpectedly succeeded"
 fi
 echo "$OUT"
-grep -Fq "required manifest rebuilder" <<<"$OUT" || fail "manifest failure was not named"
-[ "$(ledger_value applied_revision)" = baseline ] || fail "manifest rebuilder failure advanced applied_revision"
-[ "$(ledger_value apply_in_progress)" = 1 ] || fail "manifest failure did not retain retry marker"
+grep -Fq "refused before target mutation" <<<"$OUT" || fail "refusal did not name the pre-mutation gate"
+grep -Fq "duo-3338-absent" <<<"$OUT" || fail "refusal did not name the responsible provider"
+grep -Fq "duo-3338-absent/duo-3338-absent.php" <<<"$OUT" || fail "refusal did not name the owning plugin"
+grep -Eq "install and activate|duo deploy" <<<"$OUT" || fail "refusal carried no remediation path"
+[ "$(ledger_value applied_revision)" = baseline ] || fail "provider refusal advanced applied_revision"
+[ "$(ledger_value apply_in_progress)" = NULL ] || fail "provider refusal wrote the retry marker despite mutating nothing"
+[ "$(wp1 option get blogname | tr -d '\r')" = "$BLOGNAME_BEFORE" ] \
+  || fail "provider refusal mutated the target before negotiating"
 jq '.manifests = ["core"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"
 mv "$SITEREPO/site.duo.json.tmp" "$SITEREPO/site.duo.json"
 reset_baseline
-pass "required manifest rebuilder failure stayed fatal and unapplied"
+pass "unavailable provider capability refused with remediation, before any target mutation"
 
-say "successful rebuilder that corrupts authored state is caught by post-apply recapture"
-cat > "$SITEREPO/test-manifests/duo-3220-corrupting-rebuilder.json" <<'EOF'
+# Both cases below need a provider that NEGOTIATES CLEANLY and then misbehaves
+# at invocation time -- otherwise the pre-mutation gate above catches them and
+# the post-commit boundary DUO-3206/DUO-3220 are about never gets exercised.
+# Negotiation requires the declared owning plugin to be installed and active,
+# so this probe plugin exists solely to be that owner. It registers nothing and
+# runs no code of its own.
+wp1 eval '
+$dir = WP_PLUGIN_DIR . "/duo-3338-probe";
+if (!is_dir($dir) && !wp_mkdir_p($dir)) {
+    throw new RuntimeException("could not create the probe plugin directory");
+}
+if (file_put_contents($dir . "/duo-3338-probe.php", "<?php\n/**\n * Plugin Name: DUO 3338 provider probe\n * Version: 1.0.0\n */\n") === false) {
+    throw new RuntimeException("could not write the probe plugin");
+}
+' >/dev/null
+wp1 plugin activate duo-3338-probe >/dev/null
+# active_plugins is a `managed` core option: apply never writes it, but capture
+# DOES record it, so the baseline is retaken here. Without this, every later
+# post-apply recapture would diverge on this script's own probe activation
+# instead of on the corruption the DUO-3220 case deliberately injects.
+reset_baseline
+
+say "manifest-declared action failure is fatal before ledger advancement"
+cat > "$SITEREPO/test-manifests/providers/duo-3338-fatal.php" <<'EOF'
+<?php
+namespace Duo\Providers;
+
+/**
+ * Scratch provider whose one capability always throws -- the structured-channel
+ * equivalent of the nonexistent wp-cli command this case declared before
+ * DUO-3338. Everything negotiable about it is deliberately correct (file
+ * present, identity matching its declaration, owning plugin active, capability
+ * advertised and idempotent) so the failure lands in the rebuild pass, after
+ * the authored transaction has committed: that is the boundary DUO-3206 pins.
+ */
+final class Duo3338Fatal {
+    public function __construct(\Duo\Policy $policy) {}
+
+    public function identity(): array {
+        return [
+            'id' => 'duo-3338-fatal',
+            'plugin' => 'duo-3338-probe/duo-3338-probe.php',
+            'version' => '1.0.0',
+        ];
+    }
+
+    public function capabilities(): array {
+        return [
+            'rebuild_probe_state' => [
+                'args' => [],
+                'reads' => [],
+                'writes' => ['option:duo_3338_probe_state'],
+                'scope' => 'site',
+                'idempotent' => true,
+                'timeout_seconds' => 30,
+            ],
+        ];
+    }
+
+    public function invoke(string $capability, array $args): array {
+        throw new \RuntimeException("duo-3338 probe capability '$capability' is deliberately unavailable");
+    }
+}
+EOF
+cat > "$SITEREPO/test-manifests/duo-3338-fatal-action.json" <<'EOF'
 {
-  "name": "duo-3220-corrupting-rebuilder",
-  "rebuilders": [{"command": "option update blogname duo-3220-corrupted-after-apply"}],
+  "actions": [
+    {"kind": "provider", "provider": "duo-3338-fatal", "capability": "rebuild_probe_state", "args": {}}
+  ],
+  "name": "duo-3338-fatal-action",
+  "providers": [
+    {"id": "duo-3338-fatal", "version": "1.0.0", "source": "manifest", "plugin": "duo-3338-probe/duo-3338-probe.php", "capabilities": ["rebuild_probe_state"]}
+  ],
   "spec_version": 2
 }
 EOF
-jq '.manifests = ["core", "duo-3220-corrupting-rebuilder"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"
+jq '.manifests = ["core", "duo-3338-fatal-action"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"
+mv "$SITEREPO/site.duo.json.tmp" "$SITEREPO/site.duo.json"
+edit_blogname "DUO 3206 manifest action failure"
+if OUT=$(wp1_test_manifests duo apply --repo=/siterepo --revision=bad-manifest 2>&1); then
+  echo "$OUT"
+  fail "a throwing required manifest action unexpectedly succeeded"
+fi
+echo "$OUT"
+grep -Fq "required manifest action 'provider:duo-3338-fatal/rebuild_probe_state'" <<<"$OUT" \
+  || fail "manifest failure did not name the exact failing action"
+[ "$(ledger_value applied_revision)" = baseline ] || fail "manifest action failure advanced applied_revision"
+[ "$(ledger_value apply_in_progress)" = 1 ] || fail "manifest failure did not retain retry marker"
+jq '.manifests = ["core"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"
+mv "$SITEREPO/site.duo.json.tmp" "$SITEREPO/site.duo.json"
+wp1 duo apply --repo=/siterepo --revision=manifest-action-recovered >/dev/null
+[ "$(ledger_value applied_revision)" = manifest-action-recovered ] || fail "manifest action retry did not advance revision"
+[ "$(ledger_value apply_in_progress)" = NULL ] || fail "manifest action retry did not clear marker"
+reset_baseline
+pass "required manifest action failure stayed fatal and unapplied, then retried successfully"
+
+say "successful provider capability that corrupts authored state is caught by post-apply recapture"
+cat > "$SITEREPO/test-manifests/providers/duo-3338-corrupting.php" <<'EOF'
+<?php
+namespace Duo\Providers;
+
+/**
+ * Scratch provider that succeeds on its OWN terms -- it writes a value, reads it
+ * back, and returns a well-formed receipt with verified true -- while corrupting
+ * authored state the repository owns. Provider self-verification is deliberately
+ * not the whole gate: DUO-3220's post-apply canonical recapture is what catches
+ * a repair that proved its own write and still left the target divergent.
+ */
+final class Duo3338Corrupting {
+    public function __construct(\Duo\Policy $policy) {}
+
+    public function identity(): array {
+        return [
+            'id' => 'duo-3338-corrupting',
+            'plugin' => 'duo-3338-probe/duo-3338-probe.php',
+            'version' => '1.0.0',
+        ];
+    }
+
+    public function capabilities(): array {
+        return [
+            'corrupt_blogname' => [
+                'args' => [],
+                'reads' => ['option:blogname'],
+                'writes' => ['option:blogname'],
+                'scope' => 'site',
+                'idempotent' => true,
+                'timeout_seconds' => 30,
+            ],
+        ];
+    }
+
+    public function invoke(string $capability, array $args): array {
+        $before = (string) get_option('blogname');
+        update_option('blogname', 'duo-3220-corrupted-after-apply');
+        $after = (string) get_option('blogname');
+        if ($after !== 'duo-3220-corrupted-after-apply') {
+            throw new \RuntimeException('duo-3338 corrupting probe could not write blogname');
+        }
+        return [
+            'before' => ['blogname' => $before],
+            'after' => ['blogname' => $after],
+            'verified' => true,
+        ];
+    }
+}
+EOF
+cat > "$SITEREPO/test-manifests/duo-3220-corrupting-action.json" <<'EOF'
+{
+  "actions": [
+    {"kind": "provider", "provider": "duo-3338-corrupting", "capability": "corrupt_blogname", "args": {}}
+  ],
+  "name": "duo-3220-corrupting-action",
+  "providers": [
+    {"id": "duo-3338-corrupting", "version": "1.0.0", "source": "manifest", "plugin": "duo-3338-probe/duo-3338-probe.php", "capabilities": ["corrupt_blogname"]}
+  ],
+  "spec_version": 2
+}
+EOF
+jq '.manifests = ["core", "duo-3220-corrupting-action"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"
 mv "$SITEREPO/site.duo.json.tmp" "$SITEREPO/site.duo.json"
 edit_blogname "DUO 3220 expected authored state"
 BASE_HASH=$(wp1 eval "echo \\Duo\\Ledger::state_hash('options/core') ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1)
 if OUT=$(wp1_test_manifests duo apply --repo=/siterepo --revision=bad-post-apply-verification 2>&1); then
   echo "$OUT"
-  fail "authored corruption after a successful rebuilder unexpectedly passed verification"
+  fail "authored corruption after a self-verified provider capability unexpectedly passed verification"
 fi
 echo "$OUT"
 grep -Fq "post-apply convergence verification failed" <<<"$OUT" \
@@ -276,7 +450,7 @@ grep -Fq "post-apply convergence verification failed" <<<"$OUT" \
 grep -Fq "options/core" <<<"$OUT" \
   || fail "verification failure did not identify the divergent canonical entity"
 [ "$(wp1 option get blogname | tr -d '\r')" = duo-3220-corrupted-after-apply ] \
-  || fail "corrupting rebuilder did not execute successfully before verification"
+  || fail "corrupting provider capability did not execute successfully before verification"
 [ "$(ledger_value applied_revision)" = baseline ] || fail "verification failure advanced applied_revision"
 [ "$(wp1 eval "echo \\Duo\\Ledger::state_hash('options/core') ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1)" = "$BASE_HASH" ] \
   || fail "verification failure advanced the canonical base hash"

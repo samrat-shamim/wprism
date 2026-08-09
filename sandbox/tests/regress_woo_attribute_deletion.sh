@@ -101,12 +101,23 @@ DELETE FROM wp_postmeta;
 DELETE FROM wp_posts;
 ' >/dev/null
 APPLY_BASE=$(wp2 duo apply --repo=/siterepo --default-author=admin --format=json | tail -1)
+# DUO-3338 replaced the free-form `rebuilders` command strings with structured
+# actions, so the per-declaration confirmation lines Apply::rebuild() emits are
+# now the action's closed identity plus its value-level verification, not the
+# command text and an exit code. Both are pinned byte-exactly here, and the
+# count still bounds the whole set so an extra unexpected warning fails.
+#
+# The count is TWO, not the three this assertion previously demanded: the
+# whole-catalog `WooCommerceContract::rebuild` declaration was deleted from
+# manifests/woocommerce.json by DUO-3225 (a0fb003/c3a7d56), which this live
+# suite had not been re-run against. That staleness is corrected here, not
+# introduced by DUO-3338 -- the two remaining obligations are exactly the ones
+# the manifest still declares.
 echo "$APPLY_BASE" | jq -e '
-  (.warnings | length) == 3 and
-  (.warnings | any(. == "rebuilder fired: '\''transient delete wc_attribute_taxonomies'\'' (exit 0)")) and
-  (.warnings | any(test("WC_Cache_Helper") and endswith("(exit 0)"))) and
-  (.warnings | any(test("WooCommerceContract::rebuild") and endswith("(exit 0)")))
-' >/dev/null || fail "baseline apply did not emit exactly the three required successful Woo cache/projection rebuilder notices: $APPLY_BASE"
+  (.warnings | length) == 2 and
+  (.warnings | any(. == "native action fired: transient.delete (verified)")) and
+  (.warnings | any(test("^provider capability fired: woocommerce-cache@1\\.0\\.0 invalidate_cache_groups \\([0-9.]+s, verified\\)$")))
+' >/dev/null || fail "baseline apply did not emit exactly the two required successful Woo cache/projection action notices: $APPLY_BASE"
 PRODUCT2=$(wp2 post list --post_type=product --name=attribute-delete-probe-product --field=ID)
 VARIATION2=$(wp2 post list --post_type=product_variation --post_parent="$PRODUCT2" --field=ID)
 [ -n "$PRODUCT2" ] && [ -n "$VARIATION2" ] || fail "variable product/variation did not converge on target"

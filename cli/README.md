@@ -564,7 +564,7 @@ Its optional `upload_provider` prepares encrypted local/offload before-images,
 adds signed-journal `storage_apply`, and makes `storage_restore` enforce exact
 absence plus fresh prior-inventory verification; without it, upload recovery
 is explicitly manual.
-Its optional `effect_provider` prepares the compiled lifecycle/rebuilder effect
+Its optional `effect_provider` prepares the compiled lifecycle/rebuild effect
 inventory, receipt outboxes, and pinned inverse inputs, then enables
 `effects_inverse` with fresh prior readback; without it, effect recovery is
 explicitly manual.

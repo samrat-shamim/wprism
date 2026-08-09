@@ -1,6 +1,13 @@
 <?php
 namespace Duo;
 
+// Manifest validation is a pure offline pass with several entry points of
+// its own (the frozen-snapshot path, the offline harnesses that load this
+// file directly). The native-action vocabulary is part of that pass, so it
+// is required here rather than left to duo.php's bootstrap order — same
+// precedent as Deploy.php requiring CodeCompatibility.php.
+require_once __DIR__ . '/NativeActions.php';
+
 /**
  * Layered classification policy: site policy overrides > pinned manifests
  * (in pin order) > option name-patterns. Anything unmatched is unclassified,
@@ -8,6 +15,16 @@ namespace Duo;
  */
 final class Policy {
     private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v3';
+
+    /**
+     * The exact canonical-surface literal grammar. Apply derives these keys
+     * from authored work as a pure projection (Apply::rebuild_surfaces()) and
+     * manifests match them literally in `actions[].triggers`; DUO-3338's
+     * provider capabilities describe their own reads/writes in the same
+     * vocabulary, so it is a shared constant rather than two regexes that can
+     * drift into accepting different names for the same surface.
+     */
+    public const SURFACE_PATTERN = '/^(post|term|table|option|entity):[a-z0-9][a-z0-9._-]{0,127}$/D';
 
     public array $site = [];
     /** @var array<int, array> */
@@ -115,7 +132,8 @@ final class Policy {
             self::validate_field_classes($manifest);
             self::validate_menu_field_classes($manifest);
             self::validate_regen_dependencies($manifest);
-            self::validate_rebuilders($manifest);
+            self::validate_providers($manifest);
+            self::validate_actions($manifest);
             self::validate_env_options($manifest, "manifest '$name'");
             self::validate_user_meta_rules($manifest, "manifest '$name'");
             self::validate_scope_classes($manifest, "manifest '$name'", false);
@@ -135,6 +153,7 @@ final class Policy {
         );
         self::validate_no_overlapping_option_name_refs($p->manifests);
         self::validate_no_conflicting_adapter_claims($p->manifests);
+        self::validate_no_conflicting_provider_ids($p->manifests);
         self::validate_manifest_pins($pins, $p);
         if ($p->manifestDispositions !== null && class_exists(CapabilityRegistry::class)) {
             $p->capabilityRegistry = CapabilityRegistry::load(
@@ -204,7 +223,8 @@ final class Policy {
             self::validate_field_classes($manifest);
             self::validate_menu_field_classes($manifest);
             self::validate_regen_dependencies($manifest);
-            self::validate_rebuilders($manifest);
+            self::validate_providers($manifest);
+            self::validate_actions($manifest);
             self::validate_env_options($manifest, "frozen manifest '$name'");
             self::validate_user_meta_rules($manifest, "frozen manifest '$name'");
             self::validate_scope_classes($manifest, "frozen manifest '$name'", false);
@@ -244,6 +264,7 @@ final class Policy {
         );
         self::validate_no_overlapping_option_name_refs($p->manifests);
         self::validate_no_conflicting_adapter_claims($p->manifests);
+        self::validate_no_conflicting_provider_ids($p->manifests);
         self::validate_manifest_pins($pins, $p);
         return $p;
     }
@@ -963,7 +984,7 @@ final class Policy {
      * deciding how to (un)serialize; this only returns the declared rule).
      *
      * Manifest-only, first declaration in pin order wins — same precedence
-     * as block_attr_rules()/rebuilders()/deletion_capability(): a structural fact
+     * as block_attr_rules()/deletion_capability(): a structural fact
      * about the taxonomy's OWN data shape (like block_attrs is a structural
      * fact about a block type's shape), not a site-local policy choice, so
      * — unlike options/post_meta/term_meta — there is no site.duo.json
@@ -3092,30 +3113,45 @@ final class Policy {
         }
     }
 
-    /** Manifest-declared rebuilders (wp-cli commands run in the rebuild pass). */
-    public function rebuilders(): array {
+    /**
+     * Manifest-declared rebuild actions, flattened in pin order.
+     *
+     * Every row is annotated with `manifest` (the declaring manifest's name)
+     * and `index` (its position in that manifest's own `actions` list). Both
+     * are load-bearing for the consumers, not decoration: a provider-kind
+     * action resolves its `provider` id against the SAME manifest's
+     * declarations (validate_actions() enforces that scope, so the id alone
+     * is not a global key until provider_declarations() has proven global
+     * uniqueness), and effects_inventory()/negotiation diagnostics name the
+     * exact declaration a human has to go edit.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function actions(): array {
         $out = [];
         foreach ($this->manifests as $m) {
-            foreach ($m['rebuilders'] ?? [] as $r) {
-                $out[] = $r;
+            $name = (string) ($m['name'] ?? '?');
+            foreach ((array) ($m['actions'] ?? []) as $i => $action) {
+                $out[] = $action + ['manifest' => $name, 'index' => (int) $i];
             }
         }
         return $out;
     }
 
     /**
-     * Manifest rebuilders with an exact canonical surface intersection.
+     * Manifest actions with an exact canonical surface intersection.
      *
-     * A declaration without `triggers` is deliberately unscoped for
-     * backwards compatibility: it remains required for every authored
-     * mutation. A declaration with triggers is selected only when Apply has
-     * derived the exact same canonical surface from this request. The empty
-     * surface set is a no-op, so a read-only apply cannot launch a rebuilder.
+     * A declaration without `triggers` is deliberately unscoped: it remains
+     * required for every authored mutation, preserving the semantics the
+     * retired `rebuilders` channel gave an un-triggered declaration. A
+     * declaration with triggers is selected only when Apply has derived the
+     * exact same canonical surface from this request. The empty surface set
+     * is a no-op, so a read-only apply cannot fire an action.
      *
      * @param list<string> $surfaces
      * @return list<array<string,mixed>>
      */
-    public function rebuilders_for(array $surfaces): array {
+    public function actions_for(array $surfaces): array {
         $wanted = [];
         foreach ($surfaces as $surface) {
             if (is_string($surface) && $surface !== '') {
@@ -3127,16 +3163,50 @@ final class Policy {
         }
 
         $out = [];
-        foreach ($this->rebuilders() as $rebuilder) {
-            if (!array_key_exists('triggers', $rebuilder)) {
-                $out[] = $rebuilder;
+        foreach ($this->actions() as $action) {
+            if (!array_key_exists('triggers', $action)) {
+                $out[] = $action;
                 continue;
             }
-            foreach ((array) $rebuilder['triggers'] as $trigger) {
+            foreach ((array) $action['triggers'] as $trigger) {
                 if (isset($wanted[$trigger])) {
-                    $out[] = $rebuilder;
+                    $out[] = $action;
                     break;
                 }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Every pinned manifest's provider declarations, keyed by provider id.
+     *
+     * The key is global because validate_no_conflicting_provider_ids() has
+     * already refused two pinned manifests declaring the same id — the same
+     * posture validate_no_conflicting_adapter_claims() takes for a plugin or
+     * theme claim, and for the same reason: a provider id is an identity
+     * assertion about installed executable code, so letting pin order pick a
+     * winner would make which code runs depend on load order.
+     *
+     * Each row carries the declaring manifest's name and its `version_range`
+     * (null when the manifest pins no range) because negotiation bounds a
+     * provider by exactly the range that bounds its manifest's classification
+     * guarantees — the provider is that adapter's executable half, so letting
+     * it run outside the window the declarative half was certified for would
+     * make the version pin mean two different things.
+     *
+     * @return array<string, array<string,mixed>> id => declaration + `manifest` + `version_range`
+     */
+    public function provider_declarations(): array {
+        $out = [];
+        foreach ($this->manifests as $m) {
+            $name = (string) ($m['name'] ?? '?');
+            $range = is_array($m['version_range'] ?? null)
+                ? ['min' => (string) $m['version_range']['min'], 'max' => (string) $m['version_range']['max']]
+                : null;
+            foreach ((array) ($m['providers'] ?? []) as $declaration) {
+                $out[(string) $declaration['id']] = $declaration
+                    + ['manifest' => $name, 'version_range' => $range];
             }
         }
         return $out;
@@ -3221,11 +3291,17 @@ final class Policy {
                     $out[] = ['manifest' => $name, 'phase' => 'lifecycle', 'source' => $adapter, 'effect' => $effect];
                 }
             }
-            foreach ((array) ($manifest['rebuilders'] ?? []) as $i => $rebuilder) {
-                $source = (string) ($rebuilder['command'] ?? "rebuilders[$i]");
-                $effects = $rebuilder['effects'] ?? null;
+            foreach ((array) ($manifest['actions'] ?? []) as $i => $action) {
+                // The source string is the effect inventory's stable name for
+                // "what performs this effect". Under the retired free-form
+                // channel that was the wp-cli command text; a structured
+                // action's equivalent is its closed identity — the native
+                // vocabulary entry, or the exact provider capability — which
+                // is what a recovery operator can look up and re-run.
+                $source = self::action_source($action, $i);
+                $effects = $action['effects'] ?? null;
                 if (!is_array($effects) || $effects === []) {
-                    $effects = [self::missing_effect($name . "-rebuilder-$i", 'provider_resource', $source)];
+                    $effects = [self::missing_effect($name . "-action-$i", 'provider_resource', $source)];
                 }
                 foreach ($effects as $effect) {
                     $out[] = ['manifest' => $name, 'phase' => 'rebuild', 'source' => $source, 'effect' => $effect];
@@ -3252,6 +3328,28 @@ final class Policy {
         return $out;
     }
 
+    /**
+     * The stable, closed identity of one action declaration.
+     *
+     * Shared by effects_inventory() above and Apply's rebuild receipts so a
+     * recovery operator correlating a receipt with a declared effect compares
+     * one string produced in one place, never two independently-formatted
+     * spellings of the same fact. `$index` is only reached by a declaration
+     * that failed validation (validate_actions() requires `kind`), which
+     * effects_inventory() can still be asked about through a frozen snapshot.
+     */
+    public static function action_source(array $action, int $index): string {
+        $kind = $action['kind'] ?? null;
+        if ($kind === 'native') {
+            return 'native:' . (string) ($action['action'] ?? '?');
+        }
+        if ($kind === 'provider') {
+            return 'provider:' . (string) ($action['provider'] ?? '?')
+                . '/' . (string) ($action['capability'] ?? '?');
+        }
+        return "actions[$index]";
+    }
+
     /** @return array<string,mixed> */
     private static function missing_effect(string $id, string $type, string $value): array {
         return [
@@ -3263,56 +3361,106 @@ final class Policy {
     }
 
     /**
-     * Validate the optional exact-surface selector on manifest rebuilders.
+     * Validate the structured rebuild-action channel (DUO-3338).
      *
-     * Surface names are intentionally a small, literal grammar. They are
-     * matching keys, never patterns or command fragments, so a manifest can
-     * narrow a rebuilder to one canonical post type/table/option/taxonomy
-     * without gaining any authority to name arbitrary ids or execute a
-     * caller-provided selector. Membership is not forced to this manifest's
-     * declaration lists: a rebuilder may observe a core/site surface owned by
-     * another pinned manifest, while exact literal matching still prevents
-     * that declaration from widening its authority.
+     * The retired `rebuilders` channel let a manifest name a wp-cli command
+     * string — including `eval '<php>'` — that Apply then executed verbatim.
+     * The boundary doctrine (docs/proposals/engine-adapter-boundary.md §1)
+     * forbids engine core executing manifest-supplied PHP/shell/WP-CLI
+     * strings, so the key is refused rather than ignored: manifests carry no
+     * unknown-top-level-key validator, so silently dropping the channel would
+     * leave a pinned adapter's derived-state repair quietly not happening,
+     * which is exactly the false-green class this project refuses.
+     *
+     * Two kinds, both data-only. `native` names an entry in the engine's own
+     * closed vocabulary (NativeActions), so a manifest cannot mint action
+     * names or smuggle an executable string through an argument — the arg
+     * schema is closed and checked HERE, at load time, before any target
+     * contact. `provider` names executable code owned by the installed plugin
+     * or its adapter package; the manifest carries only identity (which
+     * provider, which capability, which structured arguments), and the
+     * provider's own declared schema is what the arguments are finally
+     * validated against at negotiation time, when the code is present.
+     *
+     * `triggers` keeps the retired channel's grammar and semantics exactly:
+     * surface names are a small literal matching vocabulary, never patterns
+     * or command fragments, so a manifest can narrow an action to one
+     * canonical post type/table/option/taxonomy without gaining authority to
+     * name arbitrary ids. Membership is deliberately not forced to this
+     * manifest's own declaration lists: an action may observe a core/site
+     * surface owned by another pinned manifest, while exact literal matching
+     * still prevents that declaration from widening its authority. An absent
+     * `triggers` key remains unscoped (selected for any non-empty surface
+     * set), preserving what an un-triggered rebuilder meant.
      */
-    private static function validate_rebuilders(array $manifest): void {
-        if (!array_key_exists('rebuilders', $manifest)) {
+    private static function validate_actions(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        if (array_key_exists('rebuilders', $manifest)) {
+            throw new \RuntimeException(
+                "duo: manifest '$name' declares the retired free-form `rebuilders` channel; "
+                . 'migrate to structured `actions` (native or provider) — see spec/repo-format.md'
+            );
+        }
+        if (!array_key_exists('actions', $manifest)) {
             return;
         }
-        $name = (string) ($manifest['name'] ?? '?');
-        $rebuilders = $manifest['rebuilders'];
-        if (!is_array($rebuilders) || !array_is_list($rebuilders)) {
-            throw new \RuntimeException("duo: manifest '$name' rebuilders must be a list");
+        $actions = $manifest['actions'];
+        if (!is_array($actions) || !array_is_list($actions)) {
+            throw new \RuntimeException("duo: manifest '$name' actions must be a list");
         }
-        foreach ($rebuilders as $i => $rebuilder) {
-            $where = "manifest '$name' rebuilders[$i]";
-            if (!is_array($rebuilder) || array_is_list($rebuilder)) {
+        $providers = [];
+        foreach ((array) ($manifest['providers'] ?? []) as $declaration) {
+            if (is_array($declaration) && is_string($declaration['id'] ?? null)) {
+                $providers[$declaration['id']] = $declaration;
+            }
+        }
+        foreach ($actions as $i => $action) {
+            $where = "manifest '$name' actions[$i]";
+            if (!is_array($action) || array_is_list($action)) {
                 throw new \RuntimeException("duo: $where must be an object");
             }
-            $keys = array_keys($rebuilder);
+            $kind = $action['kind'] ?? null;
+            if (!in_array($kind, ['native', 'provider'], true)) {
+                throw new \RuntimeException("duo: $where.kind must be \"native\" or \"provider\"");
+            }
+            // `effects` is optional; it is in the allowed set so the effect
+            // validator can supply its normal explicit irreversible fallback
+            // when omitted, exactly as the retired channel did.
+            $allowed = $kind === 'native'
+                ? ['action', 'args', 'effects', 'kind', 'triggers']
+                : ['args', 'capability', 'effects', 'kind', 'provider', 'triggers'];
+            $keys = array_keys($action);
             sort($keys, SORT_STRING);
-            // `effects` is optional in existing manifests; it is included in
-            // the allowed set so the effect validator can supply its normal
-            // explicit irreversible fallback when omitted.
-            if (array_diff($keys, ['command', 'effects', 'triggers']) !== []) {
+            $unknown = array_diff($keys, $allowed);
+            if ($unknown !== []) {
                 throw new \RuntimeException(
-                    "$where contains unknown key(s): "
-                    . implode(', ', array_diff($keys, ['command', 'effects', 'triggers']))
+                    "duo: $where contains unknown key(s): " . implode(', ', $unknown)
                 );
             }
-            if (!is_string($rebuilder['command'] ?? null) || trim((string) $rebuilder['command']) === '') {
-                throw new \RuntimeException("duo: $where.command must be a non-empty string");
+            $declaredArgs = $action['args'] ?? null;
+            // `{}` decodes to an empty PHP array, which array_is_list() calls
+            // a list — an argument-free action must stay expressible.
+            if (!is_array($declaredArgs) || (array_is_list($declaredArgs) && $declaredArgs !== [])) {
+                throw new \RuntimeException("duo: $where.args must be an object");
             }
-            if (!array_key_exists('triggers', $rebuilder)) {
+            if ($kind === 'native') {
+                if (!is_string($action['action'] ?? null)) {
+                    throw new \RuntimeException("duo: $where.action must be a string");
+                }
+                NativeActions::validate((string) $action['action'], $action['args'], "$where");
+            } else {
+                self::validate_provider_action($action, $providers, $where, $name);
+            }
+            if (!array_key_exists('triggers', $action)) {
                 continue;
             }
-            $triggers = $rebuilder['triggers'];
+            $triggers = $action['triggers'];
             if (!is_array($triggers) || !array_is_list($triggers) || $triggers === []) {
                 throw new \RuntimeException("duo: $where.triggers must be a non-empty list");
             }
             $seen = [];
             foreach ($triggers as $triggerIndex => $trigger) {
-                if (!is_string($trigger)
-                    || preg_match('/^(post|term|table|option|entity):[a-z0-9][a-z0-9._-]{0,127}$/D', $trigger) !== 1) {
+                if (!is_string($trigger) || preg_match(self::SURFACE_PATTERN, $trigger) !== 1) {
                     throw new \RuntimeException(
                         "duo: $where.triggers[$triggerIndex] must be one exact canonical surface "
                         . '(post|term|table|option|entity):<lowercase-name>'
@@ -3326,6 +3474,180 @@ final class Policy {
         }
     }
 
+    /**
+     * The load-time half of a provider-kind action's contract.
+     *
+     * A manifest is data, so this is everything checkable without the
+     * provider's code: the referenced provider is declared by THIS manifest
+     * (a manifest may not reach into another pinned adapter's provider — that
+     * would make one adapter's behavior depend on another's pin), the
+     * capability name is one this manifest's declaration advertises, and the
+     * arguments are a flat structure of scalars or scalar lists. That last
+     * bound is what keeps an argument from carrying a nested payload a
+     * provider might interpret as code; the provider's own declared arg
+     * schema completes the check at negotiation time, when the schema exists.
+     *
+     * @param array<string, array<string,mixed>> $providers this manifest's declarations, keyed by id
+     */
+    private static function validate_provider_action(
+        array $action,
+        array $providers,
+        string $where,
+        string $manifestName
+    ): void {
+        $id = $action['provider'] ?? null;
+        if (!is_string($id) || !isset($providers[$id])) {
+            throw new \RuntimeException(
+                "duo: $where.provider must name a `providers` entry declared by manifest '$manifestName'"
+            );
+        }
+        $capability = $action['capability'] ?? null;
+        if (!is_string($capability) || preg_match('/^[a-z0-9_]{1,64}$/D', $capability) !== 1) {
+            throw new \RuntimeException("duo: $where.capability must match ^[a-z0-9_]{1,64}$");
+        }
+        if (!in_array($capability, (array) ($providers[$id]['capabilities'] ?? []), true)) {
+            throw new \RuntimeException(
+                "duo: $where.capability '$capability' is not listed in provider '$id' declaration's capabilities"
+            );
+        }
+        foreach ((array) $action['args'] as $key => $value) {
+            if (!is_string($key) || preg_match('/^[a-z0-9_]{1,64}$/D', $key) !== 1) {
+                throw new \RuntimeException("duo: $where.args keys must match ^[a-z0-9_]{1,64}$");
+            }
+            if (is_array($value)) {
+                if (!array_is_list($value)) {
+                    throw new \RuntimeException("duo: $where.args.$key must be a scalar or a list of scalars");
+                }
+                foreach ($value as $member) {
+                    if (!is_scalar($member)) {
+                        throw new \RuntimeException("duo: $where.args.$key must be a scalar or a list of scalars");
+                    }
+                }
+                continue;
+            }
+            if (!is_scalar($value)) {
+                throw new \RuntimeException("duo: $where.args.$key must be a scalar or a list of scalars");
+            }
+        }
+    }
+
+    /**
+     * Validate one manifest's `providers` declarations.
+     *
+     * A declaration is an identity assertion about executable code the engine
+     * does not own: which package supplies it (`source`), which plugin owns
+     * the semantics (`plugin`), which exact provider version the manifest was
+     * authored against, and the closed set of capability names actions may
+     * reference. Everything here is checkable offline; whether the code is
+     * actually present, matches this identity, and advertises these
+     * capabilities is negotiated against the live environment before any
+     * mutation (Providers::negotiate()).
+     *
+     * `plugin` must agree with the manifest's own `plugin` claim when it has
+     * one: a manifest already declares exactly one plugin plus the version
+     * range its classification guarantees hold for (validate_adapter_contract
+     * above), and a provider naming a different plugin would silently escape
+     * that version-bounded claim.
+     */
+    private static function validate_providers(array $manifest): void {
+        if (!array_key_exists('providers', $manifest)) {
+            return;
+        }
+        $name = (string) ($manifest['name'] ?? '?');
+        $providers = $manifest['providers'];
+        if (!is_array($providers) || !array_is_list($providers)) {
+            throw new \RuntimeException("duo: manifest '$name' providers must be a list");
+        }
+        $seenIds = [];
+        foreach ($providers as $i => $declaration) {
+            $where = "manifest '$name' providers[$i]";
+            if (!is_array($declaration) || array_is_list($declaration)) {
+                throw new \RuntimeException("duo: $where must be an object");
+            }
+            $keys = array_keys($declaration);
+            sort($keys, SORT_STRING);
+            if ($keys !== ['capabilities', 'id', 'plugin', 'source', 'version']) {
+                throw new \RuntimeException(
+                    "duo: $where requires exactly capabilities, id, plugin, source, and version"
+                );
+            }
+            $id = $declaration['id'];
+            if (!is_string($id) || preg_match('/^[a-z][a-z0-9-]{0,63}$/D', $id) !== 1) {
+                throw new \RuntimeException("duo: $where.id must match ^[a-z][a-z0-9-]{0,63}$");
+            }
+            if (isset($seenIds[$id])) {
+                throw new \RuntimeException("duo: manifest '$name' declares provider id '$id' more than once");
+            }
+            $seenIds[$id] = true;
+            if (!is_string($declaration['version'])
+                || preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/D', $declaration['version']) !== 1) {
+                throw new \RuntimeException(
+                    "duo: $where.version must be an exact <major>.<minor>.<patch> string"
+                );
+            }
+            if (!in_array($declaration['source'], ['manifest', 'plugin'], true)) {
+                throw new \RuntimeException("duo: $where.source must be \"manifest\" or \"plugin\"");
+            }
+            $plugin = $declaration['plugin'];
+            if (!is_string($plugin) || $plugin === '' || strlen($plugin) > 255) {
+                throw new \RuntimeException("duo: $where.plugin must be a non-empty plugin basename");
+            }
+            $manifestPlugin = $manifest['plugin'] ?? null;
+            if (is_string($manifestPlugin) && $manifestPlugin !== '' && $manifestPlugin !== $plugin) {
+                throw new \RuntimeException(
+                    "duo: $where.plugin '$plugin' disagrees with manifest '$name' plugin '$manifestPlugin' — "
+                    . "a provider's owning plugin must be the plugin whose version_range bounds this adapter"
+                );
+            }
+            $capabilities = $declaration['capabilities'];
+            if (!is_array($capabilities) || !array_is_list($capabilities) || $capabilities === []) {
+                throw new \RuntimeException("duo: $where.capabilities must be a non-empty list");
+            }
+            $seenCapabilities = [];
+            foreach ($capabilities as $j => $capability) {
+                if (!is_string($capability) || preg_match('/^[a-z0-9_]{1,64}$/D', $capability) !== 1) {
+                    throw new \RuntimeException("duo: $where.capabilities[$j] must match ^[a-z0-9_]{1,64}$");
+                }
+                if (isset($seenCapabilities[$capability])) {
+                    throw new \RuntimeException("duo: $where.capabilities repeats '$capability'");
+                }
+                $seenCapabilities[$capability] = true;
+            }
+        }
+    }
+
+    /**
+     * Cross-manifest guard, run once after every pinned manifest has loaded —
+     * the provider twin of validate_no_conflicting_adapter_claims() above,
+     * with the same rationale: a provider id resolves to concrete executable
+     * code (a manifests/providers/<id>.php file, or a `duo_providers`
+     * registration), so two pinned manifests claiming one id makes which code
+     * runs depend on pin order. There is no composition grammar in v1;
+     * rename one of the ids.
+     *
+     * @param list<array<string,mixed>> $manifests
+     */
+    private static function validate_no_conflicting_provider_ids(array $manifests): void {
+        $seen = [];
+        foreach ($manifests as $m) {
+            $name = (string) ($m['name'] ?? '?');
+            foreach ((array) ($m['providers'] ?? []) as $declaration) {
+                $id = (string) ($declaration['id'] ?? '');
+                if ($id === '') {
+                    continue;
+                }
+                if (isset($seen[$id])) {
+                    throw new \RuntimeException(
+                        "duo: manifests '{$seen[$id]}' and '$name' both declare provider id '$id' — "
+                        . 'a provider id names one concrete implementation and may not depend on pin order; '
+                        . 'rename one declaration'
+                    );
+                }
+                $seen[$id] = $name;
+            }
+        }
+    }
+
     /** Validate the bounded reversibility grammar without target contact. */
     private static function validate_effect_contracts(array $manifest): void {
         $name = (string) ($manifest['name'] ?? '?');
@@ -3333,9 +3655,9 @@ final class Policy {
         if (array_key_exists('lifecycle_effects', $manifest)) {
             $groups['lifecycle_effects'] = $manifest['lifecycle_effects'];
         }
-        foreach ((array) ($manifest['rebuilders'] ?? []) as $i => $rebuilder) {
-            if (is_array($rebuilder) && array_key_exists('effects', $rebuilder)) {
-                $groups["rebuilders[$i].effects"] = $rebuilder['effects'];
+        foreach ((array) ($manifest['actions'] ?? []) as $i => $action) {
+            if (is_array($action) && array_key_exists('effects', $action)) {
+                $groups["actions[$i].effects"] = $action['effects'];
             }
         }
         foreach ((array) ($manifest['post_types'] ?? []) as $postType => $declaration) {
@@ -3558,13 +3880,15 @@ final class Policy {
      * agent is dependency-free (DESIGN.md §4 — "a drop-in agent must not
      * vendor libraries"), and a real semver-range parser is exactly the
      * dependency that rules out. First declaration in pin order wins per
-     * plugin — same precedence as block_attr_rules()/rebuilders().
+     * plugin — same precedence as block_attr_rules(); in practice
+     * validate_no_conflicting_adapter_claims() has already refused two
+     * pinned manifests naming one plugin with different ranges, so this
+     * accessor never actually arbitrates.
      *
-     * No manifest declares this yet (no shipped plugin manifest names a
-     * "plugin" key) — the mechanism is exercised by a fixture manifest in
-     * the sandbox, not by pinning a real range on a live registry version.
      * Deploy::code_mismatch() / Apply::build_plan()'s code_mismatch bucket
-     * are this accessor's only readers.
+     * and DUO-3338's provider negotiation (Providers::negotiate(), which
+     * bounds a plugin-owned provider by the same declared range that bounds
+     * its manifest's classification guarantees) are this accessor's readers.
      *
      * @return array<string, array{min:string, max:string, manifest:string}> keyed by plugin basename
      */
