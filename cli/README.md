@@ -283,7 +283,38 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   ```
 
   stdout/stderr stream live (not buffered/reformatted) and the exit code is
-  exactly the agent's exit code.
+  exactly the agent's exit code. When `--format=json` reaches the agent,
+  refusals from its primary compile/capture/plan/apply/deploy path (including
+  internal `code-stage` and `code-finalize`) are one JSON record on stdout
+  with non-zero exit:
+
+  ```json
+  {
+    "format": "duo-command-refusal/v1",
+    "ok": false,
+    "command": "capture",
+    "error": "incomplete_state_discovery",
+    "reason_code": "incomplete_state_discovery",
+    "message": "capture found state that has no reviewed classification",
+    "remediation": "review the diagnostics with duo pending, then classify or exclude every named surface before another capture"
+  }
+  ```
+
+  Typed repository/code diagnostics retain their existing `error` and safe
+  `diagnostics` fields unchanged inside that common envelope. If any nested
+  diagnostic field is sensitive, the complete diagnostic batch is omitted,
+  the stable `error` remains, and `details_redacted: true` records the
+  refusal. Query- or fragment-bearing absolute URIs are conservatively
+  classified as sensitive refusal evidence. Ordinary human mode is unchanged.
+  An expected gate contributes only deliberately public fields; an unclassified Throwable contributes
+  none of its message, cause, path, login, or trace and instead sets
+  `details_redacted: true`. Known uncertain-commit and ambiguous-publication
+  refusals explicitly say not to retry or discard retained recovery evidence.
+  The host uses the same envelope if environment or driver preflight refuses
+  `capture`, `plan`, or `apply` before the agent can run. Integrations must
+  branch on the finite `reason_code` (the compatibility `error` has the same
+  value), not parse prose. Other JSON-capable commands retain their existing
+  command-specific contracts; this is not an all-command envelope claim.
 
 - **`duo refresh <production-env> --production-ref=<ref>`** — gets `P` only
   through `wp duo refresh-export --repo=<repo_path> --format=json`; it never

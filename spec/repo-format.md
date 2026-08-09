@@ -664,6 +664,23 @@ other effect type or provider resource.
 9. **Verify convergence** — recapture the live target through the canonical snapshot reader in a fresh WordPress process before any convergence metadata advances. The verifier is pinned to the exact compiled artifact used by apply, avoiding stale pre-apply plugin models and refusing a concurrently changed repository. Every entity in the compiled tree must have the same type and canonical hash. Target-only entities remain untouched because absence is not deletion authority; when `--with-deletes` is explicit, every compiled tombstone UUID must be absent. A mismatch names the failed invariant, retains `apply_in_progress`, and leaves all base hashes and `applied_revision` unadvanced.
 10. **Receipts and retry** — only after verification passes, a successful or already-absent deletion stores the tombstone hash in `duo_state` with entity type `deletion`; re-planning returns `deleted`, so retries are idempotent. Live hashes and `applied_revision` update atomically with clearing `apply_in_progress`.
 
+For the primary `compile`, `capture`, `plan`, `apply`, `deploy`, `code-stage`,
+and `code-finalize` command path, a JSON-mode refusal wraps the stable object
+above in `format:"duo-command-refusal/v1"` and adds `command`, `reason_code`,
+reviewed public `message`, and reviewed public `remediation`. The established
+top-level `error` and safe `diagnostics` fields retain their exact shape.
+Every serialized field is subject to one final sensitive-data guard: if any
+typed diagnostic contains a secret, credential-bearing or signed URL, email,
+private home path (Unix, drive-letter, or UNC), or control byte, the whole
+diagnostic batch is omitted,
+the stable `error` remains, and `details_redacted:true` is returned. Unknown
+query- or fragment-bearing absolute URIs are conservatively treated as signed
+or credential-bearing rather than serialized from refusal evidence. Unknown
+throwables never contribute their message, cause, path, or trace. Known scope
+and recovery gates use finite source-owned codes and remedies; an uncertain
+commit or ambiguous publication boundary explicitly instructs callers not to
+retry or discard retained evidence.
+
 Every direct database mutation and transaction boundary is checked for
 WordPress's `false` failure result; zero affected rows remains a valid
 UPDATE/DELETE result, while an insert without a positive generated id fails

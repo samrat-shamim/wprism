@@ -303,6 +303,54 @@ function duo_fail(string $message, int $code = 1) {
     exit($code);
 }
 
+/** The host only owns JSON refusals for the agent passthroughs it preflights. */
+function wants_agent_refusal_json(string $verb, array $extra): bool {
+    if (!in_array($verb, ['capture', 'plan', 'apply'], true)) {
+        return false;
+    }
+    foreach ($extra as $index => $arg) {
+        if ($arg === '--json' || $arg === '--format=json'
+            || ($arg === '--format' && ($extra[$index + 1] ?? null) === 'json')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Emit the same stable envelope as the target agent without exposing host exception text. */
+function render_agent_refusal_json(
+    string $command,
+    string $reasonCode,
+    string $message,
+    string $remediation,
+    array $diagnostics = []
+): int {
+    $payload = [
+        'format' => 'duo-command-refusal/v1',
+        'ok' => false,
+        'command' => $command,
+        'error' => $reasonCode,
+        'reason_code' => $reasonCode,
+        'message' => $message,
+        'remediation' => $remediation,
+    ];
+    if ($diagnostics !== []) {
+        $payload['diagnostics'] = $diagnostics;
+    }
+    $encoded = json_encode(
+        $payload,
+        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+    );
+    if ($encoded === false) {
+        $encoded = '{"format":"duo-command-refusal/v1","ok":false,"command":"host",'
+            . '"error":"refusal_serialization_failed","reason_code":"refusal_serialization_failed",'
+            . '"message":"structured refusal serialization failed",'
+            . '"remediation":"inspect private operator evidence before another attempt","details_redacted":true}';
+    }
+    echo $encoded . "\n";
+    return 1;
+}
+
 function main(array $argv): int {
     array_shift($argv); // script path
 
@@ -348,15 +396,36 @@ function main(array $argv): int {
         fwrite(STDERR, "duo: unknown verb '$verb'\n\n" . duo_usage() . "\n");
         return 1;
     }
-    if (count($rest) < 1) {
+    if (count($rest) < 1 || str_starts_with((string) $rest[0], '--')) {
+        if (wants_agent_refusal_json($verb, $rest)) {
+            return render_agent_refusal_json(
+                $verb,
+                'invalid_arguments',
+                "an environment argument is required for $verb",
+                "supply a trusted <env> before the JSON flags and rerun $verb"
+            );
+        }
         duo_fail("'$verb' requires an <env> argument");
     }
     $envName = array_shift($rest);
     $extra = $rest;
+    $jsonRefusal = wants_agent_refusal_json($verb, $extra);
 
-    $envs = Registry::load($envsFileOverride, getcwd() ?: '.');
-    $cfg = Registry::get($envs, $envName);
-    $transport = Transport::make($envName, $cfg);
+    try {
+        $envs = Registry::load($envsFileOverride, getcwd() ?: '.');
+        $cfg = Registry::get($envs, $envName);
+        $transport = Transport::make($envName, $cfg);
+    } catch (\Throwable $e) {
+        if ($jsonRefusal) {
+            return render_agent_refusal_json(
+                $verb,
+                'host_preflight_failed',
+                'the host could not resolve a trusted environment driver for this command',
+                'check the environment name and trusted registry, then retry the command'
+            );
+        }
+        throw $e;
+    }
 
     if ($verb === 'driver-capabilities') {
         return cmd_driver_capabilities($transport, $extra);
@@ -365,10 +434,37 @@ function main(array $argv): int {
     try {
         $driverReport = $transport->capabilityReport($verb);
     } catch (\Throwable $e) {
+        if ($jsonRefusal) {
+            return render_agent_refusal_json(
+                $verb,
+                'driver_preflight_failed',
+                'the environment driver could not produce a valid capability report',
+                'repair the driver configuration or implementation, then retry the command'
+            );
+        }
         fwrite(STDERR, "duo: driver preflight: {$e->getMessage()}\n");
         return 1;
     }
     if (!$driverReport->ready()) {
+        if ($jsonRefusal) {
+            $diagnostics = array_map(
+                static fn(array $blocker): array => [
+                    'code' => 'driver_capability_missing',
+                    'capability' => (string) $blocker['capability'],
+                    'state' => (string) $blocker['state'],
+                    'message' => 'the required driver capability is unsupported',
+                    'remediation' => 'select or configure a driver that explicitly implements this capability',
+                ],
+                $driverReport->blockers()
+            );
+            return render_agent_refusal_json(
+                $verb,
+                'driver_unsupported',
+                'the environment driver does not support this command',
+                'resolve every capability diagnostic, then retry the command',
+                $diagnostics
+            );
+        }
         render_driver_blockers($driverReport);
         return 1;
     }
@@ -861,9 +957,14 @@ function cmd_status(EnvironmentDriver $t): int {
     $r = $t->captureWp(['duo', 'plan', '--repo=' . $t->repoPath(), '--format=json']);
     if ($r['exit'] !== 0) {
         fwrite(STDERR, "duo: status: failed to fetch plan for '{$t->name()}' (exit {$r['exit']})\n");
-        $msg = trim($r['stderr'] !== '' ? $r['stderr'] : $r['stdout']);
-        if ($msg !== '') {
-            fwrite(STDERR, $msg . "\n");
+        $refusal = json_decode(trim($r['stdout']), true);
+        if (is_array($refusal) && ($refusal['format'] ?? null) === 'duo-command-refusal/v1') {
+            render_command_refusal_human($refusal);
+        } else {
+            $msg = trim($r['stderr'] !== '' ? $r['stderr'] : $r['stdout']);
+            if ($msg !== '') {
+                fwrite(STDERR, $msg . "\n");
+            }
         }
         render_rollback_authority_status($t);
         return $r['exit'] !== 0 ? $r['exit'] : 1;
@@ -881,6 +982,39 @@ function cmd_status(EnvironmentDriver $t): int {
     }
     $authorityOk = render_rollback_authority_status($t);
     return $summary['ok'] && $authorityOk ? 0 : 1;
+}
+
+/** Render the public fields from a v1 machine refusal without dumping JSON. */
+function render_command_refusal_human(array $refusal): void {
+    $code = (string) ($refusal['reason_code'] ?? $refusal['error'] ?? 'command_refused');
+    $message = trim((string) ($refusal['message'] ?? 'command refused'));
+    fwrite(STDERR, "[$code] $message\n");
+    foreach ((array) ($refusal['diagnostics'] ?? []) as $diagnostic) {
+        if (!is_array($diagnostic)) {
+            continue;
+        }
+        $diagnosticCode = (string) ($diagnostic['code'] ?? $code);
+        $where = '';
+        foreach (['surface', 'path', 'table', 'capability', 'key'] as $field) {
+            if (isset($diagnostic[$field]) && is_scalar($diagnostic[$field])) {
+                $where = ' ' . $field . '=' . (string) $diagnostic[$field];
+                break;
+            }
+        }
+        $diagnosticMessage = trim((string) ($diagnostic['message'] ?? 'blocking diagnostic'));
+        fwrite(STDERR, "  - [$diagnosticCode]$where: $diagnosticMessage\n");
+        $diagnosticRemediation = trim((string) ($diagnostic['remediation'] ?? ''));
+        if ($diagnosticRemediation !== '') {
+            fwrite(STDERR, "    remedy: $diagnosticRemediation\n");
+        }
+    }
+    $remediation = trim((string) ($refusal['remediation'] ?? ''));
+    if ($remediation !== '') {
+        fwrite(STDERR, "remedy: $remediation\n");
+    }
+    if (($refusal['details_redacted'] ?? false) === true) {
+        fwrite(STDERR, "details: redacted from machine output; inspect private operator evidence\n");
+    }
 }
 
 /** Render externally verified rollback authority state for SSH targets. */

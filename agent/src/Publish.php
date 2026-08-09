@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/CommandRefusal.php';
+
 require_once __DIR__ . '/Canon.php';
 
 /**
@@ -115,10 +117,19 @@ final class Publish {
         }
         if (!flock($fh, LOCK_EX | LOCK_NB)) {
             fclose($fh);
-            throw new \RuntimeException(
-                "duo: capture refused — another capture is already publishing to $stateDir (lock held: $path).\n"
+            $operatorMessage = "duo: capture refused — another capture is already publishing to $stateDir (lock held: $path).\n"
                 . 'Concurrent captures to the same destination are never interleaved (DUO-3213); '
-                . 'wait for the other one to finish and re-run.'
+                . 'wait for the other one to finish and re-run.';
+            throw new CommandRefusalException(
+                'capture_lock_held',
+                'capture refused because another publisher holds the destination lock',
+                'wait for the current publisher to finish, verify its receipt, then start a new capture',
+                [[
+                    'code' => 'capture_lock_held',
+                    'message' => 'another publisher owns the capture destination',
+                    'remediation' => 'wait for the publisher and verify its capture receipt',
+                ]],
+                $operatorMessage
             );
         }
         // Diagnostics only (never read back by any code path, including
@@ -226,16 +237,14 @@ final class Publish {
                 );
             }
             if (!is_dir($stateDir)) {
-                throw new \RuntimeException(
-                    'duo: capture recovery refused — a committed receipt exists but published state/ is missing; '
-                    . 'the database and filesystem boundary is inconsistent and needs manual inspection'
+                throw self::ambiguous_recovery(
+                    'a committed receipt exists but published state/ is missing'
                 );
             }
             $actual = self::tree_digest($stateDir);
             if (!hash_equals((string) ($matchingReceipt['candidate_sha256'] ?? ''), $actual)) {
-                throw new \RuntimeException(
-                    'duo: capture recovery refused — committed receipt does not match the current state/ tree; '
-                    . 'possible out-of-band modification, leaving artifacts untouched'
+                throw self::ambiguous_recovery(
+                    'a committed receipt does not match the current state/ tree'
                 );
             }
             if (is_dir($staging)) {
@@ -396,7 +405,7 @@ final class Publish {
                 }
                 throw self::ambiguous_recovery('COMMIT was attempted but no database commit proof or receipt is available');
             }
-            throw new \RuntimeException('duo: capture recovery refused — malformed publication intent phase');
+            throw self::ambiguous_recovery('publication intent phase is malformed');
         }
 
         // Legacy/no-intent behavior retained for the low-level Publish API.
@@ -550,7 +559,7 @@ final class Publish {
         self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
         $onDisk = self::read_record(self::intent_path($stateDir), 'intent');
         if ($onDisk === null || ($onDisk['id'] ?? null) !== ($intent['id'] ?? null)) {
-            throw new \RuntimeException('duo: capture swap completed but its durable intent is missing or changed');
+            throw self::ambiguous_recovery('capture swap completed but its durable intent is missing or changed');
         }
         $intent['phase'] = 'swapped';
         $intent = self::write_record(self::intent_path($stateDir), $intent, 'intent');
@@ -569,7 +578,7 @@ final class Publish {
         self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
         $onDisk = self::read_record(self::intent_path($stateDir), 'intent');
         if ($onDisk === null || ($onDisk['id'] ?? null) !== ($intent['id'] ?? null)) {
-            throw new \RuntimeException('duo: capture cannot mark COMMIT-ready — durable intent is missing or changed');
+            throw self::ambiguous_recovery('capture cannot mark COMMIT-ready because its durable intent is missing or changed');
         }
         $intent['phase'] = 'ready';
         $intent = self::write_record(self::intent_path($stateDir), $intent, 'intent');
@@ -583,7 +592,7 @@ final class Publish {
         self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
         $onDisk = self::read_record(self::intent_path($stateDir), 'intent');
         if ($onDisk === null || ($onDisk['id'] ?? null) !== ($intent['id'] ?? null)) {
-            throw new \RuntimeException('duo: capture cannot mark COMMIT-attempted — durable intent is missing or changed');
+            throw self::ambiguous_recovery('capture cannot mark COMMIT-attempted because its durable intent is missing or changed');
         }
         // An injected pre-commit failure must leave `ready` on disk so the
         // next recovery can restore the old tree. A real crash after the
@@ -605,7 +614,7 @@ final class Publish {
         self::assert_protocol_roots($stateDir);
         self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
         if (!is_dir($stateDir)) {
-            throw new \RuntimeException('duo: cannot write a capture receipt because state/ is missing after COMMIT');
+            throw self::ambiguous_recovery('capture cannot write its receipt because state/ is missing after COMMIT');
         }
         // The transaction wrapper advances the on-disk intent to
         // `committing` immediately before COMMIT. Re-read it so the receipt
@@ -613,15 +622,15 @@ final class Publish {
         // PHP array across the wrapper boundary.
         $onDisk = self::read_record(self::intent_path($stateDir), 'intent');
         if ($onDisk === null || ($onDisk['id'] ?? null) !== ($intent['id'] ?? null)) {
-            throw new \RuntimeException('duo: cannot write a capture receipt because its durable intent is missing or changed');
+            throw self::ambiguous_recovery('capture cannot write its receipt because its durable intent is missing or changed');
         }
         if (($onDisk['phase'] ?? null) !== 'committing') {
-            throw new \RuntimeException('duo: cannot write a capture receipt before the durable COMMIT-attempt marker');
+            throw self::ambiguous_recovery('capture cannot write its receipt before the durable COMMIT-attempt marker');
         }
         $intent = $onDisk;
         $actual = self::tree_digest($stateDir);
         if (!hash_equals((string) $intent['candidate_sha256'], $actual)) {
-            throw new \RuntimeException('duo: capture receipt refused — published state/ does not match the staged candidate');
+            throw self::ambiguous_recovery('published state/ does not match the candidate named by the capture receipt');
         }
         $receipt = [
             'format' => 'duo-capture-receipt/v1',
@@ -645,22 +654,22 @@ final class Publish {
         self::assert_protocol_roots($stateDir);
         self::assert_record($receipt, 'receipt', 'duo-capture-receipt/v1');
         if (!is_dir($stateDir)) {
-            throw new \RuntimeException('duo: post-commit cleanup refused — published state/ is missing');
+            throw self::ambiguous_recovery('post-commit cleanup found published state/ missing');
         }
         if (!hash_equals((string) $receipt['candidate_sha256'], self::tree_digest($stateDir))) {
-            throw new \RuntimeException('duo: post-commit cleanup refused — state/ no longer matches its receipt');
+            throw self::ambiguous_recovery('post-commit cleanup found state/ no longer matches its receipt');
         }
         $backup = self::backup_dir($stateDir);
         $staging = self::stage_dir($stateDir);
         $intent = self::intent_path($stateDir);
         $hadRetainedArtifacts = is_dir($backup) || is_dir($staging);
         if ($hadRetainedArtifacts && !is_file($intent)) {
-            throw new \RuntimeException('duo: post-commit cleanup refused — retained artifacts have no matching intent');
+            throw self::ambiguous_recovery('post-commit cleanup found retained artifacts with no matching intent');
         }
         if (is_file($intent)) {
             $onDisk = self::read_record($intent, 'intent');
             if ($onDisk === null || ($onDisk['id'] ?? null) !== ($receipt['intent_id'] ?? null)) {
-                throw new \RuntimeException('duo: post-commit cleanup refused — intent id differs from receipt');
+                throw self::ambiguous_recovery('post-commit cleanup found an intent id that differs from its receipt');
             }
         }
         if (is_dir($backup)) {
@@ -730,10 +739,10 @@ final class Publish {
         try {
             $record = Canon::decode($bytes);
         } catch (\Throwable $e) {
-            throw new \RuntimeException("duo: capture recovery found malformed $label record $path", 0, $e);
+            throw self::ambiguous_recovery("capture recovery found malformed $label record $path", $e);
         }
         if (!is_array($record)) {
-            throw new \RuntimeException("duo: capture recovery found non-object $label record $path");
+            throw self::ambiguous_recovery("capture recovery found non-object $label record $path");
         }
         self::assert_sealed_record($record, $label);
         return $record;
@@ -763,26 +772,26 @@ final class Publish {
     private static function assert_record(array $record, string $label, string $format): void {
         self::assert_sealed_record($record, $label);
         if (($record['format'] ?? null) !== $format) {
-            throw new \RuntimeException("duo: capture recovery found unsupported $label record format");
+            throw self::ambiguous_recovery("capture recovery found unsupported $label record format");
         }
         if ($label === 'intent') {
             if (!is_string($record['id'] ?? null) || !preg_match('/^[a-f0-9]{32}$/', $record['id'])) {
-                throw new \RuntimeException('duo: capture recovery found malformed intent id');
+                throw self::ambiguous_recovery('capture recovery found malformed intent id');
             }
             if (!in_array($record['phase'] ?? null, ['prepared', 'swapped', 'ready', 'committing'], true)) {
-                throw new \RuntimeException('duo: capture recovery found malformed intent phase');
+                throw self::ambiguous_recovery('capture recovery found malformed intent phase');
             }
         } else {
             if (!is_string($record['intent_id'] ?? null) || !preg_match('/^[a-f0-9]{32}$/', $record['intent_id'])) {
-                throw new \RuntimeException('duo: capture recovery found malformed receipt id');
+                throw self::ambiguous_recovery('capture recovery found malformed receipt id');
             }
             if (($record['phase'] ?? null) !== 'committed') {
-                throw new \RuntimeException('duo: capture recovery found malformed receipt phase');
+                throw self::ambiguous_recovery('capture recovery found malformed receipt phase');
             }
         }
         foreach (['candidate_sha256', 'previous_sha256'] as $key) {
             if (!is_string($record[$key] ?? null) || preg_match('/^[a-f0-9]{64}$/', $record[$key]) !== 1) {
-                throw new \RuntimeException("duo: capture recovery found malformed $label $key");
+                throw self::ambiguous_recovery("capture recovery found malformed $label $key");
             }
         }
     }
@@ -798,21 +807,21 @@ final class Publish {
         $sortedExpected = $expected;
         sort($sortedExpected, SORT_STRING);
         if ($keys !== $sortedExpected) {
-            throw new \RuntimeException("duo: capture recovery found an unexpected $label record shape");
+            throw self::ambiguous_recovery("capture recovery found an unexpected $label record shape");
         }
         $seal = $record['record_sha256'] ?? null;
         if (!is_string($seal) || preg_match('/^[a-f0-9]{64}$/', $seal) !== 1) {
-            throw new \RuntimeException("duo: capture recovery found an unsealed $label record");
+            throw self::ambiguous_recovery("capture recovery found an unsealed $label record");
         }
         $payload = $record;
         unset($payload['record_sha256']);
         if (!hash_equals($seal, hash('sha256', Canon::encode($payload)))) {
-            throw new \RuntimeException("duo: capture recovery found a tampered $label record");
+            throw self::ambiguous_recovery("capture recovery found a tampered $label record");
         }
         foreach (['created_at', 'committed_at'] as $timeKey) {
             if (array_key_exists($timeKey, $record)
                 && (!is_string($record[$timeKey]) || trim($record[$timeKey]) === '')) {
-                throw new \RuntimeException("duo: capture recovery found a malformed $label timestamp");
+                throw self::ambiguous_recovery("capture recovery found a malformed $label timestamp");
             }
         }
     }
@@ -868,10 +877,14 @@ final class Publish {
         self::restore_backup($stateDir, $backup);
     }
 
-    private static function ambiguous_recovery(string $reason): \RuntimeException {
-        return new \RuntimeException(
+    private static function ambiguous_recovery(
+        string $reason,
+        ?\Throwable $previous = null
+    ): CommandRefusalException {
+        return CommandRefusalException::ambiguousCaptureRecovery(
             'duo: capture recovery is blocked by an ambiguous publication/COMMIT boundary — '
-            . $reason . '; refusing to retry or discard the retained backup. Inspect the intent, receipt, and database before continuing.'
+                . $reason . '; refusing to retry or discard the retained backup. Inspect the intent, receipt, and database before continuing.',
+            $previous
         );
     }
 

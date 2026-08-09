@@ -1,21 +1,139 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/CommandRefusal.php';
+
 use WP_CLI;
 
 /**
  * wp duo <capture|refresh-export|plan|apply|capabilities|orphans|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
  */
 final class Cli {
-    private static function halt_json_failure(\Throwable $t, array $assoc): void {
-        if (($assoc['format'] ?? '') !== 'json'
-            || !($t instanceof RepositoryCompilationException
-                || $t instanceof RepositoryAuthorizationException
-                || $t instanceof CodeCompilationException)) {
+    private const REFUSAL_FORMAT = 'duo-command-refusal/v1';
+
+    /**
+     * JSON is a command contract, including on refusal.  The old exception
+     * whitelist emitted structured output only for compiler diagnostics;
+     * every other failure fell through to WP_CLI::error(), so capture and
+     * ordinary plan/apply gates returned human stderr to machine callers.
+     * Keep typed diagnostics intact, but put every JSON-mode throwable in
+     * one versioned envelope before WP-CLI can add its human "Error:" layer.
+     */
+    private static function halt_json_failure(\Throwable $t, array $assoc, string $command): void {
+        if (!isset($assoc['json']) && ($assoc['format'] ?? '') !== 'json') {
             return;
         }
-        WP_CLI::line(json_encode($t->payload(), JSON_UNESCAPED_SLASHES));
+
+        if ($t instanceof RepositoryCompilationException
+            || $t instanceof RepositoryAuthorizationException
+            || $t instanceof CodeCompilationException) {
+            $specific = $t->payload();
+            $message = match (true) {
+                $t instanceof RepositoryCompilationException => 'repository compilation refused this command',
+                $t instanceof RepositoryAuthorizationException => 'repository authorization refused this command',
+                default => 'code payload validation refused this command',
+            };
+            $remediation = self::refusal_remediation($command);
+            $redacted = CommandRefusalException::containsSensitivePublicDetail($specific);
+            if ($redacted) {
+                // The established error code remains stable, but a diagnostic
+                // is indivisible public evidence: if any nested field is
+                // sensitive, omit the complete batch instead of attempting a
+                // partial rewrite that could change its meaning or miss a
+                // second secret-bearing field.
+                $specific = [
+                    'ok' => false,
+                    'error' => (string) $specific['error'],
+                ];
+            }
+        } elseif ($t instanceof CommandRefusalException) {
+            $specific = $t->payload();
+            $message = $t->publicMessage;
+            $remediation = $t->remediation;
+            $redacted = false;
+        } else {
+            $reasonCode = str_replace('-', '_', $command) . '_failed';
+            $message = "$command refused at an unclassified safety gate";
+            $remediation = self::refusal_remediation($command);
+            $specific = [
+                'error' => $reasonCode,
+                'diagnostics' => [[
+                    'code' => $reasonCode,
+                    'message' => $message,
+                    'remediation' => $remediation,
+                ]],
+            ];
+            // A catch-all Throwable is private operator evidence.  Never copy
+            // its message, previous chain, file, or trace into public JSON.
+            $redacted = true;
+        }
+
+        $payload = [
+            'format' => self::REFUSAL_FORMAT,
+            'ok' => false,
+            'command' => $command,
+            'error' => (string) $specific['error'],
+            'reason_code' => (string) $specific['error'],
+            'message' => $message,
+            'remediation' => $remediation,
+        ];
+        if ($redacted) {
+            $payload['details_redacted'] = true;
+        }
+        foreach ($specific as $key => $value) {
+            if (!array_key_exists($key, $payload)) {
+                $payload[$key] = $value;
+            }
+        }
+        if (CommandRefusalException::containsSensitivePublicDetail($payload)) {
+            // Defense in depth at the actual serialization boundary. Source
+            // exceptions and legacy typed payloads are guarded above so safe
+            // compatibility fields survive; this final pass ensures no new
+            // envelope field or unexpected diagnostic value can bypass the
+            // same policy later.
+            $reasonCode = preg_match('/^[a-z][a-z0-9_]{2,63}$/', (string) ($payload['error'] ?? '')) === 1
+                ? (string) $payload['error']
+                : 'structured_refusal_redacted';
+            $payload = [
+                'format' => self::REFUSAL_FORMAT,
+                'ok' => false,
+                'command' => $command,
+                'error' => $reasonCode,
+                'reason_code' => $reasonCode,
+                'message' => 'structured refusal details were redacted',
+                'remediation' => 'inspect private operator evidence and recovery state before another attempt',
+                'details_redacted' => true,
+            ];
+        }
+
+        $encoded = json_encode(
+            $payload,
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+        );
+        if ($encoded === false) {
+            // Keep the one-value stdout contract even if an established typed
+            // diagnostic contains a value PHP cannot serialize (for example
+            // INF).  The fallback is deliberately constant and secret-free.
+            $encoded = '{"format":"duo-command-refusal/v1","ok":false,"command":"'
+                . str_replace(['\\', '"'], ['\\\\', '\\"'], $command)
+                . '","error":"refusal_serialization_failed","reason_code":"refusal_serialization_failed",'
+                . '"message":"structured refusal serialization failed","remediation":"inspect private operator evidence before another attempt","details_redacted":true}';
+        }
+        WP_CLI::line($encoded);
         WP_CLI::halt(1);
+    }
+
+    private static function refusal_remediation(string $command): string {
+        return match ($command) {
+            'capture' => 'inspect private operator evidence and capture recovery state; classify, correct, or recover the blocker before another attempt',
+            'compile' => 'fix every repository, policy, or code diagnostic before compiling again',
+            'plan' => 'inspect private operator evidence and target state, then correct the repository, policy, capability, or target-state blocker',
+            'apply' => 'inspect apply_in_progress and recovery evidence, then resume or recover according to the recorded phase',
+            'deploy' => 'inspect lifecycle and promotion evidence, then restore or recover the exact recorded code and state release',
+            'code-stage' => 'inspect the staging receipt and promotion lease, then resume or recover the exact immutable artifact',
+            'code-finalize' => 'inspect the staged receipt and promotion lease, then resume or recover the exact immutable artifact',
+            default => "correct the named $command blocker, then retry the command",
+        };
     }
 
     /**
@@ -29,14 +147,14 @@ final class Cli {
      * [--format=<format>] : Output format. Accepts json.
      */
     public function compile($args, $assoc) {
-        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
         try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('compile', '--repo');
             $artifact = RepositoryCompiler::compile($repo, Policy::load($repo));
             if (!empty($assoc['out'])) {
                 $artifact->write((string) $assoc['out']);
             }
         } catch (\Throwable $t) {
-            self::halt_json_failure($t, $assoc);
+            self::halt_json_failure($t, $assoc, 'compile');
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {
@@ -131,11 +249,11 @@ final class Cli {
      * @subcommand code-stage
      */
     public function code_stage($args, $assoc) {
-        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
-        $compiledPath = $assoc['compiled'] ?? WP_CLI::error('--compiled required');
-        $promotionOwner = $assoc['promotion-owner'] ?? WP_CLI::error('--promotion-owner required');
-        $artifactHash = $assoc['artifact-hash'] ?? WP_CLI::error('--artifact-hash required');
         try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('code-stage', '--repo');
+            $compiledPath = $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('code-stage', '--compiled');
+            $promotionOwner = $assoc['promotion-owner'] ?? throw CommandRefusalException::invalidArgument('code-stage', '--promotion-owner');
+            $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('code-stage', '--artifact-hash');
             $policy = Policy::load($repo);
             $compiled = RepositoryCompiler::read_artifact((string) $compiledPath, $policy);
             $summary = Code::stage($repo, $compiled, [
@@ -143,7 +261,7 @@ final class Cli {
                 'artifact_hash' => (string) $artifactHash,
             ]);
         } catch (\Throwable $t) {
-            self::halt_json_failure($t, $assoc);
+            self::halt_json_failure($t, $assoc, 'code-stage');
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {
@@ -180,11 +298,11 @@ final class Cli {
      * @subcommand code-finalize
      */
     public function code_finalize($args, $assoc) {
-        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
-        $compiledPath = $assoc['compiled'] ?? WP_CLI::error('--compiled required');
-        $promotionOwner = $assoc['promotion-owner'] ?? WP_CLI::error('--promotion-owner required');
-        $artifactHash = $assoc['artifact-hash'] ?? WP_CLI::error('--artifact-hash required');
         try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('code-finalize', '--repo');
+            $compiledPath = $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('code-finalize', '--compiled');
+            $promotionOwner = $assoc['promotion-owner'] ?? throw CommandRefusalException::invalidArgument('code-finalize', '--promotion-owner');
+            $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('code-finalize', '--artifact-hash');
             $policy = Policy::load($repo);
             $compiled = RepositoryCompiler::read_artifact((string) $compiledPath, $policy);
             $summary = Code::finalize($repo, $compiled, [
@@ -193,7 +311,7 @@ final class Cli {
                 'promotion_hold' => isset($assoc['promotion-hold']),
             ]);
         } catch (\Throwable $t) {
-            self::halt_json_failure($t, $assoc);
+            self::halt_json_failure($t, $assoc, 'code-finalize');
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {
@@ -226,11 +344,12 @@ final class Cli {
     public function capture($args, $assoc) {
         try {
             $summary = Capture::run(
-                $assoc['repo'] ?? WP_CLI::error('--repo required'),
+                $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('capture', '--repo'),
                 $assoc['out'] ?? null,
                 isset($assoc['force-unresolved-refs'])
             );
         } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'capture');
             WP_CLI::error($t->getMessage());
         }
         // WP-CLI's dispatcher rewrites a bare --json into format=json and unsets
@@ -372,14 +491,14 @@ final class Cli {
      */
     public function plan($args, $assoc) {
         try {
-            $plan = Apply::plan($assoc['repo'] ?? WP_CLI::error('--repo required'), [
+            $plan = Apply::plan($assoc['repo'] ?? throw CommandRefusalException::invalidArgument('plan', '--repo'), [
                 'adopt_by_slug' => $assoc['adopt-by-slug'] ?? '',
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
                 'compiled' => $assoc['compiled'] ?? '',
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
             ]);
         } catch (\Throwable $t) {
-            self::halt_json_failure($t, $assoc);
+            self::halt_json_failure($t, $assoc, 'plan');
             WP_CLI::error($t->getMessage());
         }
         // See capture(): --json arrives here as $assoc['format'] === 'json', never $assoc['json'].
@@ -675,7 +794,7 @@ final class Cli {
      */
     public function apply($args, $assoc) {
         try {
-            $summary = Apply::apply($assoc['repo'] ?? WP_CLI::error('--repo required'), [
+            $summary = Apply::apply($assoc['repo'] ?? throw CommandRefusalException::invalidArgument('apply', '--repo'), [
                 'adopt_by_slug' => $assoc['adopt-by-slug'] ?? '',
                 'with_deletes' => isset($assoc['with-deletes']),
                 'force_delete_referenced' => isset($assoc['force-delete-referenced']),
@@ -690,7 +809,7 @@ final class Cli {
                 'artifact_hash' => $assoc['artifact-hash'] ?? '',
             ]);
         } catch (\Throwable $t) {
-            self::halt_json_failure($t, $assoc);
+            self::halt_json_failure($t, $assoc, 'apply');
             WP_CLI::error($t->getMessage());
         }
         // See capture(): --json arrives here as $assoc['format'] === 'json', never $assoc['json'].
@@ -836,7 +955,7 @@ final class Cli {
      */
     public function deploy($args, $assoc) {
         try {
-            $summary = Deploy::run($assoc['repo'] ?? WP_CLI::error('--repo required'), [
+            $summary = Deploy::run($assoc['repo'] ?? throw CommandRefusalException::invalidArgument('deploy', '--repo'), [
                 'force_code_mismatch' => isset($assoc['force-code-mismatch']),
                 'force_code_drift' => isset($assoc['force-code-drift']),
                 'compiled' => $assoc['compiled'] ?? '',
@@ -849,7 +968,7 @@ final class Cli {
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
             ]);
         } catch (\Throwable $t) {
-            self::halt_json_failure($t, $assoc);
+            self::halt_json_failure($t, $assoc, 'deploy');
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {

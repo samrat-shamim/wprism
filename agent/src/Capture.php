@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/CommandRefusal.php';
+
 require_once __DIR__ . '/PlainData.php';
 require_once __DIR__ . '/StructuredValue.php';
 require_once __DIR__ . '/Canon.php';
@@ -875,11 +877,22 @@ final class Capture {
         }
         if ($bad) {
             sort($bad);
-            throw new \RuntimeException(
-                'duo: capture refused — consistent-snapshot isolation requires InnoDB, but the following table(s) '
+            $operatorMessage = 'duo: capture refused — consistent-snapshot isolation requires InnoDB, but the following table(s) '
                 . "capture reads from use a different storage engine (no MVCC/undo log, so a consistent-snapshot "
                 . "transaction gives no real point-in-time guarantee for them):\n  - " . implode("\n  - ", $bad)
-                . "\nConvert the table(s) to InnoDB (e.g. ALTER TABLE <table> ENGINE=InnoDB) and re-run capture."
+                . "\nConvert the table(s) to InnoDB (e.g. ALTER TABLE <table> ENGINE=InnoDB) and re-run capture.";
+            $diagnostics = array_map(static fn(string $table): array => [
+                'code' => 'unsupported_storage_engine',
+                'table' => $table,
+                'message' => 'capture cannot prove a coherent snapshot for this table',
+                'remediation' => 'convert the table to InnoDB before another capture',
+            ], $bad);
+            throw new CommandRefusalException(
+                'capture_snapshot_unsupported',
+                'capture refused because one or more tables cannot provide a coherent snapshot',
+                'resolve every storage-engine diagnostic before another capture',
+                $diagnostics,
+                $operatorMessage
             );
         }
     }
@@ -948,10 +961,9 @@ final class Capture {
                 try {
                     self::check_transient_db_error('COMMIT');
                 } catch (\Throwable $commitCheck) {
-                    throw new \RuntimeException(
+                    throw self::commit_outcome_uncertain(
                         'duo: capture commit outcome uncertain — COMMIT returned, but its database error '
                         . 'checkpoint failed; refusing to retry because the candidate may already be durable',
-                        0,
                         $commitCheck
                     );
                 }
@@ -962,10 +974,9 @@ final class Capture {
                     // rejected COMMIT; the client cannot distinguish those
                     // outcomes. Never retry or issue a compensating
                     // rollback after crossing that boundary.
-                    throw new \RuntimeException(
+                    throw self::commit_outcome_uncertain(
                         'duo: capture commit outcome uncertain — COMMIT did not return a definitive success; '
                         . 'refusing to retry because candidate DML may already be durable',
-                        0,
                         $e
                     );
                 }
@@ -973,28 +984,47 @@ final class Capture {
                     Db::rollback('capture transaction rollback');
                 }
                 if (!empty($phase['filesystem_swapped'])) {
-                    throw new \RuntimeException(
+                    throw new CommandRefusalException(
+                        'capture_recovery_required',
+                        'capture stopped after filesystem publication began',
+                        'do not replay the candidate; inspect the durable intent and retained backup, then run exact capture recovery',
+                        [[
+                            'code' => 'capture_recovery_required',
+                            'message' => 'filesystem publication crossed its replay-safe boundary',
+                            'remediation' => 'preserve the intent and backup and reconcile the recorded publication before another capture',
+                        ]],
                         'duo: capture failed after filesystem publication began — refusing to retry the candidate; '
-                        . 'the next run must reconcile its durable intent/backup artifacts',
-                        0,
+                            . 'the next run must reconcile its durable intent/backup artifacts',
                         $e
                     );
                 }
                 if ($attempt >= self::MAX_DB_ATTEMPTS) {
-                    throw new \RuntimeException(
+                    throw new CommandRefusalException(
+                        'capture_contention_exhausted',
+                        'capture exhausted its bounded database-contention retries',
+                        'wait for the competing WordPress writer to finish, then start a new capture',
+                        [[
+                            'code' => 'capture_contention_exhausted',
+                            'attempts' => $attempt,
+                            'message' => 'transient database contention persisted through the bounded retry window',
+                            'remediation' => 'wait for the competing writer to finish before another capture',
+                        ]],
                         "duo: capture failed after $attempt attempt(s) — repeated transient database contention "
-                        . "(a concurrent WordPress write kept colliding with capture's own identity-minting "
-                        . 'writes): ' . $e->getMessage()
+                            . "(a concurrent WordPress write kept colliding with capture's own identity-minting "
+                            . 'writes): ' . $e->getMessage(),
+                        $e
                     );
                 }
                 usleep(200_000 * $attempt); // 200ms, 400ms, ... — short: this targets brief lock contention, not an outage
                 continue;
             } catch (\Throwable $t) {
                 if ($commitAttempted) {
-                    throw new \RuntimeException(
+                    if ($t instanceof CommandRefusalException && $t->reasonCode === 'capture_commit_uncertain') {
+                        throw $t;
+                    }
+                    throw self::commit_outcome_uncertain(
                         'duo: capture commit outcome uncertain — COMMIT returned no definitive success; '
                         . 'refusing to retry because candidate DML may already be durable',
-                        0,
                         $t
                     );
                 }
@@ -1004,6 +1034,21 @@ final class Capture {
                 throw $t;
             }
         }
+    }
+
+    private static function commit_outcome_uncertain(string $operatorMessage, \Throwable $previous): CommandRefusalException {
+        return new CommandRefusalException(
+            'capture_commit_uncertain',
+            'capture commit outcome is uncertain',
+            'do not retry or discard recovery artifacts; inspect the durable intent, receipt, and database commit proof, then reconcile that exact publication',
+            [[
+                'code' => 'capture_commit_uncertain',
+                'message' => 'the database may have committed the candidate, so replay is unsafe',
+                'remediation' => 'preserve all recovery evidence and determine the exact commit outcome before continuing',
+            ]],
+            $operatorMessage,
+            $previous
+        );
     }
 
     /**
@@ -1081,10 +1126,15 @@ final class Capture {
         try {
             $record = Canon::decode($raw);
         } catch (\Throwable $e) {
-            throw new \RuntimeException('duo: capture recovery found malformed database commit marker', 0, $e);
+            throw CommandRefusalException::ambiguousCaptureRecovery(
+                'duo: capture recovery found a malformed database commit marker; refusing to retry or discard retained evidence',
+                $e
+            );
         }
         if (!is_array($record)) {
-            throw new \RuntimeException('duo: capture recovery found a non-object database commit marker');
+            throw CommandRefusalException::ambiguousCaptureRecovery(
+                'duo: capture recovery found a non-object database commit marker; refusing to retry or discard retained evidence'
+            );
         }
         $expectedKeys = ['format', 'state_sha256', 'intent_id', 'candidate_sha256', 'previous_sha256', 'record_sha256'];
         $keys = array_keys($record);
@@ -1092,13 +1142,17 @@ final class Capture {
         $sortedExpected = $expectedKeys;
         sort($sortedExpected, SORT_STRING);
         if ($keys !== $sortedExpected || ($record['format'] ?? null) !== 'duo-capture-commit-marker/v1') {
-            throw new \RuntimeException('duo: capture recovery found an unsupported database commit marker shape');
+            throw CommandRefusalException::ambiguousCaptureRecovery(
+                'duo: capture recovery found an unsupported database commit marker shape; refusing to retry or discard retained evidence'
+            );
         }
         $seal = (string) $record['record_sha256'];
         unset($record['record_sha256']);
         if (!preg_match('/^[a-f0-9]{64}$/', $seal)
             || !hash_equals($seal, hash('sha256', Canon::encode($record)))) {
-            throw new \RuntimeException('duo: capture recovery found a tampered database commit marker');
+            throw CommandRefusalException::ambiguousCaptureRecovery(
+                'duo: capture recovery found a tampered database commit marker; refusing to retry or discard retained evidence'
+            );
         }
         if (!is_string($record['state_sha256'] ?? null)
             || preg_match('/^[a-f0-9]{64}$/', $record['state_sha256']) !== 1
@@ -1108,17 +1162,23 @@ final class Capture {
             || preg_match('/^[a-f0-9]{64}$/', $record['candidate_sha256']) !== 1
             || !is_string($record['previous_sha256'] ?? null)
             || preg_match('/^[a-f0-9]{64}$/', $record['previous_sha256']) !== 1) {
-            throw new \RuntimeException('duo: capture recovery found malformed database commit marker fields');
+            throw CommandRefusalException::ambiguousCaptureRecovery(
+                'duo: capture recovery found malformed database commit marker fields; refusing to retry or discard retained evidence'
+            );
         }
         if (($record['state_sha256'] ?? null) !== self::publication_destination_sha256($stateDir)) {
-            throw new \RuntimeException('duo: capture recovery found a commit marker for a different destination');
+            throw CommandRefusalException::ambiguousCaptureRecovery(
+                'duo: capture recovery found a commit marker for a different destination; refusing to retry or discard retained evidence'
+            );
         }
         if (($record['intent_id'] ?? null) !== ($intent['id'] ?? null)) {
             return false; // a prior capture's marker; not proof for this intent
         }
         if (($record['candidate_sha256'] ?? null) !== ($intent['candidate_sha256'] ?? null)
             || ($record['previous_sha256'] ?? null) !== ($intent['previous_sha256'] ?? null)) {
-            throw new \RuntimeException('duo: capture recovery found a current-intent commit marker with mismatched digests');
+            throw CommandRefusalException::ambiguousCaptureRecovery(
+                'duo: capture recovery found a current-intent commit marker with mismatched digests; refusing to retry or discard retained evidence'
+            );
         }
         return true;
     }
@@ -1180,44 +1240,82 @@ final class Capture {
         if ($this->unclassified) {
             $keys = array_unique($this->unclassified);
             sort($keys);
-            throw new \RuntimeException(
-                "duo: incomplete state discovery on manifest-owned or in-scope surfaces (loud-and-blocking gate):\n  - "
+            $operatorMessage = "duo: incomplete state discovery on manifest-owned or in-scope surfaces (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $keys)
                 . "\nClassify them in site.duo.json policy.options / policy.post_meta / policy.term_meta or a manifest."
-                . " Run: wp duo pending --repo={$this->repo} for evidence + proposals, then wp duo classify --repo={$this->repo} --set '<section>:<key>=<class>'."
+                . " Run: wp duo pending --repo={$this->repo} for evidence + proposals, then wp duo classify --repo={$this->repo} --set '<section>:<key>=<class>'.";
+            $diagnostics = array_map(static fn(string $surface): array => [
+                'code' => 'unclassified_state',
+                'surface' => $surface,
+                'message' => 'state surface has no reviewed classification',
+                'remediation' => 'review it with duo pending, then classify or exclude it explicitly',
+            ], $keys);
+            throw new CommandRefusalException(
+                'incomplete_state_discovery',
+                'capture found state that has no reviewed classification',
+                'review the diagnostics with duo pending, then classify or exclude every named surface before another capture',
+                $diagnostics,
+                $operatorMessage
             );
         }
         if ($this->unscopedRefs) {
             $lines = [];
+            $diagnostics = [];
             foreach ($this->unscopedRefs as $r) {
                 $scopeKey = $r['kind'] === 'term' ? 'policy.taxonomies' : 'policy.post_types';
                 $lines[] = "option '{$r['option']}' references {$r['kind']} id {$r['id']}, which is a real "
                     . "'{$r['target_type']}' — but '{$r['target_type']}' is not in $scopeKey, so its identity was "
                     . 'never tracked and the reference cannot resolve';
+                $diagnostics[] = [
+                    'code' => 'unresolved_option_reference_scope',
+                    'surface' => 'options:' . $r['option'],
+                    'reference_kind' => $r['kind'],
+                    'target_type' => $r['target_type'],
+                    'message' => 'a real referenced entity is outside reviewed policy scope',
+                    'remediation' => "add the target type to $scopeKey, reclassify the option, or explicitly use --force-unresolved-refs to drop the reference",
+                ];
             }
-            throw new \RuntimeException(
-                "duo: unresolvable ref-typed option(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
+            $operatorMessage = "duo: unresolvable ref-typed option(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $lines)
                 . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
                 . "target genuinely exists right now, so this is a scope gap, not permanent data loss.\n"
                 . "Add the missing post type/taxonomy to policy scope above and re-run capture, or reclassify the "
-                . "option, or pass --force-unresolved-refs to drop it anyway (same as a dangling reference)."
+                . "option, or pass --force-unresolved-refs to drop it anyway (same as a dangling reference).";
+            throw new CommandRefusalException(
+                'unresolved_reference_scope',
+                'capture found reference-bearing option state outside reviewed scope',
+                'follow each diagnostic to expand policy scope or deliberately drop the unresolved reference',
+                $diagnostics,
+                $operatorMessage
             );
         }
         if ($this->unscopedOptionNameRefs) {
             $lines = [];
+            $diagnostics = [];
             foreach ($this->unscopedOptionNameRefs as $r) {
                 $lines[] = "option '{$r['option']}' embeds {$r['id_kind']} id {$r['id']}, which is a real row in "
                     . "its declared table — but that table's rows were never minted a uuid (not pinned as "
                     . "authored_snapshot in a currently-loaded manifest?), so the reference cannot resolve";
+                $diagnostics[] = [
+                    'code' => 'unminted_table_reference_scope',
+                    'surface' => 'option_name_refs:' . $r['option'],
+                    'reference_kind' => $r['id_kind'],
+                    'message' => 'a real referenced table row has no manifest-owned portable identity',
+                    'remediation' => 'pin the owning table as authored_snapshot or explicitly use --force-unresolved-refs to drop the reference',
+                ];
             }
-            throw new \RuntimeException(
-                "duo: option_name_refs option(s) point at real, unminted table rows (loud-and-blocking gate):\n  - "
+            $operatorMessage = "duo: option_name_refs option(s) point at real, unminted table rows (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $lines)
                 . "\nThis differs from a dangling reference (no such row anywhere — dropped with a warning, "
                 . "unchanged): the row genuinely exists right now, so this is a manifest/table-pinning gap, not "
                 . "permanent data loss.\nPin the owning table as authored_snapshot and re-run capture, or pass "
-                . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
+                . "--force-unresolved-refs to drop it anyway (same as a dangling reference).";
+            throw new CommandRefusalException(
+                'unresolved_reference_scope',
+                'capture found option-name references without manifest-owned identities',
+                'follow each diagnostic to pin the owning table or deliberately drop the unresolved reference',
+                $diagnostics,
+                $operatorMessage
             );
         }
         // URL-query refs can be discovered while tokenizing an authored
@@ -1225,19 +1323,134 @@ final class Capture {
         // the shared option boundary as well as the full build.
         if ($this->tokens->unscopedUrlQueryRefs) {
             $lines = [];
+            $diagnostics = [];
             foreach ($this->tokens->unscopedUrlQueryRefs as $r) {
                 $where = $r['context'] !== '' ? "{$r['context']}: " : '';
                 $lines[] = "{$where}url query ref '{$r['param']}' references post id {$r['id']}, which is a real "
                     . "'{$r['target_type']}' — but '{$r['target_type']}' is not in policy.post_types, so its "
                     . "identity was never tracked and the reference cannot resolve";
+                $diagnostics[] = [
+                    'code' => 'unresolved_url_query_reference_scope',
+                    'surface' => 'url_query:' . $r['param'],
+                    'reference_kind' => 'post',
+                    'target_type' => $r['target_type'],
+                    'message' => 'a real URL-query target is outside reviewed post-type scope',
+                    'remediation' => 'add the target type to policy.post_types or explicitly use --force-unresolved-refs to drop the reference',
+                ];
             }
-            throw new \RuntimeException(
-                "duo: unresolvable url-query-typed reference(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
+            $operatorMessage = "duo: unresolvable url-query-typed reference(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $lines)
                 . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
                 . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
                 . "Add the missing post type to policy scope above and re-run capture, or pass "
-                . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
+                . "--force-unresolved-refs to drop it anyway (same as a dangling reference).";
+            throw new CommandRefusalException(
+                'unresolved_reference_scope',
+                'capture found URL-query references outside reviewed post-type scope',
+                'follow each diagnostic to expand post-type scope or deliberately drop the unresolved reference',
+                $diagnostics,
+                $operatorMessage
+            );
+        }
+    }
+
+    /** @param array<string,array{entities:int}> $scopeGaps */
+    private function assert_scope_gaps(array $scopeGaps): void {
+        if ($scopeGaps === []) {
+            return;
+        }
+        $lines = [];
+        $diagnostics = [];
+        foreach ($scopeGaps as $key => $evidence) {
+            [$kind, $name] = explode(':', $key, 2);
+            $policyKey = $kind === 'post_type' ? 'policy.post_types' : 'policy.taxonomies';
+            $noun = $evidence['entities'] === 1 ? 'entity' : 'entities';
+            $lines[] = "$kind '$name' has {$evidence['entities']} capturable $noun but is absent from $policyKey; "
+                . "include it there, or record a deliberate exclusion with scope:$kind:$name=runtime|derived|env";
+            $diagnostics[] = [
+                'code' => 'policy_scope_gap',
+                'surface' => 'scope:' . $kind . ':' . $name,
+                'entity_count' => $evidence['entities'],
+                'message' => 'capturable authored state exists outside reviewed policy scope',
+                'remediation' => "add it to $policyKey or classify the exact scope as runtime, derived, or environment-owned",
+            ];
+        }
+        $operatorMessage = "duo: registered or adapter-declared authored state exists outside policy scope (loud-and-blocking gate):\n  - "
+            . implode("\n  - ", $lines)
+            . "\nRun: wp duo pending --repo={$this->repo} for evidence, then either add the type/taxonomy "
+            . "to policy scope or run wp duo classify --repo={$this->repo} --set='scope:<kind>:<name>=<class>'.";
+        throw new CommandRefusalException(
+            'incomplete_policy_scope',
+            'capture found authored state outside reviewed policy scope',
+            'follow each diagnostic to expand policy scope or record an explicit non-authored classification',
+            $diagnostics,
+            $operatorMessage
+        );
+    }
+
+    /** Exact block/shortcode reference gates accumulated during build(). */
+    private function assert_content_ref_gates(): void {
+        if ($this->tokens->unscopedBlockRefs) {
+            $lines = [];
+            $diagnostics = [];
+            foreach ($this->tokens->unscopedBlockRefs as $r) {
+                $scopeKey = $r['kind'] === 'term' ? 'policy.taxonomies' : 'policy.post_types';
+                $lines[] = "{$r['post']} block '{$r['block']}' attribute '{$r['attr']}' references {$r['kind']} id "
+                    . "{$r['id']}, which is a real '{$r['target_type']}' — but '{$r['target_type']}' is not in "
+                    . "$scopeKey, so its identity was never tracked and the reference cannot resolve";
+                $diagnostics[] = [
+                    'code' => 'unresolved_block_reference_scope',
+                    'surface' => 'block:' . $r['block'] . ':' . $r['attr'],
+                    'reference_kind' => $r['kind'],
+                    'target_type' => $r['target_type'],
+                    'message' => 'a real block-attribute target is outside reviewed policy scope',
+                    'remediation' => "add the target type to $scopeKey or explicitly use --force-unresolved-refs to drop the reference",
+                ];
+            }
+            $operatorMessage = "duo: unresolvable ref-typed block attribute(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
+                . implode("\n  - ", $lines)
+                . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
+                . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
+                . "Add the missing post type/taxonomy to policy scope above and re-run capture, or pass "
+                . "--force-unresolved-refs to drop it anyway (same as a dangling reference).";
+            throw new CommandRefusalException(
+                'unresolved_reference_scope',
+                'capture found block references outside reviewed policy scope',
+                'follow each diagnostic to expand policy scope or deliberately drop the unresolved reference',
+                $diagnostics,
+                $operatorMessage
+            );
+        }
+
+        if ($this->tokens->unscopedShortcodeRefs) {
+            $lines = [];
+            $diagnostics = [];
+            foreach ($this->tokens->unscopedShortcodeRefs as $r) {
+                $scopeKey = $r['kind'] === 'term' ? 'policy.taxonomies' : 'policy.post_types';
+                $lines[] = "{$r['post']} shortcode '{$r['shortcode']}' attribute '{$r['attr']}' references {$r['kind']} id "
+                    . "{$r['id']}, which is a real '{$r['target_type']}' — but '{$r['target_type']}' is not in "
+                    . "$scopeKey, so its identity was never tracked and the reference cannot resolve";
+                $diagnostics[] = [
+                    'code' => 'unresolved_shortcode_reference_scope',
+                    'surface' => 'shortcode:' . $r['shortcode'] . ':' . $r['attr'],
+                    'reference_kind' => $r['kind'],
+                    'target_type' => $r['target_type'],
+                    'message' => 'a real shortcode-attribute target is outside reviewed policy scope',
+                    'remediation' => "add the target type to $scopeKey or explicitly use --force-unresolved-refs to drop the reference",
+                ];
+            }
+            $operatorMessage = "duo: unresolvable ref-typed shortcode attribute(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
+                . implode("\n  - ", $lines)
+                . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
+                . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
+                . "Add the missing post type/taxonomy to policy scope above and re-run capture, or pass "
+                . "--force-unresolved-refs to drop it anyway (same as a dangling reference).";
+            throw new CommandRefusalException(
+                'unresolved_reference_scope',
+                'capture found shortcode references outside reviewed policy scope',
+                'follow each diagnostic to expand policy scope or deliberately drop the unresolved reference',
+                $diagnostics,
+                $operatorMessage
             );
         }
     }
@@ -1261,23 +1474,7 @@ final class Capture {
         $media = [];
 
         // ---- scope ----
-        $scopeGaps = $this->scope_gaps();
-        if ($scopeGaps) {
-            $lines = [];
-            foreach ($scopeGaps as $key => $evidence) {
-                [$kind, $name] = explode(':', $key, 2);
-                $policyKey = $kind === 'post_type' ? 'policy.post_types' : 'policy.taxonomies';
-                $noun = $evidence['entities'] === 1 ? 'entity' : 'entities';
-                $lines[] = "$kind '$name' has {$evidence['entities']} capturable $noun but is absent from $policyKey; "
-                    . "include it there, or record a deliberate exclusion with scope:$kind:$name=runtime|derived|env";
-            }
-            throw new \RuntimeException(
-                "duo: registered or adapter-declared authored state exists outside policy scope (loud-and-blocking gate):\n  - "
-                . implode("\n  - ", $lines)
-                . "\nRun: wp duo pending --repo={$this->repo} for evidence, then either add the type/taxonomy "
-                . "to policy scope or run wp duo classify --repo={$this->repo} --set='scope:<kind>:<name>=<class>'."
-            );
-        }
+        $this->assert_scope_gaps($this->scope_gaps());
         $posts = $this->scope_posts();
         $terms = $this->scope_terms();
         $taxesByObjectType = $this->taxes_by_object_type(
@@ -1463,68 +1660,7 @@ final class Capture {
         }
 
         $this->assert_option_gates();
-
-        // Block refs' own unscoped gate (DUO-3212, task #73's mirror for
-        // "kind"/"kind_from" block_attrs refs and the wp-image-N class
-        // rewrite — both funnel through Blocks::queue_unscoped()): the id
-        // names a REAL row whose post_type/taxonomy simply isn't in policy
-        // scope, as opposed to a dangling reference (deleted target) or a
-        // real row of an in-scope type simply not minted on this build yet
-        // — both of those are handled by Blocks::walk()'s ordinary warn-
-        // and-drop, never reaching this list. Same posture as the two
-        // option gates above: a policy edit can actually fix this, so it
-        // aborts by default instead of silently vanishing from captured
-        // state. Accumulates across every post in this build (Tokens::
-        // $unscopedBlockRefs, not a per-post-reset array) the same way
-        // $this->unscopedRefs accumulates across every option above.
-        if ($this->tokens->unscopedBlockRefs) {
-            $lines = [];
-            foreach ($this->tokens->unscopedBlockRefs as $r) {
-                $scopeKey = $r['kind'] === 'term' ? 'policy.taxonomies' : 'policy.post_types';
-                $lines[] = "{$r['post']} block '{$r['block']}' attribute '{$r['attr']}' references {$r['kind']} id "
-                    . "{$r['id']}, which is a real '{$r['target_type']}' — but '{$r['target_type']}' is not in "
-                    . "$scopeKey, so its identity was never tracked and the reference cannot resolve";
-            }
-            throw new \RuntimeException(
-                "duo: unresolvable ref-typed block attribute(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
-                . implode("\n  - ", $lines)
-                . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
-                . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
-                . "Add the missing post type/taxonomy to policy scope above and re-run capture, or pass "
-                . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
-            );
-        }
-
-        // Shortcode refs' own unscoped gate (DUO-3259, task #73's mirror a
-        // second time — for `shortcode_attrs` refs, funneled through
-        // Shortcodes::queue_unscoped()): the id names a REAL row whose
-        // post_type/taxonomy simply isn't in policy scope, as opposed to a
-        // dangling reference (deleted target) or a real row of an in-scope
-        // type simply not minted on this build yet — both of those are
-        // handled by Shortcodes.php's ordinary warn-and-drop, never
-        // reaching this list. Same posture as the option/block gates
-        // above: a policy edit can actually fix this, so it aborts by
-        // default instead of silently vanishing from captured state.
-        // Accumulates across every post in this build (Tokens::
-        // $unscopedShortcodeRefs, not a per-post-reset array) the same way
-        // $this->unscopedRefs accumulates across every option above.
-        if ($this->tokens->unscopedShortcodeRefs) {
-            $lines = [];
-            foreach ($this->tokens->unscopedShortcodeRefs as $r) {
-                $scopeKey = $r['kind'] === 'term' ? 'policy.taxonomies' : 'policy.post_types';
-                $lines[] = "{$r['post']} shortcode '{$r['shortcode']}' attribute '{$r['attr']}' references {$r['kind']} id "
-                    . "{$r['id']}, which is a real '{$r['target_type']}' — but '{$r['target_type']}' is not in "
-                    . "$scopeKey, so its identity was never tracked and the reference cannot resolve";
-            }
-            throw new \RuntimeException(
-                "duo: unresolvable ref-typed shortcode attribute(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
-                . implode("\n  - ", $lines)
-                . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
-                . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
-                . "Add the missing post type/taxonomy to policy scope above and re-run capture, or pass "
-                . "--force-unresolved-refs to drop it anyway (same as a dangling reference)."
-            );
-        }
+        $this->assert_content_ref_gates();
 
         return [
             'entities' => $entities,
@@ -3185,12 +3321,24 @@ final class Capture {
         if ($label === null) {
             return;
         }
-        throw new \RuntimeException(
-            "duo: secret guard tripped — $section '$key'$context looks like a $label but is classified authored; "
+        $operatorMessage = "duo: secret guard tripped — $section '$key'$context looks like a $label but is classified authored; "
             . "refusing to capture it into state/.\n"
             . "If this is really a secret, reclassify it env-bound or runtime instead of authored.\n"
             . "If this is a false positive, allow it explicitly:\n"
-            . "  wp duo classify --repo={$this->repo} --set '$section:$key=authored' --allow-secret"
+            . "  wp duo classify --repo={$this->repo} --set '$section:$key=authored' --allow-secret";
+        throw new CommandRefusalException(
+            'secret_state_refused',
+            'capture found secret-shaped data on an authored surface',
+            'reclassify the named surface as environment/runtime state, or explicitly review and allow the false positive',
+            [[
+                'code' => 'secret_state_refused',
+                'surface' => $section,
+                'key' => $key,
+                'secret_shape' => $label,
+                'message' => 'authored state matched a secret signature',
+                'remediation' => 'reclassify it or record an explicit reviewed allow-secret decision',
+            ]],
+            $operatorMessage
         );
     }
 
@@ -3203,10 +3351,22 @@ final class Capture {
         if ($label === null) {
             return;
         }
-        throw new \RuntimeException(
-            "duo: PII guard tripped — user_meta '$key' on exact login '$login' looks like $label but is "
+        $operatorMessage = "duo: PII guard tripped — user_meta '$key' on exact login '$login' looks like $label but is "
             . "classified authored; refusing to capture it into state/.\n"
-            . 'Keep it runtime/env, or declare "allow_pii": true on this exact user_meta rule after review.'
+            . 'Keep it runtime/env, or declare "allow_pii": true on this exact user_meta rule after review.';
+        throw new CommandRefusalException(
+            'personal_data_refused',
+            'capture found personal data on an authored user-meta surface',
+            'keep the named field environment-local, or record an explicit reviewed allow-pii decision',
+            [[
+                'code' => 'personal_data_refused',
+                'surface' => 'user_meta',
+                'key' => $key,
+                'personal_data_shape' => $label,
+                'message' => 'authored user meta matched a personal-data signature',
+                'remediation' => 'keep it environment-local or explicitly review allow-pii for this field',
+            ]],
+            $operatorMessage
         );
     }
 
