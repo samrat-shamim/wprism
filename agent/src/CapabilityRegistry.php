@@ -1,6 +1,11 @@
 <?php
 namespace Duo;
 
+// report() names the adapter-source vocabulary for rows whose caller supplied
+// no provenance, and this file has offline entry points of its own — same
+// precedent as Policy.php requiring NativeActions.php.
+require_once __DIR__ . '/AdapterSources.php';
+
 /**
  * Generated, evidence-bound product capability claims.
  *
@@ -112,12 +117,30 @@ final class CapabilityRegistry {
      * target facts this is the immutable/source gate. A real wp-cli request
      * supplies target facts and additionally proves runtime compatibility.
      */
-    public function blockers(array $manifests, array $query = [], ?array $target = null): array {
-        return $this->report($manifests, $query, $target)['blockers'];
+    public function blockers(
+        array $manifests,
+        array $query = [],
+        ?array $target = null,
+        array $sources = []
+    ): array {
+        return $this->report($manifests, $query, $target, $sources)['blockers'];
     }
 
-    /** Machine-readable view consumed by CLI, readiness, and host promotion. */
-    public function report(array $manifests, array $query = [], ?array $target = null): array {
+    /**
+     * Machine-readable view consumed by CLI, readiness, and host promotion.
+     *
+     * $sources (DUO-3314) carries AdapterSources::diagnostics() — where each
+     * manifest was installed from, the trust tier it reaches, and its
+     * certification state. Absent for the shipped-library views that have only
+     * one possible origin (`duo capabilities --all`, the registry's own
+     * generator), where every row is shipped by construction.
+     */
+    public function report(
+        array $manifests,
+        array $query = [],
+        ?array $target = null,
+        array $sources = []
+    ): array {
         $operation = (string) ($query['operation'] ?? 'promote');
         $surface = isset($query['surface']) ? (string) $query['surface'] : null;
         $revision = isset($query['revision']) ? (string) $query['revision'] : null;
@@ -126,13 +149,38 @@ final class CapabilityRegistry {
 
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '?');
+            $source = $sources[$name] ?? [
+                'certification' => 'registry',
+                'path' => null,
+                'remediation' => '',
+                'source' => AdapterSources::SHIPPED,
+                'trust_tier' => AdapterSources::trust_tier($manifest),
+            ];
+            $outOfTree = ($source['source'] ?? AdapterSources::SHIPPED) !== AdapterSources::SHIPPED;
             $claim = $this->claim($name);
             $reasons = [];
             if ($claim === null) {
-                $reasons[] = self::reason('missing_registry_entry', "no capability registry entry exists for '$name'");
+                // An out-of-tree adapter has no registry entry BY CONSTRUCTION,
+                // which is a different fact from a shipped adapter whose entry
+                // went missing. Collapsing them would tell an operator to go
+                // regenerate a registry that was never supposed to name this
+                // adapter, so each gets its own code and its own remediation.
+                $reasons[] = $outOfTree
+                    ? self::reason(
+                        'adapter_source_uncertified',
+                        "'$name' is installed from the " . (string) ($source['source'] ?? '?')
+                        . ' adapter source (' . (string) ($source['path'] ?? '?')
+                        . ') and is uncertified by construction: out-of-tree adapters carry no reviewed '
+                        . 'certification evidence',
+                        (string) ($source['remediation'] ?? '')
+                    )
+                    : self::reason('missing_registry_entry', "no capability registry entry exists for '$name'");
                 $claim = [
                     'name' => $name,
-                    'status' => 'unsupported',
+                    'status' => $outOfTree ? 'uncertified' : 'unsupported',
+                    'reason' => $outOfTree
+                        ? "installed out-of-tree from the {$source['source']} adapter source; not reviewed"
+                        : "no capability registry entry exists for '$name'",
                     'plugin_execution' => ['mode' => 'unknown', 'status' => 'unsupported'],
                     'authored_state' => ['status' => 'unsupported'],
                     'supported_versions' => new \stdClass(),
@@ -177,6 +225,11 @@ final class CapabilityRegistry {
 
             $verdict = $reasons === [] ? 'certified' : 'blocked';
             $row = $claim;
+            // Source, trust tier, and certification state ride on every row and
+            // every blocker: the doctrine requires certified, uncertified, and
+            // missing capabilities to stay visibly different wherever they are
+            // reported, and `duo status` renders blockers without the rows.
+            $row['source'] = $source;
             $row['verdict'] = ['status' => $verdict, 'reasons' => $reasons];
             $rows[] = $row;
             foreach ($reasons as $reason) {
@@ -185,6 +238,9 @@ final class CapabilityRegistry {
                     'status' => $verdict,
                     'code' => $reason['code'],
                     'reason' => $reason['message'],
+                    'remediation' => (string) ($reason['remediation'] ?? ''),
+                    'source' => (string) ($source['source'] ?? AdapterSources::SHIPPED),
+                    'trust_tier' => (string) ($source['trust_tier'] ?? ''),
                 ];
             }
         }
@@ -362,8 +418,19 @@ final class CapabilityRegistry {
         return preg_match('/([0-9]+(?:\.[0-9]+){1,3})/', $raw, $m) === 1 ? $m[1] : '';
     }
 
-    private static function reason(string $code, string $message): array {
-        return ['code' => $code, 'message' => $message];
+    /**
+     * A remediation string is attached only where one exists, rather than
+     * back-filling every pre-existing reason code with invented advice: the
+     * shipped codes' wording is reviewed evidence text, and an empty
+     * `remediation` in a blocker row already reads as "no specific action
+     * beyond the reason itself".
+     */
+    private static function reason(string $code, string $message, string $remediation = ''): array {
+        $reason = ['code' => $code, 'message' => $message];
+        if ($remediation !== '') {
+            $reason['remediation'] = $remediation;
+        }
+        return $reason;
     }
 
     private static function validate(

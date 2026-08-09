@@ -7,6 +7,10 @@ namespace Duo;
 // is required here rather than left to duo.php's bootstrap order — same
 // precedent as Deploy.php requiring CodeCompatibility.php.
 require_once __DIR__ . '/NativeActions.php';
+// DUO-3314: adapter provenance is decided inside the same offline pass, before
+// any manifest reaches a policy consumer, so it is required here for the same
+// reason NativeActions is.
+require_once __DIR__ . '/AdapterSources.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -14,7 +18,12 @@ require_once __DIR__ . '/NativeActions.php';
  * and unclassified is a loud abort at the call sites (never a silent guess).
  */
 final class Policy {
-    private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v3';
+    // v4 adds the required `adapter_sources` record (DUO-3314). It is required
+    // rather than optional on purpose: if a snapshot could omit it and have
+    // every manifest default to "shipped", dropping one key would silently
+    // launder an out-of-tree adapter into a shipped one on the verification
+    // path, which is exactly the provenance guarantee this record exists for.
+    private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v4';
 
     /**
      * The exact canonical-surface literal grammar. Apply derives these keys
@@ -31,6 +40,8 @@ final class Policy {
     public array $manifests = [];
     /** External review state; null for legacy/custom manifest directories without a registry. */
     private ?ManifestDispositions $manifestDispositions = null;
+    /** Which source installed each pinned adapter, and what that origin may do (DUO-3314). */
+    private ?AdapterSources $adapterSources = null;
     /** Generated evidence/platform projection of the reviewed dispositions. */
     private ?CapabilityRegistry $capabilityRegistry = null;
     /** @var array<string, object>|null lazily-built interpreter instances */
@@ -120,16 +131,28 @@ final class Policy {
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
         $pins = self::normalize_manifest_pins($rawPins);
         $dir = self::manifests_dir();
+        // DUO-3314: every installed source is scanned, and ambiguous identity or
+        // shadowing refused, before the first pin resolves — a broken adapter
+        // installation must not wait for a pin to reveal itself.
+        $p->adapterSources = AdapterSources::discover($dir, $repo);
+        self::validate_manifest_sources($pins, $p->adapterSources);
         $p->manifestDispositions = class_exists(ManifestDispositions::class)
             ? ManifestDispositions::load($dir)
             : null;
         foreach ($pins as $pin) {
             $name = $pin['name'];
-            $file = $dir . '/' . basename($name) . '.json';
-            if (!is_file($file)) {
-                throw new \RuntimeException("duo: manifest '$name' not found in $dir");
+            // basename() is the pre-existing traversal guard on a pin name; it
+            // stays the single lookup key so an origin, its file, and its
+            // provenance can never be resolved from three different strings.
+            $key = basename($name);
+            $manifest = Canon::decode(Canon::read_file($p->adapterSources->file($key, $dir)));
+            if ($p->adapterSources->is_out_of_tree($key)) {
+                AdapterSources::assert_out_of_tree_contract(
+                    $manifest,
+                    $key,
+                    (string) $p->adapterSources->path($key)
+                );
             }
-            $manifest = Canon::decode(Canon::read_file($file));
             self::validate_field_classes($manifest);
             self::validate_menu_field_classes($manifest);
 self::validate_post_type_children($manifest);
@@ -166,10 +189,15 @@ self::validate_post_type_children($manifest);
         self::validate_unique_table_id_kinds($p->declared_tables());
         self::validate_manifest_pins($pins, $p);
         if ($p->manifestDispositions !== null && class_exists(CapabilityRegistry::class)) {
+            // Only the shipped subset is a registry claim. Handing an
+            // out-of-tree manifest to registry validation would demand a claim
+            // that cannot exist, so one site-installed adapter would refuse
+            // every unrelated shipped adapter along with itself — the exact
+            // failure DUO-3314 exists to remove.
             $p->capabilityRegistry = CapabilityRegistry::load(
                 $dir,
                 $p->manifestDispositions,
-                $p->manifests
+                $p->adapterSources->shipped_manifests($p->manifests)
             );
             if ($p->capabilityRegistry === null) {
                 throw new \RuntimeException(
@@ -192,6 +220,7 @@ self::validate_post_type_children($manifest);
             'format' => self::SNAPSHOT_FORMAT,
             'site' => $this->site,
             'manifests' => $this->manifests,
+            'adapter_sources' => $this->adapter_sources()->export(),
             'dispositions' => $this->manifestDispositions?->data(),
             'capabilities' => $this->capabilityRegistry?->data(),
         ];
@@ -202,8 +231,9 @@ self::validate_post_type_children($manifest);
         self::assert_single_site();
         $keys = array_keys($snapshot);
         sort($keys, SORT_STRING);
-        if ($keys !== ['capabilities', 'dispositions', 'format', 'manifests', 'site']
+        if ($keys !== ['adapter_sources', 'capabilities', 'dispositions', 'format', 'manifests', 'site']
             || ($snapshot['format'] ?? null) !== self::SNAPSHOT_FORMAT
+            || !is_array($snapshot['adapter_sources'] ?? null)
             || !is_array($snapshot['site'] ?? null)
             || !is_array($snapshot['manifests'] ?? null)
             || !array_is_list($snapshot['manifests'])) {
@@ -261,12 +291,17 @@ self::validate_post_type_children($manifest);
             self::validate_discovery_contract($manifest);
             $p->manifests[] = $manifest;
         }
+        // Provenance is reconstructed before the reviewed registries so both of
+        // them see the same shipped subset load() gave them (DUO-3314).
+        $p->adapterSources = AdapterSources::from_snapshot($snapshot['adapter_sources'], $p->manifests);
+        self::validate_manifest_sources($pins, $p->adapterSources);
+        $shipped = $p->adapterSources->shipped_manifests($p->manifests);
         $dispositions = $snapshot['dispositions'] ?? null;
         if ($dispositions !== null) {
             if (!is_array($dispositions) || !class_exists(ManifestDispositions::class)) {
                 throw new \RuntimeException('duo: frozen policy snapshot disposition registry is unavailable or malformed');
             }
-            $p->manifestDispositions = ManifestDispositions::from_snapshot($dispositions, $p->manifests);
+            $p->manifestDispositions = ManifestDispositions::from_snapshot($dispositions, $shipped);
         }
         $capabilities = $snapshot['capabilities'] ?? null;
         if ($capabilities !== null) {
@@ -277,7 +312,7 @@ self::validate_post_type_children($manifest);
             $p->capabilityRegistry = CapabilityRegistry::from_snapshot(
                 $capabilities,
                 $p->manifestDispositions,
-                $p->manifests
+                $shipped
             );
         } elseif ($p->manifestDispositions !== null) {
             throw new \RuntimeException('duo: frozen policy snapshot has dispositions but no capability registry');
@@ -297,9 +332,26 @@ self::validate_post_type_children($manifest);
         return $p;
     }
 
-    /** The reviewed support boundary for one pinned adapter, if this library has a registry. */
+    /**
+     * Adapter provenance for this policy. Never null after load()/from_
+     * snapshot(); the fallback covers only a policy built by an offline test
+     * harness that never ran either, and it claims nothing (no sources known,
+     * so nothing is out-of-tree and nothing is laundered).
+     */
+    public function adapter_sources(): AdapterSources {
+        return $this->adapterSources ??= AdapterSources::discover(self::manifests_dir(), null);
+    }
+
+    /**
+     * The reviewed support boundary for one pinned adapter, if this library has
+     * a registry. An out-of-tree adapter has no reviewed entry and never
+     * acquires one: it answers with the synthesized provenance record instead,
+     * so the disposition slot that feeds RepositoryCompiler::manifest_rows()
+     * binds its origin into the adapter digest exactly where a reviewed entry
+     * would sit — and every shipped row keeps hashing the bytes it always did.
+     */
     public function manifest_disposition(string $name): ?array {
-        return $this->manifestDispositions?->entry($name);
+        return $this->adapter_sources()->provenance($name) ?? $this->manifestDispositions?->entry($name);
     }
 
     /** The generated evidence-bound claim for one pinned adapter. */
@@ -323,7 +375,8 @@ self::validate_post_type_children($manifest);
         return $this->capabilityRegistry->blockers(
             $this->manifests,
             ['operation' => 'promote'],
-            CapabilityRegistry::probe_target()
+            CapabilityRegistry::probe_target(),
+            $this->adapter_sources()->diagnostics($this->manifests)
         );
     }
 
@@ -346,7 +399,8 @@ self::validate_post_type_children($manifest);
         return $this->capabilityRegistry->report(
             $this->manifests,
             $query,
-            CapabilityRegistry::probe_target()
+            CapabilityRegistry::probe_target(),
+            $this->adapter_sources()->diagnostics($this->manifests)
         );
     }
 
@@ -386,7 +440,15 @@ self::validate_post_type_children($manifest);
      * accidentally participate in policy precedence or the manifest's own
      * content hash.
      *
-     * @return list<array{name:string,digest:?string}>
+     * DUO-3314 adds an equally optional `source`. Declaring it asserts WHICH
+     * adapter source must answer this pin, and validate_manifest_sources()
+     * refuses a mismatch: without it, removing a site-installed adapter and
+     * later installing a shipped one under the same name would silently swap
+     * which definition a site runs. An unknown key is refused outright rather
+     * than ignored — a pin whose author believed it constrained something is
+     * the failure this whole record exists to prevent.
+     *
+     * @return list<array{name:string,digest:?string,source:?string}>
      */
     private static function normalize_manifest_pins($rawPins): array {
         if (!is_array($rawPins) || !array_is_list($rawPins)) {
@@ -395,13 +457,20 @@ self::validate_post_type_children($manifest);
         $pins = [];
         foreach ($rawPins as $i => $raw) {
             if (is_string($raw) && $raw !== '') {
-                $pins[] = ['name' => $raw, 'digest' => null];
+                $pins[] = ['name' => $raw, 'digest' => null, 'source' => null];
                 continue;
             }
             if (!is_array($raw) || !is_string($raw['name'] ?? null) || $raw['name'] === '') {
                 throw new \RuntimeException(
                     "duo: site.duo.json manifests[$i] must be a non-empty name string or an object with "
-                    . 'a non-empty string name and optional digest'
+                    . 'a non-empty string name and optional digest and source'
+                );
+            }
+            $unknown = array_diff(array_keys($raw), ['name', 'digest', 'source']);
+            if ($unknown !== []) {
+                throw new \RuntimeException(
+                    "duo: site.duo.json manifest '{$raw['name']}' declares unknown pin key(s) "
+                    . implode(',', $unknown) . ' — a pin accepts exactly name, digest, and source'
                 );
             }
             $digest = $raw['digest'] ?? null;
@@ -411,9 +480,41 @@ self::validate_post_type_children($manifest);
                     . 'hexadecimal characters'
                 );
             }
-            $pins[] = ['name' => $raw['name'], 'digest' => $digest];
+            $source = $raw['source'] ?? null;
+            if ($source !== null && !in_array($source, [AdapterSources::SHIPPED, AdapterSources::SITE], true)) {
+                throw new \RuntimeException(
+                    "duo: site.duo.json manifest '{$raw['name']}' declares source " . var_export($source, true)
+                    . ' — the installed adapter sources are "' . AdapterSources::SHIPPED . '" and "'
+                    . AdapterSources::SITE . '"'
+                );
+            }
+            $pins[] = ['name' => $raw['name'], 'digest' => $digest, 'source' => $source];
         }
         return $pins;
+    }
+
+    /**
+     * A declared pin source is a refusal, not a preference: the overlay is
+     * resolved by name, so an operator who wrote down where an adapter comes
+     * from must be told when that stops being true rather than quietly served
+     * the other source's definition.
+     *
+     * @param list<array{name:string,digest:?string,source:?string}> $pins
+     */
+    private static function validate_manifest_sources(array $pins, AdapterSources $sources): void {
+        foreach ($pins as $pin) {
+            if ($pin['source'] === null) {
+                continue;
+            }
+            $actual = $sources->source(basename($pin['name']));
+            if ($actual !== $pin['source']) {
+                throw new \RuntimeException(
+                    "duo: manifest '{$pin['name']}' is pinned to the {$pin['source']} adapter source but resolves "
+                    . "from the $actual source — review which adapter this site intends to run, then update the "
+                    . 'site.duo.json pin'
+                );
+            }
+        }
     }
 
     /**
@@ -422,7 +523,7 @@ self::validate_post_type_children($manifest);
      * after every manifest and cross-manifest contract has passed, so a pin
      * can never turn malformed adapter content into a trusted artifact.
      *
-     * @param list<array{name:string,digest:?string}> $pins
+     * @param list<array{name:string,digest:?string,source:?string}> $pins
      */
     private static function validate_manifest_pins(array $pins, self $policy): void {
         if (!array_filter($pins, fn($pin) => $pin['digest'] !== null)) {

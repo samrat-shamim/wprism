@@ -263,10 +263,18 @@ final class PlanSummary {
         if ($adapterDispositions) {
             $lines[] = 'CAPABILITY_REGISTRY (a pinned manifest/revision/target is not certified for promotion):';
             foreach ($adapterDispositions as $r) {
+                // Keep lockstep with agent/src/Cli.php's plan renderer: an
+                // out-of-tree adapter must not read like a shipped adapter that
+                // failed review, so source and trust tier stay on the row and
+                // its remediation gets its own line (DUO-3314).
                 $lines[] = '  - ' . ($r['name'] ?? '?') . ' [' . ($r['status'] ?? 'unreviewed')
+                    . '] [source=' . ($r['source'] ?? 'shipped') . ' tier=' . ($r['trust_tier'] ?? 'unknown')
                     . '] [' . ($r['code'] ?? 'not_certified') . ']: ' . ($r['reason'] ?? 'not certified');
+                if (($r['remediation'] ?? '') !== '') {
+                    $lines[] = '    remediation: ' . $r['remediation'];
+                }
             }
-            $lines[] = 'experimental, unsupported, version-mismatched, or expired-evidence claims cannot make readiness green';
+            $lines[] = 'experimental, uncertified out-of-tree, unsupported, version-mismatched, or expired-evidence claims cannot make readiness green';
         }
 
         // --- fail-closed exit semantics (DUO-3221) ---

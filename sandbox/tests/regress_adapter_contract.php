@@ -355,8 +355,10 @@ WP_CLI::$lines = [];
 $emittedPin = Canon::decode(implode("\n", WP_CLI::$lines));
 $changedDigest = RepositoryCompiler::resolved_adapters(Policy::load(null, ['pinned']))[0]['digest'];
 check(
-    $emittedPin === ['digest' => $changedDigest, 'name' => 'pinned'],
-    'wp duo manifest-pin emits the exact current copy-pasteable {name,digest} object without loading a stale site repo'
+    // DUO-3314 added the explicit adapter source to the emitted pin; the
+    // write-back below is what proves it stays copy-pasteable.
+    $emittedPin === ['digest' => $changedDigest, 'name' => 'pinned', 'source' => 'shipped'],
+    'wp duo manifest-pin emits the exact current copy-pasteable {name,digest,source} object without loading a stale site repo'
 );
 Canon::write_file("$pinnedRepo/site.duo.json", Canon::encode([
     'manifests' => [$emittedPin],

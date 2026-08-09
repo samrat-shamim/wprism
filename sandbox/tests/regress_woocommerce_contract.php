@@ -24,7 +24,8 @@ $dispositions = json_decode((string) file_get_contents($root . '/manifests/dispo
 $policy = Policy::from_snapshot([
     'capabilities' => null,
     'dispositions' => null,
-    'format' => 'duo-policy-snapshot/v3',
+    'format' => 'duo-policy-snapshot/v4',
+    'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
     'manifests' => [$manifest],
     'site' => ['manifests' => ['woocommerce'], 'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []], 'spec_version' => DUO_SPEC_VERSION],
 ]);

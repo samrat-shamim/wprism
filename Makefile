@@ -298,6 +298,9 @@ regress-manifest-dispositions:
 regress-capability-registry:
 	bash sandbox/tests/regress_capability_registry.sh
 
+regress-adapter-sources:
+	bash sandbox/tests/regress_adapter_sources.sh
+
 capability-registry-generate:
 	php scripts/capability-registry.php generate
 
@@ -778,7 +781,7 @@ regress-user-meta:
 # suites, followed by lifecycle/rebuild effect contracts and DUO-3299's
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all: code-half-unit \
-	regress-adopt-rollback regress-capture-publish regress-adapter-contract regress-manifest-dispositions regress-capability-registry regress-certification-bundle regress-interpreter-policy \
+	regress-adopt-rollback regress-capture-publish regress-adapter-contract regress-adapter-sources regress-manifest-dispositions regress-capability-registry regress-certification-bundle regress-interpreter-policy \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan \
 	regress-order-preserving \
 	regress-block-refs regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-materializer regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion \
@@ -793,7 +796,7 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-vocabulary-ownership
-	@echo "regress-offline-all: 80 offline suites green"
+	@echo "regress-offline-all: 81 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

@@ -235,7 +235,8 @@ expect_throw(
 // pinned revision captured before the migration cannot be replayed either.
 expect_throw(
     fn() => Policy::from_snapshot([
-        'format' => 'duo-policy-snapshot/v3',
+        'format' => 'duo-policy-snapshot/v4',
+        'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
         'capabilities' => null,
         'dispositions' => null,
         'site' => ['manifests' => ['retired'], 'spec_version' => DUO_SPEC_VERSION, 'policy' => []],

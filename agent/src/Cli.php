@@ -458,11 +458,20 @@ final class Cli {
             WP_CLI::line("SKIPPED_USER_META {$r['path']} (exact login '{$r['login']}')");
         }
         foreach ($plan['adapter_dispositions'] ?? [] as $r) {
+            // DUO-3314: the source rides on the row itself. An out-of-tree
+            // adapter is conspicuous here rather than looking like a shipped
+            // adapter that failed review — mirrored in cli/src/PlanSummary.php
+            // so `duo status` and a plain `wp duo plan` never differ.
             WP_CLI::line(
                 'CAPABILITY_' . strtoupper((string) ($r['status'] ?? 'unsupported')) . ' '
-                . ($r['name'] ?? '?') . ' [' . ($r['code'] ?? 'not_certified') . ']: '
+                . ($r['name'] ?? '?') . ' [source=' . ($r['source'] ?? 'shipped')
+                . ' tier=' . ($r['trust_tier'] ?? 'unknown')
+                . '] [' . ($r['code'] ?? 'not_certified') . ']: '
                 . ($r['reason'] ?? 'not certified')
             );
+            if (($r['remediation'] ?? '') !== '') {
+                WP_CLI::line('  remediation: ' . $r['remediation']);
+            }
         }
         // regen_pending (DUO-3234, design review addition 1): a derived
         // table with a hard per-entity availability dependency whose
@@ -1319,23 +1328,31 @@ final class Cli {
 
     /**
      * Emit a copy-pasteable content-addressed site.duo.json pin for one
-     * installed manifest. This intentionally does not load a site repo: a
-     * stale declared digest must not prevent the operator from calculating
-     * the reviewed replacement digest.
+     * installed manifest. A stale declared digest still cannot prevent
+     * calculating the reviewed replacement digest: the requested name is
+     * passed as an explicit pin, so the repository's own (possibly stale)
+     * `manifests` array is never resolved even when --repo is given.
      *
      * ## OPTIONS
      * --name=<name> : Manifest file name without the .json suffix.
+     * [--repo=<path>] : Site repository whose `adapters/` source may also supply the manifest.
      *
      * @subcommand manifest-pin
      */
     public function manifest_pin($args, $assoc) {
         $name = $assoc['name'] ?? WP_CLI::error('--name required');
+        // --repo names the adapter source explicitly (DUO-3314). Without it
+        // only the shipped library is searched, exactly as before, so pinning
+        // a site-installed adapter is a deliberate act that states where the
+        // adapter came from rather than a lookup that silently widens.
+        $repo = isset($assoc['repo']) ? (string) $assoc['repo'] : null;
         try {
-            $policy = Policy::load(null, [(string) $name]);
+            $policy = Policy::load($repo, [(string) $name]);
             $resolved = RepositoryCompiler::resolved_adapters($policy);
             $pin = [
                 'name' => (string) $name,
                 'digest' => (string) ($resolved[0]['digest'] ?? ''),
+                'source' => (string) ($resolved[0]['source'] ?? 'shipped'),
             ];
         } catch (\Throwable $t) {
             WP_CLI::error($t->getMessage());
@@ -1402,8 +1419,19 @@ final class Cli {
         }
         foreach ($report['manifests'] as $row) {
             $verdict = (string) ($row['verdict']['status'] ?? $row['status'] ?? 'unsupported');
+            $source = is_array($row['source'] ?? null) ? $row['source'] : [];
             WP_CLI::line('CAPABILITY ' . $row['name'] . ' ' . strtoupper($verdict));
-            WP_CLI::line('  reason: ' . $row['reason']);
+            // Source and trust tier lead the block, before the reviewed claim
+            // fields: an operator reading a blocked adapter needs to know
+            // whether it is even an adapter this project reviews before any of
+            // the certification detail below means anything.
+            WP_CLI::line(
+                '  source: ' . ($source['source'] ?? 'shipped')
+                . (($source['path'] ?? null) !== null ? ' (' . $source['path'] . ')' : '')
+            );
+            WP_CLI::line('  trust_tier: ' . ($source['trust_tier'] ?? 'unknown'));
+            WP_CLI::line('  certification: ' . ($source['certification'] ?? 'registry'));
+            WP_CLI::line('  reason: ' . ($row['reason'] ?? 'no reviewed disposition'));
             WP_CLI::line('  supported_versions: ' . trim(Canon::encode($row['supported_versions'])));
             WP_CLI::line('  plugin_execution: ' . trim(Canon::encode($row['plugin_execution'])));
             WP_CLI::line('  authored_state: ' . trim(Canon::encode($row['authored_state'])));
@@ -1419,6 +1447,9 @@ final class Cli {
             }
             foreach ($row['verdict']['reasons'] ?? [] as $reason) {
                 WP_CLI::line('  blocked: ' . ($reason['code'] ?? 'unknown') . ' — ' . ($reason['message'] ?? ''));
+                if (($reason['remediation'] ?? '') !== '') {
+                    WP_CLI::line('    remediation: ' . $reason['remediation']);
+                }
             }
         }
         foreach ($report['profiles'] as $name => $profile) {
