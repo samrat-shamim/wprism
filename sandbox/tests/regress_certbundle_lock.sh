@@ -43,11 +43,30 @@ SPAWNED=()
 cleanup() {
   local pid
   for pid in ${SPAWNED+"${SPAWNED[@]}"}; do kill -9 "$pid" 2>/dev/null || true; done
+  # Plus any background job this shell started that a failing case never got
+  # as far as recording. `jobs -p` is still by-PID and still only this run's
+  # own children — it is a second reading of the same state, not a pattern.
+  for pid in $(jobs -p 2>/dev/null); do kill -9 "$pid" 2>/dev/null || true; done
+  # Helper control directories live under this scratch (TMPDIR below), so they
+  # go with it; nothing of this run is left outside it.
   rm -rf -- "$SCRATCH"
 }
 trap cleanup EXIT
 export CERT_BUNDLE_LOCK_DIR="$LOCK_DIR"
 export CERTBUNDLE_SCRIPT="$SHIPPED"
+# The shipped lock puts each helper's control directory under TMPDIR, because
+# those files are private to one run — unlike the rendezvous, which must be
+# shared and is therefore a fixed literal. Pointing TMPDIR into this suite's
+# own scratch is not a test-only seam then; it is what TMPDIR already means,
+# and it is what lets case 20 below assert about the helpers THIS run started
+# instead of every helper on the host. Scoping matters: the check used to glob
+# the host's TMPDIR, so a CONCURRENT suite run failed it (reproduced — one of
+# two overlapping runs failed on the other's live control directory), as would
+# a helper whose self-removal trails its acquirer's exit by up to one liveness
+# tick.
+OUTER_TMPDIR="${TMPDIR:-/tmp}"
+export TMPDIR="$SCRATCH/helpers"
+mkdir -p "$TMPDIR"
 REAL_JQ=$(command -v jq) || fail "jq required"
 
 show() { printf -- '--- %s ---\n' "$1" >&2; cat "$1" >&2; }
@@ -545,9 +564,26 @@ for pairing in "flock python" "python flock"; do
   pass "$HB holder excluded a $CB contender, which named it correctly"
 done
 
-say "case 20 — no helper process or control directory outlives this suite"
-LEAKED=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'duo-certbundle-helper.*' -newer "$SCRATCH/driver.sh" 2>/dev/null | head -5)
+say "case 20 — no helper control directory started by THIS run outlives it"
+own_helper_dirs() { find "$TMPDIR" -maxdepth 1 -name 'duo-certbundle-helper.*' 2>/dev/null; }
+# A helper removes its own control directory on the liveness tick that notices
+# its acquirer is gone, so a killed holder's directory can trail the case that
+# killed it. Give it a couple of ticks before calling it a leak — the claim is
+# that nothing outlives the suite, not that removal is synchronous.
+LEAK_DEADLINE=$(( $(date +%s) + 3 ))
+while [ -n "$(own_helper_dirs)" ] && [ "$(date +%s)" -lt "$LEAK_DEADLINE" ]; do sleep 0.1; done
+LEAKED=$(own_helper_dirs | head -5)
 [ -z "$LEAKED" ] || fail "helper control directories leaked: $LEAKED"
+# Foreign helpers — another agent's suite, or a real bundle holding the host
+# lock right now — are reported and never failed on. This suite has no
+# authority over another run's files, and asserting about them is what made
+# this check fail on other people's work.
+FOREIGN=$(find "$OUTER_TMPDIR" -maxdepth 1 -name 'duo-certbundle-helper.*' 2>/dev/null | head -3)
+if [ -n "$FOREIGN" ]; then
+  printf 'WARNING: helper control directories from OTHER runs are present in %s.\n' "$OUTER_TMPDIR" >&2
+  printf 'They are not this suite%s and not a failure; a bundle may be holding the host lock.\n' "'s" >&2
+  printf '%s\n' "$FOREIGN" | sed 's/^/  /' >&2
+fi
 pass "every helper this suite started cleaned up its own control directory"
 
 printf '\n\033[1;32m✔ REGRESS_CERTBUNDLE_LOCK PASSED\033[0m\n'
