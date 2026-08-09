@@ -12,14 +12,25 @@
  * fixture files this test writes to scratch site repositories, using the
  * REAL, unmodified agent/src/*.php — not reimplementations.
  *
- * Deliberately unusual for this repo's fixture idiom: most groups here run
- * against the REAL shipped manifest library rather than a scratch
- * DUO_MANIFESTS_DIR. That is the point of the issue — the claim being proved
- * is that installing a site-local adapter leaves the real, certified shipped
- * adapters certified, which a synthetic manifest directory with no
- * dispositions and no capability registry cannot demonstrate at all. Nothing
- * here writes to the shipped library; the two groups that need a mutated
- * manifest directory copy it to scratch first.
+ * Deliberately unusual for this repo's fixture idiom: the groups here run
+ * against the REAL shipped manifest library — every manifest, disposition,
+ * interpreter, provider, and regenerator byte for byte. That is the point of
+ * the issue — the claim being proved is that installing a site-local adapter
+ * leaves the real, certified shipped adapters certified, which a synthetic
+ * manifest directory with no dispositions and no capability registry cannot
+ * demonstrate at all.
+ *
+ * What it does NOT depend on (DUO-3379) is where the repository happens to
+ * sit in its certification cycle. Those real bytes are served from a scratch
+ * copy whose certification evidence certified_library() re-seals against the
+ * working tree, because the checked-in attestation legitimately expires on
+ * any branch that edits a certification-bound input and takes every certified
+ * claim with it until the final reference bundle is imported. See that
+ * function for the full rationale, the fixture group for the proof that the
+ * re-seal is genuinely current for these bytes, and the fail-closed group for
+ * the proof that expired, stale, and malformed evidence still refuse.
+ * Nothing here writes to the shipped library; every mutated directory is a
+ * scratch copy.
  *
  * Exit 0 and "ALL PASSED" on success; any failed check prints "FAIL: ..."
  * and the script exits 1.
@@ -178,7 +189,223 @@ function copy_tree(string $from, string $to): void {
     }
 }
 
-$shippedDir = dirname(__DIR__, 2) . '/manifests';
+/**
+ * The re-seal hash basis of a certification bundle. The bundle builder
+ * (scripts/certification-bundle.php::cert_json) and the importer
+ * (scripts/capability-registry.php::cap_bundle_digest) already agree on this
+ * exact compact canonical form, deliberately distinct from Canon::encode()'s
+ * pretty-printed repository representation. A fixture that re-seals a bundle
+ * has to use the same basis or it would be inventing a third notion of bundle
+ * identity; the first check of the fixture group below pins that agreement by
+ * reproducing the SHIPPED bundle's own recorded digest.
+ */
+function bundle_digest(array $bundle): string {
+    unset($bundle['bundle_digest']);
+    return hash('sha256', json_encode(
+        Canon::normalize($bundle),
+        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+    ) . "\n");
+}
+
+/**
+ * The REAL shipped manifest library — every manifest, disposition,
+ * interpreter, provider, and regenerator byte for byte — under a scratch
+ * directory whose certification evidence has been RE-SEALED against the
+ * working tree this suite is running on. Returns the manifest directory.
+ *
+ * Why this exists (DUO-3379). The checked-in evidence attestation binds the
+ * exact bytes of every certification-bound repository input, so a branch that
+ * legitimately edits one — engine source, the Makefile, a shipped manifest —
+ * carries EXPIRED evidence until the protocol's final reference bundle is
+ * imported, and the regenerated registry reads `candidate` until then. The
+ * runtime then attaches the evidence_not_current blocker to every claim,
+ * certified ones included. Assertions here about a certified shipped adapter
+ * would therefore pass or fail on where in the certification cycle the branch
+ * happens to sit rather than on the overlay behavior under test, which is the
+ * coupling this fixture removes.
+ *
+ * It removes the coupling without inventing a synthetic library, because a
+ * synthetic one cannot demonstrate the claim at all (see the header): the
+ * reviewed facts stay the real generated ones — dispositions, statuses,
+ * adapter digests, operations, surfaces, profiles — and ONLY the attestation
+ * is re-derived, exactly as re-certifying this tree would derive it. The
+ * fixture group below proves both halves of that: that the re-seal really is
+ * current for these bytes, and that expired, stale, or malformed evidence
+ * still refuses to certify anything.
+ */
+function certified_library(): string {
+    static $manifestDir = null;
+    if ($manifestDir !== null) {
+        return $manifestDir;
+    }
+    $repo = dirname(__DIR__, 2);
+    $root = scratch('certified-library');
+    copy_tree("$repo/manifests", "$root/manifests");
+    mkdir("$root/docs", 0777, true);
+    // CapabilityRegistry::validate() re-verifies generated_from against this
+    // file whenever it is present; copying it keeps that check live on the
+    // fixture instead of silently skipped.
+    copy("$repo/docs/compatibility-baseline.json", "$root/docs/compatibility-baseline.json");
+
+    $evidence = Canon::decode(Canon::read_file("$repo/manifests/capabilities/evidence.json"));
+    $registry = Canon::decode(Canon::read_file("$repo/manifests/capabilities/registry.json"));
+    $bundle = $evidence['bundle'];
+
+    // Bind the attestation to the bytes this tree actually has — what
+    // re-running certification on it would record. A bound input the branch
+    // deleted is simply no longer bound.
+    $bound = [];
+    foreach ($bundle['bound_inputs'] as $input) {
+        $file = $repo . '/' . (string) $input['path'];
+        if (is_file($file)) {
+            $bound[] = [
+                'path' => (string) $input['path'],
+                'sha256' => hash_file('sha256', $file),
+                'size' => filesize($file),
+            ];
+        }
+    }
+    $bundle['bound_inputs'] = $bound;
+
+    // A `current` registry refuses any certified claim citing evidence the
+    // bundle does not carry — correctly, and the fail-closed group asserts it.
+    // A branch mid-recertification cites IDs no already-imported bundle can
+    // contain, so the fixture supplies them: this attestation describes a
+    // library whose evidence covers its own citations.
+    $carried = [];
+    foreach ($bundle['tests'] as $test) {
+        $carried[(string) ($test['id'] ?? '')] = true;
+    }
+    foreach ([$registry['manifests'], $registry['profiles']] as $claims) {
+        foreach ($claims as $claim) {
+            foreach ($claim['evidence']['tests'] ?? [] as $cited) {
+                if (!isset($carried[(string) $cited])) {
+                    $bundle['tests'][] = ['id' => (string) $cited, 'verdict' => 'pass'];
+                    $carried[(string) $cited] = true;
+                }
+            }
+        }
+    }
+    $bundle['bundle_digest'] = bundle_digest($bundle);
+
+    $evidence['status'] = 'current';
+    $evidence['bundle'] = $bundle;
+    $evidenceFile = "$root/manifests/capabilities/evidence.json";
+    Canon::write_file($evidenceFile, Canon::encode($evidence));
+
+    // Exactly the fields cap_build_registry() derives from the attestation and
+    // nothing else, so every reviewed column stays the shipped generated one.
+    $registry['generated_from']['evidence_sha256'] = hash_file('sha256', $evidenceFile);
+    $registry['evidence']['status'] = 'current';
+    $registry['evidence']['bundle_digest'] = $bundle['bundle_digest'];
+    $registry['evidence']['tests'] = array_map(
+        fn(array $test): array => [
+            'id' => (string) ($test['id'] ?? ''),
+            'verdict' => (string) ($test['verdict'] ?? ''),
+        ],
+        $bundle['tests']
+    );
+    foreach (['manifests', 'profiles'] as $section) {
+        foreach ($registry[$section] as $name => $claim) {
+            $claim['evidence']['status'] = 'current';
+            $claim['evidence']['bundle_digest'] = $bundle['bundle_digest'];
+            $registry[$section][$name] = $claim;
+        }
+    }
+    Canon::write_file("$root/manifests/capabilities/registry.json", Canon::encode($registry));
+
+    return $manifestDir = "$root/manifests";
+}
+
+/** A throwaway copy of the certification fixture, mutated by $mutate. */
+function library_variant(callable $mutate): string {
+    $fixture = certified_library();
+    $root = scratch('library-variant');
+    copy_tree($fixture, "$root/manifests");
+    copy_tree(dirname($fixture) . '/docs', "$root/docs");
+    $mutate("$root/manifests");
+    return "$root/manifests";
+}
+
+/** Rewrite one JSON file of a variant library through $edit, via Canon. */
+function edit_json(string $file, callable $edit): void {
+    Canon::write_file($file, Canon::encode($edit(Canon::decode(Canon::read_file($file)))));
+}
+
+$realManifests = dirname(__DIR__, 2) . '/manifests';
+$shippedDir = certified_library();
+// Every group below resolves the shipped library through this, including the
+// ones that install their own directory and restore it afterwards.
+putenv("DUO_MANIFESTS_DIR=$shippedDir");
+
+// ======================================================================
+echo "\n== the certification fixture is the shipped library, re-sealed against this tree ==\n";
+// ======================================================================
+$shippedBundle = Canon::decode(Canon::read_file("$realManifests/capabilities/evidence.json"))['bundle'];
+check(
+    hash_equals((string) $shippedBundle['bundle_digest'], bundle_digest($shippedBundle)),
+    "the harness re-seals bundles on the shipped hash basis — recomputing the shipped bundle's identity reproduces its own recorded digest"
+);
+// Everything the library is, except the capabilities/ attestation the fixture
+// exists to re-seal: manifests, the reviewed dispositions, and every file the
+// adapter digest reaches for.
+$libraryBytes = function (string $dir): array {
+    $out = [];
+    foreach (glob("$dir/*.json") ?: [] as $file) {
+        $out[basename($file)] = hash_file('sha256', $file);
+    }
+    foreach (['interpreters', 'providers', 'regenerators'] as $sub) {
+        foreach (glob("$dir/$sub/*") ?: [] as $file) {
+            $out["$sub/" . basename($file)] = hash_file('sha256', $file);
+        }
+    }
+    ksort($out, SORT_STRING);
+    return $out;
+};
+$fixtureBytes = $libraryBytes($shippedDir);
+check(
+    $fixtureBytes === $libraryBytes($realManifests) && $fixtureBytes !== [],
+    'every manifest, disposition, interpreter, provider, and regenerator under test is the shipped file byte for byte ('
+    . count($fixtureBytes) . ' files)'
+);
+$reviewedColumns = fn(array $registry): array => array_map(
+    fn(array $claim): array => [
+        'status' => $claim['status'],
+        'adapter_digest' => $claim['adapter_digest'],
+        'operations' => $claim['operations'],
+        'surfaces' => $claim['surfaces'],
+        'unsupported' => $claim['unsupported'],
+    ],
+    $registry['manifests']
+);
+$fixtureRegistry = Canon::decode(Canon::read_file("$shippedDir/capabilities/registry.json"));
+$realRegistry = Canon::decode(Canon::read_file("$realManifests/capabilities/registry.json"));
+check(
+    $reviewedColumns($fixtureRegistry) === $reviewedColumns($realRegistry)
+    && $fixtureRegistry['generated_from']['dispositions_sha256']
+        === $realRegistry['generated_from']['dispositions_sha256'],
+    'the re-seal touches only the attestation: every reviewed status, adapter digest, operation, surface, and unsupported boundary is the shipped generated one'
+);
+// The whole point of re-sealing rather than flipping a flag: run the release
+// gate's own expiry predicate over the fixture attestation and require it to
+// find nothing. If a future edit reduced this fixture to "declare it current",
+// this check is what fails.
+$fixtureBound = Canon::decode(Canon::read_file("$shippedDir/capabilities/evidence.json"))['bundle']['bound_inputs'];
+$expiredInputs = [];
+foreach ($fixtureBound as $input) {
+    $file = dirname(__DIR__, 2) . '/' . (string) $input['path'];
+    if (!is_file($file)
+        || !hash_equals((string) $input['sha256'], (string) hash_file('sha256', $file))
+        || (int) $input['size'] !== filesize($file)) {
+        $expiredInputs[] = (string) $input['path'];
+    }
+}
+check(
+    $expiredInputs === [] && count($fixtureBound) > 1,
+    'the fixture attestation binds ' . count($fixtureBound)
+    . ' repository inputs and every one of them matches this working tree byte for byte'
+    . ($expiredInputs === [] ? '' : ' (expired: ' . implode(', ', $expiredInputs) . ')')
+);
 
 // ======================================================================
 echo "\n== the motivating refusal: a site adapter no longer takes down the shipped library ==\n";
@@ -215,7 +442,7 @@ expect_throw(
     'disposition coverage mismatch',
     'dropping an unreviewed adapter into the SHIPPED library still refuses — replacing or extending the reviewed manifest set cannot silently discard shipped claims'
 );
-putenv('DUO_MANIFESTS_DIR');
+putenv("DUO_MANIFESTS_DIR=$shippedDir");
 
 // ======================================================================
 echo "\n== unrelated shipped adapters are provably unaffected ==\n";
@@ -341,6 +568,110 @@ check(
 );
 
 // ======================================================================
+echo "\n== the certified verdict above is earned: expired, stale, or malformed evidence still refuses ==\n";
+// ======================================================================
+// The counterweight to the fixture. Everything above reads a library whose
+// certification evidence the harness re-sealed, so this group takes that same
+// library and breaks its evidence in each way it can genuinely break —
+// proving the fixture removed a coupling, not a gate. Each variant is a
+// throwaway copy; the shipped library is never touched.
+
+$expiredLibrary = library_variant(function (string $dir): void {
+    edit_json("$dir/capabilities/registry.json", function (array $registry): array {
+        $registry['evidence']['status'] = 'candidate';
+        foreach (['manifests', 'profiles'] as $section) {
+            foreach ($registry[$section] as $name => $claim) {
+                $claim['evidence']['status'] = 'candidate';
+                $registry[$section][$name] = $claim;
+            }
+        }
+        return $registry;
+    });
+});
+putenv("DUO_MANIFESTS_DIR=$expiredLibrary");
+$expiredPolicy = Policy::load(fresh_site(['core', 'acme-widget'], ['acme-widget' => site_adapter('acme-widget')]));
+$expiredReport = $expiredPolicy->capability_report(['operation' => 'promote']);
+$expiredCore = null;
+foreach ($expiredReport['manifests'] as $row) {
+    if ($row['name'] === 'core') {
+        $expiredCore = $row;
+    }
+}
+check(
+    is_array($expiredCore) && ($expiredCore['verdict']['status'] ?? null) === 'blocked'
+    && in_array('evidence_not_current', array_column($expiredCore['verdict']['reasons'] ?? [], 'code'), true),
+    'with expired certification evidence the shipped core adapter is NOT certified — the same reviewed disposition, the same digest, and a blocked verdict'
+);
+check(
+    $expiredReport['ready'] === false
+    && array_filter($expiredPolicy->adapter_readiness_blockers(), fn(array $r) => $r['name'] === 'core') !== [],
+    'expired evidence makes the shipped library itself a readiness blocker, however certified its dispositions read'
+);
+putenv("DUO_MANIFESTS_DIR=$shippedDir");
+
+putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+    file_put_contents("$dir/capabilities/evidence.json", "\n", FILE_APPEND);
+}));
+expect_throw(
+    fn() => Policy::load(fresh_site(['core'])),
+    'stale against its certification evidence attestation',
+    'a registry generated against a different attestation than the one on disk is refused — a re-sealed attestation cannot be dropped beside an unregenerated registry'
+);
+putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+    file_put_contents("$dir/dispositions.json", "\n", FILE_APPEND);
+}));
+expect_throw(
+    fn() => Policy::load(fresh_site(['core'])),
+    'stale against dispositions.json',
+    'a registry generated against different reviewed dispositions than the ones on disk is refused'
+);
+putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+    unlink("$dir/capabilities/registry.json");
+}));
+expect_throw(
+    fn() => Policy::load(fresh_site(['core'])),
+    'no generated capability registry',
+    'a reviewed library with no generated registry at all refuses rather than falling back to an uncertified reading'
+);
+putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+    edit_json("$dir/capabilities/registry.json", function (array $registry): array {
+        $registry['evidence']['tests'] = array_values(array_filter(
+            $registry['evidence']['tests'],
+            fn(array $test): bool => ($test['id'] ?? null) !== 'conformance-core'
+        ));
+        return $registry;
+    });
+}));
+expect_throw(
+    fn() => Policy::load(fresh_site(['core'])),
+    "certified claim 'core' cites absent or non-passing evidence 'conformance-core'",
+    'a CURRENT registry whose certified claim cites evidence its bundle does not carry is refused outright — currency is not a licence to skip citations'
+);
+putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+    edit_json("$dir/capabilities/registry.json", function (array $registry): array {
+        $registry['evidence']['status'] = 'ratified';
+        return $registry;
+    });
+}));
+expect_throw(
+    fn() => Policy::load(fresh_site(['core'])),
+    'no content-addressed certification evidence record',
+    'an evidence status outside the ratified current/candidate vocabulary is refused, not read as a fourth kind of currency'
+);
+putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+    edit_json("$dir/core.json", function (array $manifest): array {
+        $manifest['options']['duo_regress_bound_input_marker'] = ['class' => 'authored'];
+        return $manifest;
+    });
+}));
+expect_throw(
+    fn() => Policy::load(fresh_site(['core'])),
+    "adapter digest for 'core' is stale",
+    'editing a certification-bound shipped manifest refuses until the registry is regenerated — the harness re-seals the attestation, never a reviewed claim'
+);
+putenv("DUO_MANIFESTS_DIR=$shippedDir");
+
+// ======================================================================
 echo "\n== ambiguous identity and shadowing refuse BEFORE anything loads ==\n";
 // ======================================================================
 expect_throw(
@@ -373,7 +704,7 @@ expect_throw(
     'already declared by the shipped manifest',
     'a site adapter is refused when a shipped manifest DECLARES that name under a different file name — two adapters cannot answer to one name'
 );
-putenv('DUO_MANIFESTS_DIR');
+putenv("DUO_MANIFESTS_DIR=$shippedDir");
 // The pins above never name the offending adapter: discovery scans whole
 // sources, so a broken installation surfaces on the next command rather than
 // on the first command that happens to pin it.
@@ -828,7 +1159,7 @@ foreach ([['int', 7], ['bool', true], ['list', ['acf']], ['empty', '']] as [$lab
         "a non-string interpreter ($label) is refused at manifest validation, for every adapter source"
     );
 }
-putenv('DUO_MANIFESTS_DIR');
+putenv("DUO_MANIFESTS_DIR=$shippedDir");
 // The out-of-tree privilege refusal is keyed on PRESENCE, so a malformed
 // declaration cannot dodge it by being unrecognizable.
 expect_throw(

@@ -15,10 +15,13 @@
 # sandbox/tests/regress_adapter_contract.sh (DUO-3222/DUO-3243).
 #
 # Note for future readers: unlike most manifest suites here, this one runs
-# most groups against the REAL shipped manifest library rather than a scratch
-# DUO_MANIFESTS_DIR — see the harness header for why (the claim under test is
-# that real certified adapters stay certified, which a synthetic manifest
-# directory cannot demonstrate). It writes only to scratch site repositories.
+# against the REAL shipped manifest bytes rather than a synthetic manifest
+# directory — see the harness header for why (the claim under test is that
+# real certified adapters stay certified, which a synthetic manifest directory
+# cannot demonstrate). It serves those bytes from a scratch copy whose
+# certification evidence is re-sealed against the working tree (DUO-3379), so
+# the suite's verdict does not depend on where the branch sits in the
+# certification cycle. It writes only to scratch directories.
 set -euo pipefail
 cd "$(dirname "$0")"   # -> sandbox/tests/
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
