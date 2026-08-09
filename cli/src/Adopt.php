@@ -32,7 +32,7 @@ final class Adopt {
      * @return array{exit:int, phase:string, stdout:string, stderr:string, version:string, repo_created:bool}
      */
     public static function install(
-        SshTransport $transport,
+        AdoptionTransport $transport,
         string $sourceRoot,
         ?string $rollbackKeyId = null,
         ?string $rollbackPublicKey = null,
@@ -80,6 +80,7 @@ final class Adopt {
         }
         $remoteArchive = '/tmp/duo-adopt-' . $token . '.tar';
         $swapped = false;
+        $interrupted = null;
 
         try {
             $archive = self::runLocal(
@@ -160,17 +161,37 @@ final class Adopt {
                 'version' => $version,
                 'repo_created' => str_contains($install['stdout'], 'duo-repo-created'),
             ];
+        } catch (\Throwable $error) {
+            $interrupted = $error;
+            throw $error;
         } finally {
+            $rollbackFailure = null;
             if ($swapped) {
                 // Exceptions and interrupted host-side verification retain the
                 // same fail-closed boundary as explicit verification errors.
-                $transport->captureRaw(self::rollbackScript($muDir, $transport->repoPath(), $token));
+                try {
+                    $rollbackFailure = self::rollbackFailure(
+                        $transport->captureRaw(self::rollbackScript($muDir, $transport->repoPath(), $token))
+                    );
+                } catch (\Throwable $rollbackError) {
+                    $detail = trim($rollbackError->getMessage());
+                    $rollbackFailure = 'adoption rollback could not be confirmed'
+                        . ($detail !== '' ? ': ' . $detail : ' (rollback transport threw without a diagnostic)');
+                }
             }
             @unlink($localArchive);
             // An upload followed by a lost SSH session must not strand the
             // source archive. This cleanup is idempotent; the remote install
             // trap normally removed it already.
             $transport->captureRaw('rm -f ' . escapeshellarg($remoteArchive));
+            if ($rollbackFailure !== null) {
+                $original = $interrupted instanceof \Throwable ? trim($interrupted->getMessage()) : '';
+                throw new \RuntimeException(
+                    ($original !== '' ? $original . "\n" : '') . $rollbackFailure,
+                    0,
+                    $interrupted
+                );
+            }
         }
     }
 
@@ -330,19 +351,28 @@ final class Adopt {
      * @param array{exit:int, stdout:string, stderr:string} &$original
      */
     private static function rollback(
-        SshTransport $transport,
+        AdoptionTransport $transport,
         string $muDir,
         string $repo,
         string $token,
         array &$original
     ): void {
         $rollback = $transport->captureRaw(self::rollbackScript($muDir, $repo, $token));
-        if ($rollback['exit'] === 0) {
+        $failure = self::rollbackFailure($rollback);
+        if ($failure === null) {
             return;
         }
-        $detail = trim($rollback['stderr'] !== '' ? $rollback['stderr'] : $rollback['stdout']);
         $original['stderr'] .= ($original['stderr'] !== '' ? "\n" : '')
-            . 'adoption rollback could not be confirmed'
+            . $failure;
+    }
+
+    /** @param array{exit:int, stdout:string, stderr:string} $rollback */
+    private static function rollbackFailure(array $rollback): ?string {
+        if ($rollback['exit'] === 0) {
+            return null;
+        }
+        $detail = trim($rollback['stderr'] !== '' ? $rollback['stderr'] : $rollback['stdout']);
+        return 'adoption rollback could not be confirmed'
             . ($detail !== '' ? ': ' . $detail : ' (exit ' . $rollback['exit'] . ')');
     }
 
