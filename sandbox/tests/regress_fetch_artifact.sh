@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Regression — bounded retries for pinned artifact downloads.
+# Regression — bounded retries and race-free shared-cache publication for
+# pinned artifact downloads.
 #
 # This is deliberately host-only: it sources fetch-artifact.sh, replaces the
 # compose runner with a local sh -c bridge, and replaces curl with a small
@@ -68,6 +69,22 @@ case "$FAKE_CURL_MODE" in
     printf 'wrong digest bytes\n' > "$output"
     exit 0
     ;;
+  concurrent)
+    marker="$FAKE_CURL_BARRIER/$$"
+    printf '%s\n' "$output" > "$marker"
+    ready=0
+    for wait_round in $(seq 1 200); do
+      if [ "$(find "$FAKE_CURL_BARRIER" -type f | wc -l)" -ge 2 ]; then
+        ready=1
+        break
+      fi
+      /bin/sleep 0.01
+    done
+    if [ "$ready" -ne 1 ]; then
+      printf 'concurrent curl fixture timed out waiting for its peer\n' >&2
+      exit 97
+    fi
+    ;;
 esac
 
 cp "$url" "$output"
@@ -81,6 +98,18 @@ EOF
 chmod +x "$TMP/fake-bin/sleep"
 
 FAKE_CACHE="$TMP/cache"
+clear_temp_files() {
+  local temp
+  for temp in "$FAKE_CACHE"/fixture-1.0.zip.tmp.*; do
+    [ -e "$temp" ] || continue
+    rm -f -- "$temp"
+  done
+}
+assert_no_temp_files() {
+  if compgen -G "$FAKE_CACHE/fixture-1.0.zip.tmp.*" >/dev/null; then
+    fail "$1"
+  fi
+}
 fake_compose() {
   local command="${!#}"
   command="${command//\/artifacts-cache/$FAKE_CACHE}"
@@ -115,8 +144,55 @@ path="$(fetch_artifact fixture 1.0 cli1)"
   || fail "verified cache hit unexpectedly invoked curl"
 pass "cached artifact digest is reverified without refetching"
 
+say "concurrent fetches use distinct temp paths and both publish atomically"
+rm -f "$FAKE_CACHE/fixture-1.0.zip"
+clear_temp_files
+FAKE_CURL_BARRIER="$TMP/concurrent-barrier"
+mkdir -p "$FAKE_CURL_BARRIER"
+export FAKE_CURL_BARRIER FAKE_CURL_MODE=concurrent
+FETCH_A_OUT="$TMP/concurrent-a.out"
+FETCH_B_OUT="$TMP/concurrent-b.out"
+FETCH_A_ERR="$TMP/concurrent-a.err"
+FETCH_B_ERR="$TMP/concurrent-b.err"
+fetch_artifact fixture 1.0 cli1 >"$FETCH_A_OUT" 2>"$FETCH_A_ERR" &
+FETCH_A_PID=$!
+fetch_artifact fixture 1.0 cli1 >"$FETCH_B_OUT" 2>"$FETCH_B_ERR" &
+FETCH_B_PID=$!
+if ! wait "$FETCH_A_PID"; then
+  cat "$FETCH_A_ERR" >&2
+  fail "first concurrent fetch failed"
+fi
+if ! wait "$FETCH_B_PID"; then
+  cat "$FETCH_B_ERR" >&2
+  fail "second concurrent fetch failed"
+fi
+[ "$(cat "$FETCH_A_OUT")" = "/artifacts-cache/fixture-1.0.zip" ] \
+  || fail "first concurrent fetch returned the wrong cache path"
+[ "$(cat "$FETCH_B_OUT")" = "/artifacts-cache/fixture-1.0.zip" ] \
+  || fail "second concurrent fetch returned the wrong cache path"
+TEMP_PATHS="$(for marker in "$FAKE_CURL_BARRIER"/*; do cat "$marker"; done | sort -u)"
+[ "$(printf '%s\n' "$TEMP_PATHS" | awk 'NF' | wc -l)" -eq 2 ] \
+  || fail "concurrent fetches did not expose two distinct curl temp paths"
+TEMP_PATH_A="$(printf '%s\n' "$TEMP_PATHS" | sed -n '1p')"
+TEMP_PATH_B="$(printf '%s\n' "$TEMP_PATHS" | sed -n '2p')"
+[ "$TEMP_PATH_A" != "$TEMP_PATH_B" ] \
+  || fail "concurrent fetches reused the shared fixed temp path"
+case "$TEMP_PATH_A" in
+  "$FAKE_CACHE/fixture-1.0.zip.tmp."*) ;;
+  *) fail "first concurrent temp path was not created on the cache mount" ;;
+esac
+case "$TEMP_PATH_B" in
+  "$FAKE_CACHE/fixture-1.0.zip.tmp."*) ;;
+  *) fail "second concurrent temp path was not created on the cache mount" ;;
+esac
+[ "$(sha256sum "$FAKE_CACHE/fixture-1.0.zip" | awk '{print $1}')" = "$DIGEST" ] \
+  || fail "concurrent fetches did not leave the pinned digest in the final cache"
+assert_no_temp_files "concurrent fetches left temp files behind"
+pass "concurrent fetches have unique temp paths, verified final bytes, and clean mounts"
+
 say "permanent download exhaustion removes only the partial temp file"
-rm -f "$FAKE_CACHE/fixture-1.0.zip" "$FAKE_CACHE/fixture-1.0.zip.tmp"
+rm -f "$FAKE_CACHE/fixture-1.0.zip"
+clear_temp_files
 export FAKE_CURL_MODE=permanent
 printf '0\n' > "$FAKE_CURL_COUNT"
 if fetch_artifact fixture 1.0 cli1 >/dev/null; then
@@ -126,8 +202,7 @@ fi
   || fail "permanent download failure did not stop at three attempts"
 [ ! -e "$FAKE_CACHE/fixture-1.0.zip" ] \
   || fail "permanent failure created a cache file"
-[ ! -e "$FAKE_CACHE/fixture-1.0.zip.tmp" ] \
-  || fail "permanent failure left its partial temp file behind"
+assert_no_temp_files "permanent failure left its partial temp file behind"
 pass "exhausted transient failures fail closed and clean only the temp path"
 
 say "a digest mismatch is rejected without promotion"
@@ -140,8 +215,7 @@ fi
   || fail "digest mismatch was retried instead of failing closed"
 [ ! -e "$FAKE_CACHE/fixture-1.0.zip" ] \
   || fail "digest mismatch promoted unverified bytes"
-[ ! -e "$FAKE_CACHE/fixture-1.0.zip.tmp" ] \
-  || fail "digest mismatch left its partial temp file behind"
+assert_no_temp_files "digest mismatch left its partial temp file behind"
 pass "digest mismatch remains a non-retryable fail-closed boundary"
 
 say "a cached digest mismatch is surfaced without silent refetch"
