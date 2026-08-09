@@ -5717,10 +5717,16 @@ self::validate_post_type_children($manifest);
      * (a manifest may not reach into another pinned adapter's provider — that
      * would make one adapter's behavior depend on another's pin), the
      * capability name is one this manifest's declaration advertises, and the
-     * arguments are a flat structure of scalars or scalar lists. That last
-     * bound is what keeps an argument from carrying a nested payload a
-     * provider might interpret as code; the provider's own declared arg
+     * arguments are a flat structure of scalars, scalar lists, or (DUO-3369)
+     * lists of flat objects whose own values are scalars. That last bound is
+     * what keeps an argument from carrying a nested payload a provider might
+     * interpret as code: the depth is fixed at exactly one level HERE, where
+     * no provider code exists yet, while the provider's own declared arg
      * schema completes the check at negotiation time, when the schema exists.
+     * The two gates answer different questions on purpose — this one bounds
+     * the SHAPE a manifest may carry at all, negotiation bounds which fields
+     * this particular capability accepts and of what type — so an object list
+     * reaching a provider has passed both.
      *
      * @param array<string, array<string,mixed>> $providers this manifest's declarations, keyed by id
      */
@@ -5749,19 +5755,44 @@ self::validate_post_type_children($manifest);
             if (!is_string($key) || preg_match(self::CAPABILITY_NAME_PATTERN, $key) !== 1) {
                 throw new \RuntimeException("duo: $where.args keys must match ^[a-z0-9_]{1,64}$");
             }
+            // The wording keeps the pre-DUO-3369 sentence intact (existing
+            // refusal coverage matches on it) and states the one shape that
+            // was added, rather than describing a looser rule than the code.
+            $shapeRefusal = "duo: $where.args.$key must be a scalar or a list of scalars"
+                . ' (or a list of flat objects whose own values are scalars — a provider argument nests'
+                . ' exactly one level)';
             if (is_array($value)) {
                 if (!array_is_list($value)) {
-                    throw new \RuntimeException("duo: $where.args.$key must be a scalar or a list of scalars");
+                    throw new \RuntimeException($shapeRefusal);
                 }
-                foreach ($value as $member) {
-                    if (!is_scalar($member)) {
-                        throw new \RuntimeException("duo: $where.args.$key must be a scalar or a list of scalars");
+                foreach ($value as $index => $member) {
+                    if (is_scalar($member)) {
+                        continue;
+                    }
+                    // An empty array is both a list and a map to PHP; read it
+                    // as an empty object, since a row whose fields are all
+                    // optional is a legitimate thing for a manifest to write.
+                    if (!is_array($member) || (array_is_list($member) && $member !== [])) {
+                        throw new \RuntimeException($shapeRefusal);
+                    }
+                    foreach ($member as $field => $fieldValue) {
+                        if (!is_string($field) || preg_match('/^[a-z0-9_]{1,64}$/D', $field) !== 1) {
+                            throw new \RuntimeException(
+                                "duo: $where.args.$key row $index field names must match ^[a-z0-9_]{1,64}$"
+                            );
+                        }
+                        if (!is_scalar($fieldValue)) {
+                            throw new \RuntimeException(
+                                "duo: $where.args.$key row $index field '$field' must be a scalar — "
+                                . 'a provider argument nests exactly one level'
+                            );
+                        }
                     }
                 }
                 continue;
             }
             if (!is_scalar($value)) {
-                throw new \RuntimeException("duo: $where.args.$key must be a scalar or a list of scalars");
+                throw new \RuntimeException($shapeRefusal);
             }
         }
     }
