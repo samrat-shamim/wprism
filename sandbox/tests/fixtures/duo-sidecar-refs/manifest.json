@@ -1,0 +1,49 @@
+{
+  "name": "duo-sidecar-refs-fixture",
+  "plugin": "duo-sidecar-refs/duo-sidecar-refs.php",
+  "spec_version": 2,
+  "tables": {
+    "dks_entries": {
+      "class": "authored_snapshot",
+      "columns": {
+        "label": {"class": "authored"}
+      },
+      "id_kind": "dks_entry",
+      "pk": "id",
+      "refs": [],
+      "slug_column": "label"
+    },
+    "dks_entry_meta": {
+      "attached_to": {"column": "entry_id", "table": "dks_entries"},
+      "class": "authored_snapshot_meta",
+      "default_class": "runtime",
+      "key_column": "meta_key",
+      "keys": {
+        "opaque": {"class": "authored"},
+        "payload": {
+          "class": "authored",
+          "json_refs": [
+            {"kind": "post", "path": "$.post_id"},
+            {"kind": "term", "path": "$.nested.*.term_id"}
+          ],
+          "key_refs": {"kind": "term", "path": "$.by_term"}
+        },
+        "payload_json": {
+          "class": "authored",
+          "json_encoded": true,
+          "json_refs": [
+            {"kind": "post", "path": "$..post_id"}
+          ]
+        },
+        "scalar_post": {"class": "authored", "ref": "post"}
+      },
+      "keyspace": {
+        "keys": ["opaque", "payload", "payload_json", "scalar_post"],
+        "patterns": [],
+        "version_range": {"max": "2.0.0", "min": "1.0.0"}
+      },
+      "value_column": "meta_value"
+    }
+  },
+  "version_range": {"max": "2.0.0", "min": "1.0.0"}
+}

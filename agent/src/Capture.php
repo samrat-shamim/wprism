@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/PlainData.php';
+require_once __DIR__ . '/StructuredValue.php';
 require_once __DIR__ . '/Canon.php';
 
 /**
@@ -1896,7 +1897,7 @@ final class Capture {
      *   or-not rule to decide which of its two checks applies).
      */
     private function term_description(object $t) {
-        $rule = $this->policy->description_refs_for_taxonomy($t->taxonomy);
+        $rule = $this->policy->description_reference_rule($t->taxonomy);
         if ($rule === null) {
             return $this->tokens->tokenize_text((string) $t->description);
         }
@@ -1911,7 +1912,16 @@ final class Capture {
                 . ' is not an array once unserialized'
             );
         }
-        return (object) $this->tokens->struct_capture($decoded, [['path' => '$.*', 'kind' => $rule['kind']]], null);
+        $captured = $this->tokens->struct_capture(
+            $decoded,
+            $rule['json_refs'],
+            $rule['key_refs']
+        );
+        // Existing `{kind}` manifests historically emitted an object for an
+        // empty flat map. Preserve those bytes; full-form declarations keep
+        // the decoded map/list root shape so independent plugins may declare
+        // list-bearing descriptions without coercion.
+        return $rule['legacy_flat_map'] ? (object) $captured : $captured;
     }
 
     /** @return array{0: array, 1: string, 2: ?array{0:string,1:string}} [front, body, mediaRef] */
@@ -2403,7 +2413,7 @@ final class Capture {
         // now (see its own docblock).
         $this->guard_secret($termMeta ? 'term_meta' : 'post_meta', $key, $v, $rule, " on $ownerLabel");
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-            $decoded = $this->decode_structured($v, $rule, "$ownerLabel meta $key");
+            $decoded = StructuredValue::decode($v, $rule, "$ownerLabel meta $key");
             $v = $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
         } elseif (!empty($rule['ref'])) {
             $v = $this->tokens->meta_value_to_tokens($v, $rule);
@@ -2549,7 +2559,7 @@ final class Capture {
         $this->guard_secret('user_meta', $key, $value, $rule, " on exact login '$login'");
         $this->guard_personal_data($key, $value, $rule, $login);
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-            $decoded = $this->decode_structured($value, $rule, "user '$login' meta $key");
+            $decoded = StructuredValue::decode($value, $rule, "user '$login' meta $key");
             $value = $this->tokens->struct_capture(
                 $decoded,
                 $rule['json_refs'] ?? [],
@@ -2595,7 +2605,7 @@ final class Capture {
      */
     private function capture_value(string $ctx, $v, array $rule, bool $forceUnresolvedRefs): array {
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-            $decoded = $this->decode_structured($v, $rule, "option $ctx");
+            $decoded = StructuredValue::decode($v, $rule, "option $ctx");
             return ['included' => true, 'value' => $this->tokens->struct_capture(
                 $decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null
             )];
@@ -3366,44 +3376,6 @@ final class Capture {
             ? in_array($targetType, $policy->taxonomies(), true)
             : in_array($targetType, $policy->post_types(), true);
         return $inPolicyScope ? null : $targetType;
-    }
-
-    /**
-     * Decode a meta/option value for json_refs/key_refs rewriting (task #11
-     * wave 2): either a JSON-encoded TEXT string — rule declares
-     * `"json_encoded": true`, e.g. Elementor's `_elementor_data`, which
-     * Elementor's own code manually `wp_json_encode()`s into a postmeta
-     * TEXT column before WordPress's ordinary maybe_unserialize()/
-     * maybe_serialize() layer ever sees it (a no-op passthrough on an
-     * already-string value) — or an already-native PHP array, the ordinary
-     * case where maybe_unserialize() (already run by the caller) did all
-     * the decoding needed, e.g. Yoast's wpseo_taxonomy_meta.
-     *
-     * Throws loudly on a shape mismatch rather than silently falling back
-     * to opaque-string capture: a manifest declaring json_refs/key_refs for
-     * a key is asserting its shape, and silently degrading would silently
-     * reopen exactly the id-leak gap this mechanism exists to close —
-     * matching PlainData::assert()'s own "throw, never guess" posture below.
-     */
-    private function decode_structured($v, array $rule, string $ctx) {
-        if (!empty($rule['json_encoded'])) {
-            if (!is_string($v)) {
-                throw new \RuntimeException("duo: $ctx declares json_encoded but its (unserialized) value is not a string");
-            }
-            $decoded = json_decode($v, true);
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                throw new \RuntimeException(
-                    "duo: $ctx declares json_refs/key_refs (json_encoded) but its value is not valid JSON: " . json_last_error_msg()
-                );
-            }
-            return $decoded;
-        }
-        if (!is_array($v)) {
-            throw new \RuntimeException(
-                "duo: $ctx declares json_refs/key_refs but its value is neither a JSON-encoded string (declare \"json_encoded\": true) nor an already-structured array"
-            );
-        }
-        return $v;
     }
 
 }

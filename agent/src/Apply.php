@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/PlainData.php';
 require_once __DIR__ . '/Providers.php';
+require_once __DIR__ . '/StructuredValue.php';
 
 /**
  * Plan + apply: repo state tree -> environment DB.
@@ -2911,11 +2912,15 @@ final class Apply {
      * Every other taxonomy keeps the plain detokenize_text() treatment.
      */
     private function encode_description(string $taxonomy, $description): string {
-        $rule = $this->policy->description_refs_for_taxonomy($taxonomy);
+        $rule = $this->policy->description_reference_rule($taxonomy);
         if ($rule === null) {
             return $this->tokens->detokenize_text((string) $description);
         }
-        $decoded = $this->tokens->struct_apply((array) $description, [['path' => '$.*', 'kind' => $rule['kind']]], null);
+        $decoded = $this->tokens->struct_apply(
+            $description,
+            $rule['json_refs'],
+            $rule['key_refs']
+        );
         return serialize($decoded);
     }
 
@@ -3638,7 +3643,7 @@ final class Apply {
     private function apply_value(string $ctx, $v, array $rule) {
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
             $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-            return $this->encode_structured($v, $rule);
+            return StructuredValue::encode($v, $rule, $ctx);
         }
         if (!empty($rule['ref'])) {
             return $this->tokens->tokens_to_value($v, $rule['ref']);
@@ -3779,36 +3784,6 @@ final class Apply {
         $this->upsert_option($name, $this->option_wire_value($live), $autoload);
     }
 
-    /**
-     * Mirror of Capture::decode_structured(): re-encode a json_refs/
-     * key_refs-rewritten native structure back to the shape the RAW
-     * meta/option value actually stores on the wire. `"json_encoded":
-     * true` (Elementor's _elementor_data — the plugin manually
-     * wp_json_encode()s before WordPress's own maybe_serialize()/
-     * maybe_unserialize() layer, a no-op passthrough on an already-string
-     * value, ever sees it) re-encodes to a compact JSON TEXT string —
-     * deliberately plain `json_encode($v)` with NO flags, matching
-     * Elementor's own convention byte-for-byte (escaped slashes, escaped
-     * unicode — confirmed via docs/frontier/elementor.md's xxd check),
-     * NOT Canon::encode() (which sorts keys / pretty-prints / unescapes —
-     * exactly right for the state/ tree's human-readable copy, exactly
-     * wrong for reconstructing what a plugin's own code expects to read
-     * back from postmeta). Absent the flag, the native array is returned
-     * as-is and the ordinary maybe_serialize() call at each call site
-     * PHP-serializes it — the ordinary WP option/meta convention (Yoast's
-     * wpseo_taxonomy_meta).
-     */
-    private function encode_structured($v, array $rule) {
-        if (empty($rule['json_encoded'])) {
-            return $v;
-        }
-        $encoded = json_encode($v);
-        if ($encoded === false) {
-            throw new \RuntimeException('duo: could not re-encode json_refs/key_refs structured value: ' . json_last_error_msg());
-        }
-        return $encoded;
-    }
-
     private function upsert_option(string $name, string $value, string $autoload): void {
         global $wpdb;
         $exists = $wpdb->get_var($wpdb->prepare(
@@ -3872,7 +3847,7 @@ final class Apply {
             $rule = $this->policy->meta_rule_for_post($key, $frontMeta) ?? [];
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                 $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-                $v = $this->encode_structured($v, $rule);
+                $v = StructuredValue::encode($v, $rule, "$ownerLabel meta $key");
             } elseif (!empty($rule['ref'])) {
                 $v = $this->tokens->meta_tokens_to_value($v, $rule);
             } elseif (is_string($v)) {
@@ -3911,7 +3886,7 @@ final class Apply {
             $rule = $this->policy->meta_rule_for_term((string) $key, $frontMeta) ?? [];
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                 $value = $this->tokens->struct_apply($value, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-                $value = $this->encode_structured($value, $rule);
+                $value = StructuredValue::encode($value, $rule, "term meta $key");
             } elseif (!empty($rule['ref'])) {
                 $value = $this->tokens->meta_tokens_to_value($value, $rule);
             } elseif (is_string($value)) {
@@ -3968,7 +3943,7 @@ final class Apply {
                     $rule['json_refs'] ?? [],
                     $rule['key_refs'] ?? null
                 );
-                $value = $this->encode_structured($value, $rule);
+                $value = StructuredValue::encode($value, $rule, "user '$login' meta $key");
             } elseif (!empty($rule['ref'])) {
                 // User refs need the meta decoder: unlike option refs it
                 // understands user:<login>, arrays, and storage casts.

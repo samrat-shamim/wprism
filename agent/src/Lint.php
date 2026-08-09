@@ -409,7 +409,8 @@ final class Lint {
         string $rel,
         string $locator,
         array &$findings,
-        array $jsonRefs = []
+        array $jsonRefs = [],
+        ?array $keyRefs = null
     ): void {
         $declaredLocators = [];
         foreach ($jsonRefs as $rule) {
@@ -447,7 +448,55 @@ final class Lint {
                 $locator
             );
         }
-        self::scan_structured_bare_ids_by_key($node, $rel, $locator, $findings, $declaredLocators);
+        $declaredKeyLocators = [];
+        if ($keyRefs !== null) {
+            $scanDeclaredMap = function ($map, string $mapLocator) use (
+                &$declaredKeyLocators, &$findings, $rel, $keyRefs
+            ): void {
+                if (!is_array($map) || array_is_list($map)) {
+                    return;
+                }
+                foreach ($map as $key => $_value) {
+                    if (!(is_int($key) || (is_string($key) && preg_match('/^[1-9][0-9]*$/', $key)))) {
+                        continue;
+                    }
+                    $id = (int) $key;
+                    $rawLocator = "$mapLocator KEY $key";
+                    $declaredKeyLocators[$rawLocator] = true;
+                    $kind = (string) $keyRefs['kind'];
+                    $findings[] = self::finding(
+                        'unrewritten_registered_ref',
+                        $rel,
+                        $rawLocator,
+                        $id,
+                        Pending::resolve_id($id),
+                        "key_refs declares this map key as a $kind reference, but it is still numeric in "
+                            . 'captured state — the declared rewrite to a {{...}} token never ran'
+                    );
+                }
+            };
+            if (isset($keyRefs['path'])) {
+                $copy = $node;
+                JsonRefs::walk(
+                    $copy,
+                    JsonRefs::parse_path((string) $keyRefs['path']),
+                    function (&$container, $key, string $matchedLocator) use ($scanDeclaredMap): void {
+                        $scanDeclaredMap($container[$key], $matchedLocator);
+                    },
+                    $locator
+                );
+            } else {
+                $scanDeclaredMap($node, $locator);
+            }
+        }
+        self::scan_structured_bare_ids_by_key(
+            $node,
+            $rel,
+            $locator,
+            $findings,
+            $declaredLocators,
+            $declaredKeyLocators
+        );
     }
 
     /** Existing undeclared-position heuristic, excluding exact json_refs matches already classified above. */
@@ -456,7 +505,8 @@ final class Lint {
         string $rel,
         string $locator,
         array &$findings,
-        array $declaredLocators
+        array $declaredLocators,
+        array $declaredKeyLocators = []
     ): void {
         if (!is_array($node)) {
             return;
@@ -464,7 +514,7 @@ final class Lint {
         $isList = array_is_list($node);
         foreach ($node as $key => $v) {
             $childLocator = is_int($key) ? "{$locator}[{$key}]" : "{$locator}.{$key}";
-            if (is_int($key) && !$isList) {
+            if (is_int($key) && !$isList && !isset($declaredKeyLocators["$locator KEY $key"])) {
                 $hit = Pending::resolve_id($key);
                 if ($hit !== null) {
                     $findings[] = self::finding('bare_id', $rel, "$locator KEY $key", $key, $hit, sprintf(
@@ -496,7 +546,14 @@ final class Lint {
                     ));
                 }
             }
-            self::scan_structured_bare_ids_by_key($v, $rel, $childLocator, $findings, $declaredLocators);
+            self::scan_structured_bare_ids_by_key(
+                $v,
+                $rel,
+                $childLocator,
+                $findings,
+                $declaredLocators,
+                $declaredKeyLocators
+            );
         }
     }
 
@@ -750,14 +807,15 @@ final class Lint {
         // anything scan_structured_bare_ids() finds inside this structure
         // is either a raw survivor at the declared "$.*" path or a genuine
         // undeclared-position gap elsewhere in the structure.
-        $descriptionRef = $policy->description_refs_for_taxonomy($taxonomy);
+        $descriptionRef = $policy->description_reference_rule($taxonomy);
         if ($descriptionRef !== null) {
             self::scan_structured_bare_ids(
                 $desc,
                 $rel,
                 'description',
                 $findings,
-                [['path' => '$.*', 'kind' => (string) $descriptionRef['kind']]]
+                $descriptionRef['json_refs'],
+                $descriptionRef['key_refs']
             );
             return;
         }
@@ -942,8 +1000,47 @@ final class Lint {
             self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
         });
 
-        // (c) the attached-meta sidecar's own id-shaped-key check
-        self::scan_structured_bare_ids($meta, $rel, 'meta', $findings);
+        // (c) attached-meta values use the exact same per-key declaration
+        // Snapshot used to capture them. Structured keys get declared-path
+        // lint; scalar refs must already be tokens; unstructured siblings
+        // retain the historical heuristic scan unchanged.
+        $sidecar = $policy->attached_meta_table_for_owner($table);
+        $unstructured = [];
+        foreach ($meta as $key => $value) {
+            $rule = $sidecar === null
+                ? []
+                : ReferenceRules::attached_meta_key($sidecar['rule'], (string) $key);
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                self::scan_structured_bare_ids(
+                    $value,
+                    $rel,
+                    'meta.' . $key,
+                    $findings,
+                    (array) ($rule['json_refs'] ?? []),
+                    isset($rule['key_refs']) ? (array) $rule['key_refs'] : null
+                );
+                continue;
+            }
+            if (!empty($rule['ref'])) {
+                foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
+                    if ($id <= 0) {
+                        continue;
+                    }
+                    $findings[] = self::finding(
+                        'unrewritten_registered_ref',
+                        $rel,
+                        'meta.' . $key . $locSuffix,
+                        $id,
+                        Pending::resolve_id($id),
+                        "attached-meta key '$key' declares a {$rule['ref']} reference, but it is still numeric "
+                            . 'in captured state instead of a portable token'
+                    );
+                }
+                continue;
+            }
+            $unstructured[$key] = $value;
+        }
+        self::scan_structured_bare_ids($unstructured, $rel, 'meta', $findings);
     }
 
     // ------------------------------------------------------------ shared

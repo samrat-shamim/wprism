@@ -510,7 +510,7 @@ final class RepositoryAuthorization {
             }
             foreach ($metaTables as $metaName => $metaDecl) {
                 $class = Snapshot::meta_key_in_keyspace($metaDecl, (string) $key)
-                    ? ($metaDecl['keys'][$key]['class'] ?? ($metaDecl['default_class'] ?? 'authored'))
+                    ? (ReferenceRules::attached_meta_key($metaDecl, (string) $key)['class'] ?? 'unclassified')
                     : 'unclassified';
                 if ($class !== 'authored') {
                     $source = $policy->declared_table_details($metaName)['source'];

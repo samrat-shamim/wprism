@@ -1387,7 +1387,9 @@ final class RepositoryCompiler {
                 $meta = (array) ($d['meta'] ?? []);
                 foreach ($meta as $key => $value) {
                     $rule = $this->policy->meta_rule_for_post((string) $key, $meta) ?? [];
-                    if (!empty($rule['ref'])) {
+                    if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                        $this->validate_structured_rule($value, $rule, $path, 'meta.' . $key);
+                    } elseif (!empty($rule['ref'])) {
                         $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'meta.' . $key);
                     }
                 }
@@ -1400,10 +1402,21 @@ final class RepositoryCompiler {
                     }
                 }
             } elseif ($entity['type'] === 'term') {
+                $descriptionRule = $this->policy->description_reference_rule((string) ($d['taxonomy'] ?? ''));
+                if ($descriptionRule !== null) {
+                    $this->validate_structured_rule(
+                        $d['description'] ?? null,
+                        $descriptionRule,
+                        $path,
+                        'description'
+                    );
+                }
                 $meta = (array) ($d['meta'] ?? []);
                 foreach ($meta as $key => $value) {
                     $rule = $this->policy->meta_rule_for_term((string) $key, $meta) ?? [];
-                    if (!empty($rule['ref'])) {
+                    if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                        $this->validate_structured_rule($value, $rule, $path, 'meta.' . $key);
+                    } elseif (!empty($rule['ref'])) {
                         $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'meta.' . $key);
                     }
                 }
@@ -1424,7 +1437,9 @@ final class RepositoryCompiler {
                         ? $this->policy->canonical_option_name_ref_details((string) $name)
                         : $this->policy->option_rule_details_for_option((string) $name, $allOptions);
                     $rule = $details['rule'] ?? [];
-                    if (!empty($rule['ref'])) {
+                    if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                        $this->validate_structured_rule($value, $rule, $path, 'options.' . $name);
+                    } elseif (!empty($rule['ref'])) {
                         $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'options.' . $name);
                     }
                 }
@@ -1432,7 +1447,9 @@ final class RepositoryCompiler {
                 $meta = (array) ($d['meta'] ?? []);
                 foreach ($meta as $key => $value) {
                     $rule = $this->policy->meta_rule_for_user((string) $key, $meta) ?? [];
-                    if (!empty($rule['ref'])) {
+                    if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                        $this->validate_structured_rule($value, $rule, $path, 'meta.' . $key);
+                    } elseif (!empty($rule['ref'])) {
                         $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'meta.' . $key);
                     }
                 }
@@ -1467,8 +1484,15 @@ final class RepositoryCompiler {
                 }
                 foreach ($metaByOwner[$entity['type']] ?? [] as $metaName => $decl) {
                     foreach ((array) ($d['meta'] ?? []) as $key => $value) {
-                        $rule = $decl['keys'][$key] ?? ['class' => $decl['default_class'] ?? 'authored'];
-                        if (!empty($rule['ref'])) {
+                        $rule = ReferenceRules::attached_meta_key($decl, (string) $key);
+                        if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                            $this->validate_structured_rule(
+                                $value,
+                                $rule,
+                                $path,
+                                "meta:$metaName.$key"
+                            );
+                        } elseif (!empty($rule['ref'])) {
                             $this->validate_declared_ref(
                                 $value, (string) $rule['ref'], $path, "meta:$metaName.$key"
                             );
@@ -1477,6 +1501,67 @@ final class RepositoryCompiler {
                 }
             }
         }
+    }
+
+    /** Validate declared structural leaves and id-keyed maps before apply. */
+    private function validate_structured_rule($value, array $rule, string $path, string $locator): void {
+        foreach ((array) ($rule['json_refs'] ?? []) as $ref) {
+            $copy = $value;
+            JsonRefs::walk(
+                $copy,
+                JsonRefs::parse_path((string) $ref['path']),
+                function (&$container, $key, string $matchedLocator) use ($ref, $path, $locator): void {
+                    $leaf = $container[$key];
+                    if ($leaf === null || $leaf === '' || $leaf === 0 || $leaf === '0' || $leaf === false
+                        || is_array($leaf)) {
+                        return; // declared unset/container conventions
+                    }
+                    $this->validate_declared_ref(
+                        $leaf,
+                        (string) $ref['kind'],
+                        $path,
+                        $locator . $matchedLocator
+                    );
+                },
+                ''
+            );
+        }
+        $keyRefs = $rule['key_refs'] ?? null;
+        if (!is_array($keyRefs)) {
+            return;
+        }
+        $validateMap = function ($map, string $mapLocator) use ($keyRefs, $path, $locator): void {
+            if (!is_array($map) || array_is_list($map)) {
+                $this->add(
+                    'nonportable_reference',
+                    $path,
+                    $locator . $mapLocator,
+                    'key_refs path must resolve to an id-keyed map'
+                );
+                return;
+            }
+            foreach ($map as $key => $_value) {
+                $this->validate_declared_ref(
+                    $key,
+                    (string) $keyRefs['kind'],
+                    $path,
+                    $locator . $mapLocator . ' (key)'
+                );
+            }
+        };
+        if (isset($keyRefs['path'])) {
+            $copy = $value;
+            JsonRefs::walk(
+                $copy,
+                JsonRefs::parse_path((string) $keyRefs['path']),
+                function (&$container, $key, string $matchedLocator) use ($validateMap): void {
+                    $validateMap($container[$key], $matchedLocator);
+                },
+                ''
+            );
+            return;
+        }
+        $validateMap($value, '');
     }
 
     private function validate_declared_ref($value, string $ref, string $path, string $locator): void {

@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/ReferencePath.php';
+
 /**
  * Minimal JSON-path-style primitive shared by json_refs (rewrite a scalar/
  * array id at a declared path) and key_refs (rewrite a map's own KEYS at a
@@ -60,36 +62,7 @@ final class JsonRefs {
      * @return array<int, array{type: 'child'|'desc'|'wild', key: ?string}>
      */
     public static function parse_path(string $path): array {
-        $path = trim($path);
-        if (!str_starts_with($path, '$')) {
-            throw new \RuntimeException("duo: json_refs/key_refs path '$path' must start with '\$'");
-        }
-        $rest = substr($path, 1);
-        $segments = [];
-        while ($rest !== '') {
-            if (str_starts_with($rest, '..')) {
-                if (!preg_match('/^\.\.([A-Za-z0-9_-]+)/', $rest, $m)) {
-                    throw new \RuntimeException("duo: bad '..' segment in json_refs/key_refs path '$path'");
-                }
-                $segments[] = ['type' => 'desc', 'key' => $m[1]];
-                $rest = substr($rest, strlen($m[0]));
-            } elseif (str_starts_with($rest, '.*')) {
-                $segments[] = ['type' => 'wild', 'key' => null];
-                $rest = substr($rest, 2);
-            } elseif (str_starts_with($rest, '.')) {
-                if (!preg_match('/^\.([A-Za-z0-9_-]+)/', $rest, $m)) {
-                    throw new \RuntimeException("duo: bad '.' segment in json_refs/key_refs path '$path'");
-                }
-                $segments[] = ['type' => 'child', 'key' => $m[1]];
-                $rest = substr($rest, strlen($m[0]));
-            } else {
-                throw new \RuntimeException("duo: bad json_refs/key_refs path syntax '$path' near '$rest'");
-            }
-        }
-        if (!$segments) {
-            throw new \RuntimeException("duo: json_refs/key_refs path '$path' names no segments (bare '\$' — declare at least one)");
-        }
-        return $segments;
+        return ReferencePath::parse($path);
     }
 
     /**
