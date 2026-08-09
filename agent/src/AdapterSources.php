@@ -569,6 +569,19 @@ final class AdapterSources {
             ];
             return;
         }
+        if (!is_readable($siteDir)) {
+            self::refuse(
+                $collect,
+                $refusals,
+                self::SITE,
+                self::REFUSAL_SOURCE_NOT_IN_REPOSITORY,
+                [$siteDir],
+                "duo: site adapter source $siteDir is not readable — "
+                . 'Duo cannot prove which repository-owned adapters are installed; restore directory read access',
+                'restore directory read access before loading site adapters'
+            );
+            return;
+        }
         // is_dir() FOLLOWS symlinks, so the source directory itself has to be
         // proved before anything inside it is trusted: `adapters` checked in as
         // a symlink is ordinary repository content (git stores symlinks), and
@@ -662,7 +675,20 @@ final class AdapterSources {
         self::assert_flat_json_source($siteDir, $collect, $refusals);
 
         $shippedNames = $declaredNames();
-        $siteFiles = glob($siteDir . '/*.json') ?: [];
+        $siteFiles = glob($siteDir . '/*.json');
+        if ($siteFiles === false) {
+            self::refuse(
+                $collect,
+                $refusals,
+                self::SITE,
+                self::REFUSAL_SOURCE_NOT_IN_REPOSITORY,
+                [$siteDir],
+                "duo: site adapter source $siteDir could not be enumerated — "
+                . 'Duo refuses to treat an unreadable repository-owned adapter source as empty',
+                'restore directory enumeration/read access before loading site adapters'
+            );
+            return;
+        }
         // `dispositions.json` was already refused above as a reserved name, and
         // it is the one reserved entry this glob can also match. Reachable only
         // in collect mode — throw mode never gets past that refusal — but there
@@ -2290,7 +2316,20 @@ final class AdapterSources {
      * they assert nothing about adapters and refusing them would be noise.
      */
     private static function assert_flat_json_source(string $siteDir, bool $collect, array &$refusals): void {
-        foreach (scandir($siteDir) ?: [] as $entry) {
+        $entries = @scandir($siteDir);
+        if ($entries === false) {
+            self::refuse(
+                $collect,
+                $refusals,
+                self::REFUSAL_SOURCE_NOT_IN_REPOSITORY,
+                [$siteDir],
+                "duo: site adapter source $siteDir could not be enumerated — "
+                . 'Duo refuses to treat an unreadable repository-owned adapter source as empty',
+                'restore directory enumeration/read access before loading site adapters'
+            );
+            return;
+        }
+        foreach ($entries as $entry) {
             if ($entry === '.' || $entry === '..') {
                 continue;
             }

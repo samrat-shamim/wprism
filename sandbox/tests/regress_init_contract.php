@@ -222,6 +222,8 @@ check(is_file($unsafeSentinel), 'invalid live pair name cannot escape siterepo a
 // explicit even when the bounded row queries themselves return no rows.
 require_once __DIR__ . '/../../agent/src/Secrets.php';
 require_once __DIR__ . '/../../agent/src/PersonalData.php';
+require_once __DIR__ . '/../../agent/src/Canon.php';
+require_once __DIR__ . '/../../agent/src/AdapterSources.php';
 require_once __DIR__ . '/../../agent/src/Init.php';
 if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
 
@@ -301,5 +303,25 @@ try {
     check(!str_contains($expected->getMessage(), 'sensitive database detail'), 'risk query error does not disclose database details');
 }
 $GLOBALS['wpdb'] = $originalWpdb;
+
+$adapterRepo = sys_get_temp_dir() . '/duo-init-adapter-permissions-' . bin2hex(random_bytes(6));
+mkdir($adapterRepo . '/adapters', 0777, true);
+file_put_contents($adapterRepo . '/adapters/foreign.json', "{}\n");
+chmod($adapterRepo . '/adapters', 0000);
+try {
+    \Duo\AdapterSources::discover(__DIR__ . '/../../manifests', $adapterRepo);
+    fail('unreadable adapter source was silently treated as empty');
+} catch (RuntimeException $expected) {
+    check(
+        str_contains($expected->getMessage(), 'not readable')
+            || str_contains($expected->getMessage(), 'could not be enumerated'),
+        'unreadable adapter source fails closed instead of laundering inert bytes'
+    );
+} finally {
+    chmod($adapterRepo . '/adapters', 0777);
+    unlink($adapterRepo . '/adapters/foreign.json');
+    rmdir($adapterRepo . '/adapters');
+    rmdir($adapterRepo);
+}
 
 echo "REGRESS_INIT_CONTRACT PASSED\n";
