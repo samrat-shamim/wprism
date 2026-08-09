@@ -93,18 +93,68 @@ $action = (string) ($request['action'] ?? '');
 $result = match ($action) {
     'capabilities' => ['capabilities' => [
         'environment.attach', 'environment.create', 'environment.destroy', 'environment.detach',
-        'environment.inspect', 'environment.ttl', 'environment.url.discover', 'environment.url.set',
-        'operation.receipts', 'repository.materialize', 'snapshot.set.create',
-        'snapshot.set.read', 'snapshot.set.restore',
+        'environment.inspect', 'environment.mutation.acquire', 'environment.mutation.read',
+        'environment.mutation.release', 'environment.ttl', 'environment.ttl.read',
+        'environment.url.discover', 'environment.url.set', 'operation.receipts',
+        'repository.materialize', 'snapshot.set.abort', 'snapshot.set.create',
+        'snapshot.set.prepare', 'snapshot.set.read', 'snapshot.set.restore',
     ]],
     'inspect', 'attach', 'create' => $identity + ['presence' => 'present'],
+    'snapshot-prepare' => [
+        'lease_generation' => 1,
+        'lease_id' => 'snapshot-lease-0001',
+        'lease_receipt_sha256' => $h('snapshot-lease'),
+        'snapshot_session_id' => 'snapshot-session-0001',
+        'source_identity' => 'environment-identity-0001',
+    ],
     'snapshot-create' => [
         'database_sha256' => $h('database'),
+        'lease_generation' => 1,
+        'lease_id' => 'snapshot-lease-0001',
+        'lease_receipt_sha256' => $h('snapshot-lease'),
         'media_sha256' => $h('media'),
         'retention_receipt_sha256' => $h('retention'),
         'semantic_snapshot_sha256' => $h('semantic'),
+        'snapshot_session_id' => 'snapshot-session-0001',
         'snapshot_set_id' => 'snapshot-set-0001',
+        'snapshot_receipt_sha256' => $h('snapshot-receipt'),
         'source_identity' => 'environment-identity-0001',
+    ],
+    'snapshot-read' => [
+        'database_sha256' => $h('database'),
+        'immutable' => true,
+        'lease_generation' => 1,
+        'lease_id' => 'snapshot-lease-0001',
+        'lease_receipt_sha256' => $h('snapshot-lease'),
+        'media_sha256' => $h('media'),
+        'retention_receipt_sha256' => $h('retention'),
+        'semantic_snapshot_sha256' => $h('semantic'),
+        'snapshot_session_id' => 'snapshot-session-0001',
+        'snapshot_set_id' => 'snapshot-set-0001',
+        'snapshot_receipt_sha256' => $h('snapshot-receipt'),
+        'source_identity' => 'environment-identity-0001',
+    ],
+    'snapshot-abort' => [
+        'disposition' => 'aborted',
+        'lease_generation' => 1,
+        'lease_id' => 'snapshot-lease-0001',
+        'lease_receipt_sha256' => $h('snapshot-lease'),
+        'snapshot_session_id' => 'snapshot-session-0001',
+        'source_identity' => 'environment-identity-0001',
+    ],
+    'mutation-acquire', 'mutation-read' => $identity + [
+        'mutation_generation' => 1,
+        'mutation_id' => 'mutation-lease-0001',
+        'mutation_owner' => (string) ($request['operation_id'] ?? ''),
+        'mutation_receipt_sha256' => $h('mutation-held'),
+        'state' => 'held',
+    ],
+    'mutation-release' => $identity + [
+        'mutation_generation' => 1,
+        'mutation_id' => 'mutation-lease-0001',
+        'mutation_owner' => (string) ($request['operation_id'] ?? ''),
+        'mutation_receipt_sha256' => $h('mutation-released'),
+        'state' => 'released',
     ],
     'snapshot-restore' => $identity + ['snapshot_set_id' => 'snapshot-set-0001'],
     'repository-materialize' => $identity + [
@@ -116,6 +166,15 @@ $result = match ($action) {
         'expires_at' => '2030-01-02T03:04:05Z',
         'ttl_generation' => 4,
         'ttl_lease_id' => 'ttl-lease-identity-0001',
+        'ttl_receipt_sha256' => $h('ttl'),
+        'ttl_state' => 'active',
+    ],
+    'ttl-read' => $identity + [
+        'expires_at' => '2030-01-02T03:04:05Z',
+        'ttl_generation' => 4,
+        'ttl_lease_id' => 'ttl-lease-identity-0001',
+        'ttl_receipt_sha256' => $h('ttl'),
+        'ttl_state' => 'active',
     ],
     'destroy' => [
         'absence_proof_sha256' => $h('absence'),
@@ -140,9 +199,13 @@ $result = match ($action) {
 if ($mode === 'bad-capability' && $action === 'capabilities') $result['capabilities'][] = 'host.magic';
 $response = [
     'action' => $mode === 'mismatch' ? 'destroy' : $action,
+    'environment' => $mode === 'wrong-environment' ? 'foreign-environment' : (string) ($request['environment'] ?? ''),
     'format' => 'duo-branch-environment-provider-response/v1',
     'operation_id' => (string) ($request['operation_id'] ?? ''),
-    'provider' => ['id' => 'fixture-provider', 'protocol' => 1],
+    'provider' => [
+        'id' => $mode === 'switch-provider' && $action !== 'capabilities' ? 'foreign-provider' : 'fixture-provider',
+        'protocol' => 1,
+    ],
     'result' => $result,
     'status' => 'ok',
 ];
@@ -207,7 +270,8 @@ PHP;
     el_ok(is_array($requestLines) && count($requestLines) === 2, 'capability and attach used exactly two provider calls');
     foreach ($requestLines as $line) {
         $decoded = json_decode($line, true);
-        el_ok(is_array($decoded) && EnvironmentLifecycleCanon::encode($decoded) === $line, 'provider request is canonical JSON');
+        el_ok(is_array($decoded) && EnvironmentLifecycleCanon::encode($decoded) === $line
+            && ($decoded['environment'] ?? null) === 'branch', 'provider request is canonical and environment-bound');
     }
 
     el_throws(
@@ -216,17 +280,35 @@ PHP;
         'provider capability vocabulary is closed'
     );
     el_throws(
-        static fn() => CommandEnvironmentProvider::fromEnvironment('mismatch', $config('mismatch'))->perform('attach', $operation, []),
+        static function () use ($config, $operation): void {
+            $mismatch = CommandEnvironmentProvider::fromEnvironment('mismatch', $config('mismatch'));
+            $mismatch->capabilities($operation);
+            $mismatch->perform('attach', $operation, []);
+        },
         'not bound to the request',
         'response action and operation identity are request-bound'
     );
     el_throws(
-        static fn() => CommandEnvironmentProvider::fromEnvironment('pretty', $config('noncanonical'))->perform('attach', $operation, []),
+        static fn() => CommandEnvironmentProvider::fromEnvironment('wrong-environment', $config('wrong-environment'))->capabilities($operation),
+        'not bound to the request',
+        'response environment is request-bound'
+    );
+    el_throws(
+        static function () use ($config, $operation): void {
+            $switched = CommandEnvironmentProvider::fromEnvironment('switch-provider', $config('switch-provider'));
+            $switched->capabilities($operation);
+            $switched->perform('attach', $operation, []);
+        },
+        'identity changed',
+        'provider identity cannot switch after capability negotiation'
+    );
+    el_throws(
+        static fn() => CommandEnvironmentProvider::fromEnvironment('pretty', $config('noncanonical'))->capabilities($operation),
         'noncanonical evidence',
         'provider response must be canonical bytes'
     );
     try {
-        CommandEnvironmentProvider::fromEnvironment('failed', $config('fail'))->perform('attach', $operation, []);
+        CommandEnvironmentProvider::fromEnvironment('failed', $config('fail'))->capabilities($operation);
         el_fail('provider failure was accepted');
     } catch (Throwable $e) {
         el_ok(!str_contains($e->getMessage(), 'SUPER-SECRET'), 'provider failure output is redacted');

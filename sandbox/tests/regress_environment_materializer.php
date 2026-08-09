@@ -122,7 +122,10 @@ $raw = (string) stream_get_contents(STDIN); $request = json_decode($raw, true, 5
 file_put_contents($log, $raw, FILE_APPEND | LOCK_EX);
 function c(mixed $v): string { if (is_array($v)) { if (!array_is_list($v)) ksort($v, SORT_STRING); foreach ($v as $k => $x) $v[$k] = json_decode(c($x), true); } return json_encode($v, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR); }
 $h = static fn(string $v): string => hash('sha256', $v);
-$stale = is_file($state) && trim((string) file_get_contents($state)) === 'stale';
+$fixtureState = is_file($state) ? trim((string) file_get_contents($state)) : 'current';
+$stale = $fixtureState === 'stale';
+$ttlStale = $fixtureState === 'ttl-stale';
+$mutationStale = $fixtureState === 'mutation-stale';
 $identity = [
   'environment_identity' => 'environment-identity-0001', 'lease_generation' => $stale ? 4 : 3,
   'lease_id' => $stale ? 'lease-identity-stale-0001' : 'lease-identity-0001',
@@ -130,20 +133,27 @@ $identity = [
   'url' => 'https://branch.example.test',
 ];
 $a = $request['action']; $i = $request['input'] ?? [];
-$caps = ['environment.attach','environment.create','environment.destroy','environment.detach','environment.inspect','environment.ttl','environment.url.discover','environment.url.set','operation.receipts','repository.materialize','snapshot.set.create','snapshot.set.read','snapshot.set.restore'];
+$caps = ['environment.attach','environment.create','environment.destroy','environment.detach','environment.inspect','environment.mutation.acquire','environment.mutation.read','environment.mutation.release','environment.ttl','environment.ttl.read','environment.url.discover','environment.url.set','operation.receipts','repository.materialize','snapshot.set.abort','snapshot.set.create','snapshot.set.prepare','snapshot.set.read','snapshot.set.restore'];
 if ($mode === 'attach-only') $caps = array_values(array_diff($caps, ['environment.create', 'environment.destroy']));
 $result = match ($a) {
  'capabilities' => ['capabilities' => $caps],
  'inspect','attach','create' => $identity + ['presence' => 'present'],
- 'snapshot-create' => ['database_sha256'=>$h('db'),'media_sha256'=>$h('media'),'retention_receipt_sha256'=>$h('retention'),'semantic_snapshot_sha256'=>$mode === 'mismatch' ? $h('wrong') : (string)$i['expected_semantic_snapshot_sha256'],'snapshot_set_id'=>'snapshot-set-0001','source_identity'=>'environment-identity-0001'],
+ 'snapshot-prepare' => ['lease_generation'=>1,'lease_id'=>'snapshot-lease-0001','lease_receipt_sha256'=>$h('snapshot-lease'),'snapshot_session_id'=>(string)$i['snapshot_session_id'],'source_identity'=>'environment-identity-0001'],
+ 'snapshot-create' => ['database_sha256'=>$h('db'),'lease_generation'=>1,'lease_id'=>'snapshot-lease-0001','lease_receipt_sha256'=>$h('snapshot-lease'),'media_sha256'=>$h('media'),'retention_receipt_sha256'=>$h('retention'),'semantic_snapshot_sha256'=>$mode === 'mismatch' ? $h('wrong') : (string)$i['expected_semantic_snapshot_sha256'],'snapshot_session_id'=>(string)$i['snapshot_session_id'],'snapshot_set_id'=>'snapshot-set-0001','snapshot_receipt_sha256'=>$h('snapshot-receipt'),'source_identity'=>'environment-identity-0001'],
+ 'snapshot-read' => ['database_sha256'=>$h('db'),'immutable'=>true,'lease_generation'=>1,'lease_id'=>'snapshot-lease-0001','lease_receipt_sha256'=>$h('snapshot-lease'),'media_sha256'=>$h('media'),'retention_receipt_sha256'=>$h('retention'),'semantic_snapshot_sha256'=>(string)$i['expected_semantic_snapshot_sha256'],'snapshot_session_id'=>(string)$i['snapshot_session_id'],'snapshot_set_id'=>(string)$i['snapshot_set_id'],'snapshot_receipt_sha256'=>$h('snapshot-receipt'),'source_identity'=>'environment-identity-0001'],
+ 'snapshot-abort' => ['disposition'=>'aborted','lease_generation'=>1,'lease_id'=>'snapshot-lease-0001','lease_receipt_sha256'=>$h('snapshot-lease'),'snapshot_session_id'=>(string)$i['snapshot_session_id'],'source_identity'=>'environment-identity-0001'],
+ 'mutation-acquire' => $identity + ['mutation_generation'=>1,'mutation_id'=>'mutation-lease-0001','mutation_owner'=>(string)$request['operation_id'],'mutation_receipt_sha256'=>$h('mutation-held'),'state'=>'held'],
+ 'mutation-read' => $identity + ['mutation_generation'=>$mutationStale ? 2 : 1,'mutation_id'=>$mutationStale ? 'mutation-lease-stale-0001' : 'mutation-lease-0001','mutation_owner'=>(string)$request['operation_id'],'mutation_receipt_sha256'=>$h($mutationStale ? 'mutation-stale' : 'mutation-released'),'state'=>'released'],
+ 'mutation-release' => $identity + ['mutation_generation'=>1,'mutation_id'=>'mutation-lease-0001','mutation_owner'=>(string)$request['operation_id'],'mutation_receipt_sha256'=>$h('mutation-released'),'state'=>'released'],
  'snapshot-restore' => $identity + ['snapshot_set_id'=>(string)$i['snapshot_set_id']],
  'repository-materialize' => $identity + ['branch_commit'=>(string)$i['branch_commit'],'repository_receipt_sha256'=>$h('repo')],
  'url-set' => $identity,
- 'ttl-set' => $identity + ['expires_at'=>'2030-01-02T04:04:05Z','ttl_generation'=>1,'ttl_lease_id'=>'ttl-lease-identity-0001'],
+ 'ttl-set' => $identity + ['expires_at'=>'2030-01-02T04:04:05Z','ttl_generation'=>1,'ttl_lease_id'=>'ttl-lease-identity-0001','ttl_receipt_sha256'=>$h('ttl'),'ttl_state'=>'active'],
+ 'ttl-read' => $identity + ['expires_at'=>'2030-01-02T04:04:05Z','ttl_generation'=>$ttlStale ? 2 : 1,'ttl_lease_id'=>$ttlStale ? 'ttl-lease-stale-0001' : 'ttl-lease-identity-0001','ttl_receipt_sha256'=>$h($ttlStale ? 'ttl-stale' : 'ttl'),'ttl_state'=>'active'],
  'destroy','detach' => ['absence_proof_sha256'=>$h('absence'),'disposition'=>$a === 'destroy' ? 'destroyed' : 'detached','environment_identity'=>'environment-identity-0001','lease_generation'=>3,'lease_id'=>'lease-identity-0001','ownership_receipt_sha256'=>$h('owner'),'resource_id'=>'resource-identity-0001'],
  default => [],
 };
-$response=['action'=>$a,'format'=>'duo-branch-environment-provider-response/v1','operation_id'=>$request['operation_id'],'provider'=>['id'=>'fixture-provider','protocol'=>1],'result'=>$result,'status'=>'ok'];
+$response=['action'=>$a,'environment'=>$request['environment'],'format'=>'duo-branch-environment-provider-response/v1','operation_id'=>$request['operation_id'],'provider'=>['id'=>'fixture-provider','protocol'=>1],'result'=>$result,'status'=>'ok'];
 echo c($response)."\n";
 PHP);
     $state = $tmp . '/provider-state';
@@ -159,7 +169,24 @@ PHP);
     $target = new MaterializerDriver('branch', '/branch/repo');
     $journal = new EnvironmentLifecycleJournal($repo . '/.git/duo-environments');
     $promotions = 0;
-    $promote = static function (EnvironmentDriver $driver) use (&$promotions): int { $promotions++; return 0; };
+    $promotionCalls = [];
+    $promote = static function (EnvironmentDriver $driver, string $artifactPath, array $summary, string $owner) use (&$promotions, &$promotionCalls): array {
+        $promotions++;
+        $operationId = str_starts_with($owner, 'materialize-') ? substr($owner, strlen('materialize-')) : $owner;
+        $body = [
+            'artifact_hash' => (string) $summary['artifact_hash'],
+            'checkpoint_identity' => 'checkpoint-identity-0001',
+            'code_revision' => isset($summary['code']['code_revision']) ? (string) $summary['code']['code_revision'] : null,
+            'format' => 'duo-branch-environment-promotion-receipt/v1',
+            'operation_id' => $operationId,
+            'owner' => $owner,
+            'state_revision' => (string) $summary['revision_hash'],
+            'status' => 'completed',
+        ];
+        $body['receipt_sha256'] = hash('sha256', \Duo\Orchestrator\EnvironmentLifecycleCanon::encode($body));
+        $promotionCalls[] = ['artifact_path' => $artifactPath, 'owner' => $owner, 'receipt' => $body];
+        return $body;
+    };
 
     $old = getcwd(); chdir($repo);
     $badSource = CommandEnvironmentProvider::fromEnvironment('production', $cfg('mismatch', $sourceLog));
@@ -173,6 +200,7 @@ PHP);
         em_ok(str_contains($e->getMessage(), 'not coherent'), 'semantic P and physical DB/media snapshot must share one identity');
     }
     em_ok(em_actions($targetLog) === ['capabilities'], 'composite preflight precedes snapshot and incoherence makes no target mutation');
+    em_ok(in_array('snapshot-abort', em_actions($sourceLog), true), 'incoherent snapshot aborts the exact prepared source session');
     em_ok($promotions === 0, 'failed snapshot coherence cannot enter code/state promotion');
 
     $goodSource = CommandEnvironmentProvider::fromEnvironment('production', $cfg('ok', $sourceLog));
@@ -184,9 +212,12 @@ PHP);
         && ($receipt['state_revision'] ?? null) === hash('sha256', 'state-release')
         && $receipt['code_revision'] !== $receipt['state_revision'], 'release receipt preserves separate code and state identities');
     em_ok($promotions === 1, 'materialization uses the supplied existing promotion path exactly once');
+    em_ok(($promotionCalls[0]['receipt']['artifact_hash'] ?? null) === ($receipt['outer_artifact_hash'] ?? null)
+        && ($promotionCalls[0]['receipt']['owner'] ?? null) === 'materialize-' . $receipt['operation_id'],
+        'promotion consumes the exact frozen artifact under the deterministic operation owner');
     $targetActions = em_actions($targetLog);
-    $expectedTail = ['capabilities','attach','snapshot-restore','repository-materialize','url-set','inspect','ttl-set'];
-    em_ok(array_slice($targetActions, -count($expectedTail)) === $expectedTail, 'target phases are attach, restore, repository, URL, convergence inspect, then TTL');
+    $expectedTail = ['capabilities','attach','mutation-acquire','snapshot-restore','repository-materialize','url-set','inspect','ttl-set','ttl-read','mutation-release'];
+    em_ok(array_slice($targetActions, -count($expectedTail)) === $expectedTail, 'target phases remain under one fence through restore, repository, URL, convergence, TTL readback, and release');
 
     $beforeResume = [count(em_actions($sourceLog)), count(em_actions($targetLog)), $promotions];
     $same = EnvironmentMaterializer::materialize($source, $target, $goodSource, $targetProvider, $journal, [
@@ -195,6 +226,14 @@ PHP);
     em_ok(($same['resumed'] ?? false) === true
         && $beforeResume === [count(em_actions($sourceLog)), count(em_actions($targetLog)), $promotions], 'completed retry is idempotent with zero provider or promotion calls');
 
+    file_put_contents($state, "ttl-stale\n");
+    try {
+        EnvironmentMaterializer::reap($target, $targetProvider, $journal);
+        em_fail('changed TTL lease reaped an environment');
+    } catch (Throwable $e) {
+        em_ok(str_contains($e->getMessage(), 'ttl_') || str_contains(strtolower($e->getMessage()), 'ttl '), 'changed TTL generation/id refuses stale reap');
+    }
+    em_ok(!in_array('detach', em_actions($targetLog), true), 'changed TTL refusal makes no detach/destroy call');
     file_put_contents($state, "stale\n");
     try {
         EnvironmentMaterializer::reap($target, $targetProvider, $journal);
@@ -203,6 +242,14 @@ PHP);
         em_ok(str_contains($e->getMessage(), 'lease_') || str_contains($e->getMessage(), 'lease '), 'changed provider lease refuses stale reap');
     }
     em_ok(!in_array('detach', em_actions($targetLog), true), 'stale lease refusal makes no detach/destroy call');
+    file_put_contents($state, "mutation-stale\n");
+    try {
+        EnvironmentMaterializer::reap($target, $targetProvider, $journal);
+        em_fail('changed mutation fence reaped an environment');
+    } catch (Throwable $e) {
+        em_ok(str_contains($e->getMessage(), 'mutation_') || str_contains(strtolower($e->getMessage()), 'mutation '), 'changed mutation fence refuses stale reap');
+    }
+    em_ok(!in_array('detach', em_actions($targetLog), true), 'changed mutation fence refusal makes no detach/destroy call');
     file_put_contents($state, "current\n");
     $reap = EnvironmentMaterializer::reap($target, $targetProvider, $journal);
     em_ok(($reap['disposition'] ?? null) === 'detached' && !in_array('destroy', em_actions($targetLog), true), 'attached target reaps only through explicit detach');
