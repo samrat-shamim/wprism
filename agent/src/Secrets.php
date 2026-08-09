@@ -33,18 +33,24 @@ final class Secrets {
 
     /** @var array<string,string> PCRE body (no delimiters) => short label */
     private const HARD_PATTERNS = [
-        '\bsk_live_[A-Za-z0-9]{10,}\b' => 'stripe key',
-        '\brk_live_[A-Za-z0-9]{10,}\b' => 'stripe key',
+        '\bsk_live_[A-Za-z0-9]{4097}' => 'stripe key',
+        '\bsk_live_[A-Za-z0-9]{10,4096}\b' => 'stripe key',
+        '\brk_live_[A-Za-z0-9]{4097}' => 'stripe key',
+        '\brk_live_[A-Za-z0-9]{10,4096}\b' => 'stripe key',
         '\b(AKIA|ASIA)[A-Z0-9]{16}\b' => 'aws key',
-        '\bghp_[A-Za-z0-9]{20,}\b' => 'github token',
-        '\bgho_[A-Za-z0-9]{20,}\b' => 'github token',
-        '\bgithub_pat_[A-Za-z0-9_]{20,}\b' => 'github token',
-        '\bxox[baprs]-[A-Za-z0-9-]{10,}\b' => 'slack token',
+        '\bghp_[A-Za-z0-9]{4097}' => 'github token',
+        '\bghp_[A-Za-z0-9]{20,4096}\b' => 'github token',
+        '\bgho_[A-Za-z0-9]{4097}' => 'github token',
+        '\bgho_[A-Za-z0-9]{20,4096}\b' => 'github token',
+        '\bgithub_pat_[A-Za-z0-9_]{4097}' => 'github token',
+        '\bgithub_pat_[A-Za-z0-9_]{20,4096}\b' => 'github token',
+        '\bxox[baprs]-[A-Za-z0-9-]{4097}' => 'slack token',
+        '\bxox[baprs]-[A-Za-z0-9-]{10,4096}\b' => 'slack token',
         '-----BEGIN [A-Z0-9 ]{0,64}PRIVATE KEY-----' => 'private key',
-        // Keep every accepted JWT shape bounded so streaming callers can
-        // prove a finite overlap. An overlong segment is itself secret-shaped
-        // and is refused by the three prefix rules rather than silently
-        // evading the complete-token matcher.
+        // Keep every accepted shape bounded so streaming callers can prove a
+        // finite overlap. An overlong segment is itself secret-shaped and is
+        // refused by a fixed-width prefix rule rather than silently evading a
+        // complete-token matcher that waits for a trailing word boundary.
         '\beyJ[A-Za-z0-9_-]{8193}' => 'jwt',
         '\beyJ[A-Za-z0-9_-]{4,8192}\.eyJ[A-Za-z0-9_-]{8193}' => 'jwt',
         '\beyJ[A-Za-z0-9_-]{4,8192}\.eyJ[A-Za-z0-9_-]{4,8192}\.[A-Za-z0-9_-]{8193}' => 'jwt',

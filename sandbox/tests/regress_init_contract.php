@@ -240,6 +240,12 @@ final class InitRiskWpdb {
 }
 
 $riskProbe = (new ReflectionClass(\Duo\Init::class))->getMethod('risk_probe');
+$codeSecretProbe = (new ReflectionClass(\Duo\Init::class))->getMethod('code_secret_label');
+$secretFixture = tempnam(sys_get_temp_dir(), 'duo-init-long-secret-');
+if (!is_string($secretFixture)) fail('could not create long-secret scanner fixture');
+file_put_contents($secretFixture, "\n" . 'sk_live_' . str_repeat('A', 40000));
+check($codeSecretProbe->invoke(null, $secretFixture) === 'stripe key', 'overlong boundary-less token is refused during streaming scan');
+unlink($secretFixture);
 $originalWpdb = $GLOBALS['wpdb'] ?? null;
 $fakeWpdb = new InitRiskWpdb();
 $fakeWpdb->oversizedOptions = 2;
