@@ -514,6 +514,26 @@ load_pair(
 );
 check(true, 'a byte-identical widget restatement is allowed through, on the same terms');
 
+// taxonomies is the fourth surface of the same class (independent review's
+// remaining finding): description_refs_for_taxonomy(), object_type_from_
+// option, and the taxonomy class rule are all first-pin-wins with no
+// precedence layer, so a second declarer is the identical silent takeover.
+expect_throw(
+    function (): void {
+        load_pair(
+            manifest_a(['taxonomies' => ['acme_tax' => ['class' => 'authored', 'description_refs' => ['kind' => 'post']]]]),
+            manifest_b(['taxonomies' => ['acme_tax' => ['class' => 'runtime', 'description_refs' => ['kind' => 'term']]]])
+        );
+    },
+    'both declare taxonomies.acme_tax',
+    'B cannot re-declare a taxonomy A owns — every taxonomy lookup is first-pin-wins with no precedence layer'
+);
+load_pair(
+    manifest_a(['taxonomies' => ['acme_tax' => ['class' => 'authored']]]),
+    manifest_b(['taxonomies' => ['acme_tax' => ['class' => 'authored']]])
+);
+check(true, 'a byte-identical taxonomy restatement is allowed through, on the same terms');
+
 // core is deliberately NOT exempt: the DUO-3249 core-yields-to-plugin layer
 // is an option/meta RULE mechanism, and no lookup on these three surfaces
 // implements it, so exempting core would reintroduce the coin flip.

@@ -3102,6 +3102,10 @@ self::validate_post_type_children($manifest);
      * to the existing "widgets.<type>…" wordings rather than interpolated into
      * them, so the live caller (which has no manifest name to report) still
      * gets a complete sentence.
+          * A JSON key "0" decodes to an int PHP key; the declared
+     * ^[a-z0-9_-]+$ rule legally admits it after string coercion, so a
+     * mixed int/string key map loads — a syntactically legal id_base,
+     * not a validation gap.
      */
     public static function assert_widget_grammar(string $type, mixed $decl, ?string $source = null): void {
         $where = ($source === null ? '' : "$source ") . "widgets.$type";
@@ -4070,7 +4074,15 @@ self::validate_post_type_children($manifest);
         $seen = [];
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '?');
-            foreach (['post_types', 'tables', 'widgets'] as $surface) {
+            // taxonomies joined the walk on independent review: its three
+            // lookups (description_refs_for_taxonomy(), object_type_from_
+            // option, the taxonomy class rule) are all first-pin-wins with
+            // no precedence layer to appeal to — the identical takeover
+            // shape the other three surfaces refuse. Only polylang declares
+            // any taxonomy today and nothing overlaps; site
+            // policy.taxonomies is a plain scope-name list, not a
+            // declaration map, so no site exemption arises.
+            foreach (['post_types', 'tables', 'taxonomies', 'widgets'] as $surface) {
                 foreach ((array) ($manifest[$surface] ?? []) as $declared => $decl) {
                     $slot = "$surface\0$declared";
                     $fingerprint = Canon::encode([$decl]);
