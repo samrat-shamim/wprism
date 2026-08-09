@@ -246,7 +246,16 @@ final class Providers {
                 if ($pluginSupplied === null) {
                     $pluginSupplied = self::plugin_supplied_providers();
                 }
-                $provider = $pluginSupplied[$id] ?? null;
+                if (!$pluginSupplied['available']) {
+                    $problems[] = self::problem(
+                        $id, $manifest, $plugin, 'provider_registry_unavailable',
+                        'a readable `duo_providers` registry',
+                        'provider registry callback failed',
+                        'upgrade or disable the faulty provider plugin and retry'
+                    );
+                    continue;
+                }
+                $provider = $pluginSupplied['providers'][$id] ?? null;
                 if ($provider === null) {
                     $problems[] = self::problem(
                         $id, $manifest, $plugin, 'missing_plugin_provider',
@@ -374,7 +383,7 @@ final class Providers {
         try {
             $receipt = $provider->invoke($capability, $args);
         } catch (\Throwable $t) {
-            throw new \RuntimeException("duo: provider '$id' capability '$capability' failed", 0, $t);
+            throw new \RuntimeException("duo: provider '$id' capability '$capability' failed");
         }
         $elapsed = microtime(true) - $started;
 
@@ -383,8 +392,7 @@ final class Providers {
         if ($keys !== ['after', 'before', 'verified']) {
             throw new \RuntimeException(
                 "duo: provider '$id' capability '$capability' returned a malformed receipt — "
-                . 'exactly before, after, and verified are required (found: '
-                . ($keys === [] ? get_debug_type($receipt) : implode(', ', $keys)) . ')'
+                . 'exactly before, after, and verified are required'
             );
         }
         if ($receipt['verified'] !== true) {
@@ -555,13 +563,17 @@ final class Providers {
      * synthesizing a hook name out of manifest data — the id is matched
      * against each entry's own declared identity instead.
      *
-     * @return array<string,object>
+     * @return array{available:bool,providers:array<string,object>}
      */
     private static function plugin_supplied_providers(): array {
         if (!function_exists('apply_filters')) {
-            return [];
+            return ['available' => true, 'providers' => []];
         }
-        $supplied = apply_filters('duo_providers', []);
+        try {
+            $supplied = apply_filters('duo_providers', []);
+        } catch (\Throwable $t) {
+            return ['available' => false, 'providers' => []];
+        }
         $out = [];
         foreach ((array) $supplied as $entry) {
             if (!is_object($entry) || !is_callable([$entry, 'identity'])) {
@@ -585,7 +597,7 @@ final class Providers {
             }
             $out[$id] = $entry;
         }
-        return $out;
+        return ['available' => true, 'providers' => $out];
     }
 
     /**

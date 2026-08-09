@@ -35,6 +35,7 @@ define('ARRAY_A', 'ARRAY_A');
 $GLOBALS['duo_test_plugins'] = [];
 $GLOBALS['duo_test_active'] = [];
 $GLOBALS['duo_test_providers'] = [];
+$GLOBALS['duo_test_provider_registry_throw'] = null;
 
 function validate_plugin(string $plugin): mixed {
     return isset($GLOBALS['duo_test_plugins'][$plugin])
@@ -51,6 +52,9 @@ function is_wp_error(mixed $thing): bool {
     return $thing instanceof \WP_Error;
 }
 function apply_filters(string $hook, mixed $value): mixed {
+    if ($hook === 'duo_providers' && $GLOBALS['duo_test_provider_registry_throw'] !== null) {
+        throw new \RuntimeException($GLOBALS['duo_test_provider_registry_throw']);
+    }
     return $hook === 'duo_providers' ? $GLOBALS['duo_test_providers'] : $value;
 }
 // Apply::rebuild() flushes the object cache before and after the action loop
@@ -99,6 +103,7 @@ final class ProbeCache {
     public static ?string $capabilitiesThrows = null;
     public static array $identityOverrides = [];
     public static ?string $identityThrows = null;
+    public static ?string $invokeThrows = null;
     public static mixed $receiptOverride = null;
     public static float $sleepSeconds = 0.0;
 
@@ -134,6 +139,9 @@ final class ProbeCache {
 
     public function invoke(string $capability, array $args): array {
         $this->calls[] = [$capability, $args];
+        if (self::$invokeThrows !== null) {
+            throw new \RuntimeException(self::$invokeThrows);
+        }
         if (self::$sleepSeconds > 0.0) {
             usleep((int) (self::$sleepSeconds * 1000000));
         }
@@ -227,11 +235,13 @@ $reset = static function (): void {
     $GLOBALS['duo_test_plugins'] = ['probe/probe.php' => ['Version' => '1.5.0']];
     $GLOBALS['duo_test_active'] = ['probe/probe.php'];
     $GLOBALS['duo_test_providers'] = [];
+    $GLOBALS['duo_test_provider_registry_throw'] = null;
     \Duo\Providers\ProbeCache::$capabilityMapOverride = null;
     \Duo\Providers\ProbeCache::$capabilityOverrides = [];
     \Duo\Providers\ProbeCache::$capabilitiesThrows = null;
     \Duo\Providers\ProbeCache::$identityOverrides = [];
     \Duo\Providers\ProbeCache::$identityThrows = null;
+    \Duo\Providers\ProbeCache::$invokeThrows = null;
     \Duo\Providers\ProbeCache::$receiptOverride = null;
     \Duo\Providers\ProbeCache::$sleepSeconds = 0.0;
 };
@@ -394,6 +404,50 @@ $p = $one(\Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']
 $check(($p['code'] ?? '') === 'missing_plugin_provider' && str_contains($p['expected'] ?? '', 'duo_providers'),
     'a plugin-sourced provider nobody registered is a negotiation problem, not a load crash');
 
+$registryUnavailableManifest = $pluginSourced;
+$registryUnavailableManifest['providers'][] = [
+    'id' => 'probe-second',
+    'version' => '1.0.0',
+    'source' => 'plugin',
+    'plugin' => 'probe/probe.php',
+    'capabilities' => ['flush'],
+];
+$registryUnavailableManifest['actions'][] = [
+    'kind' => 'provider',
+    'provider' => 'probe-second',
+    'capability' => 'flush',
+    'args' => ['groups' => ['probe-group']],
+];
+$reset();
+$GLOBALS['duo_test_provider_registry_throw'] = $providerSecret;
+$registryUnavailablePolicy = $policyFor($registryUnavailableManifest);
+$registryProblems = \Duo\Providers::negotiate(
+    $registryUnavailablePolicy,
+    $registryUnavailablePolicy->actions_for(['post:probe'])
+)['problems'];
+$registryProblemJson = json_encode($registryProblems, JSON_THROW_ON_ERROR);
+$registryProblemsAreOpaque = count($registryProblems) === 2;
+$registryProblemProviders = array_map(
+    static fn(array $problem): string => (string) ($problem['provider'] ?? ''),
+    $registryProblems
+);
+sort($registryProblemProviders, SORT_STRING);
+foreach ($registryProblems as $problem) {
+    $registryProblemsAreOpaque = $registryProblemsAreOpaque
+        && ($problem['code'] ?? '') === 'provider_registry_unavailable'
+        && ($problem['expected'] ?? '') === 'a readable `duo_providers` registry'
+        && ($problem['found'] ?? '') === 'provider registry callback failed'
+        && ($problem['remediation'] ?? '') === 'upgrade or disable the faulty provider plugin and retry'
+        && !str_contains((string) ($problem['found'] ?? ''), "\n");
+}
+$check(
+    $registryProblemsAreOpaque
+    && $registryProblemProviders === ['probe-cache', 'probe-second']
+    && !str_contains($registryProblemJson, 'DUO_PROVIDER_SECRET')
+    && !str_contains($registryProblemJson, 'INJECTED_PROVIDER_LINE'),
+    'a throwing duo_providers registry blocks every selected plugin provider with one structured, redacted remediation'
+);
+
 $reset();
 $GLOBALS['duo_test_providers'] = [new \Duo\Providers\ProbeSupplied()];
 $negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
@@ -475,6 +529,43 @@ $expectInvokeFailure(
     'malformed receipt',
     'a receipt missing before/after/verified is refused'
 );
+$receiptSecret = "https://provider.example.test/receipt?access_token=DUO_RECEIPT_SECRET\nINJECTED_RECEIPT_LINE";
+$reset();
+\Duo\Providers\ProbeCache::$receiptOverride = [$receiptSecret => true];
+try {
+    \Duo\Providers::invoke($provider, $action, $declaration, []);
+    $check(false, 'a malformed receipt never publishes provider-returned receipt keys');
+} catch (\Throwable $t) {
+    $message = $t->getMessage();
+    $check(
+        str_contains($message, "provider 'probe-cache' capability 'flush'")
+        && str_contains($message, 'exactly before, after, and verified are required')
+        && !str_contains($message, 'DUO_RECEIPT_SECRET')
+        && !str_contains($message, 'INJECTED_RECEIPT_LINE')
+        && !str_contains($message, "\n"),
+        'a malformed receipt error preserves provider/capability and required shape without exposing returned keys'
+    );
+}
+$invokeSecret = "https://provider.example.test/invoke?access_token=DUO_INVOKE_SECRET\nINJECTED_INVOKE_LINE";
+$reset();
+\Duo\Providers\ProbeCache::$invokeThrows = $invokeSecret;
+try {
+    \Duo\Providers::invoke($provider, $action, $declaration, []);
+    $check(false, 'a provider invocation failure never publishes the provider throwable');
+} catch (\Throwable $t) {
+    $message = $t->getMessage();
+    $rendered = (string) $t;
+    $check(
+        str_contains($message, "provider 'probe-cache' capability 'flush' failed")
+        && !str_contains($message, 'DUO_INVOKE_SECRET')
+        && !str_contains($message, 'INJECTED_INVOKE_LINE')
+        && !str_contains($message, "\n")
+        && !str_contains($rendered, 'DUO_INVOKE_SECRET')
+        && !str_contains($rendered, 'INJECTED_INVOKE_LINE')
+        && $t->getPrevious() === null,
+        'a provider invocation failure preserves provider/capability but redacts its throwable chain'
+    );
+}
 // timeout_seconds is a positive integer, so the smallest honest overrun test
 // is a one-second budget deliberately exceeded. Worth the wall-clock second:
 // this is the only check that the post-hoc budget is enforced at all rather

@@ -65,6 +65,9 @@ if (!function_exists('get_option')) {
 }
 if (!function_exists('apply_filters')) {
     function apply_filters($tag, $value) {
+        if ($tag === 'duo_providers' && ($GLOBALS['cert_plugin_registry_throw'] ?? null) !== null) {
+            throw new RuntimeException($GLOBALS['cert_plugin_registry_throw']);
+        }
         return $tag === 'duo_providers'
             ? (array) ($GLOBALS['cert_plugin_providers'] ?? [])
             : $value;
@@ -732,6 +735,7 @@ PLUGIN
 );
 require_once $pluginFile;
 $GLOBALS['cert_plugin_providers'] = [new \DuoCertificationPluginProvider()];
+$GLOBALS['cert_plugin_registry_throw'] = null;
 if (!defined('WP_PLUGIN_DIR')) {
     define('WP_PLUGIN_DIR', $pluginDir);
 }
@@ -1131,7 +1135,11 @@ try {
             && ($blocker['trust_tier'] ?? null) === 'plugin_provider'
             && ($blocker['certification'] ?? null) === 'third_party_signed';
     };
-    $providerDiagnosticsAreSecretFree = static function (array $report, array $planRows) use ($providerSite): bool {
+    $providerDiagnosticsAreSecretFree = static function (
+        array $report,
+        array $planRows,
+        string $requiredCode
+    ) use ($providerSite): bool {
         $reportJson = json_encode($report, JSON_THROW_ON_ERROR);
         $planJson = json_encode($planRows, JSON_THROW_ON_ERROR);
         $status = PlanSummary::render(['adapter_dispositions' => $planRows]);
@@ -1150,7 +1158,9 @@ try {
                 return false;
             }
         }
-        return $status['ok'] === false;
+        return $status['ok'] === false
+            && str_contains($statusText, $requiredCode)
+            && str_contains($cliText, $requiredCode);
     };
     $validProviderRegistration = $GLOBALS['cert_plugin_providers'];
 
@@ -1251,7 +1261,11 @@ try {
             cert_provider_blocker($throwingCapabilitiesPlanRows, 'contract_shape'),
             'contract_shape'
         )
-        && $providerDiagnosticsAreSecretFree($throwingCapabilitiesReport, $throwingCapabilitiesPlanRows)
+        && $providerDiagnosticsAreSecretFree(
+            $throwingCapabilitiesReport,
+            $throwingCapabilitiesPlanRows,
+            'contract_shape'
+        )
         && $GLOBALS['cert_provider_invocations'] === 0,
         'a capabilities()-throwing provider remains a structured, redacted global/selected-plan blocker without invoking it'
     );
@@ -1272,11 +1286,42 @@ try {
             cert_provider_blocker($throwingIdentityPlanRows, 'missing_plugin_provider'),
             'missing_plugin_provider'
         )
-        && $providerDiagnosticsAreSecretFree($throwingIdentityReport, $throwingIdentityPlanRows)
+        && $providerDiagnosticsAreSecretFree(
+            $throwingIdentityReport,
+            $throwingIdentityPlanRows,
+            'missing_plugin_provider'
+        )
         && $GLOBALS['cert_provider_invocations'] === 0,
         'an identity()-throwing plugin registration remains a structured, redacted global/selected-plan blocker without invoking it'
     );
 
+    $GLOBALS['cert_plugin_registry_throw'] = "https://provider.example.test/registry?access_token=DUO_PROVIDER_SECRET_TOKEN\nINJECTED_PROVIDER_LINE";
+    $GLOBALS['cert_provider_invocations'] = 0;
+    $registryFailureReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
+    $registryFailurePlanRows = $providerPlanDispositions($providerPinnedPolicy, ['post:page']);
+    $registryFailureBlocker = cert_provider_blocker(
+        (array) ($registryFailureReport['blockers'] ?? []),
+        'provider_registry_unavailable'
+    );
+    cert_check(
+        ($registryFailureReport['ready'] ?? null) === false
+        && $hasProviderDiagnosticFields($registryFailureBlocker, 'provider_registry_unavailable')
+        && (($registryFailureBlocker['expected'] ?? null) === 'a readable `duo_providers` registry')
+        && (($registryFailureBlocker['found'] ?? null) === 'provider registry callback failed')
+        && $hasProviderDiagnosticFields(
+            cert_provider_blocker($registryFailurePlanRows, 'provider_registry_unavailable'),
+            'provider_registry_unavailable'
+        )
+        && $providerDiagnosticsAreSecretFree(
+            $registryFailureReport,
+            $registryFailurePlanRows,
+            'provider_registry_unavailable'
+        )
+        && $GLOBALS['cert_provider_invocations'] === 0,
+        'a throwing duo_providers registry remains a structured, redacted global/selected-plan/status/CLI blocker without invoking it'
+    );
+
+    $GLOBALS['cert_plugin_registry_throw'] = null;
     $GLOBALS['cert_plugin_providers'] = $validProviderRegistration;
     $GLOBALS['cert_provider_invocations'] = 0;
     $validProviderReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
