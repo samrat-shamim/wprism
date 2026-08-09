@@ -322,7 +322,12 @@ final class Refresh {
     }
 
     private static function assertOnlyStatePathsChanged(string $worktree): void {
-        $paths = array_filter(explode("\n", self::gitStdout($worktree, ['status', '--porcelain=v1', '--untracked-files=all'])));
+        // Disable rename folding so each canonical path is checked directly;
+        // porcelain's `old -> new` display is otherwise ambiguous to a path
+        // boundary even when both ends are under state/.
+        $paths = array_filter(explode("\n", self::gitStdout($worktree, [
+            'status', '--porcelain=v1', '--untracked-files=all', '--no-renames',
+        ])));
         foreach ($paths as $line) {
             $path = trim(substr($line, 3));
             if ($path === '' || (!str_starts_with($path, 'state/') && !str_starts_with($path, 'media/'))) {

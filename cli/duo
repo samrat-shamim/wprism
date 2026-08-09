@@ -371,6 +371,20 @@ function cmd_refresh(Transport $t, array $extra): int {
             . ' production=' . ($result['context']['production_commit'] ?? '?')
             . ' branch=' . ($result['context']['branch_commit'] ?? '?') . "\n";
         echo 'plan_hash=' . ($result['plan']['plan_hash'] ?? '?') . "\n";
+        $counts = $result['plan']['counts'] ?? [];
+        if (is_array($counts)) {
+            $parts = [];
+            foreach (['unchanged', 'production-only', 'branch-only', 'compatible', 'conflicting'] as $category) {
+                $parts[] = $category . '=' . (int) ($counts[$category] ?? 0);
+            }
+            echo 'categories: ' . implode(' ', $parts) . "\n";
+        }
+        foreach ((array) ($result['plan']['entries'] ?? []) as $entry) {
+            if (($entry['category'] ?? null) === 'conflicting') {
+                echo 'conflict ' . ($entry['id'] ?? '?') . ': '
+                    . ($entry['reason'] ?? 'semantic divergence') . "\n";
+            }
+        }
         return 0;
     } catch (\Throwable $e) {
         fwrite(STDERR, 'duo: refresh: ' . $e->getMessage() . "\n");
