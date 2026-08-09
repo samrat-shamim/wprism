@@ -81,6 +81,21 @@ final class ManifestDispositions {
         return $this->data['profiles'];
     }
 
+    /**
+     * Reuse the shipped disposition semantics for a separately authenticated
+     * site-adapter entry.  The caller owns source/signature/path checks; this
+     * narrow helper keeps section, version, capability, and evidence grammar
+     * identical instead of growing a second long-lived validator beside it.
+     */
+    public static function validate_external_entry(string $name, array $entry, array $manifest): void {
+        if ($name === '' || ($entry['status'] ?? null) !== 'certified') {
+            throw new \RuntimeException(
+                "duo: external manifest disposition '$name' must be a certified entry"
+            );
+        }
+        self::validate_entry($name, $entry, $manifest);
+    }
+
     /** @return list<array{name:string,status:string,reason:string}> */
     public function blockers(array $manifests): array {
         $out = [];

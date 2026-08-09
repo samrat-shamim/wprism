@@ -130,6 +130,26 @@ final class Providers {
     private const FIELD_TYPES = ['bool', 'int', 'string'];
 
     /**
+     * Whether this process has the live WordPress seams negotiation reads.
+     *
+     * Policy and registry validators deliberately have offline entry points:
+     * loading a manifest library must not manufacture a "missing provider"
+     * result merely because there is no WordPress target in this PHP process.
+     * A target-facing capability/status/plan path has this WordPress context
+     * and may therefore ask providers for identity/capabilities without
+     * invoking an action. Do NOT require validate_plugin()/get_plugins() here:
+     * Deploy::plugin_runtime_state() deliberately loads wp-admin's plugin API
+     * on demand under WP-CLI. Keep that distinction here rather than making
+     * Policy learn the WordPress lifecycle primitives Deploy owns.
+     */
+    public static function runtime_negotiation_available(): bool {
+        return defined('ABSPATH')
+            && defined('WP_PLUGIN_DIR')
+            && function_exists('apply_filters')
+            && function_exists('get_option');
+    }
+
+    /**
      * Resolve, verify, and bind every provider the selected actions reach.
      *
      * Returns problems rather than throwing them so one refusal can name every
@@ -226,12 +246,21 @@ final class Providers {
                 if ($pluginSupplied === null) {
                     $pluginSupplied = self::plugin_supplied_providers();
                 }
-                $provider = $pluginSupplied[$id] ?? null;
+                if (!$pluginSupplied['available']) {
+                    $problems[] = self::problem(
+                        $id, $manifest, $plugin, 'provider_registry_unavailable',
+                        'a readable `duo_providers` registry',
+                        'provider registry callback failed',
+                        'upgrade or disable the faulty provider plugin and retry'
+                    );
+                    continue;
+                }
+                $provider = $pluginSupplied['providers'][$id] ?? null;
                 if ($provider === null) {
                     $problems[] = self::problem(
                         $id, $manifest, $plugin, 'missing_plugin_provider',
                         "a `duo_providers` filter entry with identity id '$id'",
-                        $pluginSupplied === [] ? 'no plugin supplied any provider' : 'supplied: ' . implode(', ', array_keys($pluginSupplied)),
+                        'no registered provider matched the declared identity',
                         "upgrade $plugin to a version that registers the '$id' provider, or install its adapter package"
                     );
                     continue;
@@ -252,12 +281,22 @@ final class Providers {
                 continue;
             }
 
-            $advertised = $provider->capabilities();
+            try {
+                $advertised = $provider->capabilities();
+            } catch (\Throwable $t) {
+                $problems[] = self::problem(
+                    $id, $manifest, $plugin, 'contract_shape',
+                    'capabilities() returning a name => declaration map',
+                    'capabilities() threw',
+                    'upgrade the provider to the current adapter contract'
+                );
+                continue;
+            }
             if (!is_array($advertised) || array_is_list($advertised)) {
                 $problems[] = self::problem(
                     $id, $manifest, $plugin, 'contract_shape',
                     'capabilities() returning a name => declaration map',
-                    get_debug_type($advertised),
+                    'capabilities() did not return a name => declaration map',
                     'upgrade the provider to the current adapter contract'
                 );
                 continue;
@@ -344,7 +383,7 @@ final class Providers {
         try {
             $receipt = $provider->invoke($capability, $args);
         } catch (\Throwable $t) {
-            throw new \RuntimeException("duo: provider '$id' capability '$capability' failed", 0, $t);
+            throw new \RuntimeException("duo: provider '$id' capability '$capability' failed");
         }
         $elapsed = microtime(true) - $started;
 
@@ -353,8 +392,7 @@ final class Providers {
         if ($keys !== ['after', 'before', 'verified']) {
             throw new \RuntimeException(
                 "duo: provider '$id' capability '$capability' returned a malformed receipt — "
-                . 'exactly before, after, and verified are required (found: '
-                . ($keys === [] ? get_debug_type($receipt) : implode(', ', $keys)) . ')'
+                . 'exactly before, after, and verified are required'
             );
         }
         if ($receipt['verified'] !== true) {
@@ -525,13 +563,17 @@ final class Providers {
      * synthesizing a hook name out of manifest data — the id is matched
      * against each entry's own declared identity instead.
      *
-     * @return array<string,object>
+     * @return array{available:bool,providers:array<string,object>}
      */
     private static function plugin_supplied_providers(): array {
         if (!function_exists('apply_filters')) {
-            return [];
+            return ['available' => true, 'providers' => []];
         }
-        $supplied = apply_filters('duo_providers', []);
+        try {
+            $supplied = apply_filters('duo_providers', []);
+        } catch (\Throwable $t) {
+            return ['available' => false, 'providers' => []];
+        }
         $out = [];
         foreach ((array) $supplied as $entry) {
             if (!is_object($entry) || !is_callable([$entry, 'identity'])) {
@@ -546,16 +588,22 @@ final class Providers {
             // reports the accurate missing_plugin_provider problem.
             try {
                 $identity = $entry->identity();
+                // A provider registration is untrusted until its id survives
+                // this bounded, string-only discovery gate. In particular, do
+                // not coerce a Stringable here: its __toString() is plugin code
+                // and may throw or carry data that must never escape readiness
+                // diagnostics.
+                $id = is_array($identity) ? ($identity['id'] ?? null) : null;
+                if (!is_string($id) || $id === ''
+                    || preg_match(self::ID_PATTERN, $id) !== 1 || isset($out[$id])) {
+                    continue;
+                }
             } catch (\Throwable $t) {
-                continue;
-            }
-            $id = is_array($identity) ? (string) ($identity['id'] ?? '') : '';
-            if ($id === '' || preg_match(self::ID_PATTERN, $id) !== 1 || isset($out[$id])) {
                 continue;
             }
             $out[$id] = $entry;
         }
-        return $out;
+        return ['available' => true, 'providers' => $out];
     }
 
     /**
@@ -598,8 +646,8 @@ final class Providers {
             || !str_starts_with($real . '', rtrim($anchor, '/') . '/')) {
             return self::problem(
                 $id, $manifest, $plugin, 'provider_outside_owning_plugin',
-                "the provider class defined under $anchor",
-                $real === false ? 'an unresolvable class file' : "class file $real",
+                'provider class defined under the owning plugin directory',
+                'provider class is not anchored under the owning plugin',
                 "register the '$id' provider from $plugin itself, or declare it source: manifest"
             );
         }
@@ -624,7 +672,7 @@ final class Providers {
                 return self::problem(
                     $id, $manifest, $plugin, 'contract_shape',
                     'identity(): array, capabilities(): array, invoke(string, array): array',
-                    get_class($provider) . " has no public $method()",
+                    "provider lacks required public $method()",
                     'upgrade the provider to the current adapter contract'
                 );
             }
@@ -636,7 +684,7 @@ final class Providers {
             return self::problem(
                 $id, $manifest, $plugin, 'contract_shape',
                 'identity() returning an array',
-                'identity() threw: ' . $t->getMessage(),
+                'identity() threw',
                 'upgrade the provider to the current adapter contract'
             );
         }
@@ -647,7 +695,7 @@ final class Providers {
             return self::problem(
                 $id, $manifest, $plugin, 'identity_mismatch',
                 self::describe($expected),
-                self::describe($found),
+                'identity() did not match the declared provider identity',
                 "align the provider's identity() with manifest '$manifest', or pin the manifest revision "
                     . 'that matches the installed provider'
             );
@@ -679,12 +727,10 @@ final class Providers {
         $plugin = (string) $declaration['plugin'];
         $decl = $advertised[$capability] ?? null;
         if (!is_array($decl)) {
-            $names = array_keys($advertised);
-            sort($names, SORT_STRING);
             return self::problem(
                 $id, $manifest, $plugin, 'missing_capability',
                 "capability '$capability'",
-                $names === [] ? 'no capabilities advertised' : 'advertised: ' . implode(', ', $names),
+                'provider did not advertise the declared capability',
                 "upgrade $plugin (or its adapter package) to a version advertising '$capability'"
             );
         }
@@ -694,7 +740,7 @@ final class Providers {
             return self::problem(
                 $id, $manifest, $plugin, 'malformed_capability',
                 'a well-formed capability declaration',
-                $t->getMessage(),
+                'provider advertised a malformed capability declaration',
                 'upgrade the provider to the current adapter contract'
             );
         }
@@ -745,7 +791,7 @@ final class Providers {
             return self::problem(
                 $id, $manifest, $plugin, 'invalid_capability_args',
                 'arguments matching the capability schema',
-                $t->getMessage(),
+                'action arguments do not match advertised schema',
                 "correct the action arguments in manifest '$manifest', or pin a manifest matching this "
                     . 'provider version'
             );

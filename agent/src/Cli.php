@@ -585,6 +585,7 @@ final class Cli {
                 'CAPABILITY_' . strtoupper((string) ($r['status'] ?? 'unsupported')) . ' '
                 . ($r['name'] ?? '?') . ' [source=' . ($r['source'] ?? 'shipped')
                 . ' tier=' . ($r['trust_tier'] ?? 'unknown')
+                . ' certification=' . ($r['certification'] ?? 'registry')
                 . '] [' . ($r['code'] ?? 'not_certified') . ']: '
                 . ($r['reason'] ?? 'not certified')
             );
@@ -1716,7 +1717,9 @@ final class Cli {
         foreach ($report['profiles'] as $name => $profile) {
             WP_CLI::line('PROFILE ' . $name . ' ' . strtoupper((string) $profile['status']));
         }
-        WP_CLI::line('evidence bundle: ' . ($report['evidence']['bundle_digest'] ?? 'none'));
+        WP_CLI::line(($report['evidence_scope'] ?? null) === 'per_manifest'
+            ? 'evidence: per manifest (see each adapter)'
+            : 'evidence bundle: ' . ($report['evidence']['bundle_digest'] ?? 'none'));
         WP_CLI::line('registry sha256: ' . ($report['registry_sha256'] ?? 'none'));
     }
 }

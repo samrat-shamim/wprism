@@ -24,7 +24,10 @@ final class Policy {
     // every manifest default to "shipped", dropping one key would silently
     // launder an out-of-tree adapter into a shipped one on the verification
     // path, which is exactly the provenance guarantee this record exists for.
-    private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v4';
+    // v5 carries signed site-adapter certification envelopes. from_snapshot()
+    // retains v4 reads only for the prior uncertified adapter-sources/v1 form.
+    private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v5';
+    private const LEGACY_SNAPSHOT_FORMAT = 'duo-policy-snapshot/v4';
     /** Object keyspaces supported by the canonical taxonomy relationship contract. */
     private const TAXONOMY_RELATIONSHIP_OBJECTS = ['post', 'term'];
 
@@ -146,10 +149,9 @@ final class Policy {
             : null;
         foreach ($pins as $pin) {
             $name = $pin['name'];
-            // basename() is the pre-existing traversal guard on a pin name; it
-            // stays the single lookup key so an origin, its file, and its
-            // provenance can never be resolved from three different strings.
-            $key = basename($name);
+            // normalize_manifest_pins() has already proved this exact identity
+            // path-free and canonical; never rewrite it into a different key.
+            $key = $name;
             $manifest = Canon::decode(Canon::read_file($p->adapterSources->file($key, $dir)));
             if ($p->adapterSources->is_out_of_tree($key)) {
                 AdapterSources::assert_out_of_tree_contract(
@@ -198,6 +200,7 @@ self::validate_post_type_children($manifest);
         self::validate_no_conflicting_description_reference_rules($p->manifests);
         self::validate_reference_keyspaces_and_sidecars($p);
         self::validate_manifest_pins($pins, $p);
+        $p->adapterSources->bind_explicit_pins($pins);
         if ($p->manifestDispositions !== null && class_exists(CapabilityRegistry::class)) {
             // Only the shipped subset is a registry claim. Handing an
             // out-of-tree manifest to registry validation would demand a claim
@@ -226,11 +229,14 @@ self::validate_post_type_children($manifest);
      * that exact policy without reopening mutable repository files.
      */
     public function export_snapshot(): array {
+        $adapterSources = $this->adapter_sources()->export();
         return [
-            'format' => self::SNAPSHOT_FORMAT,
+            'format' => ($adapterSources['format'] ?? null) === AdapterSources::LEGACY_FORMAT
+                ? self::LEGACY_SNAPSHOT_FORMAT
+                : self::SNAPSHOT_FORMAT,
             'site' => $this->site,
             'manifests' => $this->manifests,
-            'adapter_sources' => $this->adapter_sources()->export(),
+            'adapter_sources' => $adapterSources,
             'dispositions' => $this->manifestDispositions?->data(),
             'capabilities' => $this->capabilityRegistry?->data(),
         ];
@@ -241,13 +247,23 @@ self::validate_post_type_children($manifest);
         self::assert_single_site();
         $keys = array_keys($snapshot);
         sort($keys, SORT_STRING);
+        $snapshotFormat = $snapshot['format'] ?? null;
         if ($keys !== ['adapter_sources', 'capabilities', 'dispositions', 'format', 'manifests', 'site']
-            || ($snapshot['format'] ?? null) !== self::SNAPSHOT_FORMAT
+            || !in_array($snapshotFormat, [self::LEGACY_SNAPSHOT_FORMAT, self::SNAPSHOT_FORMAT], true)
             || !is_array($snapshot['adapter_sources'] ?? null)
             || !is_array($snapshot['site'] ?? null)
             || !is_array($snapshot['manifests'] ?? null)
             || !array_is_list($snapshot['manifests'])) {
             throw new \RuntimeException('duo: frozen policy snapshot has an unsupported or malformed shape');
+        }
+        $adapterSourceFormat = $snapshot['adapter_sources']['format'] ?? null;
+        if (($snapshotFormat === self::LEGACY_SNAPSHOT_FORMAT
+                && $adapterSourceFormat !== AdapterSources::LEGACY_FORMAT)
+            || ($snapshotFormat === self::SNAPSHOT_FORMAT
+                && $adapterSourceFormat !== AdapterSources::FORMAT)) {
+            throw new \RuntimeException(
+                'duo: frozen policy snapshot format disagrees with its adapter source record format'
+            );
         }
 
         $p = new self();
@@ -346,6 +362,7 @@ self::validate_post_type_children($manifest);
         self::validate_no_conflicting_description_reference_rules($p->manifests);
         self::validate_reference_keyspaces_and_sidecars($p);
         self::validate_manifest_pins($pins, $p);
+        $p->adapterSources->bind_explicit_pins($pins);
         return $p;
     }
 
@@ -373,11 +390,19 @@ self::validate_post_type_children($manifest);
 
     /** The generated evidence-bound claim for one pinned adapter. */
     public function capability_claim(string $name): ?array {
-        return $this->capabilityRegistry?->claim($name);
+        return $this->adapter_sources()->claim($name) ?? $this->capabilityRegistry?->claim($name);
     }
 
-    /** Non-certified pinned adapters are a structured readiness blocker. */
-    public function adapter_readiness_blockers(): array {
+    /**
+     * Certification/source-only blockers for a pinned adapter set.
+     *
+     * This intentionally does not contact provider code. Apply::build_plan()
+     * starts with this stable source/evidence view, then appends provider
+     * problems for only the actions its own work/deletion surfaces selected.
+     * Calling the global provider view here would turn an unrelated or empty
+     * plan into a blocker for a declaration it cannot execute on that plan.
+     */
+    public function certification_readiness_blockers(): array {
         if ($this->manifestDispositions === null) {
             return [];
         }
@@ -393,8 +418,86 @@ self::validate_post_type_children($manifest);
             $this->manifests,
             ['operation' => 'promote'],
             CapabilityRegistry::probe_target(),
-            $this->adapter_sources()->diagnostics($this->manifests)
+            $this->adapter_sources()->diagnostics($this->manifests),
+            $this->adapter_sources()->certification_contexts()
         );
+    }
+
+    /**
+     * Every source/evidence and runtime-provider blocker for this policy.
+     *
+     * This is the global readiness answer used by callers that ask whether
+     * the installed adapter set is usable at all. It deliberately negotiates
+     * every declared provider ACTION, irrespective of that action's trigger:
+     * a capability report must not be green merely because this particular
+     * moment has no matching authored surface. Plan construction uses
+     * certification_readiness_blockers() plus the selected-action method
+     * below instead.
+     */
+    public function adapter_readiness_blockers(): array {
+        return array_merge(
+            $this->certification_readiness_blockers(),
+            $this->provider_readiness_blockers($this->actions())
+        );
+    }
+
+    /**
+     * Negotiate selected provider actions for a target-facing diagnostic.
+     *
+     * Providers::negotiate() calls only identity() and capabilities() on a
+     * provider; it never calls invoke(). Its structured problems are promoted
+     * into the same adapter_dispositions wire shape plan/status already render
+     * so provider, plugin, source, tier, and operator remediation remain
+     * visible instead of a signed claim masking a live incompatibility.
+     *
+     * @param list<array<string,mixed>> $actions
+     * @return list<array<string,mixed>>
+     */
+    public function provider_readiness_blockers(array $actions): array {
+        $providerActions = array_values(array_filter(
+            $actions,
+            static fn(array $action): bool => ($action['kind'] ?? null) === 'provider'
+        ));
+        if ($providerActions === [] || $this->manifestDispositions === null || $this->capabilityRegistry === null) {
+            return [];
+        }
+
+        // These classes are intentionally late-bound: Policy retains its
+        // pure/offline loading entry point, while a real target path gains the
+        // one runtime contract Deploy and Providers already share.
+        require_once __DIR__ . '/Deploy.php';
+        require_once __DIR__ . '/Providers.php';
+        if (!Providers::runtime_negotiation_available()) {
+            return [];
+        }
+
+        $negotiation = Providers::negotiate($this, $providerActions);
+        $sources = $this->adapter_sources()->diagnostics($this->manifests);
+        $rows = [];
+        foreach ($negotiation['problems'] as $problem) {
+            $manifest = (string) ($problem['manifest'] ?? '?');
+            $source = $sources[$manifest] ?? [
+                'certification' => 'unknown',
+                'source' => 'unknown',
+                'trust_tier' => 'unknown',
+            ];
+            $rows[] = [
+                'name' => $manifest,
+                'status' => 'blocked',
+                'code' => (string) ($problem['code'] ?? 'provider_negotiation_failed'),
+                'reason' => (string) ($problem['message'] ?? 'provider negotiation failed'),
+                'remediation' => (string) ($problem['remediation'] ?? ''),
+                'provider' => (string) ($problem['provider'] ?? '?'),
+                'manifest' => $manifest,
+                'plugin' => (string) ($problem['plugin'] ?? '?'),
+                'expected' => (string) ($problem['expected'] ?? ''),
+                'found' => (string) ($problem['found'] ?? ''),
+                'source' => (string) ($source['source'] ?? 'unknown'),
+                'trust_tier' => (string) ($source['trust_tier'] ?? 'unknown'),
+                'certification' => (string) ($source['certification'] ?? 'unknown'),
+            ];
+        }
+        return $rows;
     }
 
     /** Resolve CLI capability output from the same manifests and external review bytes. */
@@ -413,12 +516,49 @@ self::validate_post_type_children($manifest);
                 'profiles' => new \stdClass(),
             ];
         }
-        return $this->capabilityRegistry->report(
+        $report = $this->capabilityRegistry->report(
             $this->manifests,
             $query,
             CapabilityRegistry::probe_target(),
-            $this->adapter_sources()->diagnostics($this->manifests)
+            $this->adapter_sources()->diagnostics($this->manifests),
+            $this->adapter_sources()->certification_contexts()
         );
+        $providerBlockers = $this->provider_readiness_blockers($this->actions());
+        if ($providerBlockers === []) {
+            return $report;
+        }
+
+        // Preserve the registry claim (the signed/certified source fact), but
+        // make its executable provider state a separate blocked verdict. The
+        // provider fields travel both on the top-level blocker and the row's
+        // reason so JSON consumers do not have to reconstruct responsibility
+        // from a human-formatted string.
+        $rowsByName = [];
+        foreach ($report['manifests'] as $index => $row) {
+            $rowsByName[(string) ($row['name'] ?? '?')][] = $index;
+        }
+        foreach ($providerBlockers as $blocker) {
+            $reason = [
+                'code' => $blocker['code'],
+                'message' => $blocker['reason'],
+                'remediation' => $blocker['remediation'],
+                'provider' => $blocker['provider'],
+                'manifest' => $blocker['manifest'],
+                'plugin' => $blocker['plugin'],
+                'expected' => $blocker['expected'],
+                'found' => $blocker['found'],
+                'source' => $blocker['source'],
+                'trust_tier' => $blocker['trust_tier'],
+                'certification' => $blocker['certification'],
+            ];
+            foreach ($rowsByName[(string) $blocker['name']] ?? [] as $index) {
+                $report['manifests'][$index]['verdict']['status'] = 'blocked';
+                $report['manifests'][$index]['verdict']['reasons'][] = $reason;
+            }
+            $report['blockers'][] = $blocker;
+        }
+        $report['ready'] = $report['blockers'] === [];
+        return $report;
     }
 
     /**
@@ -474,6 +614,7 @@ self::validate_post_type_children($manifest);
         $pins = [];
         foreach ($rawPins as $i => $raw) {
             if (is_string($raw) && $raw !== '') {
+                AdapterSources::assert_name($raw, "site.duo.json manifests[$i]");
                 $pins[] = ['name' => $raw, 'digest' => null, 'source' => null];
                 continue;
             }
@@ -483,6 +624,7 @@ self::validate_post_type_children($manifest);
                     . 'a non-empty string name and optional digest and source'
                 );
             }
+            AdapterSources::assert_name($raw['name'], "site.duo.json manifests[$i].name");
             $unknown = array_diff(array_keys($raw), ['name', 'digest', 'source']);
             if ($unknown !== []) {
                 throw new \RuntimeException(
@@ -523,7 +665,7 @@ self::validate_post_type_children($manifest);
             if ($pin['source'] === null) {
                 continue;
             }
-            $actual = $sources->source(basename($pin['name']));
+            $actual = $sources->source($pin['name']);
             if ($actual !== $pin['source']) {
                 throw new \RuntimeException(
                     "duo: manifest '{$pin['name']}' is pinned to the {$pin['source']} adapter source but resolves "
@@ -5226,6 +5368,9 @@ self::validate_post_type_children($manifest);
             if (!is_string($id) || $id === '') {
                 throw new \RuntimeException("duo: manifest '$name' declares a non-string or empty '$idKey'");
             }
+            if ($idKey === 'plugin') {
+                AdapterSources::assert_plugin_basename($id, "manifest '$name' declares 'plugin'");
+            }
             // DUO-3314: this field became site-controlled the moment adapters
             // could be installed out-of-tree, and three call sites concatenate
             // it into a filesystem path (CapabilityRegistry::
@@ -5239,9 +5384,9 @@ self::validate_post_type_children($manifest);
             // or a backslash is refused at load, before any consumer.
             $segments = explode('/', $id);
             $depthOk = $idKey === 'plugin' ? count($segments) <= 2 : count($segments) === 1;
-            if (!$depthOk || $id[0] === '/' || str_contains($id, '\\')
+            if ($idKey !== 'plugin' && (!$depthOk || $id[0] === '/' || str_contains($id, '\\')
                 || in_array('..', $segments, true) || in_array('.', $segments, true)
-                || in_array('', $segments, true)) {
+                || in_array('', $segments, true))) {
                 throw new \RuntimeException(
                     "duo: manifest '$name' declares '$idKey' " . var_export($id, true)
                     . ' — a ' . $idKey . ' identifier is '
@@ -5854,10 +5999,7 @@ self::validate_post_type_children($manifest);
             if (!in_array($declaration['source'], self::PROVIDER_SOURCES, true)) {
                 throw new \RuntimeException("duo: $where.source must be \"manifest\" or \"plugin\"");
             }
-            $plugin = $declaration['plugin'];
-            if (!is_string($plugin) || $plugin === '' || strlen($plugin) > 255) {
-                throw new \RuntimeException("duo: $where.plugin must be a non-empty plugin basename");
-            }
+            $plugin = AdapterSources::assert_plugin_basename($declaration['plugin'], "$where.plugin");
             $manifestPlugin = $manifest['plugin'] ?? null;
             if (is_string($manifestPlugin) && $manifestPlugin !== '' && $manifestPlugin !== $plugin) {
                 throw new \RuntimeException(

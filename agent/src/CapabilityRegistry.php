@@ -113,6 +113,99 @@ final class CapabilityRegistry {
     }
 
     /**
+     * Project one reviewed disposition into the generic capability-row shape
+     * without assigning an adapter digest or consulting this registry's global
+     * evidence.  Shipped registry generation and separately authenticated site
+     * adapters can therefore share operations/surface/environment semantics;
+     * callers bind their own source-specific evidence and may add the final
+     * digest only after the disposition source is settled.
+     *
+     * @return array<string,mixed>
+     */
+    public static function claim_from_disposition(
+        array $manifest,
+        array $disposition,
+        array $evidence,
+        array $platform,
+        ?array $pluginExecution = null
+    ): array {
+        $name = (string) ($manifest['name'] ?? '');
+        if ($name === '' || !is_array($disposition['capabilities'] ?? null)
+            || !is_array($platform['compatibility'] ?? null)) {
+            throw new \RuntimeException('duo: cannot project a malformed manifest disposition capability claim');
+        }
+        $status = (string) ($disposition['status'] ?? 'unsupported');
+        $execution = $pluginExecution ?? [
+            'mode' => 'unmodified',
+            'status' => $status === 'certified'
+                ? 'verified'
+                : ($status === 'excluded' ? 'not-a-product-claim' : 'unverified'),
+        ];
+        $capabilities = $disposition['capabilities'];
+        $surfaces = [];
+        foreach (array_merge(
+            (array) ($capabilities['entity_sections'] ?? []),
+            (array) ($capabilities['field_sections'] ?? [])
+        ) as $section) {
+            if (!is_string($section) || $section === '') {
+                throw new \RuntimeException("duo: manifest disposition '$name' has a malformed capability section");
+            }
+            $surfaces[] = $section;
+            $value = $manifest[$section] ?? null;
+            if (is_array($value) && !array_is_list($value)) {
+                foreach (array_keys($value) as $key) {
+                    $surfaces[] = $section . '.' . $key;
+                }
+            }
+        }
+        foreach ((array) (($capabilities['deletion_semantics']['supported'] ?? [])) as $selector) {
+            if (!is_string($selector) || $selector === '') {
+                throw new \RuntimeException("duo: manifest disposition '$name' has a malformed deletion selector");
+            }
+            $surfaces[] = 'deletions.' . $selector;
+        }
+        $surfaces = array_values(array_unique($surfaces, SORT_STRING));
+        sort($surfaces, SORT_STRING);
+
+        $operations = array_values((array) ($capabilities['operations'] ?? []));
+        if (in_array('deploy', $operations, true) && in_array('apply', $operations, true)) {
+            $operations[] = 'promote';
+        }
+        foreach ($operations as $operation) {
+            if (!is_string($operation) || $operation === '') {
+                throw new \RuntimeException("duo: manifest disposition '$name' has a malformed operation");
+            }
+        }
+        $operations = array_values(array_unique($operations, SORT_STRING));
+        sort($operations, SORT_STRING);
+
+        return [
+            'name' => $name,
+            'status' => $status,
+            'reason' => (string) ($disposition['reason'] ?? ''),
+            'plugin_execution' => $execution,
+            'authored_state' => [
+                'status' => $status === 'excluded' ? 'unsupported' : $status,
+                'scope' => 'only the exact registered surfaces and operations below',
+            ],
+            'supported_versions' => $disposition['supported_versions'] ?? new \stdClass(),
+            'environment_assumptions' => [
+                'site_mode' => $platform['site_mode'] ?? null,
+                'php' => $platform['compatibility']['php'] ?? new \stdClass(),
+                'database' => $platform['compatibility']['database'] ?? new \stdClass(),
+                'wordpress' => $platform['compatibility']['wordpress'] ?? new \stdClass(),
+            ],
+            'operations' => $operations,
+            'surfaces' => $surfaces,
+            'lifecycle_phases' => $capabilities['lifecycle_phases'] ?? [],
+            'deletion_semantics' => $capabilities['deletion_semantics'] ?? new \stdClass(),
+            'unsupported' => $disposition['unsupported'] ?? [],
+            'evidence' => $evidence,
+            'platform' => $platform,
+        ];
+    }
+
+    /**
      * Return product-readiness blockers for selected manifests. With no live
      * target facts this is the immutable/source gate. A real wp-cli request
      * supplies target facts and additionally proves runtime compatibility.
@@ -121,9 +214,10 @@ final class CapabilityRegistry {
         array $manifests,
         array $query = [],
         ?array $target = null,
-        array $sources = []
+        array $sources = [],
+        array $externalContexts = []
     ): array {
-        return $this->report($manifests, $query, $target, $sources)['blockers'];
+        return $this->report($manifests, $query, $target, $sources, $externalContexts)['blockers'];
     }
 
     /**
@@ -139,13 +233,16 @@ final class CapabilityRegistry {
         array $manifests,
         array $query = [],
         ?array $target = null,
-        array $sources = []
+        array $sources = [],
+        array $externalContexts = []
     ): array {
         $operation = (string) ($query['operation'] ?? 'promote');
         $surface = isset($query['surface']) ? (string) $query['surface'] : null;
         $revision = isset($query['revision']) ? (string) $query['revision'] : null;
         $rows = [];
         $blockers = [];
+        $perRowEvidence = [];
+        $hasOutOfTree = false;
 
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '?');
@@ -157,7 +254,16 @@ final class CapabilityRegistry {
                 'trust_tier' => AdapterSources::trust_tier($manifest),
             ];
             $outOfTree = ($source['source'] ?? AdapterSources::SHIPPED) !== AdapterSources::SHIPPED;
-            $claim = $this->claim($name);
+            $hasOutOfTree = $hasOutOfTree || $outOfTree;
+            $external = is_array($externalContexts[$name] ?? null) ? $externalContexts[$name] : null;
+            $externalClaim = is_array($external['claim'] ?? null) ? $external['claim'] : null;
+            $explicitPin = ($external['explicit_pin'] ?? false) === true;
+            if ($externalClaim !== null && !$outOfTree) {
+                throw new \RuntimeException(
+                    "duo: external capability context for shipped adapter '$name' would replace its registry claim"
+                );
+            }
+            $claim = $externalClaim ?? $this->claim($name);
             $reasons = [];
             if ($claim === null) {
                 // An out-of-tree adapter has no registry entry BY CONSTRUCTION,
@@ -189,6 +295,14 @@ final class CapabilityRegistry {
                     'unsupported' => [],
                 ];
             } else {
+                if ($externalClaim !== null && !$explicitPin) {
+                    $reasons[] = self::reason(
+                        'adapter_certification_unpinned',
+                        "'$name' has valid signed third-party evidence, but its repository pin does not bind both "
+                        . 'source "site" and the final certificate-derived digest',
+                        (string) ($source['remediation'] ?? '')
+                    );
+                }
                 if (($claim['status'] ?? null) !== 'certified') {
                     $reasons[] = self::reason(
                         'authored_state_not_certified',
@@ -209,18 +323,30 @@ final class CapabilityRegistry {
                 }
             }
 
-            if (($this->data['evidence']['status'] ?? null) !== 'current') {
+            $selectedEvidence = $externalClaim !== null
+                ? (is_array($externalClaim['evidence'] ?? null) ? $externalClaim['evidence'] : [])
+                : ($outOfTree ? [] : $this->data['evidence']);
+            $selectedPlatform = $externalClaim !== null
+                ? (is_array($externalClaim['platform'] ?? null) ? $externalClaim['platform'] : [])
+                : ($outOfTree ? [] : $this->data['platform']);
+            // A site source never inherits the shipped registry's global
+            // evidence. Unsigned site adapters have exactly the explicit
+            // uncertified blocker above; signed ones are evaluated only
+            // against their own signed evidence/platform context.
+            if ((!$outOfTree || $externalClaim !== null)
+                && ($selectedEvidence['status'] ?? null) !== 'current') {
                 $reasons[] = self::reason('evidence_not_current', 'the bound certification evidence is not current');
             }
-            if ($revision !== null && $revision !== ''
-                && !hash_equals((string) ($this->data['evidence']['git_revision'] ?? ''), $revision)) {
+            if ((!$outOfTree || $externalClaim !== null)
+                && $revision !== null && $revision !== ''
+                && !hash_equals((string) ($selectedEvidence['git_revision'] ?? ''), $revision)) {
                 $reasons[] = self::reason(
                     'revision_not_certified',
                     "revision $revision is not the evidence-bound platform revision"
                 );
             }
-            if ($target !== null) {
-                $reasons = array_merge($reasons, $this->target_reasons($claim, $target));
+            if ($target !== null && (!$outOfTree || $externalClaim !== null)) {
+                $reasons = array_merge($reasons, $this->target_reasons($claim, $target, $selectedPlatform));
             }
 
             $verdict = $reasons === [] ? 'certified' : 'blocked';
@@ -232,6 +358,13 @@ final class CapabilityRegistry {
             $row['source'] = $source;
             $row['verdict'] = ['status' => $verdict, 'reasons' => $reasons];
             $rows[] = $row;
+            $perRowEvidence[] = [
+                'evidence' => $selectedEvidence,
+                'platform' => $selectedPlatform,
+                'scope' => $outOfTree
+                    ? ($externalClaim === null ? 'none' : 'site_certificate')
+                    : 'shipped_registry',
+            ];
             foreach ($reasons as $reason) {
                 $blockers[] = [
                     'name' => $name,
@@ -241,19 +374,33 @@ final class CapabilityRegistry {
                     'remediation' => (string) ($reason['remediation'] ?? ''),
                     'source' => (string) ($source['source'] ?? AdapterSources::SHIPPED),
                     'trust_tier' => (string) ($source['trust_tier'] ?? ''),
+                    'certification' => (string) ($source['certification'] ?? 'registry'),
                 ];
             }
         }
 
-        return [
+        // A mixed report has no single evidence/platform authority. Preserve
+        // the historical top-level shipped fields byte-for-byte for --all and
+        // shipped-only callers, but make mixed reports explicitly per-row so
+        // a signed site claim can never appear to inherit the shipped bundle.
+        if ($hasOutOfTree) {
+            foreach ($rows as $i => &$row) {
+                $row['evidence'] = $perRowEvidence[$i]['evidence'];
+                $row['platform'] = $perRowEvidence[$i]['platform'];
+                $row['evidence_scope'] = $perRowEvidence[$i]['scope'];
+            }
+            unset($row);
+        }
+
+        $report = [
             'schema_version' => self::FORMAT,
             'registry_sha256' => hash('sha256', Canon::encode($this->data)),
-            'platform' => $this->data['platform'],
-            'evidence' => $this->data['evidence'],
+            'platform' => $hasOutOfTree ? null : $this->data['platform'],
+            'evidence' => $hasOutOfTree ? null : $this->data['evidence'],
             'query' => [
                 'operation' => $operation,
                 'surface' => $surface,
-                'revision' => $revision ?? $this->data['evidence']['git_revision'],
+                'revision' => $revision ?? ($hasOutOfTree ? null : $this->data['evidence']['git_revision']),
             ],
             'target' => $target,
             'ready' => $blockers === [],
@@ -261,6 +408,10 @@ final class CapabilityRegistry {
             'manifests' => $rows,
             'profiles' => $this->profiles(),
         ];
+        if ($hasOutOfTree) {
+            $report['evidence_scope'] = 'per_manifest';
+        }
+        return $report;
     }
 
     /** Collect only facts needed to decide the certified target boundary. */
@@ -294,9 +445,9 @@ final class CapabilityRegistry {
         ];
     }
 
-    private function target_reasons(array $claim, array $target): array {
+    private function target_reasons(array $claim, array $target, ?array $selectedPlatform = null): array {
         $reasons = [];
-        $platform = $this->data['platform'];
+        $platform = $selectedPlatform ?? $this->data['platform'];
         if (!empty($target['multisite'])) {
             $reasons[] = self::reason('multisite_unsupported', 'the certified v1 registry is single-site only');
         }

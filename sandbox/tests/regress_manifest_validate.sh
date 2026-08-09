@@ -121,8 +121,15 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 #
 # Both directions are ratcheted: an unlisted unguarded reach fails, and so does
 # a stale allowlist entry that no longer matches anything.
-wp_allow='CapabilityRegistry.php:probe_target,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present'
-wp_allow_via='CapabilityRegistry::report() Policy::taxonomies() NativeActions::execute()'
+# Signed site-adapter validation makes AdapterCertification part of the static
+# load closure. Its capability/disposition validators in turn load Deploy and
+# Providers, but manifest-validate never calls their target-facing methods:
+# those are exactly the Deploy::code_mismatch()/code_drift() and
+# Providers::negotiate() surfaces named in the deferred document below. Keep
+# the private helpers explicit here so a new WordPress reach cannot hide behind
+# the wider dependency graph.
+wp_allow='CapabilityRegistry.php:probe_target,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,Deploy.php:code_mismatch,Deploy.php:code_drift,Deploy.php:record_code_versions,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Deploy.php:check_theme_range,Providers.php:plugin_supplied_providers'
+wp_allow_via='CapabilityRegistry::report() Policy::taxonomies() NativeActions::execute() Deploy::code_mismatch() Deploy::code_drift() Providers::negotiate()'
 
 scan_wp() {
   # $1 = allowlist (may be empty), remaining args = files

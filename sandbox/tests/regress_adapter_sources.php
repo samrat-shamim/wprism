@@ -483,6 +483,20 @@ check(
     && ($coreRow['source']['certification'] ?? null) === 'registry',
     'the shipped row names its own source and defers certification to the reviewed registry'
 );
+check(
+    ($overlayReport['evidence_scope'] ?? null) === 'per_manifest'
+    && $overlayReport['evidence'] === null
+    && $overlayReport['platform'] === null
+    && ($overlayReport['query']['revision'] ?? null) === null,
+    'a mixed-source report exposes no misleading global evidence/platform/revision authority'
+);
+check(
+    ($coreRow['evidence_scope'] ?? null) === 'shipped_registry'
+    && ($siteRow['evidence_scope'] ?? null) === 'none'
+    && is_array($coreRow['evidence'] ?? null)
+    && ($siteRow['evidence'] ?? null) === [],
+    'mixed-source rows identify their own evidence authority; an unsigned site row inherits no shipped evidence'
+);
 
 // ======================================================================
 echo "\n== uncertified by construction, and conspicuous about it ==\n";
@@ -565,6 +579,11 @@ check(
     str_contains($capabilityText, 'CAPABILITY core CERTIFIED')
     && str_contains($capabilityText, '  source: shipped'),
     'the same command still reports the shipped adapter as certified, labelled with its own source'
+);
+check(
+    str_contains($capabilityText, 'evidence: per manifest (see each adapter)')
+    && !str_contains($capabilityText, "\nevidence bundle:"),
+    'mixed-source text output points to per-adapter evidence instead of printing the shipped bundle as a global footer'
 );
 
 // ======================================================================
@@ -758,6 +777,32 @@ expect_throw(
     "extension is not exactly '.json'",
     'an extension near-miss (.JSON) is refused — it would load on a case-insensitive filesystem and vanish on a case-sensitive one'
 );
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        ['core'],
+        ['.hidden' => site_adapter('.hidden')]
+    )),
+    'canonical lowercase ASCII slugs',
+    'a hidden top-level *.json adapter is refused rather than silently skipped by glob discovery'
+);
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        ['core'],
+        ['acme-widget' => site_adapter('acme-widget')],
+        ['adapters/certifications/.acme-widget.json' => new \stdClass()]
+    )),
+    'canonical lowercase ASCII slugs',
+    'a hidden authority-bearing certificate is refused rather than silently skipped by glob discovery'
+);
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        ['core'],
+        ['acme-widget' => site_adapter('acme-widget')],
+        ['adapters/certifications/acme-widget.JSON' => new \stdClass()]
+    )),
+    'every entry must be an exact lowercase',
+    'a certificate extension near-miss is refused before authority verification'
+);
 
 // A symlink sources bytes from OUTSIDE the repository while every downstream
 // record still reads `adapters/<name>.json`, which would make the repo-relative
@@ -810,41 +855,25 @@ expect_throw(
 );
 unlink("$linkedSourceRepo/adapters");
 
-// Case-only and normalization-only differences are ambiguous identity by
-// another route: the same repository would resolve differently depending on
-// whether the host filesystem folds case.
+// Case and normalization variants never enter identity comparison: a strict
+// lowercase ASCII file-name grammar makes the accepted byte set identical on
+// case-folding and Unicode-normalizing filesystems.
 expect_throw(
     fn() => Policy::load(fresh_site(['core'], ['CORE' => site_adapter('CORE')])),
-    'only by letter case',
-    'a site adapter whose name differs from a shipped one only by case is refused'
+    'canonical lowercase ASCII slugs',
+    'an uppercase site adapter name is refused before filesystem case folding can change its identity'
 );
-// The refusal must name the source it ACTUALLY collides with, since the
-// collision index holds site adapters accepted earlier in the same scan as
-// well as shipped ones. Two site adapters differing only by case cannot
-// coexist on a case-insensitive filesystem (the second file would simply
-// overwrite the first), so that exact fixture is only constructible where the
-// host allows it; where it is not, the same message-construction path is
-// asserted through its shipped-side branch.
-$caseProbe = scratch('case-probe');
-touch("$caseProbe/casetest");
-$caseSensitiveFs = !file_exists("$caseProbe/CASETEST");
-if ($caseSensitiveFs) {
-    expect_throw(
-        fn() => Policy::load(fresh_site(
-            ['core'],
-            ['acme-widget' => site_adapter('acme-widget'), 'Acme-Widget' => site_adapter('Acme-Widget')]
-        )),
-        'from the site adapter',
-        'a site-vs-site case collision names the SITE source it actually collides with, not a shipped adapter'
-    );
-} else {
-    expect_throw(
-        fn() => Policy::load(fresh_site(['core'], ['CORE' => site_adapter('CORE')])),
-        'from the shipped adapter',
-        'the case-collision refusal names the colliding source from its own origin row, not a hardcoded word '
-        . '(the site-vs-site fixture needs a case-sensitive filesystem, which this host is not)'
-    );
-}
+$unicodeName = "caf\u{e9}";
+expect_throw(
+    fn() => Policy::load(fresh_site(['core'], [$unicodeName => site_adapter($unicodeName)])),
+    'canonical lowercase ASCII slugs',
+    'a Unicode site adapter identity is refused rather than depending on filesystem normalization'
+);
+expect_throw(
+    fn() => Policy::load(fresh_site(['core'], ['123' => site_adapter('123')])),
+    'numeric-only identities',
+    'a numeric-only site adapter name is refused before PHP can coerce its source-map key'
+);
 $nfd = "caf\u{65}\u{301}"; // 'cafe' + combining acute — renders as 'café'
 expect_throw(
     fn() => Policy::load(fresh_site(['core'], ['cafe-widget' => site_adapter($nfd)])),
@@ -855,6 +884,19 @@ expect_throw(
 // ======================================================================
 echo "\n== a data-only manifest acquires no executable privileges ==\n";
 // ======================================================================
+foreach ([
+    'adapter_certificate', 'authority', 'authority_id', 'certificate', 'certification',
+    'certification_authority', 'disposition', 'evidence', 'key_id', 'public_key', 'signature', 'trust_tier',
+] as $reservedAuthorityField) {
+    expect_throw(
+        fn() => Policy::load(fresh_site(
+            ['acme-widget'],
+            ['acme-widget' => site_adapter('acme-widget', [$reservedAuthorityField => 'self-asserted'])]
+        )),
+        "reserved authority field '$reservedAuthorityField'",
+        "an unsigned site manifest cannot carry inert/self-asserted authority field '$reservedAuthorityField'"
+    );
+}
 // Each refused channel resolves its PHP inside the AGENT's manifest
 // directory, so an out-of-tree manifest naming one would reach bytes it does
 // not own. `acf` is a real shipped interpreter name and `woocommerce-cache` a
@@ -995,6 +1037,18 @@ expect_throw(
     'unknown pin key',
     'an unknown pin key is refused rather than silently ignored'
 );
+foreach (['../core', 'foo/../core', 'foo\\core', '.', '..', '.core', 'core.', 'CORE', '123'] as $unsafePin) {
+    expect_throw(
+        fn() => Policy::load(fresh_site([$unsafePin])),
+        'canonical lowercase ASCII slugs',
+        "a non-canonical/path-like string pin '$unsafePin' is refused rather than rewritten with basename()"
+    );
+    expect_throw(
+        fn() => Policy::load(fresh_site([['name' => $unsafePin, 'source' => 'shipped']])),
+        'canonical lowercase ASCII slugs',
+        "a non-canonical/path-like object pin '$unsafePin' is refused with the same identity rule"
+    );
+}
 expect_throw(
     fn() => Policy::load(fresh_site(['no-such-adapter'], ['acme-widget' => site_adapter('acme-widget')])),
     "not found in",
@@ -1016,12 +1070,74 @@ check(
     'a frozen policy reconstructs identical adapter identity, source, and digests'
 );
 
+$numericFrozenPin = $snapshot;
+$numericFrozenPin['site']['manifests'][1] = '123';
+expect_throw(
+    fn() => Policy::from_snapshot($numericFrozenPin),
+    'numeric-only identities',
+    'a frozen policy revalidates and rejects a numeric-only adapter pin before map lookup'
+);
+$numericFrozenRecord = $snapshot;
+$numericRecord = $numericFrozenRecord['adapter_sources']['out_of_tree']['acme-widget'];
+unset($numericFrozenRecord['adapter_sources']['out_of_tree']['acme-widget']);
+$numericFrozenRecord['adapter_sources']['out_of_tree']['123'] = $numericRecord;
+expect_throw(
+    fn() => Policy::from_snapshot($numericFrozenRecord),
+    'numeric-only identities',
+    'a frozen adapter-source map rejects a numeric-only key instead of accepting PHP\'s coerced integer key'
+);
+
+$legacySnapshot = $snapshot;
+$legacySnapshot['format'] = 'duo-policy-snapshot/v4';
+$legacySnapshot['adapter_sources']['format'] = AdapterSources::LEGACY_FORMAT;
+unset($legacySnapshot['adapter_sources']['certificates']);
+$legacySnapshot['adapter_sources']['out_of_tree']['acme-widget']['provenance']['format'] =
+    AdapterSources::LEGACY_FORMAT;
+$legacyFrozen = Policy::from_snapshot($legacySnapshot);
+check(
+    $legacyFrozen->adapter_sources()->wire_format() === AdapterSources::LEGACY_FORMAT
+    && $legacyFrozen->adapter_sources()->source('acme-widget') === 'site',
+    'a legacy v1 unsigned adapter-source snapshot still reconstructs with its original wire generation'
+);
+$legacyCertificate = $legacySnapshot;
+$legacyCertificate['adapter_sources']['certificates'] = [];
+expect_throw(
+    fn() => Policy::from_snapshot($legacyCertificate),
+    'frozen adapter source record is malformed',
+    'a legacy v1 adapter-source snapshot cannot smuggle even an empty certificate field'
+);
+
 $laundered = $snapshot;
 unset($laundered['adapter_sources']['out_of_tree']['acme-widget']);
 expect_throw(
     fn() => Policy::from_snapshot($laundered),
+    'no shipped manifest exists',
+    'dropping a v2 out-of-tree record cannot relabel a site adapter as shipped, even before registry validation'
+);
+$legacyLaundered = $legacySnapshot;
+unset($legacyLaundered['adapter_sources']['out_of_tree']['acme-widget']);
+expect_throw(
+    fn() => Policy::from_snapshot($legacyLaundered),
     'no entry for manifest',
-    'dropping the out-of-tree record to make a site adapter look shipped is refused by the reviewed registry it would then have to belong to'
+    'dropping a legacy v1 out-of-tree record from a registry-bound snapshot is still refused by its reviewed shipped coverage'
+);
+$legacyCustom = $legacyLaundered;
+$legacyCustom['capabilities'] = null;
+$legacyCustom['dispositions'] = null;
+$legacyCustomPolicy = Policy::from_snapshot($legacyCustom);
+check(
+    $legacyCustomPolicy->adapter_sources()->source('acme-widget') === AdapterSources::SHIPPED,
+    'legacy v1 custom snapshots retain their historical already-bound no-registry read compatibility; only new v2 exports require positive shipped bytes'
+);
+$shippedNameLaunder = $snapshot;
+$shippedNameLaunder['site']['manifests'][1] = 'core';
+$shippedNameLaunder['manifests'][1] = $shippedNameLaunder['manifests'][0];
+$shippedNameLaunder['manifests'][1]['interpreter'] = 'acf';
+unset($shippedNameLaunder['adapter_sources']['out_of_tree']['acme-widget']);
+expect_throw(
+    fn() => Policy::from_snapshot($shippedNameLaunder),
+    'bytes do not match the trusted shipped manifest',
+    'a forged frozen adapter using a real shipped name cannot acquire shipped executable authority unless every manifest byte matches the trusted library'
 );
 $noSources = $snapshot;
 unset($noSources['adapter_sources']);
@@ -1202,6 +1318,14 @@ check(
 check(
     $plain->capability_report(['operation' => 'promote'])['ready'] === true,
     'the shipped, certified library remains fully ready — this issue added no new blocker to it'
+);
+$plainReport = $plain->capability_report(['operation' => 'promote']);
+check(
+    !array_key_exists('evidence_scope', $plainReport)
+    && is_array($plainReport['evidence'] ?? null)
+    && is_array($plainReport['platform'] ?? null)
+    && !array_key_exists('evidence_scope', $plainReport['manifests'][0] ?? []),
+    'a shipped-only report retains the historical global evidence/platform shape unchanged'
 );
 
 echo $failures === 0 ? "\nALL PASSED\n" : "\nFAIL: $failures check(s) failed\n";

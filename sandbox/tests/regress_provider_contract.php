@@ -35,6 +35,7 @@ define('ARRAY_A', 'ARRAY_A');
 $GLOBALS['duo_test_plugins'] = [];
 $GLOBALS['duo_test_active'] = [];
 $GLOBALS['duo_test_providers'] = [];
+$GLOBALS['duo_test_provider_registry_throw'] = null;
 
 function validate_plugin(string $plugin): mixed {
     return isset($GLOBALS['duo_test_plugins'][$plugin])
@@ -51,6 +52,9 @@ function is_wp_error(mixed $thing): bool {
     return $thing instanceof \WP_Error;
 }
 function apply_filters(string $hook, mixed $value): mixed {
+    if ($hook === 'duo_providers' && $GLOBALS['duo_test_provider_registry_throw'] !== null) {
+        throw new \RuntimeException($GLOBALS['duo_test_provider_registry_throw']);
+    }
     return $hook === 'duo_providers' ? $GLOBALS['duo_test_providers'] : $value;
 }
 // Apply::rebuild() flushes the object cache before and after the action loop
@@ -94,14 +98,21 @@ namespace Duo\Providers;
 
 final class ProbeCache {
     public array $calls = [];
+    public static ?array $capabilityMapOverride = null;
     public static array $capabilityOverrides = [];
+    public static ?string $capabilitiesThrows = null;
     public static array $identityOverrides = [];
+    public static ?string $identityThrows = null;
+    public static ?string $invokeThrows = null;
     public static mixed $receiptOverride = null;
     public static float $sleepSeconds = 0.0;
 
     public function __construct(\Duo\Policy $policy) {}
 
     public function identity(): array {
+        if (self::$identityThrows !== null) {
+            throw new \RuntimeException(self::$identityThrows);
+        }
         return self::$identityOverrides + [
             'id' => 'probe-cache',
             'plugin' => 'probe/probe.php',
@@ -110,7 +121,10 @@ final class ProbeCache {
     }
 
     public function capabilities(): array {
-        return [
+        if (self::$capabilitiesThrows !== null) {
+            throw new \RuntimeException(self::$capabilitiesThrows);
+        }
+        $default = [
             'flush' => self::$capabilityOverrides + [
                 'args' => ['groups' => ['type' => 'list<string>', 'required' => true]],
                 'reads' => ['option:probe_setting'],
@@ -120,10 +134,14 @@ final class ProbeCache {
                 'timeout_seconds' => 30,
             ],
         ];
+        return self::$capabilityMapOverride ?? $default;
     }
 
     public function invoke(string $capability, array $args): array {
         $this->calls[] = [$capability, $args];
+        if (self::$invokeThrows !== null) {
+            throw new \RuntimeException(self::$invokeThrows);
+        }
         if (self::$sleepSeconds > 0.0) {
             usleep((int) (self::$sleepSeconds * 1000000));
         }
@@ -217,8 +235,13 @@ $reset = static function (): void {
     $GLOBALS['duo_test_plugins'] = ['probe/probe.php' => ['Version' => '1.5.0']];
     $GLOBALS['duo_test_active'] = ['probe/probe.php'];
     $GLOBALS['duo_test_providers'] = [];
+    $GLOBALS['duo_test_provider_registry_throw'] = null;
+    \Duo\Providers\ProbeCache::$capabilityMapOverride = null;
     \Duo\Providers\ProbeCache::$capabilityOverrides = [];
+    \Duo\Providers\ProbeCache::$capabilitiesThrows = null;
     \Duo\Providers\ProbeCache::$identityOverrides = [];
+    \Duo\Providers\ProbeCache::$identityThrows = null;
+    \Duo\Providers\ProbeCache::$invokeThrows = null;
     \Duo\Providers\ProbeCache::$receiptOverride = null;
     \Duo\Providers\ProbeCache::$sleepSeconds = 0.0;
 };
@@ -287,6 +310,18 @@ $one = static function (array $problems) use ($check): array {
     $check(count($problems) === 1, 'exactly one problem row is reported');
     return $problems[0] ?? [];
 };
+$providerSecret = "https://provider.example.test/rebuild?access_token=DUO_PROVIDER_SECRET\nINJECTED_PROVIDER_LINE";
+$opaqueProviderProblem = static function (array $problem): bool {
+    $serialized = json_encode($problem, JSON_THROW_ON_ERROR);
+    return !str_contains($serialized, 'DUO_PROVIDER_SECRET')
+        && !str_contains($serialized, 'INJECTED_PROVIDER_LINE')
+        && !str_contains((string) ($problem['found'] ?? ''), "\n");
+};
+$opaqueProviderRefusal = static function (array $problem, string $code, string $found) use ($opaqueProviderProblem): bool {
+    return ($problem['code'] ?? '') === $code
+        && ($problem['found'] ?? '') === $found
+        && $opaqueProviderProblem($problem);
+};
 
 $p = $one($problemFor([], static function (): void {
     $GLOBALS['duo_test_plugins'] = [];
@@ -309,17 +344,25 @@ $check(($p['code'] ?? '') === 'outside_version_range'
     && ($p['found'] ?? '') === '2.4.0',
     'a live plugin version outside the declaring manifest range is refused with both versions named');
 
-$p = $one($problemFor([], static function (): void {
-    \Duo\Providers\ProbeCache::$identityOverrides = ['version' => '2.0.0'];
+$p = $one($problemFor([], static function () use ($providerSecret): void {
+    \Duo\Providers\ProbeCache::$identityOverrides = ['version' => $providerSecret];
 }));
 $check(($p['code'] ?? '') === 'identity_mismatch'
     && str_contains($p['expected'] ?? '', 'version=1.0.0')
-    && str_contains($p['found'] ?? '', 'version=2.0.0'),
-    'a provider whose identity() disagrees with its declaration is refused, expected vs found');
+    && ($p['found'] ?? '') === 'identity() did not match the declared provider identity'
+    && $opaqueProviderProblem($p),
+    'a provider identity mismatch is structured without exposing returned identity values');
 
-$p = $one($problemFor(['actions' => [['capability' => 'purge']], 'providers' => [['capabilities' => ['purge']]]]));
-$check(($p['code'] ?? '') === 'missing_capability' && str_contains($p['found'] ?? '', 'advertised: flush'),
-    'a capability the installed provider does not advertise is refused, listing what it does advertise');
+$p = $one($problemFor(
+    ['actions' => [['capability' => 'purge']], 'providers' => [['capabilities' => ['purge']]]],
+    static function () use ($providerSecret): void {
+        \Duo\Providers\ProbeCache::$capabilityMapOverride = [$providerSecret => []];
+    }
+));
+$check(($p['code'] ?? '') === 'missing_capability'
+    && ($p['found'] ?? '') === 'provider did not advertise the declared capability'
+    && $opaqueProviderProblem($p),
+    'a missing capability is structured without exposing advertised capability names');
 
 $p = $one($problemFor([], static function (): void {
     \Duo\Providers\ProbeCache::$capabilityOverrides = ['idempotent' => false];
@@ -328,14 +371,35 @@ $check(($p['code'] ?? '') === 'non_idempotent_capability' && str_contains($p['re
     "a non-idempotent capability is refused because apply's retry re-fires the rebuild pass");
 
 $p = $one($problemFor(['actions' => [['args' => ['groups' => 'not-a-list']]]]));
-$check(($p['code'] ?? '') === 'invalid_capability_args' && str_contains($p['found'] ?? '', 'list<string>'),
-    'manifest arguments that do not match the provider-declared schema are refused');
+$check(($p['code'] ?? '') === 'invalid_capability_args'
+    && ($p['found'] ?? '') === 'action arguments do not match advertised schema',
+    'manifest arguments that do not match the provider-declared schema are refused without echoing validator text');
 
-$p = $one($problemFor([], static function (): void {
-    \Duo\Providers\ProbeCache::$capabilityOverrides = ['sabotage' => true];
+$p = $one($problemFor([], static function () use ($providerSecret): void {
+    \Duo\Providers\ProbeCache::$capabilityOverrides = [$providerSecret => true];
 }));
-$check(($p['code'] ?? '') === 'malformed_capability',
-    'a capability declaration with an unknown key is refused rather than partially honored');
+$check(($p['code'] ?? '') === 'malformed_capability'
+    && ($p['found'] ?? '') === 'provider advertised a malformed capability declaration'
+    && $opaqueProviderProblem($p),
+    'a malformed capability is refused without exposing provider-controlled schema keys');
+
+$p = $one($problemFor([], static function () use ($providerSecret): void {
+    \Duo\Providers\ProbeCache::$capabilitiesThrows = $providerSecret;
+}));
+$check(($p['code'] ?? '') === 'contract_shape'
+    && ($p['expected'] ?? '') === 'capabilities() returning a name => declaration map'
+    && ($p['found'] ?? '') === 'capabilities() threw'
+    && $opaqueProviderProblem($p),
+    'a provider whose capabilities() throws becomes a structured, redacted contract problem');
+
+$p = $one($problemFor([], static function () use ($providerSecret): void {
+    \Duo\Providers\ProbeCache::$identityThrows = $providerSecret;
+}));
+$check(($p['code'] ?? '') === 'contract_shape'
+    && ($p['expected'] ?? '') === 'identity() returning an array'
+    && ($p['found'] ?? '') === 'identity() threw'
+    && $opaqueProviderProblem($p),
+    'a provider whose identity() throws becomes a structured, redacted contract problem');
 
 echo "\n== plugin-sourced providers (a custom plugin advertising its own) ==\n";
 $pluginSourced = array_replace_recursive($manifest, ['providers' => [['source' => 'plugin']]]);
@@ -344,6 +408,50 @@ $policy = $policyFor($pluginSourced);
 $p = $one(\Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']))['problems']);
 $check(($p['code'] ?? '') === 'missing_plugin_provider' && str_contains($p['expected'] ?? '', 'duo_providers'),
     'a plugin-sourced provider nobody registered is a negotiation problem, not a load crash');
+
+$registryUnavailableManifest = $pluginSourced;
+$registryUnavailableManifest['providers'][] = [
+    'id' => 'probe-second',
+    'version' => '1.0.0',
+    'source' => 'plugin',
+    'plugin' => 'probe/probe.php',
+    'capabilities' => ['flush'],
+];
+$registryUnavailableManifest['actions'][] = [
+    'kind' => 'provider',
+    'provider' => 'probe-second',
+    'capability' => 'flush',
+    'args' => ['groups' => ['probe-group']],
+];
+$reset();
+$GLOBALS['duo_test_provider_registry_throw'] = $providerSecret;
+$registryUnavailablePolicy = $policyFor($registryUnavailableManifest);
+$registryProblems = \Duo\Providers::negotiate(
+    $registryUnavailablePolicy,
+    $registryUnavailablePolicy->actions_for(['post:probe'])
+)['problems'];
+$registryProblemJson = json_encode($registryProblems, JSON_THROW_ON_ERROR);
+$registryProblemsAreOpaque = count($registryProblems) === 2;
+$registryProblemProviders = array_map(
+    static fn(array $problem): string => (string) ($problem['provider'] ?? ''),
+    $registryProblems
+);
+sort($registryProblemProviders, SORT_STRING);
+foreach ($registryProblems as $problem) {
+    $registryProblemsAreOpaque = $registryProblemsAreOpaque
+        && ($problem['code'] ?? '') === 'provider_registry_unavailable'
+        && ($problem['expected'] ?? '') === 'a readable `duo_providers` registry'
+        && ($problem['found'] ?? '') === 'provider registry callback failed'
+        && ($problem['remediation'] ?? '') === 'upgrade or disable the faulty provider plugin and retry'
+        && !str_contains((string) ($problem['found'] ?? ''), "\n");
+}
+$check(
+    $registryProblemsAreOpaque
+    && $registryProblemProviders === ['probe-cache', 'probe-second']
+    && !str_contains($registryProblemJson, 'DUO_PROVIDER_SECRET')
+    && !str_contains($registryProblemJson, 'INJECTED_PROVIDER_LINE'),
+    'a throwing duo_providers registry blocks every selected plugin provider with one structured, redacted remediation'
+);
 
 $reset();
 $GLOBALS['duo_test_providers'] = [new \Duo\Providers\ProbeSupplied()];
@@ -367,6 +475,38 @@ $GLOBALS['duo_test_providers'] = [new class {
 $negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
 $check($negotiation['problems'] === [] && isset($negotiation['providers']['probe-cache']),
     "an unrelated registration whose identity() throws is skipped, not a fatal for the provider actually wanted");
+
+$reset();
+$GLOBALS['duo_test_providers'] = [
+    new class {
+        public function identity(): array {
+            return ['id' => new \stdClass()];
+        }
+    },
+    new class($providerSecret) {
+        public function __construct(private string $secret) {}
+
+        public function identity(): array {
+            return ['id' => new class($this->secret) {
+                public function __construct(private string $secret) {}
+
+                public function __toString(): string {
+                    throw new \RuntimeException($this->secret);
+                }
+            }];
+        }
+    },
+    new \Duo\Providers\ProbeSupplied(),
+];
+$negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
+$malformedIdentityJson = json_encode($negotiation, JSON_THROW_ON_ERROR);
+$check(
+    $negotiation['problems'] === []
+    && isset($negotiation['providers']['probe-cache'])
+    && !str_contains($malformedIdentityJson, 'DUO_PROVIDER_SECRET')
+    && !str_contains($malformedIdentityJson, 'INJECTED_PROVIDER_LINE'),
+    'malformed or throwing Stringable plugin registration ids are skipped without a fatal or public payload leak'
+);
 
 echo "\n== entity scope negotiates its batch preconditions before any mutation ==\n";
 $reset();
@@ -426,6 +566,43 @@ $expectInvokeFailure(
     'malformed receipt',
     'a receipt missing before/after/verified is refused'
 );
+$receiptSecret = "https://provider.example.test/receipt?access_token=DUO_RECEIPT_SECRET\nINJECTED_RECEIPT_LINE";
+$reset();
+\Duo\Providers\ProbeCache::$receiptOverride = [$receiptSecret => true];
+try {
+    \Duo\Providers::invoke($provider, $action, $declaration, []);
+    $check(false, 'a malformed receipt never publishes provider-returned receipt keys');
+} catch (\Throwable $t) {
+    $message = $t->getMessage();
+    $check(
+        str_contains($message, "provider 'probe-cache' capability 'flush'")
+        && str_contains($message, 'exactly before, after, and verified are required')
+        && !str_contains($message, 'DUO_RECEIPT_SECRET')
+        && !str_contains($message, 'INJECTED_RECEIPT_LINE')
+        && !str_contains($message, "\n"),
+        'a malformed receipt error preserves provider/capability and required shape without exposing returned keys'
+    );
+}
+$invokeSecret = "https://provider.example.test/invoke?access_token=DUO_INVOKE_SECRET\nINJECTED_INVOKE_LINE";
+$reset();
+\Duo\Providers\ProbeCache::$invokeThrows = $invokeSecret;
+try {
+    \Duo\Providers::invoke($provider, $action, $declaration, []);
+    $check(false, 'a provider invocation failure never publishes the provider throwable');
+} catch (\Throwable $t) {
+    $message = $t->getMessage();
+    $rendered = (string) $t;
+    $check(
+        str_contains($message, "provider 'probe-cache' capability 'flush' failed")
+        && !str_contains($message, 'DUO_INVOKE_SECRET')
+        && !str_contains($message, 'INJECTED_INVOKE_LINE')
+        && !str_contains($message, "\n")
+        && !str_contains($rendered, 'DUO_INVOKE_SECRET')
+        && !str_contains($rendered, 'INJECTED_INVOKE_LINE')
+        && $t->getPrevious() === null,
+        'a provider invocation failure preserves provider/capability but redacts its throwable chain'
+    );
+}
 // timeout_seconds is a positive integer, so the smallest honest overrun test
 // is a one-second budget deliberately exceeded. Worth the wall-clock second:
 // this is the only check that the post-hoc budget is enforced at all rather
@@ -488,22 +665,31 @@ $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability' && str_contains($p['found'] ?? '', 'closed field vocabulary'),
-    'a list<object> declaration without `fields` is refused — an object list with no field vocabulary is a free-form payload');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a list<object> declaration without `fields` is refused through an opaque public capability diagnostic');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true, 'fields' => []]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability' && str_contains($p['found'] ?? '', 'non-empty object'),
-    'an EMPTY fields map is refused rather than read as "accepts anything"');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'an EMPTY fields map is refused through an opaque public capability diagnostic');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true, 'fields' => ['kind', 'id']]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability' && str_contains($p['found'] ?? '', 'non-empty object'),
-    'a fields LIST (rather than a name => rule map) is refused');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a fields LIST (rather than a name => rule map) is refused through an opaque public capability diagnostic');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true, 'fields' => [
@@ -511,9 +697,11 @@ $p = $rowsProblem(
     ]]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', "malformed field name 'Kind Of Thing'"),
-    'a field name outside the bounded argument-name charset is refused, naming the token');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a field name outside the bounded argument-name charset is refused without publishing the provider field name');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true, 'fields' => [
@@ -521,9 +709,11 @@ $p = $rowsProblem(
     ]]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'fields.kind must declare exactly type and required'),
-    'an unknown key inside a field rule is refused rather than ignored');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'an unknown key inside a field rule is refused without publishing the provider schema');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true, 'fields' => [
@@ -531,9 +721,11 @@ $p = $rowsProblem(
     ]]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'nests exactly one level'),
-    'a list<object> INSIDE a list<object> is refused — the object grammar is exactly one level deep');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a list<object> INSIDE a list<object> is refused through an opaque public capability diagnostic');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true, 'fields' => [
@@ -541,9 +733,11 @@ $p = $rowsProblem(
     ]]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'must be one of bool, int, string'),
-    'a list-typed row field is refused too: one level means scalars only inside a row');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a list-typed row field is refused through an opaque public capability diagnostic');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true, 'fields' => [
@@ -551,17 +745,21 @@ $p = $rowsProblem(
     ]]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'fields.kind.required must be a boolean'),
-    'a non-boolean field `required` is refused');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a non-boolean field `required` is refused through an opaque public capability diagnostic');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<string>', 'required' => true, 'fields' => $rowFields]],
     ['rows' => ['a']]
 );
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'must declare exactly type and required'),
-    'a scalar-typed argument may not carry a `fields` map — only list<object> declares one');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a scalar-typed argument may not carry a `fields` map through an opaque public capability diagnostic');
 
 echo "\n== list<object> VALUES: two gates, load-time shape then negotiated vocabulary ==\n";
 // Depth is bounded at LOAD (Policy::validate_provider_action(), where no
@@ -599,25 +797,32 @@ $expectLoadRefusal(
 );
 
 $p = $rowsProblem($rowsArgs, ['rows' => [['kind' => 'post:probe', 'id' => 7, 'flush' => true]]]);
-$check(($p['code'] ?? '') === 'invalid_capability_args'
-    && str_contains($p['found'] ?? '', 'does not declare: flush')
-    && str_contains($p['found'] ?? '', 'declared: kind, id, purged'),
-    'an undeclared row field is refused, naming both the unknown field and the declared vocabulary');
+$check($opaqueProviderRefusal(
+    $p,
+    'invalid_capability_args',
+    'action arguments do not match advertised schema'
+), 'an undeclared row field is refused without publishing the provider field vocabulary');
 
 $p = $rowsProblem($rowsArgs, ['rows' => [['kind' => 'post:probe']]]);
-$check(($p['code'] ?? '') === 'invalid_capability_args'
-    && str_contains($p['found'] ?? '', "row 0 is missing required field 'id'"),
-    'a missing required row field is refused, naming the row index');
+$check($opaqueProviderRefusal(
+    $p,
+    'invalid_capability_args',
+    'action arguments do not match advertised schema'
+), 'a missing required row field is refused through an opaque public argument diagnostic');
 
 $p = $rowsProblem($rowsArgs, ['rows' => [['kind' => 'post:probe', 'id' => '7']]]);
-$check(($p['code'] ?? '') === 'invalid_capability_args'
-    && str_contains($p['found'] ?? '', "field 'id' must be of type int"),
-    'a mistyped row field is refused (a numeric string is not an int)');
+$check($opaqueProviderRefusal(
+    $p,
+    'invalid_capability_args',
+    'action arguments do not match advertised schema'
+), 'a mistyped row field is refused through an opaque public argument diagnostic');
 
 $p = $rowsProblem($rowsArgs, ['rows' => [['kind' => 'post:probe', 'id' => 7], 'not-an-object']]);
-$check(($p['code'] ?? '') === 'invalid_capability_args'
-    && str_contains($p['found'] ?? '', 'row 1 must be an object'),
-    'a scalar where a row belongs passes the load gate (it is a scalar) and is refused against the declared type');
+$check($opaqueProviderRefusal(
+    $p,
+    'invalid_capability_args',
+    'action arguments do not match advertised schema'
+), 'a scalar where a row belongs is refused through an opaque public argument diagnostic');
 
 // The negotiated half of the one-level bound, reached directly because the
 // load gate above already refuses this shape in a manifest: a capability
@@ -680,31 +885,80 @@ $check(\Duo\Providers::CONTEXT_CHANNELS === ['always_on_write', 'deletions', 're
     'the channel vocabulary is exactly deletions, reparents, retry, always_on_write — a capability cannot mint a fifth');
 
 $p = $channelProblem(['deletions', 'tombstones']);
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', "names 'tombstones'")
-    && str_contains($p['found'] ?? '', 'always_on_write, deletions, reparents, retry'),
-    'an unknown channel is refused, naming the token and the closed set');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'an unknown channel is refused without publishing the provider-declared token');
 
 $p = $channelProblem(['deletions', 'deletions']);
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', "repeats channel 'deletions'"),
-    'a duplicated channel is refused rather than deduplicated');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a duplicated channel is refused through an opaque public capability diagnostic');
 
 $p = $channelProblem([]);
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'must be a non-empty list'),
-    'an empty context list is refused — it would declare the envelope while carrying nothing');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'an empty context list is refused through an opaque public capability diagnostic');
 
 $p = $channelProblem('deletions');
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'must be a non-empty list'),
-    'a bare channel string (not a list) is refused');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a bare channel string is refused through an opaque public capability diagnostic');
 
 $p = $channelProblem(['deletions', 'reparents'], 'site');
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'only meaningful for scope: entity')
-    && str_contains($p['found'] ?? '', 'declared channels: deletions, reparents'),
-    'context on a scope: site capability is refused, and the message names which channels were declared');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'context on a scope: site capability is refused without publishing declared channels');
+
+echo "\n== internal schema validator detail stays private ==\n";
+// Public readiness rows intentionally collapse untrusted provider schemas to
+// fixed labels. The private validator still has exact author-facing detail;
+// keep representative assertions here so redaction does not weaken the
+// list<object> or context grammar itself.
+$validateCapabilityDeclaration = new \ReflectionMethod(\Duo\Providers::class, 'validate_capability_declaration');
+$expectInternalDeclarationRefusal = static function (array $decl, string $needle, string $label) use (
+    $check, $validateCapabilityDeclaration
+): void {
+    try {
+        $validateCapabilityDeclaration->invoke(null, $decl, 'probe capability');
+        $check(false, $label);
+    } catch (\Throwable $t) {
+        $check(str_contains($t->getMessage(), $needle), $label . ' (validator: ' . $t->getMessage() . ')');
+    }
+};
+$capabilityDeclaration = static function (array $args, string $scope = 'site', mixed $context = null): array {
+    $decl = [
+        'args' => $args,
+        'idempotent' => true,
+        'reads' => ['option:probe_setting'],
+        'scope' => $scope,
+        'timeout_seconds' => 30,
+        'writes' => ['entity:probe-cache-groups'],
+    ];
+    if ($context !== null) {
+        $decl['context'] = $context;
+    }
+    return $decl;
+};
+$expectInternalDeclarationRefusal(
+    $capabilityDeclaration(['rows' => ['type' => 'list<object>', 'required' => true]]),
+    'closed field vocabulary',
+    'the private declaration validator keeps the list<object> field-vocabulary detail'
+);
+$expectInternalDeclarationRefusal(
+    $capabilityDeclaration(['groups' => ['type' => 'list<string>', 'required' => true]], 'entity', ['deletions', 'tombstones']),
+    "names 'tombstones'",
+    'the private declaration validator keeps the closed context-channel detail'
+);
 
 echo "\n== the injected batch: an envelope only for what was declared ==\n";
 $reset();

@@ -225,9 +225,9 @@ try {
 }
 // An EMPTY rebuilders list is refused too: the-events-calendar.json carried
 // exactly that, and "present but empty" must not be a way to keep the key.
-fresh_manifests_dir(['retiredEmpty' => ['name' => 'retiredEmpty', 'spec_version' => DUO_SPEC_VERSION, 'rebuilders' => []]]);
+fresh_manifests_dir(['retired-empty' => ['name' => 'retired-empty', 'spec_version' => DUO_SPEC_VERSION, 'rebuilders' => []]]);
 expect_throw(
-    fn() => Policy::load(null, ['retiredEmpty']),
+    fn() => Policy::load(null, ['retired-empty']),
     'retired free-form `rebuilders` channel',
     'an EMPTY rebuilders list is refused as well — presence of the key is the refusal, not its contents'
 );

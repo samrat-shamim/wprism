@@ -19,6 +19,7 @@ require dirname(__DIR__, 2) . '/agent/src/Canon.php';
 require dirname(__DIR__, 2) . '/agent/src/OptionState.php';
 require dirname(__DIR__, 2) . '/agent/src/Policy.php';
 require dirname(__DIR__, 2) . '/agent/src/SidebarState.php';
+require dirname(__DIR__, 2) . '/agent/src/Snapshot.php';
 require dirname(__DIR__, 2) . '/agent/src/Apply.php';
 
 $failures = 0;
@@ -166,6 +167,8 @@ $policyProperty->setAccessible(true);
 $policyProperty->setValue($apply, $policy);
 $surfaceMethod = new ReflectionMethod(\Duo\Apply::class, 'rebuild_surfaces');
 $surfaceMethod->setAccessible(true);
+$rebuildWorkMethod = new ReflectionMethod(\Duo\Apply::class, 'rebuild_work');
+$rebuildWorkMethod->setAccessible(true);
 $optionNamesMethod = new ReflectionMethod(\Duo\Apply::class, 'option_rebuild_names');
 $optionNamesMethod->setAccessible(true);
 $optionDelta = $optionNamesMethod->invoke(
@@ -287,6 +290,89 @@ $filteredOptionSurfaces = $surfaceMethod->invoke(
 $check(
     $filteredOptionSurfaces === [] && $selected($policy->actions_for($filteredOptionSurfaces)) === [],
     'all-absent or lifecycle-managed option work contributes no surface and fires no action'
+);
+
+// build_plan() and run() must derive provider selection from the same
+// work/delete/retry projection. Exercise the private shared helper directly
+// here rather than building a database-backed plan: the assertions show which
+// exact action declarations either caller would negotiate.
+$projectionPlan = [
+    'create' => [['uuid' => 'post-uuid']],
+    'adopt' => [],
+    'update' => [['uuid' => 'options/core', 'rebuild_option_names' => ['woocommerce_currency']]],
+    'conflict' => [],
+    'delete' => [[
+        'uuid' => 'term-uuid',
+        'deletion_kind' => 'term',
+        'deletion_type' => 'product_cat',
+    ]],
+    'delete_conflict' => [[
+        'uuid' => 'options/core',
+        'deletion_kind' => 'option',
+        'deletion_type' => 'woocommerce_calc_taxes',
+    ]],
+    'deleted' => [[
+        'uuid' => 'options/core',
+        'deletion_kind' => 'option',
+        'deletion_type' => 'woocommerce_calc_taxes',
+    ]],
+];
+$projectionSurfaces = static function (array $projection) use ($apply, $surfaceMethod, $tree): array {
+    return $surfaceMethod->invoke(
+        $apply,
+        $projection['work'],
+        $tree,
+        $projection['rebuild_delete_work']
+    );
+};
+$ordinaryProjection = $rebuildWorkMethod->invoke($apply, $projectionPlan, $tree, [], false);
+$ordinaryProjectionSurfaces = $projectionSurfaces($ordinaryProjection);
+$check(
+    $selected($policy->actions_for($ordinaryProjectionSurfaces))
+        === ['probe_product', 'probe_legacy', 'probe_category'],
+    'shared rebuild_work projection selects changed post, unrelated option, and planned term-delete actions exactly'
+);
+
+$forcedProjection = $rebuildWorkMethod->invoke($apply, $projectionPlan, $tree, ['force_theirs' => true], false);
+$check(
+    $selected($policy->actions_for($projectionSurfaces($forcedProjection)))
+        === ['probe_product', 'probe_legacy', 'probe_category', 'probe_woo_option'],
+    'shared rebuild_work projection includes a forced conflicting deletion before selecting its exact option action'
+);
+
+$retryProjection = $rebuildWorkMethod->invoke($apply, $projectionPlan, $tree, [], true);
+$check(
+    $selected($policy->actions_for($projectionSurfaces($retryProjection)))
+        === ['probe_product', 'probe_legacy', 'probe_category', 'probe_woo_option'],
+    'shared rebuild_work projection includes retry tombstones before selecting their exact action'
+);
+
+$emptyProjection = $rebuildWorkMethod->invoke($apply, [
+    'create' => [], 'adopt' => [], 'update' => [], 'conflict' => [],
+    'delete' => [], 'delete_conflict' => [], 'deleted' => [],
+], $tree, [], false);
+$check(
+    $projectionSurfaces($emptyProjection) === []
+        && $policy->actions_for($projectionSurfaces($emptyProjection)) === [],
+    'shared rebuild_work projection keeps an empty plan action-free'
+);
+
+$unrelatedProjection = $rebuildWorkMethod->invoke($apply, [
+    'create' => [],
+    'adopt' => [],
+    'update' => [['uuid' => 'unknown-uuid']],
+    'conflict' => [],
+    'delete' => [[
+        'uuid' => 'table-uuid',
+        'deletion_kind' => 'table',
+        'deletion_type' => 'woocommerce_shipping_zones',
+    ]],
+    'delete_conflict' => [],
+    'deleted' => [],
+], $tree, [], false);
+$check(
+    $selected($policy->actions_for($projectionSurfaces($unrelatedProjection))) === ['probe_legacy'],
+    'shared rebuild_work projection leaves unrelated changed/delete surfaces to the unscoped action only'
 );
 
 $retrySurfaces = $surfaceMethod->invoke(
