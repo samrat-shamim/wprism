@@ -65,7 +65,7 @@ over local/docker/ssh transports and adds cross-environment ergonomics.
 
 Usage:
   duo envs
-  duo env materialize <env> --from=<production-env> --branch=<ref> [--create] [--ttl=<seconds>]
+  duo env materialize <env> --from <production-env> --branch <ref> [--create] [--ttl <seconds>]
   duo env reap <env>
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
@@ -432,7 +432,19 @@ function cmd_environment(array $args, ?string $envsFileOverride): int {
         $journal = environment_lifecycle_journal();
 
         if ($action === 'reap') {
-            $receipt = EnvironmentMaterializer::reap($targetDriver, $targetProvider, $journal);
+            $sourceProvider = null;
+            $latest = $journal->latestForTarget($targetName);
+            $sourceName = $latest === null ? null : environment_reap_source_name($latest);
+            if ($sourceName !== null) {
+                $sourceConfig = Registry::get($envs, $sourceName);
+                $sourceProvider = CommandEnvironmentProvider::fromEnvironment($sourceName, $sourceConfig);
+            }
+            $receipt = EnvironmentMaterializer::reap(
+                $targetDriver,
+                $targetProvider,
+                $journal,
+                $sourceProvider
+            );
             render_environment_receipt($receipt, $reapJson, 'reap');
             return 0;
         }
@@ -453,7 +465,7 @@ function cmd_environment(array $args, ?string $envsFileOverride): int {
                 'create' => $options['create'],
                 'ttl_seconds' => $options['ttl_seconds'],
             ],
-            static fn(EnvironmentDriver $driver): int => cmd_promote($driver, [])
+            static fn(EnvironmentDriver $driver, array $context): array|int => cmd_promote_frozen($driver, $context)
         );
         render_environment_receipt($receipt, $options['json'], 'materialize');
         return 0;
@@ -471,7 +483,8 @@ function environment_materialize_flags(array $args): array {
     $ttl = 0;
     $ttlSeen = false;
     $json = false;
-    foreach ($args as $arg) {
+    for ($index = 0, $count = count($args); $index < $count; $index++) {
+        $arg = $args[$index];
         if ($arg === '--create') {
             if ($create) throw new \RuntimeException('duplicate --create');
             $create = true;
@@ -482,24 +495,28 @@ function environment_materialize_flags(array $args): array {
             $json = true;
             continue;
         }
-        if (str_starts_with($arg, '--from=')) {
+        if ($arg === '--from' || str_starts_with($arg, '--from=')) {
             if ($source !== null) throw new \RuntimeException('duplicate --from');
-            $source = substr($arg, strlen('--from='));
-            if ($source === '') throw new \RuntimeException('--from cannot be empty');
+            $source = $arg === '--from' ? ($args[++$index] ?? null) : substr($arg, strlen('--from='));
+            if (!is_string($source) || $source === '' || str_starts_with($source, '-')) {
+                throw new \RuntimeException('--from requires an environment name');
+            }
             continue;
         }
-        if (str_starts_with($arg, '--branch=')) {
+        if ($arg === '--branch' || str_starts_with($arg, '--branch=')) {
             if ($branch !== null) throw new \RuntimeException('duplicate --branch');
-            $branch = substr($arg, strlen('--branch='));
+            $branch = $arg === '--branch' ? ($args[++$index] ?? null) : substr($arg, strlen('--branch='));
+            if (!is_string($branch)) throw new \RuntimeException('--branch requires a Git ref');
             if ($branch === '' || str_starts_with($branch, '-') || str_contains($branch, "\0")) {
                 throw new \RuntimeException('--branch must be a safe Git ref');
             }
             continue;
         }
-        if (str_starts_with($arg, '--ttl=')) {
+        if ($arg === '--ttl' || str_starts_with($arg, '--ttl=')) {
             if ($ttlSeen) throw new \RuntimeException('duplicate --ttl');
             $ttlSeen = true;
-            $raw = substr($arg, strlen('--ttl='));
+            $raw = $arg === '--ttl' ? ($args[++$index] ?? null) : substr($arg, strlen('--ttl='));
+            if (!is_string($raw)) throw new \RuntimeException('--ttl requires whole seconds');
             if (preg_match('/^[0-9]+$/D', $raw) !== 1) {
                 throw new \RuntimeException('--ttl must be whole seconds');
             }
@@ -512,7 +529,7 @@ function environment_materialize_flags(array $args): array {
         throw new \RuntimeException("unsupported flag '$arg'");
     }
     if ($source === null || $branch === null) {
-        throw new \RuntimeException('materialize requires exactly --from=<production-env> and --branch=<ref>');
+        throw new \RuntimeException('materialize requires exactly --from <production-env> and --branch <ref>');
     }
     return [
         'source' => $source,
@@ -521,6 +538,30 @@ function environment_materialize_flags(array $args): array {
         'ttl_seconds' => $ttl,
         'json' => $json,
     ];
+}
+
+/**
+ * Resolve the source provider only when pre-target cleanup can still need it.
+ * A completed immutable snapshot or an acquired/acquiring target has no
+ * source session for `reap` to abort.
+ *
+ * @param array{run:array<string,mixed>,events:list<array<string,mixed>>} $latest
+ */
+function environment_reap_source_name(array $latest): ?string {
+    $events = [];
+    foreach ($latest['events'] as $event) {
+        if (is_string($event['event'] ?? null)) $events[$event['event']] = true;
+    }
+    if (isset($events['target-acquired']) || isset($events['target-acquire-intent'])
+        || isset($events['snapshot-read']) || isset($events['snapshot-aborted'])
+        || (!isset($events['snapshot-prepared']) && !isset($events['snapshot-prepare-intent']))) {
+        return null;
+    }
+    $source = $latest['run']['source_environment'] ?? null;
+    if (!is_string($source) || $source === '') {
+        throw new \RuntimeException('unfinished source snapshot has no journaled source environment');
+    }
+    return $source;
 }
 
 function environment_reap_flags(array $args): bool {

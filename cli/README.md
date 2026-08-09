@@ -26,7 +26,7 @@ binary and, per environment, whatever the transport itself needs (`ssh`,
 
 ```
 duo envs
-duo env materialize <env> --from=<production-env> --branch=<ref> [--create] [--ttl=<seconds>] [--format=json]
+duo env materialize <env> --from <production-env> --branch <ref> [--create] [--ttl <seconds>] [--format=json]
 duo env reap <env> [--format=json]
 duo doctor <env>
 duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
@@ -109,7 +109,7 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   driver implements them; provider provisioning remains an optional driver
   extension rather than engine behavior.
 
-- **`duo env materialize <env> --from=<production-env> --branch=<ref>`** —
+- **`duo env materialize <env> --from <production-env> --branch <ref>`** —
   creates the default short-lived branch environment without collapsing its
   three separate contracts. `Refresh` first rebases the clean, currently
   checked-out branch against live production semantic truth in an isolated
