@@ -2293,8 +2293,22 @@ self::validate_post_type_children($manifest);
         return $details['rule'] ?? null;
     }
 
-    /** @return array<string, object> */
-    private function interpreters(): array {
+    /**
+     * Resolve every declared interpreter name to a loaded, instantiated class.
+     *
+     * Public for the same reason regenerators() below is: a second caller
+     * outside this class needs it. `duo manifest-validate` (DUO-3327) calls it
+     * immediately after each successful load, because a manifest naming an
+     * interpreter file that does not exist — or a file that does not define the
+     * contract class — is a manifest that is wrong offline, and leaving that
+     * discovery to the first live meta lookup meant an offline check reported
+     * `ok` for a declaration no target could ever run. Resolution is a pure
+     * file-system + class-contract question about the manifests directory the
+     * checker was handed, so it belongs to the offline half.
+     *
+     * @return array<string, object>
+     */
+    public function interpreters(): array {
         if ($this->interpreterInstances !== null) {
             return $this->interpreterInstances;
         }
@@ -2347,8 +2361,11 @@ self::validate_post_type_children($manifest);
      * no success/failure return-value protocol, matching interpreters' own
      * all-or-throw shape.
      *
-     * Public (unlike interpreters(), which only Policy's own methods call):
-     * Apply::regen_dependencies() is the caller, in a different class.
+     * Public, like interpreters() above, and for the same reason: the callers
+     * are in other classes — Apply::regen_dependencies() drives it live, and
+     * `duo manifest-validate` resolves it offline so a declared-but-missing
+     * regenerator file is refused by the authoring check rather than by the
+     * first apply that needs it.
      *
      * @return array<string, object> regenerator name => instance
      */
@@ -3430,6 +3447,11 @@ self::validate_post_type_children($manifest);
         }
     }
 
+    /** The closed `block_attrs`/`shortcode_attrs` `type` vocabulary. */
+    private const ATTR_VALUE_TYPES = ['int', 'int[]'];
+    /** The closed attribute `tokenize` codec vocabulary (the home/uploads URL pass). */
+    private const ATTR_TOKENIZE_CODECS = ['text'];
+
     /** One `block_attrs`/`shortcode_attrs` entry. @see validate_attr_rules() */
     private static function validate_attr_rule(mixed $rule, string $section, string $where): void {
         if (!is_array($rule) || (array_is_list($rule) && $rule !== [])) {
@@ -3444,7 +3466,7 @@ self::validate_post_type_children($manifest);
         if (array_key_exists('lint_ok', $rule) && !is_bool($rule['lint_ok'])) {
             throw new \RuntimeException("duo: $where.lint_ok must be a boolean");
         }
-        if (array_key_exists('type', $rule) && !in_array($rule['type'], ['int', 'int[]'], true)) {
+        if (array_key_exists('type', $rule) && !in_array($rule['type'], self::ATTR_VALUE_TYPES, true)) {
             throw new \RuntimeException(
                 "duo: $where.type=" . var_export($rule['type'], true) . ' but the attribute-value vocabulary is '
                 . 'closed and engine-owned (int, int[]); an id-bearing attribute is either one id or a native '
@@ -3457,7 +3479,7 @@ self::validate_post_type_children($manifest);
                 . implode('|', self::CASTS) . ' are supported'
             );
         }
-        if (array_key_exists('tokenize', $rule) && $rule['tokenize'] !== 'text') {
+        if (array_key_exists('tokenize', $rule) && !in_array($rule['tokenize'], self::ATTR_TOKENIZE_CODECS, true)) {
             throw new \RuntimeException(
                 "duo: $where.tokenize=" . var_export($rule['tokenize'], true)
                 . " but the only supported codec for an attribute is \"text\" (the ordinary home/uploads URL pass)"
@@ -3557,6 +3579,11 @@ self::validate_post_type_children($manifest);
      * mixed int/string key map loads — a syntactically legal id_base,
      * not a validation gap.
      */
+    /** The closed `widgets.<t>.settings.<s>.codec` vocabulary. @see assert_widget_grammar() */
+    private const WIDGET_SETTING_CODECS = ['blocks'];
+    /** The closed `widgets.<t>.settings.<s>.ref` vocabulary. @see assert_widget_grammar() */
+    private const WIDGET_SETTING_REFS = ['term'];
+
     public static function assert_widget_grammar(string $type, mixed $decl, ?string $source = null): void {
         $where = ($source === null ? '' : "$source ") . "widgets.$type";
         if (!preg_match('/^[a-z0-9_-]+$/', $type)) {
@@ -3581,13 +3608,13 @@ self::validate_post_type_children($manifest);
                     . 'field out to exclude it)'
                 );
             }
-            if (array_key_exists('codec', $rule) && $rule['codec'] !== 'blocks') {
+            if (array_key_exists('codec', $rule) && !in_array($rule['codec'], self::WIDGET_SETTING_CODECS, true)) {
                 throw new \RuntimeException(
                     "duo: $where.settings.$setting declares codec=" . var_export($rule['codec'], true)
                     . ' but the widget settings codec vocabulary is closed and engine-owned (blocks)'
                 );
             }
-            if (array_key_exists('ref', $rule) && $rule['ref'] !== 'term') {
+            if (array_key_exists('ref', $rule) && !in_array($rule['ref'], self::WIDGET_SETTING_REFS, true)) {
                 throw new \RuntimeException(
                     "duo: $where.settings.$setting declares ref=" . var_export($rule['ref'], true)
                     . ' but the widget settings ref vocabulary is closed and engine-owned (term)'
@@ -3939,6 +3966,14 @@ self::validate_post_type_children($manifest);
     }
 
     /** Interpreter-returned rules pass through this same check at lookup. */
+    /**
+     * The closed `user_meta.<key>.missing_user` vocabulary: whether an authored
+     * user-meta row whose owning user is absent on the target blocks the apply
+     * or degrades to a warning. Engine-owned — each value binds apply to a
+     * different refusal posture.
+     */
+    private const MISSING_USER_MODES = ['block', 'warn'];
+
     private static function validate_user_meta_rule(array $rule, string $where): void {
         $class = $rule['class'] ?? null;
         if (!in_array($class, self::CLASSES, true)) {
@@ -3961,7 +3996,7 @@ self::validate_post_type_children($manifest);
             if ($class !== 'authored') {
                 throw new \RuntimeException("duo: $where missing_user is valid only for class=authored");
             }
-            if (!in_array($rule['missing_user'], ['block', 'warn'], true)) {
+            if (!in_array($rule['missing_user'], self::MISSING_USER_MODES, true)) {
                 throw new \RuntimeException("duo: $where missing_user must be block or warn");
             }
         }
@@ -4397,6 +4432,14 @@ self::validate_post_type_children($manifest);
      * source row that disagrees. Omitting this declaration is never allowed:
      * insertion would otherwise fall back to WordPress/version-local policy.
      */
+    /**
+     * The one non-value autoload declaration: `preserve` authorizes replaying
+     * the source row's own flag instead of naming a literal one. Closed and
+     * engine-owned — every other spelling has to be a real storage value,
+     * because insertion may never guess.
+     */
+    private const OPTION_AUTOLOAD_SENTINELS = ['preserve'];
+
     private static function validate_option_storage(array $source, string $label): void {
         $default = $source['option_autoload'] ?? null;
         $check = static function (array $rule, string $where) use ($label, $default): void {
@@ -4411,7 +4454,8 @@ self::validate_post_type_children($manifest);
                 return;
             }
             $autoload = $rule['autoload'] ?? $default;
-            if ($autoload !== 'preserve' && !in_array($autoload, OptionState::AUTOLOAD_VALUES, true)) {
+            if (!in_array($autoload, self::OPTION_AUTOLOAD_SENTINELS, true)
+                && !in_array($autoload, OptionState::AUTOLOAD_VALUES, true)) {
                 throw new \RuntimeException(
                     "duo: $label $where needs autoload=preserve or an explicit supported autoload value "
                     . '(' . implode('|', OptionState::AUTOLOAD_VALUES) . '); insertion may never guess'
@@ -4880,12 +4924,12 @@ self::validate_post_type_children($manifest);
      * @param list<string> $declaredIdKinds every pinned/site-declared table's id_kind
      */
     private static function validate_ledger_kind_claims(array $manifests, array $declaredIdKinds): void {
-        // The three literals repeat Ledger::KIND_POST/KIND_TERM/KIND_TT rather
-        // than referencing them, for the same reason TABLE_CLASSES repeats
-        // Snapshot's two class names: this file must stay loadable with no
-        // other engine class present, and these spellings are wire format a
+        // ENGINE_LEDGER_KINDS repeats Ledger::KIND_POST/KIND_TERM/KIND_TT
+        // rather than referencing them, for the same reason TABLE_CLASSES
+        // repeats Snapshot's two class names: this file must stay loadable with
+        // no other engine class present, and these spellings are wire format a
         // manifest already carries, not an internal name either side may change.
-        $ledgerKinds = array_merge(['post', 'term', 'term_taxonomy'], $declaredIdKinds);
+        $ledgerKinds = array_merge(self::ENGINE_LEDGER_KINDS, $declaredIdKinds);
         sort($ledgerKinds, SORT_STRING);
         sort($declaredIdKinds, SORT_STRING);
         foreach ($manifests as $manifest) {
@@ -4925,6 +4969,12 @@ self::validate_post_type_children($manifest);
         }
     }
 
+    private const ENGINE_TOKEN_KINDS = ['post', 'term', 'tt'];
+    /** @see ENGINE_TOKEN_KINDS */
+    private const ENGINE_REF_KINDS = ['post', 'term', 'tt', 'user'];
+    /** @see ENGINE_TOKEN_KINDS — duo_map's own long spellings, not the token short ones. */
+    private const ENGINE_LEDGER_KINDS = ['post', 'term', 'term_taxonomy'];
+
     /**
      * The ref-kind vocabulary, closed across every pinned manifest and the
      * site's own policy (DUO-3318).
@@ -4955,6 +5005,13 @@ self::validate_post_type_children($manifest);
      * through duo_map, which has no user keyspace, and carries its plurality
      * in a separate `type`/`cast` field rather than in the kind name.
      *
+     * The three ENGINE_* consts declared just above are the engine-owned BASE
+     * of each vocabulary — the part that is a fixed fact about this engine
+     * rather than a function of which manifests happen to be pinned. Each
+     * validator still unions its base with the declared id_kinds; splitting the
+     * base out as a const is what lets closed_vocabularies() publish "what the
+     * engine owns" without a second copy of these spellings existing anywhere.
+     *
      * @param list<array> $manifests
      * @param array<string,mixed> $sitePolicy site.duo.json's `policy` object
      */
@@ -4968,8 +5025,8 @@ self::validate_post_type_children($manifest);
                 }
             }
         }
-        $tokenKinds = array_merge(['post', 'term', 'tt'], array_keys($idKinds));
-        $refKinds = array_merge(['post', 'term', 'tt', 'user'], array_keys($idKinds));
+        $tokenKinds = array_merge(self::ENGINE_TOKEN_KINDS, array_keys($idKinds));
+        $refKinds = array_merge(self::ENGINE_REF_KINDS, array_keys($idKinds));
         sort($tokenKinds, SORT_STRING);
         sort($refKinds, SORT_STRING);
         // The third vocabulary built on the same declared-id_kind set, called
@@ -5552,6 +5609,9 @@ self::validate_post_type_children($manifest);
      * `triggers` key remains unscoped (selected for any non-empty surface
      * set), preserving what an un-triggered rebuilder meant.
      */
+    /** The closed `actions[].kind` vocabulary — the two trust tiers, nothing else. */
+    private const ACTION_KINDS = ['native', 'provider'];
+
     private static function validate_actions(array $manifest): void {
         $name = (string) ($manifest['name'] ?? '?');
         if (array_key_exists('rebuilders', $manifest)) {
@@ -5579,7 +5639,7 @@ self::validate_post_type_children($manifest);
                 throw new \RuntimeException("duo: $where must be an object");
             }
             $kind = $action['kind'] ?? null;
-            if (!in_array($kind, ['native', 'provider'], true)) {
+            if (!in_array($kind, self::ACTION_KINDS, true)) {
                 throw new \RuntimeException("duo: $where.kind must be \"native\" or \"provider\"");
             }
             // `effects` is optional; it is in the allowed set so the effect
@@ -5634,6 +5694,22 @@ self::validate_post_type_children($manifest);
     }
 
     /**
+     * The provider grammar's offline bounds. A capability name and a provider
+     * argument key share one pattern deliberately: both are keys in the
+     * provider's own declared schema, so a name legal in a declaration and
+     * illegal in the action that reaches it would be a grammar with two
+     * spellings. Consts rather than inline literals for the same reason as
+     * EFFECT_KINDS — closed_vocabularies() publishes exactly what refuses.
+     */
+    private const PROVIDER_ID_PATTERN = '/^[a-z][a-z0-9-]{0,63}$/D';
+    /** @see PROVIDER_ID_PATTERN */
+    private const PROVIDER_VERSION_PATTERN = '/^[0-9]+\.[0-9]+\.[0-9]+$/D';
+    /** @see PROVIDER_ID_PATTERN */
+    private const CAPABILITY_NAME_PATTERN = '/^[a-z0-9_]{1,64}$/D';
+    /** @see PROVIDER_ID_PATTERN */
+    private const PROVIDER_SOURCES = ['manifest', 'plugin'];
+
+    /**
      * The load-time half of a provider-kind action's contract.
      *
      * A manifest is data, so this is everything checkable without the
@@ -5661,7 +5737,7 @@ self::validate_post_type_children($manifest);
             );
         }
         $capability = $action['capability'] ?? null;
-        if (!is_string($capability) || preg_match('/^[a-z0-9_]{1,64}$/D', $capability) !== 1) {
+        if (!is_string($capability) || preg_match(self::CAPABILITY_NAME_PATTERN, $capability) !== 1) {
             throw new \RuntimeException("duo: $where.capability must match ^[a-z0-9_]{1,64}$");
         }
         if (!in_array($capability, (array) ($providers[$id]['capabilities'] ?? []), true)) {
@@ -5670,7 +5746,7 @@ self::validate_post_type_children($manifest);
             );
         }
         foreach ((array) $action['args'] as $key => $value) {
-            if (!is_string($key) || preg_match('/^[a-z0-9_]{1,64}$/D', $key) !== 1) {
+            if (!is_string($key) || preg_match(self::CAPABILITY_NAME_PATTERN, $key) !== 1) {
                 throw new \RuntimeException("duo: $where.args keys must match ^[a-z0-9_]{1,64}$");
             }
             if (is_array($value)) {
@@ -5731,7 +5807,7 @@ self::validate_post_type_children($manifest);
                 );
             }
             $id = $declaration['id'];
-            if (!is_string($id) || preg_match('/^[a-z][a-z0-9-]{0,63}$/D', $id) !== 1) {
+            if (!is_string($id) || preg_match(self::PROVIDER_ID_PATTERN, $id) !== 1) {
                 throw new \RuntimeException("duo: $where.id must match ^[a-z][a-z0-9-]{0,63}$");
             }
             if (isset($seenIds[$id])) {
@@ -5739,12 +5815,12 @@ self::validate_post_type_children($manifest);
             }
             $seenIds[$id] = true;
             if (!is_string($declaration['version'])
-                || preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/D', $declaration['version']) !== 1) {
+                || preg_match(self::PROVIDER_VERSION_PATTERN, $declaration['version']) !== 1) {
                 throw new \RuntimeException(
                     "duo: $where.version must be an exact <major>.<minor>.<patch> string"
                 );
             }
-            if (!in_array($declaration['source'], ['manifest', 'plugin'], true)) {
+            if (!in_array($declaration['source'], self::PROVIDER_SOURCES, true)) {
                 throw new \RuntimeException("duo: $where.source must be \"manifest\" or \"plugin\"");
             }
             $plugin = $declaration['plugin'];
@@ -5764,7 +5840,7 @@ self::validate_post_type_children($manifest);
             }
             $seenCapabilities = [];
             foreach ($capabilities as $j => $capability) {
-                if (!is_string($capability) || preg_match('/^[a-z0-9_]{1,64}$/D', $capability) !== 1) {
+                if (!is_string($capability) || preg_match(self::CAPABILITY_NAME_PATTERN, $capability) !== 1) {
                     throw new \RuntimeException("duo: $where.capabilities[$j] must match ^[a-z0-9_]{1,64}$");
                 }
                 if (isset($seenCapabilities[$capability])) {
@@ -5841,6 +5917,25 @@ self::validate_post_type_children($manifest);
         }
     }
 
+    /**
+     * The four closed vocabularies of the effect grammar, plus the bound on an
+     * effect id. They were local arrays inside validate_effect() until
+     * closed_vocabularies() needed to publish them; they are consts now for the
+     * same one-declaration-site reason DERIVABLE_FIELD_COLUMNS gives — a
+     * published set that restated the validator's literals would be a second
+     * spelling of the grammar, free to drift from the one that actually
+     * refuses. Values, order, and every refusal message are unchanged.
+     */
+    private const EFFECT_KINDS = ['database', 'filesystem', 'schedule', 'cache', 'queue', 'mail', 'http', 'external'];
+    /** @see EFFECT_KINDS */
+    private const EFFECT_MODES = ['restorable', 'reversible', 'prevented', 'irreversible'];
+    /** @see EFFECT_KINDS */
+    private const SELECTOR_SCOPES = ['database_checkpoint', 'external'];
+    /** @see EFFECT_KINDS */
+    private const SELECTOR_TYPES = ['table', 'option', 'path', 'hook', 'namespace', 'queue', 'mail_subject', 'url_prefix', 'provider_resource', 'plugin_lifecycle'];
+    /** @see EFFECT_KINDS */
+    private const EFFECT_ID_PATTERN = '/^[a-z][a-z0-9._:-]{0,127}$/';
+
     private static function validate_effect(mixed $effect, string $where): void {
         if (!is_array($effect) || array_is_list($effect)) {
             throw new \RuntimeException("duo: $where must be an object");
@@ -5858,15 +5953,15 @@ self::validate_post_type_children($manifest);
             throw new \RuntimeException("duo: $where has missing or unknown fields for mode " . var_export($mode, true));
         }
         if (!is_string($effect['id'] ?? null)
-            || preg_match('/^[a-z][a-z0-9._:-]{0,127}$/', (string) $effect['id']) !== 1) {
+            || preg_match(self::EFFECT_ID_PATTERN, (string) $effect['id']) !== 1) {
             throw new \RuntimeException("duo: $where.id must be a bounded lowercase identifier");
         }
         // DUO-3318: two closed vocabularies, two messages. One combined
         // refusal made an author guess which half they got wrong, and never
         // printed either legal set — the same declaration would be edited,
         // re-run, and refused again on the other field.
-        $effectKinds = ['database', 'filesystem', 'schedule', 'cache', 'queue', 'mail', 'http', 'external'];
-        $effectModes = ['restorable', 'reversible', 'prevented', 'irreversible'];
+        $effectKinds = self::EFFECT_KINDS;
+        $effectModes = self::EFFECT_MODES;
         if (!in_array($kind, $effectKinds, true)) {
             throw new \RuntimeException(
                 "duo: $where.kind=" . var_export($kind, true) . ' is not one of the engine-owned effect kinds ('
@@ -5911,8 +6006,8 @@ self::validate_post_type_children($manifest);
         // exactly one of those — and had to bisect their own declaration to
         // find out which. Each cause now names itself and, where it is a
         // closed set, prints the set.
-        $selectorScopes = ['database_checkpoint', 'external'];
-        $selectorTypes = ['table', 'option', 'path', 'hook', 'namespace', 'queue', 'mail_subject', 'url_prefix', 'provider_resource', 'plugin_lifecycle'];
+        $selectorScopes = self::SELECTOR_SCOPES;
+        $selectorTypes = self::SELECTOR_TYPES;
         if (!in_array($scope, $selectorScopes, true)) {
             throw new \RuntimeException(
                 "duo: $where.selector.scope=" . var_export($scope, true) . ' is not one of the engine-owned scopes '
@@ -6439,5 +6534,122 @@ self::validate_post_type_children($manifest);
             $out[$section] = (object) $out[$section]; // force {} not [] when empty, matching manifest style
         }
         return $out;
+    }
+
+    /**
+     * The closed VALUE vocabularies this class refuses against — the legal
+     * values of a declared field — keyed by the grammar name an adapter author
+     * sees (DUO-3327).
+     *
+     * Bounded on purpose, and the boundary is published with the document (see
+     * ManifestValidate::emitSchema()'s `coverage` field) rather than left for a
+     * consumer to discover:
+     *
+     *   - VALUE vocabularies only. The closed KEY vocabularies — which keys an
+     *     `actions[]` entry may carry, the exact five a `providers[]` entry
+     *     requires, the `invalidate` key set, a table declaration's own section
+     *     names — are equally closed and equally refused, and none of them is
+     *     here. They are per-surface allowlists computed at their refusal site
+     *     (several depend on a sibling value, e.g. an action's legal key set is
+     *     a function of its `kind`), so publishing them as flat sets would
+     *     publish something the engine does not have.
+     *   - Unconditional sets only. Where a value is legal only in combination
+     *     with another (`prevented` needs kind ∈ mail/http/queue, a `database`
+     *     effect needs selector.type ∈ table/option, `restorable` needs
+     *     database_checkpoint scope), the CONDITION is not expressible here and
+     *     is not expressed: this map says what the engine's alphabet is, never
+     *     which sentences are well-formed.
+     *   - Pin-dependent vocabularies publish their ENGINE-OWNED BASE only, named
+     *     as such (see below).
+     *
+     * Additive, read-only, and deliberately assembled from the same consts the
+     * validators themselves read — never from a second list. An offline
+     * validator, an editor completion source, or a published grammar document
+     * that restated these sets would be a second spelling of the engine's
+     * vocabulary, free to say `verbatim` is legal a release after the engine
+     * stopped accepting it. The one honest way to publish a closed set is to
+     * hand back the exact value the refusal consults, which is all this does:
+     * no computation, no normalization, no ordering change (declared order is
+     * load-bearing in the refusal messages that print these sets).
+     *
+     * Not every vocabulary here is a flat list. `pattern_keys` and
+     * `post_derivable_fields` are maps because the engine's own declaration is
+     * a map, and flattening them here would lose the half a reader needs.
+     *
+     * Vocabularies whose legal values depend on which manifests are pinned —
+     * ref/token/ledger kinds, which union their engine base with every declared
+     * table `id_kind` — publish the ENGINE-OWNED BASE only, named as such. The
+     * declared half is a property of a pin set, not of this engine, and is
+     * reported per-run by whatever loaded those manifests.
+     *
+     * @return array<string, array<int|string, mixed>>
+     */
+    public static function closed_vocabularies(): array {
+        return [
+            'classification_classes' => self::CLASSES,
+            'classification_sections' => self::SECTIONS,
+            'scope_classes' => self::SCOPE_CLASSES,
+            'value_casts' => self::CASTS,
+            'pattern_keys' => self::PATTERN_KEYS,
+            'option_autoload_values' => OptionState::AUTOLOAD_VALUES,
+            'option_autoload_sentinels' => self::OPTION_AUTOLOAD_SENTINELS,
+            'dynamic_option_resolvers' => self::DYNAMIC_OPTION_RESOLVERS,
+            'user_meta_missing_user_modes' => self::MISSING_USER_MODES,
+            'post_derivable_fields' => self::DERIVABLE_FIELD_COLUMNS,
+            'post_field_classes' => self::FIELD_CLASSES,
+            'post_type_body_modes' => self::BODY_MODES,
+            'post_type_phases' => self::POST_TYPE_PHASES,
+            'menu_derivable_fields' => self::MENU_DERIVABLE_FIELDS,
+            'menu_field_classes' => self::MENU_FIELD_CLASSES,
+            'table_classes' => self::TABLE_CLASSES,
+            'table_identity_modes' => self::IDENTITY_MODES,
+            'engine_ref_kinds' => self::ENGINE_REF_KINDS,
+            'engine_token_kinds' => self::ENGINE_TOKEN_KINDS,
+            'engine_ledger_kinds' => self::ENGINE_LEDGER_KINDS,
+            'attribute_value_types' => self::ATTR_VALUE_TYPES,
+            'attribute_tokenize_codecs' => self::ATTR_TOKENIZE_CODECS,
+            'widget_setting_codecs' => self::WIDGET_SETTING_CODECS,
+            'widget_setting_refs' => self::WIDGET_SETTING_REFS,
+            'action_kinds' => self::ACTION_KINDS,
+            'provider_sources' => self::PROVIDER_SOURCES,
+            'effect_kinds' => self::EFFECT_KINDS,
+            'effect_modes' => self::EFFECT_MODES,
+            'effect_selector_scopes' => self::SELECTOR_SCOPES,
+            'effect_selector_types' => self::SELECTOR_TYPES,
+            'provider_resource_placeholders' => self::MEMBER_PLACEHOLDERS,
+        ];
+    }
+
+    /**
+     * The NAMED SUBSET of bounded string patterns the manifest grammar checks
+     * against, as the exact PCRE this class hands to preg_match() (DUO-3327).
+     *
+     * A subset, and it says so: these five are the patterns that have an
+     * engine-owned NAME (a `*_PATTERN` const, referenced from more than one
+     * refusal), which is what makes publishing them meaningful — a consumer can
+     * bind to the name and get whatever the engine currently means by it.
+     * Policy.php alone applies roughly twenty further inline PCREs (identity and
+     * column-name shapes, sha-256 digests, the secret-shaped-value screens, the
+     * placeholder-brace scan) that have no such name; they are deliberately
+     * absent rather than scraped, because a scraped anonymous pattern would be a
+     * consumer contract nobody on this side agreed to keep. The boundary is
+     * published with the document (ManifestValidate::emitSchema()'s `coverage`).
+     *
+     * Additive companion to closed_vocabularies(), same discipline and same
+     * reason: a published pattern that is not the pattern that refuses is worse
+     * than no published pattern. Delimiters and modifiers are kept rather than
+     * stripped so a consumer can run the identical match; a consumer that wants
+     * the bare body can strip them, but this side may not decide that for it.
+     *
+     * @return array<string, string>
+     */
+    public static function grammar_patterns(): array {
+        return [
+            'action_trigger_surface' => self::SURFACE_PATTERN,
+            'capability_name' => self::CAPABILITY_NAME_PATTERN,
+            'effect_id' => self::EFFECT_ID_PATTERN,
+            'provider_id' => self::PROVIDER_ID_PATTERN,
+            'provider_version' => self::PROVIDER_VERSION_PATTERN,
+        ];
     }
 }

@@ -30,6 +30,7 @@ require __DIR__ . '/src/PlanSummary.php';
 require __DIR__ . '/src/Pending.php';
 require __DIR__ . '/src/Triage.php';
 require __DIR__ . '/src/ClassificationBatch.php';
+require __DIR__ . '/src/ManifestValidate.php';
 // RefreshPlan lands as a separately-reviewable semantic layer. Keep this
 // host shell loadable while that contract is unavailable; Refresh itself
 // fails closed with an actionable diagnostic before any candidate ref exists.
@@ -50,6 +51,7 @@ use Duo\Orchestrator\Pending;
 use Duo\Orchestrator\PlanSummary;
 use Duo\Orchestrator\RollbackAuthority;
 use Duo\Orchestrator\VerifiedRollbackProfile;
+use Duo\Orchestrator\ManifestValidate;
 use Duo\Orchestrator\Registry;
 use Duo\Orchestrator\Transport;
 use Duo\Orchestrator\Triage;
@@ -67,6 +69,10 @@ Usage:
   duo envs
   duo env materialize <env> --from <production-env> --branch <ref> [--create] [--ttl <seconds>]
   duo env reap <env>
+  duo manifest-validate <manifests-dir> [--manifest=<name>[,...]]
+                        [--pins=<name>[,...]|--all] [--site=<site-repo>]
+                        [--no-code] [--format=json]
+  duo manifest-validate --emit-schema
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
   duo adopt  <env>
@@ -101,6 +107,39 @@ Verbs:
                           Repeated reap is idempotent; stale identity refuses.
   envs                    List environments from site.duo.json + .duo-envs.json
                           (overlay wins per env name), with transport summaries.
+  manifest-validate       Adapter-authoring aid: run the engine's REAL manifest
+    <manifests-dir>       validators over a directory of manifests with no
+    [--manifest=<names>]  WordPress, no database, and no environment. Each
+    [--pins=<names>]      manifest is loaded on its own (so every verdict shows
+    [--all]               in one run), then the requested pin set is co-loaded
+    [--site=<site-repo>]  so the cross-manifest guards run too; --manifest
+    [--no-code]           narrows what is checked individually, --pins/--all the
+    [--format=json]       co-loaded set (default: every manifest in the dir).
+    [--emit-schema]       Engine messages carry their own exact coordinates and
+                          are surfaced verbatim; a per-manifest row carries the
+                          manifest's file path, the pin-set row the paths of
+                          everything co-loaded. --site names a duo SITE REPO
+                          (the directory holding site.duo.json) and validates
+                          against its policy half too — two guards (ref/token/
+                          ledger kinds, conflicting option rules) read site
+                          policy as input, so without it a manifest valid on its
+                          real site can be refused here; such a refusal is
+                          annotated as possibly site-resolvable rather than
+                          rewritten. TRUST: point this only at a manifests dir
+                          you trust as much as the agent's own — a declared
+                          interpreter/regenerator is resolved, which LOADS that
+                          PHP (top level + constructor). --no-code skips that
+                          code half for a first look at an untrusted package;
+                          every declaration is still checked and the skip is
+                          reported, never silent. Checks that genuinely need a
+                          live target, the missing site half, and a skipped code
+                          half are listed as `deferred` on EVERY run — silence
+                          never means verified.
+                          --emit-schema prints the machine-readable grammar
+                          document instead, read from the engine's own closed
+                          vocabularies at emission time (with a `coverage` note
+                          stating what it does NOT publish). Exit 0 all valid,
+                          1 any invalid, 2 usage/IO.
   doctor <env>            Check transport reachability, WordPress install, the
                           duo agent, and repo_path/site.duo.json. Non-zero exit
                           on any failing check.
@@ -297,6 +336,12 @@ function main(array $argv): int {
     }
     if ($verb === 'env') {
         return cmd_environment($rest, $envsFileOverride);
+    }
+
+    // No environment, no transport, no registry: this one reads manifest files
+    // on this machine and drives the engine's own offline validators over them.
+    if ($verb === 'manifest-validate') {
+        return ManifestValidate::run($rest);
     }
 
     if (!in_array($verb, $verbsNeedingEnv, true)) {

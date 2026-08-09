@@ -29,7 +29,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions \
 	regress-post-field-classification regress-capability-registry regress-woocommerce-contract regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
-	regress-pair-candidate-source \
+	regress-pair-candidate-source regress-manifest-validate \
 	capability-registry-generate release-gate
 
 up:
@@ -444,6 +444,16 @@ regress-vocabulary-ownership:
 regress-close-gate-parent-count:
 	bash sandbox/tests/regress_close_gate_parent_count.sh
 
+# DUO-3327: `duo manifest-validate`, the adapter author's offline grammar check,
+# and the machine-readable grammar document it emits from the engine's own
+# closed vocabularies. Drives the real host CLI as a subprocess against scratch
+# manifest fixtures (shared with the DUO-3318 ownership suite), against scratch
+# site repos (the two guards that read site.duo.json as input, asserted both
+# ways), and against the shipped manifests/ directory with and without --site.
+# Authoring aid, not a gate on anything.
+regress-manifest-validate:
+	bash sandbox/tests/regress_manifest_validate.sh
+
 # DUO-3318 live counterpart: the parent-scoped natural key through capture,
 # deploy, apply, rename, and independent recapture across two environments
 # whose local ids genuinely differ. Own pair, so it is live-list material,
@@ -822,8 +832,9 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
-	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count
-	@echo "regress-offline-all: 85 offline suites green"
+	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
+	regress-manifest-validate
+	@echo "regress-offline-all: 86 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
