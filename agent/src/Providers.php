@@ -272,7 +272,17 @@ final class Providers {
                 continue;
             }
 
-            $advertised = $provider->capabilities();
+            try {
+                $advertised = $provider->capabilities();
+            } catch (\Throwable $t) {
+                $problems[] = self::problem(
+                    $id, $manifest, $plugin, 'contract_shape',
+                    'capabilities() returning a name => declaration map',
+                    'capabilities() threw: ' . $t->getMessage(),
+                    'upgrade the provider to the current adapter contract'
+                );
+                continue;
+            }
             if (!is_array($advertised) || array_is_list($advertised)) {
                 $problems[] = self::problem(
                     $id, $manifest, $plugin, 'contract_shape',

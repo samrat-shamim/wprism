@@ -691,6 +691,21 @@ final class DuoCertificationMissingCapabilityProvider {
         throw new RuntimeException('diagnostics must not invoke a missing-capability provider');
     }
 }
+
+final class DuoCertificationThrowingCapabilitiesProvider {
+    public function identity(): array {
+        return ['id' => 'site-cache', 'plugin' => 'acme/acme.php', 'version' => '1.2.3'];
+    }
+
+    public function capabilities(): array {
+        throw new RuntimeException('fixture capabilities failure');
+    }
+
+    public function invoke(string $capability, array $args): array {
+        $GLOBALS['cert_provider_invocations'] = (int) ($GLOBALS['cert_provider_invocations'] ?? 0) + 1;
+        throw new RuntimeException('diagnostics must not invoke a capabilities-throwing provider');
+    }
+}
 PLUGIN
 );
 require_once $pluginFile;
@@ -1174,6 +1189,27 @@ try {
         )
         && $GLOBALS['cert_provider_invocations'] === 0,
         'missing advertised capability blocks global capability JSON and the selected plan without invoking it'
+    );
+
+    $GLOBALS['cert_plugin_providers'] = [new \DuoCertificationThrowingCapabilitiesProvider()];
+    $GLOBALS['cert_provider_invocations'] = 0;
+    $throwingCapabilitiesReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
+    $throwingCapabilitiesPlanRows = $providerPlanDispositions($providerPinnedPolicy, ['post:page']);
+    $throwingCapabilitiesBlocker = cert_provider_blocker(
+        (array) ($throwingCapabilitiesReport['blockers'] ?? []),
+        'contract_shape'
+    );
+    cert_check(
+        ($throwingCapabilitiesReport['ready'] ?? null) === false
+        && $hasProviderDiagnosticFields($throwingCapabilitiesBlocker, 'contract_shape')
+        && (($throwingCapabilitiesBlocker['expected'] ?? null) === 'capabilities() returning a name => declaration map')
+        && str_contains((string) ($throwingCapabilitiesBlocker['found'] ?? ''), 'capabilities() threw: fixture capabilities failure')
+        && $hasProviderDiagnosticFields(
+            cert_provider_blocker($throwingCapabilitiesPlanRows, 'contract_shape'),
+            'contract_shape'
+        )
+        && $GLOBALS['cert_provider_invocations'] === 0,
+        'a capabilities()-throwing provider remains a structured global/selected-plan blocker without invoking it'
     );
 
     $GLOBALS['cert_plugin_providers'] = $validProviderRegistration;

@@ -95,6 +95,7 @@ namespace Duo\Providers;
 final class ProbeCache {
     public array $calls = [];
     public static array $capabilityOverrides = [];
+    public static ?string $capabilitiesThrows = null;
     public static array $identityOverrides = [];
     public static mixed $receiptOverride = null;
     public static float $sleepSeconds = 0.0;
@@ -110,6 +111,9 @@ final class ProbeCache {
     }
 
     public function capabilities(): array {
+        if (self::$capabilitiesThrows !== null) {
+            throw new \RuntimeException(self::$capabilitiesThrows);
+        }
         return [
             'flush' => self::$capabilityOverrides + [
                 'args' => ['groups' => ['type' => 'list<string>', 'required' => true]],
@@ -218,6 +222,7 @@ $reset = static function (): void {
     $GLOBALS['duo_test_active'] = ['probe/probe.php'];
     $GLOBALS['duo_test_providers'] = [];
     \Duo\Providers\ProbeCache::$capabilityOverrides = [];
+    \Duo\Providers\ProbeCache::$capabilitiesThrows = null;
     \Duo\Providers\ProbeCache::$identityOverrides = [];
     \Duo\Providers\ProbeCache::$receiptOverride = null;
     \Duo\Providers\ProbeCache::$sleepSeconds = 0.0;
@@ -336,6 +341,15 @@ $p = $one($problemFor([], static function (): void {
 }));
 $check(($p['code'] ?? '') === 'malformed_capability',
     'a capability declaration with an unknown key is refused rather than partially honored');
+
+$p = $one($problemFor([], static function (): void {
+    \Duo\Providers\ProbeCache::$capabilitiesThrows = 'fixture capabilities failure';
+}));
+$check(($p['code'] ?? '') === 'contract_shape'
+    && ($p['expected'] ?? '') === 'capabilities() returning a name => declaration map'
+    && str_contains((string) ($p['found'] ?? ''), 'capabilities() threw: fixture capabilities failure')
+    && str_contains((string) ($p['remediation'] ?? ''), 'upgrade the provider'),
+    'a provider whose capabilities() throws becomes a structured contract problem rather than aborting negotiation');
 
 echo "\n== plugin-sourced providers (a custom plugin advertising its own) ==\n";
 $pluginSourced = array_replace_recursive($manifest, ['providers' => [['source' => 'plugin']]]);
