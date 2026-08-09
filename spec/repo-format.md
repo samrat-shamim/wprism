@@ -820,11 +820,17 @@ other effect type or provider resource.
 9. **Verify convergence** — recapture the live target through the canonical snapshot reader in a fresh WordPress process before any convergence metadata advances. The verifier is pinned to the exact compiled artifact used by apply, avoiding stale pre-apply plugin models and refusing a concurrently changed repository. Every entity in the compiled tree must have the same type and canonical hash. Target-only entities remain untouched because absence is not deletion authority; when `--with-deletes` is explicit, every compiled tombstone UUID must be absent. A mismatch names the failed invariant, retains `apply_in_progress`, and leaves all base hashes and `applied_revision` unadvanced.
 10. **Receipts and retry** — only after verification passes, a successful or already-absent deletion stores the tombstone hash in `duo_state` with entity type `deletion`; re-planning returns `deleted`, so retries are idempotent. Live hashes and `applied_revision` update atomically with clearing `apply_in_progress`.
 
-For the primary `compile`, `capture`, `plan`, `explain`, `apply`, `deploy`, `refresh-export`,
-`scope`, `code-stage`, and `code-finalize` command path, a JSON-mode refusal wraps the stable object
-above in `format:"duo-command-refusal/v1"` and adds `command`, `reason_code`,
-reviewed public `message`, and reviewed public `remediation`. The established
-top-level `error` and safe `diagnostics` fields retain their exact shape.
+Every agent command that advertises `--format=json` refuses through this one
+envelope — the set is closed, not a growing enumeration, and an argument gate
+refuses through it exactly like a policy or target-state gate. A JSON-mode
+refusal wraps the stable object above in `format:"duo-command-refusal/v1"` and
+adds `command`, `reason_code`, reviewed public `message`, and reviewed public
+`remediation`. The established top-level `error` and safe `diagnostics` fields
+retain their exact shape. `policy-to-manifest` and `manifest-pin` are outside
+that set by design: they advertise no `--format`, print one canonical JSON
+document unconditionally, and refuse human-only, so a caller distinguishes
+refusal by an empty stdout and a non-zero exit rather than by a negotiated
+format.
 Every serialized field is subject to one final sensitive-data guard: if any
 typed diagnostic contains a secret, credential-bearing or signed URL, email,
 private home path (Unix, drive-letter, or UNC), or control byte, the whole

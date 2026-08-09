@@ -231,6 +231,23 @@ final class Cli {
             'code-finalize' => 'inspect the staged receipt and promotion lease, then resume or recover the exact immutable artifact',
             'refresh-export' => 'inspect private operator evidence, then complete or recover the interrupted apply, promotion lease, identity, or code receipt before observing production again',
             'scope' => 'inspect private operator evidence, then compile the revision or correct the root selectors before resolving scope again',
+            // DUO-3399: one reviewed arm per newly enveloped command, each
+            // naming that command's own real blockers.  The default arm below
+            // promises to "correct the named blocker" while the unclassified
+            // path deliberately redacts every detail, so it contradicts itself
+            // on exactly the path it would be used; a command only keeps it
+            // when its failures genuinely have no reviewable shape.
+            'promotion-begin' => 'inspect the recorded promotion lease holder, phase, and expiry plus any unresolved lifecycle attempt, then release that lease or restore its database checkpoint before acquiring again',
+            'promotion-abort' => 'inspect the recorded promotion lease owner and artifact hash, then release the exact recorded lease or restore its database checkpoint before aborting again',
+            'env-set' => 'inspect the loaded policy env declarations, then declare the option class "env" without sub_keys, supply a non-empty value, and set it again',
+            'orphans' => 'inspect the declared authored_snapshot table and its structural ref columns, then name one listed orphan row and exactly one of --delete or --reparent before retrying',
+            'verify-canonical' => 'inspect the parent apply frozen policy snapshot, compiled artifact, and expected artifact hash, then rerun verification from that exact apply',
+            'journal-report' => 'inspect the provenance journal tables and the pinned manifests named by --manifests, then correct that selection before reporting again',
+            'pending' => 'inspect the repository policy and provenance journal state, then correct the policy or ledger blocker before scanning the review queue again',
+            'coverage' => 'inspect the repository policy and this environment\'s database access, then correct that blocker before reporting coverage again',
+            'classify' => 'inspect the rejected --set spec and the repository policy file, then correct its section, key, class, or secret override before writing rules again',
+            'lint' => 'inspect the repository policy and the captured state tree, then capture or correct the policy before linting again',
+            'capabilities' => 'inspect the manifest disposition registry, the generated capability registry, and this repository\'s manifest pins, then correct that evidence before reporting capabilities again',
             default => "correct the named $command blocker, then retry the command",
         };
     }
@@ -282,12 +299,18 @@ final class Cli {
      * @subcommand promotion-begin
      */
     public function promotion_begin($args, $assoc) {
-        $owner = $assoc['promotion-owner'] ?? WP_CLI::error('--promotion-owner required');
-        $artifactHash = $assoc['artifact-hash'] ?? WP_CLI::error('--artifact-hash required');
         try {
+            // Both lease selectors gate this command's advertised JSON
+            // contract, so both refuse inside the structured boundary: an
+            // orchestrator asking for --format=json read human stderr and no
+            // record at all when either was absent.  Their operator prose is
+            // unchanged, because human mode still prints the private message.
+            $owner = $assoc['promotion-owner'] ?? throw CommandRefusalException::invalidArgument('promotion-begin', '--promotion-owner');
+            $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('promotion-begin', '--artifact-hash');
             Ledger::ensure();
             $summary = PromotionLock::begin((string) $owner, (string) $artifactHash);
         } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'promotion-begin');
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {
@@ -315,12 +338,16 @@ final class Cli {
      * @subcommand promotion-abort
      */
     public function promotion_abort($args, $assoc) {
-        $owner = $assoc['promotion-owner'] ?? WP_CLI::error('--promotion-owner required');
-        $artifactHash = $assoc['artifact-hash'] ?? WP_CLI::error('--artifact-hash required');
         try {
+            $owner = $assoc['promotion-owner'] ?? throw CommandRefusalException::invalidArgument('promotion-abort', '--promotion-owner');
+            $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('promotion-abort', '--artifact-hash');
             Ledger::ensure();
             $summary = PromotionLock::abort((string) $owner, (string) $artifactHash);
         } catch (\Throwable $t) {
+            // Compensating cleanup is the path an orchestrator runs after a
+            // failure it already could not parse; a machine-unreadable
+            // refusal here is the one that strands a lease.
+            self::halt_json_failure($t, $assoc, 'promotion-abort');
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {
@@ -942,20 +969,41 @@ final class Cli {
      * @subcommand env-set
      */
     public function env_set($args, $assoc) {
-        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
-        $name = $assoc['name'] ?? WP_CLI::error('--name required');
-        $hasValue = array_key_exists('value', $assoc);
-        $hasStdin = isset($assoc['stdin']);
-        if ($hasValue && $hasStdin) {
-            WP_CLI::error('pass exactly one of --value or --stdin, not both');
-        }
-        if (!$hasValue && !$hasStdin) {
-            WP_CLI::error('one of --value=<value> or --stdin is required');
-        }
-        $value = $hasStdin ? self::read_masked_value("value for '$name': ") : (string) $assoc['value'];
         try {
+            // Every gate moves inside the structured boundary, including the
+            // two that reject a contradictory or absent value source: this
+            // command advertises --format=json, and a caller that got neither
+            // a record nor a reason could not tell "wrong flags" from "policy
+            // refused the option".  The masked read stays here as well — its
+            // prompt is STDERR-only, so stdout keeps its exactly-one-value
+            // contract, and a failed read now refuses through this envelope
+            // instead of an unformatted throw.
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('env-set', '--repo');
+            $name = $assoc['name'] ?? throw CommandRefusalException::invalidArgument('env-set', '--name');
+            $hasValue = array_key_exists('value', $assoc);
+            $hasStdin = isset($assoc['stdin']);
+            if ($hasValue && $hasStdin) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'env-set accepts exactly one value source',
+                    'pass exactly one of --value or --stdin and rerun env-set',
+                    [],
+                    'pass exactly one of --value or --stdin, not both'
+                );
+            }
+            if (!$hasValue && !$hasStdin) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'env-set requires a value source',
+                    'pass one of --value=<value> or --stdin and rerun env-set',
+                    [],
+                    'one of --value=<value> or --stdin is required'
+                );
+            }
+            $value = $hasStdin ? self::read_masked_value("value for '$name': ") : (string) $assoc['value'];
             $result = Apply::set_env_option($repo, (string) $name, $value);
         } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'env-set');
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {
@@ -1081,10 +1129,14 @@ final class Cli {
      * [--format=<format>] : Output format. Accepts json.
      */
     public function orphans($args, $assoc) {
-        $table = $args[0] ?? WP_CLI::error('<table> required');
         try {
+            // The positional table selector is a gate like any other: it
+            // refuses inside the boundary so a --format=json caller reads the
+            // same versioned record for it as for a repair-argument gate the
+            // backend raises a few lines later.
+            $table = $args[0] ?? throw CommandRefusalException::invalidArgument('orphans', '<table>');
             $summary = Orphans::run(
-                $assoc['repo'] ?? WP_CLI::error('--repo required'),
+                $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('orphans', '--repo'),
                 (string) $table,
                 [
                     'row' => $assoc['row'] ?? '',
@@ -1093,6 +1145,7 @@ final class Cli {
                 ]
             );
         } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'orphans');
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {
@@ -1135,17 +1188,23 @@ final class Cli {
      */
     public function verify_canonical($args, $assoc) {
         try {
+            // These four gates already sat inside the try, but WP_CLI::error()
+            // exits the process where it stands, so the catch below never saw
+            // them and apply's own internal verifier — a pure machine caller —
+            // got human stderr.  Typed refusals reach the same formatter as
+            // every convergence gate they precede, in the same order.
             $summary = Apply::verify_canonical(
-                $assoc['repo'] ?? WP_CLI::error('--repo required'),
+                $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--repo'),
                 [
-                    'expected_artifact' => $assoc['expected-artifact'] ?? WP_CLI::error('--expected-artifact required'),
-                    'compiled' => $assoc['compiled'] ?? WP_CLI::error('--compiled required'),
-                    'policy_snapshot' => $assoc['policy-snapshot'] ?? WP_CLI::error('--policy-snapshot required'),
+                    'expected_artifact' => $assoc['expected-artifact'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--expected-artifact'),
+                    'compiled' => $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--compiled'),
+                    'policy_snapshot' => $assoc['policy-snapshot'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--policy-snapshot'),
                     'with_deletes' => isset($assoc['with-deletes']),
                     'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
                 ]
             );
         } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'verify-canonical');
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {
@@ -1251,6 +1310,10 @@ final class Cli {
         try {
             $report = Journal::report($names);
         } catch (\Throwable $t) {
+            // This command has no required argument, so its only JSON-mode
+            // refusals are ledger and manifest-resolution blockers — exactly
+            // the ones a machine caller needs a reason code for.
+            self::halt_json_failure($t, $assoc, 'journal-report');
             WP_CLI::error($t->getMessage());
         }
         // wp-cli rewrites a bare --json into $assoc['format']='json' before
@@ -1317,8 +1380,12 @@ final class Cli {
      */
     public function pending($args, $assoc) {
         try {
-            $items = Pending::scan($assoc['repo'] ?? WP_CLI::error('--repo required'));
+            $items = Pending::scan($assoc['repo'] ?? throw CommandRefusalException::invalidArgument('pending', '--repo'));
         } catch (\Throwable $t) {
+            // Failure only. The success record this command emits below is a
+            // published contract other tooling parses (sandbox/conformance
+            // greps it), and nothing here touches it.
+            self::halt_json_failure($t, $assoc, 'pending');
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {
@@ -1390,8 +1457,9 @@ final class Cli {
      */
     public function coverage($args, $assoc) {
         try {
-            $report = Coverage::report($assoc['repo'] ?? WP_CLI::error('--repo required'));
+            $report = Coverage::report($assoc['repo'] ?? throw CommandRefusalException::invalidArgument('coverage', '--repo'));
         } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'coverage');
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {
@@ -1653,27 +1721,39 @@ final class Cli {
      * [--format=<format>] : Output format. Accepts json.
      */
     public function classify($args, $assoc) {
-        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
-        $raw = $assoc['set'] ?? null;
-        if ($raw === null) {
-            WP_CLI::error('--set required, e.g. --set "post_meta:foo=runtime"');
-        }
-        $specs = [];
-        foreach ((array) $raw as $chunk) {
-            foreach (explode(';', (string) $chunk) as $one) {
-                $one = trim($one);
-                if ($one !== '') {
-                    $specs[] = $one;
-                }
-            }
-        }
-        $allowSecret = isset($assoc['allow-secret']);
         $written = [];
         try {
+            // Both selectors refuse inside the boundary. --set carries an
+            // example in its operator prose, which stays byte-identical; the
+            // machine record names the flag and repeats the example in
+            // remediation, where a caller can read it as guidance rather than
+            // having to scrape it out of stderr.
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('classify', '--repo');
+            $raw = $assoc['set'] ?? throw new CommandRefusalException(
+                'invalid_arguments',
+                '--set is required for classify',
+                'supply --set "section:key=class" (for example --set "post_meta:foo=runtime") and rerun classify',
+                [],
+                '--set required, e.g. --set "post_meta:foo=runtime"'
+            );
+            $specs = [];
+            foreach ((array) $raw as $chunk) {
+                foreach (explode(';', (string) $chunk) as $one) {
+                    $one = trim($one);
+                    if ($one !== '') {
+                        $specs[] = $one;
+                    }
+                }
+            }
+            $allowSecret = isset($assoc['allow-secret']);
+            // A refusal partway through a multi-spec --set leaves the earlier
+            // specs already written to site.duo.json, exactly as before: this
+            // is one record about why the run stopped, not a rollback claim.
             foreach ($specs as $spec) {
                 $written[] = self::parse_and_write_classify_spec($repo, $spec, $allowSecret);
             }
         } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'classify');
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {
@@ -1794,11 +1874,16 @@ final class Cli {
      * [--format=<format>] : Output format. Accepts json.
      */
     public function lint($args, $assoc) {
-        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
         try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('lint', '--repo');
             $policy = Policy::load($repo);
             $findings = Lint::scan_tree(rtrim($repo, '/') . '/state', $policy);
         } catch (\Throwable $t) {
+            // A refusal and a findings-bearing success both exit 1 here, so a
+            // caller scripting this as a gate could not previously tell "the
+            // tree is dirty" from "the tree was never scanned". The refusal
+            // now carries a reason code; the findings path is untouched.
+            self::halt_json_failure($t, $assoc, 'lint');
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {
@@ -1837,6 +1922,17 @@ final class Cli {
      * @subcommand policy-to-manifest
      */
     public function policy_to_manifest($args, $assoc) {
+        // DUO-3399, reviewed and deliberately left human-only: this command
+        // and manifest-pin print canonical JSON unconditionally and advertise
+        // no --format, so there is no JSON mode to honor and no format the
+        // caller negotiated.  halt_json_failure() answers only a caller that
+        // asked for JSON; wiring it here would either be dead code or require
+        // inventing a --format flag, growing a contract nobody requested.
+        // The one-document-on-stdout shape stays unambiguous without it: on
+        // success stdout is exactly one JSON value, on refusal stdout is
+        // empty and the exit code is non-zero, which a caller can already
+        // distinguish.  The envelope's closed set is "every command that
+        // advertises --format=json"; these two are outside it by design.
         $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
         $match = $assoc['match'] ?? WP_CLI::error('--match required');
         $name = $assoc['name'] ?? WP_CLI::error('--name required');
@@ -1868,6 +1964,9 @@ final class Cli {
      * @subcommand manifest-pin
      */
     public function manifest_pin($args, $assoc) {
+        // Human-only refusals by the same reviewed decision recorded on
+        // policy_to_manifest() above: no --format is advertised, so no
+        // machine caller ever asked this command for a JSON contract.
         $name = $assoc['name'] ?? WP_CLI::error('--name required');
         // --repo names the adapter source explicitly (DUO-3314). Without it
         // only the shipped library is searched, exactly as before, so pinning
@@ -1903,18 +2002,29 @@ final class Cli {
     public function capabilities($args, $assoc) {
         $all = isset($assoc['all']);
         $repo = isset($assoc['repo']) ? (string) $assoc['repo'] : null;
-        if ($all && $repo !== null) {
-            WP_CLI::error('--all and --repo are mutually exclusive');
-        }
-        $query = [
-            'operation' => isset($assoc['operation']) ? (string) $assoc['operation'] : 'promote',
-        ];
-        foreach (['surface', 'revision'] as $key) {
-            if (isset($assoc[$key])) {
-                $query[$key] = (string) $assoc[$key];
-            }
-        }
         try {
+            // Both selector gates move inside the boundary, keeping their
+            // original order relative to each other and to the registry reads
+            // below. This is the command an external reviewer polls for a
+            // ratification verdict, so "which selector did I get wrong" has to
+            // be readable from the same JSON the verdict would have arrived in.
+            if ($all && $repo !== null) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'capabilities accepts either --all or --repo, not both',
+                    'pass exactly one of --all or --repo and rerun capabilities',
+                    [],
+                    '--all and --repo are mutually exclusive'
+                );
+            }
+            $query = [
+                'operation' => isset($assoc['operation']) ? (string) $assoc['operation'] : 'promote',
+            ];
+            foreach (['surface', 'revision'] as $key) {
+                if (isset($assoc[$key])) {
+                    $query[$key] = (string) $assoc[$key];
+                }
+            }
             if ($all) {
                 $dir = Policy::manifests_dir();
                 $dispositions = ManifestDispositions::load($dir);
@@ -1946,11 +2056,18 @@ final class Cli {
                 );
             } else {
                 if ($repo === null || $repo === '') {
-                    WP_CLI::error('--repo required unless --all is used');
+                    throw new CommandRefusalException(
+                        'invalid_arguments',
+                        '--repo is required for capabilities',
+                        'supply --repo (or --all to report every shipped manifest) and rerun capabilities',
+                        [],
+                        '--repo required unless --all is used'
+                    );
                 }
                 $report = Policy::load($repo, null, true)->capability_report($query);
             }
         } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'capabilities');
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {
