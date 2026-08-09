@@ -155,8 +155,8 @@
             },
             {
                 "path": "Makefile",
-                "sha256": "d95cfb8f856a7974d00cf6d97540fc0b59312458cbf5da537767f1b143536154",
-                "size": 35307
+                "sha256": "c1265688d9c8dfb80e186f2e4a2f85f9a51e22450dfe67994c6157672bcb3873",
+                "size": 35640
             },
             {
                 "path": "agent/duo-loader.php",
@@ -565,8 +565,8 @@
             },
             {
                 "path": "sandbox/bin/fetch-artifact.sh",
-                "sha256": "bf5fbf2e7db53dce2b291543674f9a9f4fdce677b5766e42bc689edfffaa650f",
-                "size": 4622
+                "sha256": "e2a1c8331cbef044d1c2931b09a4bec5eef488450ec22f3ec02653e15740542e",
+                "size": 5573
             },
             {
                 "path": "sandbox/bin/pair.sh",
@@ -749,8 +749,8 @@
                 "size": 95183
             }
         ],
-        "bundle_digest": "4af650d071ad425e1a8cea53323cfbddc337a061c361f6a2c00ca83ee96c879c",
-        "created_at": "2026-08-09T04:46:22Z",
+        "bundle_digest": "5ad80530fbaf3682d4d5822c5612cddb2b72b189d76a3def388c8ff19a4e9257",
+        "created_at": "2026-08-09T07:27:15Z",
         "environment": {
             "path": "environment.json",
             "sha256": "9711ef3a04f882da7e7e0271d99bf014408bea1c656510ec463456e635fedc63",
@@ -769,7 +769,7 @@
             "wordpress": "7.0.2"
         },
         "force_hatches": [],
-        "git_revision": "785b7b57419b658fecb1ac30bc9c37f4dc429e5d",
+        "git_revision": "24f5cfd5055774ce21a82dbfff212a7ad7660a29",
         "harness": {
             "name": "duo-reference-certification",
             "version": 3
@@ -805,8 +805,8 @@
                 "id": "conformance-core",
                 "log": {
                     "path": "logs/conformance-core.txt",
-                    "sha256": "498f384a6c89eb4328b05bb7250bc2e8175bb937b1558fab709e97d3436da965",
-                    "size": 28321
+                    "sha256": "01b13b9f38c304db4814a699b55f7b79892f96e484e8bd7ad5eb094a42b8dc2e",
+                    "size": 27695
                 },
                 "result": {
                     "path": "results/conformance-core.json",
@@ -824,8 +824,8 @@
                 "id": "conformance-fse",
                 "log": {
                     "path": "logs/conformance-fse.txt",
-                    "sha256": "cc8097eec5c918c18429500ab09f6be810adf281948d2bc3b355a46326fbbd13",
-                    "size": 15100
+                    "sha256": "13f5f00f57c169ec1670c4924725a3709487a986b7cf43949e5f8e783010b926",
+                    "size": 14790
                 },
                 "result": {
                     "path": "results/conformance-fse.json",
@@ -843,8 +843,8 @@
                 "id": "conformance-acf",
                 "log": {
                     "path": "logs/conformance-acf.txt",
-                    "sha256": "4a56960cd2c4ce21478e281dfdf25b714d7c9cb964efa9cff98658516751b878",
-                    "size": 12872
+                    "sha256": "4f5ece5a1ce5a0fe6afb8ea5504c40b13fd477bdc33ee9c414d4391123d735b6",
+                    "size": 12658
                 },
                 "result": {
                     "path": "results/conformance-acf.json",
@@ -862,8 +862,8 @@
                 "id": "conformance-contact-form-7",
                 "log": {
                     "path": "logs/conformance-contact-form-7.txt",
-                    "sha256": "022d7f6d6ac7cd843383b48396a99e5462ce3befbe39803e91fd170d086fbe29",
-                    "size": 13828
+                    "sha256": "0b8e3835e718853f5945621409a6efc03338d39c677cb09208cb31afc9cadff7",
+                    "size": 13590
                 },
                 "result": {
                     "path": "results/conformance-contact-form-7.json",
@@ -881,8 +881,8 @@
                 "id": "conformance-elementor",
                 "log": {
                     "path": "logs/conformance-elementor.txt",
-                    "sha256": "c6d66948aa4766dc3b46be052f96fc209a97b4f20e9331a821def6a40680fcdd",
-                    "size": 13482
+                    "sha256": "2457f533b8cc8d730584eeb15c2681e32c1baf10bebd519467ae48b3730ff778",
+                    "size": 13256
                 },
                 "result": {
                     "path": "results/conformance-elementor.json",
@@ -900,8 +900,8 @@
                 "id": "conformance-ninja-forms",
                 "log": {
                     "path": "logs/conformance-ninja-forms.txt",
-                    "sha256": "1fccaf58ee45ccb61a1e3dd7c3952d7b3ff761a149714835028fb2729736302d",
-                    "size": 16857
+                    "sha256": "9c312766fd47cf0f1a19a844667d625667181545bcc42b49eb09bc64de161a8a",
+                    "size": 16537
                 },
                 "result": {
                     "path": "results/conformance-ninja-forms.json",
@@ -919,8 +919,8 @@
                 "id": "conformance-polylang",
                 "log": {
                     "path": "logs/conformance-polylang.txt",
-                    "sha256": "f223df886ee4ecb1eca4c067b9400072bc5961e07514011797f42af74f46be3e",
-                    "size": 19045
+                    "sha256": "c488351849e481031ca8951c041761a834f14576eec9391f578bd9239159ab33",
+                    "size": 18683
                 },
                 "result": {
                     "path": "results/conformance-polylang.json",
@@ -938,8 +938,8 @@
                 "id": "conformance-woocommerce",
                 "log": {
                     "path": "logs/conformance-woocommerce.txt",
-                    "sha256": "a4254b13f9092675376d803fef064dd703d3102864cf6f6e9c942ccb45c0ad1a",
-                    "size": 21830
+                    "sha256": "ee84492baccfdcd752820cc78d16bef9acc60c754fc94f87e681840ba27da732",
+                    "size": 21472
                 },
                 "result": {
                     "path": "results/conformance-woocommerce.json",
@@ -957,8 +957,8 @@
                 "id": "conformance-yoast",
                 "log": {
                     "path": "logs/conformance-yoast.txt",
-                    "sha256": "dc2124c0b81013bfeb8e06328e658015571987172dd3e5d794088cae72c03d63",
-                    "size": 15416
+                    "sha256": "db129c2603e04e3c1c6624b40e26042424f4a285653bf8d8c6519d93d9a63da9",
+                    "size": 15142
                 },
                 "result": {
                     "path": "results/conformance-yoast.json",
@@ -976,8 +976,8 @@
                 "id": "conformance-paid-memberships-pro",
                 "log": {
                     "path": "logs/conformance-paid-memberships-pro.txt",
-                    "sha256": "560caa76cee77f0425d4d50a50d28a898e7c829b6eb2a6572ac86f77d07b4608",
-                    "size": 13216
+                    "sha256": "1b539e59664cae6e58467789c45b9fbc495cdcca5b8caad9b0cc97db4a9bb831",
+                    "size": 13002
                 },
                 "result": {
                     "path": "results/conformance-paid-memberships-pro.json",
@@ -995,8 +995,8 @@
                 "id": "multisite-refusal",
                 "log": {
                     "path": "logs/multisite-refusal.txt",
-                    "sha256": "c4a17f680fa8b6dc83eb7d63894441df4d2d9d9144e65198bf0c05431c69983c",
-                    "size": 7968
+                    "sha256": "02c6a2809f65239e5e1c1a6ed11164b52c116156ab096a7ff854c3d432e20e39",
+                    "size": 7747
                 },
                 "result": {
                     "path": "results/multisite-refusal.json",
@@ -1014,8 +1014,8 @@
                 "id": "exact-artifact-version-matrix",
                 "log": {
                     "path": "logs/exact-artifact-version-matrix.txt",
-                    "sha256": "98a84216d7a4d270e5a4e9b7bec10ed233a8d7a5450be786ef28295ef51b92f2",
-                    "size": 134447
+                    "sha256": "436d0423eab7bb27fc2b5878d8f67c2df3f80137ff1e4116a5a07456927765b3",
+                    "size": 131735
                 },
                 "result": {
                     "path": "results/exact-artifact-version-matrix.json",
