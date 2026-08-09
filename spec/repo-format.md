@@ -620,7 +620,7 @@ removes both handoff files after the child exits.
 
 ## Scope resolution (DUO-3344)
 
-`wp duo scope --repo=<p> --roots=<selectors>` resolves a bounded set of canonical entities from explicit roots and reports what it would carry. It is read-only: it compiles a revision and walks it, and it captures, promotes, and deletes nothing. No capture/promote/rollback command accepts a scope at this spec version.
+`wp duo scope --repo=<p> --roots=<selectors>` resolves a bounded set of canonical entities from explicit roots and reports what it would carry. It is read-only: it compiles a revision and walks it, and it captures, promotes, and deletes nothing. No capture/promote/rollback command accepts a scope at this spec version. Without `--contract`, its existing `duo-scope/v1` preview shape is unchanged.
 
 A root selector is one of `post:<uuid>`, `term:<uuid>`, `table:<table>:<uuid>`, `menu:<slug>`, `sidebar:<id>`, `user-meta:<login>`, `options`, `path:<state-relative-path>`, or `all`. Multiple roots are comma-separated. `all` is the whole revision, so a full-site operation is this same model with a wider root set rather than a second code path. A selector that resolves to nothing, resolves to an entity of a different type than it names, or cannot be parsed is **refused** — a silently empty scope is indistinguishable from a correctly small one. A menu item or widget uuid is refused by naming its owning menu/sidebar, because an item is not a file and cannot be scoped away from its owner.
 
@@ -631,6 +631,59 @@ The reverse direction is **not** closure and is not treated as one. An option po
 Two properties follow from this being a read-only pass over an already-compiled revision. Compilation has already refused every dangling reference as a blocking diagnostic, so a closure over a tree that compiled cannot discover a missing dependency; the refusal scope resolution still owes is an unresolvable root. And because the walk consults only the typed IR and pinned policy, a scope is a property of a repository revision rather than of any environment — the same roots resolve identically everywhere, which is what will later let capture, plan, promote, verification, and rollback quote one scope instead of each recomputing it against a moving target.
 
 The reference enumeration is shared: `Duo\ReferenceGraph` is the single walker, consumed both by the compiler's reference validation and by `Duo\ScopeClosure`. Two independent walkers would not fail loudly when only one learned a new declared shape — the validator would quietly stop guarding an edge, or a resolved scope would quietly ship without one of its dependencies.
+
+### Immutable scope evidence (`duo-scope-contract/v1`)
+
+`duo scope <env> --roots=<selectors> --contract` (the host-side public form)
+emits a canonical `duo-scope-contract/v1` object. It is **read-only evidence,
+never mutation authority**. The agent accepts contract mode only under the
+isolated Duo control-plane bootstrap; the host supplies that bootstrap with
+`--exec`, `--skip-plugins`, and `--skip-themes`, so ordinary plugins, themes,
+and normal MU plugins cannot run before compilation. The legacy preview can
+remain directly reachable for compatibility, but direct `wp duo scope
+--contract` outside that isolation refuses.
+
+The contract normalizes, sorts, and deduplicates request selectors. `all`
+canonicalizes to exactly `['all']`, subsumes every narrower selector, resolves
+the whole live tree through `ScopeClosure`, and includes **every** compiled
+tombstone. Other live selectors use the normal scope-root grammar above. A
+bounded tombstone is only `tombstone:<lowercase-uuid>` and must name a compiled
+v1 tombstone exactly. It never enters live-root resolution; `delete:<uuid>` is
+refused because this object does not grant deletion authority. v1 tombstones
+do not carry prior graph data, so a bounded tombstone selection never infers
+closure from `source_path`, a live UUID, or prior edges.
+
+Its `source` binds `artifact_hash` (the outer code/state/effect/adapters
+binding), `state_revision_hash` (the canonical state revision identity), and
+`manifest_hash`. A code revision, when present, is a separate diagnostic only
+and never becomes a selector or a state-revision input. The object includes
+normalized request selectors plus explicit resolved live-root identities and
+tombstone UUIDs; live roots and closure rows with semantic and source-byte
+hashes plus provenance; inbound referrers and all excluded live rows with
+their hashes/reasons; exact tombstone bytes/hashes and static policy deletion
+capability, cascades, guards, and declarers; and uploads/media filtered to the
+resolved closure.
+
+`eligible_surfaces` is the shared, pure canonical-surface projection Apply
+uses for trigger literals. `potential_actions`, `potential_providers`, and
+`potential_effects` are deliberately named as possibilities: they are not
+selected actions, provider negotiation results, authorization, execution, or
+receipts. Effects are filtered to relevant core rebuild work, exact eligible
+action declarations, and matching post-type regenerator declarations. Code
+and lifecycle effects are excluded. Target guard witnesses, target IDs,
+provider instances, plan/work buckets, and any effect execution are excluded.
+Future scoped mutation must restrict guard repair/deletion inputs to these
+contract rows and refuse reliance on out-of-scope rows or target evidence; it
+must separately negotiate providers and recheck guards under its target
+transaction.
+
+`scope_hash` is exactly `sha256(Canon::encode(contract_without_scope_hash))`.
+Consumers call `ScopeContract::from_array()` for strict format/schema/hash
+validation and `ScopeContract::assert_associated($contract, $compiled,
+$policy)` before use. The latter re-resolves the complete canonical contract
+from the normalized selectors and exact compiled/policy pair, so changing a
+row and merely recomputing `scope_hash` does not retain an artifact
+association.
 
 ## Bounded provider-resource selectors
 

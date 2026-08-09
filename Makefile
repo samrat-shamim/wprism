@@ -30,7 +30,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-capability-registry regress-woocommerce-contract regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
-	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog \
+	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-scope-contract \
 	capability-registry-generate release-gate
 
 up:
@@ -816,6 +816,13 @@ regress-scope-gate:
 regress-scope-closure:
 	bash sandbox/tests/regress_scope_closure.sh
 
+# DUO-3344: immutable, self-verifying scope evidence. This is distinct from
+# the legacy closure preview suite: it covers normalized tombstone selectors,
+# artifact/policy association, scoped upload/media/action/provider/effect
+# filtering, and the no-target-contact contract.
+regress-scope-contract:
+	bash sandbox/tests/regress_scope_contract.sh
+
 regress-snapshot-meta:
 	bash sandbox/tests/regress_snapshot_meta.sh
 
@@ -840,7 +847,7 @@ regress-user-meta:
 # DUO-3285: one target bundling every offline (no-docker) regress suite --
 # cheap enough to run at every local close-gate. Hosted CI is intentionally
 # disabled for this repository, so this local bundle plus independent review
-# is the merge gate. 91 suites: code-half-unit's prerequisites folded in once,
+# is the merge gate. 94 suites: code-half-unit's prerequisites folded in once,
 # plus the direct offline prerequisites below, including the SSH rollback,
 # adoption rollback, WooCommerce adapter/lookup/deletion/effect, post-field classification, and
 # ecommerce static contracts. regress-bundle-coverage independently computes
@@ -887,8 +894,8 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-cli-json-refusals regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
-	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust
-	@echo "regress-offline-all: 93 offline suites green"
+	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract
+	@echo "regress-offline-all: 94 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

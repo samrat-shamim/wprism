@@ -312,7 +312,16 @@ rather than working around it.
   scope from outside, and how much unrelated state is excluded. It is read-only
   — it captures, promotes, and deletes nothing, and no capture/promote/rollback
   command accepts a scope yet. A root that does not resolve is refused rather
-  than silently dropped.
+  than silently dropped. The narrower evidence slice is also shipped:
+  `duo scope <env> --roots=<selectors> --contract` emits immutable
+  `duo-scope-contract/v1` evidence bound to the outer artifact hash, separate
+  state revision hash, and manifest hash. It records only static, potential
+  actions/providers/effects and static deletion obligations; it does not
+  negotiate providers, collect target guard witnesses, authorize a write, or
+  make scoped synchronization available. `all` includes compiled tombstones;
+  an individual immutable tombstone is named `tombstone:<uuid>`, never a
+  mutation-sounding delete selector. The host isolates this read-only workflow
+  from ordinary plugin/theme/MU bootstrap before compiling.
 - Field-level value diffs and an interactive conflict resolver — **Planned (DUO-3345)** — not yet shipped.
   Plan rows already carry authored WordPress display names and a stable,
   hash-only three-way conflict view with bounded safe choices; those slices

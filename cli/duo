@@ -94,7 +94,7 @@ Usage:
   duo pending <env>
   duo classify <env> [--accept-proposals|--export-batch=<path>|--apply-batch=<path>]
   duo coverage <env> [--format=json]
-  duo scope    <env> --roots=<selectors> [--format=json]
+  duo scope    <env> --roots=<selectors> [--contract] [--format=json]
   duo refresh <production-env> --production-ref=<ref>
   duo rebase <production-env> --production-ref=<ref> --new-branch=<name>
   duo rebase <production-env> --abort=<run-id>
@@ -320,6 +320,11 @@ Verbs:
                           revision. A root that does not resolve is refused,
                           never silently dropped.
     --format=json         Raw passthrough of the agent's own JSON.
+    --contract            Emit canonical `duo-scope-contract/v1` immutable
+                          read-only evidence rather than the legacy preview.
+                          The host runs scope through the isolated control
+                          plane, so plugins, themes, and normal MU code are
+                          not booted before this target-independent compile.
   refresh <production-env> --production-ref=<ref>
                           Fetches only a read-only live production export and
                           writes an immutable semantic B/P/W plan locally.
@@ -542,7 +547,8 @@ function main(array $argv): int {
         'doctor' => cmd_doctor($transport),
         'adopt' => cmd_adopt($transport, $extra),
         'status' => cmd_status($transport),
-        'capabilities', 'capture', 'plan', 'apply', 'env-set', 'coverage', 'scope' => cmd_passthrough($transport, $verb, $extra),
+        'capabilities', 'capture', 'plan', 'apply', 'env-set', 'coverage' => cmd_passthrough($transport, $verb, $extra),
+        'scope' => cmd_scope($transport, $extra),
         'deploy' => cmd_deploy($transport, $extra),
         'promote' => cmd_promote($transport, $extra),
         'pending' => cmd_pending($transport, $extra),
@@ -1143,6 +1149,20 @@ function rollback_authority_fence(EnvironmentDriver $t, string $verb): bool {
 function cmd_passthrough(EnvironmentDriver $t, string $verb, array $extra): int {
     $wpArgs = array_merge(['duo', $verb, '--repo=' . $t->repoPath()], $extra);
     return $t->streamWp($wpArgs);
+}
+
+/**
+ * Scope is read-only evidence, so it must not rely on ordinary plugin/theme
+ * bootstrap being benign. The control-plane bootstrap loads only the protected
+ * Duo agent and marks DUO_CONTROL_PLANE before `wp duo scope` reaches Cli;
+ * this is also what makes --contract's no-target-contact promise truthful.
+ * Other passthrough verbs deliberately retain their established bootstrap.
+ */
+function cmd_scope(EnvironmentDriver $t, array $extra): int {
+    return $t->streamWp(CodeDeploy::controlArgs(array_merge(
+        ['duo', 'scope', '--repo=' . $t->repoPath()],
+        $extra
+    )));
 }
 
 /** One generated owner identifies every target-side phase of a host run. */

@@ -5,6 +5,7 @@ require_once __DIR__ . '/PlainData.php';
 require_once __DIR__ . '/Providers.php';
 require_once __DIR__ . '/StructuredValue.php';
 require_once __DIR__ . '/CommandRefusal.php';
+require_once __DIR__ . '/CanonicalSurfaces.php';
 
 /**
  * Plan + apply: repo state tree -> environment DB.
@@ -5930,89 +5931,26 @@ final class Apply {
      * @return list<string>
      */
     private function rebuild_surfaces(array $work, array $tree, array $deleteWork = []): array {
-        $surfaces = [];
-        foreach ($work as $entry) {
-            $uuid = (string) ($entry['uuid'] ?? '');
-            $entity = $uuid !== '' ? ($tree[$uuid] ?? null) : null;
-            if (is_array($entity)) {
-                foreach ($this->entity_rebuild_surfaces($entity, $entry) as $surface) {
-                    $surfaces[$surface] = true;
-                }
-            }
-        }
-        foreach ($deleteWork as $row) {
-            foreach ($this->deletion_rebuild_surfaces($row) as $surface) {
-                $surfaces[$surface] = true;
-            }
-        }
-        $out = array_keys($surfaces);
-        sort($out, SORT_STRING);
-        return $out;
+        return CanonicalSurfaces::for_apply(
+            $work,
+            $tree,
+            $deleteWork,
+            isset($this->policy) ? $this->policy : null
+        );
     }
 
     /** @return list<string> */
     private function entity_rebuild_surfaces(array $entity, array $entry = []): array {
-        $entityType = (string) ($entity['type'] ?? '');
-        $data = (array) ($entity['data'] ?? []);
-        if ($entityType === 'post') {
-            $postType = (string) ($data['type'] ?? '');
-            return [$postType !== '' ? 'post:' . $postType : 'entity:post'];
-        }
-        if ($entityType === 'term') {
-            $taxonomy = (string) ($data['taxonomy'] ?? '');
-            return [$taxonomy !== '' ? 'term:' . $taxonomy : 'entity:term'];
-        }
-        if ($entityType === 'menu') {
-            return ['term:nav_menu'];
-        }
-        if ($entityType === 'options') {
-            $records = OptionState::records($data);
-            $names = !empty($entry['retry'])
-                ? array_keys($records)
-                : (array) ($entry['rebuild_option_names'] ?? []);
-            $out = [];
-            foreach ($names as $option) {
-                $option = (string) $option;
-                if ($option === '' || !isset($records[$option])) {
-                    continue;
-                }
-                $record = $records[$option];
-                if (($record['state'] ?? null) === 'absent') {
-                    continue;
-                }
-                if (($record['state'] ?? null) === 'present'
-                    && isset($this->policy)
-                    && (($this->policy->option_rule($option)['class'] ?? null) === 'managed')) {
-                    continue;
-                }
-                $out[] = 'option:' . $option;
-            }
-            return $out;
-        }
-        if ($entityType === 'user-meta' || $entityType === SidebarState::ENTITY_TYPE) {
-            return ['entity:' . ($entityType !== '' ? $entityType : 'unknown')];
-        }
-        if ($entityType !== '') {
-            // Snapshot row entities use their concrete table name as `type`.
-            // Keeping the name literal preserves exact table-level trigger
-            // matching without granting any command authority over it.
-            return ['table:' . $entityType];
-        }
-        return ['entity:unknown'];
+        return CanonicalSurfaces::for_entity(
+            $entity,
+            $entry,
+            isset($this->policy) ? $this->policy : null
+        );
     }
 
     /** @return list<string> */
     private function deletion_rebuild_surfaces(array $row): array {
-        $kind = (string) ($row['deletion_kind'] ?? $row['kind'] ?? '');
-        $type = (string) ($row['deletion_type'] ?? $row['type'] ?? '');
-        return match ($kind) {
-            'post' => [$type !== '' ? 'post:' . $type : 'entity:post'],
-            'term' => [$type !== '' ? 'term:' . $type : 'entity:term'],
-            'menu' => ['term:nav_menu'],
-            'table' => [$type !== '' ? 'table:' . $type : 'entity:table'],
-            'option', 'options' => [$type !== '' ? 'option:' . $type : 'entity:options'],
-            default => ['entity:' . ($kind !== '' ? $kind : ($type !== '' ? $type : 'unknown'))],
-        };
+        return CanonicalSurfaces::for_deletion($row);
     }
 
     /**
