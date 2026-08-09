@@ -603,6 +603,27 @@ final class Apply {
                 . 'retry pending from a prior failed verify';
         }
 
+        // DUO-3342 / independent review F3: the same visibility, for the other
+        // two durable keyspaces. `regen_delete_context:`/`regen_reparent_context:`
+        // markers are outstanding derived-state DEBT in exactly the sense
+        // regen_pending is — an apply captured a pre-delete inventory or a
+        // pre-move receipt and has not yet had a consumer verify the repair —
+        // and DUO-3342 made them survive a failed run instead of being swept,
+        // which is precisely what turns "transient bookkeeping" into "a fact an
+        // operator deciding on a promotion needs". Same read-only posture
+        // (build_plan() never mutates kv), same orphan rule: a marker no
+        // consumer of either kind claims is NOT surfaced, because apply's own
+        // sweep removes it, loudly, at the point it actually mutates.
+        //
+        // Deliberately ONE bucket rather than two: the two prefixes differ in
+        // what the receipt records, not in what a plan reader must do about it,
+        // and `kind` carries the distinction for anyone who cares.
+        $plan['regen_context'] = $this->regen_context_plan_rows();
+        foreach ($plan['regen_context'] as $row) {
+            $this->warnings[] = "regen_context: post {$row['uuid']} (type '{$row['post_type']}') has an "
+                . "outstanding {$row['kind']} receipt awaiting a verified derived-state repair";
+        }
+
         // DUO-3232: env-bound value provisioning checklist. Read-only, like
         // regen_pending above — no write here, ever (env values are
         // deliberately excluded from Capture/Apply's ordinary content
@@ -2739,7 +2760,7 @@ final class Apply {
         $keys = [
             'create', 'update', 'unchanged', 'drift', 'conflict', 'adopt',
             'collision', 'delete', 'delete_conflict', 'deleted',
-            'code_mismatch', 'code_drift', 'incomplete_apply', 'regen_pending',
+            'code_mismatch', 'code_drift', 'incomplete_apply', 'regen_pending', 'regen_context',
             'missing_user', 'skipped_user_meta', 'uploads_inventory', 'effects_inventory',
         ];
         $basis = [];
@@ -5018,10 +5039,109 @@ final class Apply {
         // never true. A PINNED provider action triggering on the surface is the
         // conservative, run-independent answer, and it mirrors the batch path's
         // own guard one line above (regen_batch() is policy, not selection).
-        // Explicit triggers only: an unscoped action claims no post type in
-        // particular, so letting it claim every marker would make the sweep
-        // unreachable rather than conservative.
+        return $this->pinned_provider_action_owns($surface);
+    }
+
+    /**
+     * Is $surface claimed by a PINNED provider action, independently of what
+     * this run happened to select?
+     *
+     * This is the run-independent half of marker ownership, and it exists for
+     * one reason: a sweep is destructive, so the question it must answer is
+     * "could an owner exist" rather than "is an owner running". Explicit
+     * triggers only — an unscoped action claims no post type in particular, and
+     * letting it claim every marker would make the sweep unreachable rather
+     * than conservative.
+     *
+     * SCOPE, and the bound on how precisely this can answer (independent
+     * review, F5): only a `scope: entity` capability can ever receive an entity
+     * batch or an engine context channel, so a `scope: site` action triggering
+     * on a post surface owns nothing here. Scope lives in the provider's own
+     * capabilities() — code, not manifest data — so it is knowable only for a
+     * provider this run actually negotiated. Where it IS known, a non-entity
+     * scope disowns the surface. Where it is not (nothing this run selected
+     * reached that provider, so no capability declaration was ever loaded), the
+     * answer stays "owned": guessing a scope in order to authorize a delete is
+     * exactly the fail-open a destructive sweep must not take, and the cost of
+     * keeping is a marker that stays VISIBLE in plan/status
+     * (build_plan()'s regen_context bucket) rather than one that vanishes.
+     */
+    /**
+     * The plan projection of the two durable derived-state keyspaces
+     * (DUO-3342 / independent review F3), factored out of build_plan() so it is
+     * drivable on its own against a marker keyspace.
+     *
+     * Read-only, and the orphan rule matches regen_pending's exactly: a marker
+     * that is malformed, or that no consumer of either kind claims, is NOT
+     * surfaced — the next apply's own sweep removes it, loudly, at the point it
+     * actually mutates, and a plan reader has nothing to do about it. What IS
+     * surfaced is a receipt with a real claimant and no verified repair yet,
+     * which is a promotion-relevant gap in exactly the sense regen_pending is.
+     *
+     * The claimant test is the pinned one rather than this run's selection for
+     * the reason build_plan() has no selection at all: plan is read-only and
+     * runs before any negotiation.
+     *
+     * @return list<array{uuid:string, type:string, post_type:string, kind:string}>
+     */
+    private function regen_context_plan_rows(): array {
+        $rows = [];
+        foreach ([
+            self::REGEN_DELETE_CONTEXT_PREFIX => 'delete',
+            self::REGEN_REPARENT_CONTEXT_PREFIX => 'reparent',
+        ] as $contextPrefix => $contextKind) {
+            foreach (Ledger::kv_prefix($contextPrefix) as $k => $encoded) {
+                $context = is_string($encoded) ? json_decode($encoded, true) : null;
+                $postType = is_array($context) ? (string) ($context['post_type'] ?? '') : '';
+                $id = is_array($context) ? (int) ($context['id'] ?? 0) : 0;
+                if ($postType === '' || $id <= 0) {
+                    continue; // malformed — apply's own sweep handles this, not plan
+                }
+                if ($this->policy->regen_batch($postType) === null
+                    && !$this->pinned_provider_action_owns('post:' . $postType)) {
+                    continue; // orphaned — apply's own sweep handles this, not plan
+                }
+                $rows[] = [
+                    'uuid' => is_array($context) && (string) ($context['uuid'] ?? '') !== ''
+                        ? (string) $context['uuid']
+                        : substr((string) $k, strlen($contextPrefix)),
+                    'type' => 'post',
+                    'post_type' => $postType,
+                    'kind' => $contextKind,
+                ];
+            }
+        }
+        usort($rows, static fn(array $a, array $b): int =>
+            strcmp($a['kind'], $b['kind']) ?: strcmp($a['uuid'], $b['uuid']));
+        return $rows;
+    }
+
+    private function pinned_provider_action_owns(string $surface): bool {
         foreach ($this->policy->actions() as $action) {
+            if (($action['kind'] ?? '') !== 'provider'
+                || !in_array($surface, (array) ($action['triggers'] ?? []), true)) {
+                continue;
+            }
+            $declaration = $this->negotiatedProviders['capabilities']
+                [(string) ($action['provider'] ?? '')]
+                [(string) ($action['capability'] ?? '')] ?? null;
+            if (!is_array($declaration) || ($declaration['scope'] ?? '') === 'entity') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Did this run's selection reach $surface at all, whatever it declared?
+     *
+     * The third state the two predicates above cannot express, and the one the
+     * durable-context sweep turns on: "an owner was running and did not want
+     * this channel" is a sweep, while "no owner ran" is not evidence about
+     * anything and must keep the marker.
+     */
+    private function selection_triggers_provider_action_for(string $surface): bool {
+        foreach ($this->selectedActions as $action) {
             if (($action['kind'] ?? '') === 'provider'
                 && in_array($surface, (array) ($action['triggers'] ?? []), true)) {
                 return true;
@@ -5354,15 +5474,17 @@ final class Apply {
 
         // The durable reparent/delete markers an earlier incomplete apply left
         // behind, read HERE because regen_dependencies() below CONSUMES them:
-        // its batch half deletes a marker whose post type declares no batch
-        // regenerator (regen_batch_dependencies()'s durable scan) and clears
-        // every marker it successfully regenerates. Reading them afterwards
-        // would see an empty keyspace on exactly the retry the `reparents` and
-        // `deletions` channels exist for. Reading is all this does — sweeping
-        // stays the owning pass's job, and DUO-3342 made the provider dispatch
-        // below the OWNER for a post type whose surface a channel-declaring
-        // capability triggers on (that pass's durable scan now leaves those
-        // markers alone; the clear-on-verified consumer is in the action loop).
+        // its batch half sweeps a marker no dispatcher can replay
+        // (regen_batch_dependencies()'s durable scan) and clears every marker
+        // it successfully regenerates. Reading them afterwards would see an
+        // empty keyspace on exactly the retry the `reparents` and `deletions`
+        // channels exist for. Reading is all this does — sweeping stays the
+        // owning pass's job, and DUO-3342 made the provider dispatch below the
+        // OWNER for a surface a channel-declaring capability triggers on: that
+        // pass's durable scan leaves those markers alone (and leaves alone any
+        // marker whose surface a PINNED provider action claims, whatever this
+        // run selected), while the clear-on-verified consumer is in the action
+        // loop.
         $durableReparents = $this->durable_reparent_contexts();
         $durableDeletions = $this->durable_delete_contexts();
 
@@ -6222,16 +6344,17 @@ final class Apply {
      *     in THIS run's negotiated selection triggers on. A move on any other
      *     post type is not captured, so it is not here.
      *   - the durable half survives as long as its OWNER keeps it alive, and
-     *     DUO-3342 gave the provider dispatch that ownership: a marker whose
-     *     post type's surface a `reparents`-declaring negotiated capability
-     *     triggers on is no longer swept by regen_batch_dependencies()' durable
-     *     scan, and is deleted by rebuild()'s action loop only after that
-     *     capability returned a `verified === true` receipt, addressed by
-     *     `_marker_key`. A rebuild that fails at or after the capability
-     *     therefore RETAINS the marker and the next apply re-delivers it, which
-     *     is what makes `idempotent: true` load-bearing rather than decorative.
-     *     A marker whose post type no consumer declares is still swept by that
-     *     pass, unchanged.
+     *     DUO-3342 gave the provider dispatch that ownership: the marker is
+     *     deleted by rebuild()'s action loop only after the declaring capability
+     *     returned a `verified === true` receipt, addressed by `_marker_key` and
+     *     narrowed to that action's own triggers. A rebuild that fails at or
+     *     after the capability therefore RETAINS the marker and the next apply
+     *     re-delivers it, which is what makes `idempotent: true` load-bearing
+     *     rather than decorative. regen_batch_dependencies()' durable scan
+     *     decides whether to sweep RUN-INDEPENDENTLY (see its own comment): a
+     *     pinned provider action claiming the surface keeps the marker on a run
+     *     that selected nothing there, while a run that did reach the surface
+     *     with no capability wanting the channel sweeps it and says so.
      *
      * @param array<string,mixed> $action
      * @param array<int,array<string,mixed>> $regenContext
@@ -6766,14 +6889,26 @@ final class Apply {
                 $context = is_string($encoded) ? json_decode($encoded, true) : null;
                 $postType = is_array($context) ? (string) ($context['post_type'] ?? '') : '';
                 $id = is_array($context) ? (int) ($context['id'] ?? 0) : 0;
+                $label = $contextPrefix === self::REGEN_REPARENT_CONTEXT_PREFIX
+                    ? 'regen_reparent_context'
+                    : 'regen_delete_context';
+                $markerUuid = is_array($context) && (string) ($context['uuid'] ?? '') !== ''
+                    ? (string) $context['uuid']
+                    : substr((string) $key, strlen($contextPrefix));
                 if ($postType === '' || $id <= 0) {
                     // Malformed either way: no dispatcher can replay a receipt
-                    // with no post type or no captured id.
+                    // with no post type or no captured id. Said out loud for
+                    // the same reason the pending-marker sweep below says it:
+                    // an operator auditing duo_kv has no other way to learn a
+                    // durable receipt vanished, or why.
                     Ledger::kv_delete((string) $key);
+                    $this->warnings[] = "$label marker for post $markerUuid dropped: the stored receipt "
+                        . 'carries no post type or no captured local id, so no dispatcher can replay it';
                     continue;
                 }
+                $surface = 'post:' . $postType;
                 if ($this->policy->regen_batch($postType) === null) {
-                    if ($this->selection_declares_channel_for($channel, 'post:' . $postType)) {
+                    if ($this->selection_declares_channel_for($channel, $surface)) {
                         // DUO-3342: owned by the provider dispatch, which
                         // delivers this marker's row on its matching channel
                         // and deletes it only after a verified receipt. This
@@ -6782,8 +6917,27 @@ final class Apply {
                         // than a durable retry queue.
                         continue;
                     }
-                    // No consumer of either kind: a receipt nothing can replay.
+                    if (!$this->selection_triggers_provider_action_for($surface)
+                        && $this->pinned_provider_action_owns($surface)) {
+                        // Independent review, F1: the check above asks whether
+                        // the owner is running, which an apply that touched
+                        // nothing on this surface answers "no" for a marker
+                        // that is perfectly valid — silently deleting the retry
+                        // evidence a later apply owes work against. The sweep
+                        // is therefore run-INDEPENDENT, exactly like the
+                        // regen_batch() test one line up: a pinned provider
+                        // action claiming this surface keeps the marker when
+                        // this run selected nothing there. When the selection
+                        // DOES reach the surface and no negotiated capability
+                        // wanted the channel, the first branch already fell
+                        // through and the sweep below is the right answer —
+                        // that is a live claim about consumers, not silence.
+                        continue;
+                    }
                     Ledger::kv_delete((string) $key);
+                    $this->warnings[] = "$label marker for post $markerUuid (type '$postType') dropped: "
+                        . "post type '$postType' declares no batch regen_dependency, and no capability "
+                        . "consuming the '$channel' channel claims $surface";
                     continue;
                 }
                 if (!isset($context['uuid']) || (string) $context['uuid'] === '') {

@@ -756,6 +756,16 @@ final class Cli {
         foreach ($plan['regen_pending'] ?? [] as $r) {
             WP_CLI::line('REGEN_PENDING ' . ($r['path'] ?? ($r['type'] . ' ' . $r['uuid'])) . " (post type '{$r['post_type']}')");
         }
+        // regen_context (DUO-3342): an outstanding pre-delete inventory or
+        // pre-move receipt whose derived-state repair no consumer has verified
+        // yet. Same shape and reasoning as regen_pending immediately above —
+        // and it became worth surfacing for the same reason: those markers now
+        // SURVIVE a failed apply rather than being swept, so an operator can
+        // see one standing between a failure and its retry.
+        foreach ($plan['regen_context'] ?? [] as $r) {
+            WP_CLI::line('REGEN_CONTEXT ' . ($r['path'] ?? ($r['type'] . ' ' . $r['uuid']))
+                . " (post type '{$r['post_type']}', {$r['kind']} receipt)");
+        }
         // env_missing (DUO-3232): a manifest-declared `class: "env"` option
         // unset on this environment — see Apply::build_plan()'s own
         // docblock. No uuid/path (row shape is {name,required}), so this
@@ -792,6 +802,7 @@ final class Cli {
         $counts .= ', ' . count($plan['incomplete_apply'] ?? []) . ' incomplete_apply';
         $counts .= ', ' . count($plan['incomplete_lifecycle'] ?? []) . ' incomplete_lifecycle';
         $counts .= ', ' . count($plan['regen_pending'] ?? []) . ' regen_pending';
+        $counts .= ', ' . count($plan['regen_context'] ?? []) . ' regen_context';
         $counts .= ', ' . count($plan['env_missing'] ?? []) . ' env_missing';
         $counts .= ', ' . count($plan['missing_user'] ?? []) . ' missing_user';
         $counts .= ', ' . count($plan['skipped_user_meta'] ?? []) . ' skipped_user_meta';
@@ -814,6 +825,10 @@ final class Cli {
         }
         if (!empty($plan['regen_pending'])) {
             WP_CLI::warning('regen_pending markers outstanding — the next duo apply will retry them automatically');
+        }
+        if (!empty($plan['regen_context'])) {
+            WP_CLI::warning('regen_context receipts outstanding — the next duo apply that reaches their surface will '
+                . 'redeliver them to their declared consumer');
         }
         if (!empty($plan['adapter_dispositions'])) {
             WP_CLI::warning('capability registry blocker(s) selected — readiness is not green and host promotion will refuse');

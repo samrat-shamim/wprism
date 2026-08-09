@@ -200,6 +200,11 @@ final class ProbeCache {
     public static ?array $capabilityMapOverride = null;
     public static array $capabilityOverrides = [];
     public static ?string $capabilitiesThrows = null;
+    // A SECOND advertised capability, off by default so every check above sees
+    // the one-capability provider it was written against. The channel-collision
+    // refusal needs two consumers of one channel on one surface, and two
+    // capabilities of one provider is the smallest honest way to build that.
+    public static array $extraCapabilities = [];
     public static array $identityOverrides = [];
     public static ?string $identityThrows = null;
     public static ?string $invokeThrows = null;
@@ -232,7 +237,7 @@ final class ProbeCache {
                 'idempotent' => true,
                 'timeout_seconds' => 30,
             ],
-        ];
+        ] + self::$extraCapabilities;
         return self::$capabilityMapOverride ?? $default;
     }
 
@@ -346,6 +351,7 @@ $reset = static function (): void {
     \Duo\Providers\ProbeCache::$capabilityMapOverride = null;
     \Duo\Providers\ProbeCache::$capabilityOverrides = [];
     \Duo\Providers\ProbeCache::$capabilitiesThrows = null;
+    \Duo\Providers\ProbeCache::$extraCapabilities = [];
     \Duo\Providers\ProbeCache::$identityOverrides = [];
     \Duo\Providers\ProbeCache::$identityThrows = null;
     \Duo\Providers\ProbeCache::$invokeThrows = null;
@@ -1799,7 +1805,8 @@ $driveRebuild = static function (
     array $channels,
     array $rebuildArgs,
     bool $retrying = false,
-    mixed $receiptOverride = null
+    mixed $receiptOverride = null,
+    ?\Duo\Policy $policyOverride = null
 ) use (
     $applyClass, $applyPolicy, $applyRetry, $applyWarnings, $applyReceipts, $applySelected,
     $applyNegotiated, $rebuildMethod, $drivePolicy, $driveAction, $reset
@@ -1809,9 +1816,14 @@ $driveRebuild = static function (
     \Duo\Providers\ProbeCache::$capabilityOverrides = $channels === []
         ? ['scope' => 'entity']
         : ['scope' => 'entity', 'context' => $channels];
-    $provider = new \Duo\Providers\ProbeCache($drivePolicy);
+    // The policy the PASS reads (pinned actions, marker ownership) may differ
+    // from the one that built $driveAction: the sweep is deliberately
+    // run-independent, so proving a narrowing needs a pinned claimant the
+    // selection does not contain.
+    $passPolicy = $policyOverride ?? $drivePolicy;
+    $provider = new \Duo\Providers\ProbeCache($passPolicy);
     $apply = $applyClass->newInstanceWithoutConstructor();
-    $applyPolicy->setValue($apply, $drivePolicy);
+    $applyPolicy->setValue($apply, $passPolicy);
     $applyRetry->setValue($apply, $retrying);
     $applySelected->setValue($apply, [$driveAction]);
     $applyNegotiated->setValue($apply, [
@@ -2060,6 +2072,41 @@ $check($run['error'] === '' && !isset($wpdb->kv[$deleteMarkerKey]),
     'a receipt whose channel NO negotiated capability declared is still swept by the batch pass — ownership '
     . 'follows the declaration, so nothing accumulates for a consumer that does not exist');
 
+// Independent review F4: action_marker_keys() narrows the clear by the action's
+// OWN triggers, and nothing pinned that. It is what stops a verified receipt on
+// one adapter's surface from retiring a marker another dispatcher owns — the
+// live shape being a Woo receipt and a the-events-calendar batch marker.
+$otherSurfaceMarker = 'regen_delete_context:' . $otherAdapters;
+$wpdb->kv = [
+    $deleteMarkerKey => $deleteMarker,
+    $otherSurfaceMarker => (string) json_encode([
+        'kind' => 'delete', 'uuid' => $otherAdapters, 'id' => 77, 'post_type' => 'somebody_else',
+        'parent_id' => 0, 'child_ids' => [],
+    ]),
+];
+// The other surface needs a PINNED claimant of its own, or the durable sweep
+// (correctly) removes a marker nothing can consume and this check would pass
+// for the wrong reason.
+$otherClaimantManifest = $manifest;
+$otherClaimantManifest['actions'][0]['triggers'] = ['post:probe'];
+$otherClaimantManifest['providers'][0]['capabilities'] = ['flush', 'flush_other'];
+$otherClaimantManifest['actions'][] = [
+    'kind' => 'provider',
+    'provider' => 'probe-cache',
+    'capability' => 'flush_other',
+    'args' => ['groups' => ['probe-group']],
+    'triggers' => ['post:somebody_else'],
+];
+$run = $driveRebuild(['deletions'], $noWork, false, null, $policyFor($otherClaimantManifest));
+$check($run['error'] === '' && $run['calls'] === 1 && !isset($wpdb->kv[$deleteMarkerKey]),
+    'a verified receipt clears the marker on its own triggering surface');
+$check(($wpdb->kv[$otherSurfaceMarker] ?? null) !== null,
+    "and leaves a marker on a surface this action does not trigger on exactly where it was — one adapter's "
+    . "verified receipt may never retire another dispatcher's outstanding evidence");
+$check(count((array) ($run['args']['entities']['deletions'] ?? [])) === 1,
+    'that other-surface marker was never delivered either, so the clear and the delivery agree about scope');
+$wpdb->kv = [];
+
 $wpdb->kv = [$deleteMarkerKey => $deleteMarker];
 $run = $driveRebuild(['deletions'], [[], [], [], [], $driveTombstones, true, []]);
 $check(($run['args']['entities']['deletions'] ?? null)
@@ -2133,29 +2180,88 @@ $wpdb->kv = [];
 // touched nothing on the surface has an empty selection by construction.
 $triggeredManifest = $manifest;
 $triggeredManifest['actions'][0]['triggers'] = ['post:probe'];
+$deleteMarkerValue = (string) json_encode([
+    'kind' => 'delete', 'uuid' => $liveDeleted, 'id' => 41, 'post_type' => 'probe',
+    'parent_id' => 7, 'child_ids' => [],
+]);
+$reparentMarkerValue = (string) json_encode([
+    'kind' => 'reparent', 'uuid' => $moved, 'id' => 204, 'post_type' => 'probe',
+    'parent_id' => 202, 'old_parent_id' => 202, 'new_parent_id' => 203, 'root_ids' => [202, 203],
+]);
+$sweepMarkers = [
+    'regen_pending:' . $moved => 'probe',
+    'regen_delete_context:' . $liveDeleted => $deleteMarkerValue,
+    'regen_reparent_context:' . $moved => $reparentMarkerValue,
+];
+$driveSweep = static function (array $sweepManifest, array $negotiated = []) use (
+    $applyClass, $applyPolicy, $applySelected, $applyNegotiated, $applyWarnings, $policyFor, $sweepMarkers, &$wpdb
+): string {
+    $wpdb->kv = $sweepMarkers;
+    $sweepApply = $applyClass->newInstanceWithoutConstructor();
+    $applyPolicy->setValue($sweepApply, $policyFor($sweepManifest));
+    $applySelected->setValue($sweepApply, []);
+    $applyNegotiated->setValue($sweepApply, ['providers' => [], 'capabilities' => $negotiated]);
+    $applyWarnings->setValue($sweepApply, []);
+    $applyClass->getMethod('regen_dependencies')->invokeArgs($sweepApply, [[], [], []]);
+    return implode("\n", (array) $applyWarnings->getValue($sweepApply));
+};
+$driveSweep($triggeredManifest);
+$check(($wpdb->kv['regen_pending:' . $moved] ?? null) === 'probe',
+    'an apply that selected nothing on the surface leaves a provider-owned pending marker armed rather than '
+    . 'sweeping it as an orphan of a regen_dependency that was never there');
+// Independent review F1: the durable-context sweep had the same shape of bug
+// the pending sweep was already guarded against, and it was the one that lost
+// data silently — both context markers were kv_deleted with no warning at all
+// on an apply that simply had no work on their surface.
+$check(($wpdb->kv['regen_delete_context:' . $liveDeleted] ?? null) === $deleteMarkerValue
+    && ($wpdb->kv['regen_reparent_context:' . $moved] ?? null) === $reparentMarkerValue,
+    'and it leaves BOTH durable context receipts alone for the same reason — the sweep is run-independent, '
+    . 'so "this apply had nothing to do here" is never read as "nobody will ever consume this"');
+$sweptWarnings = $driveSweep($manifest);
+$check(!isset($wpdb->kv['regen_pending:' . $moved])
+    && str_contains($sweptWarnings, "manifest no longer declares a regen_dependency for post type 'probe'"),
+    'while a marker no pinned declaration of EITHER kind claims is still swept, loudly — the guard narrowed '
+    . 'the sweep, it did not retire it');
+$check(!isset($wpdb->kv['regen_delete_context:' . $liveDeleted])
+    && !isset($wpdb->kv['regen_reparent_context:' . $moved]),
+    'and the same holds for the context receipts: no pinned claimant, no marker');
+$check(str_contains($sweptWarnings,
+        "regen_delete_context marker for post $liveDeleted (type 'probe') dropped: post type 'probe' declares "
+        . "no batch regen_dependency, and no capability consuming the 'deletions' channel claims post:probe")
+    && str_contains($sweptWarnings,
+        "regen_reparent_context marker for post $moved (type 'probe') dropped: post type 'probe' declares "
+        . "no batch regen_dependency, and no capability consuming the 'reparents' channel claims post:probe"),
+    'each of those sweeps says which marker went and why, naming the channel nobody consumes — it used to be '
+    . 'a silent kv_delete');
+// Independent review F5: only a scope: entity capability can ever receive an
+// entity batch or a context channel, so a pinned action whose capability this
+// run DID negotiate as scope: site owns nothing and its markers are orphans.
+// Where the scope is unknowable (nothing selected reached that provider, so no
+// declaration was ever loaded) the fallback keeps the marker instead — the two
+// cases above are exactly that, and guessing a scope to authorize a delete is
+// the fail-open a destructive sweep must not take.
+$sweptWarnings = $driveSweep($triggeredManifest, ['probe-cache' => ['flush' => ['scope' => 'site']]]);
+$check(!isset($wpdb->kv['regen_pending:' . $moved])
+    && !isset($wpdb->kv['regen_delete_context:' . $liveDeleted])
+    && !isset($wpdb->kv['regen_reparent_context:' . $moved]),
+    'a pinned action whose negotiated capability is scope: site owns none of the three keyspaces — it can '
+    . 'never receive an entity batch or a channel, so holding markers for it would hold them forever');
+
+$wpdb->kv = ['regen_delete_context:malformed-probe-uuid' => (string) json_encode(['kind' => 'delete'])];
+$sweptWarnings = '';
 $sweepApply = $applyClass->newInstanceWithoutConstructor();
 $applyPolicy->setValue($sweepApply, $policyFor($triggeredManifest));
 $applySelected->setValue($sweepApply, []);
 $applyNegotiated->setValue($sweepApply, ['providers' => [], 'capabilities' => []]);
 $applyWarnings->setValue($sweepApply, []);
-$wpdb->kv = ['regen_pending:' . $moved => 'probe'];
 $applyClass->getMethod('regen_dependencies')->invokeArgs($sweepApply, [[], [], []]);
-$check(($wpdb->kv['regen_pending:' . $moved] ?? null) === 'probe',
-    'an apply that selected nothing on the surface leaves a provider-owned pending marker armed rather than '
-    . 'sweeping it as an orphan of a regen_dependency that was never there');
-$sweepApply = $applyClass->newInstanceWithoutConstructor();
-$applyPolicy->setValue($sweepApply, $policyFor($manifest));
-$applySelected->setValue($sweepApply, []);
-$applyNegotiated->setValue($sweepApply, ['providers' => [], 'capabilities' => []]);
-$applyWarnings->setValue($sweepApply, []);
-$applyClass->getMethod('regen_dependencies')->invokeArgs($sweepApply, [[], [], []]);
-$check(!isset($wpdb->kv['regen_pending:' . $moved])
+$check(!isset($wpdb->kv['regen_delete_context:malformed-probe-uuid'])
     && str_contains(
         implode("\n", (array) $applyWarnings->getValue($sweepApply)),
-        "manifest no longer declares a regen_dependency for post type 'probe'"
+        'regen_delete_context marker for post malformed-probe-uuid dropped: the stored receipt carries no '
+        . 'post type or no captured local id'
     ),
-    'while a marker no pinned declaration of EITHER kind claims is still swept, loudly — the guard narrowed '
-    . 'the sweep, it did not retire it');
+    'a receipt no dispatcher could replay at all is still swept, and now says so instead of vanishing');
 $wpdb->kv = [];
 
 echo "\n== one post type, one dispatcher: the dual-claimant refusal ==\n";
@@ -2195,6 +2301,157 @@ $check($claimantNegotiation(['reparents'])['problems'] !== []
 $check($claimantNegotiation(null)['problems'] === [],
     'a capability declaring NO channel negotiates clean on the same post type: it consumes none of that '
     . 'bookkeeping, so the batch channel keeps undisputed ownership');
+$reset();
+
+echo "\n== outstanding receipts are legible in plan and status (independent review F3) ==\n";
+// DUO-3342 made these markers SURVIVE a failed apply instead of being swept in
+// the same pass that read them. That is the point — and it is also what makes
+// them worth surfacing: a marker can now stand between a failure and its retry,
+// and an operator deciding "is this safe to promote" must be able to see it.
+$planRows = $applyClass->getMethod('regen_context_plan_rows');
+$planApply = $applyClass->newInstanceWithoutConstructor();
+$applyPolicy->setValue($planApply, $policyFor($triggeredManifest));
+$applySelected->setValue($planApply, []);
+$applyNegotiated->setValue($planApply, ['providers' => [], 'capabilities' => []]);
+$wpdb->kv = $sweepMarkers + [
+    'regen_delete_context:malformed' => (string) json_encode(['kind' => 'delete', 'post_type' => 'probe']),
+];
+$rows = (array) $planRows->invoke($planApply);
+$check($rows === [
+    ['uuid' => $liveDeleted, 'type' => 'post', 'post_type' => 'probe', 'kind' => 'delete'],
+    ['uuid' => $moved, 'type' => 'post', 'post_type' => 'probe', 'kind' => 'reparent'],
+], 'plan projects one row per outstanding receipt, both keyspaces, ordered and carrying its kind');
+$check(count($rows) === 2,
+    'and a malformed receipt is NOT surfaced — apply sweeps that one itself, loudly, so a plan reader has '
+    . 'nothing to do about it');
+$planApply = $applyClass->newInstanceWithoutConstructor();
+$applyPolicy->setValue($planApply, $policyFor($manifest));
+$applySelected->setValue($planApply, []);
+$applyNegotiated->setValue($planApply, ['providers' => [], 'capabilities' => []]);
+$check((array) $planRows->invoke($planApply) === [],
+    'a receipt no pinned claimant owns is not surfaced either — the projection shows outstanding DEBT, never '
+    . 'orphaned bookkeeping');
+$wpdb->kv = [];
+
+// The status half, driven through the real summariser: a plan carrying one of
+// these rows must render it and must not report ok.
+require_once $root . '/cli/src/PlanSummary.php';
+$statusPlan = array_fill_keys([
+    'create', 'update', 'adopt', 'unchanged', 'drift', 'conflict',
+    'collision', 'delete', 'delete_conflict', 'deleted',
+], []);
+$statusPlan['regen_context'] = [
+    ['uuid' => $liveDeleted, 'type' => 'post', 'post_type' => 'probe', 'kind' => 'delete'],
+];
+$rendered = \Duo\Orchestrator\PlanSummary::render($statusPlan);
+$renderedText = implode("\n", (array) $rendered['lines']);
+$check(($rendered['ok'] ?? null) === false,
+    'duo status refuses to call an environment clean while a derived-state receipt is outstanding — same '
+    . 'footing as regen_pending, and for the same reason');
+$check(str_contains($renderedText, '1 regen_context')
+    && str_contains($renderedText, 'REGEN_CONTEXT')
+    && str_contains($renderedText, "post type 'probe', delete receipt"),
+    'and names the entity, its post type, and which receipt is outstanding');
+$statusPlan['regen_context'] = [];
+$check((\Duo\Orchestrator\PlanSummary::render($statusPlan)['ok'] ?? null) === true,
+    'an empty bucket is not a blocker — the row is the signal, never the key');
+// build_plan() itself is not drivable offline (it needs a compiled repository
+// and a live target), so its one edge into the projection above is asserted
+// against its own source — the idiom this suite already uses for run()'s
+// threading. Without it, deleting the call site while keeping the method passes
+// every behavioural check in this section (proven: that mutation survived).
+$buildPlanMethod = $applyClass->getMethod('build_plan');
+$buildPlanSource = implode("\n", array_slice(
+    (array) file((string) $buildPlanMethod->getFileName(), FILE_IGNORE_NEW_LINES),
+    $buildPlanMethod->getStartLine() - 1,
+    $buildPlanMethod->getEndLine() - $buildPlanMethod->getStartLine() + 1
+));
+$check((bool) preg_match(
+    "/\\\$plan\\['regen_context'\\]\\s*=\\s*\\\$this->regen_context_plan_rows\\(\\);/",
+    $buildPlanSource
+), 'build_plan() actually fills the bucket from that projection — the plan a human reads is the one those '
+    . 'checks just exercised');
+$check((bool) preg_match(
+    "/foreach \\(\\\$plan\\['regen_context'\\] as \\\$row\\) \\{\\s*\\\$this->warnings\\[\\] =/",
+    $buildPlanSource
+), 'and warns once per outstanding receipt, so a plain `duo plan` says it out loud rather than only in a '
+    . 'structured bucket a script has to look for');
+
+// Lockstep with the agent-side renderer and the precondition hash: `duo status`
+// and a plain `wp duo plan` must never give an operator different advice, and a
+// receipt appearing between plan and apply must invalidate the plan.
+$cliSource = (string) file_get_contents($root . '/agent/src/Cli.php');
+$check(str_contains($cliSource, "REGEN_CONTEXT ")
+    && str_contains($cliSource, "count(\$plan['regen_context'] ?? []) . ' regen_context'"),
+    'the agent-side plan renderer carries the same bucket, count line included');
+$hashSource = implode("\n", array_slice(
+    (array) file((string) $applyClass->getMethod('plan_precondition_hash')->getFileName(), FILE_IGNORE_NEW_LINES),
+    $applyClass->getMethod('plan_precondition_hash')->getStartLine() - 1,
+    $applyClass->getMethod('plan_precondition_hash')->getEndLine()
+        - $applyClass->getMethod('plan_precondition_hash')->getStartLine() + 1
+));
+$check(str_contains($hashSource, "'regen_context'"),
+    'and the bucket authorizes mutation, so a receipt that appeared during the planning window refuses the '
+    . 'stale plan rather than riding along');
+
+echo "\n== one channel, one surface, one consumer (independent review F2) ==\n";
+// The engine clears a durable receipt on the FIRST verified receipt of a run,
+// because a marker is bookkeeping about an entity rather than per-consumer
+// state. With two consumers on one surface that retires evidence the second
+// one's retry depends on, so the second consumer is refused before any
+// mutation instead.
+$secondCapability = static fn(array $context, string $scope = 'entity'): array => [
+    'args' => ['groups' => ['type' => 'list<string>', 'required' => true]],
+    'reads' => ['option:probe_setting'],
+    'writes' => ['entity:probe-cache-groups'],
+    'scope' => $scope,
+    'idempotent' => true,
+    'timeout_seconds' => 30,
+] + ($context === [] ? [] : ['context' => $context]);
+$twoConsumers = static function (
+    array $firstContext,
+    array $secondContext,
+    array $secondTriggers = ['post:probe'],
+    ?string $secondCapabilityName = 'flush_again'
+) use ($policyFor, $manifest, $reset, $secondCapability): array {
+    $reset();
+    \Duo\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => $firstContext];
+    $m = $manifest;
+    $m['actions'][0]['triggers'] = ['post:probe'];
+    if ($secondCapabilityName === 'flush_again') {
+        \Duo\Providers\ProbeCache::$extraCapabilities = ['flush_again' => $secondCapability($secondContext)];
+        $m['providers'][0]['capabilities'] = ['flush', 'flush_again'];
+    }
+    $m['actions'][] = [
+        'kind' => 'provider',
+        'provider' => 'probe-cache',
+        'capability' => (string) $secondCapabilityName,
+        'args' => ['groups' => ['probe-group']],
+        'triggers' => $secondTriggers,
+    ];
+    $policy = $policyFor($m);
+    return \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe', 'post:probe_other']));
+};
+
+$negotiation = $twoConsumers(['deletions'], ['deletions']);
+$p = $one($negotiation['problems']);
+$check(($p['code'] ?? '') === 'channel_claimed_twice'
+    && str_contains($p['found'] ?? '', 'probe-cache/flush, probe-cache/flush_again')
+    && str_contains($p['expected'] ?? '', "exactly one capability consuming the 'deletions' channel for post:probe"),
+    'two capabilities declaring the SAME channel on the SAME surface refuse at negotiation, naming both');
+$check(str_contains($p['remediation'] ?? '', 'the evidence its own retry depends on')
+    && str_contains($p['remediation'] ?? '', 'Narrow the triggers'),
+    'and the remediation says why one keyspace cannot serve two consumers, not merely that it may not');
+$check(!isset($negotiation['providers']['probe-cache']) && !isset($negotiation['capabilities']['probe-cache']),
+    'neither claimant binds — which of them would have cleared the shared marker is the question with no answer');
+
+$check($twoConsumers(['deletions'], ['deletions'], ['post:probe_other'])['problems'] === [],
+    'the same channel on DIFFERENT surfaces is two keyspaces, not one: no collision');
+$check($twoConsumers(['deletions'], ['reparents'])['problems'] === [],
+    'different channels on the same surface touch different marker prefixes: no collision either');
+$check($twoConsumers(['deletions'], [], ['post:probe'], 'flush')['problems'] === [],
+    'and ONE capability selected by two actions on the same surface is one consumer, not two — the dedupe is '
+    . 'by capability identity, never by action count');
 $reset();
 
 echo "\n== byte-compatibility with the pre-DUO-3369 contract, in frozen bytes ==\n";

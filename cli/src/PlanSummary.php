@@ -32,6 +32,12 @@ namespace Duo\Orchestrator;
  *   - incomplete_lifecycle: a durable pre-hook receipt means a lifecycle API
  *     may have committed canonical state before throwing. It is non-forceable
  *     and requires the exact pre-lifecycle checkpoint recovery sequence.
+ *   - regen_context (DUO-3342): an outstanding pre-delete inventory or
+ *     pre-move receipt whose derived-state repair no consumer has verified.
+ *     Same "known correctness gap, not an apply-refuse case" footing as
+ *     regen_pending below, and surfaced for the same reason: DUO-3342 made
+ *     those markers survive a failed apply instead of being swept, so one can
+ *     now stand between a failure and its retry where an operator can see it.
  *   - regen_pending (DUO-3234's Apply::build_plan(), design review addition
  *     1): a derived table with a hard per-entity availability dependency
  *     (e.g. TEC's tec_occurrences) whose verification failed on a PRIOR
@@ -90,6 +96,7 @@ final class PlanSummary {
         $incompleteApply = $plan['incomplete_apply'] ?? [];
         $incompleteLifecycle = $plan['incomplete_lifecycle'] ?? [];
         $regenPending = $plan['regen_pending'] ?? [];
+        $regenContext = $plan['regen_context'] ?? [];
         $envMissing = $plan['env_missing'] ?? [];
         $missingUser = $plan['missing_user'] ?? [];
         $skippedUserMeta = $plan['skipped_user_meta'] ?? [];
@@ -104,6 +111,7 @@ final class PlanSummary {
         $summary .= ', ' . count($incompleteApply) . ' incomplete_apply';
         $summary .= ', ' . count($incompleteLifecycle) . ' incomplete_lifecycle';
         $summary .= ', ' . count($regenPending) . ' regen_pending';
+        $summary .= ', ' . count($regenContext) . ' regen_context';
         $summary .= ', ' . count($envMissing) . ' env_missing';
         $summary .= ', ' . count($missingUser) . ' missing_user';
         $summary .= ', ' . count($skippedUserMeta) . ' skipped_user_meta';
@@ -252,6 +260,15 @@ final class PlanSummary {
                 $lines[] = '  - ' . self::label($r) . " (post type '" . ($r['post_type'] ?? '?') . "')";
             }
             $lines[] = 'regeneration retry pending — the next duo apply will retry it automatically';
+        }
+
+        if ($regenContext) {
+            $lines[] = 'REGEN_CONTEXT (a pre-delete/pre-move receipt is outstanding and no consumer has verified its repair):';
+            foreach ($regenContext as $r) {
+                $lines[] = '  - ' . self::label($r) . " (post type '" . ($r['post_type'] ?? '?') . "', "
+                    . ($r['kind'] ?? '?') . ' receipt)';
+            }
+            $lines[] = 'derived-state receipt outstanding — the next duo apply reaching that surface redelivers it to its declared consumer';
         }
 
         if ($envMissing) {
@@ -433,6 +450,7 @@ final class PlanSummary {
             && !$incompleteApply
             && !$incompleteLifecycle
             && !$regenPending
+            && !$regenContext
             && !$envMissingRequired
             && !$missingUser
             && !$adapterDispositions

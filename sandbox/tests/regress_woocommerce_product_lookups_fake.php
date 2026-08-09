@@ -391,6 +391,29 @@ namespace {
             if (preg_match('/COUNT\\(\\*\\) FROM `?wp_wc_product_meta_lookup`? WHERE product_id = (\\d+)/', $query, $m)) {
                 return isset($fakeMetaLookup[(int) $m[1]]) ? 1 : 0;
             }
+            // DUO-3342 receipt observation, batched (independent review F7):
+            // one COUNT per chunk per table instead of two per id. Modeled as
+            // DISTINCT rows touching any id in the set, which is what the SQL
+            // does — deliberately not a per-id sum, since that is the
+            // double-count the batching removes.
+            if (preg_match('/COUNT\\(\\*\\) FROM `?wp_wc_product_meta_lookup`? WHERE product_id IN \\(([0-9, ]+)\\)/', $query, $m)) {
+                $wanted = array_map('intval', preg_split('/\\s*,\\s*/', trim($m[1])) ?: []);
+                return count(array_filter(
+                    array_keys($fakeMetaLookup),
+                    static fn($id): bool => in_array((int) $id, $wanted, true)
+                ));
+            }
+            if (preg_match(
+                '/COUNT\\(\\*\\) FROM wp_wc_product_attributes_lookup WHERE product_id IN \\(([0-9, ]+)\\) OR product_or_parent_id IN \\(([0-9, ]+)\\)/',
+                $query,
+                $m
+            )) {
+                $wanted = array_map('intval', preg_split('/\\s*,\\s*/', trim($m[1])) ?: []);
+                $wantedParents = array_map('intval', preg_split('/\\s*,\\s*/', trim($m[2])) ?: []);
+                return count(array_filter($fakeAttrLookup, static fn(array $row): bool =>
+                    in_array((int) $row['product_id'], $wanted, true)
+                    || in_array((int) $row['product_or_parent_id'], $wantedParents, true)));
+            }
             if (preg_match('/COUNT\\(\\*\\) FROM wp_wc_product_attributes_lookup WHERE product_id = (\\d+) OR product_or_parent_id = (\\d+)/', $query, $m)) {
                 $a = (int) $m[1];
                 $b = (int) $m[2];
@@ -1971,6 +1994,34 @@ namespace {
         && ($receipt['before']['meta_lookup_rows'] ?? null) === 2
         && ($receipt['after']['meta_lookup_rows'] ?? null) === 1,
         'the receipt observes the ids it was handed on both sides, and records the deleted row disappearing');
+    // Independent review F7: the observation is batched into IN (...), so the
+    // attribute count is DISTINCT rows touching the id set. Asserted against the
+    // fixture's own rows rather than a magic number, so a revert to per-id
+    // summing fails here the moment one row names two batched ids — the
+    // ordinary variable-product shape.
+    $distinctAttributeRows = count(array_filter($fakeAttrLookup, static fn(array $row): bool =>
+        in_array((int) $row['product_id'], [10, 11], true)
+        || in_array((int) $row['product_or_parent_id'], [10, 11], true)));
+    $check(($receipt['after']['attribute_lookup_rows'] ?? null) === $distinctAttributeRows,
+        'and counts each attribute-lookup row once, not once per id it happens to name');
+    // Non-vacuous by construction: ids 68/70 are a variation and its variable
+    // root, and the fixture's row 68/70 names BOTH — so the per-id sum this
+    // batching replaced counts it twice while the batched query counts it once.
+    $observe = new \ReflectionMethod($adapter, 'observe_lookup_state');
+    $observed = (array) $observe->invoke($adapter, [68, 70]);
+    $perIdSum = 0;
+    foreach ([68, 70] as $probeId) {
+        $perIdSum += count(array_filter($fakeAttrLookup, static fn(array $row): bool =>
+            (int) $row['product_id'] === $probeId || (int) $row['product_or_parent_id'] === $probeId));
+    }
+    $distinctPair = count(array_filter($fakeAttrLookup, static fn(array $row): bool =>
+        in_array((int) $row['product_id'], [68, 70], true)
+        || in_array((int) $row['product_or_parent_id'], [68, 70], true)));
+    $check($perIdSum > $distinctPair,
+        'the fixture really does contain a row naming two ids of one batch, so the next check discriminates');
+    $check(($observed['attribute_lookup_rows'] ?? null) === $distinctPair,
+        'the batched observation counts that row ONCE — a per-id sum would report it twice, and the two '
+        . 'numbers are what the batching changed');
     $check(!isset($fakeMetaLookup[11]),
         'and the envelope really reached the deletion path — the deleted lookup row is gone');
     $unknownCapabilityCaught = false;

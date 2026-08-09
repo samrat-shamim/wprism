@@ -290,7 +290,8 @@ ownership lease, mutation fence, and optional TTL generation before acting.
 
 ## Planned capabilities
 
-Everything below is unshipped at this commit. It is listed so you can tell
+Everything below is unshipped at this commit, except where a bullet names a
+slice that has already landed and says so. It is listed so you can tell
 "Duo cannot do this" apart from "Duo will not do this", and route the former
 rather than working around it.
 
@@ -333,13 +334,14 @@ rather than working around it.
 - Provider-backed plugin and theme replacement — **Planned (DUO-3357)** — not yet shipped.
 - Theme upgrade, downgrade refusal, and removal as a managed lifecycle — **Planned (DUO-3358)** — not yet shipped.
 - Moving WordPress cron as managed state — **Planned (DUO-3359)** — not yet shipped.
-- Retiring the last Duo-authored WooCommerce business logic — **Planned (DUO-3342)** — not yet shipped.
-  The dispatch half of that issue has shipped: the lookup rebuild lives in
+- Retiring the last Duo-authored WooCommerce business logic — **Partially shipped (DUO-3342)** — the
+  dispatch migration has landed; the WooCommerce-authored semantics have not.
+  The lookup rebuild lives in
   `manifests/providers/woocommerce-product-lookups.php` and runs through the
   provider contract — negotiated identity, a declared version window, engine
   batch channels, and a receipt whose `verified` is refused unless the adapter
   proved the values it wrote — instead of the engine's regenerator channel. What
-  remains Duo-native is the WooCommerce *semantics* inside that file — price
+  remains unshipped is the WooCommerce *semantics* inside that file — price
   synchronization that preserves authored meta, expected-attribute-row
   derivation, and raw-SQL verification queries — logic Duo maintains in an
   adapter package (`source: manifest`) that should belong to a provider the

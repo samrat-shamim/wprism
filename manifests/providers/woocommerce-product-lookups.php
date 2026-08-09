@@ -87,10 +87,18 @@ final class WoocommerceProductLookups {
      * 300 seconds is the promotion lease TTL (PromotionLock::DEFAULT_TTL), and
      * that is the honest bound rather than a guess about catalog size. The
      * provider contract has no heartbeat parameter, so the engine renews the
-     * lease immediately before and after this call and cannot renew during it:
-     * an invocation running past the TTL has already lost the lease, and the
-     * renewal on the far side is what fails. Declaring a larger budget would
-     * only move where that same run reports the same failure.
+     * lease immediately before and after this call and cannot renew during it.
+     * What that does NOT mean — stated because the obvious reading is wrong —
+     * is that overrunning the TTL self-aborts: PromotionLock::heartbeat()
+     * tolerates an EXPIRED lease while the promotion's own process fence is
+     * continuous (same process, same owner, same artifact), so the renewal on
+     * the far side of a long call still succeeds unless another writer actually
+     * took the lock while this one was expired. The real exposure of a long
+     * invocation is therefore that window of acquirability, and pinning the
+     * budget to the same number keeps the two bounds from disagreeing: an
+     * overrun is reported once, as a declared-budget failure with the measured
+     * duration attached, rather than later as a lock loss whose cause nobody
+     * recorded.
      */
     public function capabilities(): array {
         return [
@@ -271,29 +279,44 @@ final class WoocommerceProductLookups {
     }
 
     /**
-     * Row cardinalities in the two derived lookup tables for a bounded id set,
-     * read through the same two query shapes verify_exact_state() already uses
-     * so this receipt introduces no new database surface of its own.
+     * Row cardinalities in the two derived lookup tables for a bounded id set.
+     *
+     * Batched into `IN (...)` chunks rather than two COUNTs per id (independent
+     * review, F7): a receipt is observation, and observation must not cost
+     * 4 × |batch| round trips on a catalog-sized apply. The chunk bound keeps
+     * the statement well inside any placeholder limit while staying one query
+     * per chunk per table per side.
+     *
+     * One semantic consequence, stated because it is a real difference and not
+     * a wash: the attribute-lookup count is now DISTINCT ROWS touching any id in
+     * the batch, where the per-id sum double-counted a row whose `product_id`
+     * and `product_or_parent_id` were both in the batch — the ordinary shape for
+     * a variable product and its variations. Both numbers are honest
+     * cardinalities; the batched one is the one that means what its name says.
+     * Nothing branches on these values (they are receipt payload, and `verified`
+     * is decided by verify_exact_state()), so the change is visible only in what
+     * the receipt reports.
      *
      * @param array<int,int> $ids
      * @return array{scoped_products:int, meta_lookup_rows:int, attribute_lookup_rows:int}
      */
     private function observe_lookup_state(array $ids): array {
         global $wpdb;
+        $ids = array_values(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0));
         $metaRows = 0;
         $attributeRows = 0;
-        foreach ($ids as $id) {
-            $id = (int) $id;
+        foreach (array_chunk($ids, 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
             $metaRows += (int) $this->checked_get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM {$wpdb->prefix}" . self::META_LOOKUP . " WHERE product_id = %d",
-                $id
-            ), "product lookup receipt observation for product $id");
+                "SELECT COUNT(*) FROM {$wpdb->prefix}" . self::META_LOOKUP
+                . " WHERE product_id IN ($placeholders)",
+                ...$chunk
+            ), 'product lookup receipt observation');
             $attributeRows += (int) $this->checked_get_var($wpdb->prepare(
                 "SELECT COUNT(*) FROM {$wpdb->prefix}" . self::ATTR_LOOKUP
-                . " WHERE product_id = %d OR product_or_parent_id = %d",
-                $id,
-                $id
-            ), "product attribute lookup receipt observation for product $id");
+                . " WHERE product_id IN ($placeholders) OR product_or_parent_id IN ($placeholders)",
+                ...array_merge($chunk, $chunk)
+            ), 'product attribute lookup receipt observation');
         }
         return [
             'scoped_products' => count($ids),

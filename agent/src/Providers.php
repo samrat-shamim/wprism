@@ -217,6 +217,7 @@ final class Providers {
         $problems = [];
         $instances = [];
         $capabilities = [];
+        $channelClaims = [];
         $pluginSupplied = null;
         foreach ($wanted as $id => $wantedActions) {
             usort($wantedActions, static fn(array $a, array $b): int =>
@@ -364,6 +365,24 @@ final class Providers {
                     continue;
                 }
                 $bound[$capability] = $advertised[$capability];
+                // Accumulated across providers, resolved after the loop: a
+                // channel collision is a fact about two DIFFERENT capabilities,
+                // which may live in two different providers, so it cannot be
+                // decided while looking at one.
+                foreach ((array) ($advertised[$capability]['context'] ?? []) as $channel) {
+                    foreach ((array) ($action['triggers'] ?? []) as $trigger) {
+                        if (!is_string($trigger) || !str_starts_with($trigger, 'post:')) {
+                            continue;
+                        }
+                        $claimant = "$id/$capability";
+                        $channelClaims[(string) $channel][$trigger][$claimant] = [
+                            'provider' => $id,
+                            'manifest' => $manifest,
+                            'plugin' => $plugin,
+                            'capability' => $capability,
+                        ];
+                    }
+                }
             }
             // A count comparison cannot express completeness here: the wanted
             // rows are actions while the bound rows are capabilities, and the
@@ -371,6 +390,16 @@ final class Providers {
             if (!$failed) {
                 $instances[$id] = $provider;
                 $capabilities[$id] = $bound;
+            }
+        }
+        foreach (self::channel_collision_problems($channelClaims) as $problem) {
+            $problems[] = $problem;
+            // Neither claimant may bind: which of them would have cleared the
+            // shared marker is exactly the question that has no answer, so
+            // leaving either one bound would pick a winner by accident.
+            unset($instances[(string) $problem['provider']], $capabilities[(string) $problem['provider']]);
+            foreach ((array) ($problem['claimants'] ?? []) as $claimantProvider) {
+                unset($instances[(string) $claimantProvider], $capabilities[(string) $claimantProvider]);
             }
         }
         return ['problems' => $problems, 'providers' => $instances, 'capabilities' => $capabilities];
@@ -475,6 +504,71 @@ final class Providers {
                     . 'established before it threw'
             )];
         }
+    }
+
+    /**
+     * One channel, one surface, one consumer — refused before any mutation.
+     *
+     * The durable `regen_delete_context:`/`regen_reparent_context:` markers a
+     * channel delivers are cleared by the engine on the FIRST verified receipt
+     * of a run (Apply::rebuild()), because a marker is engine bookkeeping about
+     * one entity rather than per-consumer state. That is correct while a
+     * surface has one consumer and silently wrong the moment it has two:
+     * capability A verifies, the engine retires the receipt, capability B fails,
+     * and B's retry never sees the tombstone again — a convergence claim for
+     * work that never happened, which is precisely the failure class the
+     * clear-on-verified rule exists to prevent (independent review, F2, driven
+     * against the real rebuild pass).
+     *
+     * Refused rather than fixed by making the clear per-consumer, deliberately.
+     * Per-consumer clearing would need a second durable keyspace keyed by
+     * (marker, capability) whose own lifetime nothing owns — an unbounded
+     * accumulation for a shape no shipped adapter has and no reviewer could
+     * bound. One consumer per channel per surface is the property the whole
+     * marker design already assumes; this makes the assumption a refusal
+     * instead of a comment.
+     *
+     * Scoped to `post:` triggers because that is the whole domain of the three
+     * marker keyspaces (they are keyed by a post uuid). Two capabilities may
+     * still declare the same channel on DIFFERENT surfaces, or different
+     * channels on the same surface — neither shares a marker.
+     *
+     * @param array<string,array<string,array<string,array<string,string>>>> $claims
+     *   channel => surface => "provider/capability" => claimant row
+     * @return list<array<string,mixed>>
+     */
+    private static function channel_collision_problems(array $claims): array {
+        $problems = [];
+        ksort($claims, SORT_STRING);
+        foreach ($claims as $channel => $surfaces) {
+            ksort($surfaces, SORT_STRING);
+            foreach ($surfaces as $surface => $claimants) {
+                if (count($claimants) < 2) {
+                    continue;
+                }
+                ksort($claimants, SORT_STRING);
+                $names = array_keys($claimants);
+                $first = $claimants[$names[0]];
+                $problem = self::problem(
+                    (string) $first['provider'],
+                    (string) $first['manifest'],
+                    (string) $first['plugin'],
+                    'channel_claimed_twice',
+                    "exactly one capability consuming the '$channel' channel for $surface",
+                    count($names) . ' capabilities consuming it: ' . implode(', ', $names),
+                    "the durable $channel receipts for $surface are one keyspace with one lifetime — the "
+                        . 'engine clears them on the first verified receipt, so a second consumer would lose '
+                        . 'the evidence its own retry depends on. Narrow the triggers so one capability owns '
+                        . "$surface, or fold the two repairs into one capability"
+                );
+                $problem['claimants'] = array_values(array_unique(array_map(
+                    static fn(array $row): string => (string) $row['provider'],
+                    $claimants
+                )));
+                $problems[] = $problem;
+            }
+        }
+        return $problems;
     }
 
     /**

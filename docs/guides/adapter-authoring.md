@@ -247,9 +247,22 @@ regenerator channel an adapter may be migrating from, what it does *not*:
 
 Declaring a channel also makes you the OWNER of the durable bookkeeping behind
 it, which is what makes the channels a retry queue rather than a one-shot read.
-A `regen_delete_context:`/`regen_reparent_context:` marker whose post type your
-capability triggers on is no longer swept by the batch pass; apply deletes it
-only after your receipt says `verified: true`. The entity batch works the same
+A `regen_delete_context:`/`regen_reparent_context:` marker on a surface your
+action triggers on is deleted only after your receipt says `verified: true` —
+and only on your own triggering surfaces, so your receipt never retires another
+adapter's outstanding evidence. Ownership is decided from the PINNED manifest,
+not from what a given run happened to select: an apply that touched nothing on
+your surface leaves your markers alone rather than reading "no work here" as "no
+consumer exists". They are swept, with a warning naming the marker and the
+channel nobody consumed, when a run does reach the surface and no negotiated
+capability wants the channel, or when no pinned action claims it at all. Two
+consequences to plan for: a marker for a plugin you have pinned but deactivated
+persists rather than decaying, and every outstanding receipt is listed in
+`duo plan` / `duo status` (`regen_context`, which reports not-ok while one
+stands) — visible debt rather than silent debt. Exactly one capability may
+consume a given channel on a given surface; a second one is refused at
+negotiation, because the clear is per-marker and the second consumer would lose
+the evidence its own retry needs. The entity batch works the same
 way through `regen_pending:<uuid>`: armed before the call for every post-kind
 entity delivered, cleared on a verified receipt, and unioned back into a later
 run's batch when it was not — which is the only path by which a failed repair
@@ -270,8 +283,13 @@ looks like, and the fix is to finish it (drop the `regen_dependency`; its
 One thing the contract does not give you: a heartbeat. `invoke()` receives a
 capability name and typed arguments and nothing else, so apply renews the
 promotion lease immediately before and after your call and cannot renew during
-it. `timeout_seconds` is the honest bound to declare against that — an
-invocation that outruns the lease TTL has already lost the lease.
+it. That does not make a long call self-abort — the lease heartbeat tolerates an
+expired lease while the promotion's process fence is continuous, so the renewal
+on the far side still succeeds unless another writer actually took the lock in
+the meantime. What a long call really costs is that window in which the lock is
+acquirable by someone else, so declare `timeout_seconds` at the lease TTL and an
+overrun is reported once, with its measured duration, instead of later as a lock
+loss nobody can attribute.
 
 An adapter needing no executable semantics declares neither key and stays purely
 declarative. Most should. For worked examples,
