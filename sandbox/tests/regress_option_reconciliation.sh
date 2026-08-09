@@ -185,8 +185,49 @@ pass "tombstone recapture diff is empty and retry is idempotent"
 say "recreation after deletion and accidental record removal both fail closed"
 wp2 eval 'global $wpdb; $wpdb->replace($wpdb->options,["option_name"=>"duo_matrix_delete","option_value"=>"delete-base","autoload"=>"no"]);' >/dev/null
 RECREATE=$(wp2 duo plan --repo=/siterepo --format=json 2>/dev/null | tail -1)
-echo "$RECREATE" | jq -e '[.conflict[] | select(.uuid == "options/core")] | length == 1' >/dev/null \
-  || fail "post-delete recreation was not a conflict: $RECREATE"
+echo "$RECREATE" | jq -e '[.conflict[] | select(
+  .uuid == "options/core"
+  and .conflict_view.reason_code == "option_delete_and_target_changed_since_base"
+  and (.conflict_view.choices | any(
+    .id == "apply_repository"
+    and .destructive == true
+    and .requires == ["--with-deletes","--force-theirs"]
+  ))
+)] | length == 1' >/dev/null \
+  || fail "post-delete recreation conflict did not name both destructive gates: $RECREATE"
+set +e
+RECREATE_FORCE=$(wp2 duo apply --repo=/siterepo --force-theirs 2>&1)
+RECREATE_FORCE_RC=$?
+set -e
+[ "$RECREATE_FORCE_RC" -ne 0 ] || fail "recreated option deletion applied without --with-deletes"
+grep -q -- '--with-deletes' <<<"$RECREATE_FORCE" \
+  || fail "forced option conflict refusal did not name the still-required --with-deletes gate: $RECREATE_FORCE"
+[ "$(wp2 option get duo_matrix_delete)" = "delete-base" ] \
+  || fail "forced option conflict without --with-deletes mutated the recreated target row"
+set +e
+RECREATE_FORCE_JSON=$(wp2 duo apply --repo=/siterepo --force-theirs --format=json 2>/dev/null)
+RECREATE_FORCE_JSON_RC=$?
+set -e
+[ "$RECREATE_FORCE_JSON_RC" -ne 0 ] || fail "machine apply unexpectedly accepted recreated option deletion without --with-deletes"
+OPTION_ENTITY_HASH=$(php -r 'echo hash("sha256", "options/core");')
+echo "$RECREATE_FORCE_JSON" | tail -1 | jq -e --arg identity "$OPTION_ENTITY_HASH" '
+  .error == "apply_conflict_override_incomplete"
+  and .details_redacted != true
+  and (.forced_overrides | any(
+    .format == "duo-forced-plan-override/v1"
+    and .plan_bucket == "conflict"
+    and .entity_identity_sha256 == $identity
+    and .reason_code == "option_delete_and_target_changed_since_base"
+    and .choice == "apply_repository"
+    and .required_flags == ["--with-deletes","--force-theirs"]
+    and .supplied_flags == ["--force-theirs"]
+    and .status == "incomplete"
+  ))' >/dev/null \
+  || fail "machine refusal hid, authorized, or corrupted the incomplete option-conflict override evidence: $RECREATE_FORCE_JSON"
+! grep -Fq 'options/core' <<<"$RECREATE_FORCE_JSON" \
+  || fail "machine forced-override evidence exposed the raw entity identity: $RECREATE_FORCE_JSON"
+[ "$(wp2 option get duo_matrix_delete)" = "delete-base" ] \
+  || fail "machine forced option conflict without --with-deletes mutated the recreated target row"
 
 BAD="$R2/.tmp-missing-record"
 rm -rf "$BAD"

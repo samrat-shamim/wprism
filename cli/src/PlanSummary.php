@@ -5,8 +5,11 @@ namespace Duo\Orchestrator;
  * Turns the JSON from `wp duo plan --format=json` (agent/src/Apply.php
  * build_plan(): keys create/update/unchanged/drift/conflict/adopt/
  * collision/delete/delete_conflict/deleted, each a list of
- * {uuid,type,path?,title?,blocked?,env_id?,reason?}) into
+ * {uuid,type,path?,title?,blocked?,env_id?,reason?,conflict_view?}) into
  * `duo status`'s human summary.
+ * `conflict_view`, when present on conflict/delete_conflict, is the versioned
+ * hash-only base/repository/target evidence and bounded choice model from
+ * spec/repo-format.md; renderers must never invent raw values from hashes.
  *
  * More top-level keys live outside BUCKETS and get their own handling
  * below, mirroring agent/src/Cli.php's plan() rendering deliberately (a
@@ -159,6 +162,9 @@ final class PlanSummary {
             $lines[] = 'CONFLICT (repo and environment both changed since last sync):';
             foreach ($plan['conflict'] as $r) {
                 $lines[] = '  - ' . self::label($r);
+                foreach (self::conflictViewLines($r) as $detail) {
+                    $lines[] = '    ' . $detail;
+                }
             }
         }
 
@@ -166,6 +172,9 @@ final class PlanSummary {
             $lines[] = 'DELETE_CONFLICT (target differs from the tombstone expected base):';
             foreach ($plan['delete_conflict'] as $r) {
                 $lines[] = '  - ' . self::label($r) . ': ' . ($r['reason'] ?? 'deletion base mismatch');
+                foreach (self::conflictViewLines($r) as $detail) {
+                    $lines[] = '    ' . $detail;
+                }
             }
         }
 
@@ -388,5 +397,55 @@ final class PlanSummary {
             $label .= " '" . trim((string) preg_replace('/\s+/', ' ', $r['title'])) . "'";
         }
         return $label;
+    }
+
+    /**
+     * Keep the host summary aligned with the direct `wp duo plan` renderer:
+     * exact full hashes stay in JSON while the human view foregrounds roles,
+     * intent, and safe resolution with only bounded hash prefixes.
+     *
+     * @return list<string>
+     */
+    private static function conflictViewLines(array $row): array {
+        $view = $row['conflict_view'] ?? null;
+        if (!is_array($view) || ($view['format'] ?? null) !== 'duo-plan-conflict/v1') {
+            return [];
+        }
+        $base = (array) ($view['base'] ?? []);
+        $repository = (array) ($view['repository'] ?? []);
+        $target = (array) ($view['target'] ?? []);
+        $lines = [
+            'WHY ' . ($view['reason_code'] ?? 'plan_conflict'),
+            'BASE last-synced: ' . ($base['state'] ?? 'unknown')
+                . ' ' . self::hashLabel($base['content_hash'] ?? null),
+            'REPOSITORY intent=' . ($repository['intent'] ?? 'unknown')
+                . ' state=' . self::hashLabel($repository['content_hash'] ?? null)
+                . ' expected-base=' . self::hashLabel($repository['expected_base_hash'] ?? null),
+            'TARGET observation: intent=' . ($target['intent'] ?? 'unknown')
+                . ' state=' . ($target['state'] ?? 'unknown')
+                . ' ' . self::hashLabel($target['content_hash'] ?? null),
+            'SAFE CHOICE reconcile_in_repository: preserve both intents; capture the target change, resolve it in the repository, then re-plan',
+        ];
+        $choices = array_values(array_filter(
+            (array) ($view['choices'] ?? []),
+            static fn($choice): bool => is_array($choice) && ($choice['id'] ?? null) === 'apply_repository'
+        ));
+        if ($choices) {
+            $choice = $choices[0];
+            $requires = implode(' ', array_map('strval', (array) ($choice['requires'] ?? [])));
+            $effect = ($choice['effect'] ?? '') === 'delete_target_authored_state'
+                ? 'delete target authored state'
+                : 'replace target authored state';
+            $lines[] = 'DESTRUCTIVE OVERRIDE apply_repository'
+                . ($requires === '' ? '' : " ($requires)") . ": $effect";
+        }
+        return $lines;
+    }
+
+    private static function hashLabel(mixed $hash): string {
+        if (!is_string($hash) || $hash === '') {
+            return 'none';
+        }
+        return 'sha256:' . substr($hash, 0, 12);
     }
 }

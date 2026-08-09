@@ -531,6 +531,11 @@ final class Cli {
                         "  WIDGET_DELETE {$widget['type']} {$widget['uuid']} ($origin; absent from declared sidebar file)"
                     );
                 }
+                if ($kind === 'conflict' || $kind === 'delete_conflict') {
+                    foreach (self::plan_conflict_view_lines($r) as $detail) {
+                        WP_CLI::line('  ' . $detail);
+                    }
+                }
             }
         }
         // code_mismatch (docs/proposals/code-half.md §3.2): a different row
@@ -671,6 +676,57 @@ final class Cli {
         if ($envMissingRequired) {
             WP_CLI::warning('required env value(s) missing — provision with `wp duo env-set --name=<name> --value=<value>` (or --stdin) before promoting');
         }
+    }
+
+    /**
+     * Render the versioned three-way evidence without exposing canonical
+     * entity values. JSON retains full hashes for exact correlation; human
+     * output uses a bounded prefix so WordPress names and semantic roles stay
+     * primary. Keep this wording in lockstep with PlanSummary::render().
+     *
+     * @return list<string>
+     */
+    private static function plan_conflict_view_lines(array $row): array {
+        $view = $row['conflict_view'] ?? null;
+        if (!is_array($view) || ($view['format'] ?? null) !== 'duo-plan-conflict/v1') {
+            return [];
+        }
+        $base = (array) ($view['base'] ?? []);
+        $repository = (array) ($view['repository'] ?? []);
+        $target = (array) ($view['target'] ?? []);
+        $lines = [
+            'WHY ' . ($view['reason_code'] ?? 'plan_conflict'),
+            'BASE last-synced: ' . ($base['state'] ?? 'unknown')
+                . ' ' . self::plan_hash_label($base['content_hash'] ?? null),
+            'REPOSITORY intent=' . ($repository['intent'] ?? 'unknown')
+                . ' state=' . self::plan_hash_label($repository['content_hash'] ?? null)
+                . ' expected-base=' . self::plan_hash_label($repository['expected_base_hash'] ?? null),
+            'TARGET observation: intent=' . ($target['intent'] ?? 'unknown')
+                . ' state=' . ($target['state'] ?? 'unknown')
+                . ' ' . self::plan_hash_label($target['content_hash'] ?? null),
+            'SAFE CHOICE reconcile_in_repository: preserve both intents; capture the target change, resolve it in the repository, then re-plan',
+        ];
+        $choices = array_values(array_filter(
+            (array) ($view['choices'] ?? []),
+            static fn($choice): bool => is_array($choice) && ($choice['id'] ?? null) === 'apply_repository'
+        ));
+        if ($choices) {
+            $choice = $choices[0];
+            $requires = implode(' ', array_map('strval', (array) ($choice['requires'] ?? [])));
+            $effect = ($choice['effect'] ?? '') === 'delete_target_authored_state'
+                ? 'delete target authored state'
+                : 'replace target authored state';
+            $lines[] = 'DESTRUCTIVE OVERRIDE apply_repository'
+                . ($requires === '' ? '' : " ($requires)") . ": $effect";
+        }
+        return $lines;
+    }
+
+    private static function plan_hash_label(mixed $hash): string {
+        if (!is_string($hash) || $hash === '') {
+            return 'none';
+        }
+        return 'sha256:' . substr($hash, 0, 12);
     }
 
     /**

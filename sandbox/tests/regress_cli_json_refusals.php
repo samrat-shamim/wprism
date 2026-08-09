@@ -234,6 +234,53 @@ namespace {
         'unclassified plan exceptions expose only a safe generic diagnostic'
     );
 
+    $forcedEntityHash = hash('sha256', 'private-option-or-user-identity');
+    \Duo\Apply::$applyFailure = new \Duo\CommandRefusalException(
+        'apply_forced_override_failed',
+        'apply failed after explicit plan conflict overrides were authorized',
+        'inspect private operator evidence and apply recovery state; reconcile the failed gate before another attempt and do not assume the authorized override committed',
+        [],
+        'Warning: FORCED conflict private-option-or-user-identity\nduo: later provider detail stays operator-only',
+        new RuntimeException('duo: later provider detail stays operator-only'),
+        [[
+            'format' => 'duo-forced-plan-override/v1',
+            'plan_bucket' => 'conflict',
+            'entity_identity_sha256' => $forcedEntityHash,
+            'conflict_kind' => 'concurrent_change',
+            'reason_code' => 'option_delete_and_target_changed_since_base',
+            'choice' => 'apply_repository',
+            'effect' => 'replace_target_authored_state',
+            'required_flags' => ['--with-deletes', '--force-theirs'],
+            'supplied_flags' => ['--with-deletes', '--force-theirs'],
+            'status' => 'authorized',
+        ]]
+    );
+    $forcedApply = invoke_json(static fn() => $cli->apply([], ['repo' => '/fixture', 'format' => 'json']));
+    check(($forcedApply['error'] ?? null) === 'apply_forced_override_failed', 'forced apply failure has a stable typed refusal code');
+    check(
+        ($forcedApply['forced_overrides'][0]['entity_identity_sha256'] ?? null) === $forcedEntityHash
+            && ($forcedApply['forced_overrides'][0]['status'] ?? null) === 'authorized',
+        'forced apply failure retains reviewed structured override evidence for machine callers'
+    );
+    check(
+        !str_contains((string) json_encode($forcedApply), 'private-option-or-user-identity')
+            && !str_contains((string) json_encode($forcedApply), 'provider detail'),
+        'forced apply failure JSON omits raw entity and later runtime details'
+    );
+    \Duo\Apply::$applyFailure = new \Duo\CommandRefusalException(
+        'apply_forced_override_failed',
+        'apply failed after explicit plan conflict overrides were authorized',
+        'inspect private operator evidence before another attempt',
+        [],
+        'duo: private operator detail',
+        null,
+        [['entity_identity_sha256' => 'sk_live_1234567890FORCEDLEAK']]
+    );
+    $forcedRedaction = invoke_json(static fn() => $cli->apply([], ['repo' => '/fixture', 'format' => 'json']));
+    check(($forcedRedaction['details_redacted'] ?? null) === true, 'sensitive forced override evidence activates the final redaction guard');
+    check(!array_key_exists('forced_overrides', $forcedRedaction), 'sensitive forced override evidence is omitted as a whole');
+    check(!str_contains((string) json_encode($forcedRedaction), 'FORCEDLEAK'), 'sensitive forced override bytes are absent from JSON');
+
     \Duo\Capture::$failure = \Duo\CommandRefusalException::ambiguousCaptureRecovery(
         'duo: operator-only malformed database commit marker detail'
     );
