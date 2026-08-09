@@ -133,13 +133,29 @@ for side in 1 2; do
           "refs": [{"column": "room_id", "kind": "agency_room"}],
           "identity": {"mode": "natural_key", "columns": ["room_id", "slot_code"]}
         }
-      }' ../manifests/duo-agency-cpt.json > "$DIR/duo-agency-cpt.json"
+      }' ../manifests/duo-agency-cpt.json > "$DIR/duo-agency-cpt.json.tmp"
+  # Atomic publish + container-side settle barrier: the host's plain `>`
+  # write races the container's bind-mount view on macOS (observed live —
+  # one run's capture transiently loaded a declaration WITHOUT the identity
+  # columns these exact bytes carry, then the identical command loaded clean
+  # minutes later). mv is atomic on one filesystem; the barrier below proves
+  # the CONTAINER sees the final parsed bytes before anything loads policy.
+  mv "$DIR/duo-agency-cpt.json.tmp" "$DIR/duo-agency-cpt.json"
   jq -e '.tables.duo_agency_room_slots.identity.columns == ["room_id", "slot_code"]' "$DIR/duo-agency-cpt.json" >/dev/null \
     || fail "overlay manifest on side $side did not receive the parent-scoped identity declaration"
 done
 jq -e '.tables == null' ../manifests/duo-agency-cpt.json >/dev/null \
   || fail "the SHIPPED duo-agency-cpt manifest gained a tables section — it must stay byte-identical"
-pass "overlay built on both sides; the shipped manifest declares no tables"
+for side in 1 2; do
+  W=wp${side}m
+  for i in $(seq 1 20); do
+    SEEN=$($W eval 'echo json_encode((\Duo\Policy::load("/siterepo")->declared_tables()["duo_agency_room_slots"]["identity"]["columns"] ?? []));' 2>/dev/null | tr -d '\r' | tail -1) || SEEN=""
+    [ "$SEEN" = '["room_id","slot_code"]' ] && break
+    [ "$i" = "20" ] && fail "side $side never saw the settled overlay through the bind mount (last: $SEEN)"
+    sleep 1
+  done
+done
+pass "overlay built on both sides and proven visible inside both containers; the shipped manifest declares no tables"
 
 say "side 1 activates the fixture for real; side 2 stays inactive and receives it through deploy alone"
 wp1 site empty --yes >/dev/null
@@ -176,7 +192,11 @@ MORNING_UUIDS=$(jq -r 'select(.columns.slot_code == "morning") | .uuid' "$SLOT_D
   || fail "the two 'morning' slots derived the SAME uuid — the parent component is not participating in identity"
 jq -e '.columns.room_id | test("^\\{\\{agency_room:[0-9a-f-]{36}\\}\\}$")' "$SLOT_DIR"/*.json >/dev/null \
   || fail "a slot's room_id was not captured as a portable ref token"
-grep -q "$ROOM_ONE_1" "$SLOT_DIR"/*.json \
+# Structural check, not substring: a bare auto-increment id like "6" would
+# substring-match UUID bytes ("6abfed58-...") in every file and false-fail a
+# perfect capture (caught live on this script's first run). What must never
+# appear is the raw id AS the room_id VALUE.
+jq -e --arg id "$ROOM_ONE_1" 'select(.columns.room_id == $id)' "$SLOT_DIR"/*.json | grep -q . \
   && fail "a raw environment-local room id reached canonical state"
 pass "identity is scoped by the parent, and no local id reached the repository"
 
@@ -185,13 +205,21 @@ say "(2) publish side 1, then deploy + apply on side 2"
 "${GIT1[@]}" commit -qm "capture: rooms and parent-scoped slots"
 git -C "siterepo/${PAIR}1" push -q origin main
 git -C "siterepo/${PAIR}2" pull -q --ff-only origin main
-DEPLOY_JSON=$(wp2 duo deploy --repo=/siterepo --format=json | tail -1)
+# wp2m, not wp2: deploy COMPILES the repository, and the state tree carries
+# table entities only the overlay declares — the un-overlaid policy refuses
+# with invalid_reference_kind (verified live; the refusal itself is correct
+# fail-closed behavior, which step (4) asserts on purpose).
+DEPLOY_JSON=$(wp2m duo deploy --repo=/siterepo --format=json | tail -1)
 echo "$DEPLOY_JSON" | jq -e --arg p "$PLUGIN_DIR/$PLUGIN_DIR.php" '.activated | any(. == $p)' >/dev/null \
   || fail "deploy did not activate $PLUGIN_DIR on side 2 (got: $DEPLOY_JSON)"
 [ "$(q2 "SHOW TABLES LIKE 'wp_duo_agency_room_slots'")" = "wp_duo_agency_room_slots" ] \
   || fail "side 2's tables were not created by the deployed plugin's activation hook"
 REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-APPLY_JSON=$(wp2m duo apply --repo=/siterepo --default-author=admin --revision="$REV" --format=json | tail -1)
+# --adopt-by-slug=terms: side 2's fresh install pre-seeds its own
+# 'uncategorized' term with no uuid mapping; first apply adopts it by slug
+# (the standard fresh-pair pattern every live suite uses) instead of
+# refusing on the slug collision.
+APPLY_JSON=$(wp2m duo apply --repo=/siterepo --default-author=admin --adopt-by-slug=terms --revision="$REV" --format=json | tail -1)
 echo "$APPLY_JSON" | jq -e '.canary == "clean"' >/dev/null || fail "apply canary was not clean: $APPLY_JSON"
 pass "side 2 deployed and applied"
 
