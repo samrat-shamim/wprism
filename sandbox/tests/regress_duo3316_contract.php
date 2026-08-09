@@ -577,6 +577,19 @@ expect_throw(
     'nested option sub_keys are refused instead of silently ignored'
 );
 
+$invalid = fixture_manifest();
+$invalid['dynamic_options']['dks_dynamic'] = [
+    'prefix' => 'dks_dynamic_',
+    'resolver' => 'active_stylesheet',
+    'autoload' => 'preserve',
+    'sub_keys' => ['payload' => ['class' => 'authored']],
+    'json_refs' => [['path' => '$.term_id', 'kind' => 'term']],
+];
+expect_throw(
+    fn() => load_fixture_policy($tmp, $invalid),
+    'dynamic sub-keyed option parent whole-value fields are refused at manifest load'
+);
+
 $invalid = fixture_manifest('both');
 expect_throw(fn() => load_fixture_policy($tmp, $invalid), 'two attached sidecars for one owner are refused at manifest load');
 
@@ -634,6 +647,19 @@ $snapshot['manifests'][0]['options']['dks_structured_option']['sub_keys']['paylo
 expect_throw(
     fn() => Policy::from_snapshot($snapshot),
     'frozen policy refuses nested sub_keys instead of accepting a dead declaration'
+);
+
+$snapshot = $policy->export_snapshot();
+$snapshot['manifests'][0]['dynamic_options']['dks_dynamic'] = [
+    'prefix' => 'dks_dynamic_',
+    'resolver' => 'active_stylesheet',
+    'autoload' => 'preserve',
+    'sub_keys' => ['payload' => ['class' => 'authored']],
+    'key_refs' => ['path' => '$.term_map', 'kind' => 'term'],
+];
+expect_throw(
+    fn() => Policy::from_snapshot($snapshot),
+    'frozen policy refuses a whole-value reference declaration on a dynamic sub-keyed option parent'
 );
 
 $snapshot = $policy->export_snapshot();

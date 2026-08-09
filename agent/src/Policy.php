@@ -4172,27 +4172,10 @@ self::validate_post_type_children($manifest);
                     . 'narrows independent capture to named keys of an otherwise-excluded blob). Pick one.'
                 );
             }
-            $wholeValueFields = [
-                'ref',
-                'json_refs',
-                'key_refs',
-                'json_encoded',
-                'cast',
-                'order_preserving',
-                'allow_secret',
-                'lint_ok',
-            ];
-            $ambiguous = array_values(array_filter(
-                $wholeValueFields,
-                static fn(string $field): bool => array_key_exists($field, $rule)
-            ));
-            if ($ambiguous) {
-                throw new \RuntimeException(
-                    "duo: $label declares options.$optName.sub_keys together with whole-value field(s) "
-                    . implode(', ', $ambiguous) . '; put value/reference/secret/lint behavior on each named '
-                    . 'sub-key rule instead'
-                );
-            }
+            self::assert_sub_key_parent_has_no_value_fields(
+                $rule,
+                "$label options.$optName"
+            );
             foreach ($subKeys as $subKey => $subRule) {
                 if (!is_array($subRule) || !in_array($subRule['class'] ?? null, self::CLASSES, true)) {
                     throw new \RuntimeException(
@@ -4201,6 +4184,31 @@ self::validate_post_type_children($manifest);
                     );
                 }
             }
+        }
+    }
+
+    private const SUB_KEY_PARENT_VALUE_FIELDS = [
+        'ref',
+        'json_refs',
+        'key_refs',
+        'json_encoded',
+        'cast',
+        'order_preserving',
+        'allow_secret',
+        'lint_ok',
+    ];
+
+    private static function assert_sub_key_parent_has_no_value_fields(array $rule, string $where): void {
+        $ambiguous = array_values(array_filter(
+            self::SUB_KEY_PARENT_VALUE_FIELDS,
+            static fn(string $field): bool => array_key_exists($field, $rule)
+        ));
+        if ($ambiguous) {
+            throw new \RuntimeException(
+                "duo: $where declares sub_keys together with whole-value field(s) "
+                . implode(', ', $ambiguous) . '; put value/reference/secret/lint behavior on each named '
+                . 'sub-key rule instead'
+            );
         }
     }
 
@@ -4367,6 +4375,10 @@ self::validate_post_type_children($manifest);
             if (!is_array($subKeys) || !$subKeys) {
                 throw new \RuntimeException("duo: manifest '$name' declares dynamic_options.$key.sub_keys that is missing, empty, or not an object");
             }
+            self::assert_sub_key_parent_has_no_value_fields(
+                $decl,
+                "manifest '$name' dynamic_options.$key"
+            );
             foreach ($subKeys as $subKey => $subRule) {
                 if (!is_array($subRule) || !in_array($subRule['class'] ?? null, self::CLASSES, true)) {
                     throw new \RuntimeException(
