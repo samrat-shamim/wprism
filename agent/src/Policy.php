@@ -131,6 +131,7 @@ final class Policy {
             $manifest = Canon::decode(Canon::read_file($file));
             self::validate_field_classes($manifest);
             self::validate_menu_field_classes($manifest);
+            self::validate_post_type_children($manifest);
             self::validate_regen_dependencies($manifest);
             self::validate_providers($manifest);
             self::validate_actions($manifest);
@@ -222,6 +223,7 @@ final class Policy {
             }
             self::validate_field_classes($manifest);
             self::validate_menu_field_classes($manifest);
+            self::validate_post_type_children($manifest);
             self::validate_regen_dependencies($manifest);
             self::validate_providers($manifest);
             self::validate_actions($manifest);
@@ -1067,6 +1069,104 @@ final class Policy {
             $out = array_merge($out, array_keys($m['post_types'] ?? []));
         }
         return array_values(array_unique($out));
+    }
+
+    /**
+     * Declared direct child post types for a parent CPT.  This is a
+     * structural manifest fact about wp_posts.post_parent, not a deletion
+     * capability or a request to discover an arbitrary post hierarchy.
+     *
+     * Pinned manifests compose additively for this relationship because an
+     * adapter may name additional child types for the same parent.  Sorting
+     * makes the result independent of manifest pin order and safe for query
+     * construction and future scoped dependency closure.
+     *
+     * @return string[]
+     */
+    public function child_post_types(string $postType): array {
+        $out = [];
+        foreach ($this->manifests as $manifest) {
+            $decl = $manifest['post_types'][$postType] ?? null;
+            if (!is_array($decl)) {
+                continue;
+            }
+            foreach ((array) ($decl['children'] ?? []) as $childPostType) {
+                if (is_string($childPostType) && $childPostType !== '') {
+                    $out[$childPostType] = true;
+                }
+            }
+        }
+        $types = array_keys($out);
+        sort($types, SORT_STRING);
+        return $types;
+    }
+
+    /**
+     * Declared direct parent post types for a child CPT.  A child row has one
+     * wp_posts.post_parent value at a time, while this type-level reverse
+     * lookup intentionally permits more than one adapter-declared parent
+     * type.  Callers that need a concrete relationship still inspect the
+     * local parent id; this method never manufactures one.
+     *
+     * @return string[]
+     */
+    public function parent_post_types(string $postType): array {
+        $out = [];
+        foreach ($this->manifests as $manifest) {
+            foreach ((array) ($manifest['post_types'] ?? []) as $parentPostType => $decl) {
+                if (!is_array($decl)
+                    || !in_array($postType, (array) ($decl['children'] ?? []), true)) {
+                    continue;
+                }
+                $out[(string) $parentPostType] = true;
+            }
+        }
+        $types = array_keys($out);
+        sort($types, SORT_STRING);
+        return $types;
+    }
+
+    /**
+     * Return an input type set plus every type connected to it by declared
+     * parent/child edges. Traversal is deliberately bidirectional and
+     * transitive: scoped-operation callers expand parent/child dependencies
+     * through this API, closing a bounded declared scope without a
+     * target-wide post query. Unknown input types survive as isolated
+     * members; undeclared edges are never inferred.
+     *
+     * @param array<int,mixed> $postTypes
+     * @return string[] lexical, duplicate-free order
+     */
+    public function post_type_relation_closure(array $postTypes): array {
+        $pending = [];
+        foreach ($postTypes as $postType) {
+            if (is_string($postType) && $postType !== '') {
+                $pending[$postType] = true;
+            }
+        }
+
+        $seen = [];
+        while ($pending) {
+            ksort($pending, SORT_STRING);
+            $postType = (string) array_key_first($pending);
+            unset($pending[$postType]);
+            if (isset($seen[$postType])) {
+                continue;
+            }
+            $seen[$postType] = true;
+            foreach (array_merge(
+                $this->child_post_types($postType),
+                $this->parent_post_types($postType)
+            ) as $relatedPostType) {
+                if (!isset($seen[$relatedPostType])) {
+                    $pending[$relatedPostType] = true;
+                }
+            }
+        }
+
+        $types = array_keys($seen);
+        sort($types, SORT_STRING);
+        return $types;
     }
 
     /** @return string[] taxonomies for which a pinned manifest declares a structural contract. */
@@ -2346,6 +2446,68 @@ final class Policy {
                         "duo: manifest '$name' table '$table' keyspace.patterns[$i].match must be a valid regex"
                     );
                 }
+            }
+        }
+    }
+
+    /**
+     * Validate a CPT parent/child declaration before any query can use it.
+     *
+     * `post_types.<parent>.children` is deliberately a very small grammar:
+     * a non-empty list of distinct CPT names.  It describes only direct
+     * wp_posts.post_parent edges; it is not a cascade grammar, SQL surface,
+     * or a generic hierarchy-discovery escape hatch. Every child endpoint
+     * must be another post_types key in this same manifest, so a typo cannot
+     * reach a target query; runtime checks still prove the local rows.
+     */
+    private static function validate_post_type_children(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        $postTypes = (array) ($manifest['post_types'] ?? []);
+        foreach ($postTypes as $parentPostType => $decl) {
+            if (!is_array($decl) || !array_key_exists('children', $decl)) {
+                continue;
+            }
+            if (!is_string($parentPostType)
+                || !preg_match('/^[a-z0-9_-]{1,20}$/', $parentPostType)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types key " . var_export($parentPostType, true)
+                    . ' cannot declare children: expected a WordPress post-type name'
+                );
+            }
+            $children = $decl['children'];
+            if (!is_array($children) || !array_is_list($children) || !$children) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$parentPostType.children must be a non-empty list"
+                );
+            }
+            $seen = [];
+            foreach ($children as $index => $childPostType) {
+                if (!is_string($childPostType)
+                    || !preg_match('/^[a-z0-9_-]{1,20}$/', $childPostType)) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' post_types.$parentPostType.children[$index] "
+                        . 'must be a WordPress post-type name'
+                    );
+                }
+                if ($childPostType === $parentPostType) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' post_types.$parentPostType.children "
+                        . 'cannot declare a CPT as its own child'
+                    );
+                }
+                if (!array_key_exists($childPostType, $postTypes)) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' post_types.$parentPostType.children[$index] "
+                        . "names undeclared child CPT '$childPostType'"
+                    );
+                }
+                if (isset($seen[$childPostType])) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' post_types.$parentPostType.children "
+                        . "contains duplicate child CPT '$childPostType'"
+                    );
+                }
+                $seen[$childPostType] = true;
             }
         }
     }
