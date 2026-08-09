@@ -834,7 +834,10 @@ query- or fragment-bearing absolute URIs are conservatively treated as signed
 or credential-bearing rather than serialized from refusal evidence. An engine-authored
 refusal — a `duo: `-prefixed message that is single-line, wrapper-free, and
 passes the sensitivity screen (no secret shapes, no logins, no absolute
-paths) — is public verbatim under `<command>_refused` (DUO-3398): the
+paths) — is public verbatim under `<command>_refused` (DUO-3398), except
+from the observation commands (`refresh-export`, `scope`), whose refusals
+interpolate production-observed identifiers no pattern can classify and
+stay fully redacted (DUO-3397): the
 message is the operator's answer, and redacting it withheld the answer.
 Every other unknown throwable never contributes its message, cause, path,
 or trace. Known scope

@@ -555,6 +555,32 @@ namespace {
         );
     }
 
+    // explain declares a stricter value-free posture than any other command
+    // (its catch: "never forwards exception text ... merely because JSON was
+    // not requested") — the allowlist keeps its JSON channel no more
+    // revealing than its human one.
+    \Duo\Apply::$planFailure = new RuntimeException('duo: explain refused — plan unavailable');
+    $explainRefusal = invoke_json(static fn() => $cli->explain(['post:x'], ['repo' => '/fixture', 'format' => 'json']));
+    \Duo\Apply::$planFailure = null;
+    check(
+        ($explainRefusal['details_redacted'] ?? null) === true
+            && !str_contains((string) json_encode($explainRefusal), 'plan unavailable'),
+        'explain\'s duo: refusal stays redacted — a command absent from the allowlist publishes nothing'
+    );
+
+    // The observation-command exclusion is the reason, not the token
+    // patterns: a VALUE-FREE duo:-prefixed refresh-export refusal must also
+    // stay redacted, or the exclusion is decorative and the next value-free-
+    // looking production identifier leaks.
+    \Duo\RefreshExport::$failure = new RuntimeException('duo: refresh export refused — an apply is in progress');
+    $valueFree = invoke_json(static fn() => $cli->refresh_export([], ['repo' => '/fixture', 'format' => 'json']));
+    check(
+        ($valueFree['error'] ?? null) === 'refresh_export_failed'
+            && ($valueFree['details_redacted'] ?? null) === true
+            && !str_contains((string) json_encode($valueFree), 'apply is in progress'),
+        'a value-free duo: refusal from an OBSERVATION command stays redacted — the command exclusion is load-bearing, not the patterns'
+    );
+
     // wp-cli rewrites a bare --json into format=json, but refresh-export
     // derives its own $format from both spellings, so both must reach the
     // same formatter rather than only the one the dispatcher happens to use.

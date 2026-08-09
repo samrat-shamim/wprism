@@ -52,7 +52,7 @@ final class Cli {
             $message = $t->publicMessage;
             $remediation = $t->remediation;
             $redacted = false;
-        } elseif (self::publishable_refusal($t->getMessage())) {
+        } elseif (self::publishable_refusal($command, $t->getMessage())) {
             // The engine's own refusal convention: a message deliberately
             // authored for the operator, prefixed `duo: ` at its throw site
             // (Deletion::capability(), Policy's validators, dozens more).
@@ -178,7 +178,28 @@ final class Cli {
      * their non-JSON rendering and are a candidate for typed refusals, not
      * for this branch.
      */
-    private static function publishable_refusal(string $message): bool {
+    /**
+     * The commands whose duo:-prefixed raw refusals may publish. This is an
+     * ALLOWLIST, and the rule is contract provenance, not command category:
+     * these are the commands whose reachable refusal messages were audited
+     * value-free at DUO-3398 (one of them load-bearing for the DUO-3328
+     * ninja-forms certification contract). refresh-export and scope are
+     * absent because DUO-3397 deliberately pinned blanket redaction for
+     * them — a fresh reviewed decision this branch does not reverse —
+     * and explain is absent because its own catch declares a stricter
+     * value-free posture than any other command. A command not on this
+     * list is redacted until someone audits it and adds it here WITH its
+     * suite pins; silently inheriting publication is how the DUO-3398
+     * fix-forward incident happened.
+     */
+    private const PUBLIC_REFUSAL_COMMANDS = [
+        'apply', 'capture', 'code-finalize', 'code-stage', 'compile', 'deploy', 'plan',
+    ];
+
+    private static function publishable_refusal(string $command, string $message): bool {
+        if (!in_array($command, self::PUBLIC_REFUSAL_COMMANDS, true)) {
+            return false;
+        }
         if (!str_starts_with($message, 'duo: ')) {
             return false;
         }
