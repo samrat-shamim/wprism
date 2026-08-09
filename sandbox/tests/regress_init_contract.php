@@ -1,0 +1,130 @@
+<?php
+// Offline regression for DUO-3336's public proposal/confirmation boundary.
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/../../cli/src/Transport.php';
+require_once __DIR__ . '/../../cli/src/Init.php';
+
+use Duo\Orchestrator\Init;
+use Duo\Orchestrator\Transport;
+
+final class InitTransport extends Transport {
+    /** @var list<array{exit:int,stdout:string,stderr:string}> */
+    private array $responses;
+    /** @var list<list<string>> */
+    public array $calls = [];
+
+    /** @param list<array{exit:int,stdout:string,stderr:string}> $responses */
+    public function __construct(array $responses) {
+        parent::__construct('shop', ['repo_path' => '/srv/shop-state']);
+        $this->responses = $responses;
+    }
+
+    public function describe(): string { return 'init regression transport'; }
+    protected function wpCommand(array $wpArgs): string { return 'unused'; }
+    protected function rawCommand(string $script): string { return 'unused'; }
+
+    public function captureWp(array $wpArgs): array {
+        $this->calls[] = $wpArgs;
+        return array_shift($this->responses)
+            ?? ['exit' => 97, 'stdout' => '', 'stderr' => 'unexpected extra init request'];
+    }
+}
+
+function fail(string $message): never {
+    fwrite(STDERR, "FAIL: $message\n");
+    exit(1);
+}
+
+function check(bool $ok, string $message): void {
+    if (!$ok) fail($message);
+    echo "ok: $message\n";
+}
+
+function response(array $body): array {
+    return ['exit' => 0, 'stdout' => json_encode($body, JSON_UNESCAPED_SLASHES) . "\n", 'stderr' => ''];
+}
+
+$digest = str_repeat('a', 64);
+$proposal = [
+    'format' => 'duo-init-plan/v1',
+    'digest' => $digest,
+    'ready' => true,
+    'environment' => [
+        'wordpress' => '7.0.2', 'php' => '8.3.33',
+        'database' => ['server' => '11.8.8-MariaDB'], 'home' => 'https://shop.example.test',
+    ],
+    'code' => [
+        'management' => 'managed-baseline-proposed',
+        'files' => 42,
+        'bytes' => 8192,
+        'source_revision' => str_repeat('c', 64),
+        'roots' => ['plugins' => '/var/www/html/wp-content/plugins'],
+        'active_plugins' => [['basename' => 'woocommerce/woocommerce.php', 'version' => '11.0.0']],
+        'active_theme' => ['stylesheet' => 'shop-theme', 'template' => 'shop-theme'],
+    ],
+    'state' => [
+        'repository' => '/srv/shop-state',
+        'adapters' => [['name' => 'core'], ['name' => 'woocommerce']],
+        'media' => ['strategy' => 'local', 'attachments' => 2, 'unavailable' => 0],
+        'risk_surfaces' => ['options' => ['stripe key' => 1], 'user_meta' => ['email address' => 2]],
+    ],
+    'unsupported' => [],
+];
+$result = [
+    'format' => 'duo-init-result/v1',
+    'baseline' => ['kind' => 'state-capture', 'revision_hash' => str_repeat('b', 64)],
+];
+
+$transport = new InitTransport([response($proposal), response($result)]);
+check(Init::proposal($transport) === $proposal, 'proposal JSON is returned without host-side reinterpretation');
+check($transport->calls[0] === ['duo', 'init', '--repo=/srv/shop-state', '--format=json'], 'proposal uses the authenticated target agent and repository path');
+check(Init::confirm($transport, $digest) === $result, 'confirmation result is returned');
+check($transport->calls[1] === ['duo', 'init', '--repo=/srv/shop-state', '--confirm=' . $digest, '--format=json'], 'confirmation sends only the reviewed digest, never a mutable config payload');
+
+$rendered = implode("\n", Init::render($proposal));
+check(str_contains($rendered, 'code: managed-baseline-proposed'), 'rendering preserves the separate code/state contract');
+check(str_contains($rendered, 'active plugin: woocommerce/woocommerce.php 11.0.0'), 'rendering inventories active plugin versions');
+check(str_contains($rendered, 'core, woocommerce'), 'rendering names selected adapters');
+check(str_contains($rendered, '1 secret-shaped option value(s), 2 PII-shaped user-meta value(s)'), 'rendering exposes redacted risk counts');
+check(!str_contains($rendered, 'sk_live_') && !str_contains($rendered, '@example.'), 'rendering cannot expose secret or PII values from the count-only report');
+
+$next = implode("\n", Init::nextSteps('shop'));
+foreach (['branch', 'duo capture shop', 'duo plan shop', 'duo promote shop', 'rollback'] as $step) {
+    check(str_contains($next, $step), "workflow guide includes $step");
+}
+check(str_contains($next, 'Coverage outside the selected adapters remains advisory'), 'guide does not turn a managed-scope proof into a whole-site guarantee');
+
+$badJson = new InitTransport([['exit' => 0, 'stdout' => "not-json\n", 'stderr' => '']]);
+try {
+    Init::proposal($badJson);
+    fail('invalid target JSON was accepted');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(), 'invalid JSON'), 'invalid target JSON fails closed');
+}
+
+$failed = new InitTransport([['exit' => 17, 'stdout' => '', 'stderr' => 'adapter unsupported']]);
+try {
+    Init::proposal($failed);
+    fail('target failure was accepted');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(), 'adapter unsupported'), 'target refusal remains visible to the operator');
+}
+
+$agentSource = file_get_contents(__DIR__ . '/../../agent/src/Init.php');
+check(is_string($agentSource), 'target init source is readable');
+check(!str_contains(strtolower($agentSource), 'woocommerce'), 'generic target init has no plugin-name branch');
+check(str_contains($agentSource, "(\$rule['class'] ?? null) === 'authored'"), 'post-type scope expands only from authored manifest rulings');
+check(str_contains($agentSource, "(\$rule['class'] ?? 'authored') === 'authored'"), 'taxonomy scope expands only from authored manifest rulings');
+check(strpos($agentSource, 'hash_equals') < strpos($agentSource, 'Canon::write_file'), 'digest recheck precedes the first site-config write');
+check(str_contains($agentSource, "'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => Code::SOURCE]"), 'site config declares code independently from state policy');
+check(str_contains($agentSource, 'Code::descriptor_from_source($stage)'), 'captured code is validated by the existing descriptor contract before publication');
+
+$woo = json_decode((string) file_get_contents(__DIR__ . '/../../manifests/woocommerce.json'), true, 512, JSON_THROW_ON_ERROR);
+foreach (['product_cat', 'product_tag', 'product_shipping_class', 'product_type'] as $taxonomy) {
+    check(($woo['taxonomies'][$taxonomy]['class'] ?? null) === 'authored', "Woo adapter owns authored init scope for $taxonomy");
+}
+check(($woo['taxonomies']['product_visibility']['class'] ?? null) === 'runtime', 'Woo adapter keeps mixed product visibility out of authored state');
+
+echo "REGRESS_INIT_CONTRACT PASSED\n";

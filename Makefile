@@ -3,8 +3,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-cli-json-refusals
 .PHONY: regress-plan-explain
-.PHONY: regress-plan-category-summary
-.PHONY: regress-plan-category-summary-live
+.PHONY: regress-init-contract regress-duo-init
 
 .PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half grind-code-half-ecosystem grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-reference-bundle certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-executor regress-checkpoint-bundle regress-code-release code-half-unit \
 	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy regress-taxonomy-object-keyspace \
@@ -33,7 +32,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-capability-registry regress-woocommerce-contract regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
-	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-scope-contract regress-conformance-asserts regress-plugin-adapter-source \
+	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-scope-contract regress-conformance-asserts \
 	capability-registry-generate release-gate
 
 up:
@@ -485,16 +484,6 @@ regress-conformance-asserts:
 regress-adapter-catalog:
 	bash sandbox/tests/regress_adapter_catalog.sh
 
-# DUO-3339 slice B2: the third adapter source -- <plugin-dir>/duo-adapter.json,
-# bundled by an ACTIVE plugin. Proves the two decisions that went AGAINST the
-# obvious implementation: precedence (shipped > site > plugin) reports a
-# plugin-side name collision instead of refusing the scan, and every
-# plugin-source condition is refused per-adapter rather than whole-directory,
-# becoming fatal only when a pin names it. WP_PLUGIN_DIR is a define(), so each
-# fixture runs in a clean PHP child. Offline: file I/O and pure PHP only.
-regress-plugin-adapter-source:
-	bash sandbox/tests/regress_plugin_adapter_source.sh
-
 # DUO-3318 live counterpart: the parent-scoped natural key through capture,
 # deploy, apply, rename, and independent recapture across two environments
 # whose local ids genuinely differ. Own pair, so it is live-list material,
@@ -533,25 +522,6 @@ regress-plan-summary-code-drift:
 # check's plan-naming scenario.
 regress-plan-title-render:
 	php sandbox/tests/regress_plan_title_render.php
-
-# DUO-3345 (category-summary slice): offline proof of the ordered, count-only
-# projection, compiled attachment provenance, deletion/capability facets,
-# generated/derived vocabulary, strict optional validation, and redacted
-# secrets visibility. No WordPress or Docker.
-regress-plan-category-summary:
-	php sandbox/tests/regress_plan_category_summary.php
-
-# DUO-3345 (category-summary menu evidence): live core-only companion to the
-# offline projection contract. It proves same-snapshot menu observations for
-# published-vs-draft capture, managed reconciliation, slug adoption, and
-# tombstones. The pair and exact mounted candidate bytes are intentionally
-# caller-supplied; do not spend the shared Docker budget by accident.
-regress-plan-category-summary-live:
-	@test -n "$(PLAN_CATEGORY_SUMMARY_PAIR)" || { echo 'PLAN_CATEGORY_SUMMARY_PAIR is required; choose an owned unique disposable pair' >&2; exit 2; }
-	@test -n "$(PLAN_CATEGORY_SUMMARY_PORT1)" || { echo 'PLAN_CATEGORY_SUMMARY_PORT1 is required; choose an even port at or above 8900' >&2; exit 2; }
-	@test -n "$(PLAN_CATEGORY_SUMMARY_PORT2)" || { echo 'PLAN_CATEGORY_SUMMARY_PORT2 is required; it must be PORT1 + 1' >&2; exit 2; }
-	@test -n "$(DUO_EXPECTED_SOURCE_SHA)" || { echo 'DUO_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
-	PLAN_CATEGORY_SUMMARY_PAIR="$(PLAN_CATEGORY_SUMMARY_PAIR)" PLAN_CATEGORY_SUMMARY_PORT1="$(PLAN_CATEGORY_SUMMARY_PORT1)" PLAN_CATEGORY_SUMMARY_PORT2="$(PLAN_CATEGORY_SUMMARY_PORT2)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/regress_plan_category_summary_live.sh
 
 # DUO-3345 (three-way conflict slice): the stable JSON evidence and host
 # summary distinguish target last-synced base, repository intent, target
@@ -939,9 +909,9 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
-	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-plan-category-summary regress-conflict-view regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
-	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-plugin-adapter-source
-	@echo "regress-offline-all: 98 offline suites green"
+	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
+	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract regress-conformance-asserts
+	@echo "regress-offline-all: 97 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
@@ -968,7 +938,6 @@ regress-live-list:
 	@echo "  regress-provider-contract-live            pair claudemacb3338 8930/8931"
 	@echo "  regress-parent-scoped-natural-key         pair claudemacb3318 8930/8931 (parameterized: PARENT_KEY_PAIR/PARENT_KEY_PORT1/PARENT_KEY_PORT2)"
 	@echo "  regress-menu-item-meta-gate               pair asub3275 8954/8955"
-	@echo "  regress-plan-category-summary-live        explicit PLAN_CATEGORY_SUMMARY_PAIR/PORT1/PORT2 + DUO_EXPECTED_SOURCE_SHA (candidate-bound disposable pair)"
 	@echo "  regress-widgets                           pair awid3278 8960/..."
 	@echo "  regress-promotion                         pair codexmaca3216 8920/... (also runs in CI as code-half-grind's sibling)"
 	@echo "  regress-promotion-lock                    pair codexmac3217 8900/... (runs in CI: code-half-live-lock)"
@@ -989,6 +958,7 @@ regress-live-list:
 	@echo "  regress-tec-regen                         pair asnaptec"
 	@echo "  regress-user-meta                         pair umeta3268 9301/9302"
 	@echo "  regress-environment-materializer-live     pair codexmacb3324 9100/9101 (public env materialize/reap; user-authorized)"
+	@echo "  regress-duo-init                         pair codexmaca3336 9300/9301 (parameterized: DUO_INIT_PAIR/DUO_INIT_PORT1/DUO_INIT_PORT2)"
 	@echo "  regress-coverage                         needs an already-up pair with WooCommerce active (parameterized: DUO_PAIR)"
 	@echo "  regress-woo-attribute-deletion            pair wooattrdel 8996/8997 (parameterized: WOOATTRDEL_PAIR/WOOATTRDEL_PORT1/WOOATTRDEL_PORT2)"
 	@echo "  grind-ecommerce-developer-live            explicit ECOMMERCE_PAIR/PORT1/PORT2; run only with owner authorization"
@@ -1001,3 +971,9 @@ regress-live-list:
 # see the suite's own header for why the one-off fix wasn't enough.
 regress-bundle-coverage:
 	bash sandbox/tests/regress_bundle_coverage.sh
+
+regress-init-contract:
+	php sandbox/tests/regress_init_contract.php
+
+regress-duo-init:
+	bash sandbox/tests/regress_duo_init.sh

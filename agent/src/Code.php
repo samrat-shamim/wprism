@@ -237,6 +237,15 @@ final class Code {
         }
     }
 
+    /**
+     * Read-only preflight for first-run code capture. Initialization may
+     * observe only the same standard roots the materializer can later own;
+     * exposing this narrow check keeps that layout contract single-sourced.
+     */
+    public static function assert_initial_capture_layout(): void {
+        self::assert_target_layout();
+    }
+
     /** Validate a descriptor loaded from a compiled artifact or ledger. */
     public static function assert_descriptor(array $descriptor): void {
         // The first released duo-code/v1 descriptor had no theme_templates

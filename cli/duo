@@ -24,6 +24,7 @@ require dirname(__DIR__) . '/recovery/rollback-control.php';
 require __DIR__ . '/src/RollbackAuthority.php';
 require __DIR__ . '/src/VerifiedRollbackProfile.php';
 require __DIR__ . '/src/Adopt.php';
+require __DIR__ . '/src/Init.php';
 require __DIR__ . '/src/Doctor.php';
 require __DIR__ . '/src/CodeDeploy.php';
 require __DIR__ . '/src/PlanContract.php';
@@ -51,6 +52,7 @@ require_once dirname(__DIR__) . '/agent/src/ScopeContract.php';
 
 use Duo\Orchestrator\Doctor;
 use Duo\Orchestrator\Adopt;
+use Duo\Orchestrator\Init;
 use Duo\Orchestrator\CodeDeploy;
 use Duo\Orchestrator\DriverCapabilityReport;
 use Duo\Orchestrator\EnvironmentDriver;
@@ -91,6 +93,7 @@ Usage:
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
   duo adopt  <env>
+  duo init   <env> [--yes]
   duo status <env>
   duo capabilities <env> [--operation=<op>] [--surface=<surface>] [--revision=<sha>] [--format=json]
   duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
@@ -220,6 +223,16 @@ Verbs:
                           verify the exact agent version, policy load, and
                           doctor checks. Idempotent; existing site.duo.json is
                           retained. SSH transport only.
+  init <env>              Discover an existing authenticated local/docker/SSH
+                          target and print a content-addressed proposal before
+                          writing anything. Unsupported active extensions,
+                          incompatible adapters, multisite, unavailable media,
+                          or an owned repository block initialization loudly.
+                          On confirmation, write separate content-addressed
+                          code and canonical state/media baselines, then prove
+                          the selected managed scope clean. This does not
+                          fabricate a promotion rollback checkpoint.
+    --yes                 Confirm the displayed proposal non-interactively.
   status <env>            Run `wp duo plan --format=json` and print counts per
                           plan bucket (incl. deletion conflicts,
                           code_mismatch, and code_drift), drift paths,
@@ -480,7 +493,7 @@ function main(array $argv): int {
     }
 
     $verb = array_shift($rest);
-    $verbsNeedingEnv = ['doctor', 'driver-capabilities', 'adopt', 'status', 'capabilities', 'capture', 'plan', 'explain', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase'];
+    $verbsNeedingEnv = ['doctor', 'driver-capabilities', 'adopt', 'init', 'status', 'capabilities', 'capture', 'plan', 'explain', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase'];
 
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
@@ -585,6 +598,7 @@ function main(array $argv): int {
     return match ($verb) {
         'doctor' => cmd_doctor($transport),
         'adopt' => cmd_adopt($transport, $extra),
+        'init' => cmd_init($transport, $extra),
         'status' => cmd_status($transport),
         'capabilities', 'plan', 'explain', 'apply', 'env-set', 'coverage' => cmd_passthrough($transport, $verb, $extra),
         'capture' => cmd_capture($transport, $extra),
@@ -1080,6 +1094,68 @@ function cmd_adopt(EnvironmentDriver $t, array $extra): int {
     echo "adopt: installed agent {$result['version']} + manifest library + rollback authority; $repoAction\n";
     echo "adopt phase: doctor\n";
     return cmd_doctor($t);
+}
+
+/** Review and confirm the target agent's content-addressed first-run plan. */
+function cmd_init(EnvironmentDriver $t, array $extra): int {
+    $yes = false;
+    foreach ($extra as $arg) {
+        if ($arg === '--yes') {
+            $yes = true;
+            continue;
+        }
+        fwrite(STDERR, "duo: init accepts only --yes; unsupported argument '$arg'\n");
+        return 1;
+    }
+
+    try {
+        $proposal = Init::proposal($t);
+    } catch (\Throwable $e) {
+        $message = $e->getMessage();
+        if (str_contains(strtolower($message), 'not a registered wp command')
+            || str_contains(strtolower($message), 'duo is not a registered')) {
+            $message .= "; install the Duo agent first (run 'duo adopt {$t->name()}' for an SSH environment)";
+        }
+        fwrite(STDERR, "duo: $message\n");
+        return 1;
+    }
+
+    foreach (Init::render($proposal) as $line) {
+        echo $line . "\n";
+    }
+    if (empty($proposal['ready'])) {
+        return 2;
+    }
+    $digest = (string) ($proposal['digest'] ?? '');
+    if (!$yes) {
+        fwrite(STDOUT, "Initialize '{$t->name()}' from proposal $digest? [y/N] ");
+        $answer = fgets(STDIN);
+        if (!is_string($answer) || !in_array(strtolower(trim($answer)), ['y', 'yes'], true)) {
+            echo "Initialization cancelled; no configuration, state, identity, or ledger mutation was made.\n";
+            return 1;
+        }
+    }
+
+    try {
+        $result = Init::confirm($t, $digest);
+    } catch (\Throwable $e) {
+        fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
+        return 1;
+    }
+    $baseline = $result['baseline'] ?? [];
+    echo 'Initialized canonical state baseline ' . ($baseline['revision_hash'] ?? '(unknown)') . ".\n";
+    echo 'Initialized separate code baseline ' . ($result['code']['revision_hash'] ?? '(unknown)') . ".\n";
+    echo ($baseline['rollback_note'] ?? 'This is a state baseline, not a code-and-database rollback checkpoint.') . "\n";
+    echo "Verifying selected managed scope:\n";
+    $status = cmd_status($t);
+    if ($status !== 0) {
+        fwrite(STDERR, "duo: initialization captured a baseline, but the selected managed scope is not clean\n");
+        return $status;
+    }
+    foreach (Init::nextSteps($t->name()) as $line) {
+        echo $line . "\n";
+    }
+    return 0;
 }
 
 function cmd_status(EnvironmentDriver $t): int {
