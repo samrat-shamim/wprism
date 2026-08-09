@@ -18,6 +18,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions \
 	regress-post-field-classification regress-capability-registry regress-woocommerce-contract \
+	regress-refresh-export-unit \
 	capability-registry-generate release-gate
 
 up:
@@ -582,6 +583,13 @@ regress-pair-bootstrap-unit:
 regress-woocommerce-contract:
 	php sandbox/tests/regress_woocommerce_contract.php
 
+# DUO-3343: a production refresh is an observation boundary, not a capture
+# variant. This focused no-WordPress harness proves the exporter's
+# SELECT-only ledger validation, mutation prohibition, and semantic-record
+# envelope without needing a sandbox database.
+regress-refresh-export-unit:
+	php sandbox/tests/regress_refresh_export_unit.php
+
 # --- live (docker/pair.sh-dependent), now in regress-live-list ---
 regress-acf-term-options-fields:
 	bash sandbox/tests/regress_acf_term_options_fields.sh
@@ -677,8 +685,8 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-rebuilder-scope regress-pair-bootstrap-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
-	regress-ssh-rollback-certification regress-woocommerce-contract
-	@echo "regress-offline-all: 66 offline suites green"
+	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit
+	@echo "regress-offline-all: 67 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

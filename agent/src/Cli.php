@@ -4,7 +4,7 @@ namespace Duo;
 use WP_CLI;
 
 /**
- * wp duo <capture|plan|apply|capabilities|orphans|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
+ * wp duo <capture|refresh-export|plan|apply|capabilities|orphans|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
  */
 final class Cli {
     private static function halt_json_failure(\Throwable $t, array $assoc): void {
@@ -255,6 +255,57 @@ final class Cli {
             $summary['counts']['deletion'] ?? 0,
             $summary['media'],
             $summary['state_dir']
+        ));
+    }
+
+    /**
+     * Export a strict, read-only canonical observation of live production.
+     *
+     * This is deliberately NOT a replacement for `wp duo capture`: capture
+     * is the only gate allowed to mint/repair identity and publish state.
+     * Refresh export requires that completed durable identity already exists,
+     * binds records/maps/code receipt to one READ ONLY DB snapshot, and
+     * refuses an interrupted apply or an active promotion lease.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root (contains site.duo.json and captured state/).
+     * [--json] : Emit the canonical production export as JSON.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand refresh-export
+     */
+    public function refresh_export($args, $assoc) {
+        $format = isset($assoc['json']) ? 'json' : (string) ($assoc['format'] ?? '');
+        if ($format !== '' && $format !== 'json') {
+            WP_CLI::error('--format accepts only json');
+        }
+        try {
+            if (!isset($assoc['repo']) || !is_string($assoc['repo']) || $assoc['repo'] === '') {
+                throw new \RuntimeException('--repo required');
+            }
+            $export = RefreshExport::run($assoc['repo']);
+        } catch (\Throwable $t) {
+            if ($format === 'json') {
+                WP_CLI::line(rtrim(Canon::encode([
+                    'ok' => false,
+                    'error' => 'refresh_export_failed',
+                    'message' => $t->getMessage(),
+                ]), "\n"));
+                WP_CLI::halt(1);
+                return;
+            }
+            WP_CLI::error($t->getMessage());
+            return;
+        }
+        if ($format === 'json') {
+            WP_CLI::line(rtrim(Canon::encode($export), "\n"));
+            return;
+        }
+        WP_CLI::success(sprintf(
+            'exported production snapshot %s (%d semantic record(s), %d media blob(s))',
+            $export['snapshot_hash'],
+            count($export['records']),
+            count($export['media'])
         ));
     }
 
