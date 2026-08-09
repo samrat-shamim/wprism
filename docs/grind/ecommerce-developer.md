@@ -12,6 +12,64 @@ mutation. Cleanup removes host paths only after pair destruction plus Docker
 resource and database absence are all verified; an uncertain teardown fails
 the run and preserves its exact paths for diagnosis.
 
+## DUO-3337 move matrix
+
+The machine-readable [DUO-3337 move matrix](../../sandbox/tests/grind_ecommerce_developer.matrix.json)
+is the acceptance index for this proof. Every row has the same fields:
+move ID, intent, public command, status, code delta, authored-state delta,
+generated-state policy, required capabilities, semantic plan, expected write
+set, failure semantics, convergence rule, rollback rule, harness/evidence
+anchors, acceptance statement, and (for a gap) bounded Linear routing.
+`exercised` means the live grind has a source anchor; `reproduced_gap` means
+the live grind proves a fail-closed unsupported/refusal boundary; `planned_gap`
+means the proposed public move is explicitly marked unavailable and routed but
+not claimed by this harness.
+
+The current machine-checked report contains 15 exercised moves, 8 planned
+gaps, and 3 reproduced fail-closed boundaries. The regression recomputes those
+counts from the rows so the summary cannot drift from the evidence index.
+
+The exercised slice includes state-only capture, managed code deploy and
+apply, Woo products/variations/taxonomies/media/options, ACF, ordered menus,
+extension migration/lifecycle, bounded generated-index and queue work,
+explicit dependency-aware plugin removal, semantic preview, drift/conflict
+handling, complete promotion, recovery, exact rollback, and final semantic
+recapture. The Action Scheduler row is intentionally separate from the
+unimplemented WordPress-cron row. The menu proof is anchored by
+`source_wp menu` and `assert_ecommerce_menu` and is checked again after v1
+apply and exact rollback.
+
+The menu row is the newly harvested convergence gap: it was absent at
+`da93360` and red in the static contract, then commit `54ea408` added the
+`source_wp menu` seed, `assert_ecommerce_menu` target checks, v1-apply proof,
+exact-rollback proof, and static assertions. It is green in this matrix; the
+intentional `reproduced_gap` refusal rows do not substitute for that
+before-fix/after-fix convergence path.
+
+The explicit gaps are initialization/adoption (DUO-3336), branch
+materialization (DUO-3324), authored-user synchronization (DUO-3344),
+refresh/rebase live-grind coverage (the public workflow landed in DUO-3343), scoped promotion (DUO-3344), and provider-backed
+plugin/theme replacement (DUO-3357). Theme upgrade, downgrade refusal, and
+removal are routed to DUO-3358; the separate WordPress-cron move is routed to
+DUO-3359. Reproduced boundaries include unsupported Woo deletion (DUO-3338),
+compatibility refusal (DUO-3326), and dependency refusal (DUO-3338). These
+statuses prevent the current clone-based setup from being mistaken for
+coverage of the missing public workflows.
+
+The live proof is discoverable, but remains opt-in because it starts Docker
+and uses shared MariaDB resources:
+
+```sh
+make grind-ecommerce-developer-live \
+  ECOMMERCE_PAIR=ecom3337 PORT1=9100 PORT2=9101
+```
+
+All three values are required and must be unique/free for the authorized run;
+the target is deliberately outside `regress-offline-all`. Concurrent agents
+may keep their own pairs running: the live harness delegates the locked,
+dynamic host-capacity decision to `pair.sh up` instead of imposing a stale
+zero-other-pairs rule.
+
 The scenario installs the digest-pinned WooCommerce 11.0.0 and ACF 6.8.7
 artifacts on both sides. The author side creates a synthetic Woo catalog with
 simple, variable, grouped, and variation products; category/tag and global
@@ -217,6 +275,7 @@ receipt, runtime-isolation, ACF-schema, frontend, REST, and rollback guards.
 They are Docker-free; the bounded HTTP/database assertions remain live-only.
 
 These suites are also part of `make regress-offline-all`, the local merge gate
-while hosted CI is disabled. The live command is intentionally not wired into `Makefile` by this scenario;
+while hosted CI is disabled. The `grind-ecommerce-developer-live` Make target is intentionally gated by explicit
+`ECOMMERCE_PAIR`, `PORT1`, and `PORT2` values;
 the owner should authorize a unique `ECOMMERCE_PAIR` and ports before running
 it.
