@@ -134,6 +134,7 @@ final class Cli {
             'deploy' => 'inspect lifecycle and promotion evidence, then restore or recover the exact recorded code and state release',
             'code-stage' => 'inspect the staging receipt and promotion lease, then resume or recover the exact immutable artifact',
             'code-finalize' => 'inspect the staged receipt and promotion lease, then resume or recover the exact immutable artifact',
+            'refresh-export' => 'inspect private operator evidence, then complete or recover the interrupted apply, promotion lease, identity, or code receipt before observing production again',
             default => "correct the named $command blocker, then retry the command",
         };
     }
@@ -402,21 +403,19 @@ final class Cli {
         }
         try {
             if (!isset($assoc['repo']) || !is_string($assoc['repo']) || $assoc['repo'] === '') {
-                throw new \RuntimeException('--repo required');
+                throw CommandRefusalException::invalidArgument('refresh-export', '--repo');
             }
             $export = RefreshExport::run($assoc['repo']);
         } catch (\Throwable $t) {
-            if ($format === 'json') {
-                WP_CLI::line(rtrim(Canon::encode([
-                    'ok' => false,
-                    'error' => 'refresh_export_failed',
-                    'message' => $t->getMessage(),
-                ]), "\n"));
-                WP_CLI::halt(1);
-                return;
-            }
+            // One shared refusal formatter, not a private JSON catch path: a
+            // refresh export refuses on repository paths, database snapshot
+            // state, and provider detail, so serializing the raw Throwable
+            // message here published exactly the operator-only bytes the
+            // common envelope redacts.  The unclassified reason code the
+            // formatter derives from this command name is the established
+            // refresh_export_failed, so machine callers keep reading it.
+            self::halt_json_failure($t, $assoc, 'refresh-export');
             WP_CLI::error($t->getMessage());
-            return;
         }
         if ($format === 'json') {
             WP_CLI::line(rtrim(Canon::encode($export), "\n"));
@@ -1403,10 +1402,21 @@ final class Cli {
      *                themes, and ordinary MU code cannot run first.
      */
     public function scope($args, $assoc) {
-        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
-        $roots = $assoc['roots'] ?? WP_CLI::error('--roots required (or --roots=all for the whole revision)');
         $contractMode = array_key_exists('contract', $assoc) && $assoc['contract'] !== false;
         try {
+            // Both selector gates belong INSIDE the structured boundary: a
+            // machine caller asking for JSON gets the same versioned refusal
+            // for an absent selector as for any later gate.  The operator
+            // prose each one carries is unchanged, including the --roots=all
+            // hint, because human mode still prints the private message.
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('scope', '--repo');
+            $roots = $assoc['roots'] ?? throw new CommandRefusalException(
+                'invalid_arguments',
+                '--roots is required for scope',
+                'supply --roots (or --roots=all for the whole revision) and rerun scope',
+                [],
+                '--roots required (or --roots=all for the whole revision)'
+            );
             if ($contractMode && (!defined('DUO_CONTROL_PLANE') || DUO_CONTROL_PLANE !== true)) {
                 throw new \RuntimeException(
                     'duo: scope --contract requires the isolated DUO control-plane; run `duo scope <env> --roots=... --contract`'
