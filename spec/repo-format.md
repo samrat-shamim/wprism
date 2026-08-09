@@ -806,9 +806,10 @@ other effect type or provider resource.
    Explain has no maintenance or mutation authority. It asserts the existing
    ledger schema and embedded identities, captures one coherent strict target
    snapshot, and refuses with `explain_observation_precondition_failed` when
-   repair is needed. It does not create/prune/repair ledger state, diagnose or
-   negotiate a provider, invoke a native/provider action, or write target
-   state. Invalid, unsupported, absent, ambiguous, and source-missing selectors
+   repair is needed or attachment bytes are not already local. It does not
+   create/prune/repair ledger state, diagnose or negotiate a provider, invoke
+   a native/provider action or attachment-offload hook, or write target state.
+   Invalid, unsupported, absent, ambiguous, and source-missing selectors
    use finite refusal codes and never echo the untrusted selector.
 3. **Reference safety**: compilation blocks surviving canonical references. Adapter guards check runtime reverse references; a missing required guard table also blocks. `--force-delete-referenced` is an explicit report-not-hide escape hatch.
 4. **Canary armed**: listeners on `save_post`, `transition_post_status`, `created_term`, `wp_insert_comment` + `pre_wp_mail` + `pre_http_request`; any fire during apply = hard failure.

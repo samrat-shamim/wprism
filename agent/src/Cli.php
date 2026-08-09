@@ -129,7 +129,7 @@ final class Cli {
             'capture' => 'inspect private operator evidence and capture recovery state; classify, correct, or recover the blocker before another attempt',
             'compile' => 'fix every repository, policy, or code diagnostic before compiling again',
             'plan' => 'inspect private operator evidence and target state, then correct the repository, policy, capability, or target-state blocker',
-            'explain' => 'run the existing capture or identity-recovery gate if needed, then copy a current entity selector from plan and rerun explain',
+            'explain' => 'run the existing capture, identity-recovery, or attachment-materialization gate if needed, then copy a current entity selector from plan and rerun explain',
             'apply' => 'inspect apply_in_progress and recovery evidence, then resume or recover according to the recorded phase',
             'deploy' => 'inspect lifecycle and promotion evidence, then restore or recover the exact recorded code and state release',
             'code-stage' => 'inspect the staging receipt and promotion lease, then resume or recover the exact immutable artifact',

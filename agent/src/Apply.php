@@ -707,18 +707,7 @@ final class Apply {
             $plan = $apply->build_plan($opts, $compiled, true, false);
         } catch (\Throwable $failure) {
             if (str_contains($failure->getMessage(), 'refresh export refused')) {
-                throw new CommandRefusalException(
-                    'explain_observation_precondition_failed',
-                    'explain requires an already-provisioned, internally-consistent identity ledger',
-                    'run the existing capture or identity-recovery gate, then rerun plan and explain',
-                    [[
-                        'code' => 'explain_observation_precondition_failed',
-                        'message' => 'strict observation found ledger or embedded identity state that requires repair',
-                        'remediation' => 'repair through capture; explain will not mutate identity state itself',
-                    ]],
-                    'duo: explain strict observation found identity or ledger state that requires the existing repair gate',
-                    $failure
-                );
+                throw CommandRefusalException::explainObservationPrecondition($failure);
             }
             throw $failure;
         }

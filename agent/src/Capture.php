@@ -467,7 +467,11 @@ final class Capture {
     ): array {
         Canary::suppress_cron_spawn();
         Ledger::assert_read_only_schema();
-        Identity::assert_embedded_unique();
+        self::assert_read_only_identity_precondition(
+            static function (): void {
+                Identity::assert_embedded_unique();
+            }
+        );
         $policy ??= Policy::load($repo);
         self::verify_engine_support($policy);
         $capture = new self($repo, $policy);
@@ -486,7 +490,11 @@ final class Capture {
             $repositoryOptions,
             $repositoryUserLogins
         ): array {
-            Identity::assert_embedded_unique();
+            self::assert_read_only_identity_precondition(
+                static function (): void {
+                    Identity::assert_embedded_unique();
+                }
+            );
             $candidate = $capture->build(
                 false,
                 $forceUnresolvedRefs,
@@ -494,7 +502,11 @@ final class Capture {
                 $repositoryUserLogins,
                 true
             );
-            Identity::assert_entities_unique($candidate['entities']);
+            self::assert_read_only_identity_precondition(
+                static function () use ($candidate): void {
+                    Identity::assert_entities_unique($candidate['entities']);
+                }
+            );
             return $candidate;
         });
         $out = [];
@@ -507,6 +519,20 @@ final class Capture {
             ];
         }
         return $out;
+    }
+
+    /**
+     * Embedded/captured identity contradictions are known repair
+     * preconditions, not unclassified explain failures. Keep this wrapper
+     * narrow: ordinary database, policy, and capture failures retain their
+     * existing classification instead of being mislabeled as repairable.
+     */
+    private static function assert_read_only_identity_precondition(callable $assertion): void {
+        try {
+            $assertion();
+        } catch (\RuntimeException $failure) {
+            throw CommandRefusalException::explainObservationPrecondition($failure);
+        }
     }
 
     /**
@@ -1666,7 +1692,12 @@ final class Capture {
             if ($uuid === null) {
                 continue;
             }
-            [$front, $body, $mediaRef] = $this->build_post($p, $uuid, $forceUnresolvedRefs);
+            [$front, $body, $mediaRef] = $this->build_post(
+                $p,
+                $uuid,
+                $forceUnresolvedRefs,
+                $strictReadOnly
+            );
             if ($mediaRef !== null) {
                 $media[$mediaRef[0]] = $mediaRef[1];
             }
@@ -2130,7 +2161,12 @@ final class Capture {
     }
 
     /** @return array{0: array, 1: string, 2: ?array{0:string,1:string}} [front, body, mediaRef] */
-    private function build_post(object $p, string $uuid, bool $forceUnresolvedRefs = false): array {
+    private function build_post(
+        object $p,
+        string $uuid,
+        bool $forceUnresolvedRefs = false,
+        bool $strictReadOnly = false
+    ): array {
         global $wpdb;
         $id = (int) $p->ID;
         $isAttachment = ($p->post_type === 'attachment');
@@ -2248,13 +2284,22 @@ final class Capture {
              * so providers may leave it alone, replace it with a temporary
              * materialization, or return bytes from their own API.
              */
-            $source = apply_filters(
-                'duo_attachment_capture_source',
-                $source,
-                $id,
-                (string) $attachedFile,
-                $localPath
-            );
+            if (!$strictReadOnly) {
+                $source = apply_filters(
+                    'duo_attachment_capture_source',
+                    $source,
+                    $id,
+                    (string) $attachedFile,
+                    $localPath
+                );
+            } elseif ($source === null) {
+                throw CommandRefusalException::explainObservationPrecondition(
+                    new \RuntimeException(
+                        'duo: strict attachment observation has no local media source; '
+                        . 'the external offload hook is deliberately not invoked by explain'
+                    )
+                );
+            }
             if ($source === null) {
                 throw new \RuntimeException(
                     "duo: attachment $id file '$attachedFile' is not present locally and no offload provider"

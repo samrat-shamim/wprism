@@ -315,9 +315,10 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   `format:"duo-explain/v1"` contract; plan/status JSON remains unchanged.
 
   Explain is observational: it asserts an already-provisioned ledger and a
-  coherent target snapshot, and refuses if identity repair is required. It
-  does not prune or repair the ledger, negotiate providers, invoke native or
-  provider actions, or write target state. Action rows mean “this entity
+  coherent target snapshot, and refuses if identity repair is required or an
+  attachment is not locally observable without its offload hook. It does not
+  prune or repair the ledger, negotiate providers, invoke native/provider or
+  attachment-offload hooks, or write target state. Action rows mean “this entity
   contributes to this declaration”; availability is deliberately
   `not_checked`, because apply negotiates before mutation. Canonical values,
   raw entity keys, repository paths, target-local ids, action arguments,

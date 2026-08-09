@@ -301,11 +301,30 @@ $check(
 );
 
 echo "\n== strict observation owns no repair, provider, or action authority ==\n";
+$privateIdentityFailure = 'duo: duplicate _duo_uuid 11111111-1111-7111-8111-111111111111 is attached to post:12, post:99';
+$identityRefusal = CommandRefusalException::explainObservationPrecondition(
+    new RuntimeException($privateIdentityFailure)
+);
+$identityPublic = json_encode([
+    'reason_code' => $identityRefusal->reasonCode,
+    'message' => $identityRefusal->publicMessage,
+    'remediation' => $identityRefusal->remediation,
+    'diagnostics' => $identityRefusal->diagnostics,
+], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+$check(
+    $identityRefusal->reasonCode === 'explain_observation_precondition_failed'
+        && ($identityRefusal->diagnostics[0]['code'] ?? '') === 'explain_observation_precondition_failed'
+        && !str_contains($identityPublic, $privateIdentityFailure),
+    'duplicate/invalid embedded identity state maps to the stable value-free observation precondition refusal'
+);
 $captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
 $captureStart = strpos((string) $captureSource, 'public static function snapshot_read_only(');
 $captureEnd = strpos((string) $captureSource, "\n    /**", (int) $captureStart + 1);
 $strictCapture = substr((string) $captureSource, (int) $captureStart, (int) $captureEnd - (int) $captureStart);
+$buildPostStart = strpos((string) $captureSource, 'private function build_post(');
+$buildPostEnd = strpos((string) $captureSource, "\n    /**", (int) $buildPostStart + 1);
+$buildPost = substr((string) $captureSource, (int) $buildPostStart, (int) $buildPostEnd - (int) $buildPostStart);
 $explainStart = strpos((string) $applySource, 'public static function explain(');
 $explainTail = substr((string) $applySource, (int) $explainStart + 1);
 preg_match(
@@ -319,8 +338,9 @@ $strictExplain = substr((string) $applySource, (int) $explainStart, (int) $expla
 $check(
     $captureStart !== false && $captureEnd !== false
         && str_contains($strictCapture, 'Ledger::assert_read_only_schema()')
+        && substr_count($strictCapture, 'assert_read_only_identity_precondition(') === 3
         && str_contains($strictCapture, "true\n            );"),
-    'explain capture asserts existing schema and requests strict identity reads'
+    'explain capture asserts existing schema and normalizes every strict identity read'
 );
 foreach (['Ledger::ensure', 'prune_dead_map', 'repair_truncated_entity_types'] as $forbiddenCall) {
     $check(
@@ -328,6 +348,14 @@ foreach (['Ledger::ensure', 'prune_dead_map', 'repair_truncated_entity_types'] a
         "strict capture contains no $forbiddenCall maintenance call"
     );
 }
+$check(
+    $buildPostStart !== false && $buildPostEnd !== false
+        && str_contains($captureSource, '$forceUnresolvedRefs,' . "\n" . '                $strictReadOnly')
+        && str_contains($buildPost, 'if (!$strictReadOnly) {')
+        && str_contains($buildPost, "'duo_attachment_capture_source'")
+        && str_contains($buildPost, 'external offload hook is deliberately not invoked by explain'),
+    'strict attachment observation uses only local bytes and refuses rather than invoking an offload provider hook'
+);
 $check(
     $explainStart !== false && $explainEnd !== false
         && str_contains($strictExplain, 'build_plan($opts, $compiled, true, false)')

@@ -62,6 +62,22 @@ final class CommandRefusalException extends \RuntimeException {
         );
     }
 
+    /** Stable public boundary for explain's deliberately non-repairing read. */
+    public static function explainObservationPrecondition(\Throwable $previous): self {
+        return new self(
+            'explain_observation_precondition_failed',
+            'explain requires internally-consistent target state that is locally observable without repair or provider execution',
+            'run the existing capture, identity-recovery, or attachment-materialization gate, then rerun plan and explain',
+            [[
+                'code' => 'explain_observation_precondition_failed',
+                'message' => 'strict observation found target state that requires repair or external attachment materialization',
+                'remediation' => 'repair or materialize through capture; explain will not mutate identity state or invoke providers itself',
+            ]],
+            'duo: explain strict observation found identity, ledger, or attachment state that requires the existing capture/provider gate',
+            $previous
+        );
+    }
+
     /** One public contract for every filesystem or database recovery ambiguity. */
     public static function ambiguousCaptureRecovery(
         string $operatorMessage,
