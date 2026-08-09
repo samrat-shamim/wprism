@@ -9,7 +9,7 @@
   },
   "notes": [
     "DUO-3222/DUO-3223 (version-pinned adapter compatibility contract): plugin/version_range verified live (not guessed) at both admitted official edges — polylang/polylang.php 3.5 and 3.8.6, each installed from an exact digest-pinned wp.org artifact and certified with real multilingual post/term relationships, capture/deploy/apply, Polylang API/render checks, and byte-identical recapture. The original 3.0.1 boundary replayed the graph and passed Polylang's lookup APIs but returned HTTP 500 on a clean target because that release requires an environment-local default_lang option this manifest intentionally does not migrate. Target-side boundary search against that replay across 3.1, 3.2, 3.3, 3.4, and every 3.4.x patch showed the render failure persists through 3.4.5; 3.5 is the first official release that renders it correctly. Official 3.4.5 is therefore the closest below-range negative control and Duo loudly refuses it. Range remains scoped to the compatible 3.x line ([3.5, 4.0.0)); widening to other versions is DUO-3224's ratification job, not invented here.",
-    "The engine capabilities this manifest depends on (docs/frontier/polylang.md's 'Proposed next task', task #20): (1) term-object relationship capture/apply — a term entity's own membership in OTHER taxonomies as object_id, symmetric to a post's `terms` field, filtered by each taxonomy's registered object_type exactly the way task #19's collision fix already filters post-side relationships. Needs NO manifest declaration at all (like category/post_tag need none today) — it activates the moment a term-object taxonomy is in site policy's `taxonomies` scope and registered at runtime. (2) `taxonomies.<tax>.description_refs`, declared below for the two taxonomies verified to need it.",
+    "The engine capabilities this manifest depends on (docs/frontier/polylang.md's 'Proposed next task', task #20): (1) term-object relationship capture/apply — a term entity's own membership in OTHER taxonomies as object_id, symmetric to a post's `terms` field. `taxonomies.<tax>.object_keyspace` now declares whether each relationship row belongs to the post or term object-id namespace; the four exact declarations below make that contract explicit rather than inferring it from a runtime plugin sentinel. (2) `taxonomies.<tax>.description_refs`, declared below for the two taxonomies verified to need it.",
     "Empirically verified on a fresh fx1/fx2 pair (Polylang 3.8.6, not guessed from the frontier report alone — re-checked byte-for-byte this session): `language` and `post_translations` are POST-object (`get_taxonomy()->object_type` = {\"post\":\"post\",\"page\":\"page\",\"wp_block\":\"wp_block\"} and [\"post\",\"page\",\"wp_block\"] respectively) — posts' existing `terms` field already round-trips these correctly, zero new code needed. `term_language` and `term_translations` are genuinely term-object (object_type === [\"term\"], confirmed) — every policy-scoped category (including Polylang's OWN auto-created 'Uncategorized-fr', created the moment a second language is added) gets term_language + term_translations relationship rows with ITSELF as object_id; these are what the new `relationships` term-file field captures. `language` and `term_language` do NOT share term rows for the same language (verified: English is term_id=2 under `language`, a DIFFERENT term_id=3 under `term_language`, with distinct slugs 'en' vs 'pll_en') — so there is no term-file-uuid-sharing hazard between the two taxonomies.",
     "`taxonomies.post_translations.description_refs`/`taxonomies.term_translations.description_refs` (kind: post / term respectively): term_taxonomy.description on these two taxonomies' GROUP terms (Polylang's internal `pll_<hash>` bookkeeping terms) is PHP-serialized `{lang_slug: local_id}` — verified byte-for-byte this session: `a:2:{s:2:\"en\";i:1;s:2:\"fr\";i:2;}` for post_translations, `a:2:{s:2:\"en\";i:9;s:2:\"fr\";i:11;}` for term_translations — with GENUINELY int-typed values (`i:N;`, confirmed via raw DB read), never the ACF/Yoast digit-string convention, so no `cast` is declared. Rewritten via the ordinary json_refs primitive at path \"$.*\" (every top-level value in the flat map is a ref of the declared kind; the keys are language slugs, never ids, so no key_refs). WordPress never auto-unserializes term_taxonomy.description the way maybe_unserialize() does for postmeta/options — Capture/Apply explicitly unserialize()/serialize() it, the taxonomy-column analogue of _elementor_data's json_encoded handling but for PHP-serialize instead of JSON.",
     "`language`'s OWN term description (NOT declared here) is a different, non-ref shape: `a:3:{s:6:\"locale\";s:5:\"en_US\";s:3:\"rtl\";b:0;s:9:\"flag_code\";s:0:\"\";}` — plugin config, no post/term ids, safe as the ordinary opaque tokenize_text() string every other taxonomy's description already gets. `term_language`'s own language terms (pll_en/pll_fr) have an EMPTY description ('', confirmed) — also nothing to declare. Declaring description_refs for either would be asserting a shape neither taxonomy has; Capture::term_description() throws loudly if a declared taxonomy's description doesn't unserialize to an array, so a wrong declaration fails fast rather than silently mis-capturing.",
@@ -76,6 +76,7 @@
   },
   "taxonomies": {
     "language": {
+      "object_keyspace": "post",
       "object_type_from_option": {
         "option": "polylang",
         "sub_key": "post_types"
@@ -85,15 +86,20 @@
       "description_refs": {
         "kind": "post"
       },
+      "object_keyspace": "post",
       "object_type_from_option": {
         "option": "polylang",
         "sub_key": "post_types"
       }
     },
+    "term_language": {
+      "object_keyspace": "term"
+    },
     "term_translations": {
       "description_refs": {
         "kind": "term"
-      }
+      },
+      "object_keyspace": "term"
     }
   }
 }

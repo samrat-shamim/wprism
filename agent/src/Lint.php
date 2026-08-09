@@ -317,6 +317,10 @@ final class Lint {
         $postType = (string) ($front['type'] ?? '');
         $meta = (array) ($front['meta'] ?? []);
 
+        self::scan_taxonomy_relationship_keyspaces(
+            (array) ($front['terms'] ?? []), $rel, 'terms', 'post', $policy, $findings
+        );
+
         // (a) bare_id — shallow scan of authored, no-ref-declared meta;
         // deep scan (below) for json_refs/key_refs-declared structures.
         foreach ($meta as $key => $value) {
@@ -774,6 +778,10 @@ final class Lint {
         $taxonomy = (string) ($front['taxonomy'] ?? '');
         $meta = (array) ($front['meta'] ?? []);
 
+        self::scan_taxonomy_relationship_keyspaces(
+            (array) ($front['relationships'] ?? []), $rel, 'relationships', 'term', $policy, $findings
+        );
+
         foreach ($meta as $key => $value) {
             $rule = $policy->meta_rule_for_term((string) $key, $meta);
             if (isset($rule['ref']) || !empty($rule['lint_ok'])) {
@@ -855,6 +863,52 @@ final class Lint {
                 . "shape before a description_refs declaration covers it.",
                 $hit['kind'], $hit['id'], $hit['title'], $hit['post_type'], $taxonomy
             ));
+        }
+    }
+
+    /**
+     * The same Policy resolver Capture/Apply use decides whether a
+     * relationship map belongs under a post's `terms` or a term's
+     * `relationships`. Lint reports both a wrong declared/default keyspace
+     * and a resolver ambiguity without trying to infer ownership from the
+     * runtime plugin's object_type sentinel.
+     */
+    private static function scan_taxonomy_relationship_keyspaces(
+        array $relationships,
+        string $rel,
+        string $field,
+        string $expected,
+        Policy $policy,
+        array &$findings
+    ): void {
+        foreach (array_keys($relationships) as $taxonomy) {
+            if (!is_string($taxonomy)) {
+                continue; // RepositoryCompiler owns canonical map-shape diagnostics.
+            }
+            $locator = $field . '.' . $taxonomy;
+            try {
+                $actual = $policy->taxonomy_object_keyspace($taxonomy);
+            } catch (\Throwable $t) {
+                $findings[] = self::finding(
+                    'taxonomy_object_keyspace_invalid',
+                    $rel,
+                    $locator,
+                    $taxonomy,
+                    null,
+                    $t->getMessage()
+                );
+                continue;
+            }
+            if ($actual !== $expected) {
+                $findings[] = self::finding(
+                    'taxonomy_object_keyspace_mismatch',
+                    $rel,
+                    $locator,
+                    $actual,
+                    null,
+                    "taxonomy '$taxonomy' resolves to object_keyspace='$actual'; $field requires '$expected'"
+                );
+            }
         }
     }
 

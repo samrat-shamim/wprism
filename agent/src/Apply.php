@@ -2925,11 +2925,11 @@ final class Apply {
     }
 
     /**
-     * Term-object symmetry of reconcile_relationships(): a term's own
+     * Term-keyspace symmetry of reconcile_relationships(): a term's own
      * membership in OTHER taxonomies as object_id (docs/frontier/
      * polylang.md's "term-object relationship capture/apply" — Polylang's
      * term_language/term_translations). Scoped to term_object_taxes() — the
-     * same object_type collision guard reconcile_relationships() applies
+     * same manifest-keyspace collision guard reconcile_relationships() applies
      * for posts — so this never touches a colliding POST's own
      * relationship rows just because the numeric id matches. Two-phase-
      * safe for free: this only ever runs in phase 2 (finalize_term()),
@@ -2938,6 +2938,15 @@ final class Apply {
      */
     private function reconcile_term_relationships(int $termId, string $taxonomy, array $relField): void {
         global $wpdb;
+        foreach (array_keys($relField) as $tax) {
+            $keyspace = $this->policy->taxonomy_object_keyspace((string) $tax);
+            if ($keyspace !== 'term') {
+                throw new \RuntimeException(
+                    "duo: term $termId ($taxonomy) declares relationships.$tax, but manifest object_keyspace "
+                    . "is '$keyspace' — term relationships require object_keyspace=term"
+                );
+            }
+        }
         $taxes = $this->term_object_taxes();
         if (!$taxes) {
             return;
@@ -3081,6 +3090,15 @@ final class Apply {
         array $termOrders = []
     ): void {
         global $wpdb;
+        foreach (array_keys($termsField) as $tax) {
+            $keyspace = $this->policy->taxonomy_object_keyspace((string) $tax);
+            if ($keyspace !== 'post') {
+                throw new \RuntimeException(
+                    "duo: post $postId declares terms.$tax, but manifest object_keyspace is '$keyspace' "
+                    . '— post terms require object_keyspace=post'
+                );
+            }
+        }
         $taxes = $this->taxes_for_post_type($postType);
         if (!$taxes) {
             return;
@@ -3135,8 +3153,9 @@ final class Apply {
 
     /**
      * Same collision guard as Capture::taxes_by_object_type(): only
-     * taxonomies whose registered object_type actually includes this post
-     * type may own this post's relationship rows. Without it, the "current
+     * taxonomies whose resolved object_keyspace is `post` and whose
+     * registered object_type actually includes this post type may own this
+     * post's relationship rows. Without it, the "current
      * relationships" SELECT above can pick up a colliding term's own
      * term-to-term rows (object_id happens to equal this post's id) and,
      * since they're never in $desiredTt, DELETE them — destroying a
@@ -3192,12 +3211,17 @@ final class Apply {
                     $objectTypes,
                     $this->option_driven_object_type($tax)
                 )));
+                // Resolve the relationship keyspace before using runtime
+                // (or declared option-driven) object_type to determine
+                // post-type membership. An undeclared term/mixed taxonomy
+                // is a loud refusal, not an engine sentinel inference.
+                $keyspace = $this->policy->taxonomy_object_keyspace($tax, $objectTypes);
+                if ($keyspace === 'term') {
+                    $termObject[] = $tax;
+                    continue;
+                }
                 foreach ($objectTypes as $objectType) {
-                    if ($objectType === 'term') {
-                        $termObject[] = $tax;
-                    } else {
-                        $byPostType[$objectType][] = $tax;
-                    }
+                    $byPostType[$objectType][] = $tax;
                 }
             }
             $this->taxesByObjectType = ['by_post_type' => $byPostType, 'term_object' => $termObject];
@@ -3278,7 +3302,7 @@ final class Apply {
         return $this->taxes_by_object_type()['by_post_type'][$postType] ?? [];
     }
 
-    /** @return string[] policy-scoped taxonomies whose registered object_type includes 'term'. */
+    /** @return string[] policy-scoped taxonomies whose resolved object_keyspace is `term`. */
     private function term_object_taxes(): array {
         return $this->taxes_by_object_type()['term_object'];
     }
@@ -4179,9 +4203,10 @@ final class Apply {
     /**
      * Delete a post's own term_relationships rows only — scoped to every
      * taxonomy REGISTERED on this runtime whose object_type includes this
-     * post's type (deliberately not policy-scoped: a full post delete must
-     * clean up every taxonomy that legitimately relates to it, same as
-     * wp_delete_post(), not just the ones Duo happens to manage).
+     * post's type and whose resolved object_keyspace is `post` (deliberately
+     * not policy-scoped: a full post delete must clean up every taxonomy
+     * that legitimately relates to it, same as wp_delete_post(), not just
+     * the ones Duo happens to manage).
      *
      * An unfiltered `DELETE ... WHERE object_id = $id` (the previous code)
      * hits every term_relationships row with that raw id regardless of
@@ -4195,7 +4220,10 @@ final class Apply {
         global $wpdb;
         $taxes = array_values(array_filter(get_taxonomies(), function (string $tax) use ($postType) {
             $taxObj = get_taxonomy($tax);
-            return $taxObj !== false && in_array($postType, (array) $taxObj->object_type, true);
+            if ($taxObj === false || !in_array($postType, (array) $taxObj->object_type, true)) {
+                return false;
+            }
+            return $this->policy->taxonomy_object_keyspace($tax, (array) $taxObj->object_type) === 'post';
         }));
         if (!$taxes) {
             return;
@@ -4220,11 +4248,10 @@ final class Apply {
      * Term-object symmetry of delete_post_relationships() immediately
      * above: a deleted term's OWN relationship rows as object_id (term-
      * object taxonomies, e.g. Polylang's term_language/term_translations),
-     * scoped to every taxonomy REGISTERED on this runtime whose object_type
-     * includes 'term' — deliberately not policy-scoped, same rationale as
-     * the post-side twin: a full term delete must clean up every taxonomy
-     * that legitimately relates to it as object_id, not just the ones Duo
-     * happens to manage. An unfiltered `DELETE ... WHERE object_id = $id`
+     * scoped to every taxonomy REGISTERED on this runtime whose manifest-
+     * resolved object_keyspace is `term`. An undeclared runtime term/mixed
+     * taxonomy refuses before mutation instead of making literal `term` an
+     * engine-owned plugin sentinel. An unfiltered `DELETE ... WHERE object_id = $id`
      * would hit every term_relationships row with that raw id regardless of
      * taxonomy — including a POST-object taxonomy's row for a completely
      * different POST that happens to share this term's id.
@@ -4233,7 +4260,8 @@ final class Apply {
         global $wpdb;
         $taxes = array_values(array_filter(get_taxonomies(), function (string $tax) {
             $taxObj = get_taxonomy($tax);
-            return $taxObj !== false && in_array('term', (array) $taxObj->object_type, true);
+            return $taxObj !== false
+                && $this->policy->taxonomy_object_keyspace($tax, (array) $taxObj->object_type) === 'term';
         }));
         if (!$taxes) {
             return;

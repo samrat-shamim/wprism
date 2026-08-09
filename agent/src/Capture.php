@@ -60,9 +60,8 @@ final class Capture {
     /** @var array<string, string[]> post_type -> taxonomy[], scoped by each
      *  taxonomy's own registered object_type — see taxes_by_object_type(). */
     private array $taxesForPostType = [];
-    /** @var string[] policy-scoped taxonomies whose registered object_type
-     *  includes 'term' (Polylang's term_language/term_translations shape)
-     *  — see taxes_by_object_type(). */
+    /** @var string[] policy-scoped taxonomies whose manifest-resolved
+     *  object_keyspace is `term` — see taxes_by_object_type(). */
     private array $termObjectTaxes = [];
 
     private function __construct(string $repo, Policy $policy) {
@@ -1637,11 +1636,11 @@ final class Capture {
      * Precompute, once per build, which of the policy's scoped taxonomies
      * actually apply to each in-scope post type — keyed on the taxonomy's
      * own registered object_type, never on raw numeric object_id — AND,
-     * symmetrically, which scoped taxonomies are TERM-object (object_type
-     * includes the literal string 'term': Polylang's term_language/
-     * term_translations, confirmed empirically — not a post_type name, WP
-     * lets a taxonomy's object_type be any string a plugin chooses to
-     * register). Both facts come from the exact same per-taxonomy
+     * symmetrically, which scoped taxonomies are TERM-keyspace (their
+     * manifest-resolved object_keyspace is `term`). A taxonomy's runtime
+     * object_type remains the source for its POST-type membership, but no
+     * literal plugin sentinel decides the term keyspace. Both facts come
+     * from the exact same per-taxonomy
      * get_taxonomy() walk, so this now does in one pass what used to be
      * (and still would need to be, done twice) doing it as two separate
      * post-side-only and term-side-only passes.
@@ -1650,9 +1649,9 @@ final class Capture {
      * that share one numeric space: a term_relationships row with
      * object_id = N can belong to a post OR — for a term-object taxonomy —
      * to a completely different term that happens to have term_id = N.
-     * Filtering the `IN (...)` taxonomy list per object kind, using
-     * WordPress's own object_type declaration, is what keeps a post's (or a
-     * term's) relationship query from ever matching another object's rows
+     * Filtering the `IN (...)` taxonomy list per object kind, using the
+     * manifest keyspace plus WordPress's post-type declaration, is what
+     * keeps a post's (or a term's) relationship query from ever matching another object's rows
      * just because the ids coincide — see build_post()'s relationship
      * query and term_relationships() below for the two call sites this
      * guards.
@@ -1706,6 +1705,15 @@ final class Capture {
                     . " belong to, so its relationships are skipped for every post and term";
                 continue;
             }
+            // Resolve the row's object_id keyspace before using runtime
+            // object_type to map a post relationship. The resolver rejects
+            // an undeclared runtime term/mixed taxonomy instead of treating
+            // literal `term` as an engine-owned plugin sentinel.
+            $keyspace = $this->policy->taxonomy_object_keyspace($tax, $objectTypes);
+            if ($keyspace === 'term') {
+                $termObject[] = $tax;
+                continue;
+            }
             // DUO-3280: deliberately NOT extended with Apply's own
             // object_type_from_option supplement (Policy::
             // object_type_option_ref()). That fix reads Apply's compiled
@@ -1728,9 +1736,7 @@ final class Capture {
             // real and would falsely suggest this method has the same
             // hazard Apply's does.
             foreach ($objectTypes as $objectType) {
-                if ($objectType === 'term') {
-                    $termObject[] = $tax;
-                } elseif (isset($byPostType[$objectType])) {
+                if (isset($byPostType[$objectType])) {
                     $byPostType[$objectType][] = $tax;
                 }
             }
@@ -1822,7 +1828,7 @@ final class Capture {
      * News's term_id as object_id, term_language's pll_en term as the
      * target — confirmed empirically, not the post that happens to share
      * News's numeric id). Filtered to $this->termObjectTaxes — taxonomies
-     * whose registered object_type includes 'term', computed once per
+     * whose manifest-resolved object_keyspace is `term`, computed once per
      * build() by taxes_by_object_type() — the exact same collision guard
      * build_post() already applies for post-object taxonomies: posts and
      * terms share one auto-increment id space, so an unfiltered `WHERE
@@ -1973,8 +1979,8 @@ final class Capture {
             $parent = $tok;
         }
 
-        // term relationships (owned taxonomies only, filtered to taxonomies
-        // whose registered object_type actually includes THIS post type —
+        // term relationships (owned post-keyspace taxonomies only, filtered
+        // to taxonomies whose registered object_type includes THIS post type —
         // see taxes_by_object_type() for why raw object_id equality alone
         // is unsafe: posts and terms share one auto-increment id space)
         $taxes = $this->taxesForPostType[$p->post_type] ?? [];

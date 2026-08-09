@@ -98,7 +98,7 @@
     }
   ],
   "taxonomy_patterns": [
-    {"match": "^pa_", "object_type": ["product"], "update_count_callback": "_update_post_term_count"}
+    {"match": "^pa_", "object_keyspace": "post", "object_type": ["product"], "update_count_callback": "_update_post_term_count"}
   ],
   "notes": {
     "structured actions (DUO-3338)": "DUO-3338 (structured actions supersede the free-form `rebuilders` channel): the two declarations this manifest carried as wp-cli command strings — `transient delete wc_attribute_taxonomies` and a `wp eval` payload calling WC_Cache_Helper — are now `actions` entries, with their triggers and effects preserved byte-for-byte, so which surfaces select them and which effects they declare are unchanged. The transient clear became the closed engine-owned native action `transient.delete` (WordPress core semantics, argument `name` as data, verified by a checked readback proving both option rows and the object-cache entry are gone). The cache invalidation became provider `woocommerce-cache` capability `invalidate_cache_groups` (manifests/providers/woocommerce-cache.php), which ports the eval payload's exact guards, exact group list — supplied as structured `args`, not spliced into a string — and its exact three-condition fresh-read persistence check on the shipping transient version. This entry supersedes the earlier notes below that describe the mechanism as a `rebuilders` entry or a wp-cli/eval command; their WooCommerce-side reasoning about WHY those cache boundaries are required is unchanged and still current.",

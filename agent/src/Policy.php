@@ -25,6 +25,8 @@ final class Policy {
     // launder an out-of-tree adapter into a shipped one on the verification
     // path, which is exactly the provenance guarantee this record exists for.
     private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v4';
+    /** Object keyspaces supported by the canonical taxonomy relationship contract. */
+    private const TAXONOMY_RELATIONSHIP_OBJECTS = ['post', 'term'];
 
     /**
      * The exact canonical-surface literal grammar. Apply derives these keys
@@ -170,6 +172,7 @@ self::validate_post_type_children($manifest);
             self::validate_scope_classes($manifest, "manifest '$name'", false);
             self::validate_sub_keys($manifest);
             self::validate_object_type_option_refs($manifest);
+            self::validate_taxonomy_object_keyspace_declarations($manifest);
             self::validate_dynamic_options($manifest);
             self::validate_option_name_refs($manifest);
             self::validate_option_storage($manifest, "manifest '$name'");
@@ -184,6 +187,7 @@ self::validate_post_type_children($manifest);
             $p->site['policy']['options'] ?? []
         );
         self::validate_no_overlapping_option_name_refs($p->manifests);
+        self::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_no_conflicting_provider_ids($p->manifests);
         self::validate_no_conflicting_post_type_contracts($p->manifests);
@@ -289,6 +293,7 @@ self::validate_post_type_children($manifest);
             // ran, which is exactly the class of divergence this method
             // exists to rule out.
             self::validate_dynamic_options($manifest);
+            self::validate_taxonomy_object_keyspace_declarations($manifest);
             self::validate_option_name_refs($manifest);
             self::validate_option_storage($manifest, "frozen manifest '$name'");
             self::validate_adapter_contract($manifest);
@@ -328,6 +333,7 @@ self::validate_post_type_children($manifest);
             $p->site['policy']['options'] ?? []
         );
         self::validate_no_overlapping_option_name_refs($p->manifests);
+        self::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_no_conflicting_provider_ids($p->manifests);
         self::validate_no_conflicting_post_type_contracts($p->manifests);
@@ -1641,6 +1647,73 @@ self::validate_post_type_children($manifest);
     }
 
     /**
+     * The canonical keyspace for a taxonomy relationship's `object_id`.
+     *
+     * `wp_term_relationships.object_id` is deliberately ambiguous at the
+     * database level: WordPress posts and terms are minted from independent
+     * counters, so the same integer can name one of each. A taxonomy's
+     * runtime `object_type` is useful for choosing WHICH post types a
+     * post-keyspace taxonomy belongs to, but it is not a portable statement
+     * of whether the relationship rows themselves belong to posts or terms:
+     * plugins may use arbitrary object-type strings, and an engine sentinel
+     * such as literal `term` would make that plugin implementation detail a
+     * hidden part of Duo's wire contract.
+     *
+     * A manifest can therefore declare `object_keyspace: "post"|"term"`
+     * under an exact `taxonomies.<name>` rule or a matching
+     * `taxonomy_patterns` rule. All declarations that apply to a concrete
+     * taxonomy must agree. Omission preserves legacy post-only behavior for
+     * an ordinary runtime post taxonomy, so existing manifests and already-
+     * canonical state keep their exact bytes. A runtime taxonomy whose
+     * object_type contains `term` is NOT a legacy post taxonomy, however:
+     * term and mixed keyspaces must declare this field or the resolver
+     * refuses rather than reviving the old sentinel inference. Capture,
+     * lint, compile, apply, and fresh-process verification all ask this one
+     * resolver.
+     *
+     * @return "post"|"term"
+     */
+    public function taxonomy_object_keyspace(string $tax, ?array $runtimeObjectTypes = null): string {
+        /** @var array<string,string[]> $declared value => declaration locations */
+        $declared = [];
+        foreach ($this->manifests as $manifest) {
+            $name = (string) ($manifest['name'] ?? '?');
+            $rule = $manifest['taxonomies'][$tax] ?? null;
+            if (is_array($rule) && array_key_exists('object_keyspace', $rule)) {
+                $value = (string) $rule['object_keyspace'];
+                $declared[$value][] = "manifest '$name' taxonomies.$tax.object_keyspace";
+            }
+        }
+        foreach ($this->taxonomy_pattern_rules() as $pattern) {
+            $value = $pattern['object_keyspace'];
+            if ($value !== null && self::taxonomy_pattern_matches($pattern['match'], $tax)) {
+                $declared[$value][] = $pattern['source'] . '.object_keyspace';
+            }
+        }
+        if ($declared === []) {
+            if ($runtimeObjectTypes !== null && in_array('term', $runtimeObjectTypes, true)) {
+                throw new \RuntimeException(
+                    "duo: taxonomy '$tax' has runtime object_type containing 'term' but no manifest "
+                    . 'object_keyspace declaration — term or mixed relationship ownership must declare '
+                    . 'object_keyspace="term" or object_keyspace="post" explicitly'
+                );
+            }
+            return 'post'; // explicit compatibility default for pre-DUO-3316 manifests
+        }
+        if (count($declared) !== 1) {
+            $claims = [];
+            foreach ($declared as $value => $sources) {
+                $claims[] = "$value from " . implode(', ', $sources);
+            }
+            throw new \RuntimeException(
+                "duo: taxonomy '$tax' has ambiguous object_keyspace declarations ("
+                . implode('; ', $claims) . ') — every exact or matching pattern declaration must agree'
+            );
+        }
+        return (string) array_key_first($declared);
+    }
+
+    /**
      * `taxonomies.<tax>.object_type_from_option` (DUO-3280): declares that
      * $tax's registered object_type is additionally, DYNAMICALLY driven by
      * a sub_keys-declared option's own named sub-key (Polylang: `language`/
@@ -1823,18 +1896,22 @@ self::validate_post_type_children($manifest);
      * taxonomies() below, a structurally different shape by necessity, not
      * an inconsistency with the existing mechanism.
      *
-     * @return array<int, array{match:string, object_type:string[], update_count_callback:?string}>
+     * @return array<int, array{match:string, object_type:string[], update_count_callback:?string, object_keyspace:?string, source:string}>
      */
     public function taxonomy_pattern_rules(): array {
         $out = [];
         foreach ($this->manifests as $m) {
-            foreach ($m['taxonomy_patterns'] ?? [] as $pat) {
+            foreach ($m['taxonomy_patterns'] ?? [] as $i => $pat) {
                 $out[] = [
                     'match' => (string) $pat['match'],
                     'object_type' => array_values((array) ($pat['object_type'] ?? [])),
                     'update_count_callback' => isset($pat['update_count_callback'])
                         ? (string) $pat['update_count_callback']
                         : null,
+                    'object_keyspace' => array_key_exists('object_keyspace', $pat)
+                        ? (string) $pat['object_keyspace']
+                        : null,
+                    'source' => "manifest '" . (string) ($m['name'] ?? '?') . "' taxonomy_patterns[$i]",
                 ];
             }
         }
@@ -1859,7 +1936,7 @@ self::validate_post_type_children($manifest);
      */
     public function pattern_object_type(string $tax): ?array {
         foreach ($this->taxonomy_pattern_rules() as $pat) {
-            if (preg_match('/' . $pat['match'] . '/', $tax)) {
+            if (self::taxonomy_pattern_matches($pat['match'], $tax)) {
                 return $pat['object_type'];
             }
         }
@@ -1874,11 +1951,16 @@ self::validate_post_type_children($manifest);
      */
     public function pattern_update_count_callback(string $tax): ?string {
         foreach ($this->taxonomy_pattern_rules() as $pat) {
-            if (preg_match('/' . $pat['match'] . '/', $tax)) {
+            if (self::taxonomy_pattern_matches($pat['match'], $tax)) {
                 return $pat['update_count_callback'];
             }
         }
         return null;
+    }
+
+    /** taxonomy_patterns stores an undelimited PCRE fragment by contract. */
+    private static function taxonomy_pattern_matches(string $match, string $tax): bool {
+        return @preg_match('/' . $match . '/', $tax) === 1;
     }
 
     /**
@@ -4091,6 +4173,61 @@ self::validate_post_type_children($manifest);
     }
 
     /**
+     * `object_keyspace` is a structural taxonomy claim, not a convenient
+     * runtime hint. Reject a malformed value while loading its manifest so
+     * no capture/lint/apply path can silently reinterpret a relationship
+     * row's shared numeric object_id later. Dynamic taxonomy patterns use
+     * the same declaration, and their regex must be usable before a future
+     * concrete taxonomy name reaches the resolver.
+     */
+    private static function validate_taxonomy_object_keyspace_declarations(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        foreach ((array) ($manifest['taxonomies'] ?? []) as $tax => $rule) {
+            if (!is_array($rule) || !array_key_exists('object_keyspace', $rule)) {
+                continue;
+            }
+            self::validate_taxonomy_object_keyspace_value(
+                $rule['object_keyspace'],
+                "manifest '$name' taxonomies.$tax.object_keyspace"
+            );
+        }
+
+        if (!array_key_exists('taxonomy_patterns', $manifest)) {
+            return;
+        }
+        $patterns = $manifest['taxonomy_patterns'];
+        if (!is_array($patterns) || !array_is_list($patterns)) {
+            throw new \RuntimeException("duo: manifest '$name' declares taxonomy_patterns that is not a list");
+        }
+        foreach ($patterns as $i => $pattern) {
+            if (!is_array($pattern) || array_is_list($pattern)) {
+                throw new \RuntimeException("duo: manifest '$name' declares taxonomy_patterns[$i] that is not an object");
+            }
+            $match = $pattern['match'] ?? null;
+            if (!is_string($match) || $match === '' || @preg_match('/' . $match . '/', '') === false) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares taxonomy_patterns[$i].match with an invalid or empty regex"
+                );
+            }
+            if (array_key_exists('object_keyspace', $pattern)) {
+                self::validate_taxonomy_object_keyspace_value(
+                    $pattern['object_keyspace'],
+                    "manifest '$name' taxonomy_patterns[$i].object_keyspace"
+                );
+            }
+        }
+    }
+
+    private static function validate_taxonomy_object_keyspace_value(mixed $value, string $where): void {
+        if (!is_string($value) || !in_array($value, self::TAXONOMY_RELATIONSHIP_OBJECTS, true)) {
+            throw new \RuntimeException(
+                "duo: $where must be one of " . implode('|', self::TAXONOMY_RELATIONSHIP_OBJECTS)
+                . '; no other relationship object keyspace is supported'
+            );
+        }
+    }
+
+    /**
      * v1-supported dynamic_options resolvers (DUO-3264, fork A) — a
      * manifest's `resolver` value must appear here, mirroring
      * MENU_DERIVABLE_FIELDS/DERIVABLE_FIELD_COLUMNS' own "start v1 scope tight"
@@ -4205,6 +4342,95 @@ self::validate_post_type_children($manifest);
             $rule['autoload'] = $source['option_autoload'];
         }
         return $rule;
+    }
+
+    /**
+     * A relationship keyspace decides which independent id counter owns a
+     * wp_term_relationships.object_id. Pin order cannot choose between two
+     * different answers. Exact declarations are checked eagerly; identical
+     * pattern regexes are checked eagerly too; and an exact taxonomy that
+     * already matches a declared pattern is checked before any WordPress
+     * read. Different, potentially-overlapping dynamic patterns are finally
+     * checked by taxonomy_object_keyspace() when a concrete name is used.
+     * Regex intersection is not safely decidable from arbitrary PCRE, while
+     * resolving a concrete name is exact and happens before a query/mutation.
+     *
+     * @param list<array> $manifests
+     */
+    private static function validate_no_conflicting_taxonomy_object_keyspaces(array $manifests): void {
+        /** @var array<string,array<string,string[]>> $exact taxonomy => keyspace => sources */
+        $exact = [];
+        /** @var list<array{match:string,value:string,source:string}> $patterns */
+        $patterns = [];
+        foreach ($manifests as $manifest) {
+            $name = (string) ($manifest['name'] ?? '?');
+            foreach ((array) ($manifest['taxonomies'] ?? []) as $tax => $rule) {
+                if (!is_array($rule) || !array_key_exists('object_keyspace', $rule)) {
+                    continue;
+                }
+                $value = (string) $rule['object_keyspace'];
+                $source = "manifest '$name' taxonomies.$tax.object_keyspace";
+                $exact[(string) $tax][$value][] = $source;
+            }
+            foreach ((array) ($manifest['taxonomy_patterns'] ?? []) as $i => $pattern) {
+                if (!is_array($pattern) || !array_key_exists('object_keyspace', $pattern)) {
+                    continue;
+                }
+                $patterns[] = [
+                    'match' => (string) $pattern['match'],
+                    'value' => (string) $pattern['object_keyspace'],
+                    'source' => "manifest '$name' taxonomy_patterns[$i].object_keyspace",
+                ];
+            }
+        }
+
+        foreach ($exact as $tax => $claims) {
+            if (count($claims) > 1) {
+                self::throw_conflicting_taxonomy_object_keyspace($tax, $claims);
+            }
+        }
+
+        $patternClaims = [];
+        foreach ($patterns as $pattern) {
+            $patternClaims[$pattern['match']][$pattern['value']][] = $pattern['source'];
+        }
+        foreach ($patternClaims as $match => $claims) {
+            if (count($claims) > 1) {
+                $rendered = [];
+                foreach ($claims as $value => $sources) {
+                    $rendered[] = "$value from " . implode(', ', $sources);
+                }
+                throw new \RuntimeException(
+                    "duo: taxonomy_patterns regex '$match' has conflicting object_keyspace declarations ("
+                    . implode('; ', $rendered) . ') — matching patterns must agree'
+                );
+            }
+        }
+
+        foreach ($exact as $tax => $claims) {
+            $value = (string) array_key_first($claims);
+            foreach ($patterns as $pattern) {
+                if (self::taxonomy_pattern_matches($pattern['match'], $tax) && $pattern['value'] !== $value) {
+                    throw new \RuntimeException(
+                        "duo: taxonomy '$tax' has conflicting object_keyspace declarations: "
+                        . implode(', ', $claims[$value]) . " says $value, but {$pattern['source']} says "
+                        . "{$pattern['value']} — exact and matching pattern declarations must agree"
+                    );
+                }
+            }
+        }
+    }
+
+    /** @param array<string,string[]> $claims */
+    private static function throw_conflicting_taxonomy_object_keyspace(string $tax, array $claims): never {
+        $rendered = [];
+        foreach ($claims as $value => $sources) {
+            $rendered[] = "$value from " . implode(', ', $sources);
+        }
+        throw new \RuntimeException(
+            "duo: taxonomy '$tax' has conflicting object_keyspace declarations ("
+            . implode('; ', $rendered) . ') — pin order may not choose a relationship keyspace'
+        );
     }
 
     /**

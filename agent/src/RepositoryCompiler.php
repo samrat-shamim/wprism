@@ -1047,7 +1047,9 @@ final class RepositoryCompiler {
             foreach ($data['terms'] as $taxonomy => $uuids) {
                 if (!is_string($taxonomy) || !is_array($uuids) || !array_is_list($uuids)) {
                     $this->add('schema_content_mismatch', $path, 'terms', 'each taxonomy relationship must be a UUID list');
+                    continue;
                 }
+                $this->validate_taxonomy_relationship_keyspace($path, "terms.$taxonomy", $taxonomy, 'post');
             }
             foreach ((array) ($data['term_orders'] ?? []) as $taxonomy => $orders) {
                 if (!is_string($taxonomy) || !is_array($orders) || array_is_list($orders)) {
@@ -1069,7 +1071,9 @@ final class RepositoryCompiler {
             foreach ((array) ($data['relationships'] ?? []) as $taxonomy => $uuids) {
                 if (!is_string($taxonomy) || !is_array($uuids) || !array_is_list($uuids)) {
                     $this->add('schema_content_mismatch', $path, 'relationships', 'each term-object relationship must be a UUID list');
+                    continue;
                 }
+                $this->validate_taxonomy_relationship_keyspace($path, "relationships.$taxonomy", $taxonomy, 'term');
             }
         }
         if ($kind === 'user-meta') {
@@ -1146,6 +1150,36 @@ final class RepositoryCompiler {
         }
         if ($kind === 'table' && (!isset($data['columns']) || !is_array($data['columns']) || !isset($data['meta']) || !is_array($data['meta']))) {
             $this->add('schema_content_mismatch', $path, 'columns/meta', 'table columns and meta must be object maps');
+        }
+    }
+
+    /**
+     * Canonical `posts.*.terms` and `terms.*.relationships` name the two
+     * different object_id keyspaces. This offline check keeps a hand-edited
+     * file from reaching Apply, where a shared numeric id could otherwise
+     * select another entity's relationship rows. Policy owns the one
+     * manifest resolver; a resolver refusal (for example overlapping
+     * pattern declarations) is a structured compilation failure too.
+     */
+    private function validate_taxonomy_relationship_keyspace(
+        string $path,
+        string $locator,
+        string $taxonomy,
+        string $expected
+    ): void {
+        try {
+            $actual = $this->policy->taxonomy_object_keyspace($taxonomy);
+        } catch (\Throwable $t) {
+            $this->add('taxonomy_object_keyspace_invalid', $path, $locator, $t->getMessage());
+            return;
+        }
+        if ($actual !== $expected) {
+            $this->add(
+                'taxonomy_object_keyspace_mismatch',
+                $path,
+                $locator,
+                "taxonomy '$taxonomy' resolves to object_keyspace='$actual'; this field requires '$expected'"
+            );
         }
     }
 
