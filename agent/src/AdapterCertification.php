@@ -322,7 +322,13 @@ final class AdapterCertification {
         $tier = AdapterSources::trust_tier($manifest);
         self::assertAdapterBinding($name, $manifest, $adapter, $tier, $rawAdapter);
 
-        [$authority, $keyId, $authorityDigest] = self::authority($manifestDir, (string) $statement['authority']['key_id']);
+        $selectedAuthority = $statement['authority']['key_id'] ?? null;
+        if (!is_string($selectedAuthority)) {
+            throw new \RuntimeException(
+                "duo: site adapter '$name' certification authority key_id must be a canonical string selector"
+            );
+        }
+        [$authority, $keyId, $authorityDigest] = self::authority($manifestDir, $selectedAuthority);
         self::assertAuthorityBinding($authority, $keyId, $authorityDigest, $statement['authority'], $name, $tier);
         $signature = base64_decode((string) $certificate['signature'], true);
         if ($signature === false || strlen($signature) !== SODIUM_CRYPTO_SIGN_BYTES
@@ -671,9 +677,10 @@ final class AdapterCertification {
 
     private static function secretKey(string $secret): string {
         $trimmed = trim($secret);
-        $decoded = base64_decode($trimmed, true);
-        if ($decoded === false && preg_match('/^[0-9a-f]{128}$/Di', $trimmed) === 1) {
+        if (preg_match('/^[0-9a-f]{128}$/Di', $trimmed) === 1) {
             $decoded = hex2bin($trimmed);
+        } else {
+            $decoded = base64_decode($trimmed, true);
         }
         if ($decoded === false || strlen($decoded) !== SODIUM_CRYPTO_SIGN_SECRETKEYBYTES) {
             throw new \RuntimeException('duo: private key must be a base64 or hexadecimal Ed25519 secret key');

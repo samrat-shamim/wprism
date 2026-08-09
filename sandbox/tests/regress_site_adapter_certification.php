@@ -22,11 +22,15 @@ require_once __DIR__ . '/../../agent/src/AdapterSources.php';
 require_once __DIR__ . '/../../agent/src/ManifestDispositions.php';
 require_once __DIR__ . '/../../agent/src/CapabilityRegistry.php';
 require_once __DIR__ . '/../../agent/src/Policy.php';
+require_once __DIR__ . '/../../agent/src/RepositoryCompiler.php';
 require_once __DIR__ . '/../../agent/src/AdapterCertification.php';
+require_once __DIR__ . '/../../cli/src/CodeDeploy.php';
 
 use Duo\AdapterCertification;
 use Duo\Canon;
 use Duo\Policy;
+use Duo\RepositoryCompiler;
+use Duo\Orchestrator\CodeDeploy;
 
 $failures = 0;
 
@@ -61,6 +65,20 @@ function cert_remove_tree(string $path): void {
         cert_remove_tree($item->getPathname());
     }
     rmdir($path);
+}
+
+function cert_copy_tree(string $from, string $to): void {
+    if (!is_dir($to) && !mkdir($to, 0777, true) && !is_dir($to)) {
+        throw new RuntimeException("cannot create fixture directory: $to");
+    }
+    foreach (new FilesystemIterator($from) as $item) {
+        $target = $to . '/' . $item->getBasename();
+        if ($item->isDir() && !$item->isLink()) {
+            cert_copy_tree($item->getPathname(), $target);
+        } elseif (!copy($item->getPathname(), $target)) {
+            throw new RuntimeException("cannot copy fixture file: {$item->getPathname()}");
+        }
+    }
 }
 
 function cert_write(string $path, string $contents): void {
@@ -389,6 +407,174 @@ $verify = cert_run([
     '--name=site-demo',
 ]);
 cert_check($verify['exit'] === 0 && is_array(json_decode($verify['stdout'], true)), 'verification tool revalidates the exact path-derived certificate');
+
+echo "\n== Policy, digest pin, reporting, and host-promotion integration ==\n";
+$integrationManifests = $root . '/integration-manifests';
+cert_copy_tree(dirname(__DIR__, 2) . '/manifests', $integrationManifests);
+$integrationRegistry = json_decode(
+    (string) file_get_contents($integrationManifests . '/capabilities/registry.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+$integrationRegistry['platform'] = $platform;
+cert_write_canon($integrationManifests . '/capabilities/registry.json', $integrationRegistry);
+cert_write_canon($integrationManifests . '/capabilities/adapter-authorities.json', $authorities);
+$originalCertificateRaw = (string) file_get_contents($certPath);
+
+putenv('DUO_MANIFESTS_DIR=' . $integrationManifests);
+try {
+    cert_write_canon($site . '/site.duo.json', [
+        'manifests' => [['name' => 'site-demo', 'source' => 'site']],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    $unpinnedPolicy = Policy::load($site);
+    $unpinnedResolved = RepositoryCompiler::resolved_adapters($unpinnedPolicy);
+    $certifiedDigest = (string) ($unpinnedResolved[0]['digest'] ?? '');
+    $unpinnedReport = $unpinnedPolicy->capability_report(['operation' => 'promote']);
+    $unpinnedCodes = array_column($unpinnedReport['blockers'] ?? [], 'code');
+    cert_check(
+        ($unpinnedPolicy->adapter_sources()->diagnostics($unpinnedPolicy->manifests)['site-demo']['certification'] ?? null)
+            === 'signed_unpinned'
+        && in_array('adapter_certification_unpinned', $unpinnedCodes, true)
+        && ($unpinnedResolved[0]['capability']['status'] ?? null) === 'uncertified',
+        'a valid signature remains signed_unpinned and host-bound capability stays uncertified before an exact digest pin'
+    );
+    cert_check(
+        CodeDeploy::dispositionBlockers(['resolved_adapters' => $unpinnedResolved]) !== [],
+        'host promotion refuses the signed-but-unpinned compiled adapter'
+    );
+
+    cert_write_canon($site . '/site.duo.json', [
+        'manifests' => [[
+            'digest' => $certifiedDigest,
+            'name' => 'site-demo',
+            'source' => 'shipped',
+        ]],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        'pinned to the shipped adapter source but resolves from the site source',
+        'a signed adapter pin cannot lie about its source'
+    );
+    cert_write_canon($site . '/site.duo.json', [
+        'manifests' => [[
+            'digest' => str_repeat('0', 64),
+            'name' => 'site-demo',
+            'source' => 'site',
+        ]],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        'digest mismatch',
+        'a signed adapter pin cannot elevate a different final digest'
+    );
+
+    $exactPin = ['digest' => $certifiedDigest, 'name' => 'site-demo', 'source' => 'site'];
+    cert_write_canon($site . '/site.duo.json', [
+        'manifests' => [$exactPin],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    $pinnedPolicy = Policy::load($site);
+    $pinnedResolved = RepositoryCompiler::resolved_adapters($pinnedPolicy);
+    $pinnedReport = $pinnedPolicy->capability_report(['operation' => 'promote']);
+    cert_check(
+        $pinnedReport['ready'] === true
+        && ($pinnedResolved[0]['capability']['status'] ?? null) === 'certified'
+        && ($pinnedPolicy->adapter_sources()->diagnostics($pinnedPolicy->manifests)['site-demo']['certification'] ?? null)
+            === 'third_party_signed',
+        'the exact {name,source:site,digest} pin elevates only that signed adapter to certified readiness'
+    );
+    cert_check(
+        CodeDeploy::dispositionBlockers(['resolved_adapters' => $pinnedResolved]) === [],
+        'host promotion accepts the exact pinned current external claim'
+    );
+
+    $policySnapshot = $pinnedPolicy->export_snapshot();
+    $frozenPolicy = Policy::from_snapshot($policySnapshot);
+    cert_check(
+        RepositoryCompiler::resolved_adapters($frozenPolicy) === $pinnedResolved,
+        'Policy snapshot v5 re-verifies the certificate and reconstructs the exact source/digest/capability row'
+    );
+    $missingFrozenCertificate = $policySnapshot;
+    unset($missingFrozenCertificate['adapter_sources']['certificates']['site-demo']);
+    cert_expect_throw(
+        static fn() => Policy::from_snapshot($missingFrozenCertificate),
+        'malformed',
+        'a frozen certified disposition cannot survive deletion of its certificate envelope'
+    );
+
+    cert_write_canon($site . '/site.duo.json', [
+        'manifests' => ['core', $exactPin],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    $mixedPolicy = Policy::load($site);
+    $mixedReport = $mixedPolicy->capability_report(['operation' => 'promote']);
+    $mixedRows = [];
+    foreach ($mixedReport['manifests'] as $row) {
+        $mixedRows[$row['name']] = $row;
+    }
+    cert_check(
+        ($mixedReport['evidence_scope'] ?? null) === 'per_manifest'
+        && $mixedReport['evidence'] === null
+        && ($mixedRows['site-demo']['evidence_scope'] ?? null) === 'site_certificate'
+        && ($mixedRows['site-demo']['verdict']['status'] ?? null) === 'certified'
+        && ($mixedRows['core']['evidence_scope'] ?? null) === 'shipped_registry'
+        && ($mixedRows['core']['verdict']['status'] ?? null) === 'blocked',
+        'mixed reporting evaluates the signed site row against its own current evidence while shipped candidate evidence blocks only the shipped row'
+    );
+    $shippedOnly = Policy::load(null, ['core']);
+    $shippedOnlyResolved = RepositoryCompiler::resolved_adapters($shippedOnly);
+    $mixedResolved = RepositoryCompiler::resolved_adapters($mixedPolicy);
+    cert_check(
+        ($mixedResolved[0]['digest'] ?? null) === ($shippedOnlyResolved[0]['digest'] ?? null)
+        && !array_key_exists('evidence_scope', $shippedOnly->capability_report(['operation' => 'promote'])),
+        'installing a certified site adapter leaves the shipped core digest and shipped-only report shape unchanged'
+    );
+
+    $updatedBundle = $root . '/updated-bundle';
+    cert_write_bundle($updatedBundle, $site, $ratification, ['git_revision' => str_repeat('b', 40)]);
+    $updatedCertificate = AdapterCertification::sign(
+        $integrationManifests,
+        $site,
+        'site-demo',
+        $updatedBundle,
+        $site,
+        'review-key',
+        base64_encode($secret)
+    );
+    cert_write($certPath, $updatedCertificate);
+    cert_write_canon($site . '/site.duo.json', [
+        'manifests' => [$exactPin],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    cert_expect_throw(
+        static fn() => Policy::load($site),
+        'digest mismatch',
+        'changing and re-signing the evidence bundle invalidates the prior explicit adapter pin'
+    );
+    cert_write_canon($site . '/site.duo.json', [
+        'manifests' => [['name' => 'site-demo', 'source' => 'site']],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    $updatedDigest = RepositoryCompiler::resolved_adapters(Policy::load($site))[0]['digest'] ?? null;
+    cert_check(
+        is_string($updatedDigest) && $updatedDigest !== $certifiedDigest,
+        'a new signed statement/envelope/evidence proof produces a new final adapter digest'
+    );
+} finally {
+    cert_write($certPath, $originalCertificateRaw);
+    putenv('DUO_MANIFESTS_DIR');
+}
 
 echo "\n== frozen verification and current agent-owned roots ==\n";
 $envelope = $verified['envelope'];

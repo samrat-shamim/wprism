@@ -325,10 +325,10 @@ final class CapabilityRegistry {
 
             $selectedEvidence = $externalClaim !== null
                 ? (is_array($externalClaim['evidence'] ?? null) ? $externalClaim['evidence'] : [])
-                : $this->data['evidence'];
+                : ($outOfTree ? [] : $this->data['evidence']);
             $selectedPlatform = $externalClaim !== null
                 ? (is_array($externalClaim['platform'] ?? null) ? $externalClaim['platform'] : [])
-                : $this->data['platform'];
+                : ($outOfTree ? [] : $this->data['platform']);
             // A site source never inherits the shipped registry's global
             // evidence. Unsigned site adapters have exactly the explicit
             // uncertified blocker above; signed ones are evaluated only
