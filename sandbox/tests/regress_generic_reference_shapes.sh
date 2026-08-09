@@ -18,6 +18,7 @@ export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" DUO_CODEBIND_PLUGI
 COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml)
 SITE1="siterepo/${PAIR}1"
 SITE2="siterepo/${PAIR}2"
+ORIGIN="siterepo/origin-$PAIR.git"
 MANIFEST_DIR="/siterepo/.duo-test-manifests"
 
 wp1_raw() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
@@ -25,10 +26,32 @@ wp2_raw() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 env "DUO_MANIFESTS_DIR=$MANIFEST_DIR" wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 env "DUO_MANIFESTS_DIR=$MANIFEST_DIR" wp "$@"; }
 
-cleanup() {
-  bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
+normalize_repo_permissions() {
+  # Capture writes as container uid 33. Normalize only this disposable
+  # pair's bind roots so a failed run remains safely rerunnable from the host.
+  "${COMPOSE[@]}" run --rm -T -u root cli1 sh -c 'chmod -R ugo+rwX /siterepo' >/dev/null 2>&1 || true
+  "${COMPOSE[@]}" run --rm -T -u root cli2 sh -c 'chmod -R ugo+rwX /siterepo' >/dev/null 2>&1 || true
 }
-trap cleanup EXIT
+
+clear_site_root() {
+  local root="$1"
+  find "$root" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+}
+
+cleanup() {
+  local status=$?
+  trap - EXIT INT TERM
+  set +e
+  normalize_repo_permissions
+  bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
+  rm -rf -- "$ORIGIN" "$SITE1" "$SITE2"
+  if [ -e "$ORIGIN" ] || [ -e "$SITE1" ] || [ -e "$SITE2" ]; then
+    printf 'FAIL: generic-reference cleanup left pair-owned repository paths behind\n' >&2
+    status=1
+  fi
+  exit "$status"
+}
+trap cleanup EXIT INT TERM
 
 say "bring up isolated pair $PAIR ($PORT1/$PORT2)"
 bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2"
@@ -50,7 +73,10 @@ wp2_raw plugin activate duo-taxonomy-keyspace duo-sidecar-refs >/dev/null
 pass "fixtures active and sidecar schemas created on both environments"
 
 say "initialize a fixture-only site repository and manifest directory"
-rm -rf "siterepo/origin-$PAIR.git" "$SITE1/.git" "$SITE2" "$SITE1/state" "$SITE1/site.duo.json"
+normalize_repo_permissions
+rm -rf -- "$ORIGIN"
+clear_site_root "$SITE1"
+clear_site_root "$SITE2"
 mkdir -p "$SITE1/.duo-test-manifests"
 cp ../manifests/core.json "$SITE1/.duo-test-manifests/core.json"
 cp tests/fixtures/duo-taxonomy-keyspace/manifest.json \
@@ -92,7 +118,7 @@ apply_patch_site_config() {
 JSON
 }
 apply_patch_site_config "$SITE1"
-git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
+git init --bare -b main "$ORIGIN" >/dev/null
 git -C "$SITE1" init -q -b main
 git -C "$SITE1" -c user.name="duo-$PAIR" -c user.email="$PAIR@example.test" add -A
 git -C "$SITE1" -c user.name="duo-$PAIR" -c user.email="$PAIR@example.test" commit -qm "fixture policy"
