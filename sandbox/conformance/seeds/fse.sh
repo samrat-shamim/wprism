@@ -34,10 +34,12 @@ CONTACT_ID=$(wp_conf1 post create --post_type=page --post_title='Duo FSE Contact
 require_fixture_ids ABOUT_ID CONTACT_ID
 ABOUT_URL=$(wp_conf1 post get "$ABOUT_ID" --field=url)
 CONTACT_URL=$(wp_conf1 post get "$CONTACT_ID" --field=url)
+require_fixture_values ABOUT_URL CONTACT_URL
 
 NEWS_ID=$(wp_conf1 term create category "Conformance FSE News" --slug=conformance-fse-news --porcelain)
 require_fixture_ids NEWS_ID
 NEWS_URL=$(wp_conf1 eval "echo get_term_link((int) $NEWS_ID, 'category');")
+require_fixture_values NEWS_URL
 
 # Uploads persist across pair.sh resets (the webroot volume is deliberately
 # kept — that's the reset-speed design, docs/sandbox.md), so a re-run's
@@ -65,6 +67,7 @@ ATT_ID=$($COMPOSE run --rm -T cli1 bash -c \
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-makeimg-fse.php
 require_fixture_ids ATT_ID
 ATT_URL=$(wp_conf1 eval "echo wp_get_attachment_url((int) $ATT_ID);")
+require_fixture_values ATT_URL
 
 # A reusable block (wp_block / pattern) containing an image — already-working
 # machinery per the report (core/image's existing id rule, core/block's

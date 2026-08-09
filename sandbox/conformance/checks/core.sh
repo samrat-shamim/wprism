@@ -263,7 +263,9 @@ HOME_FILE=$(find "$CONF_REPO1/state/posts/page" -name '*--home.md' -print -quit)
 HOME_UUID=$(basename "$HOME_FILE" | sed -E 's/--home\.md$//')
 HOME1=$(wp_conf1 post list --post_type=page --name=home --field=ID | tr -d '[:space:]')
 HOME2=$(wp_conf2 post list --post_type=page --name=home --field=ID | tr -d '[:space:]')
+require_fixture_ids HOME1 HOME2
 COMMENT2=$(wp_conf2 comment create --comment_post_ID="$HOME2" --comment_content='runtime deletion guard' --comment_author='Runtime Visitor' --porcelain)
+require_fixture_ids COMMENT2
 wp_conf1 post delete "$HOME1" --force >/dev/null
 DELETE_CAPTURE=$(wp_conf1 duo capture --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 [ "$(jq -r '.counts.deletion' <<<"$DELETE_CAPTURE")" -ge 1 ] \
@@ -299,8 +301,10 @@ HELLO_FILE=$(find "$CONF_REPO1/state/posts/post" -name '*--hello-conformance.md'
 HELLO_UUID=$(basename "$HELLO_FILE" | sed -E 's/--hello-conformance\.md$//')
 HELLO1=$(wp_conf1 post list --post_type=post --name=hello-conformance --field=ID | tr -d '[:space:]')
 HELLO2=$(wp_conf2 post list --post_type=post --name=hello-conformance --field=ID | tr -d '[:space:]')
+require_fixture_ids HELLO1 HELLO2
 wp_conf2 post update "$HELLO2" --post_content='target-only deletion conflict' >/dev/null
 HELLO_COMMENT=$(wp_conf2 comment create --comment_post_ID="$HELLO2" --comment_content='runtime conflict guard' --comment_author='Runtime Visitor' --porcelain)
+require_fixture_ids HELLO_COMMENT
 wp_conf1 post delete "$HELLO1" --force >/dev/null
 wp_conf1 duo capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A

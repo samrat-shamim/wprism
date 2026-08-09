@@ -55,6 +55,7 @@ rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-makeimg.php
 # the row (DUO-3381).
 require_fixture_ids ATT_ID
 UP_URL=$(wp_conf1 eval "echo wp_get_attachment_url($ATT_ID);")
+require_fixture_values UP_URL
 
 HELLO_CONTENT="<!-- wp:image {\"id\":$ATT_ID,\"sizeSlug\":\"full\",\"linkDestination\":\"none\"} -->
 <figure class=\"wp-block-image size-full\"><img src=\"$UP_URL\" alt=\"\" class=\"wp-image-$ATT_ID\"/></figure>

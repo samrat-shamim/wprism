@@ -35,6 +35,7 @@ TARGET_ID=$(wp_conf1 post create --post_type=page --post_title='Duo Elementor Ta
 # that never landed.
 require_fixture_ids TARGET_ID
 TARGET_URL=$(wp_conf1 post get "$TARGET_ID" --field=url)
+require_fixture_values TARGET_URL
 
 cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-elementor-seed.php <<PHP
 <?php
