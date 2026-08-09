@@ -191,7 +191,7 @@ function copy_tree(string $from, string $to): void {
 
 /**
  * The re-seal hash basis of a certification bundle. The bundle builder
- * (scripts/certification-bundle.php::cert_json) and the importer
+ * (certification-bundle.php::cert_json) and the importer
  * (scripts/capability-registry.php::cap_bundle_digest) already agree on this
  * exact compact canonical form, deliberately distinct from Canon::encode()'s
  * pretty-printed repository representation. A fixture that re-seals a bundle
