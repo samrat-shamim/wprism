@@ -104,7 +104,23 @@ final class AdapterSources {
     public const REFUSAL_INVALID_NAME = 'invalid_adapter_name';
     public const REFUSAL_OUT_OF_TREE_PRIVILEGE = 'out_of_tree_privilege';
     public const REFUSAL_CERTIFICATION_SOURCE = 'certification_source';
-    public const REFUSAL_CERTIFICATE_INVALID = 'certificate_invalid';
+    public const REFUSAL_CERTIFICATE_INVALID = 'certificate_invalid';    public const REFUSAL_SITE_POLICY_UNREADABLE = 'site_policy_unreadable';
+
+    /**
+     * A surveyed adapter's grammar verdict (DUO-3339).
+     *
+     * `blocked_by_source_refusal` is a third word rather than an `error`
+     * because the two are different facts and only one of them is about this
+     * adapter. The engine refuses an adapter source WHOLE-DIRECTORY, before
+     * any manifest in it is validated, so once a sibling file is refused this
+     * adapter's own grammar has not been judged at all — reporting that as
+     * `error` would blame a manifest nobody has read yet, and counting it as a
+     * grammar error would inflate the number an operator uses to decide how
+     * much is broken.
+     */
+    public const GRAMMAR_OK = 'ok';
+    public const GRAMMAR_ERROR = 'error';
+    public const GRAMMAR_BLOCKED = 'blocked_by_source_refusal';
 
     /** @var array<string, array{source:string, file:string, path:string}> */
     private array $origins;
@@ -199,19 +215,21 @@ final class AdapterSources {
         $manifests = [];
         if ($collect) {
             foreach ($origins as $name => $origin) {
-                try {
-                    $manifests[$name] = Canon::decode(Canon::read_file($origin['file']));
-                } catch (\Throwable $t) {
+                $read = self::read_manifest((string) $origin['file']);
+                if ($read['stage'] !== 'ok') {
                     self::refuse(
                         $collect,
                         $refusals,
                         self::REFUSAL_MALFORMED_MANIFEST,
                         [(string) $origin['path']],
-                        "duo: shipped adapter '{$origin['path']}' cannot be read as a manifest: " . $t->getMessage(),
-                        'repair the file, or restore it from the agent release this library shipped with'
+                        "duo: shipped adapter '{$origin['path']}' cannot be read as a manifest: " . $read['error'],
+                        self::repair_advice($read['stage'])
+                        . ', or restore it from the agent release this library shipped with'
                     );
                     unset($origins[$name]);
+                    continue;
                 }
+                $manifests[$name] = $read['manifest'];
             }
         }
         if ($repo === null) {
@@ -317,6 +335,17 @@ final class AdapterSources {
 
         $shippedNames = self::declared_names($origins, $manifests, $collect);
         $siteFiles = glob($siteDir . '/*.json') ?: [];
+        // `dispositions.json` was already refused above as a reserved name, and
+        // it is the one reserved entry this glob can also match. Reachable only
+        // in collect mode — throw mode never gets past that refusal — but there
+        // it mattered: the file went on to be judged AS AN ADAPTER and drew a
+        // second, misleading `ambiguous_identity` row about a manifest nobody
+        // ever claimed it was. One wrong file, one refusal. (The shipped glob
+        // above skips the same name for the same reason.)
+        $siteFiles = array_values(array_filter(
+            $siteFiles,
+            static fn(string $file): bool => basename($file, '.json') !== 'dispositions'
+        ));
         sort($siteFiles, SORT_STRING);
         $certificateFiles = [];
         self::guarded(
@@ -368,19 +397,28 @@ final class AdapterSources {
                 // one broken file cannot hide the rest of the source.
                 continue;
             }
-            try {
-                $manifest = Canon::decode(Canon::read_file($file));
-            } catch (\Throwable $t) {
+            // BEHAVIORAL DELTA, stated rather than buried (DUO-3339): before
+            // this refusal existed, an unreadable or unparseable site manifest
+            // propagated Canon's own bare exception out of discover() —
+            // "duo: cannot read <path>" or "duo: invalid JSON: <reason>" with
+            // nothing naming the adapter source. It is now wrapped so the
+            // message names the file AS a site adapter, which is what makes it
+            // reportable as a row beside the other refusals. Every OTHER
+            // refusal message in this scan is byte-identical to what
+            // discover() threw before; this one is deliberately not.
+            $read = self::read_manifest($file);
+            if ($read['stage'] !== 'ok') {
                 self::refuse(
                     $collect,
                     $refusals,
                     self::REFUSAL_MALFORMED_MANIFEST,
                     [$relative],
-                    "duo: site adapter '$relative' cannot be read as a manifest: " . $t->getMessage(),
-                    'repair the file so it decodes as a JSON object, or remove it from ' . self::SITE_DIR . '/'
+                    "duo: site adapter '$relative' cannot be read as a manifest: " . $read['error'],
+                    self::repair_advice($read['stage']) . ', or remove it from ' . self::SITE_DIR . '/'
                 );
                 continue;
             }
+            $manifest = $read['manifest'];
             $declared = $manifest['name'] ?? null;
             if (!is_string($declared) || $declared !== $name) {
                 self::refuse(
@@ -537,6 +575,72 @@ final class AdapterSources {
     }
 
     /**
+     * Read one manifest file, distinguishing the three separate ways it can
+     * fail to BE one.
+     *
+     * They are kept apart because they take three different actions, and a
+     * single "repair the file so it decodes as JSON" would be actively wrong
+     * advice for two of them:
+     *
+     *   - `read`   — the bytes could not be obtained at all (permissions, a
+     *                dangling entry). Nothing is wrong with the JSON; nobody
+     *                has seen it.
+     *   - `decode` — the bytes are not JSON.
+     *   - `shape`  — the bytes are valid JSON that is not a manifest: a
+     *                number, a string, a boolean, or a non-empty array. This
+     *                one is not cosmetic. `Canon::decode()` returns whatever
+     *                the document was, so a shipped `123.json` used to reach
+     *                `trust_tier(array $manifest)` as an int and kill the
+     *                whole survey with a TypeError — an inventory taken down
+     *                by one of the files it exists to inventory. An empty
+     *                `[]`/`{}` is deliberately NOT refused here: the two are
+     *                indistinguishable after an associative decode, and an
+     *                empty object is a legitimately EMPTY manifest whose
+     *                verdict belongs to the grammar check, not to this scan.
+     *
+     * @return array{manifest:?array, stage:string, error:string}
+     */
+    private static function read_manifest(string $file): array {
+        try {
+            $raw = Canon::read_file($file);
+        } catch (\Throwable $t) {
+            return ['error' => self::unprefixed($t->getMessage()), 'manifest' => null, 'stage' => 'read'];
+        }
+        try {
+            $decoded = Canon::decode($raw);
+        } catch (\Throwable $t) {
+            return ['error' => self::unprefixed($t->getMessage()), 'manifest' => null, 'stage' => 'decode'];
+        }
+        if (!is_array($decoded) || (array_is_list($decoded) && $decoded !== [])) {
+            return [
+                'error' => 'its top level is ' . (is_array($decoded) ? 'a JSON array' : get_debug_type($decoded))
+                    . ', and a manifest is a JSON object',
+                'manifest' => null,
+                'stage' => 'shape',
+            ];
+        }
+        return ['error' => '', 'manifest' => $decoded, 'stage' => 'ok'];
+    }
+
+    /** The action each read_manifest() failure stage actually calls for. */
+    private static function repair_advice(string $stage): string {
+        return match ($stage) {
+            'read' => 'make the file readable by the user running duo',
+            'shape' => "replace the file's contents with a JSON object",
+            default => 'repair the file so it parses as JSON',
+        };
+    }
+
+    /**
+     * Drop one leading `duo: ` from a nested engine message, so a wrapped
+     * refusal does not read `duo: … : duo: …`. Only the prefix is touched;
+     * the engine's own wording is never edited.
+     */
+    private static function unprefixed(string $message): string {
+        return str_starts_with($message, 'duo: ') ? substr($message, strlen('duo: ')) : $message;
+    }
+
+    /**
      * Throw the refusal, or record it — the one place the two scan modes
      * differ about a condition they agree on completely.
      *
@@ -651,6 +755,36 @@ final class AdapterSources {
         $refusals = [];
         $scan = self::scan($manifestDir, $repo, true, $refusals);
 
+        // The site's OWN policy file, checked once, here rather than in scan()
+        // — discover() never reads it (Policy::load() opens it first and
+        // throws its own message), so adding this to the shared scan would
+        // change discover()'s behavior for a fact discover() has no opinion
+        // about.
+        //
+        // Checked at all because every grammar verdict below loads that file:
+        // one unparseable site.duo.json would otherwise produce one identical,
+        // unattributed refusal on EVERY shipped row and no refusal row at all,
+        // which reads as "all fifteen of your adapters are broken" for a
+        // single misplaced comma in a file none of them is. Recorded as one
+        // refusal that names the file, after which the fallback below judges
+        // shipped adapters without the site half — the same thing it already
+        // does for every other whole-directory refusal.
+        if ($repo !== null) {
+            $siteFile = rtrim($repo, '/') . '/site.duo.json';
+            $sitePolicy = self::read_manifest($siteFile);
+            if ($sitePolicy['stage'] !== 'ok') {
+                $refusals[] = [
+                    'code' => self::REFUSAL_SITE_POLICY_UNREADABLE,
+                    'message' => "duo: site policy '$siteFile' cannot be read: " . $sitePolicy['error']
+                        . ' — every adapter grammar verdict loads this file, so none of them could be judged '
+                        . 'against this repository',
+                    'paths' => [$siteFile],
+                    'remediation' => self::repair_advice($sitePolicy['stage'])
+                        . '; until then shipped adapters are reported as they would be with no --repo at all',
+                ];
+            }
+        }
+
         // The reviewed disposition set is a property of the shipped library,
         // and its own one-for-one coverage check can refuse. That refusal is
         // about the library rather than about any one adapter, so it degrades
@@ -676,6 +810,14 @@ final class AdapterSources {
         // had reviewed the evidence — the elevation the pin exists to gate.
         $sources = new self($scan['origins'], $scan['provenance'], $scan['certificates'], $scan['claims']);
         $sources->bind_explicit_pins(self::surveyed_pins($repo));
+        // Whether this library HAS a reviewed certification story at all. A
+        // custom or test manifest directory carrying neither file makes no
+        // product claim (spec/repo-format.md says so in as many words), so a
+        // shipped row there defers its certification to nothing — and `null`
+        // is what says that. Answering `registry` would name a registry the
+        // consumer would then go looking for.
+        $hasRegistry = $dispositions !== null
+            && is_file(rtrim($manifestDir, '/') . '/capabilities/registry.json');
 
         $adapters = [];
         foreach ($scan['origins'] as $name => $origin) {
@@ -689,7 +831,7 @@ final class AdapterSources {
                     ? ($sources->is_certified($name)
                         ? (!empty($sources->explicitPins[$name]) ? 'third_party_signed' : 'signed_unpinned')
                         : 'uncertified')
-                    : 'registry',
+                    : ($hasRegistry ? 'registry' : null),
                 'disposition_status' => is_array($entry) ? (string) ($entry['status'] ?? '') : null,
                 'executable_surfaces' => self::executable_surfaces($manifest),
                 'grammar' => self::grammar_verdict($name, $outOfTree, $repo, $refusals),
@@ -754,23 +896,40 @@ final class AdapterSources {
      * `duo manifest-validate` takes, and for the same reason: a second
      * validator here would be a grammar this engine does not enforce.
      *
-     * Which repo the load gets is not cosmetic. A shipped adapter is loaded
-     * WITHOUT the site half as soon as the site source has any refusal at all,
-     * because discover() refuses whole-directory: with a shadowed pair
-     * installed, every unrelated shipped adapter would otherwise report that
-     * one site file's refusal as its own grammar error, which is both true and
-     * useless. A site adapter has no such fallback — it exists only in that
-     * repository — so it reports the engine's exact words, refusal included.
+     * Which repo the load gets is not cosmetic, and neither is what happens
+     * when it cannot be given one. The engine refuses an adapter source
+     * WHOLE-DIRECTORY, before any manifest in it is validated, so once
+     * anything in this survey is refused:
+     *
+     *   - a SHIPPED adapter is judged without the site half. It does not need
+     *     one to exist, and reporting one site file's refusal as fifteen
+     *     unrelated adapters' grammar errors is true and useless.
+     *   - a SITE adapter is judged not at all, and says so with its own status
+     *     rather than borrowing `error`. Its manifest has not been read yet;
+     *     calling that a grammar error would blame bytes nobody has looked at,
+     *     and would put it in the same count as an adapter that really is
+     *     malformed.
      *
      * @param list<array<string,mixed>> $refusals refusals this survey already collected
      * @return array{status:string, message:?string}
      */
     private static function grammar_verdict(string $name, bool $outOfTree, ?string $repo, array $refusals): array {
+        if ($outOfTree && $refusals !== []) {
+            $first = $refusals[0];
+            return [
+                'message' => "this adapter's own grammar was not judged: its source carries "
+                    . count($refusals) . ' unresolved refusal(s) (first: ' . (string) $first['code'] . ' — '
+                    . implode(', ', (array) $first['paths']) . '), and the engine refuses an adapter source '
+                    . 'whole-directory before any manifest in it is validated. Resolve the refusals in this '
+                    . 'report, then re-run',
+                'status' => self::GRAMMAR_BLOCKED,
+            ];
+        }
         try {
-            Policy::load($outOfTree || $refusals === [] ? $repo : null, [$name]);
-            return ['message' => null, 'status' => 'ok'];
+            Policy::load($refusals === [] ? $repo : null, [$name]);
+            return ['message' => null, 'status' => self::GRAMMAR_OK];
         } catch (\Throwable $t) {
-            return ['message' => $t->getMessage(), 'status' => 'error'];
+            return ['message' => $t->getMessage(), 'status' => self::GRAMMAR_ERROR];
         }
     }
 

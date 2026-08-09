@@ -53,8 +53,7 @@ function is_wp_error(mixed $thing): bool {
 }
 function apply_filters(string $hook, mixed $value): mixed {
     if ($hook === 'duo_providers' && $GLOBALS['duo_test_provider_registry_throw'] !== null) {
-        throw new \RuntimeException($GLOBALS['duo_test_provider_registry_throw']);
-    }
+        throw new \RuntimeException($GLOBALS['duo_test_provider_registry_throw']);    }
     return $hook === 'duo_providers' ? $GLOBALS['duo_test_providers'] : $value;
 }
 // Apply::rebuild() flushes the object cache before and after the action loop
@@ -461,6 +460,38 @@ $check(count($faultProblems) === 1 && ($faultProblems[0]['code'] ?? '') === 'pro
     && str_contains($faultProblems[0]['found'] ?? '', 'provider code ships with its manifest'),
     'a packaging fault reaches the plan view as a ROW carrying the engine\'s own message, rather than taking the '
     . 'whole plan down the way it (correctly) takes an apply down');
+$check(($faultProblems[0]['provider'] ?? '') === 'probe-cache'
+    && ($faultProblems[0]['manifest'] ?? '') === 'probe'
+    && str_contains($faultProblems[0]['remediation'] ?? '', 'providers/probe-cache.php')
+    && !str_contains($faultProblems[0]['remediation'] ?? '', '<id>'),
+    'and the row names the real provider, the real declaring manifest, and the real file to repair — not a '
+    . 'literal <id> placeholder standing in for a coordinate nobody looked up');
+
+// The OTHER branch, and the reason the two are not one code. DUO-3314 has
+// since converted every previously reachable foreign-throw path in diagnose()
+// into a structured problem row of its own — a `duo_providers` registry that
+// throws is now `provider_registry_unavailable`, and identity()/capabilities()
+// throwing are `contract_shape` — so the generic branch is a backstop with no
+// reachable trigger left in this fixture. It is asserted against source rather
+// than faked with a contrived throw: what matters is that a future unexpected
+// throw is NOT labelled as the adapter's packaging fault and does NOT invent a
+// providers/<id>.php coordinate for an identity nobody established.
+$problemsSource = implode("\n", array_slice(
+    (array) file($root . '/agent/src/Providers.php', FILE_IGNORE_NEW_LINES),
+    (new \ReflectionMethod(\Duo\Providers::class, 'problems'))->getStartLine() - 1,
+    (new \ReflectionMethod(\Duo\Providers::class, 'problems'))->getEndLine()
+        - (new \ReflectionMethod(\Duo\Providers::class, 'problems'))->getStartLine() + 1
+));
+$check(str_contains($problemsSource, 'catch (ProviderPackagingException $t)')
+    && str_contains($problemsSource, 'catch (\Throwable $t)'),
+    'problems() catches the adapter packaging fault SEPARATELY from anything else that could throw');
+$check(str_contains($problemsSource, "'provider_diagnosis_failed'")
+    && str_contains($problemsSource, "'see the message"),
+    'and the generic branch has its own code and points at the message instead of inventing a file to repair');
+$check(substr_count($problemsSource, 'providers/') === 1
+    && !str_contains($problemsSource, '<id>'),
+    'while only the packaging branch names a providers/ path at all, and never as a literal <id> placeholder');
+$reset();
 
 // Apply::plan() is not offline-drivable (it loads policy, compiles the
 // repository, snapshots a live target, and ensures a ledger), so its one

@@ -79,7 +79,7 @@ final class AdapterCatalog {
      *
      * @return list<array{status:string, surface:string, check:string, why:string}>
      */
-    private static function deferred(?string $repo): array {
+    private static function deferred(?string $repo, bool $sourceRefused): array {
         $rows = [
             [
                 'surface' => 'interpreter / post_types[].regen_dependency.regenerator / providers[].source=manifest',
@@ -102,14 +102,24 @@ final class AdapterCatalog {
             [
                 'surface' => 'site.duo.json policy.tables / policy.options',
                 'check' => 'Policy::validate_ref_kinds() / Policy::validate_no_conflicting_option_rules()',
+                // Three states, not two: a run that WAS given --repo but whose
+                // source carries a refusal did not get to use it either, and
+                // saying otherwise would be the one claim on this list that is
+                // simply false for that run.
                 'why' => $repo === null
                     ? 'both guards take the SITE half of policy as INPUT: a table declared in site.duo.json '
                         . 'extends the legal ref/token/ledger kind vocabulary, and a site policy.options rule is '
                         . 'the explicit resolution for one option two manifests declare differently. Without '
-                        . '--repo=<site-repo> the grammar verdicts below were produced with no site policy at '
+                        . '--repo=<site-repo> the grammar verdicts above were produced with no site policy at '
                         . 'all, so one can read `error` for an adapter its real site accepts'
-                    : 'the grammar verdicts below were produced against the site.duo.json on THIS machine. '
-                        . 'Whether the target runs that revision of the repository is a fact about the target',
+                    : ($sourceRefused
+                        ? '--repo was given, but this run refused something in that repository, and the engine '
+                            . 'refuses an adapter source WHOLE-DIRECTORY. So the shipped grammar verdicts above '
+                            . 'were produced with no site policy after all — exactly as a run without --repo '
+                            . 'produces them, and with the same caveat — and no site adapter\'s own grammar was '
+                            . 'judged at all. Resolve the refusals and re-run for the site-policy-aware verdicts'
+                        : 'the grammar verdicts above were produced against the site.duo.json on THIS machine. '
+                            . 'Whether the target runs that revision of the repository is a fact about the target'),
             ],
             [
                 'surface' => 'plugin / version_range / theme / theme_range / providers[] identity',
@@ -246,7 +256,7 @@ final class AdapterCatalog {
             'manifests_dir' => $manifestDir,
             'repo' => $repo,
             'refusals' => $survey['refusals'],
-            'deferred' => self::deferred($repo),
+            'deferred' => self::deferred($repo, $survey['refusals'] !== []),
         ];
 
         if ($verb === 'inspect') {
@@ -265,13 +275,31 @@ final class AdapterCatalog {
                 );
             }
             $report['adapter'] = self::inspect_row($row, $manifestDir, $repo, $survey['adapters']);
-            $report['status'] = ($row['grammar']['status'] === 'ok'
-                && ($report['adapter']['verdict']['status'] ?? 'certified') !== 'blocked') ? 'ok' : 'error';
+            // `inspect` reports one adapter, but exit 0 is a claim about the
+            // whole run, so it holds to the same bar `list` and `doctor` do.
+            // Three ways it does not:
+            //   - a refusal was surfaced. Even about a different file: the
+            //     source this adapter lives in is broken, and a zero exit
+            //     would tell a script the opposite.
+            //   - the adapter's grammar is anything but ok — including
+            //     `blocked_by_source_refusal`, which is not a pass.
+            //   - --repo was given and no verdict came back. A null verdict
+            //     means the pin set would not load, so the certification
+            //     question was never answered; defaulting the unanswered case
+            //     to `certified` was reporting a verdict nobody reached.
+            $verdict = $report['adapter']['verdict'] ?? null;
+            $verdictAnswered = $repo === null || is_array($verdict);
+            $report['status'] = ($survey['refusals'] === []
+                && $row['grammar']['status'] === AdapterSources::GRAMMAR_OK
+                && $verdictAnswered
+                && (!is_array($verdict) || ($verdict['status'] ?? null) !== 'blocked')) ? 'ok' : 'error';
         } else {
             $report['adapters'] = $survey['adapters'];
             $grammarErrors = 0;
+            $grammarBlocked = 0;
             foreach ($survey['adapters'] as $adapter) {
-                $grammarErrors += $adapter['grammar']['status'] === 'error' ? 1 : 0;
+                $grammarErrors += $adapter['grammar']['status'] === AdapterSources::GRAMMAR_ERROR ? 1 : 0;
+                $grammarBlocked += $adapter['grammar']['status'] === AdapterSources::GRAMMAR_BLOCKED ? 1 : 0;
             }
             $report['summary'] = [
                 'adapters' => count($survey['adapters']),
@@ -284,15 +312,22 @@ final class AdapterCatalog {
                     static fn(array $r): bool => $r['source'] === AdapterSources::SITE
                 )),
                 'grammar_error' => $grammarErrors,
+                // Counted apart from grammar_error on purpose: these adapters
+                // were not judged, so folding them in would inflate the number
+                // an operator reads as "how many of my manifests are broken".
+                'grammar_unjudged' => $grammarBlocked,
                 'refusals' => count($survey['refusals']),
             ];
-            $healthy = $survey['refusals'] === [] && $grammarErrors === 0;
+            // grammar_unjudged is structurally implied by a non-empty refusal
+            // list, and is named here anyway so a future change that produces
+            // one without the other cannot quietly exit 0.
+            $healthy = $survey['refusals'] === [] && $grammarErrors === 0 && $grammarBlocked === 0;
             if ($verb === 'doctor') {
                 // Blockers are the pinned set's readiness verdict, which only
                 // exists when a repository named the pins. Without --repo the
                 // doctor is honest about having no pin set rather than
                 // inventing one out of the whole library.
-                $report['blockers'] = $repo === null ? [] : self::blockers($repo);
+                $report['blockers'] = $repo === null ? [] : self::blockers($repo, $survey['refusals']);
                 $report['summary']['blockers'] = count($report['blockers']);
                 $healthy = $healthy && $report['blockers'] === [];
             }
@@ -457,9 +492,10 @@ final class AdapterCatalog {
      * immutable/source gate, and says out loud that it is not claiming a live
      * verdict.
      *
+     * @param list<array<string,mixed>> $refusals this run's refusals, for attribution
      * @return list<array<string,mixed>>
      */
-    private static function blockers(string $repo): array {
+    private static function blockers(string $repo, array $refusals): array {
         try {
             return Policy::load($repo, null, true)->adapter_readiness_blockers();
         } catch (\Throwable $t) {
@@ -467,14 +503,38 @@ final class AdapterCatalog {
             // report. Surfacing the engine's own message as a blocker row
             // keeps doctor answering rather than dying, and keeps the row
             // shape the two plan renderers already know.
+            //
+            // `source` is ATTRIBUTED rather than assumed. Hardcoding `shipped`
+            // here sent an operator whose site adapter shadowed a shipped one
+            // to the wrong directory — the exact failure DUO-3314 put `source`
+            // on these rows to prevent. When this run refused something in the
+            // site source, that is what stopped the pin set from loading and
+            // the row says so. With nothing attributable it reports `unknown`,
+            // which is deliberately not one of the two source words for the
+            // same reason `trust_tier` below is not one of the four tiers:
+            // this row is about a pin SET spanning both sources, not about one
+            // adapter, so borrowing either word would be a guess printed as a
+            // fact. The engine's own message on `reason` already names the
+            // exact file in every attributable case.
+            $source = 'unknown';
+            foreach ($refusals as $refusal) {
+                foreach ((array) ($refusal['paths'] ?? []) as $path) {
+                    if (str_starts_with((string) $path, AdapterSources::SITE_DIR . '/')
+                        || str_ends_with((string) $path, '/site.duo.json')) {
+                        $source = AdapterSources::SITE;
+                        break 2;
+                    }
+                }
+            }
             return [[
                 'name' => 'pins',
                 'status' => 'unsupported',
                 'code' => 'pin_set_unloadable',
                 'reason' => $t->getMessage(),
-                'source' => AdapterSources::SHIPPED,
+                'source' => $source,
                 'trust_tier' => 'unknown',
-                'remediation' => 'fix the refusal above, or amend site.duo.json\'s `manifests` pins',
+                'remediation' => 'resolve the refusal(s) this report lists, or amend site.duo.json\'s '
+                    . '`manifests` pins',
             ]];
         }
     }
@@ -500,7 +560,9 @@ final class AdapterCatalog {
                     $row['trust_tier'],
                     $row['certification'] === 'uncertified'
                         ? 'uncertified'
-                        : (string) ($row['disposition_status'] ?? 'unreviewed'),
+                        : (string) ($row['disposition_status'] ?? ($row['certification'] === null
+                            ? 'no-registry'
+                            : 'unreviewed')),
                     $row['path']
                 );
                 echo '          tier basis: ' . $row['tier_basis'] . "\n";
@@ -543,7 +605,9 @@ final class AdapterCatalog {
         if (isset($report['summary'])) {
             $s = $report['summary'];
             echo "\nsummary: {$s['adapters']} adapter(s) installed ({$s['shipped']} shipped, {$s['site']} site), "
-                . "{$s['grammar_error']} grammar error(s), {$s['refusals']} refusal(s)"
+                . "{$s['grammar_error']} grammar error(s), {$s['grammar_unjudged']} unjudged "
+                . '(their source is refused, so their own manifests were never read), '
+                . "{$s['refusals']} refusal(s)"
                 . (isset($s['blockers']) ? ", {$s['blockers']} readiness blocker(s)" : '')
                 . '; ' . count($report['deferred']) . " check(s) NOT performed here (see the deferred list above)\n";
         }
@@ -570,7 +634,9 @@ final class AdapterCatalog {
         echo "  sha256:            {$row['sha256']}\n";
         echo "  trust_tier:        {$row['trust_tier']}\n";
         echo "  tier_basis:        {$row['tier_basis']}\n";
-        echo "  certification:     {$row['certification']}\n";
+        echo '  certification:     ' . ($row['certification']
+            ?? '(none — this manifest library carries no reviewed dispositions and no generated registry, '
+                . 'so it makes no product claim)') . "\n";
         echo '  disposition:       ' . ($row['disposition_status'] ?? '(no reviewed entry)') . "\n";
         echo '  grammar:           ' . $row['grammar']['status']
             . ($row['grammar']['message'] === null ? '' : ' — ' . $row['grammar']['message']) . "\n";

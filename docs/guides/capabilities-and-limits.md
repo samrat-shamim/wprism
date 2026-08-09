@@ -206,6 +206,16 @@ its own declarations actually reach, never self-declared:
 | `plugin_provider` | `providers[].source: "plugin"` | executable semantics trusted as part of the installed plugin |
 | `compatibility_shim` | `interpreter`, a `regen_dependency.regenerator`, or `providers[].source: "manifest"` | Duo-owned executable code shipped with the manifest — the exceptional, quarantined case |
 
+The tier is the **highest** one a manifest reaches, not the first declaration
+you happen to notice, and the table's rows are in ascending order. Declaring a
+native action does not *get* you `native_action`: an adapter that also declares
+a `providers[].source: "plugin"` reports `plugin_provider`, and one that
+declares an interpreter, a regenerator, or a manifest-sourced provider reports
+`compatibility_shim` regardless of everything else. `native_action` is what a
+manifest reports when a native action is the *only* executable thing it
+declares. That is the whole point of deriving the tier instead of accepting a
+declared one — a manifest cannot report less authority than it asks for.
+
 `list` prints the tier next to `tier_basis`, the exact declaration that
 produced it, so a row reading `compatibility_shim` can be checked rather than
 believed. `inspect` adds the reviewed disposition entry, the generated registry
@@ -232,6 +242,12 @@ remediation. They are reported and counted but do not by themselves flip
 `duo status`'s exit code: the diagnosis covers every *declared* provider
 action, which is wider than the set any one apply negotiates, and apply's own
 refusal stays where it belongs — immediately before the first mutation.
+
+Plan-time diagnosis constructs the same provider objects apply does — a
+manifest-sourced provider's file is required and its class constructed, and
+plugin-sourced providers come off the `duo_providers` filter — so plan/status
+now execute provider constructors and `identity()`/`capabilities()`. No
+capability is invoked.
 
 ## Where the line is
 

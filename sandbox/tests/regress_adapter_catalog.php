@@ -85,17 +85,28 @@ function check(bool $cond, string $msg): void {
 /**
  * Run the real host CLI and return its exact exit code and streams.
  *
+ * $manifestDirOverride points the subprocess at a different shipped library
+ * through DUO_MANIFESTS_DIR — the env var Policy::manifests_dir() reads, and
+ * the only way to exercise a library that is NOT this repository's own.
+ *
  * @param list<string> $args
  * @return array{exit:int, stdout:string, stderr:string}
  */
-function duo(array $args): array {
+function duo(array $args, ?string $manifestDirOverride = null): array {
     global $repo;
     $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($repo . '/cli/duo') . ' adapter';
     foreach ($args as $arg) {
         $cmd .= ' ' . escapeshellarg($arg);
     }
+    $env = null;
+    if ($manifestDirOverride !== null) {
+        // proc_open REPLACES the environment when given one, so the inherited
+        // env is merged rather than dropped — a bare DUO_MANIFESTS_DIR would
+        // take PATH and HOME with it.
+        $env = array_merge(getenv(), ['DUO_MANIFESTS_DIR' => $manifestDirOverride]);
+    }
     $pipes = [];
-    $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
     if (!is_resource($proc)) {
         throw new \RuntimeException("could not run: $cmd");
     }
@@ -472,6 +483,15 @@ foreach ($refusalCases as $code => $fixture) {
         "$code is reported as exactly one refusal row rather than thrown (rows: "
         . implode(', ', array_column($rows, 'code')) . ')'
     );
+    check(
+        count($rows) === count(array_unique(array_map(
+            static fn(array $r): string => $r['code'] . '|' . implode(',', (array) $r['paths']),
+            $rows
+        ))),
+        "$code: one wrong file draws one refusal, not several — a reserved name that is ALSO not a manifest "
+        . 'used to be reported twice, the second time as an ambiguous identity nobody claimed (rows: '
+        . implode(', ', array_column($rows, 'code')) . ')'
+    );
     check($result['exit'] === 1, "$code makes the run non-zero (exit {$result['exit']})");
     check(
         is_array($parsed) && ($parsed['adapters'] ?? []) !== [],
@@ -490,6 +510,40 @@ foreach ($refusalCases as $code => $fixture) {
         "$code names the exact file(s) it is about (paths: "
         . implode(', ', $matching[0]['paths'] ?? []) . ')'
     );
+    // THE MASQUERADE CHECK. A refused file must not ALSO appear as an
+    // installed adapter: a refusal row beside a row that lists the same file as
+    // usable would say "we refuse this" and "here it is, installed" in one
+    // report, and for ambiguous_identity specifically that row would carry the
+    // file's name while the manifest inside declares another — an adapter
+    // answering to a name it never claimed, which is exactly the identity
+    // confusion the whole refusal exists to prevent. Asserted by PATH so it
+    // holds for every code uniformly, including the ones whose file is not an
+    // adapter at all.
+    $refusedPaths = [];
+    foreach ($rows as $refusalRow) {
+        foreach ((array) ($refusalRow['paths'] ?? []) as $path) {
+            if (str_starts_with((string) $path, 'adapters/')) {
+                $refusedPaths[(string) $path] = true;
+            }
+        }
+    }
+    $listedRefused = array_values(array_filter(
+        $parsed['adapters'] ?? [],
+        static fn(array $r): bool => isset($refusedPaths[(string) $r['path']])
+    ));
+    check(
+        $refusedPaths !== [] && $listedRefused === [],
+        "$code: the refused file is ABSENT from the adapter rows — refused and installed are never both true "
+        . '(listed anyway: ' . implode(', ', array_column($listedRefused, 'path')) . ')'
+    );
+
+    if ($code === 'ambiguous_identity') {
+        check(
+            row_named($parsed, 'mislabeled') === null && row_named($parsed, 'something-else') === null,
+            'and an ambiguous-identity file is listed under NEITHER name — not the file name it would be pinned '
+            . 'by, nor the name its manifest declares'
+        );
+    }
     // malformed_manifest is a decode failure, which discover() lets propagate
     // from Canon rather than throwing itself; every other code below is a
     // refusal discover() owns, so the byte-comparison covers them.
@@ -598,9 +652,10 @@ check(
     . $brokenInspect['exit'] . ') rather than dying on the neighbouring refusal'
 );
 check(
-    ($brokenInspectReport['adapter']['grammar']['status'] ?? null) === 'error'
-    && str_contains((string) ($brokenInspectReport['adapter']['grammar']['message'] ?? ''), 'shadows the shipped adapter'),
-    'and says exactly why it cannot load — the engine\'s own words about the source it lives in'
+    ($brokenInspectReport['adapter']['grammar']['status'] ?? null) === 'blocked_by_source_refusal'
+    && str_contains((string) ($brokenInspectReport['adapter']['grammar']['message'] ?? ''), 'shadows_shipped'),
+    'and says its own grammar was never judged, naming the sibling refusal that stopped the whole source — not '
+    . "the neighbouring file's message reprinted as this adapter's verdict"
 );
 
 $shadowDoctor = duo(['doctor', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']);
@@ -651,6 +706,155 @@ check(
 check(
     str_contains($deferredSurfaces, 'discovered by nothing'),
     'and that the two sources it surveys are the only two that exist, so an empty catalog is not a claim about the world'
+);
+
+// ======================================================================
+echo "\n== a broken source is never reported as a healthy one ==\n";
+// ======================================================================
+// `inspect` reports ONE adapter, but exit 0 is a claim about the whole run.
+$inspectInBrokenSource = duo(['inspect', 'core', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']);
+$inspectBrokenReport = report($inspectInBrokenSource);
+check(
+    $inspectInBrokenSource['exit'] === 1 && ($inspectBrokenReport['status'] ?? null) === 'error',
+    'inspecting a perfectly healthy SHIPPED adapter in a repository that has refusals still exits 1 — a zero exit '
+    . 'would tell a script the source is fine (exit ' . $inspectInBrokenSource['exit'] . ')'
+);
+check(
+    // array_key_exists, not ??: null is the ANSWER here, and `??` cannot tell
+    // "reported as unanswered" from "never reported at all".
+    is_array($inspectBrokenReport['adapter'] ?? null)
+    && array_key_exists('verdict', $inspectBrokenReport['adapter'])
+    && $inspectBrokenReport['adapter']['verdict'] === null,
+    'and the verdict comes back null because the pin set would not load, rather than defaulting to certified'
+);
+check(
+    refusals_of($inspectBrokenReport) !== [],
+    'and inspect carries the refusal rows too, so the report says WHY it is non-zero'
+);
+
+// A site.duo.json that is not JSON: every grammar verdict loads that file, so
+// the failure has exactly one cause and must be reported exactly once.
+$badPolicyRepo = site_repo(['core'], ['acme-widget' => site_adapter('acme-widget')]);
+file_put_contents($badPolicyRepo . '/site.duo.json', "{ \"manifests\": [\"core\",\n");
+$badPolicy = duo(['list', '--repo=' . $badPolicyRepo, '--format=json']);
+$badPolicyReport = report($badPolicy);
+$policyRefusals = array_values(array_filter(
+    refusals_of($badPolicyReport),
+    static fn(array $r): bool => $r['code'] === 'site_policy_unreadable'
+));
+check(
+    count($policyRefusals) === 1 && str_contains((string) $policyRefusals[0]['paths'][0], 'site.duo.json'),
+    'an unparseable site.duo.json is ONE refusal row naming that file (rows: '
+    . implode(', ', array_column(refusals_of($badPolicyReport), 'code')) . ')'
+);
+$badPolicyShipped = array_values(array_unique(array_column(
+    array_column(array_filter(
+        $badPolicyReport['adapters'] ?? [],
+        static fn(array $r): bool => $r['source'] === 'shipped'
+    ), 'grammar'),
+    'status'
+)));
+check(
+    $badPolicyShipped === ['ok'],
+    'and NOT fifteen identical unattributed grammar errors: the shipped rows fall back to the no-site verdict '
+    . 'the same way every other whole-directory refusal makes them (found: ' . implode(', ', $badPolicyShipped) . ')'
+);
+check($badPolicy['exit'] === 1, 'while the run itself is still non-zero');
+
+// A site adapter whose SOURCE is refused was never read, so its grammar
+// verdict is a third word rather than an error about bytes nobody opened.
+$blockedSiteRow = row_named($badPolicyReport, 'acme-widget');
+check(
+    is_array($blockedSiteRow) && $blockedSiteRow['grammar']['status'] === 'blocked_by_source_refusal',
+    'a site adapter in a refused source reports blocked_by_source_refusal, not `error` (found: '
+    . (is_array($blockedSiteRow) ? $blockedSiteRow['grammar']['status'] : '(no row)') . ')'
+);
+check(
+    is_array($blockedSiteRow)
+    && str_contains((string) $blockedSiteRow['grammar']['message'], 'was not judged')
+    && str_contains((string) $blockedSiteRow['grammar']['message'], 'site_policy_unreadable'),
+    "and says its own grammar was not judged, naming the refusal that stopped it — rather than reprinting another "
+    . "file's refusal as this adapter's verdict"
+);
+check(
+    ($badPolicyReport['summary']['grammar_error'] ?? null) === 0
+    && ($badPolicyReport['summary']['grammar_unjudged'] ?? null) === 1,
+    'and the summary counts unjudged apart from broken, so "how many of my manifests are wrong" stays truthful '
+    . '(errors: ' . var_export($badPolicyReport['summary']['grammar_error'] ?? null, true)
+    . ', unjudged: ' . var_export($badPolicyReport['summary']['grammar_unjudged'] ?? null, true) . ')'
+);
+
+$badPolicyDeferred = implode("\n", array_column(report(duo(['list', '--repo=' . $badPolicyRepo, '--format=json']))['deferred'], 'why'));
+check(
+    str_contains($badPolicyDeferred, 'produced with no site policy after all'),
+    'and the deferred list stops claiming the verdicts were produced against this site.duo.json, because they '
+    . 'were not'
+);
+check(
+    !str_contains(implode("\n", array_column($listReport['deferred'], 'why')), 'verdicts below'),
+    'the deferred rows say "above", which is where the table actually is'
+);
+
+// pin_set_unloadable used to hardcode source=shipped, sending an operator
+// whose SITE adapter broke the pin set to the wrong directory.
+$shadowBlockers = report(duo(['doctor', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']))['blockers'];
+check(
+    array_column($shadowBlockers, 'code') === ['pin_set_unloadable']
+    && ($shadowBlockers[0]['source'] ?? null) === 'site',
+    'a pin set broken by a SITE file reports source=site on its blocker row (found: '
+    . var_export($shadowBlockers[0]['source'] ?? null, true) . ')'
+);
+
+// ======================================================================
+echo "\n== a manifest library that is not this repository's ==\n";
+// ======================================================================
+$plainLibrary = scratch('library');
+file_put_contents("$plainLibrary/solo.json", json_encode([
+    'name' => 'solo',
+    'spec_version' => DUO_SPEC_VERSION,
+    'option_autoload' => 'preserve',
+    'options' => ['solo_layout' => ['class' => 'authored']],
+]));
+// Valid JSON, and not a manifest. Canon::decode() returns whatever the
+// document was, so this used to reach trust_tier(array $manifest) as an int
+// and kill the survey with a TypeError — an inventory taken down by one of the
+// files it exists to inventory.
+file_put_contents("$plainLibrary/scalar.json", '123');
+file_put_contents("$plainLibrary/listy.json", '[1,2,3]');
+$plainResult = duo(['list', '--format=json'], $plainLibrary);
+$plainReport = report($plainResult);
+check(
+    is_array($plainReport) && array_column($plainReport['adapters'] ?? [], 'name') === ['solo'],
+    'a shipped manifest whose top level is not a JSON object is refused, not crashed on — the valid adapter '
+    . 'beside it still reports (rows: '
+    . implode(', ', array_column($plainReport['adapters'] ?? [], 'name')) . ')'
+);
+$shapeRefusals = array_values(array_filter(
+    refusals_of($plainReport),
+    static fn(array $r): bool => $r['code'] === 'malformed_manifest'
+));
+check(
+    count($shapeRefusals) === 2
+    && str_contains((string) $shapeRefusals[0]['message'], 'a manifest is a JSON object'),
+    'each one is a malformed_manifest refusal saying what its top level actually is (rows: '
+    . implode(' | ', array_column($shapeRefusals, 'message')) . ')'
+);
+check(
+    str_contains((string) $shapeRefusals[0]['remediation'], 'JSON object')
+    && !str_contains((string) $shapeRefusals[0]['remediation'], 'parses as JSON'),
+    'and the remediation matches the actual failure — "make it an object", not "make it parse", which it already does'
+);
+$soloRow = $plainReport['adapters'][0] ?? [];
+check(
+    array_key_exists('certification', $soloRow) && $soloRow['certification'] === null,
+    'a library with no dispositions and no generated registry reports certification null rather than claiming a '
+    . '`registry` that is not there (found: '
+    . var_export($soloRow['certification'] ?? '(key absent)', true) . ')'
+);
+$plainText = duo(['inspect', 'solo'], $plainLibrary);
+check(
+    str_contains($plainText['stdout'], 'certification:     (none —'),
+    'and the human renderer says so in words rather than printing an empty field'
 );
 
 // ======================================================================

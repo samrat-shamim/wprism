@@ -381,28 +381,52 @@ final class Providers {
      *      they do not by themselves make `duo status` non-zero; the refusal
      *      stays where the doctrine puts it, immediately before mutation.
      *
-     *   2. A packaging fault (a manifest-sourced provider whose file or class
-     *      is missing) is reported here rather than thrown. Apply still throws
-     *      it — that behavior is pinned byte for byte by
-     *      regress_provider_contract.php — because at apply it is a refusal
-     *      before mutation. On a reporting surface, a command that died on the
-     *      broken adapter would be hiding every other adapter's verdict behind
-     *      it, which is the failure mode this whole surface exists to remove.
+     *   2. A throw is reported here rather than propagated. Apply still throws
+     *      — that behavior is pinned byte for byte by
+     *      regress_provider_contract.php — because at apply a throw is a
+     *      refusal before mutation. On a reporting surface, a command that
+     *      died on one broken adapter would be hiding every other adapter's
+     *      verdict behind it, which is the failure mode this whole surface
+     *      exists to remove.
+     *
+     *      The two throws are told apart rather than collapsed, because they
+     *      call for opposite actions. A ProviderPackagingException is the
+     *      adapter's own fault, it names the exact file, and "repair
+     *      providers/<id>.php" is real advice. Anything ELSE reaching here is
+     *      third-party code misbehaving inside the diagnosis — a `duo_providers`
+     *      callback whose identity() throws, a provider whose capabilities()
+     *      throws, a lifecycle read that failed — and telling that operator to
+     *      go repair a `providers/<id>.php` (with a LITERAL `<id>`, since
+     *      nothing here knows which provider it was) would be a fabricated
+     *      coordinate on top of a real failure. That case gets its own code and
+     *      points at the message, which is the only thing actually known.
      *
      * @return list<array<string,mixed>>
      */
     public static function problems(Policy $policy): array {
         try {
             return self::diagnose($policy, $policy->actions())['problems'];
+        } catch (ProviderPackagingException $t) {
+            return [self::problem(
+                $t->providerId(),
+                $t->manifest(),
+                '?',
+                'provider_code_unavailable',
+                "the manifest-sourced provider '{$t->providerId()}' to resolve to its shipped class",
+                $t->getMessage(),
+                "repair manifests/providers/{$t->providerId()}.php, which ships with manifest "
+                    . "'{$t->manifest()}', or unpin that manifest"
+            )];
         } catch (\Throwable $t) {
             return [self::problem(
                 '?',
                 '?',
                 '?',
-                'provider_code_unavailable',
-                'every declared manifest-sourced provider to resolve to its shipped class',
-                $t->getMessage(),
-                "repair the adapter's own providers/<id>.php, or unpin the manifest that declares it"
+                'provider_diagnosis_failed',
+                'every declared provider to answer the negotiation questions without throwing',
+                get_class($t) . ': ' . $t->getMessage(),
+                'see the message — it comes from code this engine does not own, and no provider identity was '
+                    . 'established before it threw'
             )];
         }
     }
@@ -615,8 +639,15 @@ final class Providers {
         $id = (string) $declaration['id'];
         $manifest = (string) $declaration['manifest'];
         $file = Policy::manifests_dir() . '/providers/' . $id . '.php';
+        // ProviderPackagingException, not a bare RuntimeException: the message
+        // and the fail-before-mutation behavior are unchanged (it IS a
+        // RuntimeException), but a reporting caller can now tell "the adapter
+        // is packaged wrong, and here is exactly which file" apart from
+        // "somebody else's code threw during diagnosis" — see problems().
         if (!is_file($file)) {
-            throw new \RuntimeException(
+            throw new ProviderPackagingException(
+                $id,
+                $manifest,
                 "duo: manifest '$manifest' declares provider '$id' but $file is missing — "
                 . 'provider code ships with its manifest, not the engine'
             );
@@ -624,7 +655,9 @@ final class Providers {
         require_once $file;
         $class = '\\Duo\\Providers\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $id)));
         if (!class_exists($class)) {
-            throw new \RuntimeException(
+            throw new ProviderPackagingException(
+                $id,
+                $manifest,
                 "duo: provider file $file must define $class with identity(): array, "
                 . 'capabilities(): array, and invoke(string $capability, array $args): array'
             );
@@ -1199,5 +1232,41 @@ final class Providers {
             $parts[] = $key . '=' . (is_scalar($value) ? (string) $value : get_debug_type($value));
         }
         return implode(' ', $parts);
+    }
+}
+
+/**
+ * An adapter that declares manifest-sourced provider code the manifest does
+ * not actually ship.
+ *
+ * A RuntimeException subclass, so every existing catch, message, and
+ * fail-before-mutation behavior is unchanged — `Providers::negotiate()` throws
+ * exactly what it always threw, with exactly the wording
+ * regress_provider_contract.php pins. What the subclass adds is the ability to
+ * tell this apart from a throw that came out of code the engine does not own,
+ * and to do it WITHOUT string-matching a message or reading a stack trace.
+ * `Providers::problems()` is the caller that needs the distinction: this fault
+ * has a repairable file and a named owner, and everything else has neither, so
+ * one remediation could not honestly serve both.
+ *
+ * Co-located with the only class that throws it, the way
+ * RepositoryCompilationException sits in RepositoryCompiler.php.
+ */
+final class ProviderPackagingException extends \RuntimeException {
+    private string $providerId;
+    private string $manifest;
+
+    public function __construct(string $providerId, string $manifest, string $message) {
+        parent::__construct($message);
+        $this->providerId = $providerId;
+        $this->manifest = $manifest;
+    }
+
+    public function providerId(): string {
+        return $this->providerId;
+    }
+
+    public function manifest(): string {
+        return $this->manifest;
     }
 }
