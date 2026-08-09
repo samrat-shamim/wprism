@@ -114,14 +114,20 @@ past — it means the compatibility claim you are relying on does not exist.
 ## Version baselines: what actually gets recorded
 
 The `code_versions` baseline is **overwritten, never merged**, on a successful
-`duo deploy` and on `duo capture`. It records installed versions for the
-plugins that target state declares active, plus the template and stylesheet
-slots and their versions.
+`duo deploy` and on `duo capture`. It records the installed version of **every
+plugin currently active in the environment** — not only the ones target state
+names — plus the template and stylesheet slots and their versions. Drift
+detection then reads back a narrower slice: it compares only the plugins the
+target state declares active, because Duo has no opinion about a plugin it was
+never told to manage. Recording wider than you read is deliberate, so a plugin
+activated today already has a baseline the next time it matters.
 
 Three consequences follow, and the third is the one teams get wrong:
 
 1. A plugin with no recorded baseline is not drift — it is simply unminted,
-   and Duo skips it rather than inventing a comparison.
+   and Duo skips it rather than inventing a comparison. In practice this means
+   a plugin that was inactive at the last deploy or capture, since anything
+   active then was recorded whether or not target state named it.
 2. A theme slot whose *slug* changed is not drift either; that is a
    `code_mismatch`/plan concern, not a version comparison on one theme.
 3. **A downgrade is the same `code_drift` as an upgrade.** There is no separate

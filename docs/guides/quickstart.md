@@ -219,17 +219,34 @@ Then run the same sequence Path A ends with — `duo doctor`, `duo pending`,
 enough for interactive triage (`duo classify dev` with no flags) rather than a
 batch artifact.
 
-Both paths need these two lines in the site repo's `.gitignore`:
+Both paths need the same `.gitignore`, and hand-rolling it is a mistake people
+make once. Copy the canonical template — exactly what `sandbox/setup.sh` does
+one line after writing `site.duo.json`:
+
+```sh
+cp sandbox/site-repo.gitignore.template <repo>/.gitignore
+```
+
+That covers capture's publication artifacts (`state.capture.lock`,
+`state.capture-staging/`, `state.capture-backup/`, `state.capture-intent`,
+`state.capture-receipt`, `.tmp*`) and the optional per-environment
+`.duo-env-values.json` scratch file. Omitting `state.capture.lock` in
+particular is not cosmetic: the template's own comment records the structural
+failure it causes the moment two environments capture on both sides of a pair
+before the second one pulls.
+
+Then append the two orchestrator-side lines, which the template does not carry:
 
 ```gitignore
 .duo-envs.json
 .duo/
 ```
 
-The first keeps the machine-local overlay out of git; the second keeps the
-operational artifact/checkpoint directory out. `duo doctor` additionally checks
-that `.duo-env-values.json` is not git-tracked, and treats a tracked one as a
-blocking failure wherever it can find a `git` binary to check with.
+The first keeps the machine-local registry overlay out of git; the second keeps
+the operational artifact and checkpoint directory out. `duo doctor` separately
+checks that `.duo-env-values.json` is not git-tracked — a tracked one is a
+blocking failure wherever it can find a `git` binary to check with, which is
+the template's line earning its place.
 
 ## Prove a second environment before you promote anything
 

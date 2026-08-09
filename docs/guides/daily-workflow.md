@@ -61,9 +61,9 @@ sandbox pair, whatever your team uses — because WordPress content is authored
 in WordPress, not in a text editor over canonical JSON. Duo's job starts when
 you want that change to become a reviewable diff.
 
-Materializing a whole environment from a branch on demand is **Planned
-(DUO-3324)** — not yet shipped. Today each developer points an existing
-environment at their branch checkout of the site repo.
+Materializing a whole environment from a branch on demand is **Planned (DUO-3324)** — not yet shipped.
+Today each developer points an existing environment at their branch checkout of
+the site repo.
 
 ## Capture
 
@@ -117,10 +117,21 @@ Read those categories as: untouched on both sides; changed only in production;
 changed only on your branch; changed on both in ways that compose; and changed
 on both in ways that do not. Only the last one needs a decision from you.
 
-A richer semantic plan/diff/conflict/explain surface — per-entity WordPress
-names, field-level explanations, guided resolution — is **Planned (DUO-3345)**
-— not yet shipped. The five counts plus one reason line per conflict is what
-exists today, and it is enough to decide whether to rebase.
+Plan rows already speak WordPress, not just repository paths: an entity with an
+authored display name — a post's title, a term's or menu's name — carries it as
+the row's `title` in plan JSON, and both renderers print it in single quotes
+after the path. The two differ in *where* you see it, deliberately.
+`wp duo plan` prints it on every itemized row; `duo status` itemizes only rows
+that demand a decision — drift, conflict, collision, blocked or conflicted
+deletes — so the name shows up exactly there, while a clean create/update batch
+still renders as counts alone. Rows with no authored name (options, sidebars,
+typed tables, tombstones) look the same as they always did; the name is never
+guessed or derived.
+
+The rest of that surface — field-level explanations of *what* diverged, and
+guided conflict resolution — is **Planned (DUO-3345)** — not yet shipped. For
+`duo refresh` specifically, five counts plus one reason line per conflict is
+what exists today, and it is enough to decide whether to rebase.
 
 When you are ready to move the branch onto current production:
 
@@ -149,7 +160,9 @@ duo status stage
 This is the question "is this environment safe to promote?", and its **exit
 code is the answer**. Non-zero means no. It renders counts per plan bucket,
 drift paths, blocked-delete reasons, code findings, lifecycle receipts, and any
-plan-level warnings — warnings alone never flip the exit code.
+plan-level warnings — warnings alone never flip the exit code. On the rows it
+itemizes, each entity's authored WordPress display name follows its repository
+path in single quotes, so you are reading "the Pricing page", not a UUID.
 
 The buckets that make it non-zero and the exact remedy for each are tabulated
 in

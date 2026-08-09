@@ -120,23 +120,32 @@ globally useful. A hit requires an explicit `allow_pii: true` on that exact
 `user_meta` rule. Unknown keys never reach the scanner at all — they stay
 target-local unless an adapter or operator classified them `authored` first.
 
-Note the related structural fact: **users are not repository entities.**
-User meta uses an exact-login sidecar, and `ref: "user"` serializes as
-`user:<login>` tokens that apply resolves by login, falling back to the default
-author with a warning. Full authored-user synchronization is **Planned
-(DUO-3344)** — not yet shipped.
+Note the related structural fact: **users are not repository entities.** They
+are environment-local by design, never captured, never auto-created. `ref:
+"user"` serializes as a `user:<login>` token, and the two resolution paths are
+not equally forgiving: a post author resolves by login and *may* fall back to
+the configured default author with a warning, while a user-meta sidecar
+resolves the owning login by exact bytes and case and **never** falls back — a
+required login that is absent is a hard refusal before any target mutation (see
+`missing_user` below). No tracked issue plans authored-user synchronization;
+this is a design position, not a backlog item.
 
 ## Refusal to remedy
 
 `duo status <env>` answers "safe to promote?" and encodes the answer in its
-exit code. Non-zero means no. Here is every bucket that flips it, and the one
-remedy for each:
+exit code. Non-zero means no. The table below covers every condition in
+`PlanSummary::render()`'s `ok` expression — thirteen of them — and the one
+remedy for each. `code_mismatch` and `code_revision_stale` are split into two
+rows because they demand different actions, though the exit code reads them
+from the same list:
 
 | Bucket | What it means | Remedy |
 |---|---|---|
 | `conflict` | Repo and environment both changed the same entity. | Recapture, or `duo apply --force-theirs` to take the repo's side knowingly. |
+| `delete_conflict` | The target no longer matches the base a deletion tombstone expected — someone changed the entity after the tombstone was written. Distinct from a blocked delete: nothing is referencing it, the *base* moved. | Capture/reconcile first, or `duo apply --force-theirs`. |
 | `collision` | An unmanaged environment entity already holds this slug. | `duo apply --adopt-by-slug=<kinds>`, or rename. Inspect every collision first. |
 | blocked `delete` | A referential guard found live rows pointing at the deletion target. | Repair the referencing owner, or `duo apply --with-deletes --force-delete-referenced`. Forced execution stays loud. |
+| `missing_user` | An authored user-meta sidecar names an exact login that does not exist here. Apply refuses before mutation. | Create or reconcile the user outside Duo, or declare `missing_user: "warn"` on every authored key in that sidecar to warn-and-skip it. |
 | `code_mismatch` | Installed code disagrees with what state declares active. | Install/vendor the code, deploy first, or `--force-code-mismatch`. |
 | `code_drift` | Managed code changed here since Duo's last trusted observation. | Re-deploy to accept the new baseline, restore the recorded version yourself, or `--force-code-drift`. |
 | `code_revision_stale` | The artifact's code payload never completed stage → lifecycle → finalize. | `duo deploy <env>`. **Non-forceable** — this is the ordering invariant, not a judgment call. |
@@ -202,24 +211,24 @@ Everything below is unshipped at this commit. It is listed so you can tell
 "Duo cannot do this" apart from "Duo will not do this", and route the former
 rather than working around it.
 
-- One-command bootstrap of a fresh site — **Planned (DUO-3336)** — not yet
-  shipped. Today: adopt over SSH, or hand-write `site.duo.json`.
-- Adapter discovery, trust tiers, and a capability catalog — **Planned
-  (DUO-3339)** — not yet shipped. Structured native actions and plugin-owned
-  providers, which this was once bundled with, have shipped; see
+- One-command bootstrap of a fresh site — **Planned (DUO-3336)** — not yet shipped.
+  Today: adopt over SSH, or hand-write `site.duo.json`.
+- Adapter discovery, trust tiers, and a capability catalog — **Planned (DUO-3339)** — not yet shipped.
+  Structured native actions and plugin-owned providers, once bundled with this,
+  have shipped; see
   [adapter-authoring.md](adapter-authoring.md#declaring-repair-work-actions-and-providers).
-- On-demand branch environment materialization — **Planned (DUO-3324)** — not
-  yet shipped.
-- Scoped promotion and synchronization with dependency closure — **Planned
-  (DUO-3344)** — not yet shipped.
-- Authored-user synchronization — **Planned (DUO-3344)** — not yet shipped.
-- Semantic plan/diff/conflict/explain beyond `duo refresh`'s category counts —
-  **Planned (DUO-3345)** — not yet shipped.
-- Provider-backed plugin and theme replacement — **Planned (DUO-3357)** — not
-  yet shipped.
-- Theme upgrade, downgrade refusal, and removal as a managed lifecycle —
-  **Planned (DUO-3358)** — not yet shipped.
-- Moving WordPress cron as managed state — **Planned (DUO-3359)** — not yet
-  shipped.
-- Retiring the Duo-owned WooCommerce lookup regenerator in favor of an
-  adapter-owned one — **Planned (DUO-3342)** — not yet shipped.
+- On-demand branch environment materialization — **Planned (DUO-3324)** — not yet shipped.
+- Scoped promotion and synchronization with dependency closure — **Planned (DUO-3344)** — not yet shipped.
+- Field-level diff explanations and guided conflict resolution — **Planned (DUO-3345)** — not yet shipped.
+  Plan rows already carry authored WordPress display names; that slice shipped.
+- Provider-backed plugin and theme replacement — **Planned (DUO-3357)** — not yet shipped.
+- Theme upgrade, downgrade refusal, and removal as a managed lifecycle — **Planned (DUO-3358)** — not yet shipped.
+- Moving WordPress cron as managed state — **Planned (DUO-3359)** — not yet shipped.
+- Retiring the last Duo-authored WooCommerce business logic — **Planned (DUO-3342)** — not yet shipped.
+  The file boundary is already there: the lookup rebuild lives in
+  `manifests/regenerators/woocommerce-product-lookups.php` and is dispatched
+  generically by its manifest-declared name, never by a plugin check in the
+  engine. What remains Duo-native is the WooCommerce *semantics* inside it —
+  price synchronization that preserves authored meta, expected-attribute-row
+  derivation, and raw-SQL verification queries — logic Duo maintains that
+  should belong to a plugin-owned provider.

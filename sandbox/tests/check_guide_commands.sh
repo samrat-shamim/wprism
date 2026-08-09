@@ -20,10 +20,19 @@
 #      unshipped behavior. A planned command may be named in prose; it may
 #      never be named without its label.
 #
-# Scope, stated so nobody mistakes silence for a passing grade: only tokens
-# inside fenced code blocks and inline `code spans` are examined, because that
-# is where the guides cite commands. FLAGS ARE NOT CHECKED — only verbs and
-# subcommands. This is a cheap, hand-run truth check, not a parser.
+# Scope, stated so nobody mistakes silence for a passing grade. Three
+# limitations, all deliberate — this is a cheap, hand-run truth check, not a
+# parser:
+#
+#   - Only tokens inside fenced code blocks and inline `code spans` are
+#     examined, because that is where the guides cite commands. A command
+#     named in bare prose is invisible here.
+#   - FLAGS ARE NOT CHECKED. Only verbs and subcommands are resolved, so
+#     `duo status --nonsense` passes.
+#   - Only the bare `duo …`, `cli/duo …`, and `wp duo …` spellings are
+#     recognized. A path-prefixed invocation (`./cli/duo status`,
+#     `bin/duo status`) does not match the extractor and is silently
+#     unchecked — cite commands in one of the three recognized forms.
 #
 # Deliberately NOT named regress_* and deliberately has no Makefile target:
 # same precedent as cli_status_truth.sh. Run it by hand when the guides or the
