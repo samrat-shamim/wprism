@@ -267,6 +267,16 @@ final class Init {
                 ];
             }
         }
+        $captureReceipt = $repo . '/state.capture-receipt';
+        if (file_exists($captureReceipt) || is_link($captureReceipt)) {
+            $unsupported[] = [
+                'code' => 'existing_capture_receipt',
+                'extension' => 'state.capture-receipt',
+                'kind' => 'repository',
+                'reason' => 'the repository already contains durable capture audit evidence that init does not own',
+                'remediation' => 'preserve and review the receipt with its original state/ledger history; initialize a genuinely empty repository instead',
+            ];
+        }
         if ($ledger['rows'] > 0) {
             $unsupported[] = [
                 'code' => 'existing_duo_ledger',

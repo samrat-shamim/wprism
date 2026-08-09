@@ -466,13 +466,13 @@ final class Cli {
      * [--format=<format>] : Output format. Accepts json.
      */
     public function init($args, $assoc) {
-        $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
         try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('init', '--repo');
             $result = isset($assoc['confirm'])
                 ? Init::confirm((string) $repo, (string) $assoc['confirm'])
                 : Init::proposal((string) $repo);
         } catch (\Throwable $t) {
-            self::halt_json_failure($t, $assoc);
+            self::halt_json_failure($t, $assoc, 'init');
             WP_CLI::error($t->getMessage());
         }
         if (($assoc['format'] ?? '') === 'json') {

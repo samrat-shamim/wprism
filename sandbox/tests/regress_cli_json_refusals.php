@@ -250,6 +250,7 @@ namespace {
         'compile' => 'compile',
         'code_stage' => 'code-stage',
         'code_finalize' => 'code-finalize',
+        'init' => 'init',
         'capture' => 'capture',
         'plan' => 'plan',
         'explain' => 'explain',

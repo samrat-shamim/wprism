@@ -191,8 +191,11 @@ CODE=$?
 set -e
 printf '%s\n' "$OUT"
 [ "$CODE" -ne 0 ] || fail "post-Git-create injected failure unexpectedly succeeded"
-grep -q 'injected init failure after Git metadata creation' <<<"$OUT" \
-  || fail "Git compensation regression never reached its post-create fault"
+grep -q 'duo-command-refusal/v1' <<<"$OUT" || fail "post-Git-create failure omitted its stable JSON envelope"
+grep -q 'init_failed' <<<"$OUT" || fail "post-Git-create failure omitted its stable reason code"
+grep -q 'details_redacted' <<<"$OUT" || fail "post-Git-create failure omitted its redaction witness"
+! grep -q 'injected init failure after Git metadata creation' <<<"$OUT" \
+  || fail "post-Git-create failure leaked private fault detail"
 [ -z "$(find "$HOST_REPO" -mindepth 1 -maxdepth 1 -print -quit)" ] \
   || fail "post-Git-create failure left repository artifacts"
 [ "$(wp1 db query "SHOW TABLES LIKE 'wp_duo_%'" --skip-column-names | wc -l | tr -d ' ')" = "0" ] \
@@ -292,13 +295,19 @@ pass "site adapter source remains distinct from a missing shipped adapter"
 say "the adapters allowlist never launders a foreign file or symlink"
 printf 'foreign repository payload\n' > "$HOST_REPO/adapters"
 assert_exit 1 "regular-file adapter boundary blocks init" "${DUO[@]}" init "${PAIR}1" --yes
-grep -q 'exists but is not a real directory' <<<"$OUT" || fail "regular-file adapter refusal omitted its ownership reason"
+grep -q 'duo-command-refusal/v1' <<<"$OUT" || fail "regular-file adapter refusal omitted its stable JSON envelope"
+grep -q 'init_failed' <<<"$OUT" || fail "regular-file adapter refusal omitted its stable reason code"
+grep -q 'details_redacted' <<<"$OUT" || fail "regular-file adapter refusal exposed private exception detail"
+! grep -q 'exists but is not a real directory' <<<"$OUT" || fail "regular-file adapter refusal leaked private ownership detail"
 [ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
   || fail "regular-file adapter boundary mutated the repository"
 rm -f "$HOST_REPO/adapters"
 ln -s /tmp/duo-init-missing-adapters "$HOST_REPO/adapters"
 assert_exit 1 "dangling adapter symlink blocks init" "${DUO[@]}" init "${PAIR}1" --yes
-grep -q 'exists but is not a real directory' <<<"$OUT" || fail "adapter symlink refusal omitted its ownership reason"
+grep -q 'duo-command-refusal/v1' <<<"$OUT" || fail "adapter symlink refusal omitted its stable JSON envelope"
+grep -q 'init_failed' <<<"$OUT" || fail "adapter symlink refusal omitted its stable reason code"
+grep -q 'details_redacted' <<<"$OUT" || fail "adapter symlink refusal exposed private exception detail"
+! grep -q 'exists but is not a real directory' <<<"$OUT" || fail "adapter symlink refusal leaked private ownership detail"
 [ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
   || fail "adapter symlink boundary mutated the repository"
 rm -f "$HOST_REPO/adapters"
@@ -410,19 +419,42 @@ grep -q 'jwt' <<<"$OUT" || fail "JWT blocker omitted its redacted label"
 wp1 eval 'unlink(WP_PLUGIN_DIR . "/woocommerce/duo-init-jwt.php");' >/dev/null
 pass "bounded JWT matcher covers streaming chunk boundaries"
 
-say "foreign state, media, and non-pristine ledger ownership refuse before writes"
+say "foreign state, media, capture receipts, and non-pristine ledger ownership refuse before writes"
 mkdir -p "$HOST_REPO/state" "$HOST_REPO/media"
 assert_exit 2 "foreign state/media block init" "${DUO[@]}" init "${PAIR}1" --yes
 grep -q 'existing_state_payload' <<<"$OUT" || fail "stale state blocker was missing"
 grep -q 'existing_media_payload' <<<"$OUT" || fail "stale media blocker was missing"
 rmdir "$HOST_REPO/state" "$HOST_REPO/media"
+wp1 eval '
+$receipt = [
+    "format" => "duo-capture-receipt/v1",
+    "intent_id" => str_repeat("a", 32),
+    "phase" => "committed",
+    "candidate_sha256" => str_repeat("b", 64),
+    "previous_sha256" => str_repeat("c", 64),
+    "committed_at" => "2026-08-10T00:00:00+00:00",
+];
+$receipt["record_sha256"] = hash("sha256", \Duo\Canon::encode($receipt));
+\Duo\Canon::write_file("/siterepo/state.capture-receipt", \Duo\Canon::encode($receipt));
+' >/dev/null
+RECEIPT_BEFORE=$(sha256sum "$HOST_REPO/state.capture-receipt" | awk '{print $1}')
+assert_exit 2 "durable orphan capture receipt blocks init" "${DUO[@]}" init "${PAIR}1" --yes
+grep -q 'existing_capture_receipt' <<<"$OUT" || fail "capture receipt blocker was missing"
+[ "$RECEIPT_BEFORE" = "$(sha256sum "$HOST_REPO/state.capture-receipt" | awk '{print $1}')" ] \
+  || fail "capture receipt refusal rewrote durable audit evidence"
+[ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/code" ] \
+  && [ ! -d "$HOST_REPO/state" ] && [ ! -d "$HOST_REPO/media" ] \
+  || fail "capture receipt refusal created canonical repository payloads"
+[ "$(wp1 db query "SHOW TABLES LIKE 'wp_duo_%'" --skip-column-names | wc -l | tr -d ' ')" = "0" ] \
+  || fail "capture receipt refusal created ledger tables"
+rm -f "$HOST_REPO/state.capture-receipt"
 wp1 eval '\Duo\Ledger::ensure(); \Duo\Ledger::kv_set("duo_init_stale", "1");' >/dev/null
 assert_exit 2 "non-pristine ledger blocks init" "${DUO[@]}" init "${PAIR}1" --yes
 grep -q 'existing_duo_ledger' <<<"$OUT" || fail "stale ledger blocker was missing"
 [ "$(wp1 db query 'SELECT COUNT(*) FROM wp_duo_kv' --skip-column-names | tr -d '[:space:]')" = "1" ] \
   || fail "ledger refusal mutated the pre-existing row set"
 wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
-pass "init never adopts or overwrites foreign canonical ownership"
+pass "init never adopts or overwrites foreign canonical ownership or audit evidence"
 
 say "post-swap injected failure rolls back repo, media, identity, and ledger rows"
 wp1 eval '

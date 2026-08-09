@@ -140,7 +140,13 @@ check(str_contains($agentSource, "'code' => ['format' => 1, 'layout' => 'wp-cont
 check(str_contains($agentSource, 'Code::descriptor_from_source($stage)'), 'captured code is validated by the existing descriptor contract before publication');
 check(str_contains($agentSource, 'Capture::run_initial_baseline($repo, $publicationLock)'), 'confirmed baseline uses the init-wide publication transaction');
 check(str_contains($agentSource, 'SELECT GET_LOCK(%s, 0)'), 'concurrent confirmations share a target advisory lease');
-check(str_contains($agentSource, "'existing_state_payload'") && str_contains($agentSource, "'existing_media_payload'") && str_contains($agentSource, "'existing_duo_ledger'"), 'stale state, media, and ledger ownership block initialization');
+check(
+    str_contains($agentSource, "'existing_state_payload'")
+        && str_contains($agentSource, "'existing_media_payload'")
+        && str_contains($agentSource, "'existing_capture_receipt'")
+        && str_contains($agentSource, "'existing_duo_ledger'"),
+    'stale state, media, capture-receipt, and ledger ownership block initialization'
+);
 check(str_contains($agentSource, 'Secrets::hard_match($window)'), 'every code byte crosses the high-confidence secret matcher');
 check(str_contains($agentSource, 'substr($window, -32768)'), 'streaming secret scan retains one full bounded-pattern chunk');
 check(str_contains($agentSource, "['allowed_classes' => false]"), 'risk discovery cannot instantiate serialized user-meta objects');
@@ -187,6 +193,12 @@ check(
     str_contains($agentSource, "'state.capture.lock', 'state.capture-receipt'")
         && str_contains($agentSource, "'state.capture-intent', 'state.capture-receipt'"),
     'final Git readiness allowlists the retained capture receipt and ignores no in-flight publication root'
+);
+$cliSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Cli.php');
+check(
+    str_contains($cliSource, "CommandRefusalException::invalidArgument('init', '--repo')")
+        && str_contains($cliSource, "self::halt_json_failure(\$t, \$assoc, 'init');"),
+    'target init owns the stable JSON invalid-argument and exception-refusal contract'
 );
 $adapterSource = (string) file_get_contents(__DIR__ . '/../../agent/src/AdapterSources.php');
 check(str_contains($adapterSource, 'file_exists($siteDir) || is_link($siteDir)'), 'adapter allowlist refuses every present non-directory boundary');
