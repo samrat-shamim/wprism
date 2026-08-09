@@ -1109,6 +1109,44 @@ assert_trace_has() {
   local trace="$1" event="$2"
   jq -e --arg event "$event" 'index($event) != null' <<<"$trace" >/dev/null || fail "trace lacks '$event': $trace"
 }
+assert_ecommerce_menu() {
+  local label="$1" out
+  out="$(target_wp eval '
+$menu = wp_get_nav_menu_object("duo-grind-primary");
+$cap = get_page_by_path("duo-grind-cap", OBJECT, "product");
+$items = $menu ? wp_get_nav_menu_items((int) $menu->term_id) : [];
+$items = is_array($items) ? array_values($items) : [];
+$rows = [];
+foreach ($items as $item) {
+    $rows[] = [
+        "object" => (string) $item->object,
+        "object_id" => (int) $item->object_id,
+        "position" => (int) $item->menu_order,
+        "title" => (string) $item->title,
+        "type" => (string) $item->type,
+        "url" => (string) $item->url,
+    ];
+}
+echo wp_json_encode([
+    "cap_id" => $cap ? (int) $cap->ID : 0,
+    "menu_name" => $menu ? (string) $menu->name : "",
+    "menu_slug" => $menu ? (string) $menu->slug : "",
+    "rows" => $rows,
+    "support_url" => home_url("/support/"),
+], JSON_UNESCAPED_SLASHES);
+')"
+  jq -e '
+    .cap_id > 0 and .menu_name == "Duo Grind Primary" and .menu_slug == "duo-grind-primary" and
+    (.rows | length) == 2 and
+    .rows[0].object == "product" and .rows[0].object_id == .cap_id and
+    .rows[0].position == 1 and .rows[0].title == "Shop the Duo Grind Cap" and
+    .rows[0].type == "post_type" and
+    .rows[1].object == "custom" and .rows[1].object_id == 0 and
+    .rows[1].position == 2 and .rows[1].title == "Duo Grind Support" and
+    .rows[1].type == "custom" and .rows[1].url == .support_url
+  ' <<<"$out" >/dev/null || fail "$label ecommerce menu did not converge: $out"
+  pass "$label menu retained ordered product identity and target-bound custom URL"
+}
 assert_receipt() {
   local artifact="$1" label="$2" expected_code="$3" basename run_id checkpoint recomputed_hash
   [ -f "$artifact" ] || fail "$label artifact missing: $artifact"
@@ -1245,6 +1283,13 @@ source_wp post term add "$CAP_ID" product_tag duo-grind-featured --by=slug >/dev
 GROUP_ID="$(source_wp wc product create --name='Duo Grind Bundle' --slug=duo-grind-bundle --type=grouped --status=publish --user=admin --porcelain)"
 source_wp eval "update_post_meta($GROUP_ID, '_children', [$MUG_ID, $CAP_ID]);" >/dev/null
 COUPON_ID="$(source_wp wc shop_coupon create --code=DUO-GRIND10 --discount_type=percent --amount=10 --product_ids="$CAP_ID" --product_categories="$CAT_ID" --usage_limit=25 --minimum_amount=10.00 --free_shipping=true --date_expires=2027-06-30T00:00:00 --status=publish --user=admin --porcelain)"
+MENU_ID="$(source_wp menu create 'Duo Grind Primary' --porcelain)"
+MENU_PRODUCT_ITEM_ID="$(source_wp menu item add-post "$MENU_ID" "$CAP_ID" --title='Shop the Duo Grind Cap' --position=1 --porcelain)"
+SOURCE_HOME="$(source_wp option get home)"
+MENU_CUSTOM_ITEM_ID="$(source_wp menu item add-custom "$MENU_ID" 'Duo Grind Support' "${SOURCE_HOME%/}/support/" --position=2 --porcelain)"
+[[ "$MENU_ID" =~ ^[0-9]+$ ]] || fail "source menu id is not numeric: $MENU_ID"
+[[ "$MENU_PRODUCT_ITEM_ID" =~ ^[0-9]+$ ]] || fail "source product menu-item id is not numeric: $MENU_PRODUCT_ITEM_ID"
+[[ "$MENU_CUSTOM_ITEM_ID" =~ ^[0-9]+$ ]] || fail "source custom menu-item id is not numeric: $MENU_CUSTOM_ITEM_ID"
 cat > "$SITE/.tmp-seed-acf-commerce.php" <<PHP
 <?php
 if (!function_exists('acf_update_field_group')) {
@@ -1324,7 +1369,7 @@ SOURCE_RUNTIME_ORDER_BASELINE="$(source_runtime_order_snapshot "$SOURCE_RUNTIME_
 source_wp eval 'if (count(wc_get_orders(["limit" => -1, "return" => "ids"])) !== 1) { throw new RuntimeException("fixture must contain exactly one source-only runtime order"); }' >/dev/null
 rm -f -- "$SITE/.tmp-make-commerce-media.php"
 rm -f -- "$SITE/duo-commerce-widget.png"
-pass "catalog seeded: category=$CAT_ID image=$MEDIA_ID products=$MUG_ID,$CAP_ID,$TEE_ID,$GROUP_ID coupon=$COUPON_ID attrs=$SIZE_ATTR_ID,$COLOR_ATTR_ID zone=$ZONE_ID methods=$FLAT_INSTANCE,$FREE_INSTANCE tax=$TAX_ID; source-only customer=$SOURCE_RUNTIME_CUSTOMER_ID order=$SOURCE_RUNTIME_ORDER_ID are runtime-only"
+pass "catalog seeded: category=$CAT_ID image=$MEDIA_ID products=$MUG_ID,$CAP_ID,$TEE_ID,$GROUP_ID coupon=$COUPON_ID menu=$MENU_ID attrs=$SIZE_ATTR_ID,$COLOR_ATTR_ID zone=$ZONE_ID methods=$FLAT_INSTANCE,$FREE_INSTANCE tax=$TAX_ID; source-only customer=$SOURCE_RUNTIME_CUSTOMER_ID order=$SOURCE_RUNTIME_ORDER_ID are runtime-only"
 
 say "initialize repository policy and perform initial state-only capture"
 git init --bare -b main "$ORIGIN" >/dev/null
@@ -1544,8 +1589,6 @@ assert_deletion_probe_lookup_present() {
   [ "$attribute_rows" -ge 1 ] || fail "deletion probe has no wc_product_attributes_lookup row for target id $id"
   pass "deletion probe target id $id has Woo meta and global-attribute lookup rows"
 }
-
-
 
 # WooCommerce's product_visibility terms are intentionally derived/runtime:
 # stock/rating/catalog hooks own them, so they are not declared as canonical
@@ -1919,6 +1962,7 @@ assert_eq retail "$(target_wp option get duo_commerce_extension_settings)" "v1 a
 assert_eq 1 "$(target_wp option get duo_commerce_extension_schema)" "v1 extension schema"
 assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_duo_commerce_extension_events' AND COLUMN_NAME = 'context'")" "v1 extension table shape"
 assert_woo_catalog 0 5
+assert_ecommerce_menu 'v1 target apply'
 TARGET_CAP_ID="$(target_wp post list --post_type=product --name=duo-grind-cap --field=ID)"
 [[ "$TARGET_CAP_ID" =~ ^[0-9]+$ ]] || fail "target cap id is not numeric: $TARGET_CAP_ID"
 DELETION_PROBE_TARGET_ID="$(target_wp post list --post_type=product --name=duo-grind-delete-probe --field=ID)"
@@ -2635,6 +2679,7 @@ assert_source_runtime_absent_from_target 'exact v1 rollback source runtime absen
 assert_target_runtime_absent_from_source 'exact v1 rollback target runtime absence'
 assert_runtime_state_excluded 'exact v1 rollback generated state exclusion'
 assert_woo_catalog 0 5
+assert_ecommerce_menu 'exact v1 rollback'
 assert_eq "$DELETION_PROBE_V1_TARGET_ID" "$(target_wp post list --post_type=product --name=duo-grind-delete-probe --field=ID)" 'checkpoint rollback restores the v1 probe id'
 assert_deletion_probe_lookup_present "$DELETION_PROBE_V1_TARGET_ID"
 assert_product_visibility_runtime

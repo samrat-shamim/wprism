@@ -391,7 +391,7 @@ ORDER_HELPER_GOLDEN_HASH=a5e218adaba2ef1c2f7dcee7078886c36fd4e743f8108aa883d1b5d
 ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=95777d9b3c8dd94e1a9c27febc42b3bff1ccbc7d47e5ce87aee5517637fcd35c
 VISIBILITY_HELPER_GOLDEN_HASH=7cc6d2e93dc5c78c222f033c0ed941e7e41afcf421ecefbf8d6a04fd89e46357
 EQ_HELPER_GOLDEN_HASH=4533ae3a46601a7646bbfc7e6258d08136783621e32487b906784be559a7d3c1
-RECEIPT_HELPER_GOLDEN_HASH=7e616cc2982e4360e5ec8cd069e2abebe0658ca65dd8dbe073deee8190afe5f1
+RECEIPT_HELPER_GOLDEN_HASH=c52955d31bd40938f1a804d7a1fcdb9b40eef043314375faacf2fbf0bdc53419
 THEME_HELPER_GOLDEN_HASH=92f7178cab9469fee55245f405839ce130c1fc9e8e113ada4ab8cfa560f5810e
 PHASE_ORDER_HELPER_GOLDEN_HASH=b8be7ab1221ac36f7ee6128ce24341d86ae46d66d7f0623ee567d3202b4e9aff
 ABSENT_HELPER_GOLDEN_HASH=74e54e8d9c00ba9d83634d57f7d56248999adf428426ab97d95e48dfb5a05616
@@ -1276,6 +1276,15 @@ if grep -Fq 'V1_INPUTS="$SITE/' "$SCRIPT"; then
 fi
 grep -Fq 'cp -a "$SITE/state" "$V1_INPUTS/state"' "$SCRIPT" || fail 'v1 rollback does not preserve the full canonical state tree outside the checkout'
 grep -Fq 'cp -a "$V1_INPUTS/state" "$SITE/state"' "$SCRIPT" || fail 'v1 rollback does not restore the full canonical state tree'
+
+grep -Fq 'source_wp menu create '\''Duo Grind Primary'\'' --porcelain' "$SCRIPT" || fail 'authored navigation-menu seed is missing'
+grep -Fq 'source_wp menu item add-post "$MENU_ID" "$CAP_ID"' "$SCRIPT" || fail 'menu product-reference seed is missing'
+grep -Fq 'source_wp menu item add-custom "$MENU_ID" '\''Duo Grind Support'\''' "$SCRIPT" || fail 'menu target-bound custom-link seed is missing'
+grep -Fq 'assert_ecommerce_menu()' "$SCRIPT" || fail 'menu convergence helper is missing'
+grep -Fq '.rows[0].object == "product" and .rows[0].object_id == .cap_id' "$SCRIPT" || fail 'menu helper does not bind the product item to the target product identity'
+grep -Fq '.rows[1].type == "custom" and .rows[1].url == .support_url' "$SCRIPT" || fail 'menu helper does not verify target-bound custom URL materialization'
+grep -Fq "assert_ecommerce_menu 'v1 target apply'" "$SCRIPT" || fail 'v1 menu round-trip assertion is missing'
+grep -Fq "assert_ecommerce_menu 'exact v1 rollback'" "$SCRIPT" || fail 'exact-restore menu assertion is missing'
 
 ACF_BLOCK="$(awk '/\.tmp-seed-acf-commerce\.php.*<<PHP/{inside=1; next} inside && /^PHP$/{exit} inside{print}' "$SCRIPT")"
 ACF_UNESCAPED="$(sed 's/\\\$//g' <<<"$ACF_BLOCK" | grep -oE '\$[A-Za-z_][A-Za-z0-9_]*' | sort -u || true)"
