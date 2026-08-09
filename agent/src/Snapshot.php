@@ -1362,16 +1362,12 @@ final class Snapshot {
                     . 'run the existing capture/identity recovery gate before exporting production'
                 );
             }
-            if (($decl['identity']['mode'] ?? 'mapped') === 'natural_key') {
-                $column = (string) $decl['identity']['column'];
-                $key = (string) ($row[$column] ?? '');
-                $expected = $key === '' ? '' : Uuid::v5(Uuid::NAMESPACE_DUO, "$table:$key");
-                if ($expected === '' || !hash_equals($expected, $uuid)) {
-                    throw new \RuntimeException(
-                        "duo: refresh export refused — natural-key identity contradicts ledger for table '$table' row $localId"
-                    );
-                }
-            }
+            // natural_key UUIDv5 is bootstrap identity only. Once a map row
+            // exists it is continuity identity, and a later authored key
+            // rename intentionally keeps that UUID (repo-format.md). The
+            // bidirectional durable mapping below is therefore the complete
+            // strict read-only witness; re-deriving here would reject every
+            // legitimate renamed row.
             Ledger::require_read_only_mapping($uuid, $table, $idKind, $localId, "table '$table' row $localId");
             return $uuid;
         }

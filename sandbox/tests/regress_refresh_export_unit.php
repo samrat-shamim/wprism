@@ -11,9 +11,12 @@ require_once $root . '/agent/src/Uuid.php';
 require_once $root . '/agent/src/Db.php';
 require_once $root . '/agent/src/Ledger.php';
 require_once $root . '/agent/src/RefreshExport.php';
+require_once $root . '/agent/src/Snapshot.php';
 
 use Duo\Ledger;
 use Duo\RefreshExport;
+use Duo\Snapshot;
+use Duo\Uuid;
 
 function fail_re(string $message): never { throw new RuntimeException("FAIL: $message"); }
 function check_re(bool $ok, string $message): void { if (!$ok) fail_re($message); }
@@ -42,6 +45,17 @@ final class RefreshExportReadOnlyWpdb {
         if (str_contains($sql, 'information_schema.STATISTICS')) return $this->indexes();
         if (str_contains($sql, 'SELECT uuid, entity_type, id_kind, local_id FROM wp_duo_map')) return $this->maps;
         throw new RuntimeException("FAIL: unexpected inventory query $sql");
+    }
+    public function get_var(string $sql): mixed {
+        if (preg_match("/WHERE id_kind = '([^']+)' AND local_id = ([0-9]+)/", $sql, $m) === 1) {
+            foreach ($this->maps as $row) {
+                if ($row['id_kind'] === $m[1] && (int) $row['local_id'] === (int) $m[2]) {
+                    return $row['uuid'];
+                }
+            }
+            return null;
+        }
+        throw new RuntimeException("FAIL: unexpected scalar query $sql");
     }
     /** @return ?array<string,mixed> */
     public function get_row(string $sql, mixed $_output = null): ?array {
@@ -91,12 +105,34 @@ final class RefreshExportReadOnlyWpdb {
 }
 
 $uuid = '123e4567-e89b-42d3-a456-426614174000';
+$renamedNaturalUuid = Uuid::v5(
+    Uuid::NAMESPACE_DUO,
+    'woocommerce_attribute_taxonomies:original-name'
+);
 $wpdb = new RefreshExportReadOnlyWpdb();
-$wpdb->maps = [['uuid'=>$uuid, 'entity_type'=>'post', 'id_kind'=>'post', 'local_id'=>7]];
+$wpdb->maps = [
+    ['uuid'=>$uuid, 'entity_type'=>'post', 'id_kind'=>'post', 'local_id'=>7],
+    [
+        'uuid'=>$renamedNaturalUuid,
+        'entity_type'=>'woocommerce_attribute_taxonomies',
+        'id_kind'=>'attr_taxonomy',
+        'local_id'=>42,
+    ],
+];
 $GLOBALS['wpdb'] = $wpdb;
 Ledger::assert_read_only_schema();
 Ledger::require_read_only_mapping($uuid, 'post', 'post', 7, 'fixture post');
 check_re($wpdb->queries === 0, 'read-only ledger helper attempted a mutation query');
+
+$identify = new ReflectionMethod(Snapshot::class, 'identify_row');
+$identify->setAccessible(true);
+$retained = $identify->invoke(null, 'woocommerce_attribute_taxonomies', [
+    'id_kind' => 'attr_taxonomy',
+    'identity' => ['mode' => 'natural_key', 'column' => 'attribute_name'],
+], ['attribute_name' => 'renamed-value'], 42, false, true);
+check_re($retained === $renamedNaturalUuid,
+    'strict export did not preserve durable natural-key identity across an authored rename');
+check_re($wpdb->queries === 0, 'natural-key continuity check attempted a mutation query');
 try {
     Ledger::require_read_only_mapping($uuid, 'term', 'post', 7, 'contradictory fixture');
     fail_re('contradictory durable identity was accepted');
