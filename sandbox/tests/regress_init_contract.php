@@ -324,4 +324,25 @@ try {
     rmdir($adapterRepo);
 }
 
+$nestedAdapterRepo = sys_get_temp_dir() . '/duo-init-nested-adapter-permissions-' . bin2hex(random_bytes(6));
+mkdir($nestedAdapterRepo . '/adapters/nested', 0777, true);
+file_put_contents($nestedAdapterRepo . '/adapters/nested/hidden.json', "{}\n");
+chmod($nestedAdapterRepo . '/adapters/nested', 0000);
+try {
+    \Duo\AdapterSources::discover(__DIR__ . '/../../manifests', $nestedAdapterRepo);
+    fail('unreadable nested adapter content was silently treated as empty');
+} catch (RuntimeException $expected) {
+    check(
+        str_contains($expected->getMessage(), 'nested site adapter source')
+            && str_contains($expected->getMessage(), 'could not be enumerated'),
+        'unreadable nested adapter content fails closed instead of becoming inert bytes'
+    );
+} finally {
+    chmod($nestedAdapterRepo . '/adapters/nested', 0777);
+    unlink($nestedAdapterRepo . '/adapters/nested/hidden.json');
+    rmdir($nestedAdapterRepo . '/adapters/nested');
+    rmdir($nestedAdapterRepo . '/adapters');
+    rmdir($nestedAdapterRepo);
+}
+
 echo "REGRESS_INIT_CONTRACT PASSED\n";

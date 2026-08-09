@@ -2507,7 +2507,14 @@ final class AdapterSources {
      * @return ?string
      */
     private static function first_nested_json(string $dir): ?string {
-        foreach (scandir($dir) ?: [] as $entry) {
+        $entries = @scandir($dir);
+        if ($entries === false) {
+            throw new \RuntimeException(
+                "duo: nested site adapter source $dir could not be enumerated — "
+                . 'Duo refuses to treat unreadable repository-owned adapter content as empty'
+            );
+        }
+        foreach ($entries as $entry) {
             if ($entry === '.' || $entry === '..') {
                 continue;
             }
