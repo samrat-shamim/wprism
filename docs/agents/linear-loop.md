@@ -249,9 +249,11 @@ branch or edit files before this passes.
   your issue worktree, with `CERT_BUNDLE_PAIR`/`CERT_BUNDLE_PORT1`/
   `CERT_BUNDLE_PORT2` allocated from your `PORT_BASE` (its defaults —
   `certbundle`, 8880/8881 — collide on a shared host). It also serializes
-  itself host-wide: a second launch refuses by naming the holder, or queues
-  behind it under `CERT_BUNDLE_WAIT=1`. Never clear the way by killing —
-  see the pattern-kill field note below (DUO-3382). "The independent
+  itself host-wide: a second launch refuses by naming the holder, or with
+  `CERT_BUNDLE_WAIT=1` polls until the lock frees and takes it then (a
+  bounded poll, not a queue — several waiters are not served in arrival
+  order). Never clear the way by killing — see the pattern-kill field note
+  below (DUO-3382). "The independent
   review" here is the dispatch protocol's pre-merge review-only subagent
   pass in its own checkout, recorded in the PR. Sequence: implement →
   offline-all → targeted live suites → targeted sweeps → review → fixes +
@@ -369,15 +371,20 @@ debugging time. Follow them; extend this list when you pay for a new one.
   process it knows the PID, so kill that; if it didn't start it, it has no
   business killing it. And when the real intent is "don't start a second
   one," say that to the tool rather than to the process table:
-  `certify_reference_bundle.sh` now takes a per-host advisory lock
-  (`/tmp/duo-certbundle.lock`, `mkdir`-based) before its preflight and
-  refuses by naming the holder's pid, pair, checkout, and age, with the
-  exact `CERT_BUNDLE_WAIT=1` command to queue behind it instead (bounded,
-  90 min default). Staleness is decided by PID liveness, never age — a dead
-  holder is announced and taken over by the next invocation, so there is
-  nothing left for a kill to accomplish, and a live holder's lock is never
-  removed by anyone (DUO-3382; `sandbox/tests/regress_certbundle_lock.sh`
-  proves each of those offline, with real racing processes).
+  `certify_reference_bundle.sh` now takes a per-host lock
+  (`/tmp/duo-certbundle.lock`) before its preflight and refuses by naming
+  the holder's pid, pair, checkout, and how long it has held, with the exact
+  `CERT_BUNDLE_WAIT=1` command to wait for it instead (a bounded poll, 90 min
+  default, no ordering guarantee between waiters). The lock is an flock(2)
+  held by a helper process that owns the descriptor — the same primitive
+  `pair.sh` uses for the pair budget — so the KERNEL releases it when its
+  holder stops existing. There is no corpse to detect, no staleness rule to
+  get wrong, and nothing to clean up by hand after a crash or a kill: the
+  next invocation simply acquires, within about a second. Killing a bundle
+  to free its lock accomplishes exactly nothing the kernel would not have
+  done, and costs whatever that run had built (DUO-3382;
+  `sandbox/tests/regress_certbundle_lock.sh` proves each of those offline
+  with real racing processes, on both lock backends).
 - **Posting content to Linear (or any API) from a shell:** never build the
   payload inside a double-quoted shell argument. Double quotes do NOT
   suppress backticks or `$var` — backtick-quoted code spans in comment

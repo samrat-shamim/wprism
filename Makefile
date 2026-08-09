@@ -458,10 +458,10 @@ regress-close-gate-parent-count:
 regress-manifest-validate:
 	bash sandbox/tests/regress_manifest_validate.sh
 
-# DUO-3382: the certification bundle's own per-host lock — real racing
+# DUO-3382: the certification bundle's own per-host flock(2) — real racing
 # processes against a private rendezvous, so the mutual exclusion, the named
-# refusal, bounded waiting, and liveness-based staleness are proven without
-# docker or a 50-minute bundle run.
+# refusal, bounded waiting, and kernel reclaim of a killed holder are proven
+# on both lock backends without docker or a 50-minute bundle run.
 regress-certbundle-lock:
 	bash sandbox/tests/regress_certbundle_lock.sh
 
