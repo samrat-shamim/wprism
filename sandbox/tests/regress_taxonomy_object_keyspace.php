@@ -177,6 +177,16 @@ tok_expect_failure(
     'no manifest object_keyspace declaration',
     'undeclared runtime mixed taxonomy'
 );
+tok_expect_failure(
+    fn() => $policy->taxonomy_object_keyspace('duo_keyspace_post_links', ['term']),
+    'declaration/runtime relationship ownership contradicts',
+    'declared post keyspace with runtime term ownership'
+);
+tok_expect_failure(
+    fn() => $policy->taxonomy_object_keyspace('duo_keyspace_term_links', ['duo_keyspace_post', 'term']),
+    'mixed runtime object_type values',
+    'declared keyspace cannot describe a mixed runtime registry'
+);
 
 $legacyBytes = Canon::post_file([
     'meta' => (object) ['legacy_marker' => 'same'],
@@ -221,6 +231,49 @@ $samePatternTerm = ['name' => 'same_pattern_term', 'spec_version' => DUO_SPEC_VE
 tok_write_manifest($manifestDir, 'same_pattern_post', $samePatternPost);
 tok_write_manifest($manifestDir, 'same_pattern_term', $samePatternTerm);
 tok_expect_failure(fn() => Policy::load(null, ['same_pattern_post', 'same_pattern_term']), 'conflicting object_keyspace declarations', 'contradictory identical pattern declarations');
+
+$legacyPatternPost = ['name' => 'legacy_pattern_post', 'spec_version' => DUO_SPEC_VERSION, 'taxonomy_patterns' => [[
+    'match' => '^legacy_shared$', 'object_type' => ['duo_keyspace_post'],
+]]];
+$explicitPatternTerm = ['name' => 'explicit_pattern_term', 'spec_version' => DUO_SPEC_VERSION, 'taxonomy_patterns' => [[
+    'match' => '^legacy_shared$', 'object_type' => ['duo_keyspace_post'], 'object_keyspace' => 'term',
+]]];
+tok_write_manifest($manifestDir, 'legacy_pattern_post', $legacyPatternPost);
+tok_write_manifest($manifestDir, 'explicit_pattern_term', $explicitPatternTerm);
+tok_expect_failure(
+    fn() => Policy::load(null, ['legacy_pattern_post', 'explicit_pattern_term']),
+    'conflicting object_keyspace declarations',
+    'omitted legacy pattern keyspace conflicts with explicit term at manifest load'
+);
+
+$legacyExactPost = ['name' => 'legacy_exact_post', 'spec_version' => DUO_SPEC_VERSION, 'taxonomies' => [
+    'exact_pattern_shared' => ['class' => 'authored'],
+]];
+$matchingPatternTerm = ['name' => 'matching_pattern_term', 'spec_version' => DUO_SPEC_VERSION, 'taxonomy_patterns' => [[
+    'match' => '^exact_pattern_shared$', 'object_type' => ['duo_keyspace_post'], 'object_keyspace' => 'term',
+]]];
+tok_write_manifest($manifestDir, 'legacy_exact_post', $legacyExactPost);
+tok_write_manifest($manifestDir, 'matching_pattern_term', $matchingPatternTerm);
+tok_expect_failure(
+    fn() => Policy::load(null, ['legacy_exact_post', 'matching_pattern_term']),
+    'exact and matching pattern declarations must agree',
+    'omitted exact keyspace conflicts eagerly with an explicit matching term pattern'
+);
+
+$patternContractA = ['name' => 'pattern_contract_a', 'spec_version' => DUO_SPEC_VERSION, 'taxonomy_patterns' => [[
+    'match' => '^contract_', 'object_type' => ['duo_keyspace_post'], 'object_keyspace' => 'post',
+]]];
+$patternContractB = ['name' => 'pattern_contract_b', 'spec_version' => DUO_SPEC_VERSION, 'taxonomy_patterns' => [[
+    'match' => '^contract_shared$', 'object_type' => ['other_post_type'], 'object_keyspace' => 'post',
+]]];
+tok_write_manifest($manifestDir, 'pattern_contract_a', $patternContractA);
+tok_write_manifest($manifestDir, 'pattern_contract_b', $patternContractB);
+$ambiguousPatternPolicy = Policy::load(null, ['pattern_contract_a', 'pattern_contract_b']);
+tok_expect_failure(
+    fn() => $ambiguousPatternPolicy->pattern_object_type('contract_shared'),
+    'ambiguous taxonomy_patterns contracts',
+    'overlapping patterns cannot choose object_type by pin order'
+);
 
 $overlap = ['name' => 'overlap', 'spec_version' => DUO_SPEC_VERSION, 'taxonomy_patterns' => [[
     'match' => '^duo_keyspace_dynamic_.*_links$', 'object_type' => ['duo_keyspace_post'], 'object_keyspace' => 'post',

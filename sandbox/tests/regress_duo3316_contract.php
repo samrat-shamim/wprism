@@ -534,6 +534,23 @@ expect_throw(
     'frozen policy refuses conflicting duplicate taxonomy description reference grammars'
 );
 
+$snapshot = $policy->export_snapshot();
+$legacyPattern = [
+    'name' => 'duo3316-legacy-pattern',
+    'spec_version' => DUO_SPEC_VERSION,
+    'taxonomy_patterns' => [[
+        'match' => '^dks_pattern_relation$',
+        'object_type' => ['post'],
+        'update_count_callback' => '_update_post_term_count',
+    ]],
+];
+$snapshot['site']['manifests'] = ['duo3316-fixture', 'duo3316-legacy-pattern'];
+$snapshot['manifests'][] = $legacyPattern;
+expect_throw(
+    fn() => Policy::from_snapshot($snapshot),
+    'frozen policy refuses omitted legacy-post versus explicit-term pattern ownership'
+);
+
 echo "\n== repository compiler: canonical tokens accepted, raw structured ids refused ==\n";
 $validRepo = "$tmp/valid-repo";
 mkdir($validRepo, 0777, true);
