@@ -404,7 +404,14 @@ echo "\n== actions: the effect-contract grammar still gates the new channel ==\n
 
 $m = probe_manifest();
 $m['actions'][0]['effects'] = [['id' => 'probe', 'kind' => 'telepathy', 'mode' => 'restorable', 'selector' => ['scope' => 'database_checkpoint', 'type' => 'option', 'value' => 'probe_option']]];
-refuse_probe($m, 'actions[0].effects[0] kind/mode is unsupported', 'an action effect with an unsupported kind is refused, and the message names the exact declaration');
+// DUO-3318 split the old combined "kind/mode is unsupported" refusal into one
+// message per closed vocabulary, each naming the rejected token and printing
+// the legal set — so this needle now asserts the KIND half specifically, which
+// is what this fixture actually breaks.
+refuse_probe($m, "actions[0].effects[0].kind='telepathy' is not one of the engine-owned effect kinds", 'an action effect with an unsupported kind is refused, and the message names the exact declaration and the legal set');
+$m = probe_manifest();
+$m['actions'][0]['effects'] = [['id' => 'probe', 'kind' => 'database', 'mode' => 'telekinesis', 'selector' => ['scope' => 'database_checkpoint', 'type' => 'option', 'value' => 'probe_option']]];
+refuse_probe($m, "actions[0].effects[0].mode='telekinesis' is not one of the engine-owned reversibility modes", 'an action effect with an unsupported mode is refused separately from kind, so an author is never left guessing which half failed');
 $m = probe_manifest();
 $m['actions'][0]['effects'] = [];
 refuse_probe($m, 'actions[0].effects must be a non-empty list', 'a present-but-empty action effects list is refused');

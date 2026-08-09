@@ -135,10 +135,17 @@ check_re($wpdb->queries === 0, 'read-only ledger helper attempted a mutation que
 
 $identify = new ReflectionMethod(Snapshot::class, 'identify_row');
 $identify->setAccessible(true);
+// DUO-3318: identify_row() takes the capture-direction tokenizer, because a
+// parent-scoped natural key's ref component derives from the REFERENCED row's
+// uuid. The strict read-only branch under test returns before touching it —
+// asserted below by the unchanged zero-mutation-query check — so an
+// uninitialized instance is exactly the right fixture: it proves that path
+// never reaches for one.
+$identifyTokens = (new ReflectionClass(Tokens::class))->newInstanceWithoutConstructor();
 $retained = $identify->invoke(null, 'woocommerce_attribute_taxonomies', [
     'id_kind' => 'attr_taxonomy',
     'identity' => ['mode' => 'natural_key', 'column' => 'attribute_name'],
-], ['attribute_name' => 'renamed-value'], 42, false, true);
+], ['attribute_name' => 'renamed-value'], 42, $identifyTokens, false, true);
 check_re($retained === $renamedNaturalUuid,
     'strict export did not preserve durable natural-key identity across an authored rename');
 check_re($wpdb->queries === 0, 'natural-key continuity check attempted a mutation query');

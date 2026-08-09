@@ -115,6 +115,7 @@ final class Policy {
             self::validate_option_storage($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_user_meta_rules($p->site['policy'] ?? [], 'site.duo.json');
+            self::validate_tables($p->site['policy'] ?? [], 'site.duo.json');
         }
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
         $pins = self::normalize_manifest_pins($rawPins);
@@ -131,7 +132,11 @@ final class Policy {
             $manifest = Canon::decode(Canon::read_file($file));
             self::validate_field_classes($manifest);
             self::validate_menu_field_classes($manifest);
-            self::validate_post_type_children($manifest);
+self::validate_post_type_children($manifest);
+            self::validate_post_type_contracts($manifest);
+            self::validate_tables($manifest, "manifest '$name'");
+            self::validate_attr_rules($manifest);
+            self::validate_widgets($manifest);
             self::validate_regen_dependencies($manifest);
             self::validate_providers($manifest);
             self::validate_actions($manifest);
@@ -155,6 +160,8 @@ final class Policy {
         self::validate_no_overlapping_option_name_refs($p->manifests);
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_no_conflicting_provider_ids($p->manifests);
+        self::validate_no_conflicting_post_type_contracts($p->manifests);
+        self::validate_ref_kinds($p->manifests, $p->site['policy'] ?? []);
         self::validate_manifest_pins($pins, $p);
         if ($p->manifestDispositions !== null && class_exists(CapabilityRegistry::class)) {
             $p->capabilityRegistry = CapabilityRegistry::load(
@@ -208,6 +215,7 @@ final class Policy {
         self::validate_option_storage($p->site['policy'] ?? [], 'frozen site.duo.json');
         self::validate_env_options($p->site['policy'] ?? [], 'frozen site.duo.json');
         self::validate_user_meta_rules($p->site['policy'] ?? [], 'frozen site.duo.json');
+        self::validate_tables($p->site['policy'] ?? [], 'frozen site.duo.json');
 
         $pins = self::normalize_manifest_pins($p->site['manifests'] ?? ['core']);
         if (count($pins) !== count($snapshot['manifests'])) {
@@ -223,7 +231,11 @@ final class Policy {
             }
             self::validate_field_classes($manifest);
             self::validate_menu_field_classes($manifest);
-            self::validate_post_type_children($manifest);
+self::validate_post_type_children($manifest);
+            self::validate_post_type_contracts($manifest);
+            self::validate_tables($manifest, "frozen manifest '$name'");
+            self::validate_attr_rules($manifest);
+            self::validate_widgets($manifest);
             self::validate_regen_dependencies($manifest);
             self::validate_providers($manifest);
             self::validate_actions($manifest);
@@ -232,6 +244,14 @@ final class Policy {
             self::validate_scope_classes($manifest, "frozen manifest '$name'", false);
             self::validate_sub_keys($manifest);
             self::validate_object_type_option_refs($manifest);
+            // DUO-3318: validate_dynamic_options() was missing here while
+            // load() had called it since DUO-3264. A frozen snapshot is
+            // re-validated precisely so a verification process reaches the
+            // same verdict as the process that froze it; one skipped
+            // validator makes that promise conditional on which entry point
+            // ran, which is exactly the class of divergence this method
+            // exists to rule out.
+            self::validate_dynamic_options($manifest);
             self::validate_option_name_refs($manifest);
             self::validate_option_storage($manifest, "frozen manifest '$name'");
             self::validate_adapter_contract($manifest);
@@ -267,6 +287,8 @@ final class Policy {
         self::validate_no_overlapping_option_name_refs($p->manifests);
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_no_conflicting_provider_ids($p->manifests);
+        self::validate_no_conflicting_post_type_contracts($p->manifests);
+        self::validate_ref_kinds($p->manifests, $p->site['policy'] ?? []);
         self::validate_manifest_pins($pins, $p);
         return $p;
     }
@@ -857,7 +879,26 @@ final class Policy {
             }
             $resolvedValue = $resolvedValues[$decl['resolver']] ?? null;
             if ($resolvedValue === null) {
-                continue;
+                // DUO-3318: a silent `continue` here used to turn an ENGINE
+                // wiring gap into an unclassified option. $resolvedValues is
+                // assembled by the caller from the resolver names this policy
+                // itself declares (Apply::dynamic_option_resolver_values()),
+                // so a missing entry can only mean the caller's own resolver
+                // map fell behind DYNAMIC_OPTION_RESOLVERS — never a data
+                // state a target can be in. Continuing produced a null return
+                // indistinguishable from "no declaration matches", which
+                // capture/apply then reports as an unclassified row: a
+                // confusing symptom arbitrarily far from the missing map
+                // entry that caused it. is_dynamic_option_residue() keeps its
+                // own `continue` deliberately — that method answers a
+                // yes/no question ABOUT a live environment and is documented
+                // as refusing to guess when the environment supplied nothing.
+                throw new \RuntimeException(
+                    "duo: dynamic_options.$key declares resolver '{$decl['resolver']}' but this caller supplied no "
+                    . 'value for it (supplied: ' . (($resolvedValues === []) ? 'none' : implode(', ', array_keys($resolvedValues)))
+                    . ") — the resolver vocabulary is engine-owned and every declared resolver must be resolved by the "
+                    . 'engine call site, not skipped'
+                );
             }
             $resolved = $this->resolve_dynamic_option($key, $resolvedValue);
             if ($resolved !== null && $resolved['name'] === $name) {
@@ -924,6 +965,364 @@ final class Policy {
             $out[$name] = $r;
         }
         return $out;
+    }
+
+    /**
+     * The closed `tables.<name>.class` vocabulary (DUO-3318).
+     *
+     * Exactly two values carry engine behavior: Snapshot.php selects
+     * `authored_snapshot` (a row table with identity of its own) and
+     * `authored_snapshot_meta` (an EAV sidecar with none) and deliberately
+     * gives no meaning to anything else. The remaining four are honest
+     * dispositions rather than mechanisms — `authored_typed_snapshot_post_v1`
+     * is the pre-existing "declared, and loudly not implemented yet" marker,
+     * and runtime/derived/env record a reviewed decision that a table's
+     * contents are target-local (core.json alone classifies 44 tables that
+     * way, which is exactly what keeps them out of `duo pending`'s unknown
+     * queue). The two literals repeat Snapshot::CLASS_ROW/CLASS_META rather
+     * than referencing them: this file must stay loadable with no other
+     * engine class present (RepositoryCompiler validates a revision in a
+     * process that never constructs Ledger/Tokens/Snapshot), and both
+     * spellings are wire format a manifest already carries, not an internal
+     * name either side is free to change.
+     *
+     * Closed because a typo was previously indistinguishable from a
+     * deliberate inert marker: `authored_snaphot` simply never matched
+     * Snapshot's own filter, so the table silently dropped out of capture
+     * with no diagnostic anywhere — a whole plugin's authored rows missing
+     * from canonical state because of one transposed letter. The vocabulary
+     * is engine-owned: a new class value means new engine behavior, so it is
+     * an engine change with a spec bump, never a manifest declaration.
+     */
+    private const TABLE_CLASSES = [
+        'authored_snapshot',
+        'authored_snapshot_meta',
+        'authored_typed_snapshot_post_v1',
+        'runtime',
+        'derived',
+        'env',
+    ];
+
+    /** The closed `tables.<t>.identity.mode` vocabulary (see assert_table_grammar()). */
+    private const IDENTITY_MODES = ['mapped', 'natural_key', 'composite_ref'];
+
+    /**
+     * The natural-key identity components of one table declaration, in the
+     * exact order the manifest declared them (DUO-3318).
+     *
+     * `{"column": "<col>"}` is the original single-column spelling and stays
+     * valid as the 1-component case; `{"columns": [...]}` is the parent-scoped
+     * form, for a table whose authored key is unique only WITHIN a parent row
+     * (a slot code unique per room, an option key unique per form). Declared
+     * order is load-bearing — it is part of the derivation input, so
+     * reordering `columns` is an identity change, not a cosmetic edit; that
+     * is why this returns the list as written rather than sorting it.
+     *
+     * Returns [] for any other identity mode, so a caller can branch on
+     * emptiness without repeating the mode check.
+     *
+     * @return list<string>
+     */
+    public static function natural_key_columns(array $decl): array {
+        if (($decl['identity']['mode'] ?? 'mapped') !== 'natural_key') {
+            return [];
+        }
+        $identity = $decl['identity'];
+        if (array_key_exists('columns', $identity)) {
+            return array_values(array_map('strval', (array) $identity['columns']));
+        }
+        return array_key_exists('column', $identity) ? [(string) $identity['column']] : [];
+    }
+
+    /**
+     * The pure-grammar half of a `tables.<name>` declaration (DUO-3318).
+     *
+     * Everything checkable from the manifest bytes alone lives here, and this
+     * is the only implementation of it: Policy::load()/from_snapshot() run it
+     * for every declared table so a malformed declaration refuses offline,
+     * before any target contact, and Snapshot::assert_row_schema()/
+     * assert_meta_schema() run it again immediately before their own LIVE
+     * `SHOW COLUMNS` half (re-checking a pure function of already-loaded bytes
+     * costs nothing, and keeps a directly-constructed Policy — the shape
+     * several offline harnesses build — covered by the same rules).
+     *
+     * The split is exactly "does answering this need the database": every
+     * check below reads only $decl. The two facts that stay in Snapshot are
+     * the ledger COLUMN WIDTHS (duo_map.id_kind, duo_map.entity_type), which
+     * are Ledger's schema rather than the manifest's grammar — and, decisively,
+     * naming Ledger here would drag a second engine class into a file whose
+     * whole point is that it loads alone.
+     *
+     * $source names the declaring manifest when one is known. It is appended,
+     * never interpolated into the existing sentences, so Snapshot's long-
+     * standing "duo: table '<t>' …" wordings stay byte-identical for the
+     * capture-time caller that has no manifest name to report.
+     */
+    public static function assert_table_grammar(string $table, mixed $decl, ?string $source = null): void {
+        $where = $source === null ? '' : " (declared by $source)";
+        // `mixed`, not `array`, so a scalar or list declaration produces this
+        // engine's ordinary "duo: " refusal rather than a PHP TypeError at the
+        // call site. An EMPTY object decodes to `[]`, which array_is_list()
+        // calls a list, so it deliberately falls through to the class check
+        // below — "declares class=NULL" says far more than "not an object".
+        if (!is_array($decl) || (array_is_list($decl) && $decl !== [])) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where must be declared as an object of table rules, got " . gettype($decl)
+            );
+        }
+        $class = $decl['class'] ?? null;
+        if (!in_array($class, self::TABLE_CLASSES, true)) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where declares class=" . var_export($class, true)
+                . ' but the table class vocabulary is closed (' . implode(', ', self::TABLE_CLASSES)
+                . ') — it is engine-owned, because only the engine can act on a class; a new one is an engine '
+                . 'change with a spec bump, not a manifest declaration'
+            );
+        }
+        if ($class === 'authored_snapshot_meta') {
+            // assert_meta_schema()'s pure half. The remaining columns of an
+            // EAV sidecar are checked against the live schema there; what a
+            // manifest alone can get wrong is failing to say which row table
+            // owns the sidecar and through which column.
+            $attachCol = (string) ($decl['attached_to']['column'] ?? '');
+            if ((string) ($decl['attached_to']['table'] ?? '') === '' || $attachCol === '') {
+                throw new \RuntimeException("duo: table '$table'$where declares authored_snapshot_meta with no attached_to.{table,column}");
+            }
+            return;
+        }
+        if ($class !== 'authored_snapshot') {
+            return; // an inert marker or a target-local disposition: nothing further is declarable
+        }
+
+        $mode = $decl['identity']['mode'] ?? 'mapped';
+        if (!in_array($mode, self::IDENTITY_MODES, true)) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where declares unknown identity.mode " . var_export($mode, true)
+                . ' — the identity vocabulary is closed and engine-owned: "mapped" (default; a surrogate primary '
+                . 'key with no portable key of its own, identity minted into duo_map), "natural_key" (a stable '
+                . 'authored column, or an ordered tuple of them, identity derived from the value), "composite_ref" '
+                . '(a pure join table with no primary key, identity derived from the referenced rows\' own uuids). '
+                . 'Each serves a different table SHAPE; a new mode is an engine change with a spec bump'
+            );
+        }
+        $refCols = array_column($decl['refs'] ?? [], 'column');
+        $colKeys = array_keys($decl['columns'] ?? []);
+        $overlap = array_intersect($colKeys, $refCols);
+        if ($overlap) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where declares column(s) in BOTH columns and refs: " . implode(', ', $overlap)
+            );
+        }
+        if ($mode === 'composite_ref') {
+            self::assert_composite_ref_grammar($table, $decl, $refCols, $where);
+            return;
+        }
+
+        $pk = (string) ($decl['pk'] ?? '');
+        if ($pk === '') {
+            throw new \RuntimeException("duo: table '$table'$where declares authored_snapshot with no 'pk'");
+        }
+        if ($mode === 'natural_key') {
+            self::assert_natural_key_grammar($table, $decl, $pk, $refCols, $colKeys, $where);
+        }
+        if (array_key_exists('slug_column', $decl)) {
+            $slugCol = $decl['slug_column'];
+            $slugRule = is_string($slugCol) && $slugCol !== ''
+                ? ($decl['columns'][$slugCol] ?? null)
+                : null;
+            if (!is_array($slugRule) || ($slugRule['class'] ?? null) !== 'authored') {
+                throw new \RuntimeException(
+                    "duo: table '$table'$where slug_column must name a non-empty authored columns entry — "
+                    . 'primary keys, refs, runtime, derived, and env columns are environment-local and cannot name canonical files'
+                );
+            }
+        }
+        self::assert_invalidate_grammar($table, $decl, $where);
+    }
+
+    /**
+     * composite_ref's own grammar half — kept a separate function for the
+     * same reason Snapshot::assert_composite_row_schema() is separate from
+     * assert_row_schema(): the invariants genuinely differ (no pk at all;
+     * identity.columns must EQUAL refs[] columns), so interleaving them
+     * would obscure both.
+     *
+     * @param list<string> $refCols
+     */
+    private static function assert_composite_ref_grammar(string $table, array $decl, array $refCols, string $where): void {
+        if (isset($decl['pk'])) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where declares identity.mode=composite_ref AND a 'pk' — "
+                . "composite_ref tables have no scalar primary key; remove 'pk'"
+            );
+        }
+        if (!empty($decl['invalidate'])) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where declares identity.mode=composite_ref with 'invalidate' — "
+                . "run_invalidate()'s {id} substitution assumes a single scalar local id, which this mode has no "
+                . 'equivalent of; unsupported, not silently ignored (no composite_ref fixture has needed it — see docblock)'
+            );
+        }
+        $idCols = $decl['identity']['columns'] ?? null;
+        if (!is_array($idCols) || count($idCols) !== 2) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where declares identity.mode=composite_ref with identity.columns != exactly 2 entries "
+                . '— this is the only shape this engine has proven (see assert_composite_row_schema()\'s docblock)'
+            );
+        }
+        $sortedIdCols = $idCols;
+        sort($sortedIdCols);
+        $sortedRefCols = $refCols;
+        sort($sortedRefCols);
+        if ($sortedIdCols !== $sortedRefCols) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where identity.columns [" . implode(', ', $idCols)
+                . "] must be EXACTLY its refs[] columns [" . implode(', ', $refCols)
+                . '] — composite_ref is only for pure join tables: every identity column is a ref, every ref is an identity column'
+            );
+        }
+    }
+
+    /**
+     * natural_key's grammar half, including DUO-3318's parent-scoped
+     * multi-column form.
+     *
+     * Every component must be a declared ref column or a declared `columns{}`
+     * entry — the two buckets whose values capture actually carries into the
+     * canonical file, and therefore the only ones a derivation can read back
+     * on another environment. The primary key is refused by name rather than
+     * merely being absent from those buckets: a surrogate auto-increment id
+     * is the exact category of value this engine's whole token grammar exists
+     * to keep out of portable identity, so a manifest reaching for it has
+     * made a specific mistake worth naming.
+     *
+     * A multi-column key REQUIRES slug_column. Single-column tables have a
+     * long-standing fallback (the literal `record` suffix), but a tuple has
+     * no honest one-line spelling — joining component display values would
+     * put a resolved ref's raw local id or a foreign row's label into a
+     * filename, and both change across environments. Requiring the declaration
+     * keeps filenames portable by construction instead of by convention.
+     *
+     * @param list<string> $refCols
+     * @param list<string> $colKeys
+     */
+    private static function assert_natural_key_grammar(
+        string $table,
+        array $decl,
+        string $pk,
+        array $refCols,
+        array $colKeys,
+        string $where
+    ): void {
+        $identity = $decl['identity'];
+        if (array_key_exists('column', $identity) && array_key_exists('columns', $identity)) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where declares identity.mode=natural_key with BOTH 'column' and 'columns' — "
+                . "these are one vocabulary with two spellings ('column' is the 1-component case); declare exactly one"
+            );
+        }
+        $columns = self::natural_key_columns($decl);
+        if ($columns === []) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where declares identity.mode=natural_key with no 'column' and no non-empty "
+                . "'columns' — a derived identity needs at least one authored component to derive from"
+            );
+        }
+        $seen = [];
+        foreach ($columns as $column) {
+            if ($column === '') {
+                throw new \RuntimeException(
+                    "duo: table '$table'$where declares an empty identity column name for identity.mode=natural_key"
+                );
+            }
+            if (isset($seen[$column])) {
+                throw new \RuntimeException(
+                    "duo: table '$table'$where repeats identity column '$column' — a repeated component adds no "
+                    . 'distinguishing power and makes the declared order ambiguous'
+                );
+            }
+            $seen[$column] = true;
+            if ($column === $pk) {
+                throw new \RuntimeException(
+                    "duo: table '$table'$where names its primary key '$pk' as a natural_key identity column — a "
+                    . 'surrogate primary key is an environment-local auto-increment value, so deriving identity '
+                    . 'from it would mint a different uuid per environment for the same authored fact; use '
+                    . 'identity.mode=mapped when a table has no portable key of its own'
+                );
+            }
+            if (!in_array($column, $refCols, true) && !in_array($column, $colKeys, true)) {
+                throw new \RuntimeException(
+                    "duo: table '$table'$where names identity column '$column', which is neither a declared "
+                    . 'refs[] column nor a declared columns{} entry — an identity component must be a column this '
+                    . 'manifest actually classifies, or capture has nothing portable to derive from'
+                );
+            }
+        }
+        if (count($columns) > 1 && (string) ($decl['slug_column'] ?? '') === '') {
+            throw new \RuntimeException(
+                "duo: table '$table'$where declares a multi-column natural_key (" . implode(', ', $columns)
+                . ") without 'slug_column' — a tuple has no portable one-line filename spelling (a resolved ref "
+                . "component is an environment-local id), so the declaration must name the authored column that "
+                . 'supplies the human-readable half of the path'
+            );
+        }
+    }
+
+    /**
+     * `invalidate[]` grammar (DUO-3318): each entry is exactly one targeted
+     * row delete `{table, column}` or one named option `{option_pattern}`.
+     *
+     * Both branches are generic, plugin-blind primitives, and both are
+     * silently no-ops when misspelled: Snapshot::run_invalidate() dispatches
+     * on `isset($inv['table'])` / `isset($inv['option_pattern'])`, so a
+     * mistyped key used to mean "this cache is never invalidated" with no
+     * diagnostic — the exact failure Ninja Forms' stale-cache finding was
+     * filed for in the first place. `{id}` is required in an option_pattern
+     * for the same reason: a pattern with no substitution point names ONE
+     * fixed option row for every row of the table, which is either a no-op or
+     * a delete of an unrelated option.
+     */
+    private static function assert_invalidate_grammar(string $table, array $decl, string $where): void {
+        if (!array_key_exists('invalidate', $decl)) {
+            return;
+        }
+        $entries = $decl['invalidate'];
+        if (!is_array($entries) || !array_is_list($entries) || $entries === []) {
+            throw new \RuntimeException("duo: table '$table'$where invalidate must be a non-empty list");
+        }
+        foreach ($entries as $i => $entry) {
+            if (!is_array($entry) || array_is_list($entry)) {
+                throw new \RuntimeException("duo: table '$table'$where invalidate[$i] must be an object");
+            }
+            $keys = array_keys($entry);
+            sort($keys, SORT_STRING);
+            if ($keys === ['column', 'table']) {
+                foreach (['table', 'column'] as $key) {
+                    if (!is_string($entry[$key]) || $entry[$key] === '') {
+                        throw new \RuntimeException(
+                            "duo: table '$table'$where invalidate[$i].$key must be a non-empty string"
+                        );
+                    }
+                }
+                continue;
+            }
+            if ($keys === ['option_pattern']) {
+                if (!is_string($entry['option_pattern']) || !str_contains($entry['option_pattern'], '{id}')) {
+                    throw new \RuntimeException(
+                        "duo: table '$table'$where invalidate[$i].option_pattern must be a string containing the "
+                        . '{id} substitution point — without it every row of this table would name the same one '
+                        . 'option row'
+                    );
+                }
+                continue;
+            }
+            throw new \RuntimeException(
+                "duo: table '$table'$where invalidate[$i] declares [" . implode(', ', $keys)
+                . '] but the invalidation vocabulary is closed and engine-owned: exactly {table, column} for a '
+                . 'targeted row delete, or exactly {option_pattern} for a named option. Anything a plugin owns '
+                . 'beyond those two generic primitives belongs in a native action or a provider capability'
+            );
+        }
     }
 
     /** Closed widget type registry. Last pinned manifest wins per type. */
@@ -2117,10 +2516,25 @@ final class Policy {
      * status/menu_order/comment_status/ping_status/excerpt have no proven
      * self-healing precedent. Widening this list is a deliberate, separate
      * decision per field, not a mechanical extension of the mechanism.
+     *
+     * A MAP, front-matter field => the wp_posts column it writes (DUO-3318).
+     * Apply::finalize_post() has to drop the mapped COLUMN from its UPDATE
+     * payload, and it used to carry its own independent copy of this
+     * translation: widening the allowlist here without also widening that
+     * literal would have produced a field a manifest may legally declare
+     * `derived` and that apply then overwrites anyway — a silent
+     * half-implementation of the very classification the declaration asked
+     * for. One declaration site makes that combination unrepresentable.
+     * Public because the consumer lives in another class; the value is the
+     * engine's own vocabulary, not a manifest input.
      */
-    private const DERIVABLE_FIELDS = ['title', 'modified', 'modified_gmt'];
+    public const DERIVABLE_FIELD_COLUMNS = [
+        'title' => 'post_title',
+        'modified' => 'post_modified',
+        'modified_gmt' => 'post_modified_gmt',
+    ];
 
-    /** @see DERIVABLE_FIELDS */
+    /** @see DERIVABLE_FIELD_COLUMNS */
     private const FIELD_CLASSES = ['derived'];
 
     /**
@@ -2162,7 +2576,7 @@ final class Policy {
      *
      * Default 'authored': every field is authored unless a manifest says
      * otherwise, matching how every post type captures fully today with
-     * zero manifest declarations. See DERIVABLE_FIELDS for what a manifest
+     * zero manifest declarations. See DERIVABLE_FIELD_COLUMNS for what a manifest
      * may actually declare — anything else fails loudly at load() time,
      * never silently here. Capture still records a derived field verbatim;
      * Canon strips it only from the hash basis, and Apply omits its mapped
@@ -2188,14 +2602,14 @@ final class Policy {
 
     /**
      * v2-supported MENU FIELD classification surface (DUO-3272) — same
-     * purpose as DERIVABLE_FIELDS above (task #88), but for `menus/*.json`
+     * purpose as DERIVABLE_FIELD_COLUMNS above (task #88), but for `menus/*.json`
      * entities: a field name must appear here before ANY manifest may
      * declare it under top-level `menu_fields.<field>` —
      * validate_menu_field_classes() below enforces this at load() time.
      * Deliberately just 'locations': it is the only menu field with a
      * proven self-healing precedent under a real plugin (Polylang).
      *
-     * Structurally different from DERIVABLE_FIELDS/field_class() even
+     * Structurally different from DERIVABLE_FIELD_COLUMNS/field_class() even
      * though the intent rhymes: field_class() is a narrow opt-in (implicit
      * 'authored', a manifest may only ever DECLARE 'derived' — no core
      * declaration exists to yield to, since every shipped user is a PLUGIN
@@ -2274,12 +2688,14 @@ final class Policy {
         $name = (string) ($manifest['name'] ?? '?');
         foreach ($manifest['post_types'] ?? [] as $postType => $decl) {
             foreach ($decl['fields'] ?? [] as $field => $rule) {
-                if (!in_array($field, self::DERIVABLE_FIELDS, true)) {
+                if (!array_key_exists($field, self::DERIVABLE_FIELD_COLUMNS)) {
                     throw new \RuntimeException(
                         "duo: manifest '$name' declares post_types.$postType.fields.$field, but only "
-                        . implode(', ', self::DERIVABLE_FIELDS) . ' may be field-classified in v2 (the '
-                        . 'evidence-backed allowlist remains deliberately tight — see '
-                        . 'Policy::DERIVABLE_FIELDS\' docblock)'
+                        . implode(', ', array_keys(self::DERIVABLE_FIELD_COLUMNS))
+                        . ' may be field-classified in v2 (the evidence-backed allowlist remains deliberately '
+                        . 'tight — see Policy::DERIVABLE_FIELD_COLUMNS\' docblock). The post-field vocabulary is '
+                        . 'engine-owned: a new derivable field is an engine change with a spec bump (allowlist '
+                        . 'entry, wp_posts column mapping, and its own evidence), never a manifest declaration'
                     );
                 }
                 $class = $rule['class'] ?? null;
@@ -2287,7 +2703,9 @@ final class Policy {
                     throw new \RuntimeException(
                         "duo: manifest '$name' declares post_types.$postType.fields.$field.class="
                         . var_export($class, true) . ' but only ' . implode(', ', self::FIELD_CLASSES)
-                        . ' is supported for post fields in v2'
+                        . ' is supported for post fields in v2 — the class vocabulary for this surface is '
+                        . 'engine-owned (field_class() defaults every undeclared field to authored, so '
+                        . 'declaring authored is a no-op and any other class has no defined apply semantics)'
                     );
                 }
             }
@@ -2327,6 +2745,265 @@ final class Policy {
                     . var_export($class, true) . ' but only ' . implode(', ', self::MENU_FIELD_CLASSES)
                     . ' is supported for menu fields in v2'
                 );
+            }
+        }
+    }
+
+    /**
+     * The closed `post_types.<t>.body` vocabulary. 'blocks' (the default) runs
+     * the block parser and URL tokenizer over post_content; 'verbatim'
+     * byte-preserves it, for a definition CPT whose body is serialized data
+     * where a URL substitution would corrupt the encoded string lengths.
+     * Consumers compare against 'verbatim' EXACTLY (Capture, Apply, Lint), so
+     * every other spelling — including a plausible-looking 'raw' or 'none' —
+     * silently meant 'blocks' and quietly corrupted the very bodies the
+     * declaration was written to protect.
+     */
+    private const BODY_MODES = ['blocks', 'verbatim'];
+
+    /**
+     * The closed `post_types.<t>.phase` vocabulary. 'early' finalizes a type
+     * before all others in apply phase 2 — for definition CPTs whose content
+     * interpreters read to type OTHER entities' meta. Same silent-failure
+     * shape as `body`: Apply compares against 'early' exactly, so a misspelled
+     * phase reverted the type to glob-alphabetical ordering, which is the
+     * precise accident declared ordering exists to remove.
+     */
+    private const POST_TYPE_PHASES = ['normal', 'early'];
+
+    /**
+     * Loud, load-time guard for the two per-post-type behavior switches
+     * body_mode()/post_type_phase() read (DUO-3318).
+     *
+     * Both accessors default an absent OR unrecognized value to the safe
+     * spelling and return it silently — correct as a lookup contract (a
+     * consumer may not invent a mode), wrong as the ONLY check, because it
+     * makes a typo indistinguishable from an intentional omission. This is
+     * the same posture validate_field_classes() takes for the sibling
+     * `fields` key, mirrored rather than merged for the same reason
+     * validate_menu_field_classes() gives for itself: these are flat scalar
+     * switches on the post-type declaration, not a nested per-name rule map.
+     */
+    private static function validate_post_type_contracts(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        foreach ($manifest['post_types'] ?? [] as $postType => $decl) {
+            if (!is_array($decl)) {
+                continue; // shape already refused by validate_scope_classes()
+            }
+            foreach ([['body', self::BODY_MODES], ['phase', self::POST_TYPE_PHASES]] as [$key, $legal]) {
+                if (!array_key_exists($key, $decl)) {
+                    continue;
+                }
+                if (!in_array($decl[$key], $legal, true)) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' declares post_types.$postType.$key="
+                        . var_export($decl[$key], true) . ' but the vocabulary is closed ('
+                        . implode(', ', $legal) . ') — it is engine-owned, because each value names engine '
+                        . 'behavior the engine implements; a new one is an engine change with a spec bump, not a '
+                        . 'manifest declaration'
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * Loud, load-time guard for every declared table (DUO-3318), for
+     * manifests AND for site.duo.json's own policy.tables overrides —
+     * declared_tables() merges the site's last, so a malformed override is
+     * exactly as fatal as a malformed manifest and deserves the same
+     * offline refusal.
+     *
+     * The grammar itself is assert_table_grammar()'s (see its docblock for
+     * why it lives beside declared_tables() rather than in Snapshot.php);
+     * this is only the enumeration that feeds it every declaration.
+     */
+    private static function validate_tables(array $source, string $label): void {
+        $tables = $source['tables'] ?? [];
+        if (!is_array($tables) || (array_is_list($tables) && $tables !== [])) {
+            throw new \RuntimeException("duo: $label tables must be an object keyed by unprefixed table name");
+        }
+        foreach ($tables as $table => $decl) {
+            self::assert_table_grammar((string) $table, $decl, $label);
+        }
+    }
+
+    /**
+     * Loud, load-time guard for the two attribute-rewriting registries
+     * (DUO-3318): `block_attrs` (blockName => list of rules) and its flatter
+     * shortcode twin `shortcode_attrs` (tagName => list of rules).
+     *
+     * Structure only — the ref KIND vocabulary is checked once, across every
+     * pinned manifest, by validate_ref_kinds() below, because a legal kind
+     * includes any declared table's id_kind and no single manifest can see
+     * that set. What this catches is the shape errors that used to fail
+     * silently: Blocks::apply_rewrite() skips any rule whose `path` names an
+     * attribute the block does not carry, so a misspelled `path` is
+     * indistinguishable from "this block simply had no such attribute" — a
+     * declared ref that is never rewritten, leaving a raw environment-local
+     * id in canonical state. `type` decides scalar-vs-list handling and
+     * defaults to 'int', so 'array' or 'int[] ' quietly truncated a gallery's
+     * id list to one dropped attribute.
+     *
+     * Every rule must carry exactly one disposition, because the four are
+     * mutually exclusive dispatch branches in Blocks.php, not composable
+     * flags: `lint_ok` (declared non-ref, nothing to rewrite),
+     * `tokenize: "text"` (a URL-bearing string attribute), `kind` (a static
+     * ref kind), or `kind_from` (a ref kind dispatched from a sibling
+     * attribute's value). A rule with none of them reaches
+     * Blocks::resolve_kind()'s own throw at REWRITE time, mid-capture, on
+     * whichever post happened to contain that block first.
+     */
+    private static function validate_attr_rules(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        foreach (['block_attrs', 'shortcode_attrs'] as $section) {
+            $registry = $manifest[$section] ?? [];
+            if (!is_array($registry) || (array_is_list($registry) && $registry !== [])) {
+                throw new \RuntimeException("duo: manifest '$name' $section must be an object keyed by name");
+            }
+            foreach ($registry as $subject => $rules) {
+                $where = "manifest '$name' $section.$subject";
+                if (!is_array($rules) || !array_is_list($rules) || $rules === []) {
+                    throw new \RuntimeException("duo: $where must be a non-empty list of rules");
+                }
+                foreach ($rules as $i => $rule) {
+                    self::validate_attr_rule($rule, $section, $where . "[$i]");
+                }
+            }
+        }
+    }
+
+    /** One `block_attrs`/`shortcode_attrs` entry. @see validate_attr_rules() */
+    private static function validate_attr_rule(mixed $rule, string $section, string $where): void {
+        if (!is_array($rule) || (array_is_list($rule) && $rule !== [])) {
+            throw new \RuntimeException("duo: $where must be an object");
+        }
+        if (!is_string($rule['path'] ?? null) || $rule['path'] === '') {
+            throw new \RuntimeException(
+                "duo: $where.path must be a non-empty attribute name — an unmatched path is silently skipped at "
+                . 'rewrite time, so a declared ref would never actually be tokenized'
+            );
+        }
+        if (array_key_exists('lint_ok', $rule) && !is_bool($rule['lint_ok'])) {
+            throw new \RuntimeException("duo: $where.lint_ok must be a boolean");
+        }
+        if (array_key_exists('type', $rule) && !in_array($rule['type'], ['int', 'int[]'], true)) {
+            throw new \RuntimeException(
+                "duo: $where.type=" . var_export($rule['type'], true) . ' but the attribute-value vocabulary is '
+                . 'closed and engine-owned (int, int[]); an id-bearing attribute is either one id or a native '
+                . 'list of them, and any other shape needs engine support before it can be declared'
+            );
+        }
+        if (array_key_exists('cast', $rule) && !in_array($rule['cast'], self::CASTS, true)) {
+            throw new \RuntimeException(
+                "duo: $where.cast=" . var_export($rule['cast'], true) . ' but only '
+                . implode('|', self::CASTS) . ' are supported'
+            );
+        }
+        if (array_key_exists('tokenize', $rule) && $rule['tokenize'] !== 'text') {
+            throw new \RuntimeException(
+                "duo: $where.tokenize=" . var_export($rule['tokenize'], true)
+                . " but the only supported codec for an attribute is \"text\" (the ordinary home/uploads URL pass)"
+            );
+        }
+        if (array_key_exists('kind_from', $rule)) {
+            $from = $rule['kind_from'];
+            if (!is_array($from) || !is_string($from['attr'] ?? null) || ($from['attr'] ?? '') === ''
+                || !is_array($from['map'] ?? null) || ($from['map'] ?? []) === []) {
+                throw new \RuntimeException(
+                    "duo: $where.kind_from must declare a non-empty sibling `attr` and a non-empty `map` of that "
+                    . "attribute's values to ref kinds"
+                );
+            }
+            if (array_key_exists('kind', $rule)) {
+                throw new \RuntimeException(
+                    "duo: $where declares BOTH kind and kind_from — a rule's ref kind is either static or "
+                    . 'dispatched from a sibling attribute, never both'
+                );
+            }
+        }
+        $dispositions = array_filter([
+            'lint_ok' => !empty($rule['lint_ok']),
+            'tokenize' => array_key_exists('tokenize', $rule),
+            'kind' => array_key_exists('kind', $rule),
+            'kind_from' => array_key_exists('kind_from', $rule),
+        ]);
+        if ($dispositions === []) {
+            throw new \RuntimeException(
+                "duo: $where declares none of kind, kind_from, tokenize, or lint_ok — every "
+                . ($section === 'block_attrs' ? 'block' : 'shortcode') . ' attribute rule must say what the '
+                . 'engine should do with the value it names; a rule with no disposition is refused here rather '
+                . 'than reaching its throw mid-capture, on whichever entity happened to carry it first'
+            );
+        }
+    }
+
+    /**
+     * Loud, load-time guard for the widget registry (DUO-3318).
+     *
+     * SidebarState::assert_declared_types() has always checked this shape,
+     * but only once a sidebar is actually captured or applied, which needs a
+     * live WordPress. The grammar half is a pure function of the manifest, so
+     * it belongs at load time where every command pays for it and an offline
+     * validation can reach it — same split, and the same rationale, as the
+     * table grammar above. SidebarState keeps the one check that is genuinely
+     * its own (the id_kind column budget its derived kind name has to fit).
+     *
+     * `codec`/`ref` stay deliberately narrow: 'blocks' is the only settings
+     * codec the engine implements, and 'term' the only ref kind a core widget
+     * setting has ever carried. Both are engine-owned — a widget setting's
+     * value passes through engine codecs, not adapter code — so widening
+     * either is an engine change with a spec bump, not a manifest
+     * declaration.
+     */
+    private static function validate_widgets(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        $widgets = $manifest['widgets'] ?? [];
+        if (!is_array($widgets) || (array_is_list($widgets) && $widgets !== [])) {
+            throw new \RuntimeException("duo: manifest '$name' widgets must be an object keyed by widget type");
+        }
+        foreach ($widgets as $type => $decl) {
+            $where = "manifest '$name' widgets.$type";
+            if (!is_string($type) || !preg_match('/^[a-z0-9_-]+$/', $type)) {
+                throw new \RuntimeException(
+                    "duo: $where names an invalid widget type — a type is WordPress's own id_base "
+                    . '(the widget_<type> option name), matching ^[a-z0-9_-]+$'
+                );
+            }
+            $settings = is_array($decl) ? ($decl['settings'] ?? null) : null;
+            if (!is_array($settings) || $settings === [] || array_is_list($settings)) {
+                throw new \RuntimeException(
+                    "duo: $where must declare a non-empty `settings` object — capture refuses any live setting "
+                    . 'this map does not name, so an absent map makes every instance of the type uncapturable'
+                );
+            }
+            foreach ($settings as $setting => $rule) {
+                if (!is_string($setting) || $setting === '' || !is_array($rule)
+                    || ($rule['class'] ?? null) !== 'authored') {
+                    throw new \RuntimeException(
+                        "duo: $where.settings.$setting must declare class=authored — a widget settings map is an "
+                        . 'allowlist of portable fields, so a non-authored entry has nothing to mean (leave the '
+                        . 'field out to exclude it)'
+                    );
+                }
+                if (array_key_exists('codec', $rule) && $rule['codec'] !== 'blocks') {
+                    throw new \RuntimeException(
+                        "duo: $where.settings.$setting declares codec=" . var_export($rule['codec'], true)
+                        . ' but the widget settings codec vocabulary is closed and engine-owned (blocks)'
+                    );
+                }
+                if (array_key_exists('ref', $rule) && $rule['ref'] !== 'term') {
+                    throw new \RuntimeException(
+                        "duo: $where.settings.$setting declares ref=" . var_export($rule['ref'], true)
+                        . ' but the widget settings ref vocabulary is closed and engine-owned (term)'
+                    );
+                }
+                if (array_key_exists('codec', $rule) && array_key_exists('ref', $rule)) {
+                    throw new \RuntimeException(
+                        "duo: $where.settings.$setting cannot declare codec and ref — a setting value is either a "
+                        . 'structured document the engine decodes or a single entity reference it resolves'
+                    );
+                }
             }
         }
     }
@@ -2974,7 +3651,7 @@ final class Policy {
     /**
      * v1-supported dynamic_options resolvers (DUO-3264, fork A) — a
      * manifest's `resolver` value must appear here, mirroring
-     * MENU_DERIVABLE_FIELDS/DERIVABLE_FIELDS' own "start v1 scope tight"
+     * MENU_DERIVABLE_FIELDS/DERIVABLE_FIELD_COLUMNS' own "start v1 scope tight"
      * posture elsewhere in this file. Deliberately just 'active_stylesheet':
      * the one proven case (theme_mods_<stylesheet>). A future resolver is
      * anticipated by the ruling's own wording but not invented ahead of a
@@ -3142,6 +3819,237 @@ final class Policy {
                     . Canon::encode($prior['rule']) . ' vs ' . Canon::encode($effective) . '). '
                     . "Add an explicit site.duo.json policy.options.$optionName override to resolve this option."
                 );
+            }
+        }
+    }
+
+    /**
+     * DUO-3318: one owner per post-type behavior key, across every pinned
+     * manifest — the cross-manifest guard, run once after the whole set has
+     * loaded (no single manifest's own validator could ever see this), and
+     * the acceptance-4 half of this issue for the post surface: extension
+     * must not grant one adapter authority over another adapter's entities.
+     *
+     * Unlike options — where DUO-3249 established a ratified
+     * core-yields-to-plugin reclassification layer, which is exactly why
+     * validate_no_conflicting_option_rules() exempts core — every post-type
+     * behavior lookup in this class (body_mode(), post_type_phase(),
+     * field_rule_details(), regen_dependency()) is a plain
+     * first-declaration-in-pin-order walk with no precedence layer to appeal
+     * to. So a second manifest declaring `fields` for WooCommerce's `product`
+     * either silently loses or silently wins depending on where an operator
+     * happened to put it in site.duo.json's list — one adapter's declaration
+     * changing another adapter's entities, decided by an ordering nobody
+     * intended as a decision. No exemption for core here for the same reason:
+     * there is no ratified layer for this surface to express.
+     *
+     * Guarded per KEY rather than per whole declaration, because precedence
+     * is per key: two manifests may legitimately say different THINGS about
+     * one post type (a scope disposition from one, a derived-field claim from
+     * another) as long as they do not contradict each other about the same
+     * one. Identical declarations of the same key are redundant, not
+     * ambiguous, and pass — the same allowance
+     * validate_no_conflicting_adapter_claims() makes for a repeated range.
+     *
+     * DUO-3255 remains the open umbrella for the general "two non-core
+     * manifests, one name" question; this instantiates its answer for one
+     * concrete surface rather than waiting for the general ruling.
+     *
+     * @param list<array> $manifests
+     */
+    private static function validate_no_conflicting_post_type_contracts(array $manifests): void {
+        $seen = [];
+        foreach ($manifests as $manifest) {
+            $name = (string) ($manifest['name'] ?? '?');
+            foreach ((array) ($manifest['post_types'] ?? []) as $postType => $decl) {
+                if (!is_array($decl)) {
+                    continue;
+                }
+                foreach ($decl as $key => $value) {
+                    $fingerprint = Canon::encode([$value]);
+                    $slot = "$postType\0$key";
+                    if (!isset($seen[$slot])) {
+                        $seen[$slot] = ['manifest' => $name, 'fingerprint' => $fingerprint];
+                        continue;
+                    }
+                    if ($seen[$slot]['manifest'] === $name || $seen[$slot]['fingerprint'] === $fingerprint) {
+                        continue;
+                    }
+                    throw new \RuntimeException(
+                        "duo: manifests '{$seen[$slot]['manifest']}' and '$name' both declare "
+                        . "post_types.$postType.$key with different values (" . $seen[$slot]['fingerprint']
+                        . ' vs ' . $fingerprint . ") — a post type's behavior contract has exactly one owner, and "
+                        . 'this lookup resolves by pin order, so accepting both would let one adapter silently '
+                        . "change another adapter's entities. The extension path is the owning adapter's own "
+                        . 'manifest, or an explicit site.duo.json decision for a site-local need — never a second '
+                        . 'manifest reaching into the first'
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * The ref-kind vocabulary, closed across every pinned manifest and the
+     * site's own policy (DUO-3318).
+     *
+     * A ref kind is the engine's typed-identity keyspace name: three are the
+     * engine's own (`post`, `term`, `tt` — Tokens::KIND_MAP's historical
+     * short spellings), `user` is the login-serialized form a classification
+     * rule may name, and every other legal value is an `id_kind` some pinned
+     * manifest declared for a table it owns. That last clause is the whole
+     * extension path, and it is deliberately the only one: an adapter widens
+     * this vocabulary by declaring a TABLE it owns, never by naming a kind
+     * out of thin air.
+     *
+     * Why closed at all: Tokens::id_to_token() passes an unrecognized kind
+     * straight through as a ledger lookup key (KIND_MAP is a rename table,
+     * not a gate — deliberately, so a declared id_kind needs no engine-side
+     * registration). A typo therefore resolved to a keyspace with no rows,
+     * returned null, and took the ordinary dangling-reference path: the value
+     * was DROPPED from canonical state with a warning that named the id but
+     * not the misspelled kind. `"ref": "psot"` silently deleted authored
+     * references — the loudest possible symptom being a warning that looks
+     * exactly like an ordinary unmapped id.
+     *
+     * Two vocabularies, not one, because they answer different questions. A
+     * classification rule's `ref` may name `user` and may carry the `[]`
+     * plural suffix. A TOKEN kind — a table's `refs[]`, a `block_attrs`/
+     * `shortcode_attrs` rule, a `json_refs`/`key_refs` entry — is resolved
+     * through duo_map, which has no user keyspace, and carries its plurality
+     * in a separate `type`/`cast` field rather than in the kind name.
+     *
+     * @param list<array> $manifests
+     * @param array<string,mixed> $sitePolicy site.duo.json's `policy` object
+     */
+    private static function validate_ref_kinds(array $manifests, array $sitePolicy): void {
+        $idKinds = [];
+        foreach (array_merge($manifests, [['tables' => $sitePolicy['tables'] ?? []]]) as $source) {
+            foreach ((array) ($source['tables'] ?? []) as $decl) {
+                $kind = is_array($decl) ? ($decl['id_kind'] ?? null) : null;
+                if (is_string($kind) && $kind !== '') {
+                    $idKinds[$kind] = true;
+                }
+            }
+        }
+        $tokenKinds = array_merge(['post', 'term', 'tt'], array_keys($idKinds));
+        $refKinds = array_merge(['post', 'term', 'tt', 'user'], array_keys($idKinds));
+        sort($tokenKinds, SORT_STRING);
+        sort($refKinds, SORT_STRING);
+
+        $sources = [];
+        foreach ($manifests as $manifest) {
+            $sources["manifest '" . (string) ($manifest['name'] ?? '?') . "'"] = $manifest;
+        }
+        $sources['site.duo.json policy'] = $sitePolicy;
+        foreach ($sources as $label => $source) {
+            $claims = [];
+            self::collect_ref_kind_claims($source, '', $claims);
+            self::validate_attr_kind_claims($source, $claims);
+            foreach ($claims as [$path, $value, $token]) {
+                $legal = $token ? $tokenKinds : $refKinds;
+                $bare = (!$token && is_string($value) && str_ends_with($value, '[]'))
+                    ? substr($value, 0, -2)
+                    : $value;
+                if (is_string($bare) && in_array($bare, $legal, true)) {
+                    continue;
+                }
+                throw new \RuntimeException(
+                    "duo: $label declares $path=" . var_export($value, true) . ' but the '
+                    . ($token ? 'token' : 'reference') . ' kind vocabulary is closed ('
+                    . implode(', ', $legal) . ($token ? '' : ', each optionally suffixed with [] for a list')
+                    . '). post/term/tt' . ($token ? '' : '/user') . ' are engine-owned; every other kind is an '
+                    . 'id_kind a pinned manifest declared for a table it owns, which is the only way to extend '
+                    . 'this vocabulary — declare the table, then name its id_kind'
+                );
+            }
+        }
+    }
+
+    /**
+     * Every ref-kind claim reachable from a manifest's classification
+     * sections, as [path, value, isTokenKind] triples.
+     *
+     * Four top-level channels are skipped rather than walked: `notes` is
+     * free-form human prose keyed by arbitrary strings, `actions`/`providers`
+     * carry structured arguments whose key names belong to the declaring
+     * plugin's own capability schema (a provider argument may legitimately be
+     * called `ref` and mean something entirely unrelated), and
+     * `lifecycle_effects` is the reversibility grammar, whose `kind` is a
+     * category rather than a keyspace. Everywhere else in a manifest, `ref`
+     * has exactly one meaning, which is what makes a blind walk correct rather
+     * than fragile — and why a bare `kind` is NOT walked blindly, but read at
+     * its four exact declared locations instead.
+     *
+     * @param list<array{0:string,1:mixed,2:bool}> $out
+     */
+    private static function collect_ref_kind_claims(mixed $node, string $path, array &$out): void {
+        if (!is_array($node)) {
+            return;
+        }
+        foreach ($node as $key => $value) {
+            $childPath = $path === '' ? (string) $key : $path . '.' . $key;
+            if ($path === '' && in_array($key, ['notes', 'actions', 'providers', 'lifecycle_effects'], true)) {
+                continue;
+            }
+            if ($key === 'ref') {
+                $out[] = [$childPath, $value, false];
+                continue;
+            }
+            if ($key === 'refs' && is_array($value) && array_is_list($value)) {
+                foreach ($value as $i => $entry) {
+                    if (is_array($entry) && array_key_exists('kind', $entry)) {
+                        $out[] = [$childPath . "[$i].kind", $entry['kind'], true];
+                    }
+                }
+                continue;
+            }
+            if ($key === 'json_refs' && is_array($value)) {
+                foreach ($value as $i => $entry) {
+                    if (is_array($entry) && array_key_exists('kind', $entry)) {
+                        $out[] = [$childPath . "[$i].kind", $entry['kind'], true];
+                    }
+                }
+                continue;
+            }
+            if ($key === 'key_refs' && is_array($value) && array_key_exists('kind', $value)) {
+                $out[] = ["$childPath.kind", $value['kind'], true];
+                continue;
+            }
+            self::collect_ref_kind_claims($value, $childPath, $out);
+        }
+    }
+
+    /**
+     * The two attribute registries' own kind claims, added here rather than
+     * in the blind walk because a bare `kind` key means different things in
+     * different channels (an effect's `kind` is a reversibility category, not
+     * a keyspace) — so these two are read by their exact declared location.
+     *
+     * @param list<array{0:string,1:mixed,2:bool}> $out
+     */
+    private static function validate_attr_kind_claims(array $source, array &$out): void {
+        foreach (['block_attrs', 'shortcode_attrs'] as $section) {
+            foreach ((array) ($source[$section] ?? []) as $subject => $rules) {
+                foreach ((array) $rules as $i => $rule) {
+                    if (!is_array($rule)) {
+                        continue;
+                    }
+                    $at = $section . '.' . $subject . '[' . $i . ']';
+                    if (array_key_exists('kind', $rule)) {
+                        $out[] = ["$at.kind", $rule['kind'], true];
+                    }
+                    $from = $rule['kind_from'] ?? null;
+                    if (!is_array($from)) {
+                        continue;
+                    }
+                    foreach ((array) ($from['map'] ?? []) as $attrValue => $kind) {
+                        $out[] = ["$at.kind_from.map.$attrValue", $kind, true];
+                    }
+                    if (array_key_exists('default', $from)) {
+                        $out[] = ["$at.kind_from.default", $from['default'], true];
+                    }
+                }
             }
         }
     }
@@ -3864,9 +4772,29 @@ final class Policy {
             || preg_match('/^[a-z][a-z0-9._:-]{0,127}$/', (string) $effect['id']) !== 1) {
             throw new \RuntimeException("duo: $where.id must be a bounded lowercase identifier");
         }
-        if (!in_array($kind, ['database', 'filesystem', 'schedule', 'cache', 'queue', 'mail', 'http', 'external'], true)
-            || !in_array($mode, ['restorable', 'reversible', 'prevented', 'irreversible'], true)) {
-            throw new \RuntimeException("duo: $where kind/mode is unsupported");
+        // DUO-3318: two closed vocabularies, two messages. One combined
+        // refusal made an author guess which half they got wrong, and never
+        // printed either legal set — the same declaration would be edited,
+        // re-run, and refused again on the other field.
+        $effectKinds = ['database', 'filesystem', 'schedule', 'cache', 'queue', 'mail', 'http', 'external'];
+        $effectModes = ['restorable', 'reversible', 'prevented', 'irreversible'];
+        if (!in_array($kind, $effectKinds, true)) {
+            throw new \RuntimeException(
+                "duo: $where.kind=" . var_export($kind, true) . ' is not one of the engine-owned effect kinds ('
+                . implode(', ', $effectKinds) . ') — a kind names the CATEGORY of thing an effect touches, which '
+                . 'the recovery controller has to understand to plan a rollback, so the set is an engine change '
+                . 'with a spec bump, not a manifest declaration'
+            );
+        }
+        if (!in_array($mode, $effectModes, true)) {
+            throw new \RuntimeException(
+                "duo: $where.mode=" . var_export($mode, true) . ' is not one of the engine-owned reversibility '
+                . 'modes (' . implode(', ', $effectModes) . ') — a mode states how this effect is UNDONE, and each '
+                . 'value binds the declaration to different required evidence (restorable: checkpoint coverage; '
+                . 'reversible: a version-pinned inverse+verifier adapter; prevented: receipt-outbox isolation; '
+                . 'irreversible: an explicit automatic-promotion blocker). Widening the set is an engine change '
+                . 'with a spec bump'
+            );
         }
         $selector = $effect['selector'] ?? null;
         if (!is_array($selector) || array_is_list($selector)) {
@@ -3888,12 +4816,49 @@ final class Policy {
                     : "duo: $where.selector requires exactly scope, type, and value"
             );
         }
-        if (!in_array($scope, ['database_checkpoint', 'external'], true)
-            || !in_array($type, ['table', 'option', 'path', 'hook', 'namespace', 'queue', 'mail_subject', 'url_prefix', 'provider_resource', 'plugin_lifecycle'], true)
-            || !is_string($value) || $value === '' || strlen($value) > 512
-            || preg_match('/[\x00-\x1f\x7f*]/', $value) === 1
-            || preg_match('/secret|credential|password|authorization|signed.?url|access.?token|api.?key/i', $value) === 1) {
-            throw new \RuntimeException("duo: $where.selector is empty, unbounded, secret-shaped, or unsupported");
+        // DUO-3318: four independent causes used to share one message that
+        // named none of them, so an author saw "empty, unbounded,
+        // secret-shaped, or unsupported" for a selector that was, in fact,
+        // exactly one of those — and had to bisect their own declaration to
+        // find out which. Each cause now names itself and, where it is a
+        // closed set, prints the set.
+        $selectorScopes = ['database_checkpoint', 'external'];
+        $selectorTypes = ['table', 'option', 'path', 'hook', 'namespace', 'queue', 'mail_subject', 'url_prefix', 'provider_resource', 'plugin_lifecycle'];
+        if (!in_array($scope, $selectorScopes, true)) {
+            throw new \RuntimeException(
+                "duo: $where.selector.scope=" . var_export($scope, true) . ' is not one of the engine-owned scopes '
+                . '(' . implode(', ', $selectorScopes) . ') — the scope states whether the encrypted database '
+                . 'checkpoint already covers this effect or whether it reaches outside it, which is the recovery '
+                . "controller's own decision to make; the set is an engine change with a spec bump"
+            );
+        }
+        if (!in_array($type, $selectorTypes, true)) {
+            throw new \RuntimeException(
+                "duo: $where.selector.type=" . var_export($type, true) . ' is not one of the engine-owned selector '
+                . 'types (' . implode(', ', $selectorTypes) . ') — each type is a resource shape the engine knows '
+                . 'how to bound and verify; an adapter names a resource the engine cannot bound through '
+                . '`provider_resource` plus its own provider, never by minting a type'
+            );
+        }
+        if (!is_string($value) || $value === '' || strlen($value) > 512) {
+            throw new \RuntimeException(
+                "duo: $where.selector.value must be a non-empty string of at most 512 bytes (got "
+                . (is_string($value) ? strlen($value) . ' bytes' : gettype($value)) . ')'
+            );
+        }
+        if (preg_match('/[\x00-\x1f\x7f*]/', $value) === 1) {
+            throw new \RuntimeException(
+                "duo: $where.selector.value " . var_export($value, true) . ' contains a wildcard or control '
+                . 'character — a selector names exact resources, because rollback authority is bounded by what '
+                . 'the declaration can enumerate; use selector.members to declare an aggregate instead'
+            );
+        }
+        if (preg_match('/secret|credential|password|authorization|signed.?url|access.?token|api.?key/i', $value) === 1) {
+            throw new \RuntimeException(
+                "duo: $where.selector.value " . var_export($value, true) . ' is secret-shaped — a selector travels '
+                . 'into receipts and diagnostics, so a value naming a credential surface is refused rather than '
+                . 'recorded'
+            );
         }
         if ($type === 'provider_resource' && array_key_exists('members', $selector)) {
             self::validate_provider_resource_members($selector['members'], $value, "$where.selector.members");
@@ -3926,6 +4891,9 @@ final class Policy {
             throw new \RuntimeException("duo: $where plugin_lifecycle is an honest unsupported selector and must be irreversible");
         }
     }
+
+    /** The closed typed-placeholder vocabulary a provider-resource template may use. */
+    private const MEMBER_PLACEHOLDERS = ['positive_uint', 'slug'];
 
     /**
      * Validate a declarative provider-resource aggregate without knowing the
@@ -3979,8 +4947,18 @@ final class Policy {
                     throw new \RuntimeException("duo: $where.templates[$i] has unmatched braces");
                 }
                 $placeholder = (string) ($matches[1][$matchIndex][0] ?? '');
-                if (!in_array($placeholder, ['positive_uint', 'slug'], true)) {
-                    throw new \RuntimeException("duo: $where.templates[$i] has an unknown placeholder");
+                if (!in_array($placeholder, self::MEMBER_PLACEHOLDERS, true)) {
+                    // DUO-3318: naming the offending placeholder matters more
+                    // here than almost anywhere else — a template may carry
+                    // several, so "has an unknown placeholder" left an author
+                    // reading a 512-byte string looking for which one.
+                    throw new \RuntimeException(
+                        "duo: $where.templates[$i] has an unknown placeholder '{" . $placeholder . '}\' — the '
+                        . 'placeholder vocabulary is closed and engine-owned ({'
+                        . implode('}, {', self::MEMBER_PLACEHOLDERS) . '}), because runtime reconciliation has to '
+                        . 'expand a template into exact members it can verify; a new placeholder type is an engine '
+                        . 'change with a spec bump, not a manifest declaration'
+                    );
                 }
                 $placeholderCount++;
                 $cursor = $offset + strlen((string) $wholeMatch[0]);

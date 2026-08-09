@@ -3014,10 +3014,14 @@ final class Apply {
         // Post-FIELD classification (task #88 / Woo timestamp extension):
         // a field this post_type classifies 'derived' is dropped from this
         // UPDATE entirely rather than overwritten with the captured byte
-        // string, once the row already exists. Keep this translation map
-        // explicit: front-matter names are the manifest contract, while
-        // wp_posts column names are the mutation payload. Only fields in
-        // this map can be omitted; an undeclared front key remains authored.
+        // string, once the row already exists. The front-matter-name =>
+        // wp_posts-column translation is Policy's (DUO-3318): this loop used
+        // to carry its own literal copy of it, so widening the allowlist
+        // without widening the copy would have left a field a manifest may
+        // legally declare `derived` still overwritten here — the
+        // classification honored by capture and the hash basis but silently
+        // not by apply. Only fields in that map can be omitted; an
+        // undeclared front key remains authored.
         // ensure_post_row() (phase 1, moments ago in this same apply for a
         // brand-new row) already wrote captured derived values as real
         // starting values — there's no rebuild action to conjure them the way
@@ -3038,11 +3042,7 @@ final class Apply {
         // divergence from ever registering as drift/conflict in the first
         // place, so skipping the write here is consistent with what plan
         // already told the operator would happen.
-        foreach ([
-            'title' => 'post_title',
-            'modified' => 'post_modified',
-            'modified_gmt' => 'post_modified_gmt',
-        ] as $frontField => $dbColumn) {
+        foreach (Policy::DERIVABLE_FIELD_COLUMNS as $frontField => $dbColumn) {
             if ($this->policy->field_class($front['type'], $frontField) === 'derived') {
                 unset($fields[$dbColumn]);
             }
@@ -3582,9 +3582,46 @@ final class Apply {
      * not a new one.
      */
     private function dynamic_option_rule_for_name(string $name): ?array {
-        return $this->policy->dynamic_option_rule_for_name($name, [
-            'active_stylesheet' => (string) get_option('stylesheet'),
-        ]);
+        return $this->policy->dynamic_option_rule_for_name($name, $this->dynamic_option_resolver_values());
+    }
+
+    /**
+     * This environment's live value for every resolver the pinned manifests
+     * actually declare.
+     *
+     * DUO-3318: the map used to be the single literal
+     * `['active_stylesheet' => get_option('stylesheet')]`, which silently
+     * answered "no value" for any OTHER declared resolver — and
+     * Policy::dynamic_option_rule_for_name()'s matching `continue` then
+     * turned that into an unclassified option instead of an error. Built
+     * from the declarations instead, the map is complete by construction:
+     * adding a resolver to Policy::DYNAMIC_OPTION_RESOLVERS without teaching
+     * this match arm about it now fails loudly, at the first manifest that
+     * declares it, naming the missing engine step.
+     *
+     * The match is deliberately a second copy of Capture::build_options()'s,
+     * not a shared helper: Policy.php is WordPress-free by design (it loads
+     * in RepositoryCompiler's pure offline pass), so the one place that could
+     * host a shared implementation is the one place that may not call
+     * get_option(). Capture additionally honors a repository-supplied
+     * override for the same resolver (a refresh export reads the captured
+     * stylesheet, not this target's); apply has no such alternative source
+     * because DUO-3216's theme refuse-gate has already proven the two agree.
+     *
+     * @return array<string,string>
+     */
+    private function dynamic_option_resolver_values(): array {
+        $out = [];
+        foreach ($this->policy->dynamic_options() as $key => $decl) {
+            $resolver = (string) $decl['resolver'];
+            $out[$resolver] = match ($resolver) {
+                'active_stylesheet' => (string) get_option('stylesheet'),
+                default => throw new \RuntimeException(
+                    "duo: dynamic_options.$key declares unsupported resolver '$resolver'"
+                ),
+            };
+        }
+        return $out;
     }
 
     /**

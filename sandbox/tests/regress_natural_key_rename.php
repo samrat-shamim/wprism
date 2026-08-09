@@ -6,6 +6,13 @@
  */
 
 require_once __DIR__ . '/../../agent/src/Uuid.php';
+// DUO-3318: the natural-key derivation IdentityNotes compares against is
+// Snapshot's own (Policy owns the declaration grammar it reads), so that one
+// derivation can never drift from the one capture actually used. Both are
+// required here for that reason; neither touches a database, WordPress, or
+// any other engine class along the two pure paths this file exercises.
+require_once __DIR__ . '/../../agent/src/Policy.php';
+require_once __DIR__ . '/../../agent/src/Snapshot.php';
 require_once __DIR__ . '/../../agent/src/IdentityNotes.php';
 require_once __DIR__ . '/../../cli/src/PlanSummary.php';
 

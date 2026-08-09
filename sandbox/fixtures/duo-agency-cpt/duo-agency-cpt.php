@@ -41,6 +41,15 @@
  *   therefore advertises its OWN repair through the `duo_providers` filter
  *   (see the provider at the bottom of this file) instead of expecting the
  *   engine to know how a projection it does not own is built.
+ *
+ * Parent-scoped tables (DUO-3318): activation also creates duo_agency_rooms
+ *   and duo_agency_room_slots — a parent row with a site-unique code and a
+ *   child row whose code is unique only WITHIN its parent, the shape a
+ *   multi-column natural key exists for. The SHIPPED manifest deliberately
+ *   does not declare them; sandbox/tests/regress_parent_scoped_natural_key.sh
+ *   supplies that declaration through a test-manifests overlay, so the two
+ *   suites that already drive this fixture keep loading byte-identical
+ *   adapter bytes.
  */
 
 if (!defined('ABSPATH')) {
@@ -108,6 +117,66 @@ add_action('template_redirect', function () {
     if ($id > 0) {
         update_post_meta($id, '_duo_project_views', (int) get_post_meta($id, '_duo_project_views', true) + 1);
     }
+});
+
+// ---------------------------------------------------------------------------
+// Parent-scoped custom tables: bookable rooms and their per-room slots (DUO-3318)
+// ---------------------------------------------------------------------------
+
+/**
+ * Two authored tables in the exact shape a parent-scoped natural key exists
+ * for, and the shape a hand-written plugin actually reaches for first: a
+ * parent row with a human-chosen code that is unique site-wide, and a child
+ * row with a human-chosen code that is unique only WITHIN its parent. Two
+ * different rooms both having a slot called `morning` is the normal case, not
+ * a data error, which is why the child's identity cannot be its own code
+ * alone — and why it also cannot be its `room_id`, an environment-local
+ * auto-increment value that means a different room on every install.
+ *
+ * `slot_id` is a real surrogate primary key, deliberately: this is NOT the
+ * pure-join shape `composite_ref` covers (where the row IS the fact and there
+ * is no scalar id at all). The row carries its own authored payload
+ * (`capacity`) that changes independently of its identity, so it needs an
+ * ordinary primary key, ordinary updates, and an ordinary ledger local_id.
+ *
+ * Raw CREATE TABLE rather than dbDelta(), matching every other fixture plugin
+ * in this tree (dbDelta's whitespace-sensitive DDL parser buys nothing for a
+ * table that is created once and never migrated) — and `IF NOT EXISTS` so a
+ * re-activation during a promotion is a no-op rather than a fatal.
+ */
+register_activation_hook(__FILE__, static function (): void {
+    global $wpdb;
+    $collate = $wpdb->get_charset_collate();
+    $rooms = $wpdb->prefix . 'duo_agency_rooms';
+    $slots = $wpdb->prefix . 'duo_agency_room_slots';
+    $wpdb->query(
+        "CREATE TABLE IF NOT EXISTS `$rooms` ("
+        . 'room_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, '
+        . 'room_code VARCHAR(64) NOT NULL, '
+        . 'room_label VARCHAR(191) NOT NULL DEFAULT \'\', '
+        . 'PRIMARY KEY (room_id), '
+        . 'UNIQUE KEY room_code (room_code)'
+        . ") $collate"
+    );
+    $wpdb->query(
+        "CREATE TABLE IF NOT EXISTS `$slots` ("
+        . 'slot_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, '
+        . 'room_id BIGINT UNSIGNED NOT NULL, '
+        . 'slot_code VARCHAR(64) NOT NULL, '
+        . 'capacity BIGINT UNSIGNED NOT NULL DEFAULT 0, '
+        . 'PRIMARY KEY (slot_id), '
+        // Deliberately a plain index, NOT a UNIQUE KEY on (room_id,
+        // slot_code), even though that pair genuinely is unique: Duo's typed
+        // apply is two-phase and parks every ref column at 0 in phase 1
+        // before resolving it in phase 2, so two sibling rows that differ only
+        // by their parent are momentarily identical. A UNIQUE constraint
+        // spanning a ref column is therefore unsatisfiable mid-apply — a real
+        // engine boundary this fixture records rather than papering over by
+        // giving every slot a globally distinct code (which would also have
+        // quietly removed the very case a parent-scoped key exists for).
+        . 'KEY room_slot (room_id, slot_code)'
+        . ") $collate"
+    );
 });
 
 // ---------------------------------------------------------------------------
