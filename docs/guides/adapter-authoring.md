@@ -16,8 +16,8 @@ this page rather than instead of it.
 A manifest is a JSON file in the platform repository's `manifests/` directory,
 pinned by name from a site's
 [`site.duo.json`](../../spec/repo-format.md#siteduojson). It declares
-classification rules, reference shapes, deletion capability, rebuild commands,
-and a compatibility window.
+classification rules, reference shapes, deletion capability, derived-state
+repair actions, and a compatibility window.
 
 It is **not** a certification. A manifest cannot certify itself merely by
 existing beside the agent — that separation is deliberate and is enforced in
@@ -31,6 +31,7 @@ manifests/
   dispositions.json            # the reviewed support boundary; NOT a manifest
   interpreters/<name>.php      # \Duo\Interpreters\<Name>
   regenerators/<name>.php      # \Duo\Regenerators\<Name>
+  providers/<id>.php           # \Duo\Providers\<Id>
   capabilities/registry.json   # GENERATED; never hand-edited
 ```
 
@@ -39,31 +40,38 @@ Four rules that will bite you if you learn them the hard way:
 - **The file basename is the pin name.** `Policy::load()` resolves a pin to
   `<manifests_dir>/<name>.json`, while the disposition loader keys entries by
   file basename and the capability generator keys them by the manifest's own
-  `"name"` field. Nothing reconciles a disagreement between the two, so keep
-  `"name"` and the filename identical — a mismatch surfaces as a confusing
-  disposition-coverage error, not as a clear "your name field is wrong".
-- **`dispositions.json` is excluded from manifest globbing** everywhere it
-  matters. It is registry data about manifests, not a manifest.
+  `"name"` field. Nothing reconciles a disagreement, so keep `"name"` and the
+  filename identical — a mismatch surfaces as a confusing disposition-coverage
+  error, not as a clear "your name field is wrong".
+- **`dispositions.json` is excluded from manifest globbing.** It is registry
+  data *about* manifests, not a manifest.
 - **A `duo-` prefix marks a synthetic fixture.** The capability generator
   classifies plugin execution for any `duo-*` manifest as `synthetic-fixture`
   rather than `unmodified`. Use it for test adapters; never for a real plugin.
-- **Interpreter and regenerator code ships with the manifest, not the engine.**
-  A declared interpreter name resolves to `manifests/interpreters/<name>.php`
-  and must define `\Duo\Interpreters\<CamelCase(name)>` with
+- **Interpreter, regenerator, and provider code ships with the manifest, not
+  the engine.** A declared interpreter name resolves to
+  `manifests/interpreters/<name>.php` and must define
+  `\Duo\Interpreters\<CamelCase(name)>` with
   `post_meta_rule(string $key, array $allMeta): ?array`; it may additionally
   define `term_meta_rule()` and `user_meta_rule()` with the same signature and
   nullable-defer semantics. A regenerator, declared under a post type's
   `regen_dependency`, resolves to `manifests/regenerators/<name>.php` and must
   define `\Duo\Regenerators\<CamelCase(name)>` with
-  `regenerate(int $localId): void`. A missing file is a loud load-time error
-  naming the exact path.
+  `regenerate(int $localId): void`. A manifest-sourced provider resolves to
+  `manifests/providers/<id>.php` and must define
+  `\Duo\Providers\<CamelCase(id)>` with `identity()`, `capabilities()`, and
+  `invoke()`. A missing file is a loud load-time error naming the exact path.
 
 That last one is worth stating without euphemism: **Duo loads PHP shipped
 inside the manifests directory today.** The trust argument is not that it
 doesn't — it is that the manifests directory is operator-controlled and deploys
 with the agent itself, so loading code from it is the same trust decision as
-running the agent at all. That is a real boundary, and it is the honest
-description of where things stand.
+running the agent at all. Provider bytes strengthen that: a manifest-sourced
+provider's file joins the per-adapter content digest alongside the
+interpreter's, so a changed provider is a *changed adapter* rather than
+invisible drift behind a stable manifest digest. **Regenerator files are not
+digest-bound** — a pre-existing gap the provider work did not close. Know which
+of the three you are editing before you assume a pin change will catch it.
 
 ## The minimal worked example
 
@@ -122,6 +130,80 @@ the reference.
   their kin are consulted only after every exact rule has missed.
 - **Anything still unmatched is unclassified**, which is a loud abort, not a
   default.
+
+## Declaring repair work: actions and providers
+
+Apply writes rows directly and fires no hooks — and the hooks it skips are also
+what maintain a plugin's derived state: indexables, lookup tables, generated
+CSS, blanket caches. A manifest declares that repair **as data**, in a top-level
+`"actions"` list. The full grammar is the "Structured rebuild actions and
+providers" bullet in
+[spec/repo-format.md § Manifests (registry format)](../../spec/repo-format.md#manifests-registry-format);
+below is the shape of the decision, not the schema.
+
+Every entry declares a `kind`, and choosing between the two is the whole design:
+
+- **`"kind": "native"`** names an action from the engine's **closed
+  vocabulary** — operations whose meaning belongs to WordPress core and is
+  identical no matter which plugin declared them. v1 is exactly one action,
+  `transient.delete`, taking a bounded-string `name`. Reviewed engine code
+  executes it and confirms the result by reading the value back.
+- **`"kind": "provider"`** names a capability of a provider declared in the
+  *same* manifest's top-level `"providers"` list — anything plugin-specific.
+
+A manifest cannot mint a native action: an unknown name, an unknown argument
+key, or a mistyped argument is refused at manifest load, before any target
+contact. Arguments are typed scalars checked against a per-action schema, never
+command strings handed to a shell, `eval`, or WP-CLI — which is exactly what
+keeps executable text out of the channel. **The free-form `rebuilders` channel
+is gone**: a manifest declaring it, even as an empty list and even inside a
+frozen policy snapshot, is refused at load — porting an older manifest starts
+there.
+
+Both kinds may declare `triggers` and `effects`. `triggers` uses the same
+canonical-surface grammar apply projects from authored work
+(`(post|term|table|option|entity):<name>`); omit it and the action is unscoped,
+firing for any non-empty surface set, while a read-only apply fires nothing.
+`effects` feeds the bounded-reversibility inventory; omitting it records an
+explicit irreversible fallback row rather than silently claiming reversibility.
+
+### Providers
+
+A provider declares `{"id", "version", "source", "plugin", "capabilities"}`.
+Ids are globally unique across pinned manifests — a conflict is a refusal,
+because pin order must never decide which code runs — and its `plugin` must
+match the manifest's own `plugin` claim, so the executable half stays inside
+the version window the declarative half was certified for.
+
+`"source": "manifest"` is code you ship: `manifests/providers/<id>.php`, under
+the same trust boundary as interpreters, digest-bound into the adapter
+identity. `"source": "plugin"` is advertised by the installed plugin itself
+through the `duo_providers` filter and trusted as part of it; that file is
+deliberately *not* digest-bound, because the installed plugin — checked against
+`version_range` — is its identity anchor.
+
+Before the first target mutation, apply **negotiates** every provider its
+selected actions reach: contract shape, exact identity match, owning plugin
+installed and active and in range, a well-formed capability declaration
+(argument schema, read/write surface summary, site or entity scope,
+`idempotent` — required `true`, since apply's retry machinery re-fires the
+rebuild pass — and a `timeout_seconds` budget), and the manifest's arguments
+valid against it. Any miss refuses with per-problem remediation, so an
+incompatible capability fails *before* destructive writes, never after commit.
+
+Invocation returns a receipt whose `verified` must be exactly `true` on the
+strength of a **value-level readback**. Command-success-only verification is
+refused — an exit code is not evidence that derived state was repaired. A
+successful native action surfaces in apply's output as
+`native action fired: <action> (verified)`.
+
+An adapter needing no executable semantics declares neither key and stays purely
+declarative. Most should. For worked examples,
+[`manifests/woocommerce.json`](../../manifests/woocommerce.json) pairs a
+manifest-sourced provider with a triggered, effect-declaring native
+`transient.delete`, and the
+[`manifests/duo-agency-cpt.json`](../../manifests/duo-agency-cpt.json) fixture
+shows a plugin-advertised one.
 
 ## The authoring loop
 
@@ -246,33 +328,23 @@ under-proven.
 
 ## Planned: what an adapter cannot express yet
 
-Everything in this section is unshipped. It is here so you can recognize the
-shape of a problem a manifest cannot currently solve, and route it rather than
-work around it.
+Four shipped channels cover what a plugin needs to *do*: **native actions** for
+core-owned operations, **providers** for plugin-owned ones, **regenerators**
+for per-entity derived rebuild, **interpreters** for schema-driven
+classification. What is still missing sits above them.
 
-- **Structured native actions and plugin-owned providers** are **Planned
-  (DUO-3338)** — not yet shipped. There is no `actions` manifest key, no
-  `NativeActions` implementation, and no `providers/` directory at this commit.
-  A plugin-specific behavior that needs to *run* rather than be *declared* has
-  no first-class home yet.
-- **Adapter discovery, trust tiers, and a public capability catalog** are
-  **Planned (DUO-3339)** — not yet shipped. Today every manifest in the
-  operator-controlled directory carries identical trust; there are no tiers and
-  no shims.
-
-What ships today in that space, and what you should reach for instead:
-`rebuilders` (declared wp-cli commands run in the rebuild pass after a
-non-empty apply), `regenerators` (manifest-shipped PHP for per-entity derived
-rebuild), and `interpreters` (manifest-shipped PHP for schema-driven
-classification). Between them they cover most of what "the plugin needs to do
-something" turns out to mean in practice.
+**Adapter discovery, trust tiers, and a public capability catalog** are
+**Planned (DUO-3339)** — not yet shipped. Every manifest in the
+operator-controlled directory carries identical trust today; there are no tiers
+and no shims. Note what that does *not* mean: provider negotiation, identity
+matching, and digest binding all ship. What is absent is a tiering scheme on top
+of them, and any mechanism for discovering adapters you do not already have.
 
 ### One naming trap
 
-The word **provider** already has three unrelated shipped meanings in this
-codebase: bounded provider-resource *selectors* in the spec, the target-owned
-*recovery* providers of the SSH verified-rollback profile (exclusion,
-checkpoint, code-release, upload, effect), and one attachment filter. None of
-them is the plugin-owned adapter provider that DUO-3338 will introduce. When
-you read "provider" in an error message, check which one before you go looking
-for a manifest key that does not exist.
+The word **provider** carries four unrelated meanings here, all shipped. Three
+are not the adapter provider this guide is about: bounded provider-resource
+*selectors* in the spec, the target-owned *recovery* providers of the SSH
+verified-rollback profile (exclusion, checkpoint, code-release, upload,
+effect), and one attachment filter. Check which one an error means before
+hunting for the wrong contract.

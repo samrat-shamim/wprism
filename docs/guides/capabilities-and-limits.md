@@ -37,8 +37,12 @@ everything downstream work.
   Excluded because versioning it is pointless.
 - **`derived`** — state that a declared regeneration path rebuilds from
   authored truth. Search indexes, lookup tables, computed attachment metadata.
-  Excluded because it is reproducible, and where a rebuilder exists, `derived`
-  additionally means "regenerate this on apply".
+  Excluded because it is reproducible, and where a repair path is declared,
+  `derived` additionally means "regenerate this on apply". Those repairs are
+  declared as **data**, never as commands: the engine executes no
+  manifest-supplied command string. A manifest names either an action from the
+  engine's closed native vocabulary or a capability of a provider that apply
+  negotiates and verifies by value-level readback before it mutates anything.
 - **`env`** — genuinely per-environment values that are provisioned
   separately: a payment gateway key, `siteurl`, `admin_email`. Excluded for
   the *opposite* reason to `runtime` — not because it is disposable, but
@@ -200,10 +204,10 @@ rather than working around it.
 
 - One-command bootstrap of a fresh site — **Planned (DUO-3336)** — not yet
   shipped. Today: adopt over SSH, or hand-write `site.duo.json`.
-- Structured native actions and plugin-owned providers — **Planned
-  (DUO-3338)** — not yet shipped.
 - Adapter discovery, trust tiers, and a capability catalog — **Planned
-  (DUO-3339)** — not yet shipped.
+  (DUO-3339)** — not yet shipped. Structured native actions and plugin-owned
+  providers, which this was once bundled with, have shipped; see
+  [adapter-authoring.md](adapter-authoring.md#declaring-repair-work-actions-and-providers).
 - On-demand branch environment materialization — **Planned (DUO-3324)** — not
   yet shipped.
 - Scoped promotion and synchronization with dependency closure — **Planned
