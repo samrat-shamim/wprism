@@ -644,6 +644,18 @@ $integrationRegistry = json_decode(
     JSON_THROW_ON_ERROR
 );
 $integrationRegistry['platform'] = $platform;
+// Exercise mixed per-row evidence isolation independent of whether the
+// checked-out shipped registry currently carries current or candidate global
+// evidence.  Only the shipped row should inherit this synthetic blocker.
+$integrationRegistry['evidence']['status'] = 'candidate';
+foreach ($integrationRegistry['manifests'] as &$integrationManifestClaim) {
+    $integrationManifestClaim['evidence']['status'] = 'candidate';
+}
+unset($integrationManifestClaim);
+foreach ($integrationRegistry['profiles'] as &$integrationProfileClaim) {
+    $integrationProfileClaim['evidence']['status'] = 'candidate';
+}
+unset($integrationProfileClaim);
 cert_write_canon($integrationManifests . '/capabilities/registry.json', $integrationRegistry);
 $integrationKeys = new stdClass();
 $integrationKeys->{'review-key'} = $keys->{'review-key'};
