@@ -357,12 +357,15 @@ PHP;
     el_ok(($envs['checked']['_machine_local'] ?? true) === false, 'checked-in config cannot forge machine-local provenance');
     el_ok(($envs['local']['_machine_local'] ?? false) === true, 'overlay config receives loader-owned machine-local provenance');
 
-    $missing = el_cli(['env', 'materialize', 'branch', '--from=production']);
+    $missing = el_cli(['env', 'materialize', 'branch', '--from', 'production']);
     el_ok($missing['exit'] !== 0 && str_contains($missing['stderr'], 'requires exactly --from')
         && !str_contains($missing['stderr'], 'environment_provider'), 'public parser refuses incomplete intent before registry/provider access');
-    $unknown = el_cli(['env', 'materialize', 'branch', '--from=production', '--branch=feature', '--receipt=forged']);
+    $unknown = el_cli(['env', 'materialize', 'branch', '--from', 'production', '--branch', 'feature', '--receipt=forged']);
     el_ok($unknown['exit'] !== 0 && str_contains($unknown['stderr'], "unsupported flag '--receipt=forged'")
-        && !str_contains($unknown['stderr'], 'environment_provider'), 'caller cannot inject receipt/lease/artifact fields');
+        && !str_contains($unknown['stderr'], 'environment_provider'), 'documented spaced flags parse before caller-owned receipt fields are refused');
+    $equalsCompatibility = el_cli(['env', 'materialize', 'branch', '--from=production', '--branch=feature', '--receipt=forged']);
+    el_ok($equalsCompatibility['exit'] !== 0 && str_contains($equalsCompatibility['stderr'], "unsupported flag '--receipt=forged'")
+        && !str_contains($equalsCompatibility['stderr'], 'environment_provider'), 'equals-form materialize flags remain backward compatible without widening privileged inputs');
     $reapFlags = el_cli(['env', 'reap', 'branch', '--force']);
     el_ok($reapFlags['exit'] !== 0 && str_contains($reapFlags['stderr'], 'accepts only optional --format=json'), 'public reap has no force or name-only destruction escape hatch');
     $help = el_cli(['--help']);

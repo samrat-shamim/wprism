@@ -1387,8 +1387,8 @@ final class EnvironmentMaterializer {
             $identity = $targetProvider->perform($action, $operationId, $input);
             self::requirePresence($identity);
             self::assertProviderPin($identity, $targetCaps->pin(), 'target');
-            self::recordPhase($journal, $operationId, 'target-acquired', self::publicEvidence($identity) + ['mode' => $action]);
-            $acquired = $identity;
+            $acquired = self::publicEvidence($identity) + ['mode' => $action];
+            self::recordPhase($journal, $operationId, 'target-acquired', $acquired);
         }
         if ($acquired === null) {
             $prepared = self::phaseData($journal, $operationId, 'snapshot-prepared');
