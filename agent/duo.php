@@ -46,6 +46,7 @@ require_once __DIR__ . '/src/CodeCompatibility.php';
 require_once __DIR__ . '/src/Code.php';
 require_once __DIR__ . '/src/RepositoryCompiler.php';
 require_once __DIR__ . '/src/CodeStateContract.php';
+require_once __DIR__ . '/src/RefreshExport.php';
 require_once __DIR__ . '/src/Apply.php';
 require_once __DIR__ . '/src/Deploy.php';
 require_once __DIR__ . '/src/Journal.php';

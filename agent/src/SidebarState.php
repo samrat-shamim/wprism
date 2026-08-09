@@ -52,7 +52,11 @@ final class SidebarState {
 
     /** @return array{entities:list<array>,warnings:list<string>} */
     public static function capture(
-        Policy $policy, Tokens $tokens, bool $mint, bool $forceUnresolvedRefs = false
+        Policy $policy,
+        Tokens $tokens,
+        bool $mint,
+        bool $forceUnresolvedRefs = false,
+        bool $strictReadOnly = false
     ): array {
         self::assert_policy($policy);
         $declared = $policy->widget_types();
@@ -95,9 +99,18 @@ final class SidebarState {
                 }
                 $kind = self::kind($type);
                 $uuid = Ledger::uuid_for($local, $kind);
+                if ($strictReadOnly && $uuid === null) {
+                    throw new \RuntimeException(
+                        "duo: refresh export refused — widget '$instanceKey' has no durable ledger identity; "
+                        . 'run the existing capture/identity recovery gate before exporting production'
+                    );
+                }
                 if ($uuid === null && $mint) {
                     $uuid = Uuid::v7();
                     Ledger::set($uuid, 'widget', $kind, $local);
+                }
+                if ($strictReadOnly) {
+                    Ledger::require_read_only_mapping($uuid, 'widget', $kind, $local, "widget '$instanceKey'");
                 }
                 $portable = self::capture_settings(
                     $type, $settings, $declared[$type], $policy, $tokens, $sidebar, $forceUnresolvedRefs

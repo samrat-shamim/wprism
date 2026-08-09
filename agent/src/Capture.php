@@ -445,6 +445,42 @@ final class Capture {
     }
 
     /**
+     * Build a production-export candidate inside RefreshExport's already
+     * opened READ ONLY consistent snapshot.  This is intentionally not a
+     * variation of snapshot(): that older diagnostic path is allowed to
+     * reconcile legacy ledger rows for plan/apply, while a production export
+     * must prove every identity was durable before it started observing.
+     *
+     * The caller owns transaction scope so the export can bind its lock,
+     * completed-code receipt, maps, and authored records to one DB view.
+     * No destination is opened, no publication/recovery helper is called,
+     * and `$strictReadOnly` propagates to each identity-bearing capture
+     * surface instead of treating a missing mapping as unmanaged content.
+     */
+    public static function build_read_only_export(
+        string $repo,
+        Policy $policy,
+        ?array $previousOptions,
+        array $previousUserLogins,
+        bool $forceUnresolvedRefs = false
+    ): array {
+        Canary::suppress_cron_spawn();
+        $c = new self($repo, $policy);
+        return $c->build(
+            false,
+            $forceUnresolvedRefs,
+            $previousOptions,
+            $previousUserLogins,
+            true
+        );
+    }
+
+    /** Read-only preflight shared by RefreshExport's snapshot boundary. */
+    public static function assert_read_only_export_engine_support(Policy $policy): void {
+        self::verify_engine_support($policy);
+    }
+
+    /**
      * Capture only the canonical options/core document for a lifecycle
      * handoff. WordPress lifecycle hooks run before a plugin has necessarily
      * created its own tables (and after a plugin may have removed them), so a
@@ -1216,7 +1252,8 @@ final class Capture {
         bool $mint,
         bool $forceUnresolvedRefs = false,
         ?array $previousOptions = null,
-        array $carriedUserLogins = []
+        array $carriedUserLogins = [],
+        bool $strictReadOnly = false
     ): array {
         global $wpdb;
         $this->reset_build_state($forceUnresolvedRefs);
@@ -1243,27 +1280,31 @@ final class Capture {
         }
         $posts = $this->scope_posts();
         $terms = $this->scope_terms();
-        $taxesByObjectType = $this->taxes_by_object_type($this->policy->taxonomies(), $this->policy->post_types());
+        $taxesByObjectType = $this->taxes_by_object_type(
+            $this->policy->taxonomies(),
+            $this->policy->post_types(),
+            $strictReadOnly
+        );
         $this->taxesForPostType = $taxesByObjectType['by_post_type'];
         $this->termObjectTaxes = $taxesByObjectType['term_object'];
 
         // ---- identity ----
         $postUuids = [];
         foreach ($posts as $p) {
-            $uuid = $this->ensure_post_uuid((int) $p->ID, 'post', $mint);
+            $uuid = $this->ensure_post_uuid((int) $p->ID, 'post', $mint, $strictReadOnly);
             if ($uuid !== null) {
                 $postUuids[(int) $p->ID] = $uuid;
             }
         }
         $termUuids = [];
         foreach ($terms as $t) {
-            $uuid = $this->ensure_term_uuid($t, 'term', $mint);
+            $uuid = $this->ensure_term_uuid($t, 'term', $mint, $strictReadOnly);
             if ($uuid !== null) {
                 $termUuids[(int) $t->term_id] = $uuid;
             }
         }
 
-        $menus = $this->scope_menus($mint);
+        $menus = $this->scope_menus($mint, $strictReadOnly);
 
         // Spec v2 term files carry authored meta. Unknown term-meta still
         // blocks loudly; every classified non-authored disposition remains
@@ -1302,13 +1343,13 @@ final class Capture {
         // from the start. $tableEntities is merged into $entities below,
         // after post files — its POSITION in the array is cosmetic; only the
         // TIMING of the capture() call itself (identity side effects) matters.
-        $tableEntities = Snapshot::capture($this->policy, $this->tokens, $mint);
+        $tableEntities = Snapshot::capture($this->policy, $this->tokens, $mint, $strictReadOnly);
         self::check_transient_db_error('Snapshot::capture()'); // DUO-3213 checkpoint — see its docblock
 
         // Widget block content uses the same block-ref grammar as posts, so
         // capture it only after core and typed-table identities are complete.
         $sidebarBuild = SidebarState::capture(
-            $this->policy, $this->tokens, $mint, $forceUnresolvedRefs
+            $this->policy, $this->tokens, $mint, $forceUnresolvedRefs, $strictReadOnly
         );
 
         // ---- term files ----
@@ -1399,7 +1440,7 @@ final class Capture {
         }
 
         // ---- options file ----
-        $options = $this->build_options($mint, $forceUnresolvedRefs, $previousOptions);
+        $options = $this->build_options($mint, $forceUnresolvedRefs, $previousOptions, [], false, $strictReadOnly);
         $entities[] = [
             'uuid' => 'options/core',
             'type' => 'options',
@@ -1617,14 +1658,21 @@ final class Capture {
      *
      * A scoped taxonomy that isn't registered at runtime (its plugin is
      * inactive on this environment) can't be checked at all — silently
-     * trusting it would reintroduce the same hazard, so it's excluded
-     * entirely and named in a loud warning instead.
+     * trusting it would reintroduce the same hazard, so ordinary capture
+     * excludes it and names it in a loud warning. Strict refresh export is
+     * different: a partial production truth is not a usable observation, so
+     * it refuses unless a plugin-owned manifest pattern supplies the missing
+     * object-type fact.
      *
      * @param string[] $taxes policy-scoped taxonomy names
      * @param string[] $postTypes policy-scoped post types
      * @return array{by_post_type: array<string,string[]>, term_object: string[]}
      */
-    private function taxes_by_object_type(array $taxes, array $postTypes): array {
+    private function taxes_by_object_type(
+        array $taxes,
+        array $postTypes,
+        bool $strictReadOnly = false
+    ): array {
         $byPostType = array_fill_keys($postTypes, []);
         $termObject = [];
         foreach ($taxes as $tax) {
@@ -1643,6 +1691,14 @@ final class Capture {
             // still warns+skips exactly as before if unregistered.
             $objectTypes = $taxObj !== false ? (array) $taxObj->object_type : $this->policy->pattern_object_type($tax);
             if ($objectTypes === null) {
+                if ($strictReadOnly) {
+                    throw new \RuntimeException(
+                        "duo: refresh export refused — taxonomy '$tax' is in policy scope but is not registered "
+                        . 'under the isolated control bootstrap, and no plugin-owned taxonomy_patterns '
+                        . 'object_type declaration can prove which post or term relationships belong to it; '
+                        . 'add that manifest/provider contract before refreshing production'
+                    );
+                }
                 $this->tokens->warnings[] =
                     "taxonomy '$tax' is in policy scope but not registered on this environment"
                     . " (plugin inactive?) — cannot determine which object type its relationships"
@@ -1681,13 +1737,19 @@ final class Capture {
         return ['by_post_type' => $byPostType, 'term_object' => $termObject];
     }
 
-    private function ensure_post_uuid(int $id, string $entityType, bool $mint): ?string {
+    private function ensure_post_uuid(int $id, string $entityType, bool $mint, bool $strictReadOnly = false): ?string {
         global $wpdb;
         $uuid = $wpdb->get_var($wpdb->prepare(
             "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = '_duo_uuid' LIMIT 1",
             $id
         ));
         if (!$uuid) {
+            if ($strictReadOnly) {
+                throw new \RuntimeException(
+                    "duo: refresh export refused — post $id has no durable _duo_uuid; "
+                    . 'run the existing capture/identity recovery gate before exporting production'
+                );
+            }
             if (!$mint) {
                 return null;
             }
@@ -1698,6 +1760,10 @@ final class Capture {
             // error associated with this identity mint.
             self::check_transient_db_error("mint _duo_uuid for post $id");
         }
+        if ($strictReadOnly) {
+            Ledger::require_read_only_mapping($uuid, $entityType, Ledger::KIND_POST, $id, "post $id");
+            return $uuid;
+        }
         Ledger::set($uuid, $entityType, Ledger::KIND_POST, $id);
         // DUO-3213 checkpoint: catches a deadlock/lock-wait-timeout from
         // Ledger::set()'s own two queries — see check_transient_db_error()'s
@@ -1706,7 +1772,7 @@ final class Capture {
         return $uuid;
     }
 
-    private function ensure_term_uuid(object $t, string $entityType, bool $mint): ?string {
+    private function ensure_term_uuid(object $t, string $entityType, bool $mint, bool $strictReadOnly = false): ?string {
         global $wpdb;
         $termId = (int) $t->term_id;
         $uuid = $wpdb->get_var($wpdb->prepare(
@@ -1714,6 +1780,12 @@ final class Capture {
             $termId
         ));
         if (!$uuid) {
+            if ($strictReadOnly) {
+                throw new \RuntimeException(
+                    "duo: refresh export refused — term $termId has no durable _duo_uuid; "
+                    . 'run the existing capture/identity recovery gate before exporting production'
+                );
+            }
             if (!$mint) {
                 return null;
             }
@@ -1721,6 +1793,17 @@ final class Capture {
             Db::insert($wpdb->termmeta, ['term_id' => $termId, 'meta_key' => '_duo_uuid', 'meta_value' => $uuid], null, 'capture mint term identity');
             // DUO-3213 checkpoint — see ensure_post_uuid()'s identical comment.
             self::check_transient_db_error("mint _duo_uuid for term $termId");
+        }
+        if ($strictReadOnly) {
+            Ledger::require_read_only_mapping($uuid, $entityType, Ledger::KIND_TERM, $termId, "term $termId");
+            Ledger::require_read_only_mapping(
+                $uuid,
+                $entityType,
+                Ledger::KIND_TT,
+                (int) $t->term_taxonomy_id,
+                "term taxonomy for term $termId"
+            );
+            return $uuid;
         }
         Ledger::set($uuid, $entityType, Ledger::KIND_TERM, $termId);
         self::check_transient_db_error("identity ledger (term) for term $termId");
@@ -2055,7 +2138,7 @@ final class Capture {
     }
 
     /** @return array<int, array{uuid: string, slug: string, front: array}> */
-    private function scope_menus(bool $mint): array {
+    private function scope_menus(bool $mint, bool $strictReadOnly = false): array {
         global $wpdb;
         $menuTerms = $wpdb->get_results(
             "SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, tt.taxonomy, tt.description, tt.parent
@@ -2101,7 +2184,7 @@ final class Capture {
 
         $menus = [];
         foreach ($menuTerms as $mt) {
-            $uuid = $this->ensure_term_uuid($mt, 'menu', $mint);
+            $uuid = $this->ensure_term_uuid($mt, 'menu', $mint, $strictReadOnly);
             if ($uuid === null) {
                 continue;
             }
@@ -2116,7 +2199,7 @@ final class Capture {
             // first pass: identity for parent refs
             $itemUuidById = [];
             foreach ($items as $ip) {
-                $iu = $this->ensure_post_uuid((int) $ip->ID, 'menu_item', $mint);
+                $iu = $this->ensure_post_uuid((int) $ip->ID, 'menu_item', $mint, $strictReadOnly);
                 if ($iu !== null) {
                     $itemUuidById[(int) $ip->ID] = $iu;
                 }
@@ -2532,7 +2615,8 @@ final class Capture {
         bool $forceUnresolvedRefs = false,
         ?array $previousDocument = null,
         array $dynamicResolverValues = [],
-        bool $bindMissingDynamicDesired = false
+        bool $bindMissingDynamicDesired = false,
+        bool $strictReadOnly = false
     ): array {
         $out = [];
         $processed = [];
@@ -2726,7 +2810,8 @@ final class Capture {
                     // mint=false it is the ordinary, expected shape of
                     // "hasn't been captured through Duo yet" and must fall
                     // through to the same warn-and-drop dangling gets.
-                    if ($mint && !$forceUnresolvedRefs && Snapshot::row_exists_for_kind($this->policy, $rule['id_kind'], $id)) {
+                    if (($mint || $strictReadOnly) && !$forceUnresolvedRefs
+                        && Snapshot::row_exists_for_kind($this->policy, $rule['id_kind'], $id)) {
                         $this->unscopedOptionNameRefs[] = ['option' => $name, 'id_kind' => $rule['id_kind'], 'id' => $id];
                     } else {
                         $this->tokens->warnings[] = "option $name: unmapped {$rule['id_kind']} id $id dropped (option_name_refs)";

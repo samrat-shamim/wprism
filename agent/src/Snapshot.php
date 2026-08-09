@@ -998,12 +998,18 @@ final class Snapshot {
      *
      * @return array<int, array{uuid:string, type:string, path:string, content:string}>
      */
-    public static function capture(Policy $policy, Tokens $tokens, bool $mint): array {
+    public static function capture(Policy $policy, Tokens $tokens, bool $mint, bool $strictReadOnly = false): array {
         $rowTables = self::row_tables($policy); // throws on duplicate id_kind
         if (!$rowTables) {
             return [];
         }
-        self::repair_truncated_entity_types($policy); // DUO-3246 — before any Ledger::set() below can hit the guard
+        // A normal capture repairs legacy schema damage before it records a
+        // new candidate. Production export has no such authority: it must
+        // observe an already-valid ledger or refuse, never turn a read into
+        // an identity repair.
+        if (!$strictReadOnly) {
+            self::repair_truncated_entity_types($policy); // DUO-3246
+        }
         $metaTables = self::meta_tables($policy);
         $metaByOwner = self::meta_tables_by_owner($rowTables, $metaTables); // throws on a dangling attached_to.table
 
@@ -1030,7 +1036,7 @@ final class Snapshot {
         $entities = [];
         foreach (self::topo_order($rowTables) as $table) {
             $entities = array_merge($entities, self::capture_table(
-                $table, $rowTables[$table], $metaByOwner[$table] ?? [], $tokens, $mint
+                $table, $rowTables[$table], $metaByOwner[$table] ?? [], $tokens, $mint, $strictReadOnly
             ));
         }
         return $entities;
@@ -1108,14 +1114,21 @@ final class Snapshot {
         return false;
     }
 
-    private static function capture_table(string $table, array $decl, array $metaDecls, Tokens $tokens, bool $mint): array {
+    private static function capture_table(
+        string $table,
+        array $decl,
+        array $metaDecls,
+        Tokens $tokens,
+        bool $mint,
+        bool $strictReadOnly = false
+    ): array {
         if (self::is_composite_ref($decl)) {
             // $mint/$metaDecls are unused here on purpose: composite_ref rows
             // are never "minted" (see identify_composite_row()'s docblock)
             // and can never own an attached-meta sidecar (meta_tables_by_
             // owner() already refuses that combination before capture()
             // ever reaches this call).
-            return self::capture_composite_table($table, $decl, $tokens);
+            return self::capture_composite_table($table, $decl, $tokens, $strictReadOnly);
         }
         global $wpdb;
         $pk = $decl['pk'];
@@ -1125,7 +1138,7 @@ final class Snapshot {
         $entities = [];
         foreach ($rows as $row) {
             $localId = (int) $row[$pk];
-            $uuid = self::identify_row($table, $decl, $row, $localId, $mint);
+            $uuid = self::identify_row($table, $decl, $row, $localId, $mint, $strictReadOnly);
 
             $columns = [];
             foreach ($decl['columns'] ?? [] as $col => $rule) {
@@ -1191,7 +1204,12 @@ final class Snapshot {
      * refs currently resolve is captured, on BOTH Capture::run() and
      * Capture::snapshot() alike.
      */
-    private static function capture_composite_table(string $table, array $decl, Tokens $tokens): array {
+    private static function capture_composite_table(
+        string $table,
+        array $decl,
+        Tokens $tokens,
+        bool $strictReadOnly = false
+    ): array {
         global $wpdb;
         $idKind = $decl['id_kind'];
         $cols = $decl['identity']['columns'];
@@ -1214,7 +1232,17 @@ final class Snapshot {
             }
 
             $packed = self::pack_composite_id($table, $localByCol);
-            Ledger::set($uuid, $table, $idKind, $packed);
+            if ($strictReadOnly) {
+                Ledger::require_read_only_mapping(
+                    $uuid,
+                    $table,
+                    $idKind,
+                    $packed,
+                    "composite table '$table' row $packed"
+                );
+            } else {
+                Ledger::set($uuid, $table, $idKind, $packed);
+            }
 
             $front = [
                 'columns' => (object) $columns,
@@ -1317,9 +1345,32 @@ final class Snapshot {
      * natural-key rows derive identity in either mode. See this file's
      * docblock for the mapped-vs-natural_key recovery split.
      */
-    private static function identify_row(string $table, array $decl, array $row, int $localId, bool $mint): string {
+    private static function identify_row(
+        string $table,
+        array $decl,
+        array $row,
+        int $localId,
+        bool $mint,
+        bool $strictReadOnly = false
+    ): string {
         $idKind = $decl['id_kind'];
         $uuid = Ledger::uuid_for($localId, $idKind);
+        if ($strictReadOnly) {
+            if ($uuid === null) {
+                throw new \RuntimeException(
+                    "duo: refresh export refused — mapped identity missing for populated table '$table' row $localId ($idKind); "
+                    . 'run the existing capture/identity recovery gate before exporting production'
+                );
+            }
+            // natural_key UUIDv5 is bootstrap identity only. Once a map row
+            // exists it is continuity identity, and a later authored key
+            // rename intentionally keeps that UUID (repo-format.md). The
+            // bidirectional durable mapping below is therefore the complete
+            // strict read-only witness; re-deriving here would reject every
+            // legitimate renamed row.
+            Ledger::require_read_only_mapping($uuid, $table, $idKind, $localId, "table '$table' row $localId");
+            return $uuid;
+        }
         if ($uuid === null) {
             $mode = $decl['identity']['mode'] ?? 'mapped';
             if ($mode === 'natural_key') {

@@ -115,6 +115,164 @@ final class Ledger {
         self::migrate_widen_id_kind();
     }
 
+    /**
+     * Read-only boundary for an already-captured production environment.
+     *
+     * `ensure()` is deliberately NOT an acceptable prelude to a production
+     * export: CREATE/ALTER would turn an observation request into a repair.
+     * This helper therefore proves that the three ledger tables the export
+     * consumes already exist with the minimum schema that makes their
+     * uniqueness promises meaningful, using information_schema SELECTs only.
+     * A stale deployment must be repaired through the ordinary capture gate;
+     * an export has no authority to make it look current.
+     */
+    public static function assert_read_only_schema(): void {
+        global $wpdb;
+        $tables = [
+            $wpdb->prefix . 'duo_map',
+            $wpdb->prefix . 'duo_state',
+            $wpdb->prefix . 'duo_kv',
+        ];
+        $placeholders = implode(',', array_fill(0, count($tables), '%s'));
+        $columns = self::checked_get_results($wpdb->prepare(
+            "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, CHARACTER_MAXIMUM_LENGTH\n"
+            . 'FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() '
+            . "AND TABLE_NAME IN ($placeholders)",
+            ...$tables
+        ), 'read-only ledger schema inventory');
+
+        $byTable = [];
+        foreach ($columns as $column) {
+            $byTable[(string) $column['TABLE_NAME']][(string) $column['COLUMN_NAME']] = $column;
+        }
+        $need = [
+            $wpdb->prefix . 'duo_map' => ['uuid' => 36, 'entity_type' => self::ENTITY_TYPE_WIDTH, 'id_kind' => self::ID_KIND_WIDTH, 'local_id' => 0],
+            $wpdb->prefix . 'duo_state' => ['uuid' => 64, 'entity_type' => self::ENTITY_TYPE_WIDTH, 'content_hash' => 64],
+            $wpdb->prefix . 'duo_kv' => ['k' => 191, 'v' => 1],
+        ];
+        foreach ($need as $table => $fields) {
+            foreach ($fields as $field => $minimum) {
+                $row = $byTable[$table][$field] ?? null;
+                if (!is_array($row)) {
+                    throw new \RuntimeException("duo: refresh export refused — required ledger table/column '$table.$field' is missing; run the existing capture gate to provision or repair it");
+                }
+                if ($field === 'local_id') {
+                    $type = strtolower((string) ($row['COLUMN_TYPE'] ?? ''));
+                    if (!str_contains($type, 'bigint') || !str_contains($type, 'unsigned')) {
+                        throw new \RuntimeException("duo: refresh export refused — ledger column '$table.$field' is not an unsigned BIGINT identity");
+                    }
+                    continue;
+                }
+                $length = (int) ($row['CHARACTER_MAXIMUM_LENGTH'] ?? 0);
+                if ($length < $minimum) {
+                    throw new \RuntimeException("duo: refresh export refused — ledger column '$table.$field' is narrower than the supported durable identity schema");
+                }
+            }
+        }
+
+        $indexes = self::checked_get_results($wpdb->prepare(
+            "SELECT TABLE_NAME, INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME\n"
+            . 'FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() '
+            . "AND TABLE_NAME IN ($placeholders) ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX",
+            ...$tables
+        ), 'read-only ledger index inventory');
+        $byIndex = [];
+        foreach ($indexes as $index) {
+            $byIndex[(string) $index['TABLE_NAME']][(string) $index['INDEX_NAME']][] = $index;
+        }
+        foreach ([
+            [$wpdb->prefix . 'duo_map', ['uuid', 'id_kind']],
+            [$wpdb->prefix . 'duo_map', ['id_kind', 'local_id']],
+            [$wpdb->prefix . 'duo_state', ['uuid']],
+            [$wpdb->prefix . 'duo_kv', ['k']],
+        ] as [$table, $fields]) {
+            $found = false;
+            foreach ($byIndex[$table] ?? [] as $rows) {
+                if ((int) ($rows[0]['NON_UNIQUE'] ?? 1) !== 0) {
+                    continue;
+                }
+                if (array_column($rows, 'COLUMN_NAME') === $fields) {
+                    $found = true;
+                    break;
+                }
+            }
+            if (!$found) {
+                throw new \RuntimeException(
+                    "duo: refresh export refused — ledger table '$table' lacks the required unique identity index ("
+                    . implode(', ', $fields) . ')'
+                );
+            }
+        }
+
+        // This SELECT-only structural pass catches accidental/manual table
+        // edits before individual content rows are trusted below.
+        self::assert_read_only_map_inventory();
+    }
+
+    /**
+     * Prove one identity mapping already exists and says exactly what the
+     * live row + embedded identity say. Export must never use Ledger::set()
+     * as an implicit repair; a missing or contradicting tuple is recovery
+     * work, not a value the observer is allowed to synthesize.
+     */
+    public static function require_read_only_mapping(
+        string $uuid,
+        string $entityType,
+        string $kind,
+        int $localId,
+        string $where
+    ): void {
+        if (!Uuid::is($uuid) || $entityType === '' || $kind === '' || $localId <= 0) {
+            throw new \RuntimeException("duo: refresh export refused — invalid durable identity at $where");
+        }
+        global $wpdb;
+        $byUuid = self::checked_get_row($wpdb->prepare(
+            "SELECT entity_type, local_id FROM {$wpdb->prefix}duo_map WHERE uuid = %s AND id_kind = %s",
+            $uuid, $kind
+        ), 'read-only identity lookup by UUID');
+        $byLocal = self::checked_get_row($wpdb->prepare(
+            "SELECT uuid, entity_type FROM {$wpdb->prefix}duo_map WHERE id_kind = %s AND local_id = %d",
+            $kind, $localId
+        ), 'read-only identity lookup by local id');
+        if ($byUuid === null || $byLocal === null) {
+            throw new \RuntimeException(
+                "duo: refresh export refused — durable identity is missing for $where ($kind:$localId); "
+                . 'run the existing capture/identity recovery gate before exporting production'
+            );
+        }
+        if ((int) $byUuid['local_id'] !== $localId
+            || (string) $byUuid['entity_type'] !== $entityType
+            || (string) $byLocal['uuid'] !== $uuid
+            || (string) $byLocal['entity_type'] !== $entityType) {
+            throw new \RuntimeException(
+                "duo: refresh export refused — durable identity contradicts live $where ($uuid, $kind:$localId)"
+            );
+        }
+    }
+
+    /** `assert_read_only_schema()`'s map half: no DML, no pruning. */
+    private static function assert_read_only_map_inventory(): void {
+        $uuidKinds = [];
+        $locals = [];
+        foreach (self::all_map() as $row) {
+            $uuid = (string) $row['uuid'];
+            $kind = (string) $row['id_kind'];
+            $type = (string) $row['entity_type'];
+            $local = (int) $row['local_id'];
+            if (!Uuid::is($uuid) || $kind === '' || strlen($kind) > self::ID_KIND_WIDTH
+                || $type === '' || strlen($type) > self::ENTITY_TYPE_WIDTH || $local <= 0) {
+                throw new \RuntimeException('duo: refresh export refused — ledger map contains an invalid durable identity tuple');
+            }
+            $uuidKey = "$uuid|$kind";
+            $localKey = "$kind|$local";
+            if (isset($uuidKinds[$uuidKey]) || isset($locals[$localKey])) {
+                throw new \RuntimeException('duo: refresh export refused — ledger map contains duplicate durable identities');
+            }
+            $uuidKinds[$uuidKey] = true;
+            $locals[$localKey] = true;
+        }
+    }
+
     private static function migrate_widen_id_kind(): void {
         global $wpdb;
         $table = $wpdb->prefix . 'duo_map';

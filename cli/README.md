@@ -39,6 +39,9 @@ duo promote <env> [extra apply flags...]
 duo pending <env>
 duo classify <env> [--accept-proposals|--export-batch=<path>|--apply-batch=<path>]
 duo coverage <env> [--format=json]
+duo refresh <production-env> --production-ref=<ref>
+duo rebase <production-env> --production-ref=<ref> --new-branch=<name> [--strategy=manual|ours|theirs] [--resolve=<stable-id>=ours|theirs ...]
+duo rebase <production-env> --abort=<run-id>
 duo -h | --help
 ```
 
@@ -164,6 +167,54 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
 
   stdout/stderr stream live (not buffered/reformatted) and the exit code is
   exactly the agent's exit code.
+
+- **`duo refresh <production-env> --production-ref=<ref>`** — gets `P` only
+  through `wp duo refresh-export --repo=<repo_path> --format=json`; it never
+  uses capture/apply/promote or treats a Git tree as live production truth.
+  The target repo’s HEAD must equal the locally resolved production ref and
+  must have no tracked changes before *and after* export. The exporter’s
+  completed code descriptor must also match the compiler result for that ref:
+  descriptor bytes prove deployed code, while the ref proves topology. The
+  resulting B/P/W plan is persisted immutably under the repository’s Git
+  common-dir (`duo-refresh/plans/`), so orchestration evidence never dirties
+  canonical state or requires a `.gitignore` rule.
+
+- **`duo rebase <production-env> --production-ref=<ref> --new-branch=<name>`**
+  re-exports production immediately before materialization and refuses if its
+  snapshot hash changes. It uses a disposable local worktree and atomically
+  creates only a new ref after semantic state validation; it never resets,
+  checks out, or overwrites the source branch. Conflicts stay explicit by
+  default (`--strategy=manual`); `--strategy=ours|theirs` and repeatable
+  `--resolve=<stable-id>=ours|theirs` are explicit, journal-bound choices.
+  An unresolved planner receipt creates no branch. `--abort=<run-id>` removes
+  only a retained journal-owned candidate worktree.
+
+### Refresh semantic-planner contract
+
+`cli/src/Refresh.php` has no plugin-specific or raw-Git state merge logic. A
+`Duo\Orchestrator\RefreshPlan` implementation provides these static methods:
+
+1. `normalizeProductionSnapshot(array $export): array` validates and
+   canonicalizes `duo-refresh-production/v1` including semantic records,
+   deletions, media, policy identity, and completed code evidence.
+2. `compileGitWorktree(string $path, string $commit, string $role): array`
+   compiles offline using the repository compiler. Roles are `base`, `branch`,
+   and `production-code`; the latter exposes code identity only, never P.
+3. `assertProductionCodeMatches(array $production, array $productionCode): void`
+   proves exporter/target compiler metadata and completed descriptor/revision
+   match the exact production ref.
+4. `plan(array $base, array $production, array $branch, array $context): array`
+   and `normalizePlan(array $plan): array` emit a canonical, hash-bound
+   `duo-refresh-plan/v1` that includes the supplied B/P/W context.
+5. `materialize(array $plan, string $worktree, array $resolution): array` and
+   `validateMaterialization(array $receipt, array $plan, string $worktree): void`
+   resolve only canonical state/media, reject unhandled stable conflicts,
+   strict-compile, and return `duo-refresh-materialization/v1` with matching
+   plan hash and `resolved: true`.
+
+The host rejects any materializer change outside `state/` and `media/`; native
+Git code conflicts remain in the disposable worktree. Plugin semantics belong
+in manifests, native actions, or plugin-owned providers—not this shell.
 
 - **`duo env-set <env> --name=<name> (--value=<value> | --stdin)`** — pure
   passthrough to `wp duo env-set --repo=<repo_path> --name=<name> …`, same
