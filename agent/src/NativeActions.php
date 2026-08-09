@@ -217,10 +217,27 @@ final class NativeActions {
 
     /** @return array{value_row:bool, timeout_row:bool, cached:bool} */
     private static function transient_state(string $name): array {
+        // Keep option reads first: they are checked reads, and an error there
+        // must still abort before this action makes any cache observation.
+        $valueRow = self::option_row_present('_transient_' . $name, $name);
+        $timeoutRow = self::option_row_present('_transient_timeout_' . $name, $name);
+        // `false` is a storable object-cache value, so wp_cache_get()'s
+        // return value cannot establish absence. Core's fourth, by-reference
+        // argument is the separate presence bit. Leave it null initially so
+        // a nonconforming cache wrapper cannot turn an unknown result into a
+        // false absence claim.
+        $found = null;
+        wp_cache_get($name, 'transient', false, $found);
+        if (!is_bool($found)) {
+            throw new \RuntimeException(
+                "duo: native action 'transient.delete' object-cache presence read failed for transient '$name'; "
+                . 'wp_cache_get() did not provide its required found flag'
+            );
+        }
         return [
-            'value_row' => self::option_row_present('_transient_' . $name, $name),
-            'timeout_row' => self::option_row_present('_transient_timeout_' . $name, $name),
-            'cached' => wp_cache_get($name, 'transient') !== false,
+            'value_row' => $valueRow,
+            'timeout_row' => $timeoutRow,
+            'cached' => $found,
         ];
     }
 
