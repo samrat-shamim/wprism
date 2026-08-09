@@ -7,8 +7,10 @@
  * unchanged. This suite proves the generic field contract without
  * WordPress/Docker:
  *   - only manifest-declared derived timestamps disappear from the hash basis;
- *   - complete path-to-semantic-hash projections accept only those declared
- *     derived differences while retaining identity and non-post strictness;
+ *   - the final raw-post projection preserves object insertion order and
+ *     accepts only those declared derived differences;
+ *   - complete path-to-semantic-hash projections retain identity, deletion,
+ *     body, and non-post strictness;
  *   - existing Woo rows preserve those target timestamps while authored
  *     columns are still written;
  *   - new rows still receive captured starting timestamps;
@@ -198,6 +200,55 @@ function semantic_path_hash_projection(array $entities): array {
     }
     ksort($projection, SORT_STRING);
     return $projection;
+}
+
+function raw_post_content(array $front, string $body): string {
+    $json = json_encode(
+        $front,
+        JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+    );
+    return "---\n" . $json . "\n---\n" . $body . "\n";
+}
+
+function write_raw_post_file(string $path, array $front, string $body = ''): string {
+    $content = raw_post_content($front, $body);
+    if (file_put_contents($path, $content) === false) {
+        throw new RuntimeException('could not write fixture post file: ' . $path);
+    }
+    return $content;
+}
+
+function ordered_post_projection_hash(Policy $policy, string $path): string {
+    $text = file_get_contents($path);
+    if ($text === false) {
+        throw new RuntimeException('could not read fixture post file: ' . $path);
+    }
+    if (!str_starts_with($text, "---\n")) {
+        throw new RuntimeException('bad post file (missing front matter fence): ' . $path);
+    }
+    $end = strpos($text, "\n---\n", 3);
+    if ($end === false) {
+        throw new RuntimeException('bad post file (unterminated front matter): ' . $path);
+    }
+    $front = json_decode(substr($text, 4, $end - 3), false, 512, JSON_THROW_ON_ERROR);
+    if (!$front instanceof stdClass) {
+        throw new RuntimeException('bad post file (front matter must be an object): ' . $path);
+    }
+    $body = substr($text, $end + 5);
+    if (str_ends_with($body, "\n")) {
+        $body = substr($body, 0, -1);
+    }
+    $postType = (string) ($front->type ?? '');
+    foreach (array_keys(get_object_vars($front)) as $key) {
+        if ($policy->field_class($postType, (string) $key) === 'derived') {
+            unset($front->{$key});
+        }
+    }
+    $json = json_encode(
+        $front,
+        JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+    );
+    return hash('sha256', "---\n" . $json . "\n---\n" . $body . "\n");
 }
 
 /** @return array<int,array<string,mixed>> */
@@ -402,6 +453,168 @@ check(
         'hash' => hash('sha256', $changedOptionsContent),
     ]]),
     'complete semantic projection rejects a non-post state difference'
+);
+
+$sourceRawPath = $fixtureDir . '/source.md';
+$sourceRaw = write_raw_post_file($sourceRawPath, $source);
+$timestampRawPath = $fixtureDir . '/timestamp.md';
+$timestampRaw = write_raw_post_file($timestampRawPath, $timestampOnly);
+$sourceOrderedHash = ordered_post_projection_hash($policy, $sourceRawPath);
+check(
+    $sourceRaw !== $timestampRaw,
+    'ordered post projection fixture changes honest raw bytes for a derived timestamp'
+);
+check(
+    $sourceOrderedHash === ordered_post_projection_hash($policy, $timestampRawPath),
+    'ordered post projection accepts only declared derived timestamp differences'
+);
+
+$titleRawPath = $fixtureDir . '/title.md';
+write_raw_post_file($titleRawPath, $titleChanged);
+check(
+    $sourceOrderedHash !== ordered_post_projection_hash($policy, $titleRawPath),
+    'ordered post projection rejects an authored title difference'
+);
+
+$bodyRawPath = $fixtureDir . '/body.md';
+write_raw_post_file($bodyRawPath, $source, 'authored body changed');
+check(
+    $sourceOrderedHash !== ordered_post_projection_hash($policy, $bodyRawPath),
+    'ordered post projection rejects an authored body difference'
+);
+
+$movedProductProjection = semantic_path_hash_projection([[
+    'path' => 'posts/product/' . $uuid . '--moved.md',
+    'hash' => $sourceOrderedHash,
+]]);
+check(
+    semantic_path_hash_projection([[
+        'path' => $productPath,
+        'hash' => $sourceOrderedHash,
+    ]]) !== $movedProductProjection,
+    'ordered post projection rejects an identity-bearing path difference'
+);
+
+$genericRawPath = $fixtureDir . '/generic.md';
+$genericTimestampRawPath = $fixtureDir . '/generic-timestamp.md';
+write_raw_post_file($genericRawPath, $generic);
+write_raw_post_file($genericTimestampRawPath, $genericTimestampChanged);
+check(
+    ordered_post_projection_hash($policy, $genericRawPath)
+        !== ordered_post_projection_hash($policy, $genericTimestampRawPath),
+    'ordered post projection rejects undeclared post-type timestamp differences'
+);
+
+$variationProjection = post_front(
+    'product_variation',
+    '018f0000-0000-7000-8000-000000000006',
+    '2026-08-08 00:00:05'
+);
+$variationDerivedProjection = $variationProjection;
+$variationDerivedProjection['title'] = 'derived variation title';
+$variationDerivedProjection['modified'] = '2030-01-01 00:00:05';
+$variationDerivedProjection['modified_gmt'] = '2030-01-01 00:00:05';
+$variationProjectionPath = $fixtureDir . '/variation.md';
+$variationDerivedProjectionPath = $fixtureDir . '/variation-derived.md';
+write_raw_post_file($variationProjectionPath, $variationProjection);
+write_raw_post_file($variationDerivedProjectionPath, $variationDerivedProjection);
+check(
+    ordered_post_projection_hash($policy, $variationProjectionPath)
+        === ordered_post_projection_hash($policy, $variationDerivedProjectionPath),
+    'ordered post projection accepts product variation derived title and timestamps'
+);
+
+$metaChanged = $source;
+$metaChanged['meta'] = ['derived_projection' => 'still authored for this comparator'];
+$metaChangedPath = $fixtureDir . '/meta.md';
+write_raw_post_file($metaChangedPath, $metaChanged);
+check(
+    $sourceOrderedHash !== ordered_post_projection_hash($policy, $metaChangedPath),
+    'ordered post projection keeps derived post_meta strict'
+);
+
+$orderedFrontA = $source;
+$orderedFrontA['meta'] = [
+    '_product_attributes' => [
+        'zzz_attribute' => [
+            'name' => 'pa_size',
+            'value' => 'Large',
+            'is_visible' => 1,
+            'is_variation' => 1,
+            'is_taxonomy' => 1,
+        ],
+        'aaa_attribute' => [
+            'is_taxonomy' => 1,
+            'is_visible' => 1,
+            'name' => 'pa_color',
+            'value' => 'Blue',
+            'is_variation' => 1,
+        ],
+    ],
+    'ordinary_meta' => 'unchanged',
+];
+$orderedFrontB = $source;
+$orderedFrontB['meta'] = [
+    '_product_attributes' => [
+        'aaa_attribute' => [
+            'is_variation' => 1,
+            'value' => 'Blue',
+            'name' => 'pa_color',
+            'is_visible' => 1,
+            'is_taxonomy' => 1,
+        ],
+        'zzz_attribute' => [
+            'is_taxonomy' => 1,
+            'is_variation' => 1,
+            'is_visible' => 1,
+            'value' => 'Large',
+            'name' => 'pa_size',
+        ],
+    ],
+    'ordinary_meta' => 'unchanged',
+];
+$orderedAPath = $fixtureDir . '/ordered-a.md';
+$orderedBPath = $fixtureDir . '/ordered-b.md';
+$orderedAContent = write_raw_post_file($orderedAPath, $orderedFrontA);
+$orderedBContent = write_raw_post_file($orderedBPath, $orderedFrontB);
+check(
+    $orderedAContent !== $orderedBContent,
+    'nested _product_attributes insertion-order fixture changes raw post bytes'
+);
+check(
+    Canon::post_hash_basis($orderedFrontA, '', $policy) === Canon::post_hash_basis($orderedFrontB, '', $policy),
+    'canonical post hash basis reproduces the nested metadata order collision'
+);
+check(
+    ordered_post_projection_hash($policy, $orderedAPath)
+        !== ordered_post_projection_hash($policy, $orderedBPath),
+    'ordered post projection rejects nested _product_attributes insertion-order changes'
+);
+
+$deletionEntity = [
+    'path' => 'deletions/' . $uuid . '.json',
+    'hash' => hash('sha256', Canon::encode([
+        'format' => 'duo-deletion/v1',
+        'kind' => 'post',
+        'type' => 'product',
+        'uuid' => $uuid,
+    ])),
+];
+check(
+    semantic_path_hash_projection([$deletionEntity]) !== semantic_path_hash_projection([]),
+    'complete semantic projection rejects an added deletion intent'
+);
+$changedDeletionEntity = $deletionEntity;
+$changedDeletionEntity['hash'] = hash('sha256', Canon::encode([
+    'format' => 'duo-deletion/v1',
+    'kind' => 'post',
+    'type' => 'product',
+    'uuid' => '018f0000-0000-7000-8000-000000000099',
+]));
+check(
+    semantic_path_hash_projection([$deletionEntity])
+        !== semantic_path_hash_projection([$changedDeletionEntity]),
+    'complete semantic projection rejects a deletion intent content difference'
 );
 
 check(

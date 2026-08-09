@@ -397,7 +397,7 @@ PHASE_ORDER_HELPER_GOLDEN_HASH=b8be7ab1221ac36f7ee6128ce24341d86ae46d66d7f0623ee
 ABSENT_HELPER_GOLDEN_HASH=74e54e8d9c00ba9d83634d57f7d56248999adf428426ab97d95e48dfb5a05616
 TRACE_HELPER_GOLDEN_HASH=dc4e232dae6bbae8b99cd00355e3b890d420d0c74ef70ef8baf170391aad73c5
 STATE_TREE_HASH_HELPER_GOLDEN_HASH=0b405c1bd3820c990ab1e6c3f2fe303fc8e8071be20fe65b133f73771c040349
-FINAL_COMPILED_STATE_DIFF_HELPER_GOLDEN_HASH=f97e2a2f82ecd75644c34a8564bd4c54cde8dec10c47d592c234d1d5afdeb359
+FINAL_COMPILED_STATE_DIFF_HELPER_GOLDEN_HASH=a6880a0178cbdab3968d75671dd90acdddc2476c621e5f513e30cdf88c768b11
 TARGET_PLUGIN_TREE_HASH_HELPER_GOLDEN_HASH=6c9343b7af357aa093efaae96328a2315ee2c1c421a27d0afecc72d4bf68a3a6
 TARGET_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=d80740550295c2df86f1a011941531aca503a475081bfbec685f9f158d9fa1e4
 SOURCE_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=830daaccf4702c0f2dbb27efd6b4aa5b1dd936bd089d744eaa8ec14f0ff35c31
@@ -454,11 +454,26 @@ assert_helper_contracts final-compiled-state-diff "$FINAL_COMPILED_STATE_DIFF_HE
   '\Duo\Policy::load("/siterepo")' 'final semantic diff does not load the pinned repository policy' \
   '\Duo\RepositoryCompiler::compile_staged("/siterepo/state", "/siterepo", $policy)' 'final semantic diff does not compile the complete canonical tree' \
   '\Duo\RepositoryCompiler::compile_staged("/siterepo/.tmp-final-state", "/siterepo", $policy)' 'final semantic diff does not compile the complete recaptured tree' \
-  '$out[(string) $entity["path"]] = (string) $entity["hash"];' 'final semantic diff does not bind identity-bearing paths to policy-aware entity hashes' \
+  '$ordered_post_hash = static function (string $root, string $path) use ($policy)' 'final semantic diff does not define an ordered raw post projection' \
+  '\Duo\Canon::read_file($root . "/" . $path)' 'ordered raw post projection does not read the compiled entity file' \
+  'json_decode(substr($text, 4, $end - 3), false, 512, JSON_THROW_ON_ERROR)' 'ordered raw post projection does not preserve JSON object insertion order' \
+  'array_keys(get_object_vars($front))' 'ordered raw post projection does not enumerate only top-level front fields' \
+  '$policy->field_class($postType, (string) $key) === "derived"' 'ordered raw post projection does not consult the pinned field classification' \
+  'unset($front->{$key})' 'ordered raw post projection does not strip only derived top-level fields' \
+  'JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR' 'ordered raw post projection does not directly encode the ordered front matter' \
+  'static function ($compiled, string $root) use ($ordered_post_hash)' 'final semantic diff does not project each compiled tree from its own raw root' \
+  '$entity["type"] === "post"' 'final semantic diff does not restrict raw projection to post entities' \
+  '$ordered_post_hash($root, $path)' 'final semantic diff does not use the ordered raw post projection' \
+  ': (string) $entity["hash"];' 'final semantic diff does not preserve compiled hashes for non-post entities' \
+  '$left = $project($canonical, "/siterepo/state");' 'final semantic diff does not project the canonical raw tree' \
+  '$right = $project($recaptured, "/siterepo/.tmp-final-state");' 'final semantic diff does not project the recaptured raw tree' \
   'foreach ($compiled->deletions() as $entity)' 'final semantic diff omits deletion intents' \
+  '$out[$path] = (string) $entity["hash"];' 'final semantic diff does not preserve deletion hashes' \
   '"canonical_hash" => $left[$path] ?? null' 'final semantic diff omits canonical mismatch evidence' \
   '"recaptured_hash" => $right[$path] ?? null' 'final semantic diff omits recapture mismatch evidence' \
   'echo \Duo\Canon::encode($diff);' 'final semantic diff is not deterministic canonical JSON'
+block_absent final-compiled-state-diff "$FINAL_COMPILED_STATE_DIFF_HELPER_BLOCK" \
+  'Canon::post_hash_basis' 'final semantic diff regressed to the key-sorting post hash basis'
 assert_helper_contracts target-plugin-tree-hash "$TARGET_PLUGIN_TREE_HASH_HELPER_BLOCK" "$TARGET_PLUGIN_TREE_HASH_HELPER_GOLDEN_HASH" \
   'target_php' 'target_plugin_tree_hash helper does not execute its target-side PHP probe' \
   '$root = "/var/www/html/wp-content/plugins";' 'target_plugin_tree_hash helper is not rooted at the complete plugin tree' \

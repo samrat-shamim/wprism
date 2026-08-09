@@ -323,10 +323,42 @@ final_compiled_state_diff() {
 $policy = \Duo\Policy::load("/siterepo");
 $canonical = \Duo\RepositoryCompiler::compile_staged("/siterepo/state", "/siterepo", $policy);
 $recaptured = \Duo\RepositoryCompiler::compile_staged("/siterepo/.tmp-final-state", "/siterepo", $policy);
-$project = static function ($compiled): array {
+$ordered_post_hash = static function (string $root, string $path) use ($policy): string {
+    $text = \Duo\Canon::read_file($root . "/" . $path);
+    if (!str_starts_with($text, "---\n")) {
+        throw new RuntimeException("bad post file (missing front matter fence): " . $path);
+    }
+    $end = strpos($text, "\n---\n", 3);
+    if ($end === false) {
+        throw new RuntimeException("bad post file (unterminated front matter): " . $path);
+    }
+    $front = json_decode(substr($text, 4, $end - 3), false, 512, JSON_THROW_ON_ERROR);
+    if (!$front instanceof \stdClass) {
+        throw new RuntimeException("bad post file (front matter must be an object): " . $path);
+    }
+    $body = substr($text, $end + 5);
+    if (str_ends_with($body, "\n")) {
+        $body = substr($body, 0, -1);
+    }
+    $postType = (string) ($front->type ?? "");
+    foreach (array_keys(get_object_vars($front)) as $key) {
+        if ($policy->field_class($postType, (string) $key) === "derived") {
+            unset($front->{$key});
+        }
+    }
+    $json = json_encode(
+        $front,
+        JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+    );
+    return hash("sha256", "---\n" . $json . "\n---\n" . $body . "\n");
+};
+$project = static function ($compiled, string $root) use ($ordered_post_hash): array {
     $out = [];
     foreach ($compiled->tree() as $entity) {
-        $out[(string) $entity["path"]] = (string) $entity["hash"];
+        $path = (string) $entity["path"];
+        $out[$path] = $entity["type"] === "post"
+            ? $ordered_post_hash($root, $path)
+            : (string) $entity["hash"];
     }
     foreach ($compiled->deletions() as $entity) {
         $path = (string) $entity["path"];
@@ -338,8 +370,8 @@ $project = static function ($compiled): array {
     ksort($out, SORT_STRING);
     return $out;
 };
-$left = $project($canonical);
-$right = $project($recaptured);
+$left = $project($canonical, "/siterepo/state");
+$right = $project($recaptured, "/siterepo/.tmp-final-state");
 $paths = array_values(array_unique(array_merge(array_keys($left), array_keys($right))));
 sort($paths, SORT_STRING);
 $diff = [];
