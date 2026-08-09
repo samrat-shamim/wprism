@@ -89,10 +89,15 @@ $needles = [
     // still satisfied a bare-operator needle).
     '` <=> %s' => "stored lookup values are compared by SQL under the column's own semantics",
     '` IS NULL' => 'a derivation of SQL NULL is compared as NULL rather than coerced',
-    // Snapshot-before-refresh is the whole load-bearing ordering: the refresh
-    // runs with a cleared cache, so it always REPLACEs, and a row read only
-    // afterwards would be one this verification had just written.
-    'read_lookup_row($table, $id)' => 'the stored row is read independently of the refresh that rewrites it',
+    // Only that the named read boundary exists — this string appears at BOTH
+    // call sites, so it cannot and does not pin their ORDER around the
+    // refresh. That ordering is the load-bearing property (the refresh runs
+    // with a cleared cache, so it always REPLACEs, and a row read only
+    // afterwards would be one this verification had just written), and it is
+    // covered behaviorally by the sibling-variation case in
+    // regress_woocommerce_product_lookups_fake.php, which fails when the
+    // before-read is moved after the refresh.
+    'read_lookup_row($table, $id)' => 'the stored-row read has a single named boundary',
 ];
 foreach ($needles as $needle => $message) {
     check(is_string($source) && str_contains($source, $needle), $message);

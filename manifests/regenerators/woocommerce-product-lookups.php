@@ -1373,8 +1373,9 @@ final class WoocommerceProductLookups {
      * thing:
      *
      *   1. The row the apply left behind is snapshotted BEFORE the refresh and
-     *      compared back afterwards. This is the check that says "the apply
-     *      converged this row". It has to be taken first: the refresh below
+     *      compared back afterwards, over the columns Woo derives. This is the
+     *      check that says "the apply converged this row". It has to be taken
+     *      first: the refresh below
      *      runs with a cleared cache, so WC_Data_Store_WP::update_lookup_table()
      *      always REPLACEs, and a readback taken only afterwards would be
      *      reading a row this verification had itself just written — passing
@@ -1436,11 +1437,20 @@ final class WoocommerceProductLookups {
             );
         }
 
+        // Scoped to the columns WooCommerce actually derived, deliberately.
+        // update_lookup_table() writes with $wpdb->replace(), which is a
+        // DELETE plus INSERT, so any column OUTSIDE the derived set — a
+        // cogs_total_value still holding data while the COGS feature is off, a
+        // column some other extension maintains — comes back at its schema
+        // default whatever the apply did. Comparing those would turn Woo's own
+        // write into a refusal blaming the apply for a divergence it did not
+        // cause. They are outside this check's authority; the derivation-bound
+        // check below already covers exactly the set Woo does own.
         $this->assert_lookup_row_matches(
             $id,
             $table,
             $stored,
-            $applied,
+            array_intersect_key($applied, $derived),
             'the apply left this WooCommerce product lookup row divergent from what WooCommerce derives'
         );
         $this->assert_lookup_row_matches(

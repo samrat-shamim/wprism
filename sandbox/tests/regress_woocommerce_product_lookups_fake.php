@@ -646,7 +646,16 @@ namespace {
             // Woo caches the derivation it computed, NOT this coerced form, so
             // the two deliberately differ — that gap is why the adapter compares
             // in SQL instead of PHP.
+            // $wpdb->replace() is a DELETE plus INSERT, so a column outside the
+            // derived set does not keep whatever it held — it comes back at its
+            // schema default. Model that for any residual column the row still
+            // carries (the nullable default the lookup table uses throughout).
             $stored = $derived;
+            foreach ($fakeMetaLookup[$id] ?? [] as $column => $_value) {
+                if (!array_key_exists($column, $derived)) {
+                    $stored[$column] = null;
+                }
+            }
             $stored['min_price'] = $first === null ? '0.0000' : $first;
             $stored['max_price'] = $last === null ? '0.0000' : $last;
             $stored['average_rating'] = $derived['average_rating'] === '' ? '0.00' : $derived['average_rating'];
@@ -1796,6 +1805,23 @@ namespace {
     $adapter->regenerate_batch([90], []);
     $check(($fakeMetaLookup[92]['min_price'] ?? null) === '21',
         'the refused sibling row is repaired by the refresh, so the retry converges');
+
+    // A column OUTSIDE Woo's derived set that still holds data — cogs_total_
+    // value with the COGS feature off, or anything a third party maintains —
+    // is reset by Woo's own DELETE+INSERT whatever the apply did, so blaming
+    // the apply for it would be a false attribution. Only reachable on a row
+    // the batch's own refresh pass never touches, because that pass would
+    // otherwise have reset the column before verification snapshots it — so
+    // the sibling path is the case, again.
+    $fakeMetaLookup[92]['cogs_total_value'] = '42.0000';
+    $residualColumnMessage = '';
+    try {
+        $adapter->regenerate_batch([91], []);
+    } catch (\Throwable $failure) {
+        $residualColumnMessage = $failure->getMessage();
+    }
+    $check($residualColumnMessage === '',
+        'a residual non-derived lookup column, reset by Woo own write, is not blamed on the apply');
 
     // The other axis: Woo's write not landing what Woo derived. Real Woo
     // permits this — update_lookup_table() ignores $wpdb->replace()'s return
