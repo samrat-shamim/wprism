@@ -458,10 +458,12 @@ snapshot/resource/lease receipts live under the orchestrator checkout's Git
 common directory, never under `state/`, `media/`, `code/`, manifests, or any
 other canonical repository surface. Providers do not interpret plugin state;
 their source-freeze, immutable snapshot-set, target mutation-fence, and TTL
-readback receipts are opaque host evidence. The engine still materializes the
-provider-restored production baseline through the separately compiled code and
-state halves, and promotion consumes the exact compiled artifact rather than a
-provider-specific or plugin-specific substitute.
+readback receipts are opaque host evidence. TTL is observable expiry metadata,
+never autonomous deletion authority: only an explicit identity-, ownership-,
+and lease-fenced reap may destroy or detach a resource. The engine still
+materializes the provider-restored production baseline through the separately
+compiled code and state halves, and promotion consumes the exact compiled
+artifact rather than a provider-specific or plugin-specific substitute.
 
 ## Manifests (registry format)
 

@@ -134,10 +134,13 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   repository/URL materialization, promotion, convergence, and TTL publication.
   Optional `--ttl=60..2592000` is a provider resource lease, not WordPress's
   database-local promotion lock; its exact generation/id/expiry is read back
-  before the mutation fence is released. Retries reuse the immutable operation
-  id, skip every journaled phase, and reconcile an uncertain phase with the
-  same inputs and ownership tuple, so provider actions must be idempotent for
-  that id.
+  before the mutation fence is released. It is observable expiry metadata, not
+  deletion authority: a provider must never autonomously destroy or detach the
+  resource when that time passes. Cleanup happens only through an explicit,
+  identity- and lease-fenced `duo env reap`. Retries reuse the immutable
+  operation id, skip every journaled phase, and reconcile an uncertain phase
+  with the same inputs and ownership tuple, so provider actions must be
+  idempotent for that id.
 
 - **`duo env reap <env>`** — reads the latest immutable machine-local
   materialization journal, re-inspects the provider resource, and performs a
@@ -625,9 +628,10 @@ and `mutation-release` publishes an idempotent release receipt only after
 promotion convergence and TTL readback. Every mutating target request carries
 `expected_environment_identity`, `expected_resource_id`, `expected_lease_id`,
 `expected_lease_generation`, and `expected_ownership_receipt_sha256`; the
-provider must also enforce the held mutation fence tuple. `ttl-read` binds the
-published expiry to its exact TTL generation/id, and reap compares both leases
-before destroy or detach. The host journal lives under Git's common directory at
+provider must also enforce the held mutation fence tuple. `ttl-set`/`ttl-read`
+publish and verify expiry metadata only; they must not schedule or perform
+automatic destruction. Reap compares both leases before its explicit destroy
+or detach. The host journal lives under Git's common directory at
 `duo-environments/` with mode-0600 immutable run/event records; it is
 operational recovery state and never canonical branch state.
 

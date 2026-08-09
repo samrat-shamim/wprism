@@ -27,6 +27,7 @@ final class EnvironmentProviderCapability {
     public const ENVIRONMENT_MUTATION_ACQUIRE = 'environment.mutation.acquire';
     public const ENVIRONMENT_MUTATION_READ = 'environment.mutation.read';
     public const ENVIRONMENT_MUTATION_RELEASE = 'environment.mutation.release';
+    /** Observable expiry metadata only; destroy/detach remains an explicit fenced reap action. */
     public const ENVIRONMENT_TTL = 'environment.ttl';
     /** Readback is distinct from setting a TTL; expiry/reuse is never inferred. */
     public const ENVIRONMENT_TTL_READ = 'environment.ttl.read';
