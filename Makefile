@@ -27,7 +27,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-frozen-materialization-promotion \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions \
-	regress-post-field-classification regress-capability-registry regress-woocommerce-contract \
+	regress-post-field-classification regress-capability-registry regress-woocommerce-contract regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
 	capability-registry-generate release-gate
 
@@ -377,6 +377,13 @@ code-half-unit: regress-repository-compiler regress-code-revision-enforcement re
 
 regress-repository-compiler:
 	bash sandbox/tests/regress_repository_compiler.sh
+
+# DUO-3316: generalized taxonomy object keyspaces, full description
+# json_refs/key_refs, attached structured-meta sidecar variants/two-sidecar
+# refusal, load-time refusal matrices, frozen-policy parity, and compiler
+# raw-id portability gates.
+regress-duo3316-contract:
+	bash sandbox/tests/regress_duo3316_contract.sh
 
 regress-coverage-offline:
 	php sandbox/tests/regress_coverage_offline.php
@@ -807,8 +814,8 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
-	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-vocabulary-ownership regress-close-gate-parent-count
-	@echo "regress-offline-all: 82 offline suites green"
+	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count
+	@echo "regress-offline-all: 84 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
