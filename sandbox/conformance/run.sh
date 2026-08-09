@@ -43,6 +43,8 @@
 # Usage: bash sandbox/conformance/run.sh <manifest-name>
 # Set CONFORMANCE_EVIDENCE_DIR to export conformance-<manifest>.{result,diff,
 # fragment}.json for import by a certification-bundle assembler.
+# Set CONF_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) to bind the sweep to an
+# exact agent/manifests commit (DUO-3377's gate — see below, before reset).
 #
 # Concurrency: the pair NAME is parameterized so sweeps no longer serialize
 # behind one host-wide 'conf' instance (a fleet-scale bottleneck — and two
@@ -187,6 +189,20 @@ wp_conf2() { wp_env conf2 "$@"; }
 export DUO_PAIR="$CONF_PAIR" DUO_PORT1="$CONF1_PORT" DUO_PORT2="$CONF2_PORT"
 export COMPOSE CONF1_PORT CONF2_PORT
 export -f wp_env wp_conf1 wp_conf2 say pass fail
+
+# DUO-3377: a sweep IS evidence, so it must be able to state which
+# agent/manifests bytes produced it. CONF_EXPECTED_SOURCE_SHA=$(git rev-parse
+# HEAD) binds this run to that exact commit: pair.sh's own gate then refuses
+# below — before `reset` DROP/CREATEs either database and before any container
+# starts — unless the source it is about to mount is that commit, clean (see
+# pair.sh's assert_candidate_source for why the mounted source is NOT this
+# checkout when run.sh is launched from a linked worktree). Exported rather
+# than passed as an argument for the same process-boundary reason DUO_PAIR/
+# DUO_PORT1/DUO_PORT2 are exported above: pair.sh is a subprocess here, and
+# `reset` accepts no flags at all. Unset leaves every sweep byte-identical.
+if [ -n "${CONF_EXPECTED_SOURCE_SHA:-}" ]; then
+  export DUO_EXPECTED_SOURCE_SHA="$CONF_EXPECTED_SOURCE_SHA"
+fi
 
 say "clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run)"
 bash bin/pair.sh reset "$CONF_PAIR"

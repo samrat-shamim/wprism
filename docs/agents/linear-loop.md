@@ -216,6 +216,24 @@ branch or edit files before this passes.
   (run `php scripts/capability-registry.php check`; refresh when it
   reports expiry), not a per-issue gate — that batching is the ratified
   scoping decision this subsection records, not an oversight.
+- **Exact-source gate: bind every live run to its commit (DUO-3377).** A
+  pair's `agent`/`manifests` bind mounts resolve to the CANONICAL checkout,
+  not to whichever checkout ran `pair.sh` (DUO-3277, so a persistent pair
+  survives its worktree's removal) — so a live suite or sweep launched from
+  your issue WORKTREE exercises the canonical checkout's bytes, and its
+  verdict, green or red, is about code you did not write (observed live on
+  DUO-3316: worktree at 3ae1ea5, pair mounted canonical b69fdf; the stale-
+  code warnings read as a candidate regression for a day). `pair.sh
+  up|reset|start` now always prints the mounted source path and HEAD; set
+  `DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)` (conformance:
+  `CONF_EXPECTED_SOURCE_SHA=...`, which `run.sh` exports as that) and any
+  other source — wrong commit, or uncommitted `agent`/`manifests` bytes —
+  refuses BEFORE the budget reservation, the database drop/create, and any
+  container start. The remedy the refusal names is the one the bundle
+  already uses: a standalone clone at the candidate HEAD (`git clone
+  --branch {branch} {canonical} ../duo-wp-live-DUO-XXXX`), run from there.
+  `stop`/`destroy`/`list` are deliberately ungated — cleanup must never be
+  blocked by a variable left exported in your shell.
 - **Ordering: the bundle is always LAST.** Dispatch the independent review
   before launching the bundle and land every finding first — a single
   manifest-byte fix from review invalidates a running bundle wholesale

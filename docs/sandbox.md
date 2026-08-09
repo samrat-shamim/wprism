@@ -108,9 +108,42 @@ Run as `bash sandbox/bin/pair.sh ...` (this repo's shell is zsh; every
 script here, this one included, is bash and always invoked explicitly that
 way).
 
+### The exact-source gate (`DUO_EXPECTED_SOURCE_SHA`)
+
+`agent/` and `manifests/` are bind-mounted from the repo's **canonical**
+checkout, resolved through git's own common-dir, never from wherever
+`pair.sh` was invoked (DUO-3277 — a linked worktree is removed at close-gate,
+which would kill a persistent pair's mount source out from under it). The
+consequence for evidence: a live suite or `conformance/run.sh` sweep launched
+from an issue worktree runs the **canonical checkout's** code, not the
+branch's, and nothing used to compare the two (DUO-3316 lost a day to exactly
+this — worktree at 3ae1ea5, pair mounted canonical b69fdf, and the resulting
+stale-code warnings looked like a candidate regression).
+
+`up`, `reset`, and `start` therefore always print the source they will mount
+— path, HEAD, and where this `pair.sh` copy itself is running from — on
+**stderr**, so it survives the `>/dev/null` most live suites wrap `pair.sh up`
+in (provenance is not progress chatter). Export
+`DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)` (7–40 hex; `run.sh` takes
+`CONF_EXPECTED_SOURCE_SHA` and exports it as this) to turn that report into a
+gate: the run refuses unless the mounted source is exactly that commit with
+no uncommitted `agent`/`manifests` changes, and it refuses **before** the
+budget reservation, the shared db, `DROP`/`CREATE DATABASE`, the site-repo
+roots, and any container create/start. `start` verifies the source **baked
+into that pair's existing containers** rather than what the common-dir
+resolves today, since `compose start` reuses whatever a container was created
+with. Unset, nothing refuses and behavior is unchanged — persistent-pair
+workflows are deliberately not candidate-bound. `stop`, `destroy`, and `list`
+are never gated: they are teardown and inspection, and cleanup must not be
+blocked by a variable left exported in a shell. The refusal names the remedy
+this repo already uses for certification bundles — a standalone clone of the
+candidate at that exact commit, run from there.
+
 ### `up` — idempotent bring-up
 
-In order: validate the dynamic host CPU/RAM pair budget (before creating any
+In order: report (and, when `DUO_EXPECTED_SOURCE_SHA` is set, verify) the
+agent/manifests bind-mount source, before anything else at all; validate the
+dynamic host CPU/RAM pair budget (before creating any
 pair state); ensure the shared db is up and healthy; ensure the `wordpress`
 user/grant exist; create this pair's two databases; create its site-repo
 directories (and, under `--codebind`, the plugin subdirectory the bind

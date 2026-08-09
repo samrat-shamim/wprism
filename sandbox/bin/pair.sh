@@ -42,6 +42,12 @@
 #   site-repo state. A new pair over the dynamic CPU/RAM budget is refused;
 #   `DUO_PAIR_BUDGET_OVERRIDE=1` is the explicit escape hatch. `list` surfaces
 #   the same budget warning for pairs already up.
+#
+# - `up`/`reset`/`start` print the agent/manifests bind-mount source they
+#   will actually use (path + HEAD) before doing anything, and refuse if
+#   `DUO_EXPECTED_SOURCE_SHA` is set and that source is not exactly that
+#   commit, clean — DUO-3377's exact-source gate, see
+#   assert_candidate_source() below.
 set -euo pipefail
 cd "$(dirname "$0")/.."   # sandbox/bin/pair.sh -> sandbox/
 
@@ -106,6 +112,216 @@ check_dead_mounts() { # check_dead_mounts <name>
 $(printf '  %s\n' "${dead[@]}")
 recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used]\" from ANY checkout of this repo (worktree or canonical, doesn't matter now) -- this recreates the container against the canonical checkout's own agent/manifests (docker compose detects the config drift and recreates automatically); this pair's own database and webroot volumes are untouched either way"
   fi
+}
+
+# DUO-3377: the container-side destination pair.yml mounts DUO_AGENT_SRC to.
+# Matched exactly, never by prefix: the sibling duo-loader.php mount lives in
+# the same directory, and pair.codebind.yml adds its own mounts one tree over
+# (wp-content/plugins/, see refuse_codebind_reset).
+AGENT_MOUNT_DEST=/var/www/html/wp-content/mu-plugins/duo
+
+# DUO-3377: the agent bind source BAKED INTO an existing pair's containers,
+# which is not necessarily what canonical_root() resolves today -- compose
+# start reuses whatever a container was CREATED with (the same fact
+# check_dead_mounts above exists for), so a pair created before DUO-3277
+# shipped can still carry a different source path.
+#
+# BOTH web containers are read, not just the first one that answers -- the
+# same pair of containers check_dead_mounts beside this walks. Compose creates
+# wp1/wp2 from one pair.yml in a single transaction, so they cannot currently
+# disagree; short-circuiting on wp1 anyway would leave this function quietly
+# reporting half an answer the day something else can create them separately,
+# which is precisely the class of silent half-truth this whole issue exists to
+# remove. Disagreement is therefore a refusal, not a coin flip.
+#
+# The answer comes back in PAIR_BAKED_AGENT_SRC rather than on stdout: a
+# refusal in here has to kill the RUN, and inside the `$(...)` this used to be
+# called from, fail's exit would only have ended the subshell and been
+# swallowed by the caller's `|| true`. Returns non-zero (with the variable
+# empty) when this pair has no container yet, or when docker cannot answer --
+# `up` is then the path that decides the source, and it resolves it
+# canonically.
+PAIR_BAKED_AGENT_SRC=""
+mounted_agent_source() { # mounted_agent_source <name>
+  local name="$1" container mounts source destination found="" seen=()
+  PAIR_BAKED_AGENT_SRC=""
+  for container in "duo-${name}-wp1-1" "duo-${name}-wp2-1"; do
+    docker inspect "$container" >/dev/null 2>&1 || continue
+    mounts=$(docker inspect "$container" \
+      --format '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{"\t"}}{{.Destination}}{{"\n"}}{{end}}{{end}}' \
+      2>/dev/null) || continue
+    while IFS=$'\t' read -r source destination; do
+      [ "${destination:-}" = "$AGENT_MOUNT_DEST" ] || continue
+      seen+=("$container: $source")
+      if [ -z "$found" ]; then
+        found="$source"
+      elif [ "$found" != "$source" ]; then
+        fail "pair '$name' has DISAGREEING agent bind-mount sources baked into its two web containers, so there is no single answer to 'which code does this pair run' -- refusing before any pair mutation:
+$(printf '  %s\n' "${seen[@]}")
+recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used]\" to recreate BOTH containers against this checkout's canonical agent/manifests (compose detects the config drift and recreates automatically); this pair's own databases and webroot volumes are untouched either way"
+      fi
+      break   # one agent mount per container; the rest of its mounts are other trees
+    done <<< "$mounts"
+  done
+  PAIR_BAKED_AGENT_SRC="$found"
+  [ -n "$found" ]
+}
+
+# DUO-3377: the exact-source gate. DUO-3277 made every pair's agent/manifests
+# bind mounts resolve to the CANONICAL checkout (canonical_root() above) no
+# matter which checkout ran this script -- exactly right for a pair that must
+# outlive a per-issue worktree, and silently wrong for EVIDENCE: a live
+# regression or conformance sweep launched from an issue worktree mounts the
+# canonical checkout's bytes, not the candidate branch's, and the verdict it
+# produces (green OR red) is about code that was never under test. Observed
+# live during DUO-3316: worktree at 3ae1ea5, pair mounted canonical b69fdf,
+# and the resulting stale-code warnings read as a candidate regression for a
+# full day before the mount was suspected.
+#
+# Opt-in via DUO_EXPECTED_SOURCE_SHA, because the persistent-pair workflows
+# DUO-3277 exists for are deliberately NOT candidate-bound: unset, every path
+# below behaves exactly as it did before this gate (it only PRINTS what is
+# being mounted, which every live evidence run wants recorded anyway). Set, a
+# run declares "the mounted agent/manifests bytes must be commit <sha>, with
+# no uncommitted changes", and any other answer refuses before the first
+# mutation -- no budget lock, no shared db, no DROP/CREATE, no site-repo
+# roots, no container create/start. A refusal costs seconds; a false verdict
+# costs a day.
+#
+# An environment variable rather than a subcommand flag: `reset` DROP/CREATEs
+# both databases and takes no flags at all, `start` starts containers and
+# takes none either, and the callers that actually produce evidence
+# (sandbox/conformance/run.sh, every regress_*.sh/grind_*.sh) invoke pair.sh
+# as a subprocess. One exported variable reaches every subcommand from every
+# caller with no argv plumbing anywhere -- the same reasoning that put
+# DUO_AGENT_SRC/DUO_MANIFESTS_SRC into sandbox/.env in pair_compose().
+#
+# Deliberately NOT applied to stop/destroy/list: those are teardown and
+# inspection, never evidence, and cleanup must never be blocked by a variable
+# left exported in someone's shell.
+assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-dir]
+  local subcommand="$1" baked="${2:-}"
+  local canonical source_root actual expected dirt dirt_err origin=""
+
+  # An unresolvable canonical root is NOT this function's failure to report
+  # while the gate is off: `reset` never needed git at all (it only touches
+  # databases and site-repo directories relative to its own cwd), and `up`/
+  # `start` already fail closed on exactly this condition further down, in
+  # pair_compose()/reserve_pair_budget(), with their own diagnostics. Failing
+  # here would add a brand-new failure mode to an ungated `reset` run from a
+  # non-Git copy of this script -- caught by regress_pair_bootstrap_unit.sh's
+  # reset_codebind_refusal case, which reset from a scratch directory and got
+  # this refusal instead of its codebind one. With the gate ON it is fatal:
+  # a run that demands an exact source cannot proceed without identifying it.
+  canonical="$(canonical_root)" || canonical=""
+  # DUO-3277's canonical bind root stays exactly what pair_compose() exports
+  # and writes to sandbox/.env. A baked source only ever changes what this
+  # gate VERIFIES, never what any later compose call mounts.
+  [ -n "$canonical" ] && PAIR_CANONICAL_ROOT="$canonical"
+
+  source_root="$canonical"
+  if [ -n "$baked" ] && [ "$baked" != "$canonical/agent" ]; then
+    source_root="$(dirname "$baked")"
+    origin=" (baked into this pair's existing containers at create time; this checkout's canonical root is $canonical)"
+  fi
+  if [ -n "$source_root" ]; then
+    actual="$(git -C "$source_root" rev-parse --verify HEAD 2>/dev/null)" || actual=""
+  else
+    actual=""
+  fi
+  expected="${DUO_EXPECTED_SOURCE_SHA:-}"
+
+  # On stderr, unlike every other say()/pass() in this file: which bytes
+  # produced a piece of evidence is provenance, not progress chatter, and most
+  # live suites run `pair.sh up ... >/dev/null` (regress_acf_term_options_
+  # fields.sh, regress_adapter_theme_range.sh, regress_menu_item_meta_gate.sh,
+  # ...). Printing this to stdout would make it invisible in exactly the runs
+  # whose evidence most needs to name its source.
+  {
+    say "candidate source for '$subcommand' (DUO-3377): agent/manifests bind mounts"
+    if [ -n "$source_root" ]; then
+      echo "  mounted source: ${source_root}/{agent,manifests}${origin}"
+    else
+      echo "  mounted source: <unresolvable — git could not name this repo's canonical checkout>"
+    fi
+    echo "  source HEAD:    ${actual:-<none — that path is not a git checkout>}"
+    echo "  invoked from:   $(pwd)"
+  } >&2
+  if [ -z "$expected" ]; then
+    echo "  expected SHA:   (DUO_EXPECTED_SOURCE_SHA unset — this run is NOT candidate-bound)" >&2
+    return 0
+  fi
+
+  expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"
+  echo "  expected SHA:   $expected (DUO_EXPECTED_SOURCE_SHA)" >&2
+  [[ "$expected" =~ ^[0-9a-f]{7,40}$ ]] \
+    || fail "DUO_EXPECTED_SOURCE_SHA must be a 7-40 character hex commit SHA (got '${DUO_EXPECTED_SOURCE_SHA}') -- take it from \`git rev-parse HEAD\` in the checkout whose bytes this evidence is about; refusing before any pair mutation rather than guessing what was meant"
+  [ -n "$source_root" ] \
+    || fail "could not resolve this repo's canonical checkout via git (not a git repository?) -- the agent/manifests bind-mount source cannot be identified, so DUO_EXPECTED_SOURCE_SHA=$expected cannot be honored; refusing before any pair mutation"
+  [ -n "$actual" ] \
+    || fail "candidate-source gate is set (DUO_EXPECTED_SOURCE_SHA=$expected) but the mounted source has no resolvable HEAD: $source_root -- refusing before any pair mutation"
+  if [ "${actual:0:${#expected}}" != "$expected" ]; then
+    fail "candidate-source MISMATCH -- refusing before any pair mutation (no budget reservation, no database drop/create, no site-repo roots, no container create/start):
+  expected (DUO_EXPECTED_SOURCE_SHA): $expected
+  actual mounted source:              ${source_root}/{agent,manifests}${origin}
+  actual mounted source HEAD:         $actual
+  this pair.sh copy is running from:  $(pwd)
+This is DUO-3277's canonical bind working as designed and DUO-3377's evidence hazard: agent/manifests always resolve to the CANONICAL checkout (git's own common-dir), so a live run launched from an issue worktree executes the canonical checkout's bytes, not your branch's.
+remedy: produce this evidence from a standalone clone of the candidate at that exact commit --
+  git clone --branch <branch> $canonical /path/to/duo-wp-live-<issue>
+  cd /path/to/duo-wp-live-<issue> && DUO_EXPECTED_SOURCE_SHA=\$(git rev-parse HEAD) bash sandbox/bin/pair.sh $subcommand ...
+or, if the canonical checkout genuinely IS the intended source, set DUO_EXPECTED_SOURCE_SHA=$actual (or leave it unset for a run that is not candidate-bound)"
+  fi
+  # The right commit says nothing about the two directories being PRESENT:
+  # `git status -- <pathspec>` reports nothing at all for a path that does not
+  # exist, so the clean-tree check just below would otherwise pass a checkout
+  # with no agent/ straight through to an opaque compose mount error later.
+  [ -d "$source_root/agent" ] \
+    || fail "the expected commit matched but the agent bind-mount source is absent: $source_root/agent -- refusing before any pair mutation"
+  [ -d "$source_root/manifests" ] \
+    || fail "the expected commit matched but the manifests bind-mount source is absent: $source_root/manifests -- refusing before any pair mutation"
+  # Dirtiness is scoped to the two directories that are actually MOUNTED, not
+  # to the whole tree: this script itself writes sandbox/.env and
+  # sandbox/siterepo/ into the checkout on every run, and a shared canonical
+  # checkout routinely carries other agents' in-flight work -- a whole-tree
+  # check would refuse over bytes no container ever sees. What the gate
+  # promises is that the MOUNTED bytes are exactly this commit's, which is
+  # precisely this query.
+  #
+  # Two details this query is fussy about, both found in review:
+  # - stderr is captured SEPARATELY, never merged into the porcelain output.
+  #   git can warn while still exiting 0 (an unreadable directory, for one),
+  #   and a merged capture turns that warning text into a phantom "DIRTY"
+  #   refusal quoting a message that names no file at all.
+  # - --no-optional-locks, because this runs against the SHARED canonical
+  #   checkout other agents are working in concurrently: a plain `git status`
+  #   takes index.lock and writes the refreshed index back, which is both an
+  #   unwanted write on someone else's checkout and a flaky-refusal risk if it
+  #   loses that race.
+  dirt_err="$(mktemp "${TMPDIR:-/tmp}/duo-pair-source-dirt.XXXXXX")" \
+    || fail "could not create a temporary file to capture git's own diagnostics -- refusing before any pair mutation"
+  if ! dirt="$(git -C "$source_root" --no-optional-locks status --porcelain=v1 \
+      --untracked-files=all -- agent manifests 2>"$dirt_err")"; then
+    local why
+    why="$(cat "$dirt_err" 2>/dev/null || true)"
+    rm -f -- "$dirt_err"
+    fail "could not check the mounted source for uncommitted agent/manifests changes ($source_root) -- refusing before any pair mutation: ${why:-git status failed without a diagnostic}"
+  fi
+  rm -f -- "$dirt_err"
+  if [ -n "$dirt" ]; then
+    # One array element per porcelain line, so every line gets the indent --
+    # printf with a single multi-line argument indents only the first (the
+    # same array/loop form check_dead_mounts uses for its own listing).
+    local -a dirt_lines=()
+    local dirt_line
+    while IFS= read -r dirt_line; do
+      [ -n "$dirt_line" ] && dirt_lines+=("$dirt_line")
+    done <<< "$dirt"
+    fail "candidate source is DIRTY -- refusing before any pair mutation. The agent/manifests bytes about to be mounted from $source_root do not correspond to $actual:
+$(printf '  %s\n' "${dirt_lines[@]}")
+remedy: commit or stash those changes, or produce this evidence from a clean standalone clone at the expected commit (git clone --branch <branch> $canonical /path/to/duo-wp-live-<issue>). Uncommitted mount bytes make the evidence unreproducible -- nothing records what they were"
+  fi
+  pass "mounted source is exactly $expected, clean — this run's evidence is bound to that commit" >&2
 }
 
 DB_CONTAINER=duo-shared-db
@@ -769,6 +985,12 @@ cmd_up() {
   done
   validate_name "$name"
 
+  # DUO-3377: the exact-source gate runs FIRST -- ahead of the budget
+  # reservation (which creates the shared lock directory under the canonical
+  # checkout), the shared DB, this pair's schemas, its site-repo roots, and
+  # every container operation. A refusal here has touched nothing at all.
+  assert_candidate_source up
+
   # Reserve the host budget before touching the shared DB, creating pair
   # schemas, or creating bind roots.  The reservation lock remains held
   # through web/CLI creation so a concurrent `up` cannot observe the same
@@ -932,6 +1154,11 @@ refuse_codebind_reset() { # refuse_codebind_reset <name>
 cmd_reset() {
   local name="${1:?usage: pair.sh reset <name>}"
   validate_name "$name"
+  # DUO-3377: reset is a mutation (DROP/CREATE of both databases, plus the
+  # site-repo clear below) and is what every conformance sweep runs FIRST, so
+  # the gate has to sit ahead of it -- ahead of refuse_codebind_reset's docker
+  # queries too, since the source question is answerable without them.
+  assert_candidate_source reset
   refuse_codebind_reset "$name"
   ensure_db_up
 
@@ -977,6 +1204,17 @@ cmd_start() {
   # config change means destroy + up.
   local name="${1:?usage: pair.sh start <name>}"
   validate_name "$name"
+  # DUO-3377: `start` resumes containers with the bind-mount sources baked in
+  # at CREATE time (see this file's own check_dead_mounts comment), so the
+  # source this gate must verify is the BAKED one, not whatever
+  # canonical_root() resolves today -- they differ for any pair created before
+  # DUO-3277 shipped. check_dead_mounts below still owns the separate "that
+  # source no longer exists at all" case. Called as a plain statement, never
+  # inside `$(...)`: mounted_agent_source can itself refuse (disagreeing
+  # containers), and that refusal has to end this run rather than a
+  # command-substitution subshell that `|| true` would then swallow.
+  mounted_agent_source "$name" || true
+  assert_candidate_source start "$PAIR_BAKED_AGENT_SRC"
   arm_budget_up_cleanup
   reserve_pair_budget "$name"
   # Keep the existing resume contract: the shared MariaDB must be healthy
@@ -1085,6 +1323,24 @@ usage:
 Names: lowercase letters/digits only, starting with a letter (no
 hyphens/underscores) — used bare as both a MySQL database-name fragment
 and a docker compose project suffix.
+
+Environment:
+  DUO_EXPECTED_SOURCE_SHA=<7-40 hex>
+           DUO-3377's exact-source gate. up/reset/start always PRINT the
+           agent/manifests bind-mount source they will use (path + HEAD);
+           with this set they additionally REFUSE — before any database
+           drop/create, site-repo write, or container create/start —
+           unless that source is exactly this commit with no uncommitted
+           agent/manifests changes. Bind every live evidence run with it
+           (`DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)`): mounts
+           always resolve to the CANONICAL checkout (DUO-3277), so a run
+           launched from an issue worktree otherwise silently exercises
+           the canonical checkout's code. Unset = unchanged behavior.
+           stop/destroy/list are deliberately ungated (teardown, not
+           evidence). sandbox/conformance/run.sh passes it through as
+           CONF_EXPECTED_SOURCE_SHA.
+  DUO_PAIR_BUDGET_OVERRIDE=1
+           bring a pair up/start it even when the host budget is exceeded.
 USAGE
 }
 
