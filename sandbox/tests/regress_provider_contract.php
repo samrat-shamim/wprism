@@ -8,7 +8,8 @@ declare(strict_types=1);
  * WP-CLI, no docker: the pieces under test are the closed vocabulary (pure PHP
  * by construction — it runs inside Policy's offline validation pass), the
  * negotiation gate (whose only live inputs are the four WordPress lifecycle
- * primitives stubbed below), and Apply's per-channel batch assembly (driven
+ * primitives stubbed below), NativeActions' exact transient/cache plus checked
+ * option-read runtime boundary, and Apply's per-channel batch assembly (driven
  * through reflection against a two-query fake wpdb, the same idiom
  * regress_woocommerce_regen_engine.php uses for the regeneration dispatch).
  *
@@ -66,6 +67,86 @@ function wp_cache_flush(): bool {
 }
 class WP_Error {
     public function __construct(public string $message = '') {}
+}
+
+// ---- WordPress transient primitives NativeActions::execute() reads ----
+//
+// Model an external/persistent object cache faithfully: array_key_exists(),
+// rather than a truthiness check, is what distinguishes a cached boolean
+// false from a cache miss. That distinction is the product contract under
+// test; transient.delete must not report a false-valued survivor as absent.
+final class NativeActionFakeWpdb {
+    public string $options = 'wp_options';
+    public string $last_error = '';
+    /** @var array<string,mixed> option name => stored value */
+    public array $optionRows = [];
+    /** @var list<string> */
+    public array $optionReadNames = [];
+    public bool $failNextOptionRead = false;
+
+    public function prepare(string $query, mixed ...$args): string {
+        foreach ($args as $arg) {
+            $query = preg_replace(
+                '/%s/',
+                "'" . addslashes((string) $arg) . "'",
+                $query,
+                1
+            ) ?? $query;
+        }
+        return $query;
+    }
+
+    public function get_var(string $query): string|false|null {
+        if (!preg_match("/FROM wp_options WHERE option_name = '((?:[^'\\\\]|\\\\.)*)' LIMIT 1/", $query, $match)) {
+            throw new \RuntimeException("unexpected NativeActions option query: $query");
+        }
+        $name = stripslashes($match[1]);
+        $this->optionReadNames[] = $name;
+        if ($this->failNextOptionRead) {
+            $this->failNextOptionRead = false;
+            $this->last_error = 'injected transient option read failure';
+            return false;
+        }
+        return array_key_exists($name, $this->optionRows) ? $name : null;
+    }
+}
+
+$GLOBALS['duo_native_cache'] = [];
+$GLOBALS['duo_native_cache_reads'] = [];
+$GLOBALS['duo_native_delete_calls'] = [];
+$GLOBALS['duo_native_delete_mode'] = 'delete';
+
+function wp_cache_get($key, $group = '', $force = false, &$found = null): mixed {
+    $group = (string) $group;
+    $key = (string) $key;
+    $entries = $GLOBALS['duo_native_cache'][$group] ?? [];
+    $present = array_key_exists($key, $entries);
+    $found = $present;
+    $value = $present ? $entries[$key] : false;
+    $GLOBALS['duo_native_cache_reads'][] = [
+        'key' => $key,
+        'group' => $group,
+        'arity' => func_num_args(),
+        'found' => $present,
+        'value' => $value,
+    ];
+    return $value;
+}
+
+function delete_transient($transient): bool {
+    global $wpdb;
+    $name = (string) $transient;
+    $GLOBALS['duo_native_delete_calls'][] = $name;
+    if ($GLOBALS['duo_native_delete_mode'] === 'no-op') {
+        return false;
+    }
+    $wasPresent = array_key_exists('_transient_' . $name, $wpdb->optionRows)
+        || array_key_exists('_transient_timeout_' . $name, $wpdb->optionRows)
+        || array_key_exists($name, $GLOBALS['duo_native_cache']['transient'] ?? []);
+    unset($wpdb->optionRows['_transient_' . $name]);
+    unset($wpdb->optionRows['_transient_timeout_' . $name]);
+    unset($GLOBALS['duo_native_cache']['transient'][$name]);
+    return $wasPresent;
 }
 
 require $root . '/agent/src/Canon.php';
@@ -287,6 +368,115 @@ $expectMessage(
     'bounded string',
     'an argument outside the bounded charset is refused before any target contact'
 );
+
+echo "\n== native transient deletion: persistent-cache presence verification ==\n";
+
+// Keep this product-path runtime fake independent from the provider fixture
+// below. NativeActions reads wp_options directly so a value-level receipt can
+// distinguish real row absence from an empty-looking database failure.
+$resetNativeActionRuntime = static function (): void {
+    global $wpdb;
+    $wpdb = new NativeActionFakeWpdb();
+    $GLOBALS['duo_native_cache'] = [];
+    $GLOBALS['duo_native_cache_reads'] = [];
+    $GLOBALS['duo_native_delete_calls'] = [];
+    $GLOBALS['duo_native_delete_mode'] = 'delete';
+};
+$deleteNativeTransient = static fn(string $name): array => \Duo\NativeActions::execute(
+    'transient.delete',
+    ['name' => $name]
+);
+
+// An absent transient is already converged. delete_transient() may return
+// false in that case, so only the fresh cache+option readback proves success.
+$resetNativeActionRuntime();
+$missName = 'native_cache_miss';
+$missReceipt = $deleteNativeTransient($missName);
+$check(
+    ($missReceipt['before'] ?? null) === ['value_row' => false, 'timeout_row' => false, 'cached' => false]
+        && ($missReceipt['after'] ?? null) === ['value_row' => false, 'timeout_row' => false, 'cached' => false]
+        && ($missReceipt['verified'] ?? null) === true,
+    'a cache miss is verified absent before and after transient.delete'
+);
+$check($wpdb->optionReadNames === [
+    '_transient_' . $missName,
+    '_transient_timeout_' . $missName,
+    '_transient_' . $missName,
+    '_transient_timeout_' . $missName,
+], 'cache-miss verification reads both option rows before and after through checked wpdb reads');
+$resetNativeActionRuntime();
+$wpdb->failNextOptionRead = true;
+try {
+    $deleteNativeTransient('native_option_read_failure');
+    $check(false, 'an option-row read failure is not mistaken for an absent transient');
+} catch (\Throwable $t) {
+    $check(str_contains($t->getMessage(), 'option-row read failed'),
+        'an option-row read failure is not mistaken for an absent transient');
+}
+$check($GLOBALS['duo_native_delete_calls'] === [],
+    'a checked option-row read failure refuses before delete_transient() is called');
+
+// A conventional non-false cache value and both option rows must be observed
+// in the receipt, then removed by the real NativeActions execution path.
+$resetNativeActionRuntime();
+$ordinaryName = 'native_ordinary_value';
+$wpdb->optionRows = [
+    '_transient_' . $ordinaryName => 'persisted-value',
+    '_transient_timeout_' . $ordinaryName => '4102444800',
+];
+$GLOBALS['duo_native_cache']['transient'] = [$ordinaryName => 'cached-value'];
+$ordinaryReceipt = $deleteNativeTransient($ordinaryName);
+$check(
+    ($ordinaryReceipt['before'] ?? null) === ['value_row' => true, 'timeout_row' => true, 'cached' => true]
+        && ($ordinaryReceipt['after'] ?? null) === ['value_row' => false, 'timeout_row' => false, 'cached' => false]
+        && ($ordinaryReceipt['verified'] ?? null) === true,
+    'an ordinary persistent cache value and both option rows are observed then removed'
+);
+$check($GLOBALS['duo_native_delete_calls'] === [$ordinaryName]
+    && $wpdb->optionRows === []
+    && !array_key_exists($ordinaryName, $GLOBALS['duo_native_cache']['transient'] ?? []),
+    'ordinary transient deletion removes the exact cache key and both option rows');
+
+// A persistent cache can legitimately store boolean false. wp_cache_get()
+// returns false for both that value and a miss, so NativeActions must pass and
+// honor WordPress's by-reference $found flag rather than test the return value.
+$resetNativeActionRuntime();
+$falseName = 'native_false_value';
+$GLOBALS['duo_native_cache']['transient'] = [$falseName => false];
+$falseReceipt = $deleteNativeTransient($falseName);
+$check(
+    ($falseReceipt['before'] ?? null) === ['value_row' => false, 'timeout_row' => false, 'cached' => true]
+        && ($falseReceipt['after'] ?? null) === ['value_row' => false, 'timeout_row' => false, 'cached' => false]
+        && ($falseReceipt['verified'] ?? null) === true,
+    'a boolean-false cache entry is observed as present and is removed'
+);
+$check($GLOBALS['duo_native_cache_reads'] === [
+    ['key' => $falseName, 'group' => 'transient', 'arity' => 4, 'found' => true, 'value' => false],
+    ['key' => $falseName, 'group' => 'transient', 'arity' => 4, 'found' => false, 'value' => false],
+], 'NativeActions uses wp_cache_get(..., &$found) to distinguish false from a miss');
+
+// A false return from delete_transient() is ambiguous. If a false-valued cache
+// entry survives a no-op/failed delete, post-action readback must throw and no
+// receipt may claim verified=true merely because the cached value is false.
+$resetNativeActionRuntime();
+$failedFalseName = 'native_false_survivor';
+$GLOBALS['duo_native_cache']['transient'] = [$failedFalseName => false];
+$GLOBALS['duo_native_delete_mode'] = 'no-op';
+$failedFalseReceipt = null;
+$failedFalseError = null;
+try {
+    $failedFalseReceipt = $deleteNativeTransient($failedFalseName);
+} catch (\Throwable $t) {
+    $failedFalseError = $t;
+}
+$check($failedFalseError instanceof \Throwable
+    && str_contains($failedFalseError->getMessage(), 'object cache entry transient/' . $failedFalseName),
+    'a no-op delete that leaves a false-valued persistent cache entry is refused');
+$check($failedFalseReceipt === null,
+    'a surviving false-valued cache entry never returns a verified=true receipt');
+$check(array_key_exists($failedFalseName, $GLOBALS['duo_native_cache']['transient'] ?? [])
+    && $GLOBALS['duo_native_cache']['transient'][$failedFalseName] === false,
+    'the failed-delete fixture genuinely leaves the boolean-false cache entry present for readback');
 
 echo "\n== negotiation: the supported path ==\n";
 $reset();

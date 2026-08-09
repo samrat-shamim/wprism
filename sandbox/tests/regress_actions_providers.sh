@@ -12,11 +12,13 @@
 #     REAL shipped manifests and the five REAL provider files they carry, and
 #     the digest that binds manifest-shipped provider bytes to their adapter.
 #
-#   regress_provider_contract.php  RUNTIME. Stubs exactly the four WordPress
-#     lifecycle primitives Deploy::plugin_runtime_state() reads plus
-#     apply_filters(), and exercises negotiation refusals, plugin-sourced
-#     `duo_providers` discovery, invocation receipts, value-level
-#     verification, and the post-hoc timeout budget.
+#   regress_provider_contract.php  RUNTIME. Stubs the four WordPress lifecycle
+#     primitives Deploy::plugin_runtime_state() reads plus apply_filters(),
+#     and the exact transient/cache + checked option-read primitives
+#     NativeActions::execute() reads. It exercises negotiation refusals,
+#     plugin-sourced `duo_providers` discovery, invocation receipts,
+#     value-level verification, persistent-cache false-value handling, and
+#     the post-hoc timeout budget.
 #
 # Both are pure PHP against real engine files under a scratch
 # DUO_MANIFESTS_DIR — no docker, no sandbox pair, no WordPress bootstrap. Same
