@@ -101,6 +101,38 @@ function post_source(mixed $value): string {
         . "\n---\nprobe body\n";
 }
 
+function order_preserving_post_source(): string {
+    // This mirrors a Capture OrderPreserved subtree: a nested authored map
+    // whose insertion order changes downstream behavior.  Parsing to PHP
+    // arrays drops the wrapper, so a refresh compiler may only carry the
+    // exact validated source bytes forward.
+    $front = [
+        'author' => null,
+        'comment_status' => 'open',
+        'date' => '2026-08-09 00:00:00',
+        'date_gmt' => '2026-08-09 00:00:00',
+        'excerpt' => '',
+        'menu_order' => 0,
+        'meta' => ['_ordered' => [
+            'z-before-a' => ['position' => 1],
+            'a-after-z' => ['position' => 2],
+        ]],
+        'modified' => '2026-08-09 00:00:00',
+        'modified_gmt' => '2026-08-09 00:00:00',
+        'parent' => null,
+        'ping_status' => 'closed',
+        'slug' => 'order-preserved',
+        'status' => 'publish',
+        'terms' => [],
+        'title' => 'Order Preserved',
+        'type' => 'post',
+        'uuid' => '00000000-0000-4000-8000-000000000002',
+    ];
+    return "---\n"
+        . json_encode($front, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
+        . "\n---\nordered body\n";
+}
+
 function provider_source(string $version, string $ref): string {
     return "<?php\n"
         . "namespace Duo\\Regenerators;\n"
@@ -129,6 +161,7 @@ final class Probe {
         $this->rule = \Duo\Regenerators\Probe::rule();
     }
     public function post_meta_rule(string $key, array $allMeta): ?array {
+        if ($key === '_ordered') return ['class' => 'authored', 'order_preserving' => true];
         return $key === '_probe' ? $this->rule : null;
     }
 }
@@ -166,6 +199,13 @@ function site_source(): string {
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
 }
 
+function options_source(): string {
+    // Exact Canon::encode() bytes for an intentionally empty option document.
+    // The compile worker must retain these structured state bytes rather than
+    // emitting an empty-string placeholder for options/core.
+    return "{\n    \"format\": \"duo-options/v1\",\n    \"records\": []\n}\n";
+}
+
 $fixture = sys_get_temp_dir() . '/duo_refresh_compile_refs_' . bin2hex(random_bytes(6));
 $trees = [$fixture . '/tree-base', $fixture . '/tree-branch', $fixture . '/tree-production-code'];
 mkdir($fixture, 0777, true);
@@ -189,6 +229,9 @@ try {
     fixture_write($fixture . '/manifests/probe.json', manifest_source());
     fixture_write($fixture . '/manifests/interpreters/probe.php', interpreter_source('A'));
     fixture_write($fixture . '/state/posts/post/00000000-0000-4000-8000-000000000001--probe.md', post_source('{{post:00000000-0000-4000-8000-000000000001}}'));
+    $orderedPost = order_preserving_post_source();
+    fixture_write($fixture . '/state/posts/post/00000000-0000-4000-8000-000000000002--order-preserved.md', $orderedPost);
+    fixture_write($fixture . '/state/options/core.json', options_source());
     fixture_write($fixture . '/manifests/regenerators/probe.php', provider_source('A', 'post'));
     git_fixture($fixture, ['add', '.']);
     git_fixture($fixture, ['commit', '-qm', 'probe implementation A']);
@@ -242,6 +285,39 @@ try {
         ])) === 3,
         'each ref has an independent compiled artifact rather than leaked PHP class state'
     );
+
+    $orderedContent = $base['records']['00000000-0000-4000-8000-000000000002']['content'] ?? null;
+    check_compile(
+        is_string($orderedContent)
+            && hash_equals($orderedPost, $orderedContent)
+            && strpos($orderedContent, 'z-before-a') < strpos($orderedContent, 'a-after-z'),
+        'compile worker retains exact order-preserving post state bytes instead of reserializing decoded maps'
+    );
+
+    $options = $base['records']['options/core'] ?? null;
+    $optionsContent = is_array($options) ? ($options['content'] ?? null) : null;
+    $optionsCanonical = is_string($optionsContent) && $optionsContent !== '' && $optionsContent === options_source();
+    check_compile(
+        $optionsCanonical,
+        'compile worker reconstructs options/core canonical content instead of an empty placeholder'
+            . ($optionsCanonical ? '' : ' (got ' . var_export($optionsContent, true) . ')')
+    );
+    try {
+        // Calling plan first loads the shared state serializers in this
+        // parent process as well as exercising the exact consumer boundary.
+        $roundTripPlan = RefreshPlan::plan($base, $base, $base, []);
+        check_compile(
+            ($roundTripPlan['format'] ?? null) === 'duo-refresh-plan/v1',
+            'semantic planner accepts compiled options/core content without an empty/noncanonical decode'
+        );
+        $decodedOptions = \Duo\Canon::decode((string) $optionsContent);
+        check_compile(
+            \Duo\Canon::encode($decodedOptions) === $optionsContent,
+            'compiled options/core content is canonical and round-trips through the state serializer'
+        );
+    } catch (Throwable $e) {
+        check_compile(false, 'compiled options/core content round-trips through the semantic planner: ' . $e->getMessage());
+    }
 
     try {
         RefreshPlan::compileGitWorktree($trees[1], $baseCommit, 'branch');
