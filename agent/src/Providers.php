@@ -351,6 +351,18 @@ final class Providers {
                     $failed = true;
                     continue;
                 }
+                $problem = self::dual_claimant_problem(
+                    $policy,
+                    $declaration,
+                    $capability,
+                    $action,
+                    (array) $advertised[$capability]
+                );
+                if ($problem !== null) {
+                    $problems[] = $problem;
+                    $failed = true;
+                    continue;
+                }
                 $bound[$capability] = $advertised[$capability];
             }
             // A count comparison cannot express completeness here: the wanted
@@ -940,6 +952,79 @@ final class Providers {
             );
         }
         return null;
+    }
+
+    /**
+     * One post type, two dispatchers — refused before the first mutation.
+     *
+     * The batch `regen_dependency` channel and the channel-declaring provider
+     * contract are two dispatchers over the SAME durable bookkeeping: the
+     * `regen_pending:`, `regen_delete_context:`, and `regen_reparent_context:`
+     * keyspaces. Sharing them is deliberate (DUO-3342) — one retry vocabulary,
+     * one `duo plan`/`duo status` projection, one meaning for an operator
+     * auditing duo_kv — and it is only coherent while exactly one dispatcher
+     * OWNS a given post type. Two claimants would each treat the other's
+     * markers as theirs to consume and clear: the batch pass would sweep a
+     * receipt the provider had not yet been delivered, and a verified provider
+     * receipt would retire a marker the batch regenerator still owed work for.
+     * Both are silent convergence claims about work that never happened.
+     *
+     * Refused at negotiation rather than at load, because the question is about
+     * this run's SELECTION: the same manifest may legitimately declare a batch
+     * regenerator for one post type and a channel-declaring capability for
+     * another, and only the negotiated declaration says which channels the
+     * installed capability actually asked for. It is still before any target
+     * mutation, which is the property that matters.
+     *
+     * The remediation names the extension path rather than "pick one at
+     * random": a post type migrating from the batch channel to a provider drops
+     * its `regen_dependency` (batch, verify, and effects move to the action), so
+     * the refusal is what a half-finished migration looks like.
+     *
+     * @param array<string,mixed> $providerDeclaration the manifest's providers[] row
+     * @param array<string,mixed> $action the selected action
+     * @param array<string,mixed> $decl the advertised capability declaration
+     */
+    private static function dual_claimant_problem(
+        Policy $policy,
+        array $providerDeclaration,
+        string $capability,
+        array $action,
+        array $decl
+    ): ?array {
+        $channels = (array) ($decl['context'] ?? []);
+        if ($channels === []) {
+            return null;
+        }
+        $claimed = [];
+        foreach ((array) ($action['triggers'] ?? []) as $trigger) {
+            $trigger = is_string($trigger) ? $trigger : '';
+            if (!str_starts_with($trigger, 'post:')) {
+                continue;
+            }
+            $postType = substr($trigger, strlen('post:'));
+            if ($postType !== '' && $policy->regen_batch($postType) !== null) {
+                $claimed[$postType] = $postType;
+            }
+        }
+        if ($claimed === []) {
+            return null;
+        }
+        $types = implode(', ', array_keys($claimed));
+        return self::problem(
+            (string) $providerDeclaration['id'],
+            (string) $providerDeclaration['manifest'],
+            (string) $providerDeclaration['plugin'],
+            'post_type_claimed_by_regen_batch',
+            "post type(s) $types dispatched by exactly one of the batch regen_dependency channel "
+                . "or capability '$capability' (context: " . implode(', ', $channels) . ')',
+            "both: post_types.$types declares an enabled batch regen_dependency AND this action triggers "
+                . "'$capability' on it",
+            "finish the migration — remove the batch regen_dependency for $types (its batch, verify, and "
+                . 'effects belong on this provider action) so one dispatcher owns the regen_pending / '
+                . 'regen_delete_context / regen_reparent_context markers, or drop the `context` declaration '
+                . 'and leave the batch channel in charge'
+        );
     }
 
     /**

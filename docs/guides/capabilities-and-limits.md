@@ -334,10 +334,13 @@ rather than working around it.
 - Theme upgrade, downgrade refusal, and removal as a managed lifecycle — **Planned (DUO-3358)** — not yet shipped.
 - Moving WordPress cron as managed state — **Planned (DUO-3359)** — not yet shipped.
 - Retiring the last Duo-authored WooCommerce business logic — **Planned (DUO-3342)** — not yet shipped.
-  The file boundary is already there: the lookup rebuild lives in
-  `manifests/regenerators/woocommerce-product-lookups.php` and is dispatched
-  generically by its manifest-declared name, never by a plugin check in the
-  engine. What remains Duo-native is the WooCommerce *semantics* inside it —
-  price synchronization that preserves authored meta, expected-attribute-row
-  derivation, and raw-SQL verification queries — logic Duo maintains that
-  should belong to a plugin-owned provider.
+  The dispatch half of that issue has shipped: the lookup rebuild lives in
+  `manifests/providers/woocommerce-product-lookups.php` and runs through the
+  provider contract — negotiated identity, a declared version window, engine
+  batch channels, and a receipt whose `verified` is refused unless the adapter
+  proved the values it wrote — instead of the engine's regenerator channel. What
+  remains Duo-native is the WooCommerce *semantics* inside that file — price
+  synchronization that preserves authored meta, expected-attribute-row
+  derivation, and raw-SQL verification queries — logic Duo maintains in an
+  adapter package (`source: manifest`) that should belong to a provider the
+  plugin itself advertises (`source: plugin`).

@@ -1,5 +1,5 @@
 <?php
-namespace Duo\Regenerators;
+namespace Duo\Providers;
 
 use Duo\Policy;
 
@@ -14,25 +14,292 @@ use Duo\Policy;
  * which would leave a successful Duo apply with a pending, non-deterministic
  * lookup update.  The public data-store methods used here are synchronous.
  *
- * Dispatch note: this file is reached through the engine's regenerator channel
- * (Apply::regen_batch_dependencies()), not the DUO-3338 provider contract, and
- * that is currently forced rather than chosen. A provider would bring identity
- * binding, negotiation before the first target mutation, and receipts — but a
- * capability's arguments are limited to bool/int/string/list<string>
- * (Providers::ARG_TYPES), and its engine-assembled entity batch carries only
- * created/updated entities, so the deletion and reparent context this adapter
- * requires cannot be expressed at all. Closing that structured-argument gap is
- * DUO-3369; until then, migrating the channel would trade a real capability
- * for the identity binding.
+ * Dispatch note (DUO-3342): this file is now reached through the DUO-3338
+ * provider contract — identity binding, negotiation before the first target
+ * mutation, a declared timeout budget, and a verified receipt — rather than
+ * the engine's regenerator channel it was written against. The two things
+ * that forced the older channel are both gone: DUO-3369 gave a capability
+ * structured arguments and the engine batch CHANNELS (`deletions`,
+ * `reparents`, `retry`, `always_on_write`), and DUO-3342 made those channels
+ * carry the pre-delete inventory and own their durable markers, so the
+ * deletion and reparent context this adapter requires is expressible without
+ * loss. Everything below invoke() is the regenerator code MOVED, not
+ * rewritten: the batch entry point keeps its `regenerate_batch(array
+ * $liveIds, array $deletionContext, ?callable $heartbeat = null)` shape and
+ * its internal contract with the deletion-context rows, and invoke() is the
+ * thin mapping from the engine envelope onto exactly those two arguments.
+ *
+ * What did NOT survive the move: the single-id `regenerate()` boundary, which
+ * existed only for the regenerator channel's per-entity path. Nothing calls it
+ * now, and leaving it would advertise participation in a contract this class
+ * no longer has.
  */
 final class WoocommerceProductLookups {
     private Policy $policy;
 
     private const META_LOOKUP = 'wc_product_meta_lookup';
     private const ATTR_LOOKUP = 'wc_product_attributes_lookup';
+    private const CAPABILITY = 'rebuild_product_lookups';
 
     public function __construct(Policy $policy) {
         $this->policy = $policy;
+    }
+
+    /** @return array{id:string, plugin:string, version:string} */
+    public function identity(): array {
+        return [
+            'id' => 'woocommerce-product-lookups',
+            'plugin' => 'woocommerce/woocommerce.php',
+            'version' => '1.0.0',
+        ];
+    }
+
+    /**
+     * `reads`/`writes` are the capability-level summary in the canonical
+     * surface vocabulary; the precise restorable/irreversible inventory of one
+     * invocation is the declaring action's own `effects` list in
+     * manifests/woocommerce.json — the same 108 rows the two post types'
+     * `regen_dependency.effects` carried before this migration, moved with the
+     * dispatch rather than re-derived.
+     *
+     * `context` names every channel this repair actually consumes, and each
+     * one is load-bearing rather than aspirational:
+     *   - `deletions`  drives the synchronous equivalent of Woo's ACTION_DELETE
+     *     path — the lookup rows of a removed product/variation, its captured
+     *     `child_ids`, and the still-live parent whose derived price and
+     *     attribute rows the removal changed;
+     *   - `reparents`  refreshes BOTH roots of a moved variation. One row per
+     *     root is how the engine normalizes a chained A->B->C move, and
+     *     invoke() regroups them per entity so the accumulated root set reaches
+     *     the batch entry point exactly as the durable receipt held it;
+     *   - `retry`      states that a previous apply committed something and
+     *     failed, which is the run on which the durable receipts above are the
+     *     only evidence left;
+     *   - `always_on_write` states the basis this fired on, mirroring the
+     *     `batch.always_on_write` flag the retired regen_dependency declared.
+     *
+     * `args` is empty deliberately: every input is engine-assembled. A
+     * capability may not declare the reserved `entities` argument at all
+     * (\Duo\Providers::validate_capability_declaration() refuses it), because
+     * the batch the engine assembled and the batch a manifest asked for must
+     * not be able to disagree.
+     *
+     * 300 seconds is the promotion lease TTL (PromotionLock::DEFAULT_TTL), and
+     * that is the honest bound rather than a guess about catalog size. The
+     * provider contract has no heartbeat parameter, so the engine renews the
+     * lease immediately before and after this call and cannot renew during it:
+     * an invocation running past the TTL has already lost the lease, and the
+     * renewal on the far side is what fails. Declaring a larger budget would
+     * only move where that same run reports the same failure.
+     */
+    public function capabilities(): array {
+        return [
+            self::CAPABILITY => [
+                'args' => [],
+                'reads' => [
+                    'post:product',
+                    'post:product_variation',
+                    'table:postmeta',
+                    'table:posts',
+                    'table:term_relationships',
+                ],
+                'writes' => [
+                    'table:actionscheduler_actions',
+                    'table:postmeta',
+                    'table:wc_product_attributes_lookup',
+                    'table:wc_product_meta_lookup',
+                ],
+                'scope' => 'entity',
+                'idempotent' => true,
+                'timeout_seconds' => 300,
+                'context' => ['always_on_write', 'deletions', 'reparents', 'retry'],
+            ],
+        ];
+    }
+
+    /**
+     * Map the engine batch envelope onto the batch entry point below, run it,
+     * and return a receipt whose `verified` is true only because
+     * verify_exact_state()/verify_sale_schedules() already proved the values.
+     *
+     * before/after are observed row cardinalities in the two derived lookup
+     * tables over exactly the ids this invocation was handed — a cheap,
+     * value-level statement about what changed. They are deliberately NOT the
+     * verification: a count is not proof that a row holds what WooCommerce
+     * derives, which is what the exact-state pass inside regenerate_batch()
+     * checks (and hard-fails on) before this method can return at all.
+     *
+     * @param array<string,mixed> $args
+     * @return array{before:array, after:array, verified:true}
+     */
+    public function invoke(string $capability, array $args): array {
+        if ($capability !== self::CAPABILITY) {
+            throw new \RuntimeException(
+                "duo: WooCommerce product lookup provider does not implement capability '$capability'"
+            );
+        }
+        $this->assert_runtime_contract();
+        $envelope = $args[\Duo\Providers::ENTITIES_ARG] ?? null;
+        if (!is_array($envelope) || !array_key_exists('entities', $envelope)
+            || !array_key_exists('deletions', $envelope) || !array_key_exists('reparents', $envelope)) {
+            // Unreachable through the engine, which assembles exactly the
+            // declared channels or refuses. Fail closed rather than repair an
+            // empty batch and report it as done: a missing channel here would
+            // mean this adapter silently stopped seeing tombstones.
+            throw new \RuntimeException(
+                'duo: WooCommerce product lookup repair received no engine batch envelope; expected the '
+                . 'entities/deletions/reparents channels its capability declares'
+            );
+        }
+        $liveIds = [];
+        foreach ((array) $envelope['entities'] as $entity) {
+            $id = (int) ($entity['id'] ?? 0);
+            if ($id > 0) {
+                $liveIds[$id] = $id;
+            }
+        }
+        $deletionContext = $this->deletion_context_from_channels(
+            (array) $envelope['deletions'],
+            (array) $envelope['reparents']
+        );
+
+        $observed = array_values($liveIds);
+        foreach ($deletionContext as $context) {
+            foreach (array_merge(
+                [(int) ($context['id'] ?? 0)],
+                array_map('intval', (array) ($context['child_ids'] ?? [])),
+                array_map('intval', (array) ($context['root_ids'] ?? []))
+            ) as $id) {
+                if ($id > 0) {
+                    $observed[] = $id;
+                }
+            }
+        }
+        $observed = array_values(array_unique($observed));
+        sort($observed, SORT_NUMERIC);
+
+        $before = $this->observe_lookup_state($observed);
+        $this->regenerate_batch(array_values($liveIds), $deletionContext);
+        return [
+            'before' => $before,
+            'after' => $this->observe_lookup_state($observed),
+            'verified' => true,
+        ];
+    }
+
+    /**
+     * Rebuild the regenerator-shaped deletion context from the two engine
+     * channels.
+     *
+     * The deletions channel is a straight relabel — the engine row already
+     * carries the captured `post_type`, `parent_id`, and `child_ids` this
+     * adapter's delete path reads (DUO-3342 is what put them there).
+     *
+     * The reparents channel needs regrouping, and that is the load-bearing
+     * half. The engine delivers ONE ROW PER ROOT, which is how a chained
+     * A->B->C move survives a row grammar whose fields are scalars; the batch
+     * entry point below consumes a single `root_ids` list per entity, falling
+     * back to old/new only for receipts that predate it. Collapsing to the
+     * old/new pair here would silently drop root A and leave its lookup and
+     * attribute rows stale forever — the exact bug the engine's durable-marker
+     * merge exists to prevent.
+     *
+     * @param array<int,array<string,mixed>> $deletions
+     * @param array<int,array<string,mixed>> $reparents
+     * @return array<int,array<string,mixed>>
+     */
+    private function deletion_context_from_channels(array $deletions, array $reparents): array {
+        $out = [];
+        foreach ($deletions as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $childIds = [];
+            foreach ((array) ($row['child_ids'] ?? []) as $childId) {
+                $childId = (int) $childId;
+                if ($childId > 0) {
+                    $childIds[$childId] = $childId;
+                }
+            }
+            $childIds = array_values($childIds);
+            sort($childIds, SORT_NUMERIC);
+            $out[] = [
+                'kind' => 'delete',
+                'uuid' => (string) ($row['uuid'] ?? ''),
+                'id' => (int) ($row['id'] ?? 0),
+                'post_type' => (string) ($row['post_type'] ?? ''),
+                'parent_id' => (int) ($row['parent_id'] ?? 0),
+                'child_ids' => $childIds,
+            ];
+        }
+
+        $moves = [];
+        foreach ($reparents as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $uuid = (string) ($row['uuid'] ?? '');
+            $id = (int) ($row['id'] ?? 0);
+            $key = $uuid !== '' ? 'uuid:' . $uuid : 'id:' . $id;
+            $surface = (string) ($row['kind'] ?? '');
+            if (!isset($moves[$key])) {
+                $moves[$key] = [
+                    'kind' => 'reparent',
+                    'uuid' => $uuid,
+                    'id' => $id,
+                    'post_type' => str_starts_with($surface, 'post:')
+                        ? substr($surface, strlen('post:'))
+                        : '',
+                    'parent_id' => (int) ($row['old_parent_id'] ?? 0),
+                    'old_parent_id' => (int) ($row['old_parent_id'] ?? 0),
+                    'new_parent_id' => (int) ($row['new_parent_id'] ?? 0),
+                    'root_ids' => [],
+                    'child_ids' => [],
+                ];
+            }
+            $rootId = (int) ($row['root_id'] ?? 0);
+            if ($rootId > 0) {
+                $moves[$key]['root_ids'][$rootId] = $rootId;
+            }
+        }
+        foreach ($moves as $move) {
+            $move['root_ids'] = array_values($move['root_ids']);
+            sort($move['root_ids'], SORT_NUMERIC);
+            $out[] = $move;
+        }
+        return $out;
+    }
+
+    /**
+     * Row cardinalities in the two derived lookup tables for a bounded id set,
+     * read through the same two query shapes verify_exact_state() already uses
+     * so this receipt introduces no new database surface of its own.
+     *
+     * @param array<int,int> $ids
+     * @return array{scoped_products:int, meta_lookup_rows:int, attribute_lookup_rows:int}
+     */
+    private function observe_lookup_state(array $ids): array {
+        global $wpdb;
+        $metaRows = 0;
+        $attributeRows = 0;
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            $metaRows += (int) $this->checked_get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->prefix}" . self::META_LOOKUP . " WHERE product_id = %d",
+                $id
+            ), "product lookup receipt observation for product $id");
+            $attributeRows += (int) $this->checked_get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->prefix}" . self::ATTR_LOOKUP
+                . " WHERE product_id = %d OR product_or_parent_id = %d",
+                $id,
+                $id
+            ), "product attribute lookup receipt observation for product $id");
+        }
+        return [
+            'scoped_products' => count($ids),
+            'meta_lookup_rows' => $metaRows,
+            'attribute_lookup_rows' => $attributeRows,
+        ];
     }
 
     /**
@@ -82,11 +349,6 @@ final class WoocommerceProductLookups {
         return $rows;
     }
 
-    /** Backward-compatible single-id boundary for generic callers/tests. */
-    public function regenerate(int $localId): void {
-        $this->regenerate_batch([$localId], []);
-    }
-
     /**
      * Reconcile all supplied live product ids plus pre-delete/reparent cleanup
      * context. The engine may pass a parent and several variations in any
@@ -97,9 +359,14 @@ final class WoocommerceProductLookups {
      *
      * @param array<int,int|string> $liveIds
      * @param array<int,array> $deletionContext
-     * @param callable|null $heartbeat Lease-renewal callback supplied by the
-     *   generic apply engine; invoked around bounded and potentially large
-     *   plugin-owned loops.
+     * @param callable|null $heartbeat Lease-renewal callback. The provider
+     *   contract has no heartbeat parameter — \Duo\Providers::invoke() passes a
+     *   capability name and typed args and nothing else — so invoke() above
+     *   supplies null and the engine brackets the whole call with a lease
+     *   renewal instead (Apply::renew_provider_lease()). The parameter and
+     *   every call site stay because they are the moved code's own shape and
+     *   because a future contract that CAN pass one needs nothing rewritten
+     *   here; a null heartbeat is a no-op by construction (heartbeat()).
      */
     public function regenerate_batch(array $liveIds, array $deletionContext, ?callable $heartbeat = null): void {
         global $wpdb;

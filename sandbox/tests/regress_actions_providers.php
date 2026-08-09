@@ -630,17 +630,37 @@ if ($woo !== null) {
         $woo->actions()
     );
     check(
-        $wooSources === ['native:transient.delete', 'provider:woocommerce-cache/invalidate_cache_groups'],
-        'WooCommerce declares exactly the migrated native action and the migrated provider capability, in that order'
+        $wooSources === [
+            'native:transient.delete',
+            'provider:woocommerce-cache/invalidate_cache_groups',
+            'provider:woocommerce-product-lookups/rebuild_product_lookups',
+        ],
+        'WooCommerce declares exactly the migrated native action and its two migrated provider capabilities, '
+            . 'in that order'
     );
-    $wooDeclaration = $woo->provider_declarations()['woocommerce-cache'] ?? [];
+    // DUO-3342 added the second declaration by MIGRATING a dispatch rather than
+    // by adding a repair: the product lookup rebuild reached the same adapter
+    // code through post_types.<type>.regen_dependency before this, so the
+    // absence of that key is half of what this check is about.
     check(
-        ($wooDeclaration['source'] ?? null) === 'manifest'
-            && ($wooDeclaration['plugin'] ?? null) === 'woocommerce/woocommerce.php'
-            && ($wooDeclaration['version'] ?? null) === '1.0.0'
-            && ($wooDeclaration['capabilities'] ?? null) === ['invalidate_cache_groups'],
-        'the WooCommerce provider declaration is manifest-shipped code owned by the version-pinned plugin'
+        $woo->regen_batch_post_types() === []
+            && $woo->regen_dependency('product') === null
+            && $woo->regen_dependency('product_variation') === null,
+        'and no shipped Woo post type still claims the batch regenerator channel the second capability replaced'
     );
+    foreach ([
+        'woocommerce-cache' => ['invalidate_cache_groups'],
+        'woocommerce-product-lookups' => ['rebuild_product_lookups'],
+    ] as $wooProviderId => $wooCapabilities) {
+        $wooDeclaration = $woo->provider_declarations()[$wooProviderId] ?? [];
+        check(
+            ($wooDeclaration['source'] ?? null) === 'manifest'
+                && ($wooDeclaration['plugin'] ?? null) === 'woocommerce/woocommerce.php'
+                && ($wooDeclaration['version'] ?? null) === '1.0.0'
+                && ($wooDeclaration['capabilities'] ?? null) === $wooCapabilities,
+            "the WooCommerce '$wooProviderId' declaration is manifest-shipped code owned by the version-pinned plugin"
+        );
+    }
 }
 
 // The sandbox agency fixture is the shipped example of the OTHER source: a
@@ -733,7 +753,7 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
         }
     }
 }
-check($providerCount === 5, "all five shipped manifest-sourced providers were exercised (found $providerCount)");
+check($providerCount === 6, "all six shipped manifest-sourced providers were exercised (found $providerCount)");
 
 echo "\n== purely declarative adapters keep the pre-change behavior exactly ==\n";
 

@@ -65,6 +65,19 @@ function wp_cache_flush(): bool {
     $GLOBALS['duo_test_cache_flushes']++;
     return true;
 }
+// Apply::rebuild() reschedules future posts for every post-kind work row it is
+// given. The DUO-3342 drives below hand it real work rows, so these three are
+// the narrow WordPress cron surface that pass touches; each returns the
+// non-failure value the pass hard-fails without.
+function wp_clear_scheduled_hook(string $hook, array $args = []): int {
+    return 0;
+}
+function wp_schedule_single_event(int $timestamp, string $hook, array $args = []): bool {
+    return true;
+}
+function wp_next_scheduled(string $hook, array $args = []): int|false {
+    return false;
+}
 class WP_Error {
     public function __construct(public string $message = '') {}
 }
@@ -1640,12 +1653,33 @@ $deleteWork = [
     ['uuid' => $forgottenDeleted, 'type' => 'post', 'deletion_kind' => 'post', 'deletion_type' => 'probe'],
     ['uuid' => $otherAdapters, 'type' => 'post', 'deletion_kind' => 'post', 'deletion_type' => 'somebody_else'],
 ];
+// DUO-3342: every row carries all six keys, including for a tombstone the
+// engine took no pre-delete inventory of — a consumer must be able to tell "no
+// children" from "the engine did not say", and an absent key collapses those.
+$deletionRow = static function (
+    string $surface,
+    string $uuid,
+    int $id,
+    string $postType = '',
+    int $parentId = 0,
+    array $childIds = []
+): array {
+    return [
+        'kind' => $surface,
+        'uuid' => $uuid,
+        'id' => $id,
+        'post_type' => $postType,
+        'parent_id' => $parentId,
+        'child_ids' => $childIds,
+    ];
+};
 $deletions = $applyPrivate('action_deletions', [$batchAction, $deleteWork]);
 $check($deletions === [
-    ['kind' => 'post:probe', 'uuid' => $liveDeleted, 'id' => 41],
-    ['kind' => 'post:probe', 'uuid' => $forgottenDeleted, 'id' => 0],
-    ['kind' => 'term:probe_tax', 'uuid' => $liveTerm, 'id' => 9],
-], 'the deletions channel carries {kind, uuid, id} for triggered tombstones only, ordered by surface then uuid');
+    $deletionRow('post:probe', $liveDeleted, 41, 'probe'),
+    $deletionRow('post:probe', $forgottenDeleted, 0, 'probe'),
+    $deletionRow('term:probe_tax', $liveTerm, 9),
+], 'the deletions channel carries {kind, uuid, id, post_type, parent_id, child_ids} for triggered tombstones '
+    . 'only, ordered by surface then uuid');
 $check(array_column($deletions, 'uuid') === [$liveDeleted, $forgottenDeleted, $liveTerm]
     && !in_array($otherAdapters, array_column($deletions, 'uuid'), true),
     "a tombstone on a surface this action's triggers do not name stays invisible to it (one adapter, one window)");
@@ -1761,11 +1795,17 @@ $driveAction['triggers'] = ['post:probe'];
  * $rebuildArgs is rebuild()'s own parameter list:
  * [attachmentIds, work, tree, regenContext, deleteWork, withDeletes, absentTombstones].
  */
-$driveRebuild = static function (array $channels, array $rebuildArgs, bool $retrying = false) use (
+$driveRebuild = static function (
+    array $channels,
+    array $rebuildArgs,
+    bool $retrying = false,
+    mixed $receiptOverride = null
+) use (
     $applyClass, $applyPolicy, $applyRetry, $applyWarnings, $applyReceipts, $applySelected,
     $applyNegotiated, $rebuildMethod, $drivePolicy, $driveAction, $reset
 ): array {
     $reset();
+    \Duo\Providers\ProbeCache::$receiptOverride = $receiptOverride;
     \Duo\Providers\ProbeCache::$capabilityOverrides = $channels === []
         ? ['scope' => 'entity']
         : ['scope' => 'entity', 'context' => $channels];
@@ -1805,7 +1845,7 @@ $flushesBefore = $GLOBALS['duo_test_cache_flushes'];
 $run = $driveRebuild(['deletions'], [[], [], [], [], $driveTombstones, true, []]);
 $check($run['error'] === '' && $run['calls'] === 1
     && ($run['args']['entities']['deletions'] ?? null)
-        === [['kind' => 'post:probe', 'uuid' => $liveDeleted, 'id' => 41]],
+        === [$deletionRow('post:probe', $liveDeleted, 41, 'probe')],
     'the tombstones a --with-deletes run APPLIED reach the capability through the whole pass, not just the projection');
 $check(array_keys((array) ($run['args']['entities'] ?? [])) === ['entities', 'deletions']
     && ($run['args']['entities']['entities'] ?? null) === [],
@@ -1826,7 +1866,7 @@ $run = $driveRebuild(['deletions', 'retry'], [[], [], [], [], [], false, $driveA
 $check($run['error'] === '' && $run['calls'] === 1
     && ($run['args']['entities']['retry'] ?? null) === true
     && ($run['args']['entities']['deletions'] ?? null)
-        === [['kind' => 'post:probe', 'uuid' => $forgottenDeleted, 'id' => 0]],
+        === [$deletionRow('post:probe', $forgottenDeleted, 0, 'probe')],
     "while retrying an incomplete apply, the run's retry state and its already-absent tombstones both reach invoke()");
 $run = $driveRebuild(['deletions', 'retry'], [[], [], [], [], [], false, $driveAbsent], false);
 $check($run['error'] === '' && $run['calls'] === 0,
@@ -1929,6 +1969,233 @@ $check($captureWith(['deletions']) === [],
 $check($captureWith(['reparents'], ['post:somebody_else']) === [],
     "a reparents-declaring capability triggered on another adapter's surface captures nothing here");
 $wpdb->kv = [];
+
+// ======================================================================
+// DUO-3342: the provider dispatch gains the crash-safety the regen-batch
+// path has — as channel semantics. Four properties, each of which the
+// provider path structurally lacked while the regenerator channel had it:
+// the pre-delete inventory is CAPTURED for a provider-only manifest, the
+// durable receipts are DELIVERED (not just this run's tombstones), the
+// markers are OWNED (cleared only on a verified receipt, retained on
+// failure, re-delivered next run), and a deleted id is never handed over
+// as live work.
+// ======================================================================
+
+echo "\n== the capture behind the deletions channel: the same declared-consumer gate ==\n";
+$captureDeleteMethod = $applyClass->getMethod('capture_regen_delete_context');
+$captureDeleteWith = static function (array $channels, array $triggers = ['post:probe']) use (
+    $applyClass, $applyPolicy, $applySelected, $applyNegotiated, $captureDeleteMethod,
+    $drivePolicy, $driveAction, $liveDeleted, &$wpdb
+): array {
+    $wpdb->kv = [];
+    $apply = $applyClass->newInstanceWithoutConstructor();
+    $applyPolicy->setValue($apply, $drivePolicy);
+    $applySelected->setValue($apply, [['triggers' => $triggers] + $driveAction]);
+    $declaration = $channels === []
+        ? ['scope' => 'entity']
+        : ['scope' => 'entity', 'context' => $channels];
+    $applyNegotiated->setValue($apply, [
+        'providers' => [],
+        'capabilities' => ['probe-cache' => ['flush' => $declaration]],
+    ]);
+    return (array) $captureDeleteMethod->invokeArgs($apply, [[
+        ['type' => 'post', 'uuid' => $liveDeleted],
+    ]]);
+};
+// wp_posts row for the tombstoned post: the inventory reads its post_type and
+// post_parent before delete_entity() removes it.
+$wpdb->postsRows[41] = ['post_type' => 'probe', 'post_parent' => 7];
+$capturedDelete = $captureDeleteWith(['deletions']);
+$check(count($capturedDelete) === 1
+    && ($capturedDelete[0]['post_type'] ?? null) === 'probe'
+    && ($capturedDelete[0]['id'] ?? null) === 41
+    && ($capturedDelete[0]['parent_id'] ?? null) === 7,
+    'a provider-only manifest whose capability declares `deletions` DOES get the pre-delete inventory — '
+    . 'the capture is what parent_id/child_ids come from at all');
+$check(isset($wpdb->kv['regen_delete_context:' . $liveDeleted]),
+    'and the durable marker is written exactly as the batch path writes it');
+$check($captureDeleteWith([]) === [] && $wpdb->kv === [],
+    'a post type no declared consumer names is still not captured — the gate widened to declared consumers, '
+    . 'not to everything');
+$check($captureDeleteWith(['reparents']) === [],
+    'declaring some OTHER channel does not open the delete capture either');
+$check($captureDeleteWith(['deletions'], ['post:somebody_else']) === [],
+    "a deletions-declaring capability triggered on another adapter's surface captures nothing here");
+$wpdb->kv = [];
+
+echo "\n== durable deletion receipts: delivered, then owned ==\n";
+$deleteMarkerKey = 'regen_delete_context:' . $liveDeleted;
+$deleteMarker = (string) json_encode([
+    'kind' => 'delete', 'uuid' => $liveDeleted, 'id' => 41, 'post_type' => 'probe',
+    'parent_id' => 7, 'child_ids' => [204, 205],
+]);
+$noWork = [[], [], [], [], [], false, []];
+$wpdb->kv = [$deleteMarkerKey => $deleteMarker];
+$run = $driveRebuild(['deletions'], $noWork);
+$check($run['error'] === '' && $run['calls'] === 1
+    && ($run['args']['entities']['deletions'] ?? null)
+        === [$deletionRow('post:probe', $liveDeleted, 41, 'probe', 7, [204, 205])],
+    'a durable delete receipt from an earlier incomplete apply reaches the capability on a run whose plan '
+    . 'carries no tombstone at all, carrying the full captured inventory');
+$check(!isset($wpdb->kv[$deleteMarkerKey]),
+    'and a verified receipt clears it: the marker is addressed by its own key, not swept by prefix');
+
+$wpdb->kv = [$deleteMarkerKey => $deleteMarker];
+$run = $driveRebuild(['deletions'], $noWork, false, ['before' => [], 'after' => [], 'verified' => false]);
+$check(str_contains($run['error'], 'no value-level verification'),
+    'an unverified receipt is still a hard failure on this path');
+$check(isset($wpdb->kv[$deleteMarkerKey]),
+    'THE CRASH-SAFETY PROPERTY: an unverified invocation RETAINS the durable receipt');
+$run = $driveRebuild(['deletions'], $noWork);
+$check($run['calls'] === 1
+    && ($run['args']['entities']['deletions'] ?? null)
+        === [$deletionRow('post:probe', $liveDeleted, 41, 'probe', 7, [204, 205])]
+    && !isset($wpdb->kv[$deleteMarkerKey]),
+    'and the very next apply re-delivers the identical rows, then clears them — which is what makes '
+    . 'idempotent: true load-bearing rather than decorative');
+
+$wpdb->kv = [$deleteMarkerKey => $deleteMarker];
+$run = $driveRebuild(['reparents'], $noWork);
+$check($run['error'] === '' && !isset($wpdb->kv[$deleteMarkerKey]),
+    'a receipt whose channel NO negotiated capability declared is still swept by the batch pass — ownership '
+    . 'follows the declaration, so nothing accumulates for a consumer that does not exist');
+
+$wpdb->kv = [$deleteMarkerKey => $deleteMarker];
+$run = $driveRebuild(['deletions'], [[], [], [], [], $driveTombstones, true, []]);
+$check(($run['args']['entities']['deletions'] ?? null)
+        === [$deletionRow('post:probe', $liveDeleted, 41, 'probe', 7, [204, 205])],
+    'when both sources name the same tombstone the durable receipt WINS — it carries the inventory the '
+    . 'tombstone projection never had, and one row is delivered, not two');
+$wpdb->kv = [$deleteMarkerKey => $deleteMarker];
+$run = $driveRebuild(['deletions'], [[], [], [], [], array_merge($driveTombstones, [
+    ['uuid' => $forgottenDeleted, 'type' => 'post', 'deletion_kind' => 'post', 'deletion_type' => 'probe'],
+]), true, []]);
+$check(($run['args']['entities']['deletions'] ?? null) === [
+    $deletionRow('post:probe', $liveDeleted, 41, 'probe', 7, [204, 205]),
+    $deletionRow('post:probe', $forgottenDeleted, 0, 'probe'),
+], 'and an applied tombstone with no receipt of its own is still delivered beside it, with an empty '
+    . 'inventory rather than an absent one');
+$wpdb->kv = [];
+
+echo "\n== deleted ids are never handed over as live work ==\n";
+$liveWork = [['uuid' => $moved]];
+$liveTree = [$moved => ['type' => 'post', 'data' => ['type' => 'probe']]];
+$run = $driveRebuild(['deletions'], [[], $liveWork, $liveTree, [], [], false, []]);
+$check($run['error'] === '' && ($run['args']['entities']['entities'] ?? null)
+        === [['kind' => 'post:probe', 'id' => 204]],
+    'baseline: the moved post is ordinary live work for a capability triggering on its surface');
+$wpdb->kv = [$deleteMarkerKey => $deleteMarker];
+$run = $driveRebuild(['deletions'], [[], $liveWork, $liveTree, [], [], false, []]);
+$check($run['error'] === '' && $run['calls'] === 1
+    && ($run['args']['entities']['entities'] ?? null) === [],
+    'the same work row is withheld once a delivered deletion receipt names its id in child_ids — a deleted '
+    . 'id is evidence on the deletions channel, never live work');
+$wpdb->kv = [];
+
+echo "\n== pending markers: armed before the call, cleared only on a verified receipt ==\n";
+$pendingKey = 'regen_pending:' . $moved;
+$run = $driveRebuild([], [[], $liveWork, $liveTree, [], [], false, []]);
+$check($run['error'] === '' && $run['calls'] === 1 && !isset($wpdb->kv[$pendingKey]),
+    'a verified invocation leaves no pending marker behind');
+$run = $driveRebuild([], [[], $liveWork, $liveTree, [], [], false, []], false,
+    ['before' => [], 'after' => [], 'verified' => false]);
+$check(($wpdb->kv[$pendingKey] ?? null) === 'probe',
+    'a failed one leaves `regen_pending:<uuid>` armed with the post type as its value — the batch path\'s '
+    . 'own marker, shared deliberately so one retry vocabulary covers both dispatchers');
+$run = $driveRebuild([], $noWork);
+$check($run['error'] === '' && $run['calls'] === 1
+    && $run['args']['entities'] === [['kind' => 'post:probe', 'id' => 204]],
+    'and the next apply re-delivers that entity off the marker ALONE, with no authored work at all — the '
+    . "content hash never reflects derived state, so this is the only path by which a failed repair retries");
+$check(!isset($wpdb->kv[$pendingKey]), 'the successful retry clears it');
+$check($run['args'] !== null && array_keys((array) $run['args']) === ['groups', 'entities']
+    && array_is_list($run['args']['entities']),
+    'the union rides on the channel-less path too: a capability declaring nothing still receives the bare '
+    . 'row list, not an envelope');
+
+$wpdb->kv = ['regen_pending:orphan-probe-uuid' => 'probe'];
+$run = $driveRebuild([], $noWork);
+$check($run['error'] === '' && $run['calls'] === 0
+    && !isset($wpdb->kv['regen_pending:orphan-probe-uuid']),
+    'a pending marker whose uuid no longer resolves is dropped rather than replayed or left forever');
+$check(str_contains($run['warnings'],
+    "regen_pending marker for post orphan-probe-uuid (type 'probe') dropped: uuid no longer resolves to a "
+    . 'local post id'),
+    "and the sweep says so in the batch path's exact wording — one marker vocabulary, one explanation");
+$wpdb->kv = [];
+
+// The OTHER sweep — regen_dependencies()' orphan pass — must not delete a
+// marker just because this particular apply selected nothing on its surface.
+// That pass fires on "no regen_dependency declares this post type", which is
+// permanently true for a provider-owned one, so the guard is what stands
+// between a failed repair and its retry evidence. It is deliberately answered
+// from the PINNED manifest rather than this run's selection: an apply that
+// touched nothing on the surface has an empty selection by construction.
+$triggeredManifest = $manifest;
+$triggeredManifest['actions'][0]['triggers'] = ['post:probe'];
+$sweepApply = $applyClass->newInstanceWithoutConstructor();
+$applyPolicy->setValue($sweepApply, $policyFor($triggeredManifest));
+$applySelected->setValue($sweepApply, []);
+$applyNegotiated->setValue($sweepApply, ['providers' => [], 'capabilities' => []]);
+$applyWarnings->setValue($sweepApply, []);
+$wpdb->kv = ['regen_pending:' . $moved => 'probe'];
+$applyClass->getMethod('regen_dependencies')->invokeArgs($sweepApply, [[], [], []]);
+$check(($wpdb->kv['regen_pending:' . $moved] ?? null) === 'probe',
+    'an apply that selected nothing on the surface leaves a provider-owned pending marker armed rather than '
+    . 'sweeping it as an orphan of a regen_dependency that was never there');
+$sweepApply = $applyClass->newInstanceWithoutConstructor();
+$applyPolicy->setValue($sweepApply, $policyFor($manifest));
+$applySelected->setValue($sweepApply, []);
+$applyNegotiated->setValue($sweepApply, ['providers' => [], 'capabilities' => []]);
+$applyWarnings->setValue($sweepApply, []);
+$applyClass->getMethod('regen_dependencies')->invokeArgs($sweepApply, [[], [], []]);
+$check(!isset($wpdb->kv['regen_pending:' . $moved])
+    && str_contains(
+        implode("\n", (array) $applyWarnings->getValue($sweepApply)),
+        "manifest no longer declares a regen_dependency for post type 'probe'"
+    ),
+    'while a marker no pinned declaration of EITHER kind claims is still swept, loudly — the guard narrowed '
+    . 'the sweep, it did not retire it');
+$wpdb->kv = [];
+
+echo "\n== one post type, one dispatcher: the dual-claimant refusal ==\n";
+// The three marker keyspaces above are SHARED between the batch regenerator
+// channel and a channel-declaring capability. That is only coherent while
+// exactly one dispatcher owns a post type, so two claimants refuse before the
+// first mutation rather than each consuming and clearing the other's markers.
+$claimantManifest = $manifest;
+$claimantManifest['post_types'] = ['probe' => ['regen_dependency' => [
+    'regenerator' => 'probe-lookups',
+    'verify' => ['table' => 'probe_lookup', 'column' => 'post_id'],
+    'batch' => ['enabled' => true, 'always_on_write' => true],
+]]];
+$claimantManifest['actions'][0]['triggers'] = ['post:probe'];
+$claimantNegotiation = static function (mixed $context) use ($policyFor, $claimantManifest, $reset): array {
+    $reset();
+    $overrides = ['scope' => 'entity'];
+    if ($context !== null) {
+        $overrides['context'] = $context;
+    }
+    \Duo\Providers\ProbeCache::$capabilityOverrides = $overrides;
+    $policy = $policyFor($claimantManifest);
+    return \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
+};
+$p = $one($claimantNegotiation(['deletions'])['problems']);
+$check(($p['code'] ?? '') === 'post_type_claimed_by_regen_batch'
+    && str_contains($p['found'] ?? '', 'post_types.probe declares an enabled batch regen_dependency')
+    && str_contains($p['remediation'] ?? '', 'remove the batch regen_dependency for probe'),
+    'a capability declaring a channel on a post type that ALSO has an enabled batch regen_dependency refuses '
+    . 'at negotiation, naming both claimants and the way out');
+$check(str_contains($p['expected'] ?? '', 'exactly one of')
+    && str_contains($p['expected'] ?? '', 'context: deletions'),
+    'and the expectation names the channels the capability declared, so a half-finished migration is legible');
+$check($claimantNegotiation(['reparents'])['problems'] !== []
+    && $claimantNegotiation(['always_on_write'])['problems'] !== [],
+    'any declared channel claims the same markers, so any of them collides — this is not a deletions-only rule');
+$check($claimantNegotiation(null)['problems'] === [],
+    'a capability declaring NO channel negotiates clean on the same post type: it consumes none of that '
+    . 'bookkeeping, so the batch channel keeps undisputed ownership');
+$reset();
 
 echo "\n== byte-compatibility with the pre-DUO-3369 contract, in frozen bytes ==\n";
 // Both literals below were captured by running THIS harness's fixtures through

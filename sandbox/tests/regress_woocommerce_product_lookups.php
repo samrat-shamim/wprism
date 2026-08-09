@@ -6,6 +6,13 @@
  * live pair test owns the real data-store calls; this check protects the
  * manifest/Policy dispatch boundary and the adapter's public API choices from
  * being silently replaced with an asynchronous hook or a blanket rebuild action.
+ *
+ * DUO-3342 moved that dispatch boundary from the regenerator channel to the
+ * provider contract. The adapter's own public-API choices below are unchanged
+ * (same needles, same file, moved to manifests/providers/); what changed is
+ * which engine channel reaches it, so the declaration half of this suite now
+ * asserts the provider contract and the ABSENCE of the batch regen_dependency
+ * that used to claim the same two post types.
  */
 
 if (!defined('DUO_SPEC_VERSION')) {
@@ -17,6 +24,7 @@ putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
 require $root . '/agent/src/Canon.php';
 require $root . '/agent/src/OptionState.php';
 require $root . '/agent/src/Policy.php';
+require $root . '/agent/src/Providers.php';
 
 use Duo\Policy;
 
@@ -32,24 +40,64 @@ function check(bool $condition, string $message): void {
 }
 
 $policy = Policy::load(null, ['woocommerce']);
-$productBatch = $policy->regen_batch('product');
-$variationBatch = $policy->regen_batch('product_variation');
-check($productBatch === ['enabled' => true, 'always_on_write' => true],
-    'product opts into enabled always-on-write batch regeneration');
-check($variationBatch === ['enabled' => true, 'always_on_write' => true],
-    'product_variation opts into the same batch contract');
-check(array_keys($policy->regen_batch_post_types()) === ['product', 'product_variation'],
-    'batch post-type discovery is deterministic and covers both Woo product entities');
+check($policy->regen_dependency('product') === null
+    && $policy->regen_dependency('product_variation') === null,
+    'neither Woo product post type declares a regen_dependency any more — batch, verify, and effects all '
+    . 'migrated to the provider action');
+check($policy->regen_batch('product') === null && $policy->regen_batch('product_variation') === null
+    && $policy->regen_batch_post_types() === [],
+    'and the batch channel claims no Woo post type, which is what keeps the negotiation-time dual-claimant '
+    . 'refusal from firing on a manifest that finished its migration');
 
-$regenerators = $policy->regenerators();
-$adapter = $regenerators['woocommerce-product-lookups'] ?? null;
-check(is_object($adapter), 'manifest-shipped Woo lookup regenerator loads through Policy');
-check(is_object($adapter) && method_exists($adapter, 'regenerate'),
-    'Woo adapter retains the compatible single-id regenerate() boundary');
+$declaration = $policy->provider_declarations()['woocommerce-product-lookups'] ?? null;
+check(is_array($declaration)
+    && $declaration['source'] === 'manifest'
+    && $declaration['version'] === '1.0.0'
+    && $declaration['plugin'] === 'woocommerce/woocommerce.php'
+    && $declaration['capabilities'] === ['rebuild_product_lookups'],
+    'the lookup repair is declared as a manifest-sourced provider pinned to the same plugin the manifest claims');
+
+$providerFile = $root . '/manifests/providers/woocommerce-product-lookups.php';
+check(is_file($providerFile), 'provider code ships beside its manifest, under providers/');
+check(!is_file($root . '/manifests/regenerators/woocommerce-product-lookups.php'),
+    'and the retired regenerator file is gone, not left behind as a second copy of the same adapter');
+require $providerFile;
+$adapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+check($adapter->identity() === [
+    'id' => 'woocommerce-product-lookups',
+    'plugin' => 'woocommerce/woocommerce.php',
+    'version' => '1.0.0',
+], "the provider's self-reported identity matches its declaration exactly (negotiation compares these)");
+$capabilities = $adapter->capabilities();
+$capability = $capabilities['rebuild_product_lookups'] ?? null;
+check(array_keys($capabilities) === ['rebuild_product_lookups'],
+    'it advertises exactly the one capability the manifest names');
+check(is_array($capability) && $capability['scope'] === 'entity' && $capability['idempotent'] === true,
+    'entity-scoped and idempotent — apply re-fires the rebuild pass on retry, so anything else refuses');
+check(is_array($capability)
+    && ($capability['context'] ?? null) === ['always_on_write', 'deletions', 'reparents', 'retry'],
+    'and it declares every engine batch channel the regenerator channel used to hand this same code');
+check(is_array($capability) && $capability['args'] === [],
+    'no manifest-supplied arguments: every input is engine-assembled, and the reserved entities argument '
+    . 'may not be declared at all');
+// The engine's OWN declaration validator, not a restatement of it: a
+// declaration this suite calls well-formed must be one negotiation accepts.
+$validate = new \ReflectionMethod(\Duo\Providers::class, 'validate_capability_declaration');
+$declarationValid = true;
+$declarationError = '';
+try {
+    $validate->invoke(null, $capability, 'woocommerce-product-lookups rebuild_product_lookups');
+} catch (\Throwable $t) {
+    $declarationValid = false;
+    $declarationError = $t->getMessage();
+}
+check($declarationValid, "the declaration passes the engine's own grammar check ($declarationError)");
 check(is_object($adapter) && method_exists($adapter, 'regenerate_batch'),
-    'Woo adapter exposes the synchronous regenerate_batch() boundary');
+    'Woo adapter keeps the synchronous regenerate_batch() boundary invoke() maps onto');
+check(is_object($adapter) && !method_exists($adapter, 'regenerate'),
+    "and drops the regenerator channel's single-id boundary rather than advertising a contract it left");
 
-$source = file_get_contents($root . '/manifests/regenerators/woocommerce-product-lookups.php');
+$source = file_get_contents($providerFile);
 check(is_string($source), 'Woo adapter source is readable');
 $needles = [
     'refresh_product_lookup_table' => 'public product meta lookup refresh API is used',
@@ -133,10 +181,33 @@ $sources = array_map(
     static fn(array $row): string => \Duo\Policy::action_source($row, (int) $row['index']),
     $actions
 );
-check($sources === ['native:transient.delete', 'provider:woocommerce-cache/invalidate_cache_groups'],
-    'Woo policy declares only the bounded transient and cache repairs, and no whole-catalog projection');
+check($sources === [
+    'native:transient.delete',
+    'provider:woocommerce-cache/invalidate_cache_groups',
+    'provider:woocommerce-product-lookups/rebuild_product_lookups',
+], 'Woo policy declares only the bounded transient, cache, and product-lookup repairs, and no '
+    . 'whole-catalog projection');
 check(array_filter($actions, static fn(array $row): bool => array_key_exists('command', $row)) === [],
     'no Woo action carries an executable command string');
+
+$lookupAction = $actions[2] ?? [];
+check(($lookupAction['triggers'] ?? null) === ['post:product', 'post:product_variation'],
+    'the lookup action is narrowed to exactly the two post types the regen_dependency declarations covered');
+$effectIds = array_map(static fn(array $e): string => (string) $e['id'], (array) ($lookupAction['effects'] ?? []));
+check(count($effectIds) === 108 && count(array_unique($effectIds)) === 108,
+    'both post types\' effect lists moved onto it in full (54 + 54), ids still distinct — the manifest note '
+    . 'records why product and variation ids stay separate even where they name the same resource');
+check(count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-product-'))) === 54
+    && count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-variation-'))) === 54,
+    'and neither half was dropped or renamed on the way');
+$inventory = $policy->effects_inventory();
+check(array_filter($inventory, static fn(array $row): bool =>
+    $row['manifest'] === 'woocommerce' && $row['phase'] === 'regenerator') === [],
+    'the effects inventory now carries them under the rebuild phase of the declaring action, with no '
+    . 'orphaned regenerator-phase rows left behind');
+check(count(array_filter($inventory, static fn(array $row): bool =>
+    $row['source'] === 'provider:woocommerce-product-lookups/rebuild_product_lookups')) === 108,
+    'every one of them is attributed to the exact provider capability a recovery operator would re-run');
 
 if ($failures > 0) {
     echo "FAIL: $failures check(s) failed\n";

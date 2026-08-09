@@ -4842,7 +4842,7 @@ final class Apply {
                 continue;
             }
             if ($this->policy->regen_batch($postType) === null
-                && !$this->selection_declares_reparents_for('post:' . $postType)) {
+                && !$this->selection_declares_channel_for('reparents', 'post:' . $postType)) {
                 continue;
             }
             $id = Ledger::id_for($uuid, Ledger::KIND_POST);
@@ -4937,7 +4937,7 @@ final class Apply {
 
     /**
      * Does this run's negotiated selection contain a provider capability that
-     * asked to be told about reparents on $surface?
+     * asked to be told about $channel on $surface?
      *
      * Both halves of the answer are already fixed before the first phase-1
      * write: run() resolves $this->selectedActions and negotiates
@@ -4951,8 +4951,16 @@ final class Apply {
      * declaration without the channel answer false: capture is a durable write,
      * and writing a receipt nothing declared would be the accumulation this
      * gate exists to prevent.
+     *
+     * DUO-3342 generalized this from the `reparents`-only predicate DUO-3369
+     * shipped, because the delete-context capture needs the identical question
+     * asked about `deletions` and the durable-marker sweep needs it asked about
+     * both. The channel name is validated by Providers::declares_channel(),
+     * so a mistyped one throws here rather than quietly answering "nobody
+     * asked" — which would silently withhold a capture the capability's own
+     * declaration did request.
      */
-    private function selection_declares_reparents_for(string $surface): bool {
+    private function selection_declares_channel_for(string $channel, string $surface): bool {
         foreach ($this->selectedActions as $action) {
             if (($action['kind'] ?? '') !== 'provider'
                 || !in_array($surface, (array) ($action['triggers'] ?? []), true)) {
@@ -4961,7 +4969,61 @@ final class Apply {
             $declaration = $this->negotiatedProviders['capabilities']
                 [(string) ($action['provider'] ?? '')]
                 [(string) ($action['capability'] ?? '')] ?? null;
-            if (is_array($declaration) && Providers::declares_channel($declaration, 'reparents')) {
+            if (is_array($declaration) && Providers::declares_channel($declaration, $channel)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Does this run's negotiated selection contain an ENTITY-SCOPED provider
+     * capability triggering on $surface, whatever channels it declared?
+     *
+     * The retry vocabulary (`regen_pending:<uuid>`) is deliberately shared
+     * between the two dispatchers rather than duplicated (DUO-3342): one
+     * marker prefix, one plan/status projection, one operator-visible meaning.
+     * Sharing is only safe while exactly one dispatcher OWNS a given post
+     * type, which is what the negotiation-time dual-claimant refusal
+     * (Providers::negotiate()) and this predicate together establish — the
+     * refusal keeps a channel-declaring capability off a batch-claimed post
+     * type, and this predicate is what stops regen_dependencies()' legacy
+     * orphan sweep from deleting a marker the provider dispatch armed and is
+     * still holding for its own retry.
+     *
+     * Channels are deliberately NOT consulted: a pending marker is about
+     * entity work, and an entity-scoped capability receives an entity batch
+     * whether or not it also asked for deletion or reparent evidence.
+     */
+    private function selection_declares_entity_batch_for(string $surface): bool {
+        foreach ($this->selectedActions as $action) {
+            if (($action['kind'] ?? '') !== 'provider'
+                || !in_array($surface, (array) ($action['triggers'] ?? []), true)) {
+                continue;
+            }
+            $declaration = $this->negotiatedProviders['capabilities']
+                [(string) ($action['provider'] ?? '')]
+                [(string) ($action['capability'] ?? '')] ?? null;
+            if (is_array($declaration) && ($declaration['scope'] ?? '') === 'entity') {
+                return true;
+            }
+        }
+        // The selection above answers "is the owner running right now", which is
+        // the right question for arming and clearing. It is the WRONG question
+        // for a destructive sweep: this run's selection comes from this run's
+        // authored surfaces, so an apply that touched nothing on $surface would
+        // read a perfectly valid outstanding marker as an orphan and delete the
+        // retry evidence — with a warning that says the manifest no longer
+        // declares a regen_dependency, which for a provider-owned post type was
+        // never true. A PINNED provider action triggering on the surface is the
+        // conservative, run-independent answer, and it mirrors the batch path's
+        // own guard one line above (regen_batch() is policy, not selection).
+        // Explicit triggers only: an unscoped action claims no post type in
+        // particular, so letting it claim every marker would make the sweep
+        // unreachable rather than conservative.
+        foreach ($this->policy->actions() as $action) {
+            if (($action['kind'] ?? '') === 'provider'
+                && in_array($surface, (array) ($action['triggers'] ?? []), true)) {
                 return true;
             }
         }
@@ -5038,6 +5100,13 @@ final class Apply {
      * check) succeeds; later canonical convergence failures do not pretend
      * that derived state is still unverified.
      *
+     * DUO-3342 widened the consumer test the same way DUO-3369's review
+     * widened the reparent one, and for the identical reason: scoping the
+     * capture to batch declarations alone made the `deletions` channel
+     * structurally unable to carry the parent/child inventory a migrating
+     * adapter consumes, because the capture is what writes that inventory at
+     * all. See delete_context_consumer().
+     *
      * @return array<int,array{uuid:string,id:int,post_type:string,parent_id:int,child_ids:array<int,int>}>
      */
     private function capture_regen_delete_context(array $deleteWork): array {
@@ -5066,7 +5135,7 @@ final class Apply {
                 $stored = Ledger::kv_get(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid);
                 $decoded = is_string($stored) ? json_decode($stored, true) : null;
                 $storedType = is_array($decoded) ? (string) ($decoded['post_type'] ?? '') : '';
-                if ($storedType !== '' && $this->policy->regen_batch($storedType) !== null
+                if ($storedType !== '' && $this->delete_context_consumer($storedType)
                     && is_array($decoded) && (int) ($decoded['id'] ?? 0) > 0) {
                     $out[] = [
                         'kind' => 'delete',
@@ -5096,7 +5165,7 @@ final class Apply {
                 $stored = Ledger::kv_get(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid);
                 $decoded = is_string($stored) ? json_decode($stored, true) : null;
                 $storedType = is_array($decoded) ? (string) ($decoded['post_type'] ?? '') : '';
-                if ($storedType !== '' && $this->policy->regen_batch($storedType) !== null
+                if ($storedType !== '' && $this->delete_context_consumer($storedType)
                     && is_array($decoded) && (int) ($decoded['id'] ?? 0) > 0) {
                     $out[] = [
                         'kind' => 'delete',
@@ -5112,7 +5181,7 @@ final class Apply {
                 continue;
             }
             $postType = (string) ($row['post_type'] ?? '');
-            if ($postType === '' || $this->policy->regen_batch($postType) === null) {
+            if ($postType === '' || !$this->delete_context_consumer($postType)) {
                 // This delete has no enabled batch consumer.  Remove only a
                 // stale receipt for the same uuid, and never create one.
                 Ledger::kv_delete(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid);
@@ -5153,6 +5222,71 @@ final class Apply {
                 'child_ids' => $childIds,
             ];
             Ledger::kv_set(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid, json_encode($context));
+            $out[] = $context;
+        }
+        return $out;
+    }
+
+    /**
+     * Does this post type's deletion inventory have a DECLARED CONSUMER?
+     *
+     * Two of them, exactly as the reparent capture has two
+     * (selection_declares_channel_for()'s own docblock): an enabled batch
+     * regen_dependency, or a provider capability in THIS run's negotiated
+     * selection that declared the `deletions` batch channel and triggers on
+     * this post type's canonical surface.
+     *
+     * The property the narrow test protected is unchanged: a post type nothing
+     * declares against still accumulates no receipts, so ordinary/legacy
+     * deletes never leave a marker no dispatcher can consume. What changes is
+     * that "consumer" now means either dispatcher — without which a capability
+     * could declare `deletions`, negotiate clean, and receive rows that
+     * structurally could not carry `parent_id`/`child_ids`, because nothing
+     * ever took the pre-delete inventory those two come from.
+     */
+    private function delete_context_consumer(string $postType): bool {
+        return $this->policy->regen_batch($postType) !== null
+            || $this->selection_declares_channel_for('deletions', 'post:' . $postType);
+    }
+
+    /**
+     * The outstanding durable DELETE receipts, normalized exactly the way
+     * durable_reparent_contexts() normalizes the reparent half — same decode,
+     * same "post type plus a positive captured id or drop it" test, same
+     * uuid-from-key and kind-from-prefix backfill, same `_marker_key` so the
+     * clear-on-success consumer can address precisely the markers it was
+     * delivered, and the same read-only posture (sweeping belongs to whichever
+     * pass OWNS marker lifetime, never to a reader).
+     *
+     * Its existence is the deletion half of the crash-safety the batch path
+     * has had since DUO-3305 and the provider path did not (DUO-3342): a
+     * previous apply can commit the raw delete and fail before the derived
+     * cleanup, and on that retry the tombstone may no longer be in the plan at
+     * all. Reading only this run's applied tombstones would make the
+     * `deletions` channel silently empty on exactly the run that still owes
+     * the repair.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function durable_delete_contexts(): array {
+        $out = [];
+        foreach (Ledger::kv_prefix(self::REGEN_DELETE_CONTEXT_PREFIX) as $key => $encoded) {
+            $context = is_string($encoded) ? json_decode($encoded, true) : null;
+            if (!is_array($context)) {
+                continue;
+            }
+            $postType = (string) ($context['post_type'] ?? '');
+            $id = (int) ($context['id'] ?? 0);
+            if ($postType === '' || $id <= 0) {
+                continue;
+            }
+            if (!isset($context['uuid']) || (string) $context['uuid'] === '') {
+                $context['uuid'] = substr((string) $key, strlen(self::REGEN_DELETE_CONTEXT_PREFIX));
+            }
+            if (!isset($context['kind']) || (string) $context['kind'] === '') {
+                $context['kind'] = 'delete';
+            }
+            $context['_marker_key'] = (string) $key;
             $out[] = $context;
         }
         return $out;
@@ -5218,14 +5352,19 @@ final class Apply {
             $this->retryingIncompleteApply ? $absentTombstones : []
         );
 
-        // The durable reparent markers an earlier incomplete apply left behind,
-        // read HERE because regen_dependencies() below CONSUMES them: its batch
-        // half deletes a marker whose post type declares no batch regenerator
-        // (regen_batch_dependencies()'s durable scan) and clears every marker
-        // it successfully regenerates. Reading them afterwards would see an
-        // empty keyspace on exactly the retry the `reparents` channel exists
-        // for. Reading is all this does — sweeping stays that pass's job.
+        // The durable reparent/delete markers an earlier incomplete apply left
+        // behind, read HERE because regen_dependencies() below CONSUMES them:
+        // its batch half deletes a marker whose post type declares no batch
+        // regenerator (regen_batch_dependencies()'s durable scan) and clears
+        // every marker it successfully regenerates. Reading them afterwards
+        // would see an empty keyspace on exactly the retry the `reparents` and
+        // `deletions` channels exist for. Reading is all this does — sweeping
+        // stays the owning pass's job, and DUO-3342 made the provider dispatch
+        // below the OWNER for a post type whose surface a channel-declaring
+        // capability triggers on (that pass's durable scan now leaves those
+        // markers alone; the clear-on-verified consumer is in the action loop).
         $durableReparents = $this->durable_reparent_contexts();
+        $durableDeletions = $this->durable_delete_contexts();
 
         // DUO-3234: derived tables with a hard per-entity query-availability
         // dependency — run FIRST, deliberately, since it is the only step in
@@ -5419,15 +5558,50 @@ final class Apply {
                 }
                 $entities = [];
                 $context = [];
+                $pendingMarkers = [];
+                $deliveredMarkerKeys = [];
+                $deletedUuids = [];
                 if ($declaration['scope'] === 'entity') {
-                    $entities = $this->action_entities($action, $work, $tree);
                     $context = $this->action_context(
                         $action,
                         $declaration,
                         $appliedDeletions,
                         $regenContext,
-                        $durableReparents
+                        $durableReparents,
+                        $durableDeletions
                     );
+                    // Deletion rows are assembled whether or not the capability
+                    // asked for them, because they answer a second question no
+                    // declaration can waive: which of the ids the entity batch
+                    // would otherwise carry are for entities that are GONE
+                    // (regen_batch_dependencies()'s own deleted-id filter, same
+                    // rows, same child_ids). action_context() still assembles
+                    // only declared channels — an undeclared channel delivers
+                    // nothing — so this is the identical projection reused, not
+                    // a second delivery path.
+                    $deletionRows = $context['deletions']
+                        ?? $this->action_deletions($action, $appliedDeletions, $durableDeletions);
+                    $batch = $this->action_entities($action, $work, $tree, $deletionRows);
+                    $entities = $batch['entities'];
+                    $pendingMarkers = $batch['markers'];
+                    if (Providers::declares_channel($declaration, 'deletions')) {
+                        $deliveredMarkerKeys = array_merge(
+                            $deliveredMarkerKeys,
+                            $this->action_marker_keys($action, $durableDeletions)
+                        );
+                        foreach ($deletionRows as $row) {
+                            $deletedUuid = (string) ($row['uuid'] ?? '');
+                            if ($deletedUuid !== '' && (string) ($row['post_type'] ?? '') !== '') {
+                                $deletedUuids[$deletedUuid] = (string) $row['post_type'];
+                            }
+                        }
+                    }
+                    if (Providers::declares_channel($declaration, 'reparents')) {
+                        $deliveredMarkerKeys = array_merge(
+                            $deliveredMarkerKeys,
+                            $this->action_marker_keys($action, $durableReparents)
+                        );
+                    }
                 }
                 if ($declaration['scope'] === 'entity'
                     && !$this->action_batch_has_work($declaration, $entities, $context)) {
@@ -5464,6 +5638,24 @@ final class Apply {
                     ];
                     continue;
                 }
+                // Arm the retry vocabulary BEFORE the opaque call, not after a
+                // caught failure: a provider can exhaust memory or hit a fatal
+                // that no catch block here observes, and the marker's whole
+                // job is to survive that. Clearing happens only once the
+                // receipt says verified === true (below), so failure — caught,
+                // uncaught, or a crash mid-flight — leaves every marker armed
+                // and the next apply re-delivers exactly this batch.
+                foreach ($pendingMarkers as $markerUuid => $markerPostType) {
+                    Ledger::kv_set(self::REGEN_PENDING_PREFIX . $markerUuid, (string) $markerPostType);
+                }
+                // Renew the promotion lease either side of the call, the same
+                // bracket regen_batch_dependencies() puts around its own
+                // opaque plugin call. The provider contract has no heartbeat
+                // parameter (invoke() takes a capability name and typed args,
+                // nothing else), so this bracket is all the engine can honestly
+                // offer: a call that runs longer than the lease TTL is bounded
+                // by timeout_seconds rather than kept alive mid-flight.
+                $this->renew_provider_lease();
                 $receipt = Providers::invoke(
                     $this->negotiatedProviders['providers'][$id],
                     $action,
@@ -5471,6 +5663,29 @@ final class Apply {
                     $entities,
                     $context
                 );
+                $this->renew_provider_lease();
+                // Clear-on-verified, marker-key addressed: exactly the markers
+                // whose rows this invocation delivered, never a prefix sweep.
+                // A verified receipt is the convergence boundary the batch
+                // path's own exact-verification clearing uses (:6114-6134);
+                // anything short of it keeps the marker armed.
+                foreach ($deliveredMarkerKeys as $markerKey) {
+                    Ledger::kv_delete($markerKey);
+                }
+                foreach ($pendingMarkers as $markerUuid => $_markerPostType) {
+                    Ledger::kv_delete(self::REGEN_PENDING_PREFIX . $markerUuid);
+                }
+                // A deleted uuid can still carry a pending marker, because its
+                // stale ledger mapping is what discovered the entity in the
+                // first place. Only a capability that was actually TOLD about
+                // the deletion may retire it — the batch path clears it on the
+                // strength of the adapter's exact absence verification, and a
+                // capability that never declared `deletions` performed no such
+                // check. Left armed, it is swept by the resolve-or-drop pass in
+                // action_entities() once the ledger forgets the mapping.
+                foreach ($deletedUuids as $deletedUuid => $_deletedPostType) {
+                    Ledger::kv_delete(self::REGEN_PENDING_PREFIX . $deletedUuid);
+                }
                 $version = (string) ($declarations[$id]['version'] ?? '?');
                 $this->warnings[] = "provider capability fired: $id@$version $capability ("
                     . $receipt['duration_seconds'] . 's, verified)';
@@ -5529,14 +5744,56 @@ final class Apply {
      * a provider a silently shortened batch would let it verify the entities
      * it did receive and report success for a repair that skipped the rest.
      *
+     * THREE sources, not one (DUO-3342 added the second and third, both for
+     * parity with what regen_batch_dependencies() has always done):
+     *   (a) this run's authored work, as above;
+     *   (b) any uuid still carrying an armed `regen_pending:<uuid>` marker
+     *       whose post type's surface this action triggers on. Plan's content
+     *       hash by design never reflects derived state, so an entity whose
+     *       repair failed on a previous apply shows as 'unchanged' and never
+     *       re-enters $work — without this union a hard failure followed by a
+     *       plain re-run would report all clear. A marker whose uuid no longer
+     *       resolves is swept with the batch path's exact warning wording
+     *       rather than left to sit in duo_kv forever;
+     *   (c) minus every id the deletions projection says is GONE, including
+     *       the captured `child_ids` (regen_batch_dependencies():6005-6032):
+     *       the ledger mapping of a deleted entity is deliberately retained
+     *       until the rebuild pass succeeds, so pending discovery can still
+     *       surface it — but handing it over as LIVE work would ask an adapter
+     *       to repair a row that no longer exists.
+     *
+     * A post type the batch dispatcher claims (`regen_batch() !== null`) is
+     * skipped in (b): the two dispatchers share one marker prefix on purpose,
+     * and a post type is owned by exactly one of them — negotiation refuses a
+     * channel-declaring capability on a batch-claimed post type outright
+     * (Providers::negotiate()), and this is the same ownership rule applied to
+     * discovery so neither dispatcher consumes the other's retry state.
+     *
      * @param array<string,mixed> $action a selected provider-kind declaration
      * @param array<int,array> $work
      * @param array<string,array> $tree
-     * @return list<array{kind:string, id:int}>
+     * @param list<array<string,mixed>> $deletionRows this action's assembled
+     *   deletions projection (see rebuild(): assembled whether or not the
+     *   capability declared the channel, because this filter is not waivable)
+     * @return array{entities:list<array{kind:string, id:int}>, markers:array<string,string>}
      */
-    private function action_entities(array $action, array $work, array $tree): array {
+    private function action_entities(array $action, array $work, array $tree, array $deletionRows = []): array {
         $triggers = array_fill_keys((array) ($action['triggers'] ?? []), true);
+        $deletedIds = [];
+        foreach ($deletionRows as $row) {
+            $deletedId = (int) ($row['id'] ?? 0);
+            if ($deletedId > 0) {
+                $deletedIds[$deletedId] = true;
+            }
+            foreach ((array) ($row['child_ids'] ?? []) as $childId) {
+                $childId = (int) $childId;
+                if ($childId > 0) {
+                    $deletedIds[$childId] = true;
+                }
+            }
+        }
         $entities = [];
+        $markers = [];
         foreach ($work as $entry) {
             $uuid = (string) ($entry['uuid'] ?? '');
             $entity = $uuid !== '' ? ($tree[$uuid] ?? null) : null;
@@ -5555,13 +5812,89 @@ final class Apply {
                         . 'declare triggers naming only surfaces whose entities carry one'
                     );
                 }
+                if (isset($deletedIds[$id])) {
+                    continue;
+                }
                 $entities[$surface . "\0" . $id] = ['kind' => $surface, 'id' => $id];
+                if (str_starts_with($surface, 'post:')) {
+                    $markers[$uuid] = substr($surface, strlen('post:'));
+                }
             }
+        }
+        foreach (Ledger::kv_prefix(self::REGEN_PENDING_PREFIX) as $key => $postType) {
+            $postType = (string) $postType;
+            $surface = 'post:' . $postType;
+            if ($postType === '' || !isset($triggers[$surface])
+                || $this->policy->regen_batch($postType) !== null) {
+                continue;
+            }
+            $uuid = substr((string) $key, strlen(self::REGEN_PENDING_PREFIX));
+            if (isset($markers[$uuid])) {
+                continue; // already covered by this run's work above
+            }
+            $id = Ledger::id_for($uuid, Ledger::KIND_POST);
+            if ($id === null) {
+                Ledger::kv_delete((string) $key);
+                $this->warnings[] = "regen_pending marker for post $uuid (type '$postType') dropped: "
+                    . 'uuid no longer resolves to a local post id';
+                continue;
+            }
+            if (isset($deletedIds[$id])) {
+                continue;
+            }
+            $entities[$surface . "\0" . $id] = ['kind' => $surface, 'id' => $id];
+            $markers[$uuid] = $postType;
         }
         $out = array_values($entities);
         usort($out, static fn(array $a, array $b): int =>
             strcmp($a['kind'], $b['kind']) ?: ($a['id'] <=> $b['id']));
-        return $out;
+        ksort($markers, SORT_STRING);
+        return ['entities' => $out, 'markers' => $markers];
+    }
+
+    /**
+     * The durable marker keys this action's channel delivery covered, so the
+     * clear-on-verified consumer in rebuild() addresses exactly those rows.
+     *
+     * `_marker_key` is stripped from every delivered row (a capability has no
+     * business addressing engine bookkeeping keys), so the association has to
+     * be recomputed here from the same durable set and the same trigger
+     * narrowing the channel used. Contexts that carry no marker key — this
+     * run's in-memory captures reaching action_reparents() through
+     * $regenContext — contribute nothing: their durable twin is already in the
+     * durable set, written by the capture itself before this pass ran.
+     *
+     * @param array<string,mixed> $action
+     * @param list<array<string,mixed>> $durableContexts
+     * @return list<string>
+     */
+    private function action_marker_keys(array $action, array $durableContexts): array {
+        $triggers = array_fill_keys((array) ($action['triggers'] ?? []), true);
+        $keys = [];
+        foreach ($durableContexts as $context) {
+            $markerKey = (string) ($context['_marker_key'] ?? '');
+            $postType = (string) ($context['post_type'] ?? '');
+            if ($markerKey === '' || $postType === '' || !isset($triggers['post:' . $postType])) {
+                continue;
+            }
+            $keys[$markerKey] = $markerKey;
+        }
+        return array_values($keys);
+    }
+
+    /**
+     * Renew the promotion lease around one opaque provider invocation.
+     *
+     * The empty-identity seam is a no-op for the same reason
+     * regen_batch_dependencies()'s heartbeat closure has one: a production
+     * Apply instance always carries the lease identity run() installed, and
+     * keeping the seam inert offline is what makes this dispatch executable in
+     * the fake-wpdb suites without weakening the live lease path.
+     */
+    private function renew_provider_lease(): void {
+        if ($this->promotionOwner !== '' && $this->promotionArtifact !== '') {
+            $this->renew_promotion_lock('apply-rebuild-provider');
+        }
     }
 
     /**
@@ -5593,6 +5926,8 @@ final class Apply {
      * @param array<int,array<string,mixed>> $regenContext pre-mutation receipts
      * @param array<int,array<string,mixed>> $durableReparents outstanding
      *   reparent markers from an earlier incomplete apply
+     * @param array<int,array<string,mixed>> $durableDeletions outstanding
+     *   delete markers from an earlier incomplete apply (DUO-3342)
      * @return array<string,mixed> channel name => assembled value
      */
     private function action_context(
@@ -5600,7 +5935,8 @@ final class Apply {
         array $declaration,
         array $appliedDeletions,
         array $regenContext,
-        array $durableReparents = []
+        array $durableReparents = [],
+        array $durableDeletions = []
     ): array {
         $context = [];
         if (Providers::declares_channel($declaration, 'always_on_write')) {
@@ -5610,7 +5946,7 @@ final class Apply {
             $context['always_on_write'] = true;
         }
         if (Providers::declares_channel($declaration, 'deletions')) {
-            $context['deletions'] = $this->action_deletions($action, $appliedDeletions);
+            $context['deletions'] = $this->action_deletions($action, $appliedDeletions, $durableDeletions);
         }
         if (Providers::declares_channel($declaration, 'reparents')) {
             $context['reparents'] = $this->action_reparents($action, $regenContext, $durableReparents);
@@ -5698,8 +6034,10 @@ final class Apply {
 
     /**
      * The `deletions` channel: the tombstones this run APPLIED, or that a
-     * previous incomplete run had already made absent, whose canonical surface
-     * the action's triggers name — each as {kind, uuid, id}.
+     * previous incomplete run had already made absent, or that an earlier
+     * incomplete apply left a durable receipt for, whose canonical surface the
+     * action's triggers name — each as
+     * {kind, uuid, id, post_type, parent_id, child_ids}.
      *
      * WHICH tombstones is the load-bearing half, and it is not "the ones this
      * revision contains". rebuild() composes the input as
@@ -5744,24 +6082,49 @@ final class Apply {
      * batch; here, a missing mapping is the expected end state of a deletion
      * and refusing on it would make retrying an incomplete apply impossible.
      *
-     * PARITY GAP, stated rather than implied (DUO-3342 is where it gets
-     * closed): the regenerator channel's deletion receipt carries `parent_id`
-     * and `child_ids` beside these fields, and this channel does not. Those two
-     * come from capture_regen_delete_context(), a pre-delete inventory the
-     * engine writes ONLY for post types with an enabled batch
-     * regen_dependency; this channel is projected from the tombstone rows
-     * themselves, which never held that inventory. `child_ids` is additionally
-     * a LIST, which the closed scalar row grammar (Providers::FIELD_TYPES)
-     * cannot carry without a per-row normalization like the one `reparents`
-     * uses. So a capability migrating off the regenerator channel receives the
-     * identity of every tombstone on its surfaces, and not yet the parent/child
-     * inventory around them.
+     * PARITY WITH THE REGENERATOR CHANNEL, closed by DUO-3342 rather than
+     * documented as a gap: a row now carries `post_type`, `parent_id`, and
+     * `child_ids` beside the identity fields — the pre-delete inventory
+     * capture_regen_delete_context() takes, which the batch path's own
+     * consumer needs (regen_batch_dependencies():6015 filters deleted children
+     * out of the live batch by exactly that list). Two changes made it
+     * deliverable. The capture's consumer gate now recognizes a
+     * `deletions`-declaring capability as a consumer in its own right
+     * (delete_context_consumer()), so the inventory is TAKEN for a
+     * provider-only manifest at all; and the durable `regen_delete_context:`
+     * markers are unioned in below, so the inventory survives an apply that
+     * committed the delete and failed before the repair. `child_ids` being a
+     * LIST is not the obstacle it reads like in the DUO-3369 prose: the closed
+     * scalar row grammar (Providers::FIELD_TYPES) bounds what a MANIFEST may
+     * declare as a capability argument, while a batch channel is assembled by
+     * the engine and validated only as a list of rows
+     * (Providers::batch_payload()).
+     *
+     * The two sources union the way `reparents` unions its two, and for the
+     * same reason: a durable receipt an earlier incomplete apply left behind is
+     * the only evidence on a retry whose plan no longer carries the tombstone
+     * at all. A durable row WINS the collision, because it carries the
+     * inventory the tombstone projection never had; the projection still
+     * contributes every applied tombstone that has no receipt (a surface no
+     * consumer declared, a term/table tombstone, an id the ledger already
+     * forgot), so nothing this channel used to deliver stops being delivered.
+     *
+     * `post_type` is the empty string, `parent_id` 0, and `child_ids` empty for
+     * a row with no captured receipt, and for a tombstone on a non-post surface
+     * where the concept does not apply. Every row carries all six keys either
+     * way: a consumer must be able to tell "no children" from "the engine did
+     * not say", and an ABSENT key would collapse those two.
      *
      * @param array<string,mixed> $action
      * @param array<int,array<string,mixed>> $appliedDeletions
-     * @return list<array{kind:string, uuid:string, id:int}>
+     * @param array<int,array<string,mixed>> $durableDeletions
+     * @return list<array{kind:string, uuid:string, id:int, post_type:string, parent_id:int, child_ids:list<int>}>
      */
-    private function action_deletions(array $action, array $appliedDeletions): array {
+    private function action_deletions(
+        array $action,
+        array $appliedDeletions,
+        array $durableDeletions = []
+    ): array {
         $triggers = array_fill_keys((array) ($action['triggers'] ?? []), true);
         $rows = [];
         foreach ($appliedDeletions as $entry) {
@@ -5777,8 +6140,44 @@ final class Apply {
                     'kind' => $surface,
                     'uuid' => $uuid,
                     'id' => $this->entity_local_id($entry, $uuid) ?? 0,
+                    'post_type' => str_starts_with($surface, 'post:')
+                        ? substr($surface, strlen('post:'))
+                        : '',
+                    'parent_id' => 0,
+                    'child_ids' => [],
                 ];
             }
+        }
+        foreach ($durableDeletions as $context) {
+            if (!is_array($context) || ($context['kind'] ?? 'delete') !== 'delete') {
+                continue;
+            }
+            $postType = (string) ($context['post_type'] ?? '');
+            $surface = $postType !== '' ? 'post:' . $postType : 'entity:post';
+            if (!isset($triggers[$surface])) {
+                continue;
+            }
+            $uuid = (string) ($context['uuid'] ?? '');
+            if ($uuid === '') {
+                continue;
+            }
+            $childIds = [];
+            foreach ((array) ($context['child_ids'] ?? []) as $childId) {
+                $childId = (int) $childId;
+                if ($childId > 0) {
+                    $childIds[$childId] = $childId;
+                }
+            }
+            $childIds = array_values($childIds);
+            sort($childIds, SORT_NUMERIC);
+            $rows[$surface . "\0" . $uuid] = [
+                'kind' => $surface,
+                'uuid' => $uuid,
+                'id' => (int) ($context['id'] ?? 0),
+                'post_type' => $postType,
+                'parent_id' => (int) ($context['parent_id'] ?? 0),
+                'child_ids' => $childIds,
+            ];
         }
         $out = array_values($rows);
         usort($out, static fn(array $a, array $b): int =>
@@ -5822,16 +6221,17 @@ final class Apply {
      *     post types whose canonical surface a reparents-declaring capability
      *     in THIS run's negotiated selection triggers on. A move on any other
      *     post type is not captured, so it is not here.
-     *   - the durable half only survives as long as something keeps the marker
-     *     alive. regen_batch_dependencies() deletes a marker whose post type
-     *     declares no batch regenerator, so on a provider-ONLY manifest the
-     *     marker is swept in the same pass that first read it: the union
-     *     delivers it to this run (rebuild() reads before that sweep), not to a
-     *     later one. The consequence: a rebuild that fails at or after the
-     *     capability loses the marker, so the retry sees an empty channel and
-     *     is skipped — which is why `idempotent: true` alone cannot rescue
-     *     that path. Marker lifetime owned by the provider path is DUO-3342's
-     *     to add along with the consumer that clears it.
+     *   - the durable half survives as long as its OWNER keeps it alive, and
+     *     DUO-3342 gave the provider dispatch that ownership: a marker whose
+     *     post type's surface a `reparents`-declaring negotiated capability
+     *     triggers on is no longer swept by regen_batch_dependencies()' durable
+     *     scan, and is deleted by rebuild()'s action loop only after that
+     *     capability returned a `verified === true` receipt, addressed by
+     *     `_marker_key`. A rebuild that fails at or after the capability
+     *     therefore RETAINS the marker and the next apply re-delivers it, which
+     *     is what makes `idempotent: true` load-bearing rather than decorative.
+     *     A marker whose post type no consumer declares is still swept by that
+     *     pass, unchanged.
      *
      * @param array<string,mixed> $action
      * @param array<int,array<string,mixed>> $regenContext
@@ -6171,6 +6571,17 @@ final class Apply {
             if ($this->policy->regen_batch($postType) !== null) {
                 continue; // batch path owns this marker
             }
+            if ($this->selection_declares_entity_batch_for('post:' . $postType)) {
+                // DUO-3342: the provider dispatch owns this marker. It arms
+                // regen_pending for the entities it delivers and clears them
+                // only on a verified receipt, so a marker armed by a failed
+                // provider invocation reaches this loop with no
+                // regen_dependency declared for its post type at all — the
+                // exact shape the sweep below was written to remove. Sweeping
+                // it here would delete the retry evidence between the failure
+                // and the retry it exists for.
+                continue;
+            }
             // Manifest no longer declares this post type's dependency
             // (unpinned, or the declaration was removed) — nothing safe to
             // verify or regenerate against. DUO-3234 design review,
@@ -6350,11 +6761,28 @@ final class Apply {
             self::REGEN_DELETE_CONTEXT_PREFIX,
             self::REGEN_REPARENT_CONTEXT_PREFIX,
         ] as $contextPrefix) {
+            $channel = $contextPrefix === self::REGEN_REPARENT_CONTEXT_PREFIX ? 'reparents' : 'deletions';
             foreach (Ledger::kv_prefix($contextPrefix) as $key => $encoded) {
                 $context = is_string($encoded) ? json_decode($encoded, true) : null;
                 $postType = is_array($context) ? (string) ($context['post_type'] ?? '') : '';
                 $id = is_array($context) ? (int) ($context['id'] ?? 0) : 0;
-                if ($postType === '' || $id <= 0 || $this->policy->regen_batch($postType) === null) {
+                if ($postType === '' || $id <= 0) {
+                    // Malformed either way: no dispatcher can replay a receipt
+                    // with no post type or no captured id.
+                    Ledger::kv_delete((string) $key);
+                    continue;
+                }
+                if ($this->policy->regen_batch($postType) === null) {
+                    if ($this->selection_declares_channel_for($channel, 'post:' . $postType)) {
+                        // DUO-3342: owned by the provider dispatch, which
+                        // delivers this marker's row on its matching channel
+                        // and deletes it only after a verified receipt. This
+                        // pass is not its owner and must not sweep it — doing
+                        // so is what made the channel a one-shot read rather
+                        // than a durable retry queue.
+                        continue;
+                    }
+                    // No consumer of either kind: a receipt nothing can replay.
                     Ledger::kv_delete((string) $key);
                     continue;
                 }
