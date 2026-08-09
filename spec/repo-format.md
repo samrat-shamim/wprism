@@ -615,6 +615,20 @@ from the checkout. The child revalidates the policy shape and artifact
 site/manifest hashes, requires the parent's exact outer artifact hash, and
 removes both handoff files after the child exits.
 
+## Scope resolution (spec v0.15, DUO-3344)
+
+`wp duo scope --repo=<p> --roots=<selectors>` resolves a bounded set of canonical entities from explicit roots and reports what it would carry. It is read-only: it compiles a revision and walks it, and it captures, promotes, and deletes nothing. No capture/promote/rollback command accepts a scope at this spec version.
+
+A root selector is one of `post:<uuid>`, `term:<uuid>`, `table:<table>:<uuid>`, `menu:<slug>`, `sidebar:<id>`, `user-meta:<login>`, `options`, `path:<state-relative-path>`, or `all`. Multiple roots are comma-separated. `all` is the whole revision, so a full-site operation is this same model with a wider root set rather than a second code path. A selector that resolves to nothing, resolves to an entity of a different type than it names, or cannot be parsed is **refused** — a silently empty scope is indistinguishable from a correctly small one. A menu item or widget uuid is refused by naming its owning menu/sidebar, because an item is not a file and cannot be scoped away from its owner.
+
+Closure follows declared edges in exactly one direction: **outbound**. If the scope holds X and X references Y, then Y is a dependency (X is incoherent without it) and joins the scope, recording the referring entity and the exact locator that pulled it in. Edges are the ones the compiler already validates — every `{{kind:uuid}}` token in any entity's data (including option *names*, which is where `option_name_refs` puts them) or post body, `terms` assignments, term `parent` and `relationships`, and menu-item hierarchy — plus declared parent → child post-type descent via `post_types.<t>.children` (DUO-3315). The engine learns every one of these from pinned declarations; an adapter that declares a new reference shape gets closure for free, and an engine branch naming a specific plugin is a defect.
+
+The reverse direction is **not** closure and is not treated as one. An option pointing at a page does not join that page's scope by pointing. Such inbound referrers are reported separately and left out, because they are what a later scoped delete would strand.
+
+Two properties follow from this being a read-only pass over an already-compiled revision. Compilation has already refused every dangling reference as a blocking diagnostic, so a closure over a tree that compiled cannot discover a missing dependency; the refusal scope resolution still owes is an unresolvable root. And because the walk consults only the typed IR and pinned policy, a scope is a property of a repository revision rather than of any environment — the same roots resolve identically everywhere, which is what will later let capture, plan, promote, verification, and rollback quote one scope instead of each recomputing it against a moving target.
+
+The reference enumeration is shared: `Duo\ReferenceGraph` is the single walker, consumed both by the compiler's reference validation and by `Duo\ScopeClosure`. Two independent walkers would not fail loudly when only one learned a new declared shape — the validator would quietly stop guarding an edge, or a resolved scope would quietly ship without one of its dependencies.
+
 ## Bounded provider-resource selectors
 
 An external `provider_resource` effect may declare a bounded aggregate by

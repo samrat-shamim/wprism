@@ -87,6 +87,7 @@ Usage:
   duo pending <env>
   duo classify <env> [--accept-proposals|--export-batch=<path>|--apply-batch=<path>]
   duo coverage <env> [--format=json]
+  duo scope    <env> --roots=<selectors> [--format=json]
   duo refresh <production-env> --production-ref=<ref>
   duo rebase <production-env> --production-ref=<ref> --new-branch=<name>
   duo rebase <production-env> --abort=<run-id>
@@ -261,6 +262,22 @@ Verbs:
     --format=json         Raw passthrough of the agent's own JSON (same
                           precedent as `duo plan --format=json`), instead of
                           the rendered summary.
+  scope <env>             Resolves a bounded set of entities from explicit
+                          roots and previews what it would carry: the roots,
+                          everything pulled in by a declared dependency edge
+                          (each row naming the edge responsible), inbound
+                          references left out, and how much unrelated state
+                          is excluded. Read-only — it captures, promotes, and
+                          deletes nothing. Unrelated to site.duo.json's
+                          `policy.scope`, which classifies whole post types
+                          and taxonomies rather than selecting entities.
+    --roots=<selectors>   Comma-separated. post:<uuid>, term:<uuid>,
+                          table:<table>:<uuid>, menu:<slug>, sidebar:<id>,
+                          user-meta:<login>, options,
+                          path:<state-relative-path>, or `all` for the whole
+                          revision. A root that does not resolve is refused,
+                          never silently dropped.
+    --format=json         Raw passthrough of the agent's own JSON.
   refresh <production-env> --production-ref=<ref>
                           Fetches only a read-only live production export and
                           writes an immutable semantic B/P/W plan locally.
@@ -377,7 +394,7 @@ function main(array $argv): int {
     }
 
     $verb = array_shift($rest);
-    $verbsNeedingEnv = ['doctor', 'driver-capabilities', 'adopt', 'status', 'capabilities', 'capture', 'plan', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage', 'refresh', 'rebase'];
+    $verbsNeedingEnv = ['doctor', 'driver-capabilities', 'adopt', 'status', 'capabilities', 'capture', 'plan', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase'];
 
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
@@ -473,7 +490,7 @@ function main(array $argv): int {
         'doctor' => cmd_doctor($transport),
         'adopt' => cmd_adopt($transport, $extra),
         'status' => cmd_status($transport),
-        'capabilities', 'capture', 'plan', 'apply', 'env-set', 'coverage' => cmd_passthrough($transport, $verb, $extra),
+        'capabilities', 'capture', 'plan', 'apply', 'env-set', 'coverage', 'scope' => cmd_passthrough($transport, $verb, $extra),
         'deploy' => cmd_deploy($transport, $extra),
         'promote' => cmd_promote($transport, $extra),
         'pending' => cmd_pending($transport, $extra),

@@ -30,7 +30,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions \
 	regress-post-field-classification regress-capability-registry regress-woocommerce-contract regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
-	regress-pair-candidate-source regress-manifest-validate \
+	regress-pair-candidate-source regress-manifest-validate regress-scope-closure \
 	capability-registry-generate release-gate
 
 up:
@@ -770,6 +770,16 @@ regress-repository-compiler-integration:
 regress-scope-gate:
 	bash sandbox/tests/regress_scope_gate.sh
 
+# DUO-3344: offline, no docker — a scope resolved from explicit roots closes
+# over declared edges only, every inclusion names the edge that pulled it in,
+# and an unresolvable root is refused. Also pins the two defects that folding
+# the compiler's reference walk and the closure walk into one enumeration
+# retired (a parent cycle going undetected once its posts carried a term, and
+# term locators reporting "terms.c"). Read-only: nothing here captures,
+# promotes, or deletes.
+regress-scope-closure:
+	bash sandbox/tests/regress_scope_closure.sh
+
 regress-snapshot-meta:
 	bash sandbox/tests/regress_snapshot_meta.sh
 
@@ -841,8 +851,8 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-cli-json-refusals regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
-	regress-manifest-validate
-	@echo "regress-offline-all: 87 offline suites green"
+	regress-manifest-validate regress-scope-closure
+	@echo "regress-offline-all: 88 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
