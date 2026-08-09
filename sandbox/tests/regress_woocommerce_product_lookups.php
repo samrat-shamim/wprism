@@ -76,9 +76,45 @@ $needles = [
     'as_unschedule_all_actions' => 'deleted sale actions use bounded public unscheduling',
     'as_next_scheduled_action' => 'sale actions have exact Action Scheduler readback',
     'verify_sale_schedules' => 'sale schedule verification is explicit and separate from lookup verification',
+    // DUO-3342: meta-lookup verification is WooCommerce's own derivation read
+    // back against the stored row, not a Duo-authored rebuild of Woo's column
+    // rules. get_data_for_lookup_table() is protected, so the `lookup_table`
+    // object-cache entry update_lookup_table() publishes is the only channel
+    // through which Woo can state what it derived.
+    "wp_cache_get('lookup_table'" => 'meta lookup verification reads the derivation WooCommerce itself published',
+    'woo_republished_lookup_row' => 'the published WooCommerce derivation has a single named boundary',
+    // The exact SQL fragment, not a bare `<=>`: this adapter has an unrelated
+    // PHP spaceship in its attribute-row sort, so the operator alone would
+    // match with the predicate gone (proven: swapping the predicate to `=`
+    // still satisfied a bare-operator needle).
+    '` <=> %s' => "stored lookup values are compared by SQL under the column's own semantics",
+    '` IS NULL' => 'a derivation of SQL NULL is compared as NULL rather than coerced',
+    // Only that the named read boundary exists — this string appears at BOTH
+    // call sites, so it cannot and does not pin their ORDER around the
+    // refresh. That ordering is the load-bearing property (the refresh runs
+    // with a cleared cache, so it always REPLACEs, and a row read only
+    // afterwards would be one this verification had just written), and it is
+    // covered behaviorally by the sibling-variation case in
+    // regress_woocommerce_product_lookups_fake.php, which fails when the
+    // before-read is moved after the refresh.
+    'read_lookup_row($table, $id)' => 'the stored-row read has a single named boundary',
 ];
 foreach ($needles as $needle => $message) {
     check(is_string($source) && str_contains($source, $needle), $message);
+}
+// The retired rebuild of Woo's lookup columns, stated as absences so a future
+// change cannot quietly reintroduce a second, drifting copy of rules that live
+// in a protected WooCommerce method. Deliberately narrow: wc_format_decimal()
+// is the RIGHT helper for any future price math here, so its absence is not a
+// property worth pinning.
+$retired = [
+    'lookup_values_equal' => 'no Duo-authored per-column tolerance table for lookup values',
+    "get_option('woocommerce_schema_version'" => 'no copied global_unique_id schema-version gate',
+    'CostOfGoodsSoldController' => 'no copied Cost of Goods Sold lookup-column feature gate',
+    '_cogs_total_value' => 'no Duo-side derivation of the COGS lookup column',
+];
+foreach ($retired as $needle => $message) {
+    check(is_string($source) && !str_contains($source, $needle), $message);
 }
 check(is_string($source) && !str_contains($source, '->on_product_changed('),
     'adapter does not enqueue Woo asynchronous on_product_changed() work');

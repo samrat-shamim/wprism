@@ -13,6 +13,17 @@ use Duo\Policy;
  * Woo's public hook-facing method schedules Action Scheduler work by default,
  * which would leave a successful Duo apply with a pending, non-deterministic
  * lookup update.  The public data-store methods used here are synchronous.
+ *
+ * Dispatch note: this file is reached through the engine's regenerator channel
+ * (Apply::regen_batch_dependencies()), not the DUO-3338 provider contract, and
+ * that is currently forced rather than chosen. A provider would bring identity
+ * binding, negotiation before the first target mutation, and receipts — but a
+ * capability's arguments are limited to bool/int/string/list<string>
+ * (Providers::ARG_TYPES), and its engine-assembled entity batch carries only
+ * created/updated entities, so the deletion and reparent context this adapter
+ * requires cannot be expressed at all. Closing that structured-argument gap is
+ * DUO-3369; until then, migrating the channel would trade a real capability
+ * for the identity binding.
  */
 final class WoocommerceProductLookups {
     private Policy $policy;
@@ -352,7 +363,7 @@ final class WoocommerceProductLookups {
         }
 
         $variableStore = \WC_Data_Store::load('product-variable');
-        if (!is_object($variableStore) || !is_callable([$variableStore, 'sync_price'])) {
+        if (!is_object($variableStore) || !$this->store_has($variableStore, 'sync_price')) {
             throw new \RuntimeException(
                 'duo: WooCommerce product-variable data store lacks public sync_price(); '
                 . 'the installed WooCommerce version is outside the adapter contract'
@@ -389,7 +400,7 @@ final class WoocommerceProductLookups {
                 $heartbeat
             );
             $groupedStore = \WC_Data_Store::load('product-grouped');
-            if (!is_object($groupedStore) || !is_callable([$groupedStore, 'sync_price'])) {
+            if (!is_object($groupedStore) || !$this->store_has($groupedStore, 'sync_price')) {
                 throw new \RuntimeException(
                     'duo: WooCommerce product-grouped data store lacks public sync_price(); '
                     . 'the installed WooCommerce version is outside the adapter contract'
@@ -408,7 +419,7 @@ final class WoocommerceProductLookups {
         }
 
         $productStore = \WC_Data_Store::load('product');
-        if (!is_object($productStore) || !is_callable([$productStore, 'refresh_product_lookup_table'])) {
+        if (!is_object($productStore) || !$this->store_has($productStore, 'refresh_product_lookup_table')) {
             throw new \RuntimeException(
                 'duo: WooCommerce product data store lacks public refresh_product_lookup_table(); '
                 . 'the installed WooCommerce version is outside the adapter contract'
@@ -463,7 +474,7 @@ final class WoocommerceProductLookups {
         ksort($saleIds, SORT_NUMERIC);
         $this->schedule_sale_events(array_values($saleIds), $deletionIds, $saleProducts, $heartbeat);
 
-        $this->verify_exact_state($products, $variableRoots, $attributeRoots, $deletionIds, $heartbeat);
+        $this->verify_exact_state($productStore, $products, $variableRoots, $attributeRoots, $deletionIds, $heartbeat);
         $this->verify_sale_schedules(array_values($saleIds), $deletionIds, $saleProducts, $heartbeat);
     }
 
@@ -703,6 +714,13 @@ final class WoocommerceProductLookups {
      * every row (including an absent key, an explicitly empty row, and
      * duplicate/multiple rows) and restore the same rows before committing
      * the boundary so a failed public call is safe to retry as well.
+     *
+     * The snapshot/restore/transaction wrapper is Duo-native and stays that
+     * way for now: WooCommerce owns the price synthesis (sync_price() below is
+     * its public call) but owns no notion of preserving a parent's authored
+     * rows across it, because in Woo's own flows those rows are not authored
+     * state. Narrowing this is a separate parity slice (DUO-3342 continuation);
+     * it is drift risk, not a divergence from any Woo rule.
      */
     private function sync_price_preserving_authored_meta(object $store, object $product): void {
         $id = (int) $product->get_id();
@@ -877,7 +895,13 @@ final class WoocommerceProductLookups {
             || !function_exists('remove_filter')
             || !function_exists('wc_maybe_schedule_product_sale_events')
             || !function_exists('as_unschedule_all_actions')
-            || !function_exists('as_next_scheduled_action')) {
+            || !function_exists('as_next_scheduled_action')
+            // Meta-lookup verification reads WooCommerce's own derived row out
+            // of the object cache Woo writes it to; without the cache API
+            // there is no channel through which Woo can state what it derived,
+            // and this adapter refuses rather than re-deriving it itself.
+            || !function_exists('wp_cache_get')
+            || !function_exists('wp_cache_delete')) {
             throw new \RuntimeException(
                 'duo: WooCommerce product lookup regenerator requires WooCommerce 11.x public data-store and sale-schedule APIs'
             );
@@ -1040,8 +1064,26 @@ final class WoocommerceProductLookups {
         return $store;
     }
 
+    /**
+     * Ask a WooCommerce data store whether it really implements a method.
+     *
+     * WC_Data_Store is a proxy that defines __call(), so is_callable() on one
+     * of its instances is true for every name and proves nothing about the
+     * store it wraps — a version-compatibility guard written that way passes
+     * right up to the fatal. WooCommerce exposes has_callable() for exactly
+     * this question and asks the wrapped instance. The is_callable() fallback
+     * is for the plugin objects reached outside the data-store registry (the
+     * ProductAttributesLookup store, WC_Product instances), which are ordinary
+     * objects where it is a real check.
+     */
+    private function store_has(object $store, string $method): bool {
+        return is_callable([$store, 'has_callable'])
+            ? (bool) $store->has_callable($method)
+            : is_callable([$store, $method]);
+    }
+
     private function delete_meta_lookup(object $store, int $id): void {
-        if (!is_callable([$store, 'delete_from_lookup_table'])) {
+        if (!$this->store_has($store, 'delete_from_lookup_table')) {
             throw new \RuntimeException(
                 'duo: WooCommerce product data store lacks delete_from_lookup_table(); cannot clean deleted lookup rows'
             );
@@ -1194,7 +1236,20 @@ final class WoocommerceProductLookups {
         }
     }
 
-    /** Rebuild one product/variation's active price without touching stock. */
+    /**
+     * Rebuild one product/variation's active price without touching stock.
+     *
+     * The on-sale decision below is a Duo-authored restatement of Woo's rule
+     * (WC_Product::is_on_sale('edit') plus the _price branch of
+     * WC_Product_Data_Store_CPT::update_post_meta()), and it was diffed against
+     * WooCommerce 11.0.0 case by case — sale/regular comparison, both date
+     * bounds, the empty and zero sale-price edges — and found behaviour
+     * equivalent. It is therefore a drift risk rather than a live divergence,
+     * and re-homing it onto Woo's own accessors is a separate parity slice
+     * (DUO-3342 continuation) rather than part of this change: the Woo-owned
+     * alternative writes through $product->save(), which fires the hooks and
+     * schedules the Action Scheduler work this whole adapter exists to avoid.
+     */
     private function recompute_simple_price(int $id): void {
         global $wpdb;
         $regular = (string) get_post_meta($id, '_regular_price', true);
@@ -1244,6 +1299,7 @@ final class WoocommerceProductLookups {
      * comparing them to target-local postmeta, not repository-authored data.
      */
     private function verify_exact_state(
+        object $productStore,
         array $products,
         array $variableRoots,
         array $attributeRoots,
@@ -1281,17 +1337,17 @@ final class WoocommerceProductLookups {
         foreach ($products as $id => $product) {
             $id = (int) $id;
             $this->heartbeat($heartbeat);
-            $this->verify_meta_row($id);
+            $this->verify_meta_row($productStore, $id, $heartbeat);
         }
         foreach ($variableRoots as $id => $root) {
             $id = (int) $id;
             $this->heartbeat($heartbeat);
-            $this->verify_meta_row($id);
+            $this->verify_meta_row($productStore, $id, $heartbeat);
             foreach ((array) $root->get_children() as $childId) {
                 $childId = (int) $childId;
                 if ($childId > 0 && !isset($deletionIds[$childId])) {
                     $this->heartbeat($heartbeat);
-                    $this->verify_meta_row($childId);
+                    $this->verify_meta_row($productStore, $childId, $heartbeat);
                 }
             }
         }
@@ -1309,14 +1365,53 @@ final class WoocommerceProductLookups {
         }
     }
 
-    private function verify_meta_row(int $id): void {
+    /**
+     * Prove one wc_product_meta_lookup row is what WooCommerce derives for
+     * this product, on both axes that can independently go wrong.
+     *
+     * Two reads bracket one forced re-derivation, and each proves a different
+     * thing:
+     *
+     *   1. The row the apply left behind is snapshotted BEFORE the refresh and
+     *      compared back afterwards, over the columns Woo derives. This is the
+     *      check that says "the apply converged this row". It has to be taken
+     *      first: the refresh below
+     *      runs with a cleared cache, so WC_Data_Store_WP::update_lookup_table()
+     *      always REPLACEs, and a readback taken only afterwards would be
+     *      reading a row this verification had itself just written — passing
+     *      for a row the apply left divergent. That is reachable rather than
+     *      theoretical: sibling variations of a variable root reached through
+     *      the variation path are verified here but are not in the batch's own
+     *      refresh set above.
+     *
+     *   2. The derivation WooCommerce published is compared against what is
+     *      actually stored after the refresh. update_lookup_table() does not
+     *      check $wpdb->replace()'s return value and sets its cache
+     *      unconditionally, so a REPLACE that failed leaves Woo advertising a
+     *      row that never landed. This is the check that says "Woo's write
+     *      landed".
+     *
+     * Neither comparison rebuilds Woo's column rules, which is the point. This
+     * adapter used to: the sku / virtual / onsale / stock / rating / tax column
+     * set, the Cost of Goods Sold feature gate, the woocommerce_schema_version
+     * >= 920 global_unique_id gate, and a per-column tolerance table for
+     * reading DECIMAL/BIGINT columns back were a hand-copy of
+     * WC_Product_Data_Store_CPT::get_data_for_lookup_table(), a protected
+     * method whose shape this adapter is not entitled to depend on. That copy
+     * could only drift one of two ways against a Woo point release: silently
+     * under-verifying a column it never learned about, or failing an apply over
+     * a gate Woo had since changed.
+     *
+     * A failure here leaves the row itself repaired — the refresh already ran —
+     * while the apply fails, which is the same self-healing-on-retry shape the
+     * engine's regen_pending markers already assume.
+     */
+    private function verify_meta_row(object $productStore, int $id, ?callable $heartbeat = null): void {
         global $wpdb;
         $table = $wpdb->prefix . self::META_LOOKUP;
-        $row = $this->checked_get_row($wpdb->prepare(
-            "SELECT * FROM `$table` WHERE product_id = %d LIMIT 1",
-            $id
-        ), "product lookup verification for product $id");
-        if (!is_array($row)) {
+
+        $applied = $this->read_lookup_row($table, $id);
+        if ($applied === null) {
             throw new \RuntimeException("duo: WooCommerce product lookup row missing for product $id");
         }
         $countValue = $this->checked_get_var($wpdb->prepare(
@@ -1333,150 +1428,200 @@ final class WoocommerceProductLookups {
             throw new \RuntimeException("duo: WooCommerce product lookup has $count rows for product $id; expected exactly one");
         }
 
-        $priceMeta = (array) get_post_meta($id, '_price', false);
-        $expected = [
-            'product_id' => $id,
-            'sku' => (string) get_post_meta($id, '_sku', true),
-            'virtual' => get_post_meta($id, '_virtual', true) === 'yes' ? 1 : 0,
-            'downloadable' => get_post_meta($id, '_downloadable', true) === 'yes' ? 1 : 0,
-            'min_price' => $priceMeta ? reset($priceMeta) : null,
-            'max_price' => $priceMeta ? end($priceMeta) : null,
-            'onsale' => $this->is_on_sale_from_meta($id) ? 1 : 0,
-            'stock_quantity' => $this->stock_quantity_from_meta($id),
-            'stock_status' => (string) get_post_meta($id, '_stock_status', true),
-            'rating_count' => array_sum(array_map('intval', (array) get_post_meta($id, '_wc_rating_count', true))),
-            'average_rating' => (string) get_post_meta($id, '_wc_average_rating', true),
-            'total_sales' => (string) get_post_meta($id, 'total_sales', true),
-            'tax_status' => (string) get_post_meta($id, '_tax_status', true),
-            'tax_class' => (string) get_post_meta($id, '_tax_class', true),
-        ];
-        if ((int) get_option('woocommerce_schema_version', 0) >= 920) {
-            $expected['global_unique_id'] = (string) get_post_meta($id, '_global_unique_id', true);
+        $derived = $this->woo_republished_lookup_row($productStore, $id);
+        $this->heartbeat($heartbeat);
+        $stored = $this->read_lookup_row($table, $id);
+        if ($stored === null) {
+            throw new \RuntimeException(
+                "duo: WooCommerce product lookup row for product $id disappeared during its own refresh"
+            );
         }
-        if (array_key_exists('cogs_total_value', $row) && $this->cogs_lookup_enabled()) {
-            $cogs = (string) get_post_meta($id, '_cogs_total_value', true);
-            $expected['cogs_total_value'] = $cogs === '' ? null : (float) $cogs;
+
+        // Scoped to the columns WooCommerce actually derived, deliberately.
+        // update_lookup_table() writes with $wpdb->replace(), which is a
+        // DELETE plus INSERT, so any column OUTSIDE the derived set — a
+        // cogs_total_value still holding data while the COGS feature is off, a
+        // column some other extension maintains — comes back at its schema
+        // default whatever the apply did. Comparing those would turn Woo's own
+        // write into a refusal blaming the apply for a divergence it did not
+        // cause. They are outside this check's authority; the derivation-bound
+        // check below already covers exactly the set Woo does own.
+        $this->assert_lookup_row_matches(
+            $id,
+            $table,
+            $stored,
+            array_intersect_key($applied, $derived),
+            'the apply left this WooCommerce product lookup row divergent from what WooCommerce derives'
+        );
+        $this->assert_lookup_row_matches(
+            $id,
+            $table,
+            $stored,
+            $derived,
+            'the WooCommerce product lookup write did not land the values WooCommerce derived'
+        );
+    }
+
+    /** @return array<string,mixed>|null */
+    private function read_lookup_row(string $table, int $id): ?array {
+        global $wpdb;
+        $row = $this->checked_get_row($wpdb->prepare(
+            "SELECT * FROM `$table` WHERE product_id = %d LIMIT 1",
+            $id
+        ), "product lookup verification for product $id");
+        return is_array($row) ? $row : null;
+    }
+
+    /**
+     * Make WooCommerce re-derive this product's lookup row, and return the
+     * derivation it published while doing so.
+     *
+     * get_data_for_lookup_table() is protected, so its result cannot be asked
+     * for directly. It is observable through Woo's own public write path
+     * instead: update_lookup_table() stores the row it is about to write under
+     * the `lookup_table`/`object_<id>` cache key, and skips both the write and
+     * that cache set only when the cache already equals the fresh derivation.
+     *
+     * Both cache assertions are the mechanism, not defensive noise. A surviving
+     * entry means the refresh would short-circuit, so the caller's before/after
+     * pair would compare a row with itself and prove nothing; an absent entry
+     * afterwards means Woo published no derivation to check the write against.
+     * Either one silently empties this verification, so both refuse.
+     *
+     * The refresh is a deliberate cost: one extra REPLACE per verified product
+     * on top of the batch's own refresh pass, over a set bounded by this
+     * apply's authored work with a lease heartbeat around every product.
+     *
+     * @return array<string,mixed>
+     */
+    private function woo_republished_lookup_row(object $productStore, int $id): array {
+        $this->invalidate_product_caches($id);
+        if (wp_cache_get('lookup_table', 'object_' . $id) !== false) {
+            throw new \RuntimeException(
+                "duo: WooCommerce's product lookup derivation cache survived invalidation for product $id; "
+                . 'the refresh would short-circuit and the verification below would prove nothing'
+            );
         }
-        foreach ($expected as $column => $want) {
-            if (!array_key_exists($column, $row)) {
-                continue;
-            }
-            if (!$this->lookup_values_equal($want, $row[$column], $column)) {
+        $productStore->refresh_product_lookup_table($id);
+        $derived = wp_cache_get('lookup_table', 'object_' . $id);
+        if (!is_array($derived) || $derived === []) {
+            throw new \RuntimeException(
+                "duo: WooCommerce published no product lookup derivation for product $id after a public "
+                . 'refresh with a cleared cache; the installed WooCommerce version is outside the adapter contract'
+            );
+        }
+        return $derived;
+    }
+
+    /**
+     * Compare one set of expected values against the stored row in the
+     * database rather than in PHP.
+     *
+     * The two callers supply values of different provenance — a previous read
+     * of this same row, and Woo's PHP-typed derivation (ints, floats, nulls,
+     * unformatted decimal strings) — and neither can be compared to a wpdb row
+     * of strings and NULLs without a normalization rule. Writing that rule per
+     * column is precisely the copied WooCommerce semantics this adapter stopped
+     * carrying, so one NULL-safe `<=>` predicate per column delegates it to the
+     * column's own type, which is the same coercion $wpdb->replace() applied on
+     * the way in.
+     *
+     * Equality here is therefore the column's, not PHP's: a varchar comparison
+     * follows the collation, so on a PAD SPACE collation two skus differing
+     * only in trailing spaces would compare equal. That is unreachable through
+     * this path — every value bound here was either read from that same column
+     * or written to it by Woo — and it is the right definition of "equal" for a
+     * table whose only consumers are SQL queries against these columns.
+     *
+     * An expected column the stored row does not have is a refusal, not a skip.
+     * The old row-keyed loop skipped unknown columns, which is what let a
+     * schema and an installed WooCommerce disagree without anyone noticing.
+     *
+     * @param array<string,mixed> $stored the row as currently stored
+     * @param array<string,mixed> $expected values that row must already equal
+     * @param string $failure what a mismatch means, in the caller's terms
+     */
+    private function assert_lookup_row_matches(
+        int $id,
+        string $table,
+        array $stored,
+        array $expected,
+        string $failure
+    ): void {
+        global $wpdb;
+        $conditions = ['product_id = %d'];
+        $params = [$id];
+        foreach ($expected as $column => $value) {
+            $column = (string) $column;
+            if (preg_match('/^[a-z][a-z0-9_]{0,62}$/D', $column) !== 1) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product lookup verification mismatch for product $id.$column "
-                    . '(expected ' . var_export($want, true) . ', found ' . var_export($row[$column], true) . ')'
+                    "duo: unusable WooCommerce product lookup column name '$column' for product $id"
                 );
             }
+            if (!array_key_exists($column, $stored)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product lookup column '$column' for product $id is absent from $table; "
+                    . 'the lookup schema and the installed WooCommerce disagree'
+                );
+            }
+            if ($value === null) {
+                $conditions[] = "`$column` IS NULL";
+                continue;
+            }
+            if (!is_scalar($value)) {
+                throw new \RuntimeException(
+                    "duo: non-scalar WooCommerce product lookup value for product $id.$column"
+                );
+            }
+            $conditions[] = "`$column` <=> %s";
+            // (string) is how $wpdb->replace() bound this same value on the
+            // way in, so ints, floats and false reach MySQL identically here.
+            $params[] = (string) $value;
         }
+        $matches = $this->checked_get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM `$table` WHERE " . implode(' AND ', $conditions),
+            ...$params
+        ), "product lookup value verification for product $id");
+        if ($matches === null) {
+            throw new \RuntimeException(
+                "duo: WooCommerce product lookup value verification returned no count for product $id"
+            );
+        }
+        if ((int) $matches === 1) {
+            return;
+        }
+        throw new \RuntimeException(
+            "duo: WooCommerce product lookup verification mismatch for product $id — $failure "
+            . '(expected ' . var_export($expected, true)
+            . ', stored ' . var_export($stored, true) . ')'
+        );
     }
 
-    private function stock_quantity_from_meta(int $id): ?float {
-        if (get_post_meta($id, '_manage_stock', true) !== 'yes') {
-            return null;
-        }
-        $value = get_post_meta($id, '_stock', true);
-        if (function_exists('wc_stock_amount')) {
-            return (float) wc_stock_amount($value);
-        }
-        return (float) $value;
-    }
-
-    private function cogs_lookup_enabled(): bool {
-        $controllerClass = '\\Automattic\\WooCommerce\\Internal\\CostOfGoodsSold\\CostOfGoodsSoldController';
-        if (!class_exists($controllerClass) || !function_exists('wc_get_container')) {
-            return false;
-        }
-        try {
-            $controller = \wc_get_container()->get($controllerClass);
-            return is_object($controller)
-                && is_callable([$controller, 'feature_is_enabled'])
-                && (bool) $controller->feature_is_enabled()
-                && is_callable([$controller, 'product_meta_lookup_table_cogs_value_columns_exist'])
-                && (bool) $controller->product_meta_lookup_table_cogs_value_columns_exist();
-        } catch (\Throwable $t) {
-            return false;
-        }
-    }
-
-    private function is_on_sale_from_meta(int $id): bool {
-        // Mirror WC_Product_Data_Store_CPT::get_data_for_lookup_table()
-        // exactly: lookup onsale is based on the authored sale value being
-        // truthy and matching the already-recomputed effective _price.  Do
-        // not re-derive regular-vs-sale or dates here; that would disagree
-        // with Woo for temporary prices and the zero sale-price edge case.
-        $price = function_exists('wc_format_decimal')
-            ? (string) wc_format_decimal(get_post_meta($id, '_price', true))
-            : (string) get_post_meta($id, '_price', true);
-        $sale = function_exists('wc_format_decimal')
-            ? (string) wc_format_decimal(get_post_meta($id, '_sale_price', true))
-            : (string) get_post_meta($id, '_sale_price', true);
-        return (bool) $sale && $price === $sale;
-    }
-
-    private function lookup_values_equal($expected, $actual, string $column): bool {
-        if ($expected === null) {
-            if (in_array($column, ['min_price', 'max_price'], true)) {
-                // Woo's DECIMAL(19,4) lookup columns are NOT NULL with a
-                // zero default, so a product with no effective price is
-                // read back as 0.0000 after the public refresh call.
-                return $actual === null || $actual === ''
-                    || (is_numeric($actual) && abs((float) $actual) < 0.000001);
-            }
-            return $actual === null || $actual === '';
-        }
-        if (in_array($column, ['product_id', 'virtual', 'downloadable', 'onsale', 'rating_count'], true)) {
-            return (int) $expected === (int) $actual;
-        }
-        if ($column === 'average_rating') {
-            // Woo stores this DECIMAL(3,2) lookup column as 0.00 when the
-            // source meta is empty. Preserve strictness for non-numeric
-            // values, but compare valid decimal values by their numeric
-            // meaning so 4.5 and 4.50 remain equivalent.
-            if ($expected === '' && ($actual === ''
-                || (is_numeric($actual) && abs((float) $actual) < 0.000001))) {
-                return true;
-            }
-            if (is_numeric($expected) && is_numeric($actual)) {
-                return abs((float) $expected - (float) $actual) < 0.000001;
-            }
-            return (string) $expected === (string) $actual;
-        }
-        if ($column === 'total_sales') {
-            // Woo's BIGINT lookup column is nullable with a zero default.
-            // Its public refresh stores NULL for a variation whose source
-            // meta is absent, while other product paths can read back zero.
-            // Never cast malformed source text to zero: only an absent
-            // source or numeric values may take the normalization path.
-            if ($expected === '') {
-                return $actual === null || $actual === ''
-                    || (is_numeric($actual) && abs((float) $actual) < 0.000001);
-            }
-            if (!is_numeric($expected) || !is_numeric($actual)) {
-                return false;
-            }
-            return abs((float) $expected - (float) $actual) < 0.000001;
-        }
-        if ($column === 'stock_quantity' || $column === 'cogs_total_value') {
-            if ($expected === null) {
-                return $actual === null || $actual === '';
-            }
-            return abs((float) $expected - (float) $actual) < 0.000001;
-        }
-        if (in_array($column, ['min_price', 'max_price'], true)) {
-            if ($expected === null) {
-                return $actual === null || $actual === ''
-                    || (is_numeric($actual) && abs((float) $actual) < 0.000001);
-            }
-            if (!is_numeric($expected) || !is_numeric($actual)) {
-                return (string) $expected === (string) $actual;
-            }
-            return (string) $expected === (string) $actual
-                || abs((float) $expected - (float) $actual) < 0.000001;
-        }
-        return (string) $expected === (string) $actual;
-    }
-
-    /** @return array<int,array<string,int|string>> */
+    /**
+     * Rebuild the attribute lookup rows WooCommerce should have synthesized.
+     *
+     * This is a Duo-authored mirror of WooCommerce's own row synthesis, and it
+     * stays one deliberately, unlike the meta-lookup column rules that moved
+     * onto Woo's published derivation. Two reasons, both structural:
+     *
+     * Woo's synthesis has no observable derivation channel. create_data_for_
+     * product() is the only public entry point (LookupDataStore.php:307);
+     * every method that decides what a row should contain —
+     * insert_lookup_table_data_for_variation() (:474), insert_lookup_table_
+     * data() (:616), create_data_for_product_cpt() (:816) and its core (:847)
+     * — is private, writes straight to the table, and caches nothing a caller
+     * could read back. There is no equivalent of update_lookup_table()'s
+     * published row here.
+     *
+     * And this check is the only guard on the failure it exists for: Woo
+     * synthesizes NO rows, silently and successfully, for a pa_* taxonomy that
+     * is not registered at the moment it runs — exactly the post-init
+     * typed-table bootstrap case refresh_attribute_taxonomy_registry() above
+     * exists to prevent. A comparison against Woo's own output would agree with
+     * Woo that zero rows were correct.
+     *
+     * @return array<int,array<string,int|string>>
+     */
     private function expected_attribute_rows(object $root, array $deletionIds = []): array {
         $rows = [];
         $type = (string) $root->get_type();
