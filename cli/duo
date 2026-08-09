@@ -26,6 +26,7 @@ require __DIR__ . '/src/VerifiedRollbackProfile.php';
 require __DIR__ . '/src/Adopt.php';
 require __DIR__ . '/src/Doctor.php';
 require __DIR__ . '/src/CodeDeploy.php';
+require __DIR__ . '/src/PlanContract.php';
 require __DIR__ . '/src/PlanSummary.php';
 require __DIR__ . '/src/Pending.php';
 require __DIR__ . '/src/Triage.php';
@@ -49,6 +50,7 @@ use Duo\Orchestrator\CommandEnvironmentProvider;
 use Duo\Orchestrator\EnvironmentLifecycleJournal;
 use Duo\Orchestrator\EnvironmentMaterializer;
 use Duo\Orchestrator\Pending;
+use Duo\Orchestrator\PlanContract;
 use Duo\Orchestrator\PlanSummary;
 use Duo\Orchestrator\RollbackAuthority;
 use Duo\Orchestrator\VerifiedRollbackProfile;
@@ -1879,6 +1881,37 @@ function frozen_promotion_checkpoint(EnvironmentDriver $driver, array $context):
     ];
 }
 
+/**
+ * Read the target's exact compiled plan and answer whether it converged.
+ *
+ * Both reconciliation paths below synthesize a receipt from this one answer,
+ * so they share one contract check rather than two copies that could drift
+ * apart. An unobtainable or undecodable plan stays a plain "not reconciled"
+ * (false): the operation has proven nothing and falls through to its ordinary
+ * fail-closed promotion attempt. A plan that IS valid JSON but is not a
+ * complete agent envelope is different in kind — PlanSummary::render()
+ * tolerates partial fixtures, so `{}` would render clean and mint a receipt
+ * for a promotion nobody verified. That is a refusal, loud and typed, never a
+ * fall-through (DUO-3384).
+ */
+function frozen_promotion_converged(
+    EnvironmentDriver $driver,
+    string $repo,
+    array $context,
+    string $surface
+): bool {
+    $planResult = $driver->captureWp([
+        'duo', 'plan', '--repo=' . $repo, '--compiled=' . $context['artifact_path'], '--format=json',
+    ]);
+    if (($planResult['exit'] ?? 1) !== 0) return false;
+    try {
+        $plan = json_decode(trim((string) ($planResult['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
+    } catch (\Throwable $e) {
+        return false;
+    }
+    return PlanSummary::render(PlanContract::requireComplete($plan, $surface))['ok'];
+}
+
 /** @return ?array<string,mixed> */
 function frozen_promotion_reconcile(EnvironmentDriver $driver, string $repo, array &$context): ?array {
     if (($context['_checkpoint_provider'] ?? null) !== null
@@ -1889,16 +1922,7 @@ function frozen_promotion_reconcile(EnvironmentDriver $driver, string $repo, arr
     if (frozen_promotion_artifact_hash($driver, $context['artifact_path']) !== $summary['artifact_hash']) {
         throw new \RuntimeException('target frozen artifact does not match the compiled summary');
     }
-    $planResult = $driver->captureWp([
-        'duo', 'plan', '--repo=' . $repo, '--compiled=' . $context['artifact_path'], '--format=json',
-    ]);
-    if (($planResult['exit'] ?? 1) !== 0) return null;
-    try {
-        $plan = json_decode(trim((string) ($planResult['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
-    } catch (\Throwable $e) {
-        return null;
-    }
-    if (!is_array($plan) || !PlanSummary::render($plan)['ok']) return null;
+    if (!frozen_promotion_converged($driver, $repo, $context, 'frozen promotion reconciliation')) return null;
     $context['_checkpoint_hash'] = frozen_promotion_hash($driver, $context['checkpoint_path']);
     return frozen_promotion_receipt(
         $context,
@@ -1941,16 +1965,9 @@ function frozen_promotion_verified_reconcile(
     if (frozen_promotion_artifact_hash($driver, $context['artifact_path']) !== $summary['artifact_hash']) {
         throw new \RuntimeException('target frozen artifact does not match the compiled summary');
     }
-    $planResult = $driver->captureWp([
-        'duo', 'plan', '--repo=' . $repo, '--compiled=' . $context['artifact_path'], '--format=json',
-    ]);
-    if (($planResult['exit'] ?? 1) !== 0) return null;
-    try {
-        $plan = json_decode(trim((string) ($planResult['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
-    } catch (\Throwable $e) {
+    if (!frozen_promotion_converged($driver, $repo, $context, 'verified frozen promotion reconciliation')) {
         return null;
     }
-    if (!is_array($plan) || !PlanSummary::render($plan)['ok']) return null;
     $context['_checkpoint_hash'] = $checkpointHash;
     return frozen_promotion_receipt(
         $context,

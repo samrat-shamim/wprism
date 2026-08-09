@@ -40,6 +40,27 @@ function fmp_ok(bool $condition, string $message): void {
     echo "ok: $message\n";
 }
 
+/**
+ * One complete `wp duo plan --format=json` envelope, spelled out the way the
+ * agent emits it. Reconciliation only trusts a complete envelope (DUO-3384),
+ * so a fixture that stops at the buckets it cares about would be refused
+ * before render() ever sees it — the contract's own suite,
+ * regress_plan_contract_trust.php, owns the incomplete cases.
+ *
+ * @param array<string,list<array<string,mixed>>> $overrides
+ * @return array<string,list<mixed>>
+ */
+function fmp_plan(array $overrides = []): array {
+    return $overrides + [
+        'adapter_dispositions' => [], 'adopt' => [], 'code_drift' => [], 'code_mismatch' => [],
+        'collision' => [], 'conflict' => [], 'create' => [], 'delete' => [],
+        'delete_conflict' => [], 'deleted' => [], 'drift' => [], 'effects_inventory' => [],
+        'env_missing' => [], 'incomplete_apply' => [], 'incomplete_lifecycle' => [],
+        'missing_user' => [], 'provider_problems' => [], 'regen_pending' => [], 'skipped_user_meta' => [],
+        'unchanged' => [], 'update' => [], 'uploads_inventory' => [], 'warnings' => [],
+    ];
+}
+
 final class FrozenPromotionDriver implements EnvironmentDriver {
     /** @var array<string,string> */
     public array $files = [];
@@ -117,7 +138,9 @@ final class FrozenPromotionDriver implements EnvironmentDriver {
             return $this->ok();
         }
         if ($verb === 'plan') {
-            return $this->ok(json_encode($this->cleanPlan ? [] : ['drift' => [['path' => 'state/options/core.json']]]) . "\n");
+            return $this->ok(json_encode($this->cleanPlan
+                ? fmp_plan()
+                : fmp_plan(['drift' => [['path' => 'state/options/core.json']]])) . "\n");
         }
         if ($verb === 'apply') {
             $artifact = '';

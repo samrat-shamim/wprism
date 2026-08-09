@@ -1260,7 +1260,12 @@ final class EnvironmentMaterializer {
                 $planResult = $targetDriver->captureWp(['duo', 'plan', '--repo=' . $targetDriver->repoPath(), '--format=json']);
                 if (($planResult['exit'] ?? 1) !== 0) throw new \RuntimeException('could not verify branch environment convergence');
                 $finalPlan = json_decode(trim((string) $planResult['stdout']), true);
-                if (!is_array($finalPlan) || !PlanSummary::render($finalPlan)['ok']) throw new \RuntimeException('branch environment did not converge to a clean code/state plan');
+                // PlanSummary::render() tolerates partial fixtures, so a bare
+                // `{}` would render clean and journal a convergence this
+                // operation never observed (DUO-3384). Validate the complete
+                // agent envelope before trusting its `ok`.
+                PlanContract::requireComplete($finalPlan, 'branch environment convergence');
+                if (!PlanSummary::render($finalPlan)['ok']) throw new \RuntimeException('branch environment did not converge to a clean code/state plan');
                 self::recordPhase($journal, $operationId, 'release-converged', $release);
             }
 
