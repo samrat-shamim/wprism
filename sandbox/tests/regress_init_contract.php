@@ -75,6 +75,7 @@ $proposal = [
         'risk_surfaces' => [
             'options' => ['stripe key' => 1],
             'user_meta' => ['email address' => 2],
+            'oversized' => ['options' => 3, 'user_meta' => 4],
             'truncated' => true,
         ],
     ],
@@ -97,6 +98,7 @@ check(str_contains($rendered, 'active plugin: woocommerce/woocommerce.php 11.0.0
 check(str_contains($rendered, 'core, woocommerce'), 'rendering names selected adapters');
 check(str_contains($rendered, 'ADVISORY THEME shop-theme [active_theme_code_only]'), 'rendering exposes code-only active theme state coverage');
 check(str_contains($rendered, '1 secret-shaped option value(s), 2 PII-shaped user-meta value(s)'), 'rendering exposes redacted risk counts');
+check(str_contains($rendered, '3 oversized option value(s) and 4 oversized user-meta value(s) were not scanned'), 'rendering exposes redacted oversized omissions');
 check(str_contains($rendered, 'redacted counts are incomplete'), 'rendering discloses a bounded risk scan instead of implying completeness');
 check(!str_contains($rendered, 'sk_live_') && !str_contains($rendered, '@example.'), 'rendering cannot expose secret or PII values from the count-only report');
 
@@ -137,6 +139,7 @@ check(str_contains($agentSource, 'Capture::run_initial_baseline($repo, $publicat
 check(str_contains($agentSource, 'SELECT GET_LOCK(%s, 0)'), 'concurrent confirmations share a target advisory lease');
 check(str_contains($agentSource, "'existing_state_payload'") && str_contains($agentSource, "'existing_media_payload'") && str_contains($agentSource, "'existing_duo_ledger'"), 'stale state, media, and ledger ownership block initialization');
 check(str_contains($agentSource, 'Secrets::hard_match($window)'), 'every code byte crosses the high-confidence secret matcher');
+check(str_contains($agentSource, 'substr($window, -32768)'), 'streaming secret scan retains one full bounded-pattern chunk');
 check(str_contains($agentSource, "['allowed_classes' => false]"), 'risk discovery cannot instantiate serialized user-meta objects');
 check(!str_contains($agentSource, 'maybe_unserialize('), 'read-only risk discovery never uses class-enabled WordPress unserialization');
 check(str_contains($agentSource, 'ORDER BY option_id ASC') && str_contains($agentSource, 'ORDER BY umeta_id ASC'), 'bounded risk discovery uses deterministic primary-key ordering');
@@ -155,5 +158,107 @@ foreach (['product_cat', 'product_tag', 'product_shipping_class', 'product_type'
     check(($woo['taxonomies'][$taxonomy]['class'] ?? null) === 'authored', "Woo adapter owns authored init scope for $taxonomy");
 }
 check(($woo['taxonomies']['product_visibility']['class'] ?? null) === 'runtime', 'Woo adapter keeps mixed product visibility out of authored state');
+
+$liveHarness = (string) file_get_contents(__DIR__ . '/regress_duo_init.sh');
+$pairValidation = strpos($liveHarness, '[[ ! "$PAIR" =~ ^[a-z][a-z0-9]*$ ]]');
+$pathDerivation = strpos($liveHarness, 'HOST_REPO="$REPO_ROOT/sandbox/siterepo/${PAIR}1"');
+check(
+    $pairValidation !== false && $pathDerivation !== false && $pairValidation < $pathDerivation,
+    'live harness validates the pair name before deriving any cleanup path'
+);
+check(
+    str_contains($liveHarness, 'PORT1 % 2 != 0 || PORT2 != PORT1 + 1'),
+    'live harness validates the owned even/adjacent port pair before cleanup is armed'
+);
+$destroyCall = strpos($liveHarness, 'if bash sandbox/bin/pair.sh destroy "$PAIR"');
+$deadReadback = strpos($liveHarness, 'label=com.docker.compose.project=duo-${PAIR}');
+$rootRemoval = strpos($liveHarness, 'rm -rf "$HOST_REPO"');
+check(
+    $destroyCall !== false && $deadReadback !== false && $rootRemoval !== false
+        && $destroyCall < $deadReadback && $deadReadback < $rootRemoval,
+    'live cleanup proves pair destruction and Docker absence before removing bind roots'
+);
+check(
+    !str_contains($liveHarness, 'pair.sh destroy "$PAIR" >/dev/null 2>&1 || true'),
+    'live cleanup never suppresses pair-destroy failure before root removal'
+);
+check(
+    substr_count($liveHarness, '-e DUO_TEST_INIT_PUBLICATION_PAUSE_MS=5000') >= 2,
+    'both concurrent init contenders pause whichever winner holds the publication lock'
+);
+
+$unsafeRoot = __DIR__ . '/../unsafe1';
+$unsafeSentinel = $unsafeRoot . '/sentinel';
+if (!is_dir($unsafeRoot) && !mkdir($unsafeRoot, 0777, true) && !is_dir($unsafeRoot)) {
+    fail('could not create invalid-pair cleanup sentinel');
+}
+file_put_contents($unsafeSentinel, "preserve\n");
+register_shutdown_function(static function () use ($unsafeSentinel, $unsafeRoot): void {
+    if (is_file($unsafeSentinel)) unlink($unsafeSentinel);
+    if (is_dir($unsafeRoot)) rmdir($unsafeRoot);
+});
+$invalidOutput = [];
+$invalidExit = 0;
+exec(
+    'DUO_INIT_PAIR=' . escapeshellarg('../unsafe') . ' bash '
+        . escapeshellarg(__DIR__ . '/regress_duo_init.sh') . ' 2>&1',
+    $invalidOutput,
+    $invalidExit
+);
+check($invalidExit === 2, 'invalid live pair name refuses before Docker or cleanup');
+check(is_file($unsafeSentinel), 'invalid live pair name cannot escape siterepo and delete the sentinel');
+
+// Exercise the target-only bounded risk probe without WordPress. Query
+// failures must not become clean zero counts, and oversized omissions must be
+// explicit even when the bounded row queries themselves return no rows.
+require_once __DIR__ . '/../../agent/src/Secrets.php';
+require_once __DIR__ . '/../../agent/src/PersonalData.php';
+require_once __DIR__ . '/../../agent/src/Init.php';
+if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
+
+final class InitRiskWpdb {
+    public string $options = 'wp_options';
+    public string $usermeta = 'wp_usermeta';
+    public string $last_error = '';
+    public bool $failOptions = false;
+    public int $oversizedOptions = 0;
+    public int $oversizedUserMeta = 0;
+
+    public function get_results(string $sql, mixed $format): ?array {
+        $this->last_error = '';
+        if ($this->failOptions && str_contains($sql, $this->options)) {
+            $this->last_error = 'sensitive database detail';
+            return null;
+        }
+        return [];
+    }
+
+    public function get_var(string $sql): int {
+        $this->last_error = '';
+        return str_contains($sql, $this->usermeta) ? $this->oversizedUserMeta : $this->oversizedOptions;
+    }
+}
+
+$riskProbe = (new ReflectionClass(\Duo\Init::class))->getMethod('risk_probe');
+$originalWpdb = $GLOBALS['wpdb'] ?? null;
+$fakeWpdb = new InitRiskWpdb();
+$fakeWpdb->oversizedOptions = 2;
+$fakeWpdb->oversizedUserMeta = 3;
+$GLOBALS['wpdb'] = $fakeWpdb;
+$boundedRisk = $riskProbe->invoke(null);
+check(($boundedRisk['oversized'] ?? null) === ['options' => 2, 'user_meta' => 3], 'risk probe reports only redacted oversized omission counts');
+check(($boundedRisk['truncated'] ?? false) === true, 'oversized values make risk readback explicitly incomplete');
+
+$fakeWpdb->failOptions = true;
+try {
+    $riskProbe->invoke(null);
+    fail('failed risk query was reported as clean');
+} catch (ReflectionException $unexpected) {
+    throw $unexpected;
+} catch (Throwable $expected) {
+    check(str_contains($expected->getMessage(), 'could not read option values safely'), 'risk query error fails closed with a redacted diagnostic');
+    check(!str_contains($expected->getMessage(), 'sensitive database detail'), 'risk query error does not disclose database details');
+}
+$GLOBALS['wpdb'] = $originalWpdb;
 
 echo "REGRESS_INIT_CONTRACT PASSED\n";

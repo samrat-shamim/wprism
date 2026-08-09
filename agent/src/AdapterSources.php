@@ -3089,6 +3089,13 @@ final class AdapterSources {
         return $this->scanReport['sources'];
     }
 
+    /** @return list<string> every unambiguous installed adapter identity */
+    public function names(): array {
+        $names = array_keys($this->origins);
+        sort($names, SORT_STRING);
+        return $names;
+    }
+
     /** The synthesized disposition for an out-of-tree adapter; null for shipped. */
     public function provenance(string $name): ?array {
         return $this->provenance[$name] ?? null;

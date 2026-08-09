@@ -50,6 +50,12 @@ final class Init {
         $lines[] = '  redacted risk surfaces: ' . array_sum((array) ($risk['options'] ?? []))
             . ' secret-shaped option value(s), ' . array_sum((array) ($risk['user_meta'] ?? []))
             . ' PII-shaped user-meta value(s); values are never included';
+        $oversized = (array) ($risk['oversized'] ?? []);
+        if (array_sum($oversized) > 0) {
+            $lines[] = '    ' . (int) ($oversized['options'] ?? 0) . ' oversized option value(s) and '
+                . (int) ($oversized['user_meta'] ?? 0)
+                . ' oversized user-meta value(s) were not scanned; values are never included';
+        }
         if (!empty($risk['truncated'])) {
             $lines[] = '    risk discovery reached its bounded scan limit; these redacted counts are incomplete';
         }

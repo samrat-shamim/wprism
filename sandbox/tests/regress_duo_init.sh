@@ -8,6 +8,20 @@ cd "$REPO_ROOT"
 PAIR="${DUO_INIT_PAIR:-codexmaca3336}"
 PORT1="${DUO_INIT_PORT1:-9300}"
 PORT2="${DUO_INIT_PORT2:-9301}"
+if [[ ! "$PAIR" =~ ^[a-z][a-z0-9]*$ ]]; then
+  printf 'FAIL: invalid DUO_INIT_PAIR %q\n' "$PAIR" >&2
+  exit 2
+fi
+if [[ ! "$PORT1" =~ ^[0-9]+$ ]] || [[ ! "$PORT2" =~ ^[0-9]+$ ]]; then
+  printf 'FAIL: DUO init ports must be decimal integers\n' >&2
+  exit 2
+fi
+PORT1=$((10#$PORT1))
+PORT2=$((10#$PORT2))
+if (( PORT1 < 8900 || PORT1 > 65534 || PORT1 % 2 != 0 || PORT2 != PORT1 + 1 )); then
+  printf 'FAIL: DUO init ports must be an even port >=8900 plus its adjacent successor\n' >&2
+  exit 2
+fi
 HOST_REPO="$REPO_ROOT/sandbox/siterepo/${PAIR}1"
 HOST_REPO2="$REPO_ROOT/sandbox/siterepo/${PAIR}2"
 ENVS_FILE="$REPO_ROOT/sandbox/siterepo/${PAIR}-envs.json"
@@ -21,9 +35,27 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 cleanup() {
+  local destroy_status=0 remaining=""
+  if bash sandbox/bin/pair.sh destroy "$PAIR" >/dev/null 2>&1; then
+    destroy_status=0
+  else
+    destroy_status=$?
+  fi
+  if (( destroy_status != 0 )); then
+    printf 'FAIL: pair destroy failed for %s; preserving its repository artifacts\n' "$PAIR" >&2
+    return "$destroy_status"
+  fi
+  if ! remaining=$(docker ps -a \
+      --filter "label=com.docker.compose.project=duo-${PAIR}" --format '{{.ID}}'); then
+    printf 'FAIL: could not prove pair %s stopped; preserving its repository artifacts\n' "$PAIR" >&2
+    return 1
+  fi
+  if [[ -n "$remaining" ]]; then
+    printf 'FAIL: pair %s still has containers; preserving its repository artifacts\n' "$PAIR" >&2
+    return 1
+  fi
   rm -f "$ENVS_FILE"
   rm -f "/tmp/${PAIR}-init-concurrent-1.log" "/tmp/${PAIR}-init-concurrent-2.log"
-  bash sandbox/bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
   rm -rf "$HOST_REPO" \
     "$REPO_ROOT/sandbox/siterepo/${PAIR}2" \
     "$REPO_ROOT/sandbox/siterepo/origin-${PAIR}.git"
@@ -112,6 +144,33 @@ export DUO_CLI_IMAGE
   || fail "Git-enabled evidence target did not expose Git to the agent"
 pass "Git-enabled target fixture is ready"
 
+say "site-owned adapter provenance is visible and remains uncertified"
+mkdir -p "$HOST_REPO/adapters"
+wp1 eval '
+$dir = WP_PLUGIN_DIR . "/duo-init-site";
+wp_mkdir_p($dir);
+file_put_contents($dir . "/duo-init-site.php", "<?php\n/* Plugin Name: Duo Init Site Adapter */\n");
+' >/dev/null
+wp1 plugin activate duo-init-site >/dev/null
+cat > "$HOST_REPO/adapters/duo-init-site.json" <<'JSON'
+{"name":"duo-init-site","option_autoload":"preserve","options":{"duo_init_site_option":{"class":"authored"}},"plugin":"duo-init-site/duo-init-site.php","spec_version":2}
+JSON
+SITE_ADAPTER_BEFORE=$(sha256sum "$HOST_REPO/adapters/duo-init-site.json" | awk '{print $1}')
+assert_exit 2 "uncertified site adapter blocks init" "${DUO[@]}" init "${PAIR}1" --yes
+grep -q 'adapter_source_uncertified' <<<"$OUT" || fail "site adapter omitted its source-specific reason code"
+grep -q 'adapters/duo-init-site.json' <<<"$OUT" || fail "site adapter refusal omitted repository-relative provenance"
+! grep -q 'active_plugin_without_adapter' <<<"$OUT" || fail "site adapter was falsely reported as absent"
+[ "$SITE_ADAPTER_BEFORE" = "$(sha256sum "$HOST_REPO/adapters/duo-init-site.json" | awk '{print $1}')" ] \
+  || fail "read-only proposal changed the site adapter source"
+[ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
+  || fail "uncertified site adapter proposal mutated the repository"
+[ "$(wp1 db query "SHOW TABLES LIKE 'wp_duo_%'" --skip-column-names | wc -l | tr -d ' ')" = "0" ] \
+  || fail "uncertified site adapter proposal created ledger tables"
+wp1 plugin deactivate duo-init-site >/dev/null
+wp1 plugin delete duo-init-site >/dev/null
+rm -rf "$HOST_REPO/adapters"
+pass "site adapter source remains distinct from a missing shipped adapter"
+
 say "unknown active plugin is an explicit blocker and the proposal is read-only"
 wp1 eval '
 $dir = WP_PLUGIN_DIR . "/duo-init-unknown";
@@ -160,6 +219,8 @@ for ($start = 0; $start < 5001; $start += 250) {
     $wpdb->query("INSERT INTO {$wpdb->options} (option_name,option_value,autoload) VALUES " . implode(",", $optionRows));
     $wpdb->query("INSERT INTO {$wpdb->usermeta} (user_id,meta_key,meta_value) VALUES " . implode(",", $metaRows));
 }
+add_option("duo_init_risk_oversized", str_repeat("O", 70000), "", "no");
+add_user_meta(1, "duo_init_risk_oversized", str_repeat("M", 70000));
 ' >/dev/null
 RISK_A=$(wp1 duo init --repo=/siterepo --format=json)
 RISK_B=$(wp1 duo init --repo=/siterepo --format=json)
@@ -167,6 +228,8 @@ RISK_B=$(wp1 duo init --repo=/siterepo --format=json)
   || fail "unchanged >5000-row risk surfaces produced different proposal digests"
 jq -e '.state.risk_surfaces.truncated == true and (.state.risk_surfaces.user_meta["email address"] // 0) >= 1' \
   <<<"$RISK_A" >/dev/null || fail "bounded deterministic risk report omitted redacted PII surface"
+jq -e '.state.risk_surfaces.oversized.options >= 1 and .state.risk_surfaces.oversized.user_meta >= 1' \
+  <<<"$RISK_A" >/dev/null || fail "oversized risk omissions were reported as a complete scan"
 ! grep -q 'sensitive-person@example.test' <<<"$RISK_A" \
   || fail "risk report exposed a raw PII value"
 if wp1 option get duo_init_wakeup_ran >/dev/null 2>&1; then
@@ -198,6 +261,21 @@ grep -q 'stripe key' <<<"$OUT" || fail "code credential blocker omitted its reda
   || fail "credential-bearing proposal mutated the repository"
 wp1 eval 'unlink(WP_PLUGIN_DIR . "/woocommerce/duo-init-secret.php");' >/dev/null
 pass "captured code secret guard is value-redacted and fail-closed"
+
+say "long JWT credentials cannot cross beyond the former short overlap"
+wp1 eval '
+$jwt = "eyJ" . str_repeat("A", 700) . ".eyJ" . str_repeat("B", 24) . ".signature";
+$payload = str_repeat("x", 32067) . "\n" . $jwt;
+file_put_contents(WP_PLUGIN_DIR . "/woocommerce/duo-init-jwt.php", $payload);
+' >/dev/null
+assert_exit 2 "cross-chunk JWT blocks init" "${DUO[@]}" init "${PAIR}1" --yes
+grep -q 'credential_bearing_code_file' <<<"$OUT" || fail "JWT blocker omitted its reason code"
+grep -q 'jwt' <<<"$OUT" || fail "JWT blocker omitted its redacted label"
+! grep -q 'eyJAAAA' <<<"$OUT" || fail "JWT blocker exposed the credential value"
+[ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
+  || fail "cross-chunk JWT proposal mutated the repository"
+wp1 eval 'unlink(WP_PLUGIN_DIR . "/woocommerce/duo-init-jwt.php");' >/dev/null
+pass "bounded JWT matcher covers streaming chunk boundaries"
 
 say "foreign state, media, and non-pristine ledger ownership refuse before writes"
 mkdir -p "$HOST_REPO/state" "$HOST_REPO/media"
@@ -296,16 +374,15 @@ CONCURRENT_PLAN=$(wp2 duo init --repo=/siterepo --format=json)
 CONCURRENT_DIGEST=$(jq -r .digest <<<"$CONCURRENT_PLAN")
 set +e
 "${COMPOSE[@]}" run --rm -T \
-  -e DUO_TEST_MODE=1 -e DUO_TEST_INIT_PAUSE_MS=3000 -e DUO_TEST_INIT_PUBLICATION_PAUSE_MS=5000 \
+  -e DUO_TEST_MODE=1 -e DUO_TEST_INIT_PUBLICATION_PAUSE_MS=5000 \
   cli2 wp duo init --repo=/siterepo --confirm="$CONCURRENT_DIGEST" --format=json \
   >"/tmp/${PAIR}-init-concurrent-1.log" 2>&1 &
 PID1=$!
-sleep 0.5
 "${COMPOSE[@]}" run --rm -T \
+  -e DUO_TEST_MODE=1 -e DUO_TEST_INIT_PUBLICATION_PAUSE_MS=5000 \
   cli2 wp duo init --repo=/siterepo --confirm="$CONCURRENT_DIGEST" --format=json \
   >"/tmp/${PAIR}-init-concurrent-2.log" 2>&1 &
 PID2=$!
-wait "$PID2"; CODE2=$?
 for _ in $(seq 1 100); do
   [ -f "$HOST_REPO2/site.duo.json" ] && break
   sleep 0.1
@@ -320,6 +397,7 @@ grep -q 'another capture is already publishing' <<<"$CAPTURE_OUT" \
   || fail "ordinary capture refusal did not name the held publication lock"
 set +e
 wait "$PID1"; CODE1=$?
+wait "$PID2"; CODE2=$?
 set -e
 if { [ "$CODE1" -eq 0 ] && [ "$CODE2" -eq 0 ]; } \
   || { [ "$CODE1" -ne 0 ] && [ "$CODE2" -ne 0 ]; }; then

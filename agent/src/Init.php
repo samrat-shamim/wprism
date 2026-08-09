@@ -26,7 +26,7 @@ final class Init {
         $git = self::git_probe($repo);
         $ledger = self::ledger_probe();
         $existing = self::existing_config($repo);
-        $manifests = self::installed_manifests();
+        $manifests = self::installed_manifests($repo);
         $activePlugins = array_values(array_filter(
             (array) get_option('active_plugins', []),
             static fn($value): bool => is_string($value) && $value !== ''
@@ -125,7 +125,10 @@ final class Init {
         if ($selected[0] !== 'core') {
             $selected = array_values(array_unique(array_merge(['core'], $selected)));
         }
-        $policy = Policy::load(null, $selected);
+        // The proposal has no site.duo.json yet, but its installed adapter
+        // source is already repository-owned. Load selected manifests through
+        // that source without pretending the not-yet-confirmed config exists.
+        $policy = Policy::load(null, $selected, false, $repo);
         $capabilities = $policy->capability_report(['operation' => 'capture']);
         foreach ($capabilities['blockers'] ?? [] as $blocker) {
             $unsupported[] = [
@@ -133,7 +136,11 @@ final class Init {
                 'extension' => (string) ($blocker['name'] ?? 'registry'),
                 'kind' => 'adapter',
                 'reason' => (string) ($blocker['reason'] ?? 'adapter capability is not ready'),
-                'remediation' => 'install a certified compatible adapter/runtime or leave the site unmanaged',
+                'remediation' => trim((string) ($blocker['remediation'] ?? '')) !== ''
+                    ? (string) $blocker['remediation']
+                    : 'install a certified compatible adapter/runtime or leave the site unmanaged',
+                'source' => (string) ($blocker['source'] ?? AdapterSources::SHIPPED),
+                'trust_tier' => (string) ($blocker['trust_tier'] ?? ''),
             ];
         }
 
@@ -474,14 +481,16 @@ final class Init {
     }
 
     /** @return array<string,array<string,mixed>> */
-    private static function installed_manifests(): array {
+    private static function installed_manifests(string $repo): array {
         $out = [];
-        foreach (glob(rtrim(Policy::manifests_dir(), '/') . '/*.json') ?: [] as $file) {
-            if (basename($file) === 'dispositions.json') {
-                continue;
-            }
+        $dir = Policy::manifests_dir();
+        $sources = AdapterSources::discover($dir, $repo);
+        foreach ($sources->names() as $name) {
+            $file = $sources->file($name, $dir);
             $manifest = Canon::decode(Canon::read_file($file));
-            $name = (string) ($manifest['name'] ?? basename($file, '.json'));
+            if ($sources->is_out_of_tree($name)) {
+                AdapterSources::assert_out_of_tree_contract($manifest, $name, (string) $sources->path($name));
+            }
             $out[$name] = $manifest;
         }
         ksort($out, SORT_STRING);
@@ -606,7 +615,7 @@ final class Init {
         }
 
         $allowed = array_fill_keys([
-            '.', '..', '.duo', '.duo-env-values.json', '.duo-envs.json', '.git', '.gitignore',
+            '.', '..', '.duo', '.duo-env-values.json', '.duo-envs.json', '.git', '.gitignore', 'adapters',
             'code', 'media', 'site.duo.json', 'state', 'state.capture.lock',
         ], true);
         $unexpected = [];
@@ -891,8 +900,8 @@ final class Init {
     /**
      * Scan every byte through Secrets' high-confidence matcher without ever
      * loading an unbounded file or putting the matched value in diagnostics.
-     * The overlap is wider than every shipped token/header pattern, so a
-     * credential split across read boundaries is still detected.
+     * Secrets bounds every accepted pattern to less than one read chunk. A
+     * full-chunk overlap therefore detects every cross-boundary credential.
      */
     private static function code_secret_label(string $path): ?string {
         $handle = @fopen($path, 'rb');
@@ -911,7 +920,7 @@ final class Init {
                 if ($label !== null) {
                     return $label;
                 }
-                $tail = substr($window, -512);
+                $tail = substr($window, -32768);
             }
         } finally {
             fclose($handle);
@@ -1064,7 +1073,7 @@ final class Init {
         return ['attachments' => count($ids), 'local' => $local, 'provider' => $provider, 'unavailable' => $unavailable, 'strategy' => $strategy];
     }
 
-    /** @return array{options:array<string,int>,user_meta:array<string,int>,truncated:bool} */
+    /** @return array{options:array<string,int>,user_meta:array<string,int>,oversized:array{options:int,user_meta:int},truncated:bool} */
     private static function risk_probe(): array {
         global $wpdb;
         $secretCounts = [];
@@ -1073,11 +1082,21 @@ final class Init {
         // The extra row determines truncation. Stable primary-key ordering
         // makes the same unchanged large database produce the same bounded
         // subset, aggregate counts, proposal digest, and confirmation token.
-        $options = (array) $wpdb->get_results(
+        $options = $wpdb->get_results(
             "SELECT option_id, option_name, option_value FROM {$wpdb->options} "
             . "WHERE LENGTH(option_value) <= 65536 ORDER BY option_id ASC LIMIT " . ($limit + 1),
             ARRAY_A
         );
+        if (!is_array($options) || trim((string) $wpdb->last_error) !== '') {
+            throw new \RuntimeException('duo: init risk probe could not read option values safely');
+        }
+        $oversizedOptions = $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->options} WHERE LENGTH(option_value) > 65536"
+        );
+        if (!is_numeric($oversizedOptions) || trim((string) $wpdb->last_error) !== '') {
+            throw new \RuntimeException('duo: init risk probe could not bound oversized option values safely');
+        }
+        $oversizedOptions = (int) $oversizedOptions;
         $optionsTruncated = count($options) > $limit;
         foreach (array_slice($options, 0, $limit) as $row) {
             $value = (string) ($row['option_value'] ?? '');
@@ -1085,11 +1104,21 @@ final class Init {
             if ($label === null && Secrets::suspicious((string) ($row['option_name'] ?? ''), $value)) $label = 'suspicious-name-and-shape';
             if ($label !== null) $secretCounts[$label] = ($secretCounts[$label] ?? 0) + 1;
         }
-        $userMeta = (array) $wpdb->get_results(
+        $userMeta = $wpdb->get_results(
             "SELECT umeta_id, meta_key, meta_value FROM {$wpdb->usermeta} "
             . "WHERE LENGTH(meta_value) <= 65536 ORDER BY umeta_id ASC LIMIT " . ($limit + 1),
             ARRAY_A
         );
+        if (!is_array($userMeta) || trim((string) $wpdb->last_error) !== '') {
+            throw new \RuntimeException('duo: init risk probe could not read user-meta values safely');
+        }
+        $oversizedUserMeta = $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->usermeta} WHERE LENGTH(meta_value) > 65536"
+        );
+        if (!is_numeric($oversizedUserMeta) || trim((string) $wpdb->last_error) !== '') {
+            throw new \RuntimeException('duo: init risk probe could not bound oversized user-meta values safely');
+        }
+        $oversizedUserMeta = (int) $oversizedUserMeta;
         $userMetaTruncated = count($userMeta) > $limit;
         foreach (array_slice($userMeta, 0, $limit) as $row) {
             $value = self::safe_risk_value((string) ($row['meta_value'] ?? ''));
@@ -1100,7 +1129,9 @@ final class Init {
         return [
             'options' => $secretCounts,
             'user_meta' => $piiCounts,
-            'truncated' => $optionsTruncated || $userMetaTruncated,
+            'oversized' => ['options' => $oversizedOptions, 'user_meta' => $oversizedUserMeta],
+            'truncated' => $optionsTruncated || $userMetaTruncated
+                || $oversizedOptions > 0 || $oversizedUserMeta > 0,
         ];
     }
 

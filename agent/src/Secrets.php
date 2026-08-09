@@ -41,7 +41,14 @@ final class Secrets {
         '\bgithub_pat_[A-Za-z0-9_]{20,}\b' => 'github token',
         '\bxox[baprs]-[A-Za-z0-9-]{10,}\b' => 'slack token',
         '-----BEGIN [A-Z0-9 ]{0,64}PRIVATE KEY-----' => 'private key',
-        '\beyJ[A-Za-z0-9_-]{4,}\.eyJ[A-Za-z0-9_-]{4,}(?:\.[A-Za-z0-9_-]+)?\b' => 'jwt',
+        // Keep every accepted JWT shape bounded so streaming callers can
+        // prove a finite overlap. An overlong segment is itself secret-shaped
+        // and is refused by the three prefix rules rather than silently
+        // evading the complete-token matcher.
+        '\beyJ[A-Za-z0-9_-]{8193}' => 'jwt',
+        '\beyJ[A-Za-z0-9_-]{4,8192}\.eyJ[A-Za-z0-9_-]{8193}' => 'jwt',
+        '\beyJ[A-Za-z0-9_-]{4,8192}\.eyJ[A-Za-z0-9_-]{4,8192}\.[A-Za-z0-9_-]{8193}' => 'jwt',
+        '\beyJ[A-Za-z0-9_-]{4,8192}\.eyJ[A-Za-z0-9_-]{4,8192}(?:\.[A-Za-z0-9_-]{1,8192})?\b' => 'jwt',
     ];
 
     /** Key-name signal for the heuristic tier (never sufficient alone). */
