@@ -214,6 +214,10 @@ git -C "$SITE1" push -q origin main
 
 say "clone target, advance every local id counter, then apply"
 git clone -q "siterepo/origin-$PAIR.git" "$SITE2"
+# The host Git clone creates mode-0644 files owned by the host uid. Capture
+# publishes as container uid 33 and must be able to retire its backup tree
+# without emitting permission warnings on an otherwise successful recapture.
+chmod -R a+rwX "$SITE2"
 mkdir -p "$SITE2/.duo-test-manifests"
 cp "$SITE1/.duo-test-manifests/"*.json "$SITE2/.duo-test-manifests/"
 for i in 1 2 3; do
