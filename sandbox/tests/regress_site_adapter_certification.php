@@ -194,14 +194,15 @@ function cert_write_bundle(
     ];
     cert_write_canon($dir . '/environment.json', $environment);
     cert_write_canon($dir . '/ratification.json', $ratification);
+    $result = $options['result'] ?? [
+        'exit_code' => 0,
+        'schema_version' => 1,
+        'test' => 'site-conformance',
+        'verdict' => 'pass',
+    ];
     cert_write(
         $dir . '/results/site-conformance.json',
-        cert_bundle_pretty([
-            'exit_code' => 0,
-            'schema_version' => 1,
-            'test' => 'site-conformance',
-            'verdict' => 'pass',
-        ])
+        cert_bundle_pretty($result)
     );
     cert_write_canon($dir . '/diffs/site-conformance.json', ['changed' => [], 'status' => 'clean']);
     cert_write($dir . '/logs/site-conformance.txt', "site adapter conformance passed\n");
@@ -1032,6 +1033,41 @@ cert_expect_throw(
     'tampered',
     'signing independently rejects a changed bundle evidence asset'
 );
+
+$swappedBundle = $root . '/swapped-bundle';
+cert_write_bundle($swappedBundle, $site, $ratification, [
+    'result' => [
+        'exit_code' => 1,
+        'schema_version' => 1,
+        'test' => 'site-conformance',
+        'verdict' => 'fail',
+    ],
+]);
+$assetReadHook = new ReflectionProperty(AdapterCertification::class, 'testVerifiedBundleAssetReadHook');
+$assetReadHook->setValue(null, static function (string $path) use ($swappedBundle): void {
+    if ($path === 'results/site-conformance.json') {
+        cert_write(
+            $swappedBundle . '/results/site-conformance.json',
+            cert_bundle_pretty([
+                'exit_code' => 0,
+                'schema_version' => 1,
+                'test' => 'site-conformance',
+                'verdict' => 'pass',
+            ])
+        );
+    }
+});
+try {
+    cert_expect_throw(
+        static fn() => AdapterCertification::sign(
+            $agent, $site, 'site-demo', $swappedBundle, $site, 'review-key', base64_encode($secret)
+        ),
+        'does not record a named passing zero-exit test',
+        'signing parses the descriptor-authenticated result bytes rather than a replacement written after verification'
+    );
+} finally {
+    $assetReadHook->setValue(null, null);
+}
 
 $unboundBundle = $root . '/unbound-bundle';
 cert_write_bundle($unboundBundle, $site, $ratification, [

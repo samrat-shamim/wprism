@@ -38,6 +38,11 @@ final class AdapterCertification {
     private const PLATFORM_RELATIVE = 'capabilities/registry.json';
     private const CERTIFICATE_DIR = 'adapters/certifications';
 
+    // This has no production setter.  The offline regression reaches it only
+    // through Reflection to deterministically simulate an evidence-directory
+    // replacement after an asset's descriptor check.
+    private static ?\Closure $testVerifiedBundleAssetReadHook = null;
+
     /**
      * A site adapter's certification path is derived, never declared by the
      * adapter or a site pin.  This prevents one certificate from being reused
@@ -1060,16 +1065,12 @@ final class AdapterCertification {
         array $info,
         string $evidenceRoot
     ): array {
+        // Keep the exact bytes which passed the content-address check.  The
+        // semantic checks below must parse these buffers, never reopen a path
+        // after an attacker has had a chance to replace its contents.
+        $verifiedAssets = [];
         foreach ($info['assets'] as $asset) {
-            $file = self::ownedFile($bundleDir, $asset['path'], 'certification bundle asset');
-            $size = filesize($file);
-            $digest = hash_file('sha256', $file);
-            if ($size === false || $digest === false || $size !== $asset['size']
-                || !hash_equals($asset['sha256'], $digest)) {
-                throw new \RuntimeException(
-                    "duo: certification bundle asset is missing or tampered: {$asset['path']}"
-                );
-            }
+            $verifiedAssets[$asset['path']] = self::readVerifiedBundleAsset($bundleDir, $asset);
         }
         foreach ($info['bound_inputs'] as $input) {
             $file = self::ownedFile($evidenceRoot, $input['path'], 'certification bundle bound input');
@@ -1083,28 +1084,56 @@ final class AdapterCertification {
             }
         }
 
-        $environmentAsset = self::ownedFile($bundleDir, 'environment.json', 'certification bundle environment asset');
-        [, $environmentTyped] = self::readCanonicalObjectFile($environmentAsset, 'certification bundle environment asset');
+        [, $environmentTyped] = self::parseCanonicalObject(
+            $verifiedAssets['environment.json'],
+            'certification bundle environment asset'
+        );
         if (!hash_equals(Canon::encode($environmentTyped), Canon::encode($bundleTyped->environment_summary))) {
             throw new \RuntimeException('duo: certification bundle environment asset disagrees with environment_summary');
         }
 
         foreach ($bundle['tests'] as $test) {
             $id = (string) $test['id'];
-            $resultPath = self::ownedFile($bundleDir, 'results/' . $id . '.json', 'certification bundle result asset');
-            [, , $result] = self::readBundleObjectFile($resultPath, "certification bundle result '$id'");
+            [, , $result] = self::parseBundleObject(
+                $verifiedAssets['results/' . $id . '.json'],
+                "certification bundle result '$id'"
+            );
             if (($result['test'] ?? null) !== $id || ($result['verdict'] ?? null) !== 'pass'
                 || ($result['exit_code'] ?? null) !== 0) {
                 throw new \RuntimeException(
                     "duo: certification bundle result '$id' does not record a named passing zero-exit test"
                 );
             }
-            $diffPath = self::ownedFile($bundleDir, 'diffs/' . $id . '.json', 'certification bundle diff asset');
-            self::readCanonicalObjectFile($diffPath, "certification bundle diff '$id'");
+            self::parseCanonicalObject(
+                $verifiedAssets['diffs/' . $id . '.json'],
+                "certification bundle diff '$id'"
+            );
         }
 
-        $ratificationPath = self::ownedFile($bundleDir, 'ratification.json', 'certification bundle ratification asset');
-        return self::readCanonicalObjectFile($ratificationPath, 'certification bundle ratification asset');
+        return self::parseCanonicalObject(
+            $verifiedAssets['ratification.json'],
+            'certification bundle ratification asset'
+        );
+    }
+
+    /** @param array{path:string,sha256:string,size:int} $asset */
+    private static function readVerifiedBundleAsset(string $bundleDir, array $asset): string {
+        $file = self::ownedFile($bundleDir, $asset['path'], 'certification bundle asset');
+        $raw = file_get_contents($file);
+        if ($raw === false || strlen($raw) !== $asset['size']
+            || !hash_equals($asset['sha256'], hash('sha256', $raw))) {
+            throw new \RuntimeException(
+                "duo: certification bundle asset is missing or tampered: {$asset['path']}"
+            );
+        }
+        self::afterVerifiedBundleAssetRead($asset['path']);
+        return $raw;
+    }
+
+    private static function afterVerifiedBundleAssetRead(string $path): void {
+        if (self::$testVerifiedBundleAssetReadHook !== null) {
+            (self::$testVerifiedBundleAssetReadHook)($path);
+        }
     }
 
     /** @return array{0:array,1:array,2:string} */
