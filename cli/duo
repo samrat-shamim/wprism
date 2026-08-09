@@ -236,8 +236,9 @@ Verbs:
                           by an interrupted run journal.
 
 Global flags:
-  --envs-file=<path>      Load the machine-local overlay registry from <path>
-                          instead of searching upward from the cwd for .duo-envs.json.
+  --envs-file=<path>      Explicitly trust and load the machine-local overlay
+                          registry at <path> instead of auto-discovering an
+                          untracked .duo-envs.json upward from the cwd.
   -h, --help              Show this help.
 
 Environment registry ('envs' key, in site.duo.json and/or .duo-envs.json):

@@ -458,6 +458,9 @@ if (isset($state['records'][$key])) {
                     if (($read['state'] ?? null) === 'held' && $behavior === 'held-receipt-drift') {
                         $read['mutation_receipt_sha256'] = h('unexpected-held-receipt');
                     }
+                    if (($read['state'] ?? null) === 'released' && $behavior === 'released-receipt-drift') {
+                        $read['mutation_receipt_sha256'] = h('unexpected-released-receipt');
+                    }
                     return $identity + $read;
                 }
             }
@@ -738,6 +741,26 @@ PHP);
         rr_throws(static fn() => rr_materialize($held, $promotion['callback']), 'rotated', 'held mutation-read with a changed receipt refuses before replaying target mutation');
         rr_ok(count(rr_action_calls(rr_calls($held['target_log']), 'snapshot-restore')) === 1,
             'changed held receipt prevents replay of the interrupted snapshot restore'
+        );
+
+        // Release is the sole receipt-mint transition. Once its exact
+        // released acknowledgement is journaled, a released-state readback
+        // must preserve that receipt before reap can acquire a new fence or
+        // perform detach/destroy.
+        $released = rr_fixture($tmp, 'released-receipt');
+        $promotion = rr_promoter();
+        rr_materialize($released, $promotion['callback'], 0);
+        $beforeReleasedRead = count(rr_calls($released['target_log']));
+        $releasedProvider = CommandEnvironmentProvider::fromEnvironment(
+            $released['target']->name(), ($released['cfg'])('target', $released['target_log'], 'none', 'released-receipt-drift')
+        );
+        rr_throws(static fn() => rr_reap($released, $releasedProvider), 'rotated', 'released mutation-read with a changed receipt refuses stale reap authority');
+        $releasedReapCalls = array_slice(rr_calls($released['target_log']), $beforeReleasedRead);
+        rr_ok(count(rr_action_calls($releasedReapCalls, 'mutation-read')) === 1
+            && rr_action_calls($releasedReapCalls, 'mutation-acquire') === []
+            && rr_action_calls($releasedReapCalls, 'detach') === []
+            && rr_action_calls($releasedReapCalls, 'destroy') === [],
+            'changed released receipt refuses before a fresh reap fence or cleanup mutation'
         );
 
         echo "PASS: phase-exact environment materialization recovery regression\n";

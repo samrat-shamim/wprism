@@ -1122,7 +1122,7 @@ final class EnvironmentMaterializer {
                 // A released acknowledgement has a new receipt. It is the
                 // current exact fence evidence; do not query it using the old
                 // held receipt and then accidentally resume a mutation.
-                self::assertSameFence($heldFence, $releasedPhase);
+                self::assertSameFence($heldFence, $releasedPhase, true);
                 if (($releasedPhase['state'] ?? null) !== 'released') {
                     throw new \RuntimeException('journaled target mutation fence release is not released');
                 }
@@ -1139,7 +1139,7 @@ final class EnvironmentMaterializer {
                 // process died. Reissue the exact idempotent release rather
                 // than reading with a receipt from the held state.
                 $currentFence = $targetProvider->perform('mutation-release', $operationId, $releaseInput);
-                self::assertSameFence($heldFence, $currentFence);
+                self::assertSameFence($heldFence, $currentFence, true);
                 if (($currentFence['state'] ?? null) !== 'released') {
                     throw new \RuntimeException('provider did not release target mutation fence');
                 }
@@ -1281,11 +1281,11 @@ final class EnvironmentMaterializer {
             $released = self::phaseData($journal, $operationId, 'target-fence-released');
             if ($released === null) {
                 $released = $targetProvider->perform('mutation-release', $operationId, $releaseFenceInput);
-                self::assertSameFence($heldFence, $released);
+                self::assertSameFence($heldFence, $released, true);
                 if (($released['state'] ?? null) !== 'released') throw new \RuntimeException('provider did not release target mutation fence');
                 self::recordPhase($journal, $operationId, 'target-fence-released', self::publicEvidence($released));
             } else {
-                self::assertSameFence($heldFence, $released);
+                self::assertSameFence($heldFence, $released, true);
                 if (($released['state'] ?? null) !== 'released') {
                     throw new \RuntimeException('journaled target mutation fence release is not released');
                 }
@@ -1554,7 +1554,7 @@ final class EnvironmentMaterializer {
         if ($materialFence !== null) {
             self::assertSameIdentity($identity, $materialFence);
             if ($materialReleased !== null) {
-                self::assertSameFence($materialFence, $materialReleased);
+                self::assertSameFence($materialFence, $materialReleased, true);
                 if (($materialReleased['state'] ?? null) !== 'released') {
                     throw new \RuntimeException('journaled materialization fence release is not released');
                 }
@@ -1576,7 +1576,7 @@ final class EnvironmentMaterializer {
                     throw new \RuntimeException('journaled materialization fence release intent is malformed');
                 }
                 $released = $targetProvider->perform('mutation-release', $operationId, $releaseInput);
-                self::assertSameFence($materialFence, $released);
+                self::assertSameFence($materialFence, $released, true);
                 if (($released['state'] ?? null) !== 'released') {
                     throw new \RuntimeException('could not reconcile exact materialization fence release before reap');
                 }
@@ -1928,20 +1928,22 @@ final class EnvironmentMaterializer {
     }
 
     /** @param array<string,mixed> $expected @param array<string,mixed> $actual */
-    private static function assertSameFence(array $expected, array $actual): void {
+    private static function assertSameFence(array $expected, array $actual, bool $allowReleaseReceipt = false): void {
         self::assertSameIdentity($expected, $actual);
-        // A release acknowledgement may mint a new receipt for the same
-        // stable fence. Generation/id/owner are the lineage; demanding the
-        // old held receipt after release would make an acknowledged-but-
-        // unjournaled release permanently unrecoverable. Readback of a held
-        // fence, however, must preserve its receipt so journaled CAS inputs
-        // remain exact.
+        // Only the held -> released mutation-release acknowledgement may mint
+        // a receipt for the same stable lineage. Every readback, including a
+        // released -> released read, must authenticate the exact journaled
+        // receipt; otherwise a provider could rotate authority without a
+        // state transition before reap acquires its own fence.
         foreach (['mutation_generation', 'mutation_id', 'mutation_owner'] as $key) {
             if (($expected[$key] ?? null) !== ($actual[$key] ?? null)) throw new \RuntimeException("environment mutation fence changed at $key");
         }
-        if (($expected['state'] ?? null) === 'held' && ($actual['state'] ?? null) === 'held'
+        $isReleaseTransition = $allowReleaseReceipt
+            && ($expected['state'] ?? null) === 'held'
+            && ($actual['state'] ?? null) === 'released';
+        if (!$isReleaseTransition
             && ($expected['mutation_receipt_sha256'] ?? null) !== ($actual['mutation_receipt_sha256'] ?? null)) {
-            throw new \RuntimeException('environment mutation fence rotated its held receipt');
+            throw new \RuntimeException('environment mutation fence rotated its readback receipt');
         }
     }
 

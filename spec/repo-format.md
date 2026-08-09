@@ -453,7 +453,9 @@ agent/content-root mapping rather than weakening this proof with guessed paths.
 
 Host provisioning remains outside the repository format. In particular,
 `environment_provider` is a privileged, machine-local `.duo-envs.json` field
-and is rejected when it originates in checked-in `site.duo.json`. Its opaque
+and is rejected when it originates in checked-in `site.duo.json` or an
+auto-discovered, Git-tracked `.duo-envs.json`. An explicit `--envs-file` is an
+operator-selected trust input, not repository policy. Its opaque
 snapshot/resource/lease receipts live under the orchestrator checkout's Git
 common directory, never under `state/`, `media/`, `code/`, manifests, or any
 other canonical repository surface. Providers do not interpret plugin state;

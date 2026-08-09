@@ -33,6 +33,12 @@ final class Registry {
             }
         } else {
             $overlayFile = self::findUpwards($startDir, '.duo-envs.json');
+            if ($overlayFile !== null && self::isGitTracked($overlayFile)) {
+                throw new \RuntimeException(
+                    "$overlayFile: refusing a Git-tracked .duo-envs.json; "
+                    . 'privileged environment providers must be machine-local and untracked'
+                );
+            }
         }
         if ($overlayFile !== null) {
             $envs = self::mergeIn($envs, self::readEnvsFile($overlayFile), dirname($overlayFile), true);
@@ -96,6 +102,31 @@ final class Registry {
             }
             $dir = $parent;
         }
+    }
+
+    /**
+     * Auto-discovery is a convenience, not an authority grant to repository
+     * content. Check the path exactly as discovered (rather than its realpath)
+     * so a committed symlink is also recognized as tracked. An explicit
+     * --envs-file is a separate operator-selected trust boundary.
+     */
+    private static function isGitTracked(string $path): bool {
+        $process = @proc_open([
+            'git', '-C', dirname($path), 'ls-files', '--error-unmatch', '--', basename($path),
+        ], [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ], $pipes, null, null, ['bypass_shell' => true]);
+        if (!is_resource($process)) {
+            return false;
+        }
+        fclose($pipes[0]);
+        stream_get_contents($pipes[1]);
+        stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return proc_close($process) === 0;
     }
 
     /** @param array<string, array<string, mixed>> $envs */

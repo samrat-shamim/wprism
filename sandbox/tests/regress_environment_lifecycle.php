@@ -47,16 +47,21 @@ function el_remove(string $path): void {
 }
 
 /** @return array{exit:int,stdout:string,stderr:string} */
-function el_cli(array $args): array {
-    $process = proc_open(array_merge([PHP_BINARY, __DIR__ . '/../../cli/duo'], $args), [
+function el_process(array $argv, ?string $cwd = null): array {
+    $process = proc_open($argv, [
         0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w'],
-    ], $pipes, null, null, ['bypass_shell' => true]);
-    if (!is_resource($process)) el_fail('could not start public duo CLI');
+    ], $pipes, $cwd, null, ['bypass_shell' => true]);
+    if (!is_resource($process)) el_fail('could not start child process');
     fclose($pipes[0]);
     $stdout = (string) stream_get_contents($pipes[1]);
     $stderr = (string) stream_get_contents($pipes[2]);
     fclose($pipes[1]); fclose($pipes[2]);
     return ['exit' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
+}
+
+/** @return array{exit:int,stdout:string,stderr:string} */
+function el_cli(array $args, ?string $cwd = null): array {
+    return el_process(array_merge([PHP_BINARY, __DIR__ . '/../../cli/duo'], $args), $cwd);
 }
 
 $tmp = sys_get_temp_dir() . '/duo-environment-lifecycle-' . bin2hex(random_bytes(8));
@@ -356,6 +361,35 @@ PHP;
     $envs = Registry::load($registryRoot . '/overlay.json', $registryRoot);
     el_ok(($envs['checked']['_machine_local'] ?? true) === false, 'checked-in config cannot forge machine-local provenance');
     el_ok(($envs['local']['_machine_local'] ?? false) === true, 'overlay config receives loader-owned machine-local provenance');
+
+    $trackedRoot = $tmp . '/tracked-registry';
+    mkdir($trackedRoot, 0700, true);
+    $providerLaunchLog = $trackedRoot . '/provider-launched.log';
+    $trackedEntry = [
+        'transport' => 'local',
+        'wp_path' => '/tmp',
+        'repo_path' => $trackedRoot,
+        'environment_provider' => [
+            'command' => [PHP_BINARY, $providerScript, 'ok', $providerLaunchLog],
+            'timeout_seconds' => 5,
+        ],
+    ];
+    file_put_contents($trackedRoot . '/.duo-envs.json', json_encode([
+        'envs' => ['production' => $trackedEntry, 'branch' => $trackedEntry],
+    ], JSON_THROW_ON_ERROR));
+    el_ok(el_process(['git', 'init', '--quiet'], $trackedRoot)['exit'] === 0
+        && el_process(['git', 'add', '--', '.duo-envs.json'], $trackedRoot)['exit'] === 0,
+        'tracked-overlay fixture is indexed by Git');
+    $trackedOverlay = el_cli([
+        'env', 'materialize', 'branch', '--from', 'production', '--branch', 'feature/tracked-overlay',
+    ], $trackedRoot);
+    el_ok($trackedOverlay['exit'] !== 0
+        && str_contains($trackedOverlay['stderr'], 'refusing a Git-tracked .duo-envs.json')
+        && !is_file($providerLaunchLog),
+        'auto-discovery cannot grant provider execution authority to a tracked overlay');
+    $explicitlyTrusted = Registry::load($trackedRoot . '/.duo-envs.json', $trackedRoot);
+    el_ok(($explicitlyTrusted['branch']['_machine_local'] ?? false) === true,
+        'explicit --envs-file equivalent remains an operator-selected trust input');
 
     $missing = el_cli(['env', 'materialize', 'branch', '--from', 'production']);
     el_ok($missing['exit'] !== 0 && str_contains($missing['stderr'], 'requires exactly --from')

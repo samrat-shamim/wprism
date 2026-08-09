@@ -625,7 +625,10 @@ fallback.
 `mutation-acquire` obtains an exclusive operation-scoped target fence before
 the first target mutation. `mutation-read` reconciles it after an interruption,
 and `mutation-release` publishes an idempotent release receipt only after
-promotion convergence and TTL readback. Every mutating target request carries
+promotion convergence and TTL readback. Only that held-to-released transition
+may mint a new mutation receipt; every held or released `mutation-read` must
+return the exact receipt already journaled for its current state. Every
+mutating target request carries
 `expected_environment_identity`, `expected_resource_id`, `expected_lease_id`,
 `expected_lease_generation`, and `expected_ownership_receipt_sha256`; the
 provider must also enforce the held mutation fence tuple. `ttl-set`/`ttl-read`
@@ -726,10 +729,13 @@ Relative filesystem paths inside an environment entry (currently just
 that entry** — not the current working directory — so a registry file
 keeps working no matter where you invoke `duo` from.
 
-Pass `--envs-file=<path>` to load the overlay from an explicit path instead
-of searching for `.duo-envs.json`. `site.duo.json` discovery is unaffected
-by this flag — it's specifically an override for the machine-local half of
-the registry.
+Pass `--envs-file=<path>` to explicitly trust and load the overlay at that
+path instead of searching for `.duo-envs.json`. Auto-discovery refuses a
+Git-tracked `.duo-envs.json`, because repository content cannot authorize a
+privileged host provider; the explicit flag is an operator trust decision and
+must never be populated from an untrusted repository or script.
+`site.duo.json` discovery is unaffected by this flag — it's specifically an
+override for the machine-local half of the registry.
 
 ### Suggested `.gitignore` line
 
