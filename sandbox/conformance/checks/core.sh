@@ -81,6 +81,11 @@ echo "$FAKE_PENDING" | jq -e 'any(.section == "widgets" and .key == "regress_fak
 
 FAKE_RC=0
 FAKE_CAPTURE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || FAKE_RC=$?
+# DUO-3391: the `|| FAKE_RC=$?` that lets the three assertions below read
+# $FAKE_CAPTURE_OUT is the same thing that keeps `set -e` from firing on a
+# compose-layer death. Assert this invocation was answered at all before
+# asserting anything about the answer (all three assertions read one capture).
+require_duo_answered "conf1 duo capture (unknown widget type probe)" human "$FAKE_CAPTURE_OUT"
 [ "$FAKE_RC" -ne 0 ] && echo "$FAKE_CAPTURE_OUT" | grep -q "widget option 'widget_regress_fake_type' contains instances but type 'regress_fake_type' is undeclared" \
   || fail "capture did not loudly refuse the unknown widget type via SidebarState's own guard: $FAKE_CAPTURE_OUT"
 # team-lead's own requirement: this refusal must read as widgets-aware, not
@@ -97,8 +102,20 @@ echo "$FAKE_CAPTURE_OUT" | grep -q "declare it a deliberate exclusion (wp duo cl
 cp "$CONF_REPO1/site.duo.json" "$CONF_REPO1/.tmp-site-backup.json"
 jq '.policy.options.widget_regress_fake_type = {"class": "runtime"}' "$CONF_REPO1/site.duo.json" > "$CONF_REPO1/.tmp-site-new.json"
 mv "$CONF_REPO1/.tmp-site-new.json" "$CONF_REPO1/site.duo.json"
-wp_conf1 duo capture --repo=/siterepo >/dev/null \
-  || fail "capture still refused widget_regress_fake_type after following the message's own stated remedy (site policy classified it runtime) -- the escape hatch does not function"
+# DUO-3391: the only NON-refusal assertion in this family, and at risk for the
+# identical reason — `|| fail` consumes the exit status, so a compose-layer
+# death reaches this engine-accusing message instead of `set -e`. Captured
+# (rather than discarded) purely so the answer can be asserted first; the
+# accusation itself is unchanged and still keyed on the exit status alone.
+REMEDY_RC=0
+REMEDY_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || REMEDY_RC=$?
+require_duo_answered "conf1 duo capture after the classify-runtime remedy" human "$REMEDY_OUT"
+if [ "$REMEDY_RC" -ne 0 ]; then
+  # Capturing must not cost the operator the refusal text the uncaptured
+  # shape left in the sweep log; the accusation itself is byte-unchanged.
+  printf '%s\n' "$REMEDY_OUT" >&2
+  fail "capture still refused widget_regress_fake_type after following the message's own stated remedy (site policy classified it runtime) -- the escape hatch does not function"
+fi
 mv "$CONF_REPO1/.tmp-site-backup.json" "$CONF_REPO1/site.duo.json"
 wp_conf1 option delete widget_regress_fake_type >/dev/null
 wp_conf1 duo capture --repo=/siterepo >/dev/null
@@ -158,6 +175,7 @@ require_fixture_values UA UB
 wp_conf1 post meta update "$B" _duo_uuid "$UA" >/dev/null
 RC=0
 OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || RC=$?
+require_duo_answered "conf1 duo capture (duplicate _duo_uuid probe)" human "$OUT"
 [ "$RC" -ne 0 ] && grep -q "duplicate _duo_uuid $UA.*post:$A, post:$B" <<<"$OUT" \
   || fail "copied page identity did not fail with both owners: $OUT"
 [ -z "$(git -C "$CONF_REPO1" status --porcelain -- state)" ] \
@@ -166,6 +184,7 @@ OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || RC=$?
 wp_conf1 post meta update "$B" _duo_uuid 'NOT-A-UUID' >/dev/null
 RC=0
 OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || RC=$?
+require_duo_answered "conf1 duo capture (invalid _duo_uuid probe)" human "$OUT"
 [ "$RC" -ne 0 ] && grep -q "invalid _duo_uuid 'NOT-A-UUID'.*post:$B" <<<"$OUT" \
   || fail "invalid embedded identity was not rejected: $OUT"
 [ -z "$(git -C "$CONF_REPO1" status --porcelain -- state)" ] \
@@ -325,6 +344,7 @@ CONFLICT_TARGET_BEFORE=$(wp_conf2 post list --post_type=page --name=branch-a --f
 CONFLICT_BASE_BEFORE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$UA'" --skip-column-names | tr -d '[:space:]')
 CONFLICT_RC=0
 CONFLICT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
+require_duo_answered "conf2 duo apply (unforced three-way conflict probe)" human "$CONFLICT_OUT"
 [ "$CONFLICT_RC" -ne 0 ] && grep -qi 'conflicts (env and repo both changed' <<<"$CONFLICT_OUT" \
   || fail "unforced three-way conflict did not refuse before mutation: $CONFLICT_OUT"
 [ "$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title)" = "$CONFLICT_TARGET_BEFORE" ] \
@@ -364,6 +384,7 @@ jq -e --arg uuid "$HOME_UUID" '.delete | any(.uuid == $uuid and (.blocked | cont
   <<<"$DELETE_PLAN" >/dev/null || fail "target-only comment did not block the explicit page deletion: $DELETE_PLAN"
 DELETE_RC=0
 DELETE_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || DELETE_RC=$?
+require_duo_answered "conf2 duo apply --with-deletes (referential guard probe)" human "$DELETE_OUT"
 [ "$DELETE_RC" -ne 0 ] && grep -qi 'referential guard' <<<"$DELETE_OUT" \
   || fail "guarded page delete was not refused: $DELETE_OUT"
 DELETE_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
@@ -410,6 +431,11 @@ BLOCKED_BASE_BEFORE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state W
 BLOCKED_FORCE_RC=0
 BLOCKED_FORCE_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin --format=json 2>/dev/null) \
   || BLOCKED_FORCE_RC=$?
+# DUO-3391: json mode, and stderr is deliberately dropped — a compose-layer
+# death therefore leaves $BLOCKED_FORCE_OUT EMPTY while satisfying the
+# non-zero-exit assertion below vacuously, and the typed-evidence assertion
+# after it then accuses the engine of losing its refusal envelope.
+require_duo_answered "conf2 duo apply --with-deletes --force-theirs (json refusal envelope)" json "$BLOCKED_FORCE_OUT"
 [ "$BLOCKED_FORCE_RC" -ne 0 ] \
   || fail "guard-blocked deletion conflict accepted incomplete force authorization: $BLOCKED_FORCE_OUT"
 BLOCKED_FORCE_JSON=$(awk 'NF { line=$0 } END { print line }' <<<"$BLOCKED_FORCE_OUT")
@@ -470,6 +496,7 @@ LOCAL_FORCE_ONLY_BASE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state
 LOCAL_FORCE_ONLY_RC=0
 LOCAL_FORCE_ONLY_OUT=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json 2>/dev/null) \
   || LOCAL_FORCE_ONLY_RC=$?
+require_duo_answered "conf2 duo apply --force-theirs (json refusal envelope)" json "$LOCAL_FORCE_ONLY_OUT"
 [ "$LOCAL_FORCE_ONLY_RC" -ne 0 ] \
   || fail "entity tombstone conflict accepted --force-theirs without --with-deletes: $LOCAL_FORCE_ONLY_OUT"
 LOCAL_FORCE_ONLY_JSON=$(awk 'NF { line=$0 } END { print line }' <<<"$LOCAL_FORCE_ONLY_OUT")
@@ -490,6 +517,7 @@ jq -e --arg entity_hash "$BLOCKED_ENTITY_HASH" '.format == "duo-command-refusal/
 pass "entity tombstone conflicts require both advertised flags and refuse incomplete authorization without mutation"
 LOCAL_RC=0
 LOCAL_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || LOCAL_RC=$?
+require_duo_answered "conf2 duo apply --with-deletes (unforced delete conflict probe)" human "$LOCAL_OUT"
 [ "$LOCAL_RC" -ne 0 ] && grep -qi 'deletion conflicts' <<<"$LOCAL_OUT" \
   || fail "unforced delete conflict was not refused: $LOCAL_OUT"
 LOCAL_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
@@ -570,6 +598,12 @@ wp_conf2 db query 'CREATE TABLE wp_duo_delete_block (post_id bigint(20) unsigned
 wp_conf2 db query "INSERT INTO wp_duo_delete_block (post_id) VALUES ($BLOCK_ID)" >/dev/null
 ROLL_RC=0
 ROLL_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || ROLL_RC=$?
+# DUO-3391: this assertion is satisfied by ANY non-zero exit, so a
+# compose-layer death passes it VACUOUSLY — and the rollback assertions that
+# follow then also pass, because a delete that never ran leaves both pages
+# exactly where the rollback proof expects to find them. Assert the answer
+# exists so a dead invocation reports itself instead of reporting green.
+require_duo_answered "conf2 duo apply --with-deletes (injected FK rollback probe)" human "$ROLL_OUT"
 [ "$ROLL_RC" -ne 0 ] || fail "injected second-row deletion failure unexpectedly applied"
 [ "$(wp_conf2 post list --post_type=page --name=rollback-alpha --field=ID | tr -d '[:space:]')" = "$ROLL_A2" ] \
   || fail "partial deletion failure did not roll back the first page"

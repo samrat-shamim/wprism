@@ -119,6 +119,58 @@ require_fixture_state() { # require_fixture_state <what> <expected> <actual>
     || fail "fixture manufacture failed: $1 — expected '$2', got '${3:-<empty>}'"
 }
 
+# DUO-3391: the sibling failure domain, and the residual path DUO-3381
+# deliberately did not cover. The three helpers above assert that a hook's own
+# FIXTURE landed; this one asserts that the duo INVOCATION the hook then makes
+# its assertion about actually happened. Every refusal assertion in this suite
+# neutralizes that invocation's exit status on purpose — `|| RC=$?` so it can
+# inspect the output, or `|| fail` so it can name the engine — which is
+# exactly what disables `set -e` for it. So when `docker compose run` dies at
+# the DOCKER layer (container creation refused, daemon saturated by parallel
+# agents, image racing another pull), the hook still runs its assertion, over
+# a capture that holds nothing but compose's own container-creation chatter:
+# the refusal grep legitimately does not match and the sweep reports the
+# ENGINE ("... was not rejected", with that chatter pasted in from $OUT) for a
+# command that never reached the engine. That is what DUO-3380's archived $OUT
+# pollution shows, at the same price DUO-3381 paid: a false engine-regression
+# scare plus a ~1h certification-bundle restart.
+#
+# A hook calls this BETWEEN its duo invocation and its assertion about that
+# invocation's output. Messages carry the grep-able "infrastructure failure:"
+# prefix — a SIBLING of "fixture manufacture failed:" above, deliberately
+# distinct because they name different domains (that one: this hook never
+# built its premise; this one: this hook never got an answer). Neither is ever
+# an accusation against Duo. No engine assertion is reworded or weakened, and
+# an invocation that was answered sees no behavior change at all.
+#
+# The marker of "answered" is deliberately BROAD: wp-cli's own framing of any
+# answer it gives (Success:/Error:/Warning:), duo's own `duo:` message prefix,
+# or PHP's own fatal framing. A NARROW marker would be the dangerous one — it
+# could demote a real but differently-worded engine failure into an
+# infrastructure signal, i.e. weaken an engine assertion. Broad, the helper
+# can only ever fire on the case it exists for: nothing came back from the
+# containerized process at all.
+require_duo_answered() { # require_duo_answered <what> <human|json> <captured output>
+  local what="$1" mode="$2" out="$3" last
+  case "$mode" in
+    human)
+      # 2>&1-merged human capture: wp-cli frames every answer it gives.
+      grep -Eq '^(Success|Error|Warning): |(^|[[:space:]])duo:|^PHP [A-Z]|^Fatal error' <<<"$out" \
+        || fail "infrastructure failure: $what was never answered — the capture carries no wp-cli Success:/Error:/Warning: line, no 'duo:' message, no PHP error, so this invocation died at the docker/compose layer and nothing after it is testing the engine: ${out:-<empty>}"
+      ;;
+    json)
+      # --format=json capture: one JSON envelope on stdout, success summary
+      # or duo-command-refusal/v1 alike, read exactly as the assertions do.
+      last=$(awk 'NF { line=$0 } END { print line }' <<<"$out")
+      jq -e 'type == "object"' >/dev/null 2>&1 <<<"$last" \
+        || fail "infrastructure failure: $what was never answered — the capture's last non-empty line is not a JSON envelope, so this invocation died at the docker/compose layer and nothing after it is testing the engine: ${out:-<empty>}"
+      ;;
+    *)
+      fail "require_duo_answered: unknown mode '$mode' (expected human|json)"
+      ;;
+  esac
+}
+
 ENTRY=$(jq -e --arg m "$MANIFEST" '.[$m]' "$REG") \
   || fail "unknown manifest '$MANIFEST' (see $REG)"
 mapfile -t PLUGINS < <(echo "$ENTRY" | jq -r '.plugins[]?')
@@ -226,7 +278,8 @@ wp_conf2() { wp_env conf2 "$@"; }
 export DUO_PAIR="$CONF_PAIR" DUO_PORT1="$CONF1_PORT" DUO_PORT2="$CONF2_PORT"
 export COMPOSE CONF1_PORT CONF2_PORT
 export -f wp_env wp_conf1 wp_conf2 say pass fail \
-  require_fixture_ids require_fixture_values require_fixture_state
+  require_fixture_ids require_fixture_values require_fixture_state \
+  require_duo_answered
 
 # DUO-3377: a sweep IS evidence, so it must be able to state which
 # agent/manifests bytes produced it. CONF_EXPECTED_SOURCE_SHA=$(git rev-parse

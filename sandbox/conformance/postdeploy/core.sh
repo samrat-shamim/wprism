@@ -40,6 +40,11 @@ require_fixture_state "conf2's ambiguous adoption key (published 'shared-child' 
 
 RC=0
 OUT=$(wp_conf2 duo plan --repo=/siterepo --adopt-by-slug=posts 2>&1) || RC=$?
+# DUO-3391: `|| RC=$?` is what lets the assertion below inspect $OUT, and it
+# is also what stops `set -e` from firing when this `docker compose run` dies
+# at the docker layer with nothing but container-creation chatter in $OUT.
+# Assert the invocation was answered before asserting what the answer was.
+require_duo_answered "conf2 duo plan --adopt-by-slug=posts" human "$OUT"
 [ "$RC" -ne 0 ] && grep -q 'conflicting adoption key.*parent' <<<"$OUT" \
   || fail "duplicate full hierarchical adoption key was not rejected: $OUT"
 wp_conf2 post delete "$DUP" --force >/dev/null
