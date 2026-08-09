@@ -145,9 +145,9 @@ jq -se '
   and .[0].format == "duo-command-refusal/v1"
   and .[0].ok == false
   and .[0].command == "capture"
-  and .[0].reason_code == "deletion_capability_missing"
+  and .[0].reason_code == "unsupported_deletion"
   and any(.[0].diagnostics[]?;
-    .code == "deletion_capability_missing"
+    .code == "unsupported_deletion"
     and .surface == "table:nf3_forms")
 ' <<<"$CAPTURE_DELETE_OUT" >/dev/null \
   || fail "parent-deletion refusal did not expose the exact table:nf3_forms capability gap: $CAPTURE_DELETE_OUT"

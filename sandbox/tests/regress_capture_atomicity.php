@@ -514,7 +514,7 @@ assert_capture_atomicity(
 );
 $refusalPayload = $refused instanceof CommandRefusalException ? $refused->payload() : [];
 assert_capture_atomicity(
-    ($refusalPayload['error'] ?? null) === 'deletion_capability_missing',
+    ($refusalPayload['error'] ?? null) === 'unsupported_deletion',
     'unsupported deletion has a finite source-owned reason code'
 );
 assert_capture_atomicity(
