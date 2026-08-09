@@ -533,6 +533,14 @@ final class Providers {
      * still declare the same channel on DIFFERENT surfaces, or different
      * channels on the same surface — neither shares a marker.
      *
+     * The dedupe key is capability IDENTITY, not the declaring action: one
+     * capability selected by two actions is one consumer, because the code
+     * that verifies is the code that repairs. Bound worth naming: those two
+     * actions may pass different `args`, and invocation #1's verified receipt
+     * discharges a marker invocation #2 (doing different work) may also have
+     * owed. The marker records engine inventory, not per-args intent, so
+     * this is accepted — but it is a bound, not an accident.
+     *
      * @param array<string,array<string,array<string,array<string,string>>>> $claims
      *   channel => surface => "provider/capability" => claimant row
      * @return list<array<string,mixed>>

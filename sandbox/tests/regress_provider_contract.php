@@ -2331,6 +2331,32 @@ $applyNegotiated->setValue($planApply, ['providers' => [], 'capabilities' => []]
 $check((array) $planRows->invoke($planApply) === [],
     'a receipt no pinned claimant owns is not surfaced either — the projection shows outstanding DEBT, never '
     . 'orphaned bookkeeping');
+
+// The projection is hashed into the promotion precondition BEFORE negotiation
+// (run()'s first plan) and after it (freshPlan), so it must be a pure function
+// of policy bytes + the keyspace: a negotiation-dependent answer makes the two
+// plans disagree over an unmutated keyspace and wedges the apply behind a
+// "preconditions changed" refusal that repeats forever (delta review, N1 —
+// driven: a marker whose only pinned claimant negotiates scope:site).
+$wpdb->kv = $sweepMarkers;
+$projectionAcross = [];
+foreach ([
+    'pre-negotiation (null map)' => null,
+    'empty negotiation' => ['providers' => [], 'capabilities' => []],
+    'claimant negotiated scope:site' => ['providers' => [], 'capabilities' => [
+        'probe-cache' => ['flush' => ['scope' => 'site', 'idempotent' => true, 'args' => []]],
+    ]],
+] as $state => $negotiated) {
+    $planApply = $applyClass->newInstanceWithoutConstructor();
+    $applyPolicy->setValue($planApply, $policyFor($triggeredManifest));
+    $applySelected->setValue($planApply, []);
+    $applyNegotiated->setValue($planApply, $negotiated);
+    $projectionAcross[$state] = (array) $planRows->invoke($planApply);
+}
+$check(count($projectionAcross['pre-negotiation (null map)']) === 2
+    && count(array_unique(array_map('serialize', $projectionAcross))) === 1,
+    'the projection is identical before negotiation, after an empty one, and after the claimant negotiates '
+    . 'scope:site — plan and freshPlan can never disagree over an unmutated keyspace');
 $wpdb->kv = [];
 
 // The status half, driven through the real summariser: a plan carrying one of

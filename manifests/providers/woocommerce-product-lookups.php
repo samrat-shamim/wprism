@@ -291,7 +291,10 @@ final class WoocommerceProductLookups {
      * a wash: the attribute-lookup count is now DISTINCT ROWS touching any id in
      * the batch, where the per-id sum double-counted a row whose `product_id`
      * and `product_or_parent_id` were both in the batch — the ordinary shape for
-     * a variable product and its variations. Both numbers are honest
+     * a variable product and its variations. Exactly distinct within one
+     * chunk: a row naming ids that land in two different chunks is still
+     * counted once per chunk, so past 200 ids the number is a sum of
+     * per-chunk distincts, not a global distinct. Both numbers are honest
      * cardinalities; the batched one is the one that means what its name says.
      * Nothing branches on these values (they are receipt payload, and `verified`
      * is decided by verify_exact_state()), so the change is visible only in what

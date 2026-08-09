@@ -5097,8 +5097,17 @@ final class Apply {
                 if ($postType === '' || $id <= 0) {
                     continue; // malformed — apply's own sweep handles this, not plan
                 }
+                // Policy-only claimant test, deliberately NOT the sweep's
+                // negotiation-aware pinned_provider_action_owns(): run() hashes
+                // this projection into the promotion precondition both BEFORE
+                // negotiation and after it, so a negotiation-dependent answer
+                // would make plan and freshPlan disagree over an unmutated
+                // keyspace and wedge the apply behind a refusal that repeats
+                // forever. Over-surfacing a row a scope-aware test would drop
+                // is harmless in a read-only projection; guessing is only a
+                // hazard where it authorizes a delete, which is the sweep.
                 if ($this->policy->regen_batch($postType) === null
-                    && !$this->pinned_provider_action_owns('post:' . $postType)) {
+                    && !$this->pinned_provider_action_triggers('post:' . $postType)) {
                     continue; // orphaned — apply's own sweep handles this, not plan
                 }
                 $rows[] = [
@@ -5114,6 +5123,22 @@ final class Apply {
         usort($rows, static fn(array $a, array $b): int =>
             strcmp($a['kind'], $b['kind']) ?: strcmp($a['uuid'], $b['uuid']));
         return $rows;
+    }
+
+    /**
+     * Does ANY pinned provider action trigger on $surface — by policy bytes
+     * alone, no negotiation state? This is the plan projection's claimant
+     * test: stable across the pre- and post-negotiation plans by
+     * construction, exactly as regen_pending's projection is.
+     */
+    private function pinned_provider_action_triggers(string $surface): bool {
+        foreach ($this->policy->actions() as $action) {
+            if (($action['kind'] ?? '') === 'provider'
+                && in_array($surface, (array) ($action['triggers'] ?? []), true)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function pinned_provider_action_owns(string $surface): bool {
