@@ -70,7 +70,8 @@ Usage:
   duo env materialize <env> --from <production-env> --branch <ref> [--create] [--ttl <seconds>]
   duo env reap <env>
   duo manifest-validate <manifests-dir> [--manifest=<name>[,...]]
-                        [--pins=<name>[,...]|--all] [--format=json]
+                        [--pins=<name>[,...]|--all] [--site=<site-repo>]
+                        [--format=json]
   duo manifest-validate --emit-schema
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
@@ -111,16 +112,26 @@ Verbs:
     [--manifest=<names>]  WordPress, no database, and no environment. Each
     [--pins=<names>]      manifest is loaded on its own (so every verdict shows
     [--all]               in one run), then the requested pin set is co-loaded
-    [--format=json]       so the cross-manifest guards run too; --manifest
-    [--emit-schema]       narrows what is checked individually, --pins/--all the
-                          co-loaded set (default: every manifest in the dir).
+    [--site=<site-repo>]  so the cross-manifest guards run too; --manifest
+    [--format=json]       narrows what is checked individually, --pins/--all the
+    [--emit-schema]       co-loaded set (default: every manifest in the dir).
                           Engine messages carry their own exact coordinates and
-                          are surfaced verbatim, with the file path attached.
-                          Checks that genuinely need a live target are listed as
+                          are surfaced verbatim; a per-manifest row carries the
+                          manifest's file path, the pin-set row the paths of
+                          everything co-loaded. --site names a duo SITE REPO
+                          (the directory holding site.duo.json) and validates
+                          against its policy half too — two guards (ref/token/
+                          ledger kinds, conflicting option rules) read site
+                          policy as input, so without it a manifest valid on its
+                          real site can be refused here; such a refusal is
+                          annotated as possibly site-resolvable rather than
+                          rewritten. Checks that genuinely need a live target,
+                          and the missing site half itself, are listed as
                           `deferred` on EVERY run — silence never means verified.
                           --emit-schema prints the machine-readable grammar
                           document instead, read from the engine's own closed
-                          vocabularies at emission time. Exit 0 all valid,
+                          vocabularies at emission time (with a `coverage` note
+                          stating what it does NOT publish). Exit 0 all valid,
                           1 any invalid, 2 usage/IO.
   doctor <env>            Check transport reachability, WordPress install, the
                           duo agent, and repo_path/site.duo.json. Non-zero exit

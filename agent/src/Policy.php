@@ -2293,8 +2293,22 @@ self::validate_post_type_children($manifest);
         return $details['rule'] ?? null;
     }
 
-    /** @return array<string, object> */
-    private function interpreters(): array {
+    /**
+     * Resolve every declared interpreter name to a loaded, instantiated class.
+     *
+     * Public for the same reason regenerators() below is: a second caller
+     * outside this class needs it. `duo manifest-validate` (DUO-3327) calls it
+     * immediately after each successful load, because a manifest naming an
+     * interpreter file that does not exist — or a file that does not define the
+     * contract class — is a manifest that is wrong offline, and leaving that
+     * discovery to the first live meta lookup meant an offline check reported
+     * `ok` for a declaration no target could ever run. Resolution is a pure
+     * file-system + class-contract question about the manifests directory the
+     * checker was handed, so it belongs to the offline half.
+     *
+     * @return array<string, object>
+     */
+    public function interpreters(): array {
         if ($this->interpreterInstances !== null) {
             return $this->interpreterInstances;
         }
@@ -2347,8 +2361,11 @@ self::validate_post_type_children($manifest);
      * no success/failure return-value protocol, matching interpreters' own
      * all-or-throw shape.
      *
-     * Public (unlike interpreters(), which only Policy's own methods call):
-     * Apply::regen_dependencies() is the caller, in a different class.
+     * Public, like interpreters() above, and for the same reason: the callers
+     * are in other classes — Apply::regen_dependencies() drives it live, and
+     * `duo manifest-validate` resolves it offline so a declared-but-missing
+     * regenerator file is refused by the authoring check rather than by the
+     * first apply that needs it.
      *
      * @return array<string, object> regenerator name => instance
      */
@@ -6520,8 +6537,30 @@ self::validate_post_type_children($manifest);
     }
 
     /**
-     * Every closed manifest vocabulary this class refuses against, keyed by the
-     * grammar name an adapter author sees (DUO-3327).
+     * The closed VALUE vocabularies this class refuses against — the legal
+     * values of a declared field — keyed by the grammar name an adapter author
+     * sees (DUO-3327).
+     *
+     * Bounded on purpose, and the boundary is published with the document (see
+     * ManifestValidate::emitSchema()'s `coverage` field) rather than left for a
+     * consumer to discover:
+     *
+     *   - VALUE vocabularies only. The closed KEY vocabularies — which keys an
+     *     `actions[]` entry may carry, the exact five a `providers[]` entry
+     *     requires, the `invalidate` key set, a table declaration's own section
+     *     names — are equally closed and equally refused, and none of them is
+     *     here. They are per-surface allowlists computed at their refusal site
+     *     (several depend on a sibling value, e.g. an action's legal key set is
+     *     a function of its `kind`), so publishing them as flat sets would
+     *     publish something the engine does not have.
+     *   - Unconditional sets only. Where a value is legal only in combination
+     *     with another (`prevented` needs kind ∈ mail/http/queue, a `database`
+     *     effect needs selector.type ∈ table/option, `restorable` needs
+     *     database_checkpoint scope), the CONDITION is not expressible here and
+     *     is not expressed: this map says what the engine's alphabet is, never
+     *     which sentences are well-formed.
+     *   - Pin-dependent vocabularies publish their ENGINE-OWNED BASE only, named
+     *     as such (see below).
      *
      * Additive, read-only, and deliberately assembled from the same consts the
      * validators themselves read — never from a second list. An offline
@@ -6582,8 +6621,19 @@ self::validate_post_type_children($manifest);
     }
 
     /**
-     * The bounded string patterns the manifest grammar checks against, as the
-     * exact PCRE this class hands to preg_match() (DUO-3327).
+     * The NAMED SUBSET of bounded string patterns the manifest grammar checks
+     * against, as the exact PCRE this class hands to preg_match() (DUO-3327).
+     *
+     * A subset, and it says so: these five are the patterns that have an
+     * engine-owned NAME (a `*_PATTERN` const, referenced from more than one
+     * refusal), which is what makes publishing them meaningful — a consumer can
+     * bind to the name and get whatever the engine currently means by it.
+     * Policy.php alone applies roughly twenty further inline PCREs (identity and
+     * column-name shapes, sha-256 digests, the secret-shaped-value screens, the
+     * placeholder-brace scan) that have no such name; they are deliberately
+     * absent rather than scraped, because a scraped anonymous pattern would be a
+     * consumer contract nobody on this side agreed to keep. The boundary is
+     * published with the document (ManifestValidate::emitSchema()'s `coverage`).
      *
      * Additive companion to closed_vocabularies(), same discipline and same
      * reason: a published pattern that is not the pattern that refuses is worse

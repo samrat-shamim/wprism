@@ -28,7 +28,7 @@ binary and, per environment, whatever the transport itself needs (`ssh`,
 duo envs
 duo env materialize <env> --from <production-env> --branch <ref> [--create] [--ttl <seconds>] [--format=json]
 duo env reap <env> [--format=json]
-duo manifest-validate <manifests-dir> [--manifest=<name>[,...]] [--pins=<name>[,...]|--all] [--format=json]
+duo manifest-validate <manifests-dir> [--manifest=<name>[,...]] [--pins=<name>[,...]|--all] [--site=<site-repo>] [--format=json]
 duo manifest-validate --emit-schema
 duo doctor <env>
 duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
@@ -61,17 +61,25 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
 - **`duo manifest-validate <manifests-dir>`** — the one verb here that takes no
   environment, because it needs none: it runs the engine's real manifest
   validators (`agent/src/Policy.php`'s load-time battery) over a directory of
-  manifest files with no WordPress, no database, no transport, and no
-  `site.duo.json`. Each manifest is loaded on its own, then the requested pin
-  set is co-loaded so the cross-manifest guards run too; engine refusals are
-  surfaced verbatim with their own coordinates plus the offending file path.
+  manifest files with no WordPress, no database, and no transport. Each manifest
+  is loaded on its own, then the requested pin set is co-loaded so the
+  cross-manifest guards run too; engine refusals are surfaced verbatim with
+  their own coordinates, a per-manifest row carrying that manifest's file path
+  and the pin-set row carrying the paths of everything co-loaded.
   `--manifest=` narrows what is checked individually, `--pins=`/`--all` choose
   the co-loaded set, `--format=json` emits the report as
   `duo-manifest-validation/v1`, and `--emit-schema` prints the grammar document
   (`duo-manifest-grammar/v1`) read out of the engine's own closed vocabularies.
+  `--site=<site-repo>` is optional but not cosmetic: two of those guards read
+  `site.duo.json`'s policy half as input (a site-declared table extends the
+  ref/token/ledger kind vocabulary; a site `policy.options` rule resolves an
+  option two manifests declare differently), so without it a manifest that is
+  valid on its real site can be refused here — and such a refusal is annotated
+  as possibly site-resolvable rather than rewritten.
   Exit 0 all valid, 1 any invalid, 2 usage/IO. An authoring aid, not a gate —
   it ends every run, passing or failing, with the checks that need a live
-  target listed as `deferred`. See
+  target, plus the missing site half in no-`--site` mode, listed as `deferred`.
+  See
   [docs/guides/adapter-authoring.md](../docs/guides/adapter-authoring.md#checking-the-grammar-offline).
 
 - **`duo doctor <env>`** — gated checks, each skipped (reported as a

@@ -28,10 +28,24 @@ use Duo\Policy;
  * directly and the REAL `Policy::load()` does the work, per manifest and then
  * once more over the co-loaded pin set so the cross-manifest guards (one owner
  * per declared name, namespace overlap, adapter claims, provider ids, id_kinds)
- * run too. Loading with a null repo is the established offline shape — the
- * `wp duo manifest-pin` handler already validates one installed manifest that
- * way, for the same reason: a site repo is not needed to answer a question
- * about the manifest itself.
+ * run too. Each successful load is followed by resolving the manifest-shipped
+ * PHP it NAMES — interpreters and regenerators — because Policy resolves those
+ * lazily and a manifest naming a file that does not exist would otherwise
+ * report `ok` (see resolve()).
+ *
+ * The site half is optional but it is not absent from the question. Two of
+ * those guards read `site.duo.json`'s own policy as INPUT: a site-declared
+ * table extends the legal ref/token/ledger kind vocabulary, and a site
+ * `policy.options` rule is the ratified resolution when two manifests declare
+ * one option differently. Loading with a null repo therefore does NOT merely
+ * check less — it can refuse a manifest that its real site accepts, with a
+ * remediation telling the author to add an override they already have. So
+ * `--site=<site-repo-path>` passes the real repo through to both phases; without
+ * it, a refusal from either of those two guards is ANNOTATED (never rewritten)
+ * as possibly site-resolvable, and the always-emitted deferred list carries the
+ * missing half as a permanent, named limitation. `wp duo manifest-pin` still
+ * validates one installed manifest with a null repo, and is still right to: it
+ * checks one manifest in isolation, where neither guard has anything to say.
  *
  * The emitted grammar document (`--emit-schema`) follows the same rule one step
  * further: every closed set in it is read from the engine at emission time
@@ -47,15 +61,64 @@ final class ManifestValidate {
     public const SCHEMA = 'duo-manifest-grammar/v1';
 
     /**
-     * Checks that genuinely need a live target, with the engine symbol that
-     * owns each one so a reader can go read it rather than take this list's
-     * word for it. Emitted unconditionally — see this class's docblock for why
-     * "we printed nothing" may never be readable as "we checked everything".
+     * The two engine refusals whose verdict is a function of the SITE half of
+     * policy, matched on the stable substring each one's message is built
+     * around:
+     *
+     *   - the ref/token/ledger kind vocabularies union their engine base with
+     *     every `id_kind` declared by a pinned manifest AND by
+     *     `site.duo.json`'s own `policy.tables` (Policy::validate_ref_kinds()),
+     *     so a manifest referencing a kind the SITE declares is legal there and
+     *     refused here;
+     *   - two manifests declaring contradictory rules for one option name are
+     *     refused unless the site resolves the name with an explicit
+     *     `policy.options` override (Policy::validate_no_conflicting_option_
+     *     rules()), which this command cannot see without a site repo.
+     *
+     * Matched, never rewritten: the engine's message is the author's actual
+     * coordinate and this command has no business editing it. The annotation is
+     * a separate field saying the refusal may not be one on the real site — and
+     * naming the flag that answers the question. Getting this wrong in the safe
+     * direction (annotating a refusal a site could not have fixed) costs a line
+     * of output; getting it wrong in the other direction sends an author to
+     * "add a site.duo.json override" they already have.
+     */
+    private const SITE_SENSITIVE_REFUSALS = [
+        'kind vocabulary is closed',
+        'declare contradictory rules for options.',
+    ];
+
+    /** Verbatim annotation for a refusal that a real site policy may resolve. */
+    private const SITE_NOTE = 'note: this refusal can be resolved by a site.duo.json this offline check was not '
+        . 'given — re-run with --site=<repo> to validate against the real site policy';
+
+    /**
+     * Checks this command does not perform, with the engine symbol that owns
+     * each one so a reader can go read it rather than take this list's word for
+     * it. Emitted unconditionally — see this class's docblock for why "we
+     * printed nothing" may never be readable as "we checked everything".
+     *
+     * Most rows are deferred because they need a LIVE TARGET. The first is a
+     * different species and stays permanently in the list for the same reason:
+     * it is a limitation of what this command is given, not of what it runs,
+     * and an author who never passes `--site` would otherwise have no way to
+     * learn that half of two guards' input was simply absent.
      *
      * @return list<array{status:string, surface:string, check:string, why:string}>
      */
     private static function deferred(): array {
         $rows = [
+            [
+                'surface' => 'site.duo.json policy.tables / policy.options',
+                'check' => 'Policy::validate_ref_kinds() / Policy::validate_no_conflicting_option_rules()',
+                'why' => 'both guards take the SITE half of policy as INPUT, not just the manifests: a table '
+                    . 'declared in site.duo.json extends the legal ref/token/ledger kind vocabulary, and a '
+                    . 'site policy.options rule is the explicit resolution for one option two manifests declare '
+                    . 'differently. Without --site=<site-repo-path> this command loads with no site policy at '
+                    . 'all, so either guard can refuse a manifest its real site accepts (such a refusal is '
+                    . 'annotated as possibly site-resolvable). With --site, the site repo read is the one on '
+                    . 'THIS machine — whether the target runs that revision is a fact about the target',
+            ],
             [
                 'surface' => 'tables',
                 'check' => 'Snapshot::assert_row_schema() / assert_composite_row_schema() / assert_meta_schema()',
@@ -120,6 +183,7 @@ final class ManifestValidate {
      */
     public static function run(array $args): int {
         $dir = null;
+        $siteArg = null;
         $manifestSelection = null;
         $pinSelection = null;
         $all = false;
@@ -155,6 +219,11 @@ final class ManifestValidate {
                 if ($pinSelection === null) {
                     return self::fail('--pins needs a comma-separated list of manifest names');
                 }
+            } elseif (str_starts_with($arg, '--site=')) {
+                $siteArg = trim(substr($arg, strlen('--site=')));
+                if ($siteArg === '') {
+                    return self::fail('--site needs the path of a duo site repo (the directory holding site.duo.json)');
+                }
             } elseif (str_starts_with($arg, '-')) {
                 return self::fail("unsupported flag '$arg'");
             } elseif ($dir !== null) {
@@ -168,10 +237,10 @@ final class ManifestValidate {
             return self::fail('--pins and --all are mutually exclusive');
         }
         if ($emitSchema) {
-            if ($dir !== null || $manifestSelection !== null || $pinSelection !== null || $all) {
+            if ($dir !== null || $manifestSelection !== null || $pinSelection !== null || $all || $siteArg !== null) {
                 return self::fail(
-                    '--emit-schema takes no manifests dir and no manifest/pin selection — the grammar is read '
-                    . 'from the engine, not from a directory of declarations'
+                    '--emit-schema takes no manifests dir, no manifest/pin selection, and no --site — the grammar '
+                    . 'is read from the engine, not from a directory of declarations or one site'
                 );
             }
             return self::emitSchema();
@@ -183,6 +252,26 @@ final class ManifestValidate {
         $resolved = is_dir($dir) ? realpath($dir) : false;
         if ($resolved === false) {
             return self::fail("'$dir' is not a directory");
+        }
+
+        // The site half is optional and, when present, must be a real duo site
+        // repo: handing Policy::load() a directory with no site.duo.json would
+        // fail per manifest with the engine's "not a duo site repo?" message on
+        // every row, which reads as "your manifests are broken". This is a
+        // usage error about the flag, so it is refused here, once, as one.
+        $site = null;
+        if ($siteArg !== null) {
+            $siteResolved = is_dir($siteArg) ? realpath($siteArg) : false;
+            if ($siteResolved === false) {
+                return self::fail("--site '$siteArg' is not a directory");
+            }
+            if (!is_file($siteResolved . '/site.duo.json')) {
+                return self::fail(
+                    "--site '$siteResolved' has no site.duo.json — --site takes the duo SITE REPO (the directory "
+                    . 'holding site.duo.json), whose policy half these manifests are validated against'
+                );
+            }
+            $site = $siteResolved;
         }
 
         $available = [];
@@ -231,7 +320,7 @@ final class ManifestValidate {
                 // declaration does not hide every later manifest's verdict —
                 // an author fixing three manifests should need one run, not
                 // three.
-                Policy::load(null, [$name]);
+                self::resolve(Policy::load($site, [$name]));
             } catch (\Throwable $t) {
                 $row['status'] = 'error';
                 $row['message'] = $t->getMessage();
@@ -239,12 +328,35 @@ final class ManifestValidate {
             $rows[] = $row;
         }
 
-        $pinned = ['names' => $pins, 'status' => 'ok', 'message' => null];
+        // The pin set is a SET, so there is no single file to attach; the paths
+        // of everything co-loaded are attached instead, because a cross-manifest
+        // refusal names manifests ("manifests 'a' and 'b' …") and a consumer
+        // holding this row should not have to re-derive which files those were.
+        $pinnedFiles = [];
+        foreach ($pins as $name) {
+            $pinnedFiles[$name] = $available[$name];
+        }
+        $pinned = ['names' => $pins, 'files' => $pinnedFiles, 'status' => 'ok', 'message' => null];
         try {
-            Policy::load(null, $pins);
+            self::resolve(Policy::load($site, $pins));
         } catch (\Throwable $t) {
             $pinned['status'] = 'error';
             $pinned['message'] = $t->getMessage();
+        }
+
+        // In no-site mode, a refusal whose verdict depends on the site half of
+        // policy is annotated — never rewritten — so the author reads the
+        // engine's exact words plus the one fact this command knows and the
+        // engine does not: half its input was withheld by the caller.
+        if ($site === null) {
+            foreach ($rows as $i => $row) {
+                if (self::site_sensitive($row['status'], $row['message'])) {
+                    $rows[$i]['site_policy_note'] = self::SITE_NOTE;
+                }
+            }
+            if (self::site_sensitive($pinned['status'], $pinned['message'])) {
+                $pinned['site_policy_note'] = self::SITE_NOTE;
+            }
         }
 
         // A manifest may legitimately be unloadable alone and fine in company:
@@ -269,6 +381,7 @@ final class ManifestValidate {
             'format' => self::FORMAT,
             'spec_version' => DUO_SPEC_VERSION,
             'manifests_dir' => $resolved,
+            'site' => $site,
             'status' => $status,
             'manifests' => $rows,
             'pinned_set' => $pinned,
@@ -282,6 +395,52 @@ final class ManifestValidate {
             self::render($report);
         }
         return $status === 'ok' ? 0 : 1;
+    }
+
+    /**
+     * Resolve the manifest-shipped PHP a loaded policy NAMES but does not load.
+     *
+     * `interpreter` and `post_types.<t>.regen_dependency.regenerator` are the
+     * two places a manifest points at a file instead of declaring a value, and
+     * Policy resolves both LAZILY — deliberately, since a live command that
+     * never classifies meta should not pay for an interpreter it will not use.
+     * The consequence for an offline check is that a manifest naming an
+     * interpreter or regenerator file that does not exist, or one that does not
+     * define the contract class, loaded clean and reported `ok`: the single
+     * loudest thing an author could get wrong about a manifest's code half was
+     * the one thing this command did not look at.
+     *
+     * Both resolutions are fully offline — the files live inside the very
+     * manifests directory being validated, and the contract is `is_file()` plus
+     * `class_exists()`/`method_exists()`. Calling them here, inside the caller's
+     * try/catch, turns their refusals into ordinary per-manifest errors carrying
+     * the engine's own message (which already names the exact missing path or
+     * the exact class it wanted).
+     *
+     * Nothing is invoked: instantiation is the contract, `post_meta_rule()` /
+     * `regenerate()` are live operations and stay deferred.
+     */
+    private static function resolve(Policy $policy): void {
+        $policy->interpreters();
+        $policy->regenerators();
+    }
+
+    /**
+     * Whether a failure may be an artifact of loading with no site policy.
+     * Substring-matched against the engine's own message on purpose — the
+     * alternative is a second copy of the two guards' conditions here, which
+     * would be a validator this command does not own.
+     */
+    private static function site_sensitive(string $status, ?string $message): bool {
+        if ($status !== 'error' || $message === null) {
+            return false;
+        }
+        foreach (self::SITE_SENSITIVE_REFUSALS as $needle) {
+            if (str_contains($message, $needle)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -316,6 +475,33 @@ final class ManifestValidate {
                 'Duo\\NativeActions::vocabulary()',
                 'Duo\\NativeActions::arg_schemas()',
             ],
+            // Every consumer of this document is entitled to know what it does
+            // NOT describe, in the document rather than in a guide it may never
+            // read: an editor built on `vocabularies` alone would happily offer
+            // a key the engine refuses, and would do so believing it held the
+            // whole grammar. The accessors' own docblocks state the identical
+            // boundary — this is that statement, shipped.
+            'coverage' => [
+                'vocabularies' => 'VALUE vocabularies only — the legal values of a declared field.',
+                'patterns' => 'A NAMED SUBSET — the bounded patterns the engine keeps as named constants.',
+                'not_included' => [
+                    'key vocabularies: which KEYS a surface admits (an actions[] entry\'s allowed keys, the exact '
+                        . 'five a providers[] entry requires, the invalidate key set, a table declaration\'s '
+                        . 'sections) are equally closed and equally refused, and none is published — several are a '
+                        . 'function of a sibling value (an action\'s legal keys depend on its kind), so there is no '
+                        . 'flat set to publish',
+                    'conditional subsets: where a value is legal only in combination with another (mode=prevented '
+                        . 'needs kind in mail/http/queue; kind=database needs selector.type in table/option; '
+                        . 'mode=restorable needs scope=database_checkpoint), the CONDITION is not expressible in '
+                        . 'these sets — they are the alphabet, never which sentences are well-formed',
+                    'unnamed patterns: roughly twenty further inline PCREs in Policy.php alone (identity and '
+                        . 'column-name shapes, sha-256 digests, secret-shaped-value screens, the placeholder-brace '
+                        . 'scan) have no engine-owned name and are deliberately not scraped into `patterns`',
+                    'pin-dependent halves: ref, token, and ledger kind vocabularies publish their engine-owned '
+                        . 'BASE only; the declared half is a property of one pin set plus one site.duo.json, '
+                        . 'reported per run by `duo manifest-validate <manifests-dir> [--site=<repo>]`',
+                ],
+            ],
             'vocabularies' => Policy::closed_vocabularies(),
             'patterns' => Policy::grammar_patterns(),
             'native_actions' => $actions,
@@ -327,6 +513,7 @@ final class ManifestValidate {
     /** @param array<string,mixed> $report */
     private static function render(array $report): void {
         echo "manifests dir: {$report['manifests_dir']}\n";
+        echo 'site repo:     ' . ($report['site'] ?? '(none — site policy is NOT part of this check; see deferred)') . "\n";
         echo "spec_version:  {$report['spec_version']}\n";
         echo "\nper manifest (each loaded on its own, so every verdict shows in one run):\n";
         foreach ($report['manifests'] as $row) {
@@ -337,14 +524,27 @@ final class ManifestValidate {
             if (isset($row['pinned_set_note'])) {
                 echo '          note: ' . $row['pinned_set_note'] . "\n";
             }
+            if (isset($row['site_policy_note'])) {
+                echo '          ' . $row['site_policy_note'] . "\n";
+            }
         }
 
         $pinned = $report['pinned_set'];
         $names = $pinned['names'] === [] ? '(none)' : implode(', ', $pinned['names']);
-        echo "\npinned set — cross-manifest guards over " . count($pinned['names']) . " manifest(s): $names\n";
+        echo "\npinned set — cross-manifest guards over " . count($pinned['names'])
+            . " manifest(s) in {$report['manifests_dir']}: $names\n";
         echo "  [{$pinned['status']}] cross-manifest guards\n";
         if ($pinned['message'] !== null) {
             echo '          ' . $pinned['message'] . "\n";
+            // A cross-manifest refusal names manifests, not paths. Print the
+            // co-loaded set's files under the failure so the names in the
+            // engine's own message resolve to something an editor can open.
+            foreach ($pinned['files'] as $name => $file) {
+                echo "          - $name: $file\n";
+            }
+        }
+        if (isset($pinned['site_policy_note'])) {
+            echo '          ' . $pinned['site_policy_note'] . "\n";
         }
 
         echo "\ndeferred — NOT checked here, and not checked anywhere else by this command:\n";
@@ -354,8 +554,14 @@ final class ManifestValidate {
         }
 
         $s = $report['summary'];
+        // Not "deferred to a live target": one of these rows is the site-policy
+        // half, which is a limitation of what this command was GIVEN rather
+        // than of what a laptop can answer. A summary that called it a
+        // live-target check would misfile the one entry an author can act on
+        // immediately, by passing --site.
         echo "\nsummary: {$s['checked']} manifest(s) checked, {$s['ok']} ok, {$s['error']} error; "
-            . "pinned set {$pinned['status']}; " . count($report['deferred']) . " check(s) deferred to a live target\n";
+            . "pinned set {$pinned['status']}; " . count($report['deferred'])
+            . " check(s) NOT performed here (see the deferred list above)\n";
     }
 
     /**

@@ -18,7 +18,56 @@
  * Both builders read DUO_SPEC_VERSION at CALL time, so a suite that defines a
  * different supported version before requiring this file still gets fixtures
  * its own Policy::load() will accept.
+ *
+ * A manifest is not only JSON. Adapter A names a REGENERATOR, and a declared
+ * regenerator name is a promise about a file — so manifest_fixture_code() below
+ * writes that file, and any harness materializing these fixtures into a scratch
+ * manifests dir must call it. See its own docblock.
  */
+
+/**
+ * Materialize the CODE half of these fixtures into a scratch manifests dir.
+ *
+ * manifest_a() declares `post_types.acme_thing.regen_dependency.regenerator =
+ * "acme-a"`, and Policy::regenerators() resolves that name to
+ * <manifests_dir>/regenerators/acme-a.php, requiring it to define
+ * \Duo\Regenerators\AcmeA with regenerate(int $localId): void. Until DUO-3327's
+ * offline check resolved that lazily-loaded half, a fixture could name a
+ * regenerator it did not ship and nothing noticed; now it is a load-time fact,
+ * so the fixture ships it.
+ *
+ * Minimal on purpose, and NOT a stub of anything: the loading contract is the
+ * class and the method, nothing offline calls regenerate(), and a file with a
+ * body would be claiming behavior no check here exercises. The constructor
+ * takes the Policy the engine hands every regenerator (`new $class($this)`) and
+ * types it loosely so this file needs no engine class at parse time.
+ */
+function manifest_fixture_code(string $dir): void {
+    $regenerators = rtrim($dir, '/') . '/regenerators';
+    if (!is_dir($regenerators) && !mkdir($regenerators, 0777, true) && !is_dir($regenerators)) {
+        throw new \RuntimeException("could not create fixture regenerators dir $regenerators");
+    }
+    file_put_contents($regenerators . '/acme-a.php', <<<'PHP'
+<?php
+namespace Duo\Regenerators;
+
+/** Fixture regenerator for manifest_a(): the loading contract, nothing more. */
+final class AcmeA {
+    public function __construct(private object $policy) {}
+
+    public function regenerate(int $localId): void {}
+}
+PHP);
+}
+
+/** Remove what manifest_fixture_code() wrote, so a scratch dir can be rmdir'd. */
+function manifest_fixture_code_cleanup(string $dir): void {
+    $regenerators = rtrim($dir, '/') . '/regenerators';
+    foreach (glob("$regenerators/*") ?: [] as $file) {
+        @unlink($file);
+    }
+    @rmdir($regenerators);
+}
 
 /**
  * Adapter A: an ordinary, well-formed plugin manifest. It owns a post type

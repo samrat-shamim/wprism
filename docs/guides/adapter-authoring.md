@@ -217,29 +217,64 @@ reinstalling an agent to find out you transposed a letter.
 duo manifest-validate manifests/
 duo manifest-validate manifests/ --manifest=contact-form-7
 duo manifest-validate manifests/ --pins=core,woocommerce --format=json
+duo manifest-validate manifests/ --site=/path/to/site-repo
 ```
 
-It needs no environment, no database, no docker, and no `site.duo.json`. Every
-manifest in the directory is loaded on its own first — so one broken file does
-not hide the verdict on the other nine — and then the requested pin set is
-co-loaded, which is the only way the cross-manifest guards run at all
-(one owner per declared name, overlapping option namespaces, conflicting plugin
-claims, duplicate provider ids, duplicate table `id_kind`s). `--manifest`
-narrows what is checked individually; `--pins`/`--all` choose the co-loaded set.
+It needs no environment, no database, and no docker. Every manifest in the
+directory is loaded on its own first — so one broken file does not hide the
+verdict on the other nine — and then the requested pin set is co-loaded, which
+is the only way the cross-manifest guards run at all (one owner per declared
+name, overlapping option namespaces, conflicting plugin claims, duplicate
+provider ids, duplicate table `id_kind`s). `--manifest` narrows what is checked
+individually; `--pins`/`--all` choose the co-loaded set. A declared
+`interpreter` or `regen_dependency.regenerator` is resolved too: the named file
+must exist under `interpreters/`/`regenerators/` in the same directory and must
+define the contract class, which is a pure question about those bytes.
 
 Refusals are the engine's own, printed verbatim with their exact coordinates
-(`manifest 'x' actions[0].args.name …`, `table 'y' … identity.columns …`), plus
-the file path of the manifest they came from. Exit status is `0` when
-everything is valid, `1` when anything is not, and `2` for a usage or IO
-problem.
+(`manifest 'x' actions[0].args.name …`, `table 'y' … identity.columns …`). A
+per-manifest row carries that manifest's file path; the pin-set row carries the
+paths of everything co-loaded, because a cross-manifest refusal names manifests
+rather than one file. Exit status is `0` when everything is valid, `1` when
+anything is not, and `2` for a usage or IO problem.
+
+### `--site`, and why leaving it off can refuse a valid manifest
+
+Two of the guards above are not functions of the manifests alone. They read the
+SITE half of policy as input:
+
+- a table declared in `site.duo.json`'s `policy.tables` extends the legal
+  ref/token/ledger **kind vocabulary** exactly as a manifest-declared one does,
+  so `"ref": "my_site_thing"` is legal on that site and nowhere else;
+- a `policy.options.<name>` rule is the ratified **resolution** when two
+  manifests declare one option name differently — the guard skips a name the
+  site has already decided.
+
+Run without `--site`, this command loads with no site policy at all, so either
+guard can refuse a manifest its real site accepts — and the second one's
+remediation ("add an explicit `site.duo.json` policy.options override") is
+advice to add something you may already have. Point `--site` at your duo site
+repo (the directory holding `site.duo.json`) and both guards get their real
+input:
+
+```sh
+duo manifest-validate manifests/ --site=/path/to/site-repo
+```
+
+Without it, a refusal from either guard is **annotated**, never rewritten — the
+engine's message is printed exactly as it stands, followed by a note saying the
+refusal may be resolvable by a `site.duo.json` this run was not given. The
+missing site half is also a permanent entry in the deferred list below, so it is
+stated on every run rather than only when it happens to bite.
 
 Two things it is deliberately not. It is **not a gate** — nothing runs it for
 you, and passing it is not a certification, a disposition, or permission to
 promote. And it is **not complete coverage**: every run, passing or failing,
-ends with the list of checks that genuinely need a live target — live table
-schema, `taxonomy_patterns` expansion, installed plugin/theme versions, provider
+ends with the list of what it did not check — the site-policy half just
+described, plus the checks that genuinely need a live target (live table schema,
+`taxonomy_patterns` expansion, installed plugin/theme versions, provider
 negotiation, native-action execution, capability evaluation, and lint's live id
-cross-reference — each marked `deferred` and each naming the engine function
+cross-reference) — each marked `deferred` and each naming the engine function
 that owns it. Read that list as the honest boundary of what just happened.
 
 ### The JSON report, for editors
@@ -252,21 +287,29 @@ server can consume directly:
   "format": "duo-manifest-validation/v1",
   "spec_version": 2,
   "manifests_dir": "/path/to/manifests",
+  "site": null,
   "status": "ok",
   "manifests": [{"name": "core", "file": "/path/to/manifests/core.json",
                  "status": "ok", "message": null}],
-  "pinned_set": {"names": ["core"], "status": "ok", "message": null},
+  "pinned_set": {"names": ["core"],
+                 "files": {"core": "/path/to/manifests/core.json"},
+                 "status": "ok", "message": null},
   "deferred": [{"status": "deferred", "surface": "tables",
                 "check": "Snapshot::assert_row_schema() …", "why": "…"}],
   "summary": {"checked": 1, "ok": 1, "error": 0}
 }
 ```
 
-A `manifests[]` row whose `status` is `error` carries the engine message in
-`message` and the file it belongs to in `file`. A row may additionally carry
-`pinned_set_note` when the manifest failed *in isolation* but is valid inside
-the requested pin set — that is the legitimate case of an adapter naming another
-adapter's declared `id_kind`, where the repair is a pin rather than an edit.
+`site` is the resolved `--site` repo, or `null` when the run had none. A
+`manifests[]` row whose `status` is `error` carries the engine message in
+`message` and the file it belongs to in `file`; the `pinned_set` row carries
+`files`, the path of every co-loaded manifest. A row may additionally carry:
+
+- `pinned_set_note` when the manifest failed *in isolation* but is valid inside
+  the requested pin set — the legitimate case of an adapter naming another
+  adapter's declared `id_kind`, where the repair is a pin rather than an edit;
+- `site_policy_note` (on a manifest row or on `pinned_set`) when the refusal came
+  from one of the two site-sensitive guards and the run had no `--site`.
 
 ### The grammar document
 
@@ -284,7 +327,18 @@ hand-maintained copy would keep offering `verbatim` for a release after the
 engine stopped accepting it. Vocabularies whose legal values depend on which
 manifests are pinned — ref, token, and ledger kinds, which extend by *declaring
 a table* — publish the engine-owned base only, named as such; the declared half
-belongs to a pin set, not to the engine.
+belongs to a pin set plus one `site.duo.json`, not to the engine.
+
+The document also carries a `coverage` field stating what it does **not**
+publish, so a consumer never has to infer the boundary: `vocabularies` is VALUE
+vocabularies only (the closed sets of legal KEYS are not there — several depend
+on a sibling value, so there is no flat set to publish), the sets are
+unconditional (`mode: "prevented"` is legal only for mail/http/queue effects,
+and no set can say that), `patterns` is the named subset (roughly twenty further
+inline PCREs in the engine have no published name), and the pin-dependent
+vocabularies publish only their base. Build on it, but build knowing that a
+document-clean manifest can still be refused by a rule the document does not
+describe — which is what running the validator itself is for.
 
 ## The authoring loop
 

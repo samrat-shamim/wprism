@@ -253,9 +253,15 @@ function fresh_manifests_dir(array $files): void {
     foreach ($files as $name => $content) {
         Canon::write_file("$root/$name.json", Canon::encode($content));
     }
+    // The fixtures' code half (manifest A's declared regenerator) travels with
+    // their JSON half — see manifest_fixtures.php's manifest_fixture_code().
+    manifest_fixture_code($root);
     register_shutdown_function(function () use ($root) {
+        manifest_fixture_code_cleanup($root);
         foreach (glob("$root/*") ?: [] as $f) {
-            unlink($f);
+            if (is_file($f)) {
+                unlink($f);
+            }
         }
         @rmdir($root);
     });

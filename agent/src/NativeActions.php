@@ -65,10 +65,36 @@ final class NativeActions {
      * key this class rejects, which is the drift a closed vocabulary exists to
      * make impossible.
      *
+     * PROJECTED, not returned whole. Today ACTIONS maps an action name to
+     * exactly its argument schema, so `return self::ACTIONS` would be
+     * byte-identical — and that is precisely the reason not to write it: this
+     * accessor's contract is "the argument schemas", and the const's contract is
+     * "everything the engine knows about an action". The moment those diverge
+     * (a per-action `since`, a receipt shape, a lifecycle note) the unprojected
+     * version publishes the new field as though it were an ARGUMENT KEY an
+     * author may write, and an editor built on this document would offer it.
+     * The projection below is the whole of the difference, and it costs one
+     * loop to make the two contracts independent instead of coincidentally
+     * equal. validate() reads the const directly and is unaffected: this is a
+     * publication surface, never the refusal path.
+     *
      * @return array<string, array<string, array{type:string, required:bool, pattern?:string}>>
      */
     public static function arg_schemas(): array {
-        return self::ACTIONS;
+        $out = [];
+        foreach (self::ACTIONS as $action => $args) {
+            $out[$action] = [];
+            foreach ($args as $key => $rule) {
+                // Field-level projection too, and for the same reason: an
+                // internal annotation on one argument rule would otherwise be
+                // published as part of that argument's declared shape.
+                $out[$action][$key] = array_intersect_key(
+                    $rule,
+                    ['type' => true, 'required' => true, 'pattern' => true]
+                );
+            }
+        }
+        return $out;
     }
 
     /**

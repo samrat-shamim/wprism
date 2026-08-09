@@ -111,7 +111,16 @@ function fixtures(array $files): string {
     foreach ($files as $name => $content) {
         Canon::write_file("$root/$name.json", is_string($content) ? $content : Canon::encode($content));
     }
+    // A manifests dir is JSON *and* the code its manifests name. manifest_a()
+    // declares a regenerator, and DUO-3327's check now resolves that file
+    // instead of leaving it to the first apply — so the fixture ships it.
+    manifest_fixture_code($root);
     register_shutdown_function(function () use ($root) {
+        manifest_fixture_code_cleanup($root);
+        foreach (glob("$root/interpreters/*") ?: [] as $f) {
+            @unlink($f);
+        }
+        @rmdir("$root/interpreters");
         foreach (glob("$root/*") ?: [] as $f) {
             @chmod($f, 0644);
             @unlink($f);
@@ -120,6 +129,29 @@ function fixtures(array $files): string {
     });
     // The command reports realpath()s, and the system temp dir is a symlink on
     // some platforms — compare against the same resolved form it prints.
+    return (string) realpath($root);
+}
+
+/**
+ * Fresh scratch SITE repo for one check; auto-removed at exit.
+ *
+ * The minimum a duo site repo is: a `site.duo.json` carrying its pins and its
+ * policy. `--site` is validated against exactly that file's presence, and
+ * Policy::load() validates the policy half of it the same way it validates a
+ * manifest — so a malformed one here would surface as an ordinary refusal.
+ */
+function site_repo(array $policy, array $manifests = []): string {
+    $root = sys_get_temp_dir() . '/duo_regress_manifest_validate_site_' . bin2hex(random_bytes(4));
+    mkdir($root, 0777, true);
+    Canon::write_file("$root/site.duo.json", Canon::encode([
+        'manifests' => $manifests,
+        'policy' => $policy === [] ? new \stdClass() : $policy,
+        'spec_version' => DUO_SPEC_VERSION,
+    ]));
+    register_shutdown_function(function () use ($root) {
+        @unlink("$root/site.duo.json");
+        @rmdir($root);
+    });
     return (string) realpath($root);
 }
 
@@ -173,8 +205,13 @@ function report(array $result): array {
  * Manifest 'b', broken in one way, must be refused with a message naming the
  * exact coordinate — and the row must carry the fixture's own file path, so an
  * editor jumping to the problem lands in the right file.
+ *
+ * Returns the engine's message so a caller with more to assert about it (the
+ * identity-mode vocabulary, whose refusal spells its set out in prose rather
+ * than an implode, is the case that needs this) can assert it directly rather
+ * than re-running the command.
  */
-function refuses(array $b, string $needle, string $msg): void {
+function refuses(array $b, string $needle, string $msg): string {
     $dir = fixtures(['b' => $b]);
     $result = duo([$dir, '--format=json']);
     $report = report($result);
@@ -187,6 +224,7 @@ function refuses(array $b, string $needle, string $msg): void {
             && ($row['file'] ?? null) === "$dir/b.json",
         "$msg (exit {$result['exit']}, message: " . ($message === '' ? '<none>' : $message) . ')'
     );
+    return $message;
 }
 
 /** The same fixture, well-formed: exit 0, and the manifest's own row ok. */
@@ -248,6 +286,23 @@ check(
         && str_contains($shippedText['stdout'], 'pinned set')
         && str_contains($shippedText['stdout'], $repo . '/manifests/core.json'),
     'text mode reports the same verdict and names each manifest file'
+);
+
+// The same real-world smoke with a real site repo attached: the shipped library
+// must validate clean against a site policy too, not only against no site at
+// all — the --site path is the one an adapter author actually runs.
+$smokeSite = site_repo(
+    ['options' => ['blogname' => ['class' => 'authored', 'autoload' => 'yes']]],
+    ['core', 'woocommerce']
+);
+$shippedWithSite = duo([$repo . '/manifests', '--site=' . $smokeSite, '--format=json']);
+$withSiteReport = report($shippedWithSite);
+check(
+    $shippedWithSite['exit'] === 0
+        && ($withSiteReport['status'] ?? null) === 'ok'
+        && ($withSiteReport['site'] ?? null) === $smokeSite
+        && count($withSiteReport['manifests'] ?? []) === count($shippedNames),
+    "the whole shipped library also validates clean WITH a site repo attached (exit {$shippedWithSite['exit']})"
 );
 
 // ======================================================================
@@ -430,16 +485,31 @@ check(
 );
 check($result['exit'] === 1, 'a pin-set-only failure is still a failure (exit 1)');
 
+check(
+    ($report['pinned_set']['files'] ?? null) === ['a' => "$dir/a.json", 'b' => "$dir/b.json"],
+    'the pin-set row carries the file path of every co-loaded manifest — a cross-manifest refusal names manifests, so the row has to be what resolves those names to files'
+);
+$pinnedText = duo([$dir]);
+check(
+    str_contains($pinnedText['stdout'], "- a: $dir/a.json") && str_contains($pinnedText['stdout'], "- b: $dir/b.json"),
+    'and text mode prints those paths under the failure, not only in the JSON report'
+);
+
 $needsPin = manifest_b(['options' => ['acme_b_ref' => [
     'class' => 'authored', 'autoload' => 'yes', 'ref' => 'acme_room',
 ]]]);
 $dir = fixtures(['a' => manifest_a(), 'b' => $needsPin]);
-$report = report(duo([$dir, '--format=json']));
+$result = duo([$dir, '--format=json']);
+$report = report($result);
 check(
     (row($report, 'b')['status'] ?? null) === 'error'
         && ($report['pinned_set']['status'] ?? null) === 'ok'
         && str_contains((string) (row($report, 'b')['pinned_set_note'] ?? ''), 'not self-contained'),
     'a manifest that legitimately depends on another being pinned is told exactly that, instead of being left to read an isolated refusal as a broken declaration'
+);
+check(
+    $result['exit'] === 1 && ($report['status'] ?? null) === 'error',
+    'and it is still a FAILING run (exit 1): the note explains the refusal, it does not withdraw it — the manifest genuinely does not stand alone'
 );
 
 $report = report(duo([$dir, '--manifest=a', '--pins=a,b', '--format=json']));
@@ -452,6 +522,174 @@ $report = report(duo([$dir, '--all', '--format=json']));
 check(
     ($report['pinned_set']['names'] ?? null) === ['a', 'b'],
     '--all is the explicit spelling of the default pin set'
+);
+
+// ======================================================================
+echo "\n== the site half: two guards read site.duo.json as INPUT, so --site changes the verdict ==\n";
+
+// Loading with a null repo does not merely check LESS. Two guards take the
+// site's own policy as input, so without it they can refuse a manifest that is
+// correct on its real site — and the second one's remediation is advice to add
+// an override the author already has. Both scenarios below are asserted in BOTH
+// directions: refused-with-annotation without --site, accepted with it.
+const SITE_NOTE = 'note: this refusal can be resolved by a site.duo.json this offline check was not given — '
+    . 're-run with --site=<repo> to validate against the real site policy';
+
+// --- scenario 1: a ref kind the SITE declares by declaring a table.
+$siteKind = solo_b(['options' => ['acme_b_ref' => [
+    'class' => 'authored', 'autoload' => 'yes', 'ref' => 'site_room',
+]]]);
+$dir = fixtures(['b' => $siteKind]);
+$site = site_repo(['tables' => ['site_rooms' => [
+    'class' => 'authored_snapshot',
+    'id_kind' => 'site_room',
+    'pk' => 'room_id',
+    'slug_column' => 'room_code',
+    'columns' => ['room_code' => ['class' => 'authored']],
+    'refs' => [],
+    'identity' => ['mode' => 'natural_key', 'column' => 'room_code'],
+]]], ['b']);
+
+$result = duo([$dir, '--format=json']);
+$report = report($result);
+$row = row($report, 'b');
+check(
+    $result['exit'] === 1 && ($row['status'] ?? null) === 'error'
+        && str_contains((string) ($row['message'] ?? ''), 'reference kind vocabulary is closed'),
+    'without --site, a ref kind the SITE declares is refused: the guard builds its vocabulary from manifests AND site policy, and it was handed only half'
+);
+check(
+    ($row['site_policy_note'] ?? null) === SITE_NOTE,
+    'and that refusal is ANNOTATED as possibly site-resolvable, naming the flag that answers the question'
+);
+check(
+    str_contains((string) ($row['message'] ?? ''), 'declare the table, then name its id_kind'),
+    "the engine's own message is untouched beside it — the annotation adds a field, it never rewrites a refusal this command did not author"
+);
+check(
+    array_key_exists('site', $report) && $report['site'] === null,
+    'a no-site run reports site=null rather than omitting the field, so a consumer can tell "no site" from "old format"'
+);
+
+$result = duo([$dir, '--site=' . $site, '--format=json']);
+$report = report($result);
+$row = row($report, 'b');
+check(
+    $result['exit'] === 0 && ($row['status'] ?? null) === 'ok' && ($report['site'] ?? null) === $site,
+    'with --site, the same manifest is ACCEPTED and the report names the site repo it read'
+);
+check(!array_key_exists('site_policy_note', $row), 'and nothing is annotated, because nothing was withheld');
+
+// --- scenario 2: an option two manifests declare differently, which the site
+// resolves. This one fails in the PINNED phase (no single manifest can conflict
+// with itself), so the annotation has to reach that row too.
+// Both stripped to their declarative core (no tables, no post types, no
+// providers): the subject here is one option name, and either adapter's other
+// declarations would drag in the cross-manifest guards this scenario is not
+// about — including the id_kind uniqueness one, since both fixtures own a
+// keyspace of their own.
+$bare = ['tables' => [], 'post_types' => [], 'providers' => []];
+$dir = fixtures([
+    'a' => manifest_a($bare + ['options' => ['acme_shared' => ['class' => 'authored', 'autoload' => 'yes']]]),
+    'b' => manifest_b($bare + ['options' => ['acme_shared' => ['class' => 'runtime', 'autoload' => 'no']]]),
+]);
+$site = site_repo(['options' => ['acme_shared' => ['class' => 'authored', 'autoload' => 'yes']]], ['a', 'b']);
+
+$result = duo([$dir, '--format=json']);
+$report = report($result);
+$pinnedRow = $report['pinned_set'] ?? [];
+check(
+    $result['exit'] === 1 && ($pinnedRow['status'] ?? null) === 'error'
+        && str_contains((string) ($pinnedRow['message'] ?? ''), 'declare contradictory rules for options.acme_shared'),
+    'without --site, two manifests declaring one option differently are refused by the cross-manifest guard'
+);
+check(
+    ($pinnedRow['site_policy_note'] ?? null) === SITE_NOTE,
+    'and the PIN-SET row carries the annotation too — this class of refusal never appears on a per-manifest row'
+);
+check(
+    str_contains((string) ($pinnedRow['message'] ?? ''), 'Add an explicit site.duo.json policy.options.acme_shared override'),
+    "the engine's remediation is printed verbatim, which is precisely why the note is needed: on the real site that override already exists"
+);
+$text = duo([$dir]);
+check(
+    str_contains($text['stdout'], SITE_NOTE) && str_contains($text['stdout'], '(none — site policy is NOT part of this check'),
+    'text mode prints the annotation and says up front that no site policy was read — the human-facing output is not the quieter one'
+);
+
+$result = duo([$dir, '--site=' . $site, '--format=json']);
+$report = report($result);
+check(
+    $result['exit'] === 0 && ($report['pinned_set']['status'] ?? null) === 'ok',
+    'with --site, the site rule resolves the option and the pin set loads clean'
+);
+check(
+    in_array('site.duo.json policy.tables / policy.options', array_column($report['deferred'] ?? [], 'surface'), true),
+    'the site-policy half is a PERMANENT row in the always-emitted deferred list — present even on a --site run, because that list states the boundary of the check, never the outcome of one'
+);
+
+// ======================================================================
+echo "\n== the code half a manifest NAMES: interpreters and regenerators are resolved, not deferred ==\n";
+
+// Policy resolves both lazily, so a manifest naming a file that does not exist
+// used to load clean and report `ok` — the loudest possible thing to get wrong
+// about a manifest's code half was the one thing this command did not look at.
+// Both resolutions are pure file-system + class-contract questions about the
+// very directory being checked, so both belong here.
+$dir = fixtures(['a' => manifest_a()]);
+$report = report(duo([$dir, '--format=json']));
+check(
+    (row($report, 'a')['status'] ?? null) === 'ok',
+    'a manifest whose declared regenerator file is present, and defines the contract class, still loads clean'
+);
+
+unlink("$dir/regenerators/acme-a.php");
+$result = duo([$dir, '--format=json']);
+$report = report($result);
+check(
+    $result['exit'] === 1
+        && str_contains((string) (row($report, 'a')['message'] ?? ''), "wants regenerator 'acme-a' but $dir/regenerators/acme-a.php is missing"),
+    'a declared regenerator with no file is an ordinary per-manifest error naming the exact path it looked for'
+);
+
+file_put_contents("$dir/regenerators/acme-a.php", "<?php\nnamespace Duo\\Regenerators;\nfinal class NotAcmeA {}\n");
+$result = duo([$dir, '--format=json']);
+$report = report($result);
+check(
+    $result['exit'] === 1
+        && str_contains((string) (row($report, 'a')['message'] ?? ''), 'must define \\Duo\\Regenerators\\AcmeA with regenerate(int $localId): void'),
+    'a regenerator file defining the wrong class is refused with the class-and-signature contract it had to satisfy'
+);
+
+$withInterpreter = fixtures(['b' => solo_b(['interpreter' => 'acme-int'])]);
+$result = duo([$withInterpreter, '--format=json']);
+$report = report($result);
+check(
+    $result['exit'] === 1
+        && str_contains((string) (row($report, 'b')['message'] ?? ''), "wants interpreter 'acme-int' but $withInterpreter/interpreters/acme-int.php is missing"),
+    'the same for a declared interpreter with no file — named at load, not at the first meta lookup on a live target'
+);
+
+mkdir("$withInterpreter/interpreters", 0777, true);
+file_put_contents("$withInterpreter/interpreters/acme-int.php", "<?php\nnamespace Duo\\Interpreters;\nfinal class Wrong {}\n");
+$result = duo([$withInterpreter, '--format=json']);
+$report = report($result);
+check(
+    $result['exit'] === 1
+        && str_contains((string) (row($report, 'b')['message'] ?? ''), 'must define \\Duo\\Interpreters\\AcmeInt with post_meta_rule(string, array): ?array'),
+    'an interpreter file defining the wrong class is refused with the contract it had to satisfy'
+);
+
+file_put_contents(
+    "$withInterpreter/interpreters/acme-int.php",
+    "<?php\nnamespace Duo\\Interpreters;\nfinal class AcmeInt {\n"
+        . "    public function __construct(private object \$policy) {}\n"
+        . "    public function post_meta_rule(string \$key, array \$allMeta): ?array { return null; }\n}\n"
+);
+$result = duo([$withInterpreter, '--format=json']);
+check(
+    $result['exit'] === 0,
+    'and a correct one loads — the check is the real loading contract, not a file-exists proxy for it'
 );
 
 // ======================================================================
@@ -531,10 +769,18 @@ check(
     'the emitted action list is NativeActions::vocabulary() itself'
 );
 $argsMatch = ($schema['native_actions'] ?? []) !== [];
+$argFields = [];
 foreach (NativeActions::arg_schemas() as $action => $args) {
     $argsMatch = $argsMatch && (($schema['native_actions'][$action]['args'] ?? null) === $args);
+    foreach ($args as $rule) {
+        $argFields = array_merge($argFields, array_keys($rule));
+    }
 }
 check($argsMatch, "and each action's argument schema is the one validate() checks against, required flags and patterns included");
+check(
+    $argFields !== [] && array_diff(array_unique($argFields), ['type', 'required', 'pattern']) === [],
+    'the published argument schemas are PROJECTED to the arg-schema fields only (type/required/pattern) — a future per-action or per-argument annotation on the engine const cannot leak into this document as though it were an argument an author may write'
+);
 check(
     ($schema['deferred'] ?? null) === ($shippedReport['deferred'] ?? null),
     'the schema document carries the same deferred list the validation report does — one statement of what is not covered, not two'
@@ -542,6 +788,29 @@ check(
 check(
     count($vocabularies) >= 25 && isset($vocabularies['effect_kinds'], $vocabularies['table_classes'], $vocabularies['engine_ref_kinds']),
     'the published grammar covers the closed sets an author actually has to get right (' . count($vocabularies) . ' vocabularies)'
+);
+
+// A published document has to state its own boundary, in the document — an
+// editor built on `vocabularies` alone would offer keys the engine refuses and
+// believe it held the whole grammar.
+$coverage = $schema['coverage'] ?? [];
+check(
+    str_contains((string) ($coverage['vocabularies'] ?? ''), 'VALUE vocabularies only')
+        && str_contains((string) ($coverage['patterns'] ?? ''), 'NAMED SUBSET'),
+    'the document scopes its own two published sets: VALUE vocabularies, and a NAMED SUBSET of the bounded patterns'
+);
+$notIncluded = implode(' | ', (array) ($coverage['not_included'] ?? []));
+foreach ([
+    'key vocabularies' => 'key vocabularies',
+    'conditional subsets' => 'conditional subsets',
+    'the unpublished inline patterns' => 'unnamed patterns',
+    'the pin-dependent halves' => 'pin-dependent halves',
+] as $label => $needle) {
+    check(str_contains($notIncluded, $needle), "and names $label as NOT included");
+}
+check(
+    count((array) ($coverage['not_included'] ?? [])) === 4,
+    'the coverage note is a list of exactly the four boundaries, not prose a consumer has to parse'
 );
 
 $emitWithDir = duo([$repo . '/manifests', '--emit-schema']);
@@ -557,16 +826,55 @@ echo "\n== acceptance 3, half two: schema and runtime validator, checked against
 // must load and a value outside it must be refused with the document's own set
 // printed back. If either side ever moved on its own, exactly one of these two
 // halves would fail.
+//
+// ALL of them, not a representative sample: $covered below records which
+// vocabulary each check exercises, and the last check in this group asserts the
+// covered set is exactly the published set. A 32nd vocabulary therefore fails
+// this suite until it is exercised here too, which is the only way "the schema
+// and the validator agree" stays a claim about the whole document rather than
+// about whichever entries someone remembered.
+//
+// A handful of vocabularies cannot be reached through a manifest fixture at all
+// (a section name is not a declaration; a pattern-key map has no refusal of its
+// own). Those are exercised against the engine directly — the refusal message's
+// own implode, or the accessor's observable behavior — rather than skipped: the
+// property being defended is that a literal rewrite of closed_vocabularies()
+// fails this suite, and skipping is exactly how a rewrite would survive.
+$covered = [];
+
 $slots = static fn(array $extra): array => solo_b(['tables' => ['acme_b_slots' => array_merge(
     solo_b()['tables']['acme_b_slots'],
     $extra
 )]]);
+$extraTable = static fn(string $name, array $decl): array => solo_b(['tables' => solo_b()['tables'] + [$name => $decl]]);
 $postType = static fn(array $decl): array => solo_b(['post_types' => ['acme_widget' => $decl]]);
 $effect = static fn(array $effect): array => solo_b(['actions' => [[
     'kind' => 'native', 'action' => 'transient.delete', 'args' => ['name' => 'acme_b'], 'effects' => [$effect],
 ]]]);
 $okSelector = ['scope' => 'database_checkpoint', 'type' => 'option', 'value' => 'acme_b_setting'];
 
+// solo_b() declares exactly these two table id_kinds, and all three kind
+// vocabularies union their engine base with the declared set and sort it — so
+// the refusal's printed set is computable here from the PUBLISHED base, which
+// is what makes the needle a real cross-check rather than a spelling test.
+$declaredIdKinds = ['acme_room', 'acme_slot'];
+$legalKinds = static function (array $base) use ($declaredIdKinds): string {
+    $all = array_merge($base, $declaredIdKinds);
+    sort($all, SORT_STRING);
+    return implode(', ', $all);
+};
+
+/** The engine's own refusal for a surface no manifest fixture can reach. */
+function engine_message(callable $fn): string {
+    try {
+        $fn();
+    } catch (\Throwable $t) {
+        return $t->getMessage();
+    }
+    return '';
+}
+
+$covered['post_type_body_modes'] = true;
 foreach ($vocabularies['post_type_body_modes'] as $mode) {
     accepts($postType(['class' => 'authored', 'body' => $mode]), "post_types body mode '$mode' is published as legal and loads");
 }
@@ -575,6 +883,7 @@ refuses(
     'the vocabulary is closed (' . implode(', ', $vocabularies['post_type_body_modes']) . ')',
     'and a body mode outside the published set is refused with that exact set printed back'
 );
+$covered['post_type_phases'] = true;
 foreach ($vocabularies['post_type_phases'] as $phase) {
     accepts($postType(['class' => 'authored', 'phase' => $phase]), "post_types phase '$phase' is published as legal and loads");
 }
@@ -583,36 +892,172 @@ refuses(
     'the vocabulary is closed (' . implode(', ', $vocabularies['post_type_phases']) . ')',
     'and a phase outside the published set is refused with that exact set printed back'
 );
+
+// --- table_classes: every published class in a declaration of its own shape.
+$covered['table_classes'] = true;
+foreach ($vocabularies['table_classes'] as $class) {
+    $decl = match ($class) {
+        // The one class with a full grammar behind it. Its own keyspace, so the
+        // cross-manifest id_kind uniqueness guard has nothing to say.
+        'authored_snapshot' => [
+            'class' => 'authored_snapshot', 'id_kind' => 'acme_extra', 'pk' => 'extra_id',
+            'slug_column' => 'extra_code', 'columns' => ['extra_code' => ['class' => 'authored']],
+            'refs' => [], 'identity' => ['mode' => 'natural_key', 'column' => 'extra_code'],
+        ],
+        // An EAV sidecar: the pure half is which row table owns it, through
+        // which column.
+        'authored_snapshot_meta' => [
+            'class' => 'authored_snapshot_meta',
+            'attached_to' => ['table' => 'acme_b_slots', 'column' => 'slot_id'],
+        ],
+        // Inert markers and target-local dispositions: the class IS the whole
+        // declaration.
+        default => ['class' => $class],
+    };
+    accepts($extraTable('acme_b_extra', $decl), "table class '$class' is published as legal and loads");
+}
 refuses(
     $slots(['class' => 'authored_snaphot']),
-    'the table class vocabulary is closed',
-    'a table class outside the published set is refused'
+    'the table class vocabulary is closed (' . implode(', ', $vocabularies['table_classes']) . ')',
+    'and a table class outside the published set is refused with that exact set printed back'
 );
-refuses(
+
+// --- table_identity_modes: each mode is a different table SHAPE, so each gets
+// a declaration of that shape rather than the same one with a field swapped.
+$covered['table_identity_modes'] = true;
+foreach ($vocabularies['table_identity_modes'] as $mode) {
+    $fixture = match ($mode) {
+        'mapped' => $slots(['identity' => ['mode' => 'mapped']]),
+        'natural_key' => $slots(['identity' => ['mode' => 'natural_key', 'columns' => ['room_id', 'slot_code']]]),
+        'composite_ref' => $extraTable('acme_b_join', [
+            'class' => 'authored_snapshot', 'id_kind' => 'acme_join', 'columns' => [],
+            'refs' => [['column' => 'room_id', 'kind' => 'acme_room'], ['column' => 'slot_id', 'kind' => 'acme_slot']],
+            'identity' => ['mode' => 'composite_ref', 'columns' => ['room_id', 'slot_id']],
+        ]),
+    };
+    accepts($fixture, "table identity mode '$mode' is published as legal and loads");
+}
+// This refusal spells its set out in prose (each mode with the shape it serves)
+// rather than an implode, so the cross-check is per value: every published mode
+// must appear, quoted, in the message an unpublished one produces.
+$identityRefusal = refuses(
     $slots(['identity' => ['mode' => 'natrual_key', 'column' => 'slot_code']]),
     'the identity vocabulary is closed and engine-owned',
-    'an identity mode outside the published set is refused'
+    'and an identity mode outside the published set is refused'
 );
+foreach ($vocabularies['table_identity_modes'] as $mode) {
+    check(
+        str_contains($identityRefusal, '"' . $mode . '"'),
+        "and that refusal names the published mode '$mode' as one of the legal ones"
+    );
+}
+
+// --- effect_kinds / effect_modes / selector scopes and types.
+$covered['effect_kinds'] = true;
+foreach ($vocabularies['effect_kinds'] as $kind) {
+    // A database effect is the one kind bound to checkpoint coverage; every
+    // other kind must say it reaches outside the checkpoint.
+    $fixture = $kind === 'database'
+        ? $effect(['id' => 'e', 'kind' => 'database', 'mode' => 'restorable', 'selector' => $okSelector])
+        : $effect(['id' => 'e', 'kind' => $kind, 'mode' => 'irreversible',
+            'selector' => ['scope' => 'external', 'type' => 'namespace', 'value' => 'acme-b']]);
+    accepts($fixture, "effect kind '$kind' is published as legal and loads");
+}
 refuses(
     $effect(['id' => 'e', 'kind' => 'telepathy', 'mode' => 'restorable', 'selector' => $okSelector]),
     'is not one of the engine-owned effect kinds (' . implode(', ', $vocabularies['effect_kinds']) . ')',
     'an effect kind outside the published set is refused with the published set printed back'
 );
+
+$covered['effect_modes'] = true;
+foreach ($vocabularies['effect_modes'] as $mode) {
+    $fixture = match ($mode) {
+        'restorable' => $effect(['id' => 'e', 'kind' => 'database', 'mode' => 'restorable', 'selector' => $okSelector]),
+        'reversible' => $effect([
+            'id' => 'e', 'kind' => 'external', 'mode' => 'reversible',
+            'selector' => ['scope' => 'external', 'type' => 'namespace', 'value' => 'acme-b'],
+            'adapter' => [
+                'id' => 'acme-b.undo', 'version' => '1.0.0', 'inverse' => 'acme-b.restore',
+                'verifier' => 'acme-b.verify', 'inverse_inputs' => ['namespace'], 'verifier_inputs' => ['namespace'],
+            ],
+        ]),
+        'prevented' => $effect([
+            'id' => 'e', 'kind' => 'mail', 'mode' => 'prevented',
+            'selector' => ['scope' => 'external', 'type' => 'mail_subject', 'value' => 'Acme B receipt'],
+            'prevention' => 'receipt_outbox',
+        ]),
+        'irreversible' => $effect(['id' => 'e', 'kind' => 'external', 'mode' => 'irreversible',
+            'selector' => ['scope' => 'external', 'type' => 'namespace', 'value' => 'acme-b']]),
+    };
+    accepts($fixture, "effect reversibility mode '$mode' is published as legal and loads (with the evidence that mode binds it to)");
+}
 refuses(
     $effect(['id' => 'e', 'kind' => 'database', 'mode' => 'telekinesis', 'selector' => $okSelector]),
     'reversibility modes (' . implode(', ', $vocabularies['effect_modes']) . ')',
     'an effect mode outside the published set is refused with the published set printed back'
 );
+
+$covered['effect_selector_scopes'] = true;
+foreach ($vocabularies['effect_selector_scopes'] as $scope) {
+    $fixture = $scope === 'database_checkpoint'
+        ? $effect(['id' => 'e', 'kind' => 'database', 'mode' => 'restorable', 'selector' => $okSelector])
+        : $effect(['id' => 'e', 'kind' => 'external', 'mode' => 'irreversible',
+            'selector' => ['scope' => $scope, 'type' => 'namespace', 'value' => 'acme-b']]);
+    accepts($fixture, "effect selector scope '$scope' is published as legal and loads");
+}
 refuses(
     $effect(['id' => 'e', 'kind' => 'database', 'mode' => 'restorable', 'selector' => ['scope' => 'checkpoint', 'type' => 'option', 'value' => 'acme_b_setting']]),
     'is not one of the engine-owned scopes (' . implode(', ', $vocabularies['effect_selector_scopes']) . ')',
     'a selector scope outside the published set is refused with the published set printed back'
 );
+
+$covered['effect_selector_types'] = true;
+$selectorValues = [
+    'table' => 'acme_b_slots',
+    'option' => 'acme_b_setting',
+    'path' => 'wp-content/uploads/acme-b',
+    'hook' => 'acme_b_after_flush',
+    'namespace' => 'acme-b',
+    'queue' => 'acme-b-jobs',
+    'mail_subject' => 'Acme B receipt',
+    'url_prefix' => 'https://acme-b.example/api',
+    'provider_resource' => 'acme-b-cache:v1:all',
+    'plugin_lifecycle' => 'acme-b/acme-b.php',
+];
+foreach ($vocabularies['effect_selector_types'] as $type) {
+    check(isset($selectorValues[$type]), "the suite has a legal value for published selector type '$type' (a new type needs one here)");
+    accepts(
+        $effect(['id' => 'e', 'kind' => 'external', 'mode' => 'irreversible',
+            'selector' => ['scope' => 'external', 'type' => $type, 'value' => $selectorValues[$type] ?? 'acme-b']]),
+        "effect selector type '$type' is published as legal and loads"
+    );
+}
 refuses(
     $effect(['id' => 'e', 'kind' => 'database', 'mode' => 'restorable', 'selector' => ['scope' => 'database_checkpoint', 'type' => 'row', 'value' => 'acme_b_setting']]),
     'selector types (' . implode(', ', $vocabularies['effect_selector_types']) . ')',
     'a selector type outside the published set is refused with the published set printed back'
 );
+
+// --- provider_resource_placeholders: the two typed placeholders a
+// provider-resource aggregate's templates may expand.
+$covered['provider_resource_placeholders'] = true;
+$members = static fn(array $templates): array => $effect([
+    'id' => 'e', 'kind' => 'cache', 'mode' => 'irreversible',
+    'selector' => [
+        'scope' => 'external', 'type' => 'provider_resource', 'value' => 'acme-b-cache:v1:all',
+        'members' => ['exact' => ['acme_b_index'], 'templates' => $templates],
+    ],
+]);
+foreach ($vocabularies['provider_resource_placeholders'] as $placeholder) {
+    accepts($members(['acme_b_{' . $placeholder . '}']), "provider-resource placeholder '{$placeholder}' is published as legal and loads");
+}
+refuses(
+    $members(['acme_b_{uuid}']),
+    'placeholder vocabulary is closed and engine-owned ({' . implode('}, {', $vocabularies['provider_resource_placeholders']) . '})',
+    'a placeholder outside the published set is refused with the published set printed back'
+);
+
+$covered['provider_sources'] = true;
 foreach ($vocabularies['provider_sources'] as $source) {
     accepts(
         solo_b(['providers' => [[
@@ -627,15 +1072,18 @@ refuses(
         'id' => 'acme-b-cache', 'version' => '1.0.0', 'source' => 'vendor',
         'plugin' => 'acme-b/acme-b.php', 'capabilities' => ['flush'],
     ]]]),
-    'providers[0].source must be "manifest" or "plugin"',
-    'a provider source outside the published set is refused'
+    'providers[0].source must be "' . implode('" or "', $vocabularies['provider_sources']) . '"',
+    'a provider source outside the published set is refused, with the published set spelled back'
 );
+
+$covered['option_autoload_values'] = true;
 foreach ($vocabularies['option_autoload_values'] as $autoload) {
     accepts(
         solo_b(['options' => ['acme_b_setting' => ['class' => 'authored', 'autoload' => $autoload]]]),
         "option autoload value '$autoload' is published as legal and loads"
     );
 }
+$covered['option_autoload_sentinels'] = true;
 foreach ($vocabularies['option_autoload_sentinels'] as $sentinel) {
     accepts(
         solo_b(['options' => ['acme_b_setting' => ['class' => 'authored', 'autoload' => $sentinel]]]),
@@ -648,6 +1096,7 @@ refuses(
         . implode('|', $vocabularies['option_autoload_values']) . ')',
     'an autoload value outside the published set is refused with the published set printed back'
 );
+$covered['user_meta_missing_user_modes'] = true;
 foreach ($vocabularies['user_meta_missing_user_modes'] as $mode) {
     accepts(
         solo_b(['user_meta' => ['acme_b_pref' => ['class' => 'authored', 'missing_user' => $mode]]]),
@@ -656,9 +1105,11 @@ foreach ($vocabularies['user_meta_missing_user_modes'] as $mode) {
 }
 refuses(
     solo_b(['user_meta' => ['acme_b_pref' => ['class' => 'authored', 'missing_user' => 'ignore']]]),
-    'missing_user must be block or warn',
-    'a missing_user mode outside the published set is refused'
+    'missing_user must be ' . implode(' or ', $vocabularies['user_meta_missing_user_modes']),
+    'a missing_user mode outside the published set is refused, with the published set spelled back'
 );
+
+$covered['attribute_value_types'] = true;
 foreach ($vocabularies['attribute_value_types'] as $type) {
     accepts(
         solo_b(['block_attrs' => ['acme/b' => [['kind' => 'post', 'path' => 'id', 'type' => $type]]]]),
@@ -670,6 +1121,23 @@ refuses(
     'engine-owned (' . implode(', ', $vocabularies['attribute_value_types']) . ')',
     'an attribute value type outside the published set is refused with the published set printed back'
 );
+
+// --- attribute_tokenize_codecs: the one codec an id-bearing attribute value
+// may declare for the ordinary home/uploads URL pass.
+$covered['attribute_tokenize_codecs'] = true;
+foreach ($vocabularies['attribute_tokenize_codecs'] as $codec) {
+    accepts(
+        solo_b(['block_attrs' => ['acme/b' => [['kind' => 'post', 'path' => 'id', 'type' => 'int', 'tokenize' => $codec]]]]),
+        "attribute tokenize codec '$codec' is published as legal and loads"
+    );
+}
+refuses(
+    solo_b(['block_attrs' => ['acme/b' => [['kind' => 'post', 'path' => 'id', 'type' => 'int', 'tokenize' => 'markdown']]]]),
+    'the only supported codec for an attribute is "' . implode('", "', $vocabularies['attribute_tokenize_codecs']) . '"',
+    'a tokenize codec outside the published set is refused with the published set printed back'
+);
+
+$covered['widget_setting_codecs'] = true;
 foreach ($vocabularies['widget_setting_codecs'] as $codec) {
     accepts(
         solo_b(['widgets' => ['acme_b' => ['settings' => ['body' => ['class' => 'authored', 'codec' => $codec]]]]]),
@@ -681,12 +1149,20 @@ refuses(
     'codec vocabulary is closed and engine-owned (' . implode(', ', $vocabularies['widget_setting_codecs']) . ')',
     'a widget codec outside the published set is refused with the published set printed back'
 );
+$covered['widget_setting_refs'] = true;
 foreach ($vocabularies['widget_setting_refs'] as $ref) {
     accepts(
         solo_b(['widgets' => ['acme_b' => ['settings' => ['owner' => ['class' => 'authored', 'ref' => $ref]]]]]),
         "widget settings ref kind '$ref' is published as legal and loads"
     );
 }
+refuses(
+    solo_b(['widgets' => ['acme_b' => ['settings' => ['owner' => ['class' => 'authored', 'ref' => 'post']]]]]),
+    'ref vocabulary is closed and engine-owned (' . implode(', ', $vocabularies['widget_setting_refs']) . ')',
+    'a widget settings ref kind outside the published set is refused with the published set printed back — narrower than the general ref vocabulary, deliberately'
+);
+
+$covered['dynamic_option_resolvers'] = true;
 foreach ($vocabularies['dynamic_option_resolvers'] as $resolver) {
     accepts(
         solo_b(['dynamic_options' => ['theme_mods' => [
@@ -704,6 +1180,10 @@ refuses(
     'only active_stylesheet is supported in v1',
     'a dynamic_options resolver outside the published set is refused'
 );
+// --- the three kind vocabularies. Each publishes only its ENGINE-OWNED BASE,
+// and each refusal prints base ∪ declared-id_kinds, sorted — so the needle is
+// built from the published base plus this fixture's own two keyspaces.
+$covered['engine_ref_kinds'] = true;
 foreach ($vocabularies['engine_ref_kinds'] as $kind) {
     accepts(
         solo_b(['options' => ['acme_b_ref' => ['class' => 'authored', 'autoload' => 'yes', 'ref' => $kind]]]),
@@ -712,15 +1192,214 @@ foreach ($vocabularies['engine_ref_kinds'] as $kind) {
 }
 refuses(
     solo_b(['options' => ['acme_b_ref' => ['class' => 'authored', 'autoload' => 'yes', 'ref' => 'psot']]]),
-    'reference kind vocabulary is closed',
-    'a ref kind outside the published engine set (and outside every declared id_kind) is refused'
+    // No closing paren in the needle: the reference-kind refusal continues
+    // "…, each optionally suffixed with [] for a list" inside the same
+    // parentheses, which the token-kind one deliberately does not.
+    'reference kind vocabulary is closed (' . $legalKinds($vocabularies['engine_ref_kinds']) . ', each optionally suffixed',
+    'a ref kind outside the published engine base (and outside every declared id_kind) is refused, printing base + declared'
 );
+
+$covered['engine_token_kinds'] = true;
+foreach ($vocabularies['engine_token_kinds'] as $kind) {
+    accepts(
+        $slots(['refs' => [['column' => 'room_id', 'kind' => 'acme_room'], ['column' => 'owner_id', 'kind' => $kind]]]),
+        "engine-owned token kind '$kind' is published as legal and loads as a table ref"
+    );
+}
+refuses(
+    $slots(['refs' => [['column' => 'room_id', 'kind' => 'acme_room'], ['column' => 'owner_id', 'kind' => 'user']]]),
+    'token kind vocabulary is closed (' . $legalKinds($vocabularies['engine_token_kinds']) . ')',
+    "a token kind outside the published engine base is refused — and 'user' is the case that proves the two vocabularies are genuinely different sets, since it IS a legal ref kind"
+);
+
+$covered['engine_ledger_kinds'] = true;
+$guard = static fn(string $kind): array => solo_b(['deletions' => ['post:acme_widget' => [
+    'cascades' => [],
+    'guards' => [['table' => 'acme_b_slots', 'column' => 'room_id', 'id_kind' => $kind, 'reason' => 'slots reference this']],
+]]]);
+foreach ($vocabularies['engine_ledger_kinds'] as $kind) {
+    accepts($guard($kind), "engine-owned ledger kind '$kind' is published as legal and loads as a deletion guard");
+}
+refuses(
+    $guard('tt'),
+    'ledger kind vocabulary is closed here (' . $legalKinds($vocabularies['engine_ledger_kinds']) . ')',
+    "a ledger kind outside the published engine base is refused — 'tt' is the case that proves it: the ledger's long spelling is term_taxonomy, and the token vocabulary's short one is not legal here"
+);
+
+// --- classification_classes / scope_classes: the same word means different
+// sets on different surfaces, which is exactly why both are published.
+$covered['classification_classes'] = true;
+foreach ($vocabularies['classification_classes'] as $class) {
+    accepts(
+        solo_b(['user_meta' => ['acme_b_pref' => ['class' => $class]]]),
+        "classification class '$class' is published as legal and loads"
+    );
+}
+refuses(
+    solo_b(['user_meta' => ['acme_b_pref' => ['class' => 'authoerd']]]),
+    '(expected ' . implode('|', $vocabularies['classification_classes']) . ')',
+    'a classification class outside the published set is refused with the published set printed back'
+);
+
+$covered['scope_classes'] = true;
+foreach ($vocabularies['scope_classes'] as $class) {
+    accepts($postType(['class' => $class]), "scope class '$class' is published as legal and loads on a post type");
+}
+refuses(
+    $postType(['class' => 'managed']),
+    '(expected ' . implode('|', $vocabularies['scope_classes']) . ')',
+    "a scope class outside the published set is refused — and 'managed' is the case that proves this set is genuinely narrower than the classification one"
+);
+
+// --- value_casts.
+$covered['value_casts'] = true;
+foreach ($vocabularies['value_casts'] as $cast) {
+    accepts(
+        solo_b(['block_attrs' => ['acme/b' => [['kind' => 'post', 'path' => 'id', 'type' => 'int', 'cast' => $cast]]]]),
+        "value cast '$cast' is published as legal and loads"
+    );
+}
+refuses(
+    solo_b(['block_attrs' => ['acme/b' => [['kind' => 'post', 'path' => 'id', 'type' => 'int', 'cast' => 'array']]]]),
+    'but only ' . implode('|', $vocabularies['value_casts']) . ' are supported',
+    'a cast outside the published set is refused with the published set printed back'
+);
+
+// --- post_derivable_fields / post_field_classes.
+$covered['post_derivable_fields'] = true;
+$covered['post_field_classes'] = true;
+foreach (array_keys($vocabularies['post_derivable_fields']) as $field) {
+    foreach ($vocabularies['post_field_classes'] as $class) {
+        accepts(
+            $postType(['class' => 'authored', 'fields' => [$field => ['class' => $class]]]),
+            "post field '$field' is published as derivable and loads with the published class '$class'"
+        );
+    }
+}
+refuses(
+    $postType(['class' => 'authored', 'fields' => ['excerpt' => ['class' => 'derived']]]),
+    'but only ' . implode(', ', array_keys($vocabularies['post_derivable_fields'])) . ' may be field-classified',
+    'a post field outside the published derivable set is refused with that exact set printed back'
+);
+refuses(
+    $postType(['class' => 'authored', 'fields' => ['title' => ['class' => 'authored']]]),
+    'but only ' . implode(', ', $vocabularies['post_field_classes']) . ' is supported for post fields',
+    'a post-field class outside the published set is refused with that exact set printed back'
+);
+
+// --- menu_derivable_fields / menu_field_classes: the same split, one surface
+// over, and deliberately NOT the same sets.
+$covered['menu_derivable_fields'] = true;
+$covered['menu_field_classes'] = true;
+foreach ($vocabularies['menu_derivable_fields'] as $field) {
+    foreach ($vocabularies['menu_field_classes'] as $class) {
+        accepts(
+            solo_b(['menu_fields' => [$field => ['class' => $class]]]),
+            "menu field '$field' is published as classifiable and loads with the published class '$class'"
+        );
+    }
+}
+refuses(
+    solo_b(['menu_fields' => ['items' => ['class' => 'derived']]]),
+    'but only ' . implode(', ', $vocabularies['menu_derivable_fields']) . ' may be field-classified',
+    'a menu field outside the published set is refused with that exact set printed back'
+);
+refuses(
+    solo_b(['menu_fields' => ['locations' => ['class' => 'runtime']]]),
+    'but only ' . implode(', ', $vocabularies['menu_field_classes']) . ' is supported for menu fields',
+    'a menu-field class outside the published set is refused with that exact set printed back'
+);
+
+// --- action_kinds.
+$covered['action_kinds'] = true;
+foreach ($vocabularies['action_kinds'] as $kind) {
+    $action = $kind === 'native'
+        ? ['kind' => 'native', 'action' => 'transient.delete', 'args' => ['name' => 'acme_b']]
+        : ['kind' => 'provider', 'provider' => 'acme-b-cache', 'capability' => 'flush', 'args' => []];
+    accepts(solo_b(['actions' => [$action]]), "action kind '$kind' is published as legal and loads");
+}
+refuses(
+    solo_b(['actions' => [['kind' => 'nativ', 'action' => 'transient.delete', 'args' => []]]]),
+    'must be "' . implode('" or "', $vocabularies['action_kinds']) . '"',
+    'an action kind outside the published set is refused with the published set spelled back'
+);
+
+// --- classification_sections: a section is a manifest KEY, not a value, so the
+// positive half is "every published section is a section the loader reads" and
+// the negative half comes from the engine's own refusal for an unknown one
+// (Policy::set_rule(), which checks the section before it touches any repo).
+$covered['classification_sections'] = true;
+$sectionDecls = [];
+foreach ($vocabularies['classification_sections'] as $section) {
+    $sectionDecls[$section] = ['acme_b_' . $section => $section === 'options'
+        ? ['class' => 'authored', 'autoload' => 'yes']
+        : ['class' => 'authored']];
+}
+accepts(solo_b($sectionDecls), 'every published classification section is a manifest section the loader accepts (' . implode(', ', $vocabularies['classification_sections']) . ')');
+check(
+    str_contains(
+        engine_message(static fn() => Policy::set_rule('/nonexistent-site-repo', 'optoins', 'k', ['class' => 'authored'])),
+        '(expected ' . implode('|', array_merge($vocabularies['classification_sections'], ['scope'])) . ')'
+    ),
+    "and a section outside the published set is refused by the engine's own set_rule(), printing exactly the published set plus scope"
+);
+
+// --- pattern_keys: a MAP, and the only vocabulary here with no refusal of its
+// own — its content is a routing decision, so it is cross-checked the only way
+// a routing decision can be: by observing that the engine routes that way.
+$covered['pattern_keys'] = true;
+$patternDir = fixtures(['b' => solo_b([
+    'option_patterns' => [['match' => '^acme_b_pat_', 'class' => 'authored', 'autoload' => 'yes']],
+    'meta_patterns' => [['match' => '^acme_b_pat_', 'class' => 'authored']],
+])]);
+putenv('DUO_MANIFESTS_DIR=' . $patternDir);
+$patternPolicy = Policy::load(null, ['b']);
+$resolvers = [
+    'options' => static fn(): ?array => $patternPolicy->option_rule('acme_b_pat_1'),
+    'post_meta' => static fn(): ?array => $patternPolicy->meta_rule_for_post('acme_b_pat_1', []),
+    'term_meta' => static fn(): ?array => $patternPolicy->meta_rule_for_term('acme_b_pat_1', []),
+    'user_meta' => static fn(): ?array => $patternPolicy->meta_rule_for_user('acme_b_pat_1', []),
+];
+foreach ($vocabularies['classification_sections'] as $section) {
+    $published = $vocabularies['pattern_keys'][$section] ?? null;
+    $resolved = $resolvers[$section]();
+    check(
+        $published === null ? $resolved === null : $resolved !== null,
+        $published === null
+            ? "section '$section' publishes NO pattern key, and the engine really does refuse to pattern-match it"
+            : "section '$section' publishes pattern key '$published', and a rule declared under exactly that key really does resolve a matching name"
+    );
+}
+$swappedDir = fixtures(['b' => solo_b([
+    // The option pattern moved under the meta key, and nothing else changed.
+    'meta_patterns' => [['match' => '^acme_b_pat_', 'class' => 'authored']],
+])]);
+putenv('DUO_MANIFESTS_DIR=' . $swappedDir);
+$swappedPolicy = Policy::load(null, ['b']);
+check(
+    $swappedPolicy->option_rule('acme_b_pat_1') === null && $swappedPolicy->meta_rule_for_post('acme_b_pat_1', []) !== null,
+    'and the published mapping is the WHOLE mapping: the same pattern under the other section\'s key resolves for that section and not for this one'
+);
+putenv('DUO_MANIFESTS_DIR');
+
 foreach (NativeActions::vocabulary() as $action) {
     accepts(
         solo_b(['actions' => [['kind' => 'native', 'action' => $action, 'args' => ['name' => 'acme_b']]]]),
         "published native action '$action' is accepted by the runtime validator"
     );
 }
+
+// The ratchet. Every published vocabulary, exercised — not a sample of them.
+$uncovered = array_values(array_diff(array_keys($vocabularies), array_keys($covered)));
+check(
+    $uncovered === [],
+    'EVERY published vocabulary is exercised in both directions above (' . count($covered) . '/' . count($vocabularies)
+        . ($uncovered === [] ? '' : '; not covered: ' . implode(', ', $uncovered)) . ')'
+);
+check(
+    array_diff(array_keys($covered), array_keys($vocabularies)) === [],
+    'and nothing is claimed as covered that the document does not publish'
+);
 
 // ======================================================================
 echo "\n== exit codes and the command's own fail-closed paths ==\n";
@@ -738,6 +1417,15 @@ foreach ([
     '--manifest with an empty list' => [$repo . '/manifests', '--manifest='],
     '--manifest naming a manifest the directory does not have' => [$repo . '/manifests', '--manifest=not-a-manifest'],
     '--pins naming a manifest the directory does not have' => [$repo . '/manifests', '--pins=not-a-manifest'],
+    '--site with an empty value' => [$repo . '/manifests', '--site='],
+    '--site pointing at a path that does not exist' => [$repo . '/manifests', '--site=' . sys_get_temp_dir() . '/duo-no-such-site-repo'],
+    // The most likely mistake, and the one worth refusing loudest: a directory
+    // that exists but is not a site repo would otherwise fail every manifest
+    // row with the engine's "not a duo site repo?" message, which reads as
+    // "your manifests are broken".
+    '--site pointing at a directory with no site.duo.json' => [$repo . '/manifests', '--site=' . $repo . '/manifests'],
+    'a repeated --site' => [$repo . '/manifests', '--site=' . $repo, '--site=' . $repo],
+    '--emit-schema together with --site' => ['--emit-schema', '--site=' . $repo],
 ] as $label => $args) {
     $result = duo($args);
     check(

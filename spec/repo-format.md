@@ -471,7 +471,7 @@ artifact rather than a provider-specific or plugin-specific substitute.
 
 ## Manifests (registry format)
 
-Everything in this section is refusable offline: `duo manifest-validate <manifests-dir>` drives these same validators with no WordPress, database, or environment present, and `duo manifest-validate --emit-schema` prints the closed vocabularies and bounded patterns below as a versioned JSON document read out of the engine itself — see [docs/guides/adapter-authoring.md § Checking the grammar offline](../docs/guides/adapter-authoring.md#checking-the-grammar-offline). It is an authoring aid, not a gate, and it reports the checks that need a live target as explicitly deferred.
+Everything in this section is refusable offline: `duo manifest-validate <manifests-dir> [--site=<site-repo>]` drives these same validators with no WordPress, database, or environment present, and `duo manifest-validate --emit-schema` prints the closed VALUE vocabularies and the named subset of bounded patterns below as a versioned JSON document read out of the engine itself, with a `coverage` field naming what it omits — see [docs/guides/adapter-authoring.md § Checking the grammar offline](../docs/guides/adapter-authoring.md#checking-the-grammar-offline). `--site` matters because two guards (the ref/token/ledger kind vocabularies, and conflicting option rules) read `site.duo.json`'s policy half as input, so without it a manifest valid on its real site can be refused. It is an authoring aid, not a gate, and it reports the checks that need a live target — plus that missing site half — as explicitly deferred.
 
 `manifests/<name>.json` in the platform repo (shipped with the agent; version-range pinning lands with the plugin-manifest workstream):
 

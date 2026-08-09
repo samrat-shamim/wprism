@@ -447,8 +447,10 @@ regress-close-gate-parent-count:
 # DUO-3327: `duo manifest-validate`, the adapter author's offline grammar check,
 # and the machine-readable grammar document it emits from the engine's own
 # closed vocabularies. Drives the real host CLI as a subprocess against scratch
-# manifest fixtures (shared with the DUO-3318 ownership suite) and against the
-# shipped manifests/ directory. Authoring aid, not a gate on anything.
+# manifest fixtures (shared with the DUO-3318 ownership suite), against scratch
+# site repos (the two guards that read site.duo.json as input, asserted both
+# ways), and against the shipped manifests/ directory with and without --site.
+# Authoring aid, not a gate on anything.
 regress-manifest-validate:
 	bash sandbox/tests/regress_manifest_validate.sh
 
