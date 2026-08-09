@@ -521,6 +521,12 @@ final class Capture {
                 // this is explicit compensation for the fact that a
                 // filesystem rename and a DB COMMIT cannot be instantaneous
                 // two-phase commit.
+                // Mark the recovery boundary before the first durable intent
+                // write. A fault inside begin_intent() can leave a complete
+                // intent even though no rename has started yet; init must run
+                // the publication recovery protocol instead of treating that
+                // case like an ordinary unpublished staging failure.
+                $publicationPhase['publication_started'] = true;
                 $intent = Publish::begin_intent($stateDir, $staging);
                 $publicationPhase['filesystem_swapped'] = true;
                 Publish::swap($stateDir, true);
@@ -610,8 +616,8 @@ final class Capture {
             // candidate and only the content-addressed blobs this attempt
             // created. Ordinary capture retains its historical recovery
             // behavior unchanged.
-            $safeToCompensate = $initialBaseline && empty($publicationPhase['filesystem_swapped']);
-            if ($initialBaseline && !empty($publicationPhase['filesystem_swapped'])) {
+            $safeToCompensate = $initialBaseline && empty($publicationPhase['publication_started']);
+            if ($initialBaseline && !empty($publicationPhase['publication_started'])) {
                 try {
                     Publish::recover(
                         $stateDir,

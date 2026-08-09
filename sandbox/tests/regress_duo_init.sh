@@ -224,6 +224,32 @@ $id = wp_insert_attachment([
 ], $path);
 update_attached_file($id, $path);
 ' >/dev/null
+INTENT_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
+INTENT_DIGEST=$(jq -r .digest <<<"$INTENT_PLAN")
+set +e
+OUT=$("${COMPOSE[@]}" run --rm -T \
+  -e DUO_TEST_MODE=1 \
+  -e DUO_TEST_PUBLISH_FAIL_PHASE=intent-written \
+  cli1 wp duo init --repo=/siterepo --confirm="$INTENT_DIGEST" --format=json 2>&1)
+CODE=$?
+set -e
+printf '%s\n' "$OUT"
+[ "$CODE" -ne 0 ] || fail "intent-written injected failure unexpectedly succeeded"
+[ -z "$(find "$HOST_REPO" -mindepth 1 -maxdepth 1 -print -quit)" ] \
+  || fail "intent-written failure left repository artifacts"
+ROW_TOTAL=$(wp1 db query '
+SELECT
+  (SELECT COUNT(*) FROM wp_duo_journal) +
+  (SELECT COUNT(*) FROM wp_duo_kv) +
+  (SELECT COUNT(*) FROM wp_duo_map) +
+  (SELECT COUNT(*) FROM wp_duo_state)
+' --skip-column-names | tr -d '[:space:]')
+[ "$ROW_TOTAL" = "0" ] || fail "intent-written failure left Duo ledger rows"
+[ "$(wp1 db query "SELECT COUNT(*) FROM wp_postmeta WHERE meta_key = '_duo_uuid'" --skip-column-names | tr -d '[:space:]')" = "0" ] \
+  || fail "intent-written failure left minted identities"
+wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
+pass "intent-write failure compensation is complete"
+
 ATOMIC_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
 ATOMIC_DIGEST=$(jq -r .digest <<<"$ATOMIC_PLAN")
 set +e
