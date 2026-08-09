@@ -240,6 +240,7 @@ FAILED_V2_RECOVERY_PHASE_BLOCK="$(phase_block 'exact checkpoint recovery, then f
 ROLLBACK_PHASE_BLOCK="$(phase_block 'exact rollback: import v1 checkpoint under maintenance, then promote v1' | strip_static_comments)"
 FAIL_CLOSED_PHASE_BLOCK="$(phase_block 'Woo deletion boundary: public product delete is refused before Duo capture mutation' | strip_static_comments)"
 FINAL_RECAPTURE_PHASE_BLOCK="$(phase_block 'final recapture/status and exact clean-room cleanup' | strip_static_comments)"
+CLEAN_ROOM_PHASE_BLOCK="$(phase_block 'clean room: pair.sh HTTP pair' | strip_static_comments)"
 CLEANUP_PAIR_DESTROY='if ! bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1; then'
 CLEANUP_DOCKER_CONTAINERS='pair_containers="$(docker ps -aq --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)"'
 CLEANUP_DOCKER_VOLUMES='pair_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)"'
@@ -312,6 +313,13 @@ block_absent final-derived-aware-recapture "$FINAL_RECAPTURE_PHASE_BLOCK" \
   'final recapture still enforces the invalid raw-byte contract'
 block_absent final-compiled-state-diff "$FINAL_COMPILED_STATE_DIFF_HELPER_BLOCK" \
   '| tail -1' 'final semantic diagnostics are truncated to the last pretty-JSON line'
+block_absent prelude "$PRELUDE_BLOCK" 'ACTIVE_PAIRS=' \
+  'live harness still serializes against every other active pair instead of using pair.sh capacity'
+block_absent prelude "$PRELUDE_BLOCK" 'refusing to start $PAIR while another pair is active' \
+  'live harness still carries the stale zero-other-pairs refusal'
+block_contains clean-room "$CLEAN_ROOM_PHASE_BLOCK" \
+  'bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --journal --http' \
+  'live harness does not delegate its atomic capacity reservation to pair.sh up'
 noop_helper_block() {
   awk '
     NR == 1 { print; next }
@@ -391,7 +399,7 @@ ORDER_HELPER_GOLDEN_HASH=a5e218adaba2ef1c2f7dcee7078886c36fd4e743f8108aa883d1b5d
 ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=95777d9b3c8dd94e1a9c27febc42b3bff1ccbc7d47e5ce87aee5517637fcd35c
 VISIBILITY_HELPER_GOLDEN_HASH=7cc6d2e93dc5c78c222f033c0ed941e7e41afcf421ecefbf8d6a04fd89e46357
 EQ_HELPER_GOLDEN_HASH=4533ae3a46601a7646bbfc7e6258d08136783621e32487b906784be559a7d3c1
-RECEIPT_HELPER_GOLDEN_HASH=c52955d31bd40938f1a804d7a1fcdb9b40eef043314375faacf2fbf0bdc53419
+RECEIPT_HELPER_GOLDEN_HASH=b5fa253532ef4e4ae36dadb06060cdd49dcb97bfbc9de6b91753df72391e109e
 THEME_HELPER_GOLDEN_HASH=92f7178cab9469fee55245f405839ce130c1fc9e8e113ada4ab8cfa560f5810e
 PHASE_ORDER_HELPER_GOLDEN_HASH=b8be7ab1221ac36f7ee6128ce24341d86ae46d66d7f0623ee567d3202b4e9aff
 ABSENT_HELPER_GOLDEN_HASH=74e54e8d9c00ba9d83634d57f7d56248999adf428426ab97d95e48dfb5a05616

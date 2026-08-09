@@ -65,7 +65,10 @@ make grind-ecommerce-developer-live \
 ```
 
 All three values are required and must be unique/free for the authorized run;
-the target is deliberately outside `regress-offline-all`.
+the target is deliberately outside `regress-offline-all`. Concurrent agents
+may keep their own pairs running: the live harness delegates the locked,
+dynamic host-capacity decision to `pair.sh up` instead of imposing a stale
+zero-other-pairs rule.
 
 The scenario installs the digest-pinned WooCommerce 11.0.0 and ACF 6.8.7
 artifacts on both sides. The author side creates a synthetic Woo catalog with

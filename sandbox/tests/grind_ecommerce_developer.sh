@@ -1195,8 +1195,10 @@ require sha256sum
 jq -e --arg version "$WOO_VERSION" '.woocommerce[$version].sha256 | test("^[0-9a-f]{64}$")' conformance/artifacts.lock.json >/dev/null || fail "WooCommerce $WOO_VERSION is not digest-pinned"
 jq -e --arg version "$WOO_DOWNGRADE_VERSION" '.woocommerce[$version].sha256 | test("^[0-9a-f]{64}$")' conformance/artifacts.lock.json >/dev/null || fail "WooCommerce $WOO_DOWNGRADE_VERSION is not digest-pinned"
 jq -e --arg version "$ACF_VERSION" '.["advanced-custom-fields"][$version].sha256 | test("^[0-9a-f]{64}$")' conformance/artifacts.lock.json >/dev/null || fail "ACF $ACF_VERSION is not digest-pinned"
-ACTIVE_PAIRS="$(docker compose ls --format json 2>/dev/null | jq -r '.[] | select(.Status | startswith("running")) | select(.ConfigFiles | test("/pair\\.yml(,|$)")) | .Name' 2>/dev/null || true)"
-[ -z "$ACTIVE_PAIRS" ] || fail "refusing to start $PAIR while another pair is active: $ACTIVE_PAIRS"
+# pair.sh owns the host's locked, dynamic capacity gate. Do not pre-enumerate
+# other agents' pairs here: a zero-other-pairs rule needlessly serializes a
+# distributed run, and an unlocked check would race the authoritative budget
+# reservation inside pair.sh up.
 PAIR_CONTAINERS="$(docker ps -aq --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null || true)"
 PAIR_VOLUMES="$(docker volume ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null || true)"
 PAIR_NETWORKS="$(docker network ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null || true)"
