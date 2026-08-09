@@ -1473,6 +1473,152 @@ try {
         'a frozen certified disposition cannot survive deletion of its certificate envelope'
     );
 
+    // ==================================================================
+    echo "\n== DUO-3339/B2: a plugin-bundled adapter cannot hold this certification ==\n";
+    // ==================================================================
+    // Three hard bindings make it impossible, and all three are inside the
+    // SIGNED statement rather than beside it: certificatePath() derives
+    // <repo>/adapters/certifications/<name>.json, verifyFile() opens
+    // adapters/<name>.json to hash, and assertAdapterBinding() requires
+    // adapter.source === "site" with adapter.path === "adapters/<name>.json".
+    // So the read side refuses the pairing rather than waiting for a signature
+    // check that could never have produced it.
+    $pluginFrozen = $policySnapshot;
+    $pluginFrozen['adapter_sources']['out_of_tree']['site-demo']['provenance']['source'] = 'plugin';
+    $pluginFrozen['adapter_sources']['out_of_tree']['site-demo']['provenance']['path']
+        = 'plugins/site-demo/duo-adapter.json';
+    cert_expect_throw(
+        static fn() => Policy::from_snapshot($pluginFrozen),
+        'bundled by a plugin and cannot carry a certificate',
+        'a frozen plugin-sourced record paired with a certificate is refused, naming the impossibility'
+    );
+
+    // The SAME record without the certificate is refused too, for a different
+    // and equally specific reason: its path is re-derived from the frozen
+    // manifest's own `plugin` claim, which this manifest does not make.
+    $pluginFrozenUnsigned = $pluginFrozen;
+    unset($pluginFrozenUnsigned['adapter_sources']['certificates']['site-demo']);
+    $pluginFrozenUnsigned['adapter_sources']['out_of_tree']['site-demo'] = [
+        'certification' => 'uncertified',
+        'provenance' => [
+            'format' => 'duo-adapter-sources/v2',
+            'path' => 'plugins/site-demo/duo-adapter.json',
+            'sha256' => hash('sha256', Canon::encode($manifest)),
+            'source' => 'plugin',
+        ],
+        'reason' => 'fixture',
+        'status' => 'uncertified',
+        'trust_tier' => 'declarative_manifest',
+    ];
+    cert_expect_throw(
+        static fn() => Policy::from_snapshot($pluginFrozenUnsigned),
+        'plugin basename',
+        'and a frozen bundled record whose manifest declares no owning plugin has no derivable path at all'
+    );
+
+    // ==================================================================
+    echo "\n== DUO-3339/B2: the promotion path completes with the bundling plugin ACTIVE ==\n";
+    // ==================================================================
+    // Amendment A's whole justification, executed: a plugin bundles an adapter
+    // under the SAME name as the certified repository package. Precedence
+    // ranks the site source above the plugin one, so the reviewed, signed
+    // definition wins, the bundled one reports as installed-but-not-loaded,
+    // and nothing has to be deactivated for the certified adapter to stay
+    // certified. Under whole-scan refusal this repository would instead have
+    // lost every command the moment that plugin updated.
+    //
+    // WP_PLUGIN_DIR is a define(), so this runs in a clean child: making the
+    // parent process a plugin-scanning one would silently change every check
+    // above it.
+    $b2Plugins = $root . '/b2-plugins';
+    cert_write($b2Plugins . '/acme/acme.php', "<?php\n// fixture plugin\n");
+    cert_write_canon($b2Plugins . '/acme/duo-adapter.json', [
+        'name' => 'site-demo',
+        'option_autoload' => 'preserve',
+        'plugin' => 'acme/acme.php',
+        'post_types' => [],
+        'spec_version' => DUO_SPEC_VERSION,
+        'tables' => [],
+    ]);
+    $b2Script = str_replace(
+        ['__ABSPATH__', '__WP_PLUGIN_DIR__', '__MANIFESTS__', '__SITE__', '__ENGINE_ROOT__'],
+        [
+            var_export($root . '/', true),
+            var_export($b2Plugins, true),
+            var_export($integrationManifests, true),
+            var_export($site, true),
+            var_export(dirname(__DIR__, 2), true),
+        ],
+        <<<'PHP'
+<?php
+declare(strict_types=1);
+define('DUO_SPEC_VERSION', 2);
+define('DUO_AGENT_VERSION', '0.5.0');
+define('ABSPATH', __ABSPATH__);
+define('WP_PLUGIN_DIR', __WP_PLUGIN_DIR__);
+function is_multisite(): bool { return false; }
+function get_option(string $name, mixed $default = false): mixed {
+    return $name === 'active_plugins' ? ['acme/acme.php'] : $default;
+}
+putenv('DUO_MANIFESTS_DIR=' . __MANIFESTS__);
+require __ENGINE_ROOT__ . '/agent/src/Canon.php';
+require __ENGINE_ROOT__ . '/agent/src/OptionState.php';
+require __ENGINE_ROOT__ . '/agent/src/ManifestDispositions.php';
+require __ENGINE_ROOT__ . '/agent/src/CapabilityRegistry.php';
+require __ENGINE_ROOT__ . '/agent/src/Policy.php';
+require __ENGINE_ROOT__ . '/agent/src/Ledger.php';
+require __ENGINE_ROOT__ . '/agent/src/RepositoryCompiler.php';
+$payload = [];
+try {
+    $policy = \Duo\Policy::load(__SITE__);
+    $sources = $policy->adapter_sources();
+    $payload['source'] = $sources->source('site-demo');
+    $payload['path'] = $sources->path('site-demo');
+    $payload['certification'] = $sources->diagnostics($policy->manifests)['site-demo']['certification'] ?? null;
+    $payload['ready'] = $policy->capability_report(['operation' => 'promote'])['ready'] ?? null;
+    $payload['digest'] = \Duo\RepositoryCompiler::resolved_adapters($policy)[0]['digest'] ?? null;
+    $payload['not_installed'] = $sources->not_installed();
+    $payload['plugin_refusals'] = $sources->plugin_refusals();
+    $survey = \Duo\AdapterSources::survey(__SITE__);
+    $payload['survey_not_installed'] = $survey['not_installed'];
+    $payload['survey_sources'] = $survey['sources'];
+} catch (\Throwable $failure) {
+    $payload['error'] = $failure->getMessage();
+}
+echo json_encode($payload, JSON_THROW_ON_ERROR);
+PHP
+    );
+    cert_write($root . '/b2-promotion.php', $b2Script);
+    $b2Run = cert_run([PHP_BINARY, $root . '/b2-promotion.php']);
+    $b2 = json_decode($b2Run['stdout'], true);
+    cert_check(
+        is_array($b2) && !isset($b2['error'])
+        && ($b2['source'] ?? null) === 'site'
+        && ($b2['path'] ?? null) === 'adapters/site-demo.json'
+        && ($b2['certification'] ?? null) === 'third_party_signed'
+        && ($b2['ready'] ?? null) === true
+        && ($b2['digest'] ?? null) === $certifiedDigest,
+        'the certified, exactly pinned SITE adapter still wins, stays third_party_signed, and keeps its exact '
+        . 'digest while an active plugin bundles the same name (' . trim((string) ($b2['error'] ?? '')) . ')'
+    );
+    $b2Shadow = ($b2['not_installed'] ?? [])[0] ?? [];
+    cert_check(
+        count($b2['not_installed'] ?? []) === 1
+        && ($b2Shadow['reason_code'] ?? null) === 'shadowed'
+        && ($b2Shadow['name'] ?? null) === 'site-demo'
+        && ($b2Shadow['path'] ?? null) === 'plugins/acme/duo-adapter.json'
+        && ($b2Shadow['winner']['source'] ?? null) === 'site'
+        && ($b2Shadow['winner']['path'] ?? null) === 'adapters/site-demo.json'
+        && ($b2['plugin_refusals'] ?? null) === [],
+        'the bundled copy is REPORTED as installed-but-not-loaded naming its winner — not refused, so the plugin '
+        . 'stays active and no other command breaks'
+    );
+    cert_check(
+        ($b2['survey_not_installed'] ?? null) === ($b2['not_installed'] ?? null)
+        && in_array('plugin', array_column((array) ($b2['survey_sources'] ?? []), 'source'), true),
+        'and discover() and survey() agree about it row for row, from the one scan'
+    );
+
     cert_write_canon($site . '/site.duo.json', [
         'manifests' => ['core', $exactPin],
         'policy' => new stdClass(),

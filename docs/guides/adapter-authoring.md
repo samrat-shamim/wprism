@@ -643,6 +643,57 @@ binds the source manifest plus authority, signed statement, envelope, bundle,
 ratification, and platform proof facts, while unrelated shipped adapter
 digests and `duo capabilities --all` remain unchanged.
 
+## Adapters a plugin bundles
+
+A plugin may ship an adapter of its own: exactly one `duo-adapter.json`, at the
+root of its own directory. Only ACTIVE plugins are scanned — activating the
+plugin is the operator consent that installs the adapter — and a single-file
+plugin, having no directory, cannot bundle one.
+
+Two rules are specific to this source, and both differ from the site source on
+purpose.
+
+**Declare the plugin that owns you.** The file name is a constant here, so it
+carries no identity: the manifest's own `name` is the identity, and the
+manifest MUST also declare `plugin` equal to the basename of the plugin
+bundling it. That claim anchors the manifest to the code it ships with, exactly
+as a plugin-owned provider's class is anchored to its plugin directory, and it
+is what lets a frozen policy rebuild `plugins/<plugin-dir>/duo-adapter.json`
+without reopening the plugin. Because `plugin` is mandatory, the compatibility
+contract applies transitively: declare `version_range` too, or the adapter is
+refused as unbounded support.
+
+**A name collision with a reviewed adapter is reported, not fatal.** Adapter
+sources rank `shipped > site > plugin`. If a shipped or site adapter already
+answers to your name, your bundle is not loaded, and it prints on every run as
+an installed-but-not-loaded row naming the winner — nothing breaks and nothing
+is deactivated. (Two active plugins bundling one name have no such rule
+available: both are dropped and the pair draws one `source_collision`
+refusal.) Everything else in this source is refused per adapter rather than
+whole-directory: a malformed bundle, a bad name, an anchor mismatch, a
+symlinked `duo-adapter.json`, a near-miss inside the reserved `duo-adapter*`
+namespace, or a reach for executable privilege drops that one adapter and
+leaves every other plugin's alone. It becomes fatal only if a repository pins
+that name, which fails with the refusal's own message.
+
+**A bundled adapter cannot be certified in place**, and no field or companion
+file changes that: certification hashes `adapters/<name>.json` and binds
+`source: "site"` and that exact path inside the signed statement. So a bundled
+adapter is `uncertified` by construction — plan and apply available, readiness
+and host promotion blocked, identical to an unsigned site adapter. To certify
+one, promote it:
+
+1. Install the same adapter as a repository package at `adapters/<name>.json`.
+2. Obtain a signed `adapters/certifications/<name>.json` (the section above).
+3. `wp duo manifest-pin --repo=<site-repo> --name=<name>`, and commit the
+   emitted `{name,source:"site",digest}` pin.
+
+The site copy then wins by precedence and the bundled copy reports as not
+installed. The plugin stays active throughout; nothing has to be deactivated
+and no command breaks in between. Run `wp duo adapter-survey [--repo=<path>]`
+on the target to see all three sources, since the host-side `duo adapter`
+commands are WordPress-free and cannot reach the plugin directory.
+
 ## Planned: what an adapter cannot express yet
 
 Four shipped channels cover what a plugin needs to *do*: **native actions** for
@@ -650,22 +701,28 @@ core-owned operations, **providers** for plugin-owned ones, **regenerators**
 for per-entity derived rebuild, **interpreters** for schema-driven
 classification. What is still missing sits above them.
 
-**Remote adapter discovery, executable adapter packages, compatibility shims,
-and a public capability catalog** are **Planned (DUO-3339)**. Site-repository
-discovery, derived trust tiers, loud unsigned support, and agent-authority
-signed evidence ship now. What remains absent is a remote/catalog mechanism or
-any way for a site adapter to introduce executable code outside an installed
-plugin; do not work around that boundary with manifest fields or copied PHP.
+**REMOTE adapter discovery, executable adapter packages, compatibility shims,
+and a public capability catalog** are **Planned**. Site-repository discovery,
+plugin-bundled discovery, packaged installation (into the site source, with a
+signed certificate), derived trust tiers, loud unsigned support, and
+agent-authority signed evidence all ship now. What remains absent is a
+remote/registry mechanism that tells you an adapter you do not already have
+EXISTS, and any way for an out-of-tree adapter to introduce executable code
+outside an installed plugin; do not work around that boundary with manifest
+fields or copied PHP.
 
 What ships for the adapters you already have is the **installed-adapter
-catalog**: `duo adapter list|inspect|doctor` reports both installed sources
-offline, printing each adapter's derived trust tier — `declarative_manifest`,
+catalog**: `duo adapter list|inspect|doctor` reports the two host-reachable
+sources offline (and `wp duo adapter-survey` all three, on the target),
+printing each adapter's derived trust tier — `declarative_manifest`,
 `native_action`, `plugin_provider`, or `compatibility_shim`, computed from the
 privileges its own declarations actually reach and never self-declared — next
 to a `tier_basis` naming the exact declaration that produced it. `doctor`
 reports the discovery conditions that make every other command refuse
 (shadowing, ambiguous identity, case-confusable names, an invalid identity
-slug, a certificate that does not verify) as rows rather than dying on them.
+slug, a certificate that does not verify) as rows rather than dying on them,
+each row naming which source it is about and whether it refused that whole
+source or just one adapter.
 Separately, `duo plan` and `duo status` now carry `provider_problems` rows for
 every declared provider capability an environment cannot supply, with
 remediation.

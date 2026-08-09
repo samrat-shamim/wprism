@@ -157,14 +157,23 @@ Verbs:
                           vocabularies at emission time (with a `coverage` note
                           stating what it does NOT publish). Exit 0 all valid,
                           1 any invalid, 2 usage/IO.
-  adapter list            The installed adapter catalog, from both sources the
-    [--repo=<site-repo>]  engine has: the agent's own manifest library and, with
-    [--format=json]       --repo, that site repository's own adapters/ overlay.
-                          One row per adapter — name, source, derived trust tier
-                          and the exact declaration that produced it, reviewed
+  adapter list            The installed adapter catalog, from the two sources
+    [--repo=<site-repo>]  this WordPress-free process can reach: the agent's own
+    [--format=json]       manifest library and, with --repo, that site
+                          repository's own adapters/ overlay. One row per
+                          adapter — name, source, derived trust tier and the
+                          exact declaration that produced it, reviewed
                           disposition status or `uncertified`, and an isolated
                           grammar verdict from the REAL loader. No environment,
                           no transport, no WordPress.
+                          The engine has a THIRD source — one duo-adapter.json
+                          at the root of each active plugin that bundles one —
+                          which lives in WP_PLUGIN_DIR and is therefore only
+                          reachable on the target: run
+                          `wp duo adapter-survey [--repo=<path>]` there. Every
+                          run prints a `sources` block marking each of the three
+                          scanned or not scanned, so an empty result is never
+                          mistaken for "nothing is installed".
   adapter inspect <name>  One adapter in full: the list row plus its reviewed
     [--repo=<site-repo>]  disposition entry, its generated registry claim
     [--format=json]       (digest, supported versions, operations, surfaces,
@@ -180,7 +189,13 @@ Verbs:
                           an ambiguous identity, a case-confusable name, a
                           symlink, a nested or near-miss .json, a reserved name
                           — each as a ROW carrying the engine's own message, its
-                          code, and its remediation. This is the one command
+                          code, its remediation, and which source it is about
+                          plus whether it refused that whole source or one
+                          adapter. Adapters that are installed and NOT loaded
+                          (a plugin bundling a name a reviewed adapter already
+                          answers to) print too, and deliberately never change
+                          the exit code: that is precedence working, not a
+                          fault. This is the one command
                           that reports those states instead of dying on them,
                           which is the point: it is what an operator can still
                           run when the repository is in one. Offline-honest —

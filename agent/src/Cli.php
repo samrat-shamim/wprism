@@ -7,7 +7,7 @@ require_once __DIR__ . '/PlanExplanation.php';
 use WP_CLI;
 
 /**
- * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|orphans|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
+ * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-survey|orphans|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'duo-command-refusal/v1';
@@ -2014,6 +2014,13 @@ final class Cli {
      * error. Fix the repository, or omit --repo when pinning a shipped
      * adapter, which needs no repository at all.
      *
+     * The emitted pin carries whatever source the name actually resolved
+     * from, including DUO-3339's `"plugin"`. There is deliberately no flag to
+     * ask for that: pasting the emitted object into site.duo.json IS the
+     * deliberate act — the same place bind_explicit_pins() puts deliberateness
+     * for a signed site adapter — and a pin naming `plugin` then refuses
+     * loudly the day a reviewed definition claims that name instead.
+     *
      * ## OPTIONS
      * --name=<name> : Manifest file name without the .json suffix.
      * [--repo=<path>] : Site repository whose `adapters/` source may also supply the manifest.
@@ -2042,6 +2049,208 @@ final class Cli {
             WP_CLI::error($t->getMessage());
         }
         WP_CLI::line(rtrim(Canon::encode($pin)));
+    }
+
+    /**
+     * Every adapter installed ON THIS TARGET, across all three sources, with
+     * everything that is wrong with them (DUO-3339).
+     *
+     * This verb is structurally required rather than a convenience. The host
+     * command `duo adapter list|inspect|doctor` runs WordPress-free, so it can
+     * never see the third adapter source: a bundled `duo-adapter.json` lives
+     * under WP_PLUGIN_DIR, which only the target has. Without this verb the
+     * plugin source would be discoverable by nothing, and "never silently
+     * omit" is the whole point of the catalog surface.
+     *
+     * It is deliberately THIN — AdapterSources::survey() is the same one scan
+     * discover() runs, so a refusal reported here is the engine's own refusal
+     * with its own message, and the host catalog and this verb cannot drift
+     * into two descriptions of one rule. Everything it does NOT do is in the
+     * emitted `deferred` list, on every run, passing or failing.
+     *
+     * Exits 1 when anything was surfaced (a refusal, or a grammar verdict that
+     * is not `ok`), matching every other finding-reporting verb here.
+     * `not_installed` rows deliberately do NOT flip it: a shadowed adapter is
+     * the precedence rule working, and a permanently red survey on every site
+     * running a plugin that bundles a colliding name would destroy the exit
+     * code's meaning.
+     *
+     * ## OPTIONS
+     * [--repo=<path>] : Site repository whose adapters/ source and pins also count.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand adapter-survey
+     */
+    public function adapter_survey($args, $assoc) {
+        $repo = isset($assoc['repo']) ? (string) $assoc['repo'] : null;
+        try {
+            $survey = AdapterSources::survey($repo);
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+        $grammarErrors = 0;
+        $grammarUnjudged = 0;
+        foreach ($survey['adapters'] as $row) {
+            $grammarErrors += $row['grammar']['status'] === AdapterSources::GRAMMAR_ERROR ? 1 : 0;
+            $grammarUnjudged += $row['grammar']['status'] === AdapterSources::GRAMMAR_BLOCKED ? 1 : 0;
+        }
+        $counts = [];
+        foreach ([AdapterSources::SHIPPED, AdapterSources::SITE, AdapterSources::PLUGIN] as $source) {
+            $counts[$source] = count(array_filter(
+                $survey['adapters'],
+                static fn(array $r): bool => $r['source'] === $source
+            ));
+        }
+        $document = [
+            'format' => 'duo-adapter-catalog/v2',
+            'spec_version' => DUO_SPEC_VERSION,
+            'command' => 'survey',
+            'manifests_dir' => Policy::manifests_dir(),
+            'repo' => $repo,
+            'sources' => $survey['sources'],
+            'adapters' => $survey['adapters'],
+            'not_installed' => $survey['not_installed'],
+            'refusals' => $survey['refusals'],
+            'deferred' => self::adapter_survey_deferred(),
+            'summary' => [
+                'adapters' => count($survey['adapters']),
+                'shipped' => $counts[AdapterSources::SHIPPED],
+                'site' => $counts[AdapterSources::SITE],
+                'plugin' => $counts[AdapterSources::PLUGIN],
+                'not_installed' => count($survey['not_installed']),
+                'grammar_error' => $grammarErrors,
+                'grammar_unjudged' => $grammarUnjudged,
+                'refusals' => count($survey['refusals']),
+            ],
+        ];
+        $findings = $survey['refusals'] !== [] || $grammarErrors > 0 || $grammarUnjudged > 0;
+        $document['status'] = $findings ? 'error' : 'ok';
+
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($document, JSON_UNESCAPED_SLASHES));
+            if ($findings) {
+                WP_CLI::halt(1);
+            }
+            return;
+        }
+
+        WP_CLI::line('manifests dir: ' . $document['manifests_dir']);
+        WP_CLI::line('site repo:     ' . ($repo ?? '(none)'));
+        WP_CLI::line('');
+        WP_CLI::line('adapter sources (three exist; this run reached the ones marked scanned):');
+        foreach ($survey['sources'] as $source) {
+            WP_CLI::line(sprintf(
+                '  [%s] %-8s %s',
+                empty($source['scanned']) ? 'not scanned' : '  scanned  ',
+                (string) $source['source'],
+                (string) ($source['path'] ?? '(none)')
+            ));
+            WP_CLI::line('          ' . (string) ($source['note'] ?? ''));
+        }
+        WP_CLI::line('');
+        WP_CLI::line('installed adapters (each grammar verdict is an ISOLATED load; see deferred):');
+        foreach ($survey['adapters'] as $row) {
+            WP_CLI::line(sprintf(
+                '  [%s] %-28s %-8s %-21s %-13s %s',
+                $row['grammar']['status'],
+                $row['name'],
+                $row['source'],
+                $row['trust_tier'],
+                $row['certification'] ?? 'no-registry',
+                $row['path']
+            ));
+            WP_CLI::line('          tier basis: ' . $row['tier_basis']);
+            if ($row['grammar']['message'] !== null) {
+                WP_CLI::line('          ' . $row['grammar']['message']);
+            }
+        }
+        if ($survey['adapters'] === []) {
+            WP_CLI::line('  (none)');
+        }
+        WP_CLI::line('');
+        WP_CLI::line('installed, NOT loaded (reported every run; never the exit code — this is precedence working):');
+        foreach ($survey['not_installed'] as $row) {
+            $winner = is_array($row['winner'] ?? null) ? $row['winner'] : null;
+            WP_CLI::line('  [' . $row['reason_code'] . '] ' . ($row['name'] ?? '(name unreadable)')
+                . ' — ' . $row['path']
+                . ($winner === null ? '' : ' — ' . $winner['source'] . ' answers to this name ('
+                    . $winner['path'] . ')'));
+            WP_CLI::line('          ' . $row['message']);
+        }
+        if ($survey['not_installed'] === []) {
+            WP_CLI::line('  (none)');
+        }
+        WP_CLI::line('');
+        WP_CLI::line('refusals — installed files the engine will not load, and why:');
+        foreach ($survey['refusals'] as $refusal) {
+            WP_CLI::line('  [' . $refusal['code'] . '] [' . ($refusal['source'] ?? '?') . ' source, '
+                . ($refusal['scope'] ?? '?') . ' scope] ' . implode(', ', (array) $refusal['paths']));
+            WP_CLI::line('          ' . $refusal['message']);
+            WP_CLI::line('          remediation: ' . $refusal['remediation']);
+        }
+        if ($survey['refusals'] === []) {
+            WP_CLI::line('  (none)');
+        }
+        WP_CLI::line('');
+        WP_CLI::line('deferred — NOT checked here, and not checked anywhere else by this command:');
+        foreach ($document['deferred'] as $row) {
+            WP_CLI::line('  [deferred] ' . $row['surface'] . ' — ' . $row['check']);
+            WP_CLI::line('             ' . $row['why']);
+        }
+        $s = $document['summary'];
+        WP_CLI::line('');
+        WP_CLI::line("summary: {$s['adapters']} adapter(s) installed ({$s['shipped']} shipped, {$s['site']} site, "
+            . "{$s['plugin']} plugin), {$s['not_installed']} installed but not loaded, {$s['grammar_error']} "
+            . "grammar error(s), {$s['grammar_unjudged']} unjudged, {$s['refusals']} refusal(s); "
+            . count($document['deferred']) . ' check(s) NOT performed here');
+        if ($findings) {
+            WP_CLI::halt(1);
+        }
+    }
+
+    /**
+     * What the survey does not answer, emitted unconditionally for the reason
+     * `duo manifest-validate` and `duo adapter doctor` both give: a tool that
+     * listed its limits only on failure would let silence read as "everything
+     * about these adapters is verified".
+     *
+     * Shorter than the host catalog's list by exactly one row — this process
+     * IS the target, so the plugin source is scanned rather than deferred.
+     *
+     * @return list<array{status:string, surface:string, check:string, why:string}>
+     */
+    private static function adapter_survey_deferred() {
+        $rows = [
+            [
+                'surface' => 'interpreter / post_types[].regen_dependency.regenerator / providers[].source=manifest',
+                'check' => 'Policy::interpreters() / Policy::regenerators() / Providers::diagnose()',
+                'why' => 'the manifest-shipped PHP these name is REPORTED here (it is what the trust tier is '
+                    . 'derived from) and deliberately never loaded: checking that a file defines its contract '
+                    . 'class requires running its top level and its constructor, which an inventory of what is '
+                    . 'installed must not do',
+            ],
+            [
+                'surface' => 'the pinned SET (cross-manifest guards)',
+                'check' => 'Policy::validate_one_owner_per_declared_name() / '
+                    . 'validate_no_conflicting_provider_ids() / validate_no_conflicting_adapter_claims()',
+                'why' => "each adapter's grammar verdict here is an ISOLATED load, so a manifest can read `ok` "
+                    . 'and still be illegal in company — one owner per declared name, globally unique provider '
+                    . 'ids, and one plugin/theme range per claim are properties of a SET, which `duo plan` and '
+                    . '`duo apply` co-load',
+            ],
+            [
+                'surface' => 'provider negotiation and certification against this environment',
+                'check' => 'Providers::negotiate() / CapabilityRegistry::report()',
+                'why' => 'whether a declared provider answers, whether its owning plugin is inside its version '
+                    . 'window, and whether a capability claim holds for this WordPress/PHP/database are '
+                    . 'negotiated and evaluated facts, not declared ones — run `wp duo capabilities --repo=<path>` '
+                    . 'and `duo plan <env>` for those',
+            ],
+        ];
+        foreach ($rows as $i => $row) {
+            $rows[$i] = ['status' => 'deferred'] + $row;
+        }
+        return $rows;
     }
 
     /**

@@ -174,11 +174,11 @@ final class Policy {
                 (string) $p->adapterSources->path($key)
             );
             if ($p->adapterSources->is_out_of_tree($key)) {
-                AdapterSources::assert_out_of_tree_contract(
-                    $manifest,
-                    $key,
-                    (string) $p->adapterSources->path($key)
-                );
+                // The instance picks the noun and the path from the origin it
+                // actually resolved: with three sources, a hardcoded "site
+                // adapter" would have named the wrong directory to go fix for
+                // every plugin-bundled manifest.
+                $p->adapterSources->assert_installed_contract($key, $manifest);
             }
             self::validate_field_classes($manifest);
             self::validate_menu_field_classes($manifest);
@@ -677,11 +677,23 @@ self::validate_post_type_children($manifest);
                 );
             }
             $source = $raw['source'] ?? null;
-            if ($source !== null && !in_array($source, [AdapterSources::SHIPPED, AdapterSources::SITE], true)) {
+            // DUO-3339 adds the third source word. It is accepted in a pin for
+            // the same reason the other two are: validate_manifest_sources()
+            // below refuses a pin whose named source stops answering, which is
+            // the only thing that makes writing one down worth anything. A
+            // `plugin` pin is a deliberate statement that this site runs a
+            // definition a plugin bundles — and because precedence ranks the
+            // sources, a site or shipped adapter later claiming that name makes
+            // the pin refuse loudly rather than silently swapping the winner.
+            if ($source !== null && !in_array(
+                $source,
+                [AdapterSources::SHIPPED, AdapterSources::SITE, AdapterSources::PLUGIN],
+                true
+            )) {
                 throw new \RuntimeException(
                     "duo: site.duo.json manifest '{$raw['name']}' declares source " . var_export($source, true)
-                    . ' — the installed adapter sources are "' . AdapterSources::SHIPPED . '" and "'
-                    . AdapterSources::SITE . '"'
+                    . ' — the installed adapter sources are "' . AdapterSources::SHIPPED . '", "'
+                    . AdapterSources::SITE . '", and "' . AdapterSources::PLUGIN . '"'
                 );
             }
             $pins[] = ['name' => $raw['name'], 'digest' => $digest, 'source' => $source];
@@ -700,6 +712,16 @@ self::validate_post_type_children($manifest);
     private static function validate_manifest_sources(array $pins, AdapterSources $sources): void {
         foreach ($pins as $pin) {
             if ($pin['source'] === null) {
+                continue;
+            }
+            // A name nothing installed has no source to disagree with, and
+            // source() answers `shipped` by default. Reporting that as "you
+            // pinned plugin but it resolves from the shipped source" describes
+            // a shipped adapter that does not exist, and — since DUO-3339 —
+            // hides the honest answer: file() below throws the plugin
+            // source's own recorded refusal for exactly this name, with its
+            // remediation, or a not-found naming every source searched.
+            if ($sources->path($pin['name']) === null) {
                 continue;
             }
             $actual = $sources->source($pin['name']);

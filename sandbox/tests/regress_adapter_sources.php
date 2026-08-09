@@ -1076,8 +1076,26 @@ expect_throw(
 );
 expect_throw(
     fn() => Policy::load(fresh_site([['name' => 'core', 'source' => 'vendor']])),
-    'the installed adapter sources are',
-    'an unknown pin source is refused and the real sources are named'
+    'the installed adapter sources are "shipped", "site", and "plugin"',
+    'an unknown pin source is refused and ALL THREE real sources are named (DUO-3339/B2 added the third; a pin '
+    . 'vocabulary that lagged the scan would refuse a source the engine actually installs from)'
+);
+// The pin source vocabulary is a PHP literal inside
+// Policy::normalize_manifest_pins(), never published data — which is why
+// DUO-3339/B2 added a third source word without moving one shipped manifest
+// byte or one release-gate byte comparison. Asserted rather than assumed,
+// because the day it IS published, adding a source becomes a shipped-artifact
+// change and this suite is where that has to be noticed.
+// Checked on the ADAPTER-source-specific word. `provider_sources` legitimately
+// publishes "plugin", and it is a different vocabulary about a different
+// decision (which tree a PROVIDER's code loads from); "shipped" is the word
+// only the adapter-source list has, so it is the one that proves the list is
+// not published.
+$publishedVocabularies = json_encode(Policy::closed_vocabularies(), JSON_UNESCAPED_SLASHES);
+check(
+    !str_contains((string) $publishedVocabularies, '"' . AdapterSources::SHIPPED . '"'),
+    'the adapter SOURCE vocabulary is engine code rather than a published closed vocabulary, so growing it moves '
+    . 'no shipped bytes'
 );
 expect_throw(
     fn() => Policy::load(fresh_site([['name' => 'core', 'registry' => 'internal']])),
@@ -1245,6 +1263,128 @@ check(
     $snapshot['adapter_sources']['out_of_tree']['acme-widget']['provenance']['sha256']
         === hash('sha256', Canon::encode($overlay->manifests[1])),
     'the recorded provenance hash is the canonical manifest hash — recomputable on the frozen path, not an unverifiable breadcrumb'
+);
+
+// ======================================================================
+echo "\n== a frozen PLUGIN-BUNDLED record re-derives its path from the manifest (DUO-3339/B2) ==\n";
+// ======================================================================
+// This process has no WP_PLUGIN_DIR and never will, which is exactly the
+// point: a verification process reconstructs a bundled adapter WITHOUT
+// reopening the plugin directory it came from. It can only do that because the
+// anchor rule makes `plugin` mandatory, so `plugins/<dir>/duo-adapter.json` is
+// a function of a claim the frozen manifest already carries — which is why
+// B2 needed no new wire key and no snapshot format bump.
+$bundledManifest = site_adapter('acme-widget', [
+    'plugin' => 'acme/acme.php',
+    'version_range' => ['min' => '1.0.0', 'max' => '9.0.0'],
+]);
+$bundledSnapshot = $snapshot;
+$bundledSnapshot['manifests'][1] = $bundledManifest;
+$bundledSnapshot['adapter_sources']['out_of_tree']['acme-widget'] = [
+    'certification' => 'uncertified',
+    'provenance' => [
+        'format' => AdapterSources::FORMAT,
+        'path' => 'plugins/acme/duo-adapter.json',
+        'sha256' => hash('sha256', Canon::encode($bundledManifest)),
+        'source' => AdapterSources::PLUGIN,
+    ],
+    'reason' => "adapter 'acme-widget' is bundled by the active plugin 'acme/acme.php' "
+        . '(plugins/acme/duo-adapter.json) and carries no reviewed certification evidence; a bundled adapter '
+        . 'cannot be certified in place — certification is a repository-scoped signed companion at '
+        . 'adapters/certifications/acme-widget.json.',
+    'status' => 'uncertified',
+    'trust_tier' => AdapterSources::TIER_DECLARATIVE,
+];
+$bundledFrozen = Policy::from_snapshot($bundledSnapshot);
+check(
+    $bundledFrozen->adapter_sources()->source('acme-widget') === AdapterSources::PLUGIN
+    && $bundledFrozen->adapter_sources()->path('acme-widget') === 'plugins/acme/duo-adapter.json'
+    && $bundledFrozen->adapter_sources()->is_out_of_tree('acme-widget'),
+    'a frozen plugin-bundled record reconstructs with its own source and path in a process with no plugin directory at all'
+);
+check(
+    $bundledFrozen->adapter_sources()->sources() === []
+    && $bundledFrozen->adapter_sources()->not_installed() === []
+    && $bundledFrozen->adapter_sources()->plugin_refusals() === [],
+    'and reports honestly that it scanned nothing — a reconstructed policy reopened no source, so it knows nothing about this machine'
+);
+$bundledTamper = $bundledSnapshot;
+$bundledTamper['adapter_sources']['out_of_tree']['acme-widget']['provenance']['path'] =
+    'plugins/other/duo-adapter.json';
+expect_throw(
+    fn() => Policy::from_snapshot($bundledTamper),
+    'the only path this record can describe',
+    'a frozen bundled record naming a different plugin directory than its own manifest claims is refused — the expected path is DERIVED from the manifest, so relabeling has nothing to express'
+);
+$bundledTraversal = $bundledSnapshot;
+$bundledTraversal['manifests'][1]['plugin'] = '../../etc/x.php';
+$bundledTraversal['adapter_sources']['out_of_tree']['acme-widget']['provenance']['sha256'] =
+    hash('sha256', Canon::encode($bundledTraversal['manifests'][1]));
+expect_throw(
+    fn() => Policy::from_snapshot($bundledTraversal),
+    'never one containing a ".." segment',
+    'and the derivation runs through assert_plugin_basename(), so a traversing plugin claim cannot produce a path at all'
+);
+$bundledNoPlugin = $bundledSnapshot;
+unset($bundledNoPlugin['manifests'][1]['plugin'], $bundledNoPlugin['manifests'][1]['version_range']);
+$bundledNoPlugin['adapter_sources']['out_of_tree']['acme-widget']['provenance']['sha256'] =
+    hash('sha256', Canon::encode($bundledNoPlugin['manifests'][1]));
+expect_throw(
+    fn() => Policy::from_snapshot($bundledNoPlugin),
+    'plugin basename',
+    'a frozen bundled record whose manifest declares no owning plugin has no derivable path and is refused'
+);
+$bundledSingleFile = $bundledSnapshot;
+$bundledSingleFile['manifests'][1]['plugin'] = 'acme.php';
+$bundledSingleFile['adapter_sources']['out_of_tree']['acme-widget']['provenance']['sha256'] =
+    hash('sha256', Canon::encode($bundledSingleFile['manifests'][1]));
+expect_throw(
+    fn() => Policy::from_snapshot($bundledSingleFile),
+    'no directory of its own to bundle an adapter in',
+    'and a single-file plugin, which has no directory, cannot be the anchor of a frozen bundled record either'
+);
+$bundledRelabelledSite = $bundledSnapshot;
+$bundledRelabelledSite['adapter_sources']['out_of_tree']['acme-widget']['provenance']['source'] =
+    AdapterSources::SITE;
+expect_throw(
+    fn() => Policy::from_snapshot($bundledRelabelledSite),
+    'the only path this record can describe',
+    'flipping a frozen bundled record to the site source is refused: the two sources derive different paths, so the label and the path cannot both be believed'
+);
+$bundledShim = $bundledSnapshot;
+$bundledShim['adapter_sources']['out_of_tree']['acme-widget']['trust_tier'] =
+    AdapterSources::TIER_COMPATIBILITY_SHIM;
+expect_throw(
+    fn() => Policy::from_snapshot($bundledShim),
+    'is malformed',
+    'and the tier whitelist is the same one: a bundled record cannot claim a trust tier no out-of-tree adapter can hold'
+);
+// The privilege boundary is the SAME check for both out-of-tree sources, and
+// only its noun changes. That noun is not cosmetic: it is the directory an
+// operator is being sent to go fix, and "site adapter
+// 'plugins/acme/duo-adapter.json'" names one that does not hold the file.
+$bundledInterpreter = $bundledSnapshot;
+$bundledInterpreter['manifests'][1]['interpreter'] = 'acf';
+$bundledInterpreter['adapter_sources']['out_of_tree']['acme-widget']['provenance']['sha256'] =
+    hash('sha256', Canon::encode($bundledInterpreter['manifests'][1]));
+expect_throw(
+    fn() => Policy::from_snapshot($bundledInterpreter),
+    "duo: plugin adapter 'plugins/acme/duo-adapter.json' declares interpreter",
+    'a frozen bundled record reaching for executable privilege is refused by the SAME contract the site source '
+    . 'uses, and the message names the PLUGIN adapter and its bundled path rather than a site directory that does '
+    . 'not hold the file'
+);
+
+$bundledLegacy = $bundledSnapshot;
+$bundledLegacy['format'] = 'duo-policy-snapshot/v4';
+$bundledLegacy['adapter_sources']['format'] = AdapterSources::LEGACY_FORMAT;
+unset($bundledLegacy['adapter_sources']['certificates']);
+$bundledLegacy['adapter_sources']['out_of_tree']['acme-widget']['provenance']['format'] =
+    AdapterSources::LEGACY_FORMAT;
+expect_throw(
+    fn() => Policy::from_snapshot($bundledLegacy),
+    'is malformed',
+    'a legacy v1 snapshot cannot carry a bundled record at all — v1 predates the plugin source, so such a snapshot is one no version of this engine ever wrote'
 );
 
 // ======================================================================
