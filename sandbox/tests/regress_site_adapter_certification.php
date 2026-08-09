@@ -24,13 +24,61 @@ require_once __DIR__ . '/../../agent/src/CapabilityRegistry.php';
 require_once __DIR__ . '/../../agent/src/Policy.php';
 require_once __DIR__ . '/../../agent/src/RepositoryCompiler.php';
 require_once __DIR__ . '/../../agent/src/AdapterCertification.php';
+require_once __DIR__ . '/../../agent/src/Deploy.php';
+require_once __DIR__ . '/../../agent/src/Providers.php';
+require_once __DIR__ . '/../../cli/src/PlanSummary.php';
 require_once __DIR__ . '/../../cli/src/CodeDeploy.php';
+
+/** Minimal command runner surface for exercising the real Cli handler offline. */
+if (!class_exists('WP_CLI', false)) {
+    final class WP_CLI {
+        public static array $lines = [];
+
+        public static function add_command($name, $class): void {}
+        public static function line($line): void { self::$lines[] = (string) $line; }
+        public static function warning($message): void { self::line('WARNING: ' . $message); }
+        public static function success($message): void { self::line('SUCCESS: ' . $message); }
+        public static function halt($code): void { throw new RuntimeException('WP_CLI halt ' . $code); }
+        public static function error($message): void { throw new RuntimeException((string) $message); }
+    }
+}
+
+// These are the narrow WordPress runtime seams Deploy::plugin_runtime_state()
+// and Providers::plugin_supplied_providers() use. They intentionally return
+// only the fixture's installed/active plugin and one plugin-owned object;
+// there is no WordPress bootstrap or network access in this regression.
+if (!function_exists('is_wp_error')) {
+    function is_wp_error($value): bool { return false; }
+}
+if (!function_exists('validate_plugin')) {
+    function validate_plugin($plugin): bool { return (string) $plugin === 'acme/acme.php'; }
+}
+if (!function_exists('get_plugins')) {
+    function get_plugins(): array {
+        return ['acme/acme.php' => ['Version' => '1.2.3']];
+    }
+}
+if (!function_exists('get_option')) {
+    function get_option($name, $default = false) {
+        return $name === 'active_plugins' ? ['acme/acme.php'] : $default;
+    }
+}
+if (!function_exists('apply_filters')) {
+    function apply_filters($tag, $value) {
+        return $tag === 'duo_providers'
+            ? (array) ($GLOBALS['cert_plugin_providers'] ?? [])
+            : $value;
+    }
+}
+require_once __DIR__ . '/../../agent/src/Cli.php';
 
 use Duo\AdapterCertification;
 use Duo\Canon;
 use Duo\Policy;
+use Duo\Providers;
 use Duo\RepositoryCompiler;
 use Duo\Orchestrator\CodeDeploy;
+use Duo\Orchestrator\PlanSummary;
 
 $failures = 0;
 
@@ -138,6 +186,7 @@ function cert_write_bundle(
     array $ratification,
     array $options = []
 ): string {
+    $name = (string) ($options['name'] ?? 'site-demo');
     $environment = [
         'multisite' => false,
         'php' => '8.3.0',
@@ -157,9 +206,9 @@ function cert_write_bundle(
     cert_write_canon($dir . '/diffs/site-conformance.json', ['changed' => [], 'status' => 'clean']);
     cert_write($dir . '/logs/site-conformance.txt', "site adapter conformance passed\n");
 
-    $adapterPath = $site . '/adapters/site-demo.json';
+    $adapterPath = $site . '/adapters/' . $name . '.json';
     $boundInputs = $options['bound_inputs'] ?? [
-        cert_descriptor($adapterPath, 'adapters/site-demo.json'),
+        cert_descriptor($adapterPath, 'adapters/' . $name . '.json'),
     ];
     $bundle = [
         'artifacts' => [],
@@ -172,7 +221,7 @@ function cert_write_bundle(
         'harness' => ['name' => 'site-adapter-certification-regression', 'version' => 1],
         'ratification' => cert_descriptor($dir . '/ratification.json', 'ratification.json'),
         'ratification_summary' => [
-            'certified_claims' => ['manifests.site-demo'],
+            'certified_claims' => ['manifests.' . $name],
             'manifest_count' => 1,
             'profile_count' => 0,
         ],
@@ -408,6 +457,182 @@ $verify = cert_run([
 ]);
 cert_check($verify['exit'] === 0 && is_array(json_decode($verify['stdout'], true)), 'verification tool revalidates the exact path-derived certificate');
 
+echo "\n== plugin-owned provider certification and offline negotiation ==\n";
+$providerSite = $root . '/provider-site';
+$providerBundle = $root . '/provider-bundle';
+$providerAgent = $root . '/provider-agent';
+$providerPolicyManifests = $root . '/provider-policy-manifests';
+$providerRange = ['min' => '1.0.0', 'max' => '2.0.0'];
+$providerManifest = [
+    'actions' => [[
+        'args' => [],
+        'capability' => 'rebuild_cache',
+        'effects' => [[
+            'id' => 'site-provider-effect',
+            'kind' => 'external',
+            'mode' => 'irreversible',
+            'selector' => [
+                'scope' => 'external',
+                'type' => 'provider_resource',
+                'value' => 'provider:site-cache/rebuild_cache',
+            ],
+        ]],
+        'kind' => 'provider',
+        'provider' => 'site-cache',
+        'triggers' => ['post:page'],
+    ]],
+    'name' => 'site-plugin',
+    'option_autoload' => 'preserve',
+    'plugin' => 'acme/acme.php',
+    'post_types' => [],
+    'providers' => [[
+        'capabilities' => ['rebuild_cache'],
+        'id' => 'site-cache',
+        'plugin' => 'acme/acme.php',
+        'source' => 'plugin',
+        'version' => '1.2.3',
+    ]],
+    'spec_version' => DUO_SPEC_VERSION,
+    'tables' => [],
+    'version_range' => $providerRange,
+];
+$providerRatification = $ratification;
+$providerRatification['manifests'] = [
+    'site-plugin' => $ratification['manifests']['site-demo'],
+];
+$providerRatification['manifests']['site-plugin']['reason'] =
+    'The external review covered this exact plugin-owned provider adapter and its typed action boundary.';
+$providerRatification['manifests']['site-plugin']['supported_versions'] = [
+    'plugin' => 'acme/acme.php',
+    'range' => $providerRange,
+];
+cert_write_canon($providerSite . '/adapters/site-plugin.json', $providerManifest);
+cert_write_canon($providerPolicyManifests . '/site-plugin.json', $providerManifest);
+putenv('DUO_MANIFESTS_DIR=' . $providerPolicyManifests);
+try {
+    Policy::load(null, ['site-plugin']);
+    cert_check(true, 'the plugin-provider fixture is a valid structured spec-v2 manifest without loading provider code');
+} catch (Throwable $e) {
+    cert_check(false, 'the plugin-provider fixture is a valid structured spec-v2 manifest without loading provider code (' . $e->getMessage() . ')');
+}
+putenv('DUO_MANIFESTS_DIR');
+
+$providerKeys = new stdClass();
+$providerKeys->{'provider-key'} = [
+    'adapter_names' => ['site-plugin'],
+    'algorithm' => 'ed25519',
+    'public_key' => base64_encode($public),
+    'scope' => 'site_adapter_certification',
+    'status' => 'trusted',
+    'trust_tiers' => ['plugin_provider'],
+];
+$providerAuthorities = [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => $providerKeys,
+];
+cert_write_canon($providerAgent . '/capabilities/registry.json', [
+    'format' => 'duo-capability-registry/v1',
+    'platform' => $platform,
+]);
+cert_write_canon($providerAgent . '/capabilities/adapter-authorities.json', $providerAuthorities);
+cert_write_bundle($providerBundle, $providerSite, $providerRatification, ['name' => 'site-plugin']);
+
+// A provider-capable adapter must not be certifiable with a lower authority
+// tier, even when the key and bundle are otherwise valid.
+$providerKeys->{'provider-key'}['trust_tiers'] = ['declarative_manifest'];
+cert_write_canon($providerAgent . '/capabilities/adapter-authorities.json', $providerAuthorities);
+$badProviderTier = cert_run([
+    PHP_BINARY,
+    __DIR__ . '/../../scripts/adapter-certification.php',
+    'sign',
+    '--manifest-dir=' . $providerAgent,
+    '--repo=' . $providerSite,
+    '--name=site-plugin',
+    '--bundle=' . $providerBundle,
+    '--evidence-repo=' . $providerSite,
+    '--authority=provider-key',
+    '--secret-key-file=' . $root . '/review-secret.key',
+]);
+cert_check(
+    $badProviderTier['exit'] !== 0 && str_contains($badProviderTier['stderr'], 'not scoped to derived trust tier'),
+    'a plugin-provider certificate cannot be signed by an authority scoped only to declarative manifests'
+);
+$providerKeys->{'provider-key'}['trust_tiers'] = ['plugin_provider'];
+cert_write_canon($providerAgent . '/capabilities/adapter-authorities.json', $providerAuthorities);
+$providerSign = cert_run([
+    PHP_BINARY,
+    __DIR__ . '/../../scripts/adapter-certification.php',
+    'sign',
+    '--manifest-dir=' . $providerAgent,
+    '--repo=' . $providerSite,
+    '--name=site-plugin',
+    '--bundle=' . $providerBundle,
+    '--evidence-repo=' . $providerSite,
+    '--authority=provider-key',
+    '--secret-key-file=' . $root . '/review-secret.key',
+]);
+$providerCertPath = $providerSite . '/adapters/certifications/site-plugin.json';
+cert_check(
+    $providerSign['exit'] === 0 && is_file($providerCertPath),
+    'the real signer emits a signed plugin-provider certificate from an offline bundle'
+);
+$providerVerified = AdapterCertification::verifyFile(
+    $providerAgent,
+    $providerSite,
+    'site-plugin',
+    $providerManifest,
+    $providerCertPath
+);
+cert_check(
+    ($providerVerified['disposition']['certification'] ?? null) === 'certified'
+    && ($providerVerified['disposition']['trust_tier'] ?? null) === 'plugin_provider'
+    && ($providerVerified['claim']['provider_code']['binding'] ?? null) === 'providers_negotiation',
+    'the signed provider adapter proves plugin_provider authority scope while executable semantics remain negotiation-bound'
+);
+
+$pluginDir = $root . '/wp-content/plugins';
+$pluginFile = $pluginDir . '/acme/acme.php';
+cert_write($pluginFile, <<<'PLUGIN'
+<?php
+final class DuoCertificationPluginProvider {
+    public function identity(): array {
+        return ['id' => 'site-cache', 'plugin' => 'acme/acme.php', 'version' => '1.2.3'];
+    }
+
+    public function capabilities(): array {
+        return ['rebuild_cache' => [
+            'args' => [],
+            'idempotent' => true,
+            'reads' => ['post:page'],
+            'scope' => 'site',
+            'timeout_seconds' => 1,
+            'writes' => ['post:page'],
+        ]];
+    }
+
+    public function invoke(string $capability, array $args): array {
+        if ($capability !== 'rebuild_cache' || $args !== []) {
+            throw new RuntimeException('unexpected provider fixture invocation');
+        }
+        return ['before' => 'fixture-before', 'after' => 'fixture-after', 'verified' => true];
+    }
+}
+PLUGIN
+);
+require_once $pluginFile;
+$GLOBALS['cert_plugin_providers'] = [new \DuoCertificationPluginProvider()];
+if (!defined('WP_PLUGIN_DIR')) {
+    define('WP_PLUGIN_DIR', $pluginDir);
+}
+$providerReflection = new ReflectionClass($GLOBALS['cert_plugin_providers'][0]);
+$providerCodeFile = $providerReflection->getFileName();
+cert_check(
+    is_string($providerCodeFile)
+    && str_starts_with((string) realpath($providerCodeFile), rtrim((string) realpath($pluginDir), '/') . '/')
+    && !str_starts_with((string) realpath($providerCodeFile), rtrim((string) realpath($providerSite), '/') . '/adapters/'),
+    'the negotiated provider class is physically plugin-owned rather than copied into the site adapter'
+);
+
 echo "\n== Policy, digest pin, reporting, and host-promotion integration ==\n";
 $integrationManifests = $root . '/integration-manifests';
 cert_copy_tree(dirname(__DIR__, 2) . '/manifests', $integrationManifests);
@@ -419,11 +644,147 @@ $integrationRegistry = json_decode(
 );
 $integrationRegistry['platform'] = $platform;
 cert_write_canon($integrationManifests . '/capabilities/registry.json', $integrationRegistry);
-cert_write_canon($integrationManifests . '/capabilities/adapter-authorities.json', $authorities);
+$integrationKeys = new stdClass();
+$integrationKeys->{'review-key'} = $keys->{'review-key'};
+$integrationKeys->{'provider-key'} = $providerKeys->{'provider-key'};
+cert_write_canon($integrationManifests . '/capabilities/adapter-authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => $integrationKeys,
+]);
 $originalCertificateRaw = (string) file_get_contents($certPath);
 
 putenv('DUO_MANIFESTS_DIR=' . $integrationManifests);
 try {
+    cert_write_canon($providerSite . '/site.duo.json', [
+        'manifests' => [['name' => 'site-plugin', 'source' => 'site']],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    $providerUnpinnedPolicy = Policy::load($providerSite);
+    $providerUnpinnedResolved = RepositoryCompiler::resolved_adapters($providerUnpinnedPolicy);
+    $providerDigest = (string) ($providerUnpinnedResolved[0]['digest'] ?? '');
+    $providerUnpinnedReport = $providerUnpinnedPolicy->capability_report(['operation' => 'promote']);
+    $providerUnpinnedRow = $providerUnpinnedReport['manifests'][0] ?? [];
+    $providerUnpinnedCodes = array_column($providerUnpinnedReport['blockers'] ?? [], 'code');
+    cert_check(
+        ($providerUnpinnedPolicy->adapter_sources()->diagnostics($providerUnpinnedPolicy->manifests)['site-plugin']['certification'] ?? null)
+            === 'signed_unpinned'
+        && in_array('adapter_certification_unpinned', $providerUnpinnedCodes, true)
+        && ($providerUnpinnedResolved[0]['capability']['status'] ?? null) === 'uncertified'
+        && ($providerUnpinnedRow['source']['trust_tier'] ?? null) === 'plugin_provider',
+        'a signed plugin-provider adapter remains signed_unpinned and uncertified before its exact digest pin'
+    );
+
+    $providerActions = $providerUnpinnedPolicy->actions_for(['post:page']);
+    $negotiated = Providers::negotiate($providerUnpinnedPolicy, $providerActions);
+    cert_check(
+        count($providerActions) === 1
+        && ($providerActions[0]['provider'] ?? null) === 'site-cache'
+        && $negotiated['problems'] === []
+        && isset($negotiated['providers']['site-cache'], $negotiated['capabilities']['site-cache']['rebuild_cache']),
+        'offline negotiation resolves the typed provider action against the active, exact-version plugin'
+    );
+    $providerReceipt = Providers::invoke(
+        $negotiated['providers']['site-cache'],
+        $providerActions[0],
+        $negotiated['capabilities']['site-cache']['rebuild_cache'],
+        []
+    );
+    cert_check(
+        $providerReceipt['before'] === 'fixture-before'
+        && $providerReceipt['after'] === 'fixture-after'
+        && $providerReceipt['verified'] === true
+        && isset($providerReceipt['duration_seconds']),
+        'plugin-owned negotiation returns the exact value-verified before/after receipt required by the engine boundary'
+    );
+
+    $providerPlan = PlanSummary::render([
+        'adapter_dispositions' => $providerUnpinnedPolicy->adapter_readiness_blockers(),
+    ]);
+    $providerPlanText = implode("\n", $providerPlan['lines']);
+    cert_check(
+        $providerPlan['ok'] === false
+        && str_contains($providerPlanText, 'site-plugin')
+        && str_contains($providerPlanText, 'source=site tier=plugin_provider')
+        && str_contains($providerPlanText, 'adapter_certification_unpinned')
+        && str_contains($providerPlanText, 'remediation:'),
+        'human status/plan rendering identifies the signed-unpinned provider row, tier, blocker, and remediation'
+    );
+    WP_CLI::$lines = [];
+    (new \Duo\Cli())->capabilities([], ['repo' => $providerSite]);
+    $providerHuman = implode("\n", WP_CLI::$lines);
+    cert_check(
+        str_contains($providerHuman, 'CAPABILITY site-plugin BLOCKED')
+        && str_contains($providerHuman, 'trust_tier: plugin_provider')
+        && str_contains($providerHuman, 'certification: signed_unpinned')
+        && str_contains($providerHuman, 'blocked: adapter_certification_unpinned')
+        && str_contains($providerHuman, 'remediation:'),
+        'the product human capability renderer exposes signed-unpinned provider readiness and its remediation'
+    );
+    WP_CLI::$lines = [];
+    (new \Duo\Cli())->capabilities([], ['repo' => $providerSite, 'format' => 'json']);
+    $providerMachine = json_decode(WP_CLI::$lines[0] ?? '', true);
+    cert_check(
+        is_array($providerMachine)
+        && ($providerMachine['ready'] ?? null) === false
+        && in_array('adapter_certification_unpinned', array_column($providerMachine['blockers'] ?? [], 'code'), true)
+        && ($providerMachine['manifests'][0]['source']['certification'] ?? null) === 'signed_unpinned'
+        && ($providerMachine['manifests'][0]['source']['trust_tier'] ?? null) === 'plugin_provider',
+        'the product machine capability renderer preserves signed-unpinned blocker and provider tier fields'
+    );
+
+    $providerExactPin = [
+        'digest' => $providerDigest,
+        'name' => 'site-plugin',
+        'source' => 'site',
+    ];
+    cert_write_canon($providerSite . '/site.duo.json', [
+        'manifests' => [$providerExactPin],
+        'policy' => new stdClass(),
+        'spec_version' => DUO_SPEC_VERSION,
+    ]);
+    $providerPinnedPolicy = Policy::load($providerSite);
+    $providerPinnedResolved = RepositoryCompiler::resolved_adapters($providerPinnedPolicy);
+    $providerPinnedReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
+    $providerPinnedRow = $providerPinnedReport['manifests'][0] ?? [];
+    cert_check(
+        $providerPinnedReport['ready'] === true
+        && ($providerPinnedResolved[0]['capability']['status'] ?? null) === 'certified'
+        && ($providerPinnedRow['source']['certification'] ?? null) === 'third_party_signed'
+        && ($providerPinnedRow['source']['trust_tier'] ?? null) === 'plugin_provider'
+        && $providerPinnedPolicy->adapter_readiness_blockers() === [],
+        'the exact site/digest pin elevates the same plugin-provider row to certified, ready status'
+    );
+    $providerPinnedPlan = PlanSummary::render([
+        'adapter_dispositions' => $providerPinnedPolicy->adapter_readiness_blockers(),
+    ]);
+    cert_check(
+        $providerPinnedPlan['ok'] === true
+        && !str_contains(implode("\n", $providerPinnedPlan['lines']), 'site-plugin'),
+        'human status/plan rendering is clean after the exact provider pin'
+    );
+    WP_CLI::$lines = [];
+    (new \Duo\Cli())->capabilities([], ['repo' => $providerSite]);
+    $providerPinnedHuman = implode("\n", WP_CLI::$lines);
+    cert_check(
+        str_contains($providerPinnedHuman, 'CAPABILITY site-plugin CERTIFIED')
+        && str_contains($providerPinnedHuman, 'trust_tier: plugin_provider')
+        && str_contains($providerPinnedHuman, 'certification: third_party_signed')
+        && !str_contains($providerPinnedHuman, 'blocked: adapter_certification_unpinned'),
+        'the product human capability renderer reports the exact plugin-provider pin as certified'
+    );
+    WP_CLI::$lines = [];
+    (new \Duo\Cli())->capabilities([], ['repo' => $providerSite, 'format' => 'json']);
+    $providerPinnedMachine = json_decode(WP_CLI::$lines[0] ?? '', true);
+    cert_check(
+        is_array($providerPinnedMachine)
+        && ($providerPinnedMachine['ready'] ?? null) === true
+        && ($providerPinnedMachine['blockers'] ?? []) === []
+        && ($providerPinnedMachine['manifests'][0]['verdict']['status'] ?? null) === 'certified'
+        && ($providerPinnedMachine['manifests'][0]['source']['certification'] ?? null) === 'third_party_signed',
+        'the product machine capability renderer reports ready with no blockers after the exact pin'
+    );
+
     cert_write_canon($site . '/site.duo.json', [
         'manifests' => [['name' => 'site-demo', 'source' => 'site']],
         'policy' => new stdClass(),
