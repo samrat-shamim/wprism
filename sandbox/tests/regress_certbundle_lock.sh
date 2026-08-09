@@ -37,11 +37,41 @@ LOCK_DIR="$SCRATCH/rendezvous.lock"
 LOCK_FILE="$LOCK_DIR/lock"
 HOLDER_FILE="$LOCK_DIR/holder.json"
 SPAWNED=()
+CASE9_BACKEND_GATE=
+CASE9_NAMING_GATE=
+CASE9_NAMING_ENTERED=
+CASE9_NAMING_SHIM_PID=
+CASE9_NAMING_SHIM_PID_FILE=
+CASE9_NAMING_EXITED=
 # Cleanup kills only PIDs this suite recorded when it spawned them — the very
 # discipline the issue mandates. A `pkill -f driver.sh` here would be the
 # defect under test, committed by its own regression.
 cleanup() {
-  local pid
+  local pid candidate shim_ticks=0
+  # Case 9's backend and naming gates can leave descendants waiting even after
+  # their recorded parent is killed on a failure. Open every gate first so
+  # those descendants either finish or reach their bounded timeout; only then
+  # signal PIDs this suite itself recorded.
+  if [ -n "${CASE9_BACKEND_GATE:-}" ]; then : > "$CASE9_BACKEND_GATE" 2>/dev/null || true; fi
+  if [ -n "${CASE9_NAMING_GATE:-}" ]; then : > "$CASE9_NAMING_GATE" 2>/dev/null || true; fi
+  # The naming shim is a descendant of the recorded case-9 parent, not a
+  # child this shell can wait(2) on. If a failure leaves it in the gated
+  # write, drain or kill that exact PID after opening the gate; never use a
+  # pattern kill that could touch another run's shim.
+  if [ -z "${CASE9_NAMING_SHIM_PID:-}" ] && [ -s "${CASE9_NAMING_SHIM_PID_FILE:-}" ]; then
+    candidate=$(cat "$CASE9_NAMING_SHIM_PID_FILE" 2>/dev/null || true)
+    case "$candidate" in ''|*[!0-9]*) ;; *) CASE9_NAMING_SHIM_PID="$candidate" ;; esac
+  fi
+  if [ -n "${CASE9_NAMING_SHIM_PID:-}" ]; then
+    while kill -0 "$CASE9_NAMING_SHIM_PID" 2>/dev/null; do
+      shim_ticks=$((shim_ticks + 1))
+      if [ "$shim_ticks" -gt 200 ]; then
+        kill -9 "$CASE9_NAMING_SHIM_PID" 2>/dev/null || true
+        break
+      fi
+      sleep 0.05
+    done
+  fi
   for pid in ${SPAWNED+"${SPAWNED[@]}"}; do kill -9 "$pid" 2>/dev/null || true; done
   # Plus any background job this shell started that a failing case never got
   # as far as recording. `jobs -p` is still by-PID and still only this run's
@@ -52,6 +82,20 @@ cleanup() {
   rm -rf -- "$SCRATCH"
 }
 trap cleanup EXIT
+forget_spawned() {
+  local drop="$1" pid
+  local kept=()
+  for pid in ${SPAWNED+"${SPAWNED[@]}"}; do
+    [ "$pid" = "$drop" ] || kept+=("$pid")
+  done
+  SPAWNED=("${kept[@]}")
+}
+wait_spawned() {
+  local pid="$1" rc=0
+  wait "$pid" || rc=$?
+  forget_spawned "$pid"
+  return "$rc"
+}
 export CERT_BUNDLE_LOCK_DIR="$LOCK_DIR"
 export CERTBUNDLE_SCRIPT="$SHIPPED"
 # The shipped lock puts each helper's control directory under TMPDIR, because
@@ -89,6 +133,32 @@ wait_until() { # wait_until <budget-seconds> <what> <command...>
   done
 }
 holder_pid() { jq -r '.pid' "$HOLDER_FILE"; }
+case9_naming_window_ready() {
+  # The lock file is persistent by contract, so its existence is not evidence
+  # that THIS invocation owns the flock. The naming marker is written only
+  # after the shipped acquire path returns successfully and enters its holder
+  # write. The independent product-path contender below is the kernel-backed
+  # proof: it must observe the flock as busy while this predicate remains true.
+  # The marker is written by the gated jq shim only after the nameless
+  # invocation has entered its naming write. It is the causal edge that the
+  # persistent lock pathname cannot provide. Keep the parent live check here:
+  # a stale naming marker from a just-killed fixture must not satisfy this
+  # wait either.
+  [ -e "${CASE9_NAMING_ENTERED:-}" ] || return 1
+  kill -0 "${NAMELESS_JOB:-0}" 2>/dev/null || return 1
+  [ ! -f "$HOLDER_FILE" ]
+}
+case9_naming_shim_gone() {
+  [ -n "${CASE9_NAMING_SHIM_PID:-}" ] || return 0
+  ! kill -0 "$CASE9_NAMING_SHIM_PID" 2>/dev/null
+}
+case9_mutated_wait() {
+  # Deliberate mutant of the old readiness test. Case 9 runs this beside the
+  # corrected wait and proves that this condition returns while the gated
+  # helper has not acquired the flock; changing the real wait back to this
+  # shape therefore fails deterministically instead of relying on scheduling.
+  [ -e "$LOCK_FILE" ] && [ ! -e "$HOLDER_FILE" ]
+}
 snapshot_lock() { cp "$HOLDER_FILE" "$SCRATCH/holder.snapshot"; cp "$LOCK_FILE" "$SCRATCH/lock.snapshot"; }
 assert_lock_unchanged() {
   cmp -s "$HOLDER_FILE" "$SCRATCH/holder.snapshot" || { show "$HOLDER_FILE"; fail "$1 (naming record changed)"; }
@@ -171,10 +241,38 @@ DRIVER
 mkdir -p "$SCRATCH/shim"
 cat > "$SCRATCH/shim/jq" <<SHIM
 #!/usr/bin/env bash
+shim_rc=0
+is_naming=0
 for a in "\$@"; do
-  case "\$a" in *schema_version*) sleep "\${DUO_SHIM_SLEEP:-2}" ;; esac
+  case "\$a" in
+    *schema_version*)
+      is_naming=1
+      if [ -n "\${DUO_SHIM_WAIT_FOR:-}" ]; then
+        # Record the causal edge before waiting on the private naming gate.
+        # Write the PID first so a reader that sees the marker can always
+        # identify this exact shim rather than guessing from a process list.
+        if [ -n "\${DUO_SHIM_PID_FILE:-}" ]; then
+          printf '%s\n' "\$\$" > "\$DUO_SHIM_PID_FILE"
+        fi
+        if [ -n "\${DUO_SHIM_ENTERED:-}" ]; then
+          : > "\$DUO_SHIM_ENTERED"
+        fi
+        deadline=\$(( \$(date +%s) + 60 ))
+        while [ ! -e "\$DUO_SHIM_WAIT_FOR" ]; do
+          [ "\$(date +%s)" -lt "\$deadline" ] || exit 125
+          sleep 0.02
+        done
+      else
+        sleep "\${DUO_SHIM_SLEEP:-2}"
+      fi
+      ;;
+  esac
 done
-exec $REAL_JQ "\$@"
+"$REAL_JQ" "\$@" || shim_rc=\$?
+if [ "\$is_naming" = 1 ] && [ -n "\${DUO_SHIM_EXITED:-}" ]; then
+  : > "\$DUO_SHIM_EXITED"
+fi
+exit "\$shim_rc"
 SHIM
 chmod +x "$SCRATCH/shim/jq"
 
@@ -205,7 +303,7 @@ assert_in "$SCRATCH/racer.$WINNER_INDEX.log" "NOT serialized" "a redirected rend
 snapshot_lock
 for i in 1 2 3 4; do
   [ "$i" = "$WINNER_INDEX" ] && continue
-  rc=0; wait "${RACERS[$((i - 1))]}" || rc=$?
+  rc=0; wait_spawned "${RACERS[$((i - 1))]}" || rc=$?
   [ "$rc" = "1" ] || fail "loser racer $i exited $rc, expected 1 (a refusal is a failure, not a silent skip)"
   assert_in "$SCRATCH/racer.$i.log" "refusing to start a second certification bundle" "loser $i did not refuse loudly"
   assert_in "$SCRATCH/racer.$i.log" "holder pid     : $WINNER_PID" "loser $i did not name the holder's pid"
@@ -226,7 +324,7 @@ pass "lock file and naming record survived three refusals byte-identical"
 
 say "case 3 — the EXIT trap armed by the acquire releases on normal exit, and the lock FILE survives"
 rm -f "$BARRIER"
-rc=0; wait "${RACERS[$((WINNER_INDEX - 1))]}" || rc=$?
+rc=0; wait_spawned "${RACERS[$((WINNER_INDEX - 1))]}" || rc=$?
 [ "$rc" = "0" ] || fail "the winning racer exited $rc"
 wait_until 15 "the winner's EXIT trap to drop the naming record" test '!' -f "$HOLDER_FILE"
 [ -f "$LOCK_FILE" ] \
@@ -251,9 +349,9 @@ sleep 1.5
 [ ! -f "$SCRATCH/ready.waiter" ] || fail "the waiter acquired while the holder was still alive"
 [ "$(holder_pid)" = "$HOLDER_PID" ] || fail "the waiter displaced the live holder"
 rm -f "$HOLD"
-rc=0; wait "$HOLDER_JOB" || rc=$?
+rc=0; wait_spawned "$HOLDER_JOB" || rc=$?
 [ "$rc" = "0" ] || fail "the holder exited $rc"
-rc=0; wait "$WAITER_JOB" || rc=$?
+rc=0; wait_spawned "$WAITER_JOB" || rc=$?
 [ "$rc" = "0" ] || fail "the waiter exited $rc; it should have acquired once the holder released"
 assert_in "$SCRATCH/waiter.log" "host certification lock acquired" "the waiter never announced its acquisition"
 wait_until 15 "the waiter's own release" test '!' -f "$HOLDER_FILE"
@@ -285,7 +383,7 @@ CERT_BUNDLE_PAIR=patient bash "$SCRATCH/driver.sh" acquire "$SCRATCH/ready.patie
 assert_in "$SCRATCH/ancient.log" "holding 6h00m" "the refusal does not report how long the holder has held"
 assert_not_in "$SCRATCH/ancient.log" "taking it over" "age must never trigger a takeover"
 assert_not_in "$SCRATCH/ancient.log" "stale" "age must never be described as staleness"
-rm -f "$HOLD"; rc=0; wait "$STUBBORN_JOB" || rc=$?
+rm -f "$HOLD"; rc=0; wait_spawned "$STUBBORN_JOB" || rc=$?
 pass "a 6h00m-old LIVE holder keeps its lock; nothing in this design expires by age"
 
 say "case 7 — a SIGKILLed holder's lock is released by the kernel: no corpse, no takeover, no cleanup"
@@ -296,7 +394,7 @@ VICTIM_JOB=$!; SPAWNED+=("$VICTIM_JOB")
 wait_until 30 "the victim to acquire" test -f "$SCRATCH/ready.victim"
 VICTIM_PID=$(cat "$SCRATCH/ready.victim")
 kill -9 "$VICTIM_PID"
-rc=0; wait "$VICTIM_JOB" || rc=$?
+rc=0; wait_spawned "$VICTIM_JOB" || rc=$?
 [ "$rc" = "137" ] || fail "the victim exited $rc, not 137; the fixture must prove SIGKILL ran no trap"
 LATENCY=$(acquire_after_kill successor "$SCRATCH/successor.log" 20)
 assert_in "$SCRATCH/successor.log" "host certification lock acquired" "the successor did not acquire after its predecessor was killed"
@@ -333,27 +431,133 @@ WON=$(ls "$SCRATCH" | sed -n 's/^claim\.\([0-9]\)$/\1/p')
   || fail "the naming record does not name the single winner; the corpse's record was not replaced"
 assert_no_takeover_residue "case 8"
 rm -f "$BARRIER"
-for p in "${CLAIMERS[@]}"; do wait "$p" 2>/dev/null || true; done
+for p in "${CLAIMERS[@]}"; do wait_spawned "$p" 2>/dev/null || true; done
 pass "3 concurrent arrivals over a dead run's leftover record produced exactly 1 holder and 0 takeover artifacts"
 
 say "case 9 — RACE 2 (reviewer's race_a): a holder killed between acquiring and naming itself never wedges the rendezvous"
 rm -f "$HOLDER_FILE"
+: >> "$LOCK_FILE"   # the inode is persistent even when no run currently holds it
 : > "$HOLD"
-PATH="$SCRATCH/shim:$PATH" DUO_SHIM_SLEEP=5 CERT_BUNDLE_PAIR=nameless \
+# Gate the backend before it reaches the real flock(2). The lock file already
+# exists from the earlier cases and the naming record is absent, so the old
+# predicate would pass before this process can acquire anything. A fresh,
+# case-private TMPDIR keeps this holder's helper controls isolated for the
+# final leak check; the naming marker and refusing contender carry authority.
+CASE9_TMPDIR="$SCRATCH/helpers-case9"
+mkdir -p "$CASE9_TMPDIR"
+CASE9_BACKEND= CASE9_BACKEND_BIN=
+if command -v flock >/dev/null 2>&1; then
+  CASE9_BACKEND=flock
+  CASE9_BACKEND_BIN=$(command -v flock)
+else
+  command -v python3 >/dev/null 2>&1 || fail "flock or python3 required for case 9's deterministic backend gate"
+  CASE9_BACKEND=python
+  CASE9_BACKEND_BIN=$(command -v python3)
+fi
+CASE9_CONTENDER_BACKEND=auto
+if [ "$CASE9_BACKEND" = flock ] && command -v python3 >/dev/null 2>&1; then
+  CASE9_CONTENDER_BACKEND=python
+elif [ "$CASE9_BACKEND" = python ] && command -v flock >/dev/null 2>&1; then
+  CASE9_CONTENDER_BACKEND=flock
+fi
+CASE9_BACKEND_GATE="$SCRATCH/backend-go"
+CASE9_NAMING_GATE="$SCRATCH/naming-go"
+CASE9_NAMING_ENTERED="$SCRATCH/naming-entered"
+CASE9_NAMING_SHIM_PID_FILE="$SCRATCH/naming-shim.pid"
+CASE9_NAMING_EXITED="$SCRATCH/naming-exited"
+mkdir -p "$SCRATCH/gated-backend"
+cat > "$SCRATCH/gated-backend/$(basename "$CASE9_BACKEND_BIN")" <<GATED_BACKEND
+#!/usr/bin/env bash
+deadline=\$(( \$(date +%s) + 60 ))
+while [ ! -e "$CASE9_BACKEND_GATE" ]; do
+  [ "\$(date +%s)" -lt "\$deadline" ] || exit 125
+  sleep 0.02
+done
+exec "$CASE9_BACKEND_BIN" "\$@"
+GATED_BACKEND
+chmod +x "$SCRATCH/gated-backend/$(basename "$CASE9_BACKEND_BIN")"
+PATH="$SCRATCH/gated-backend:$SCRATCH/shim:$PATH" TMPDIR="$CASE9_TMPDIR" \
+  DUO_SHIM_WAIT_FOR="$CASE9_NAMING_GATE" DUO_SHIM_ENTERED="$CASE9_NAMING_ENTERED" \
+  DUO_SHIM_PID_FILE="$CASE9_NAMING_SHIM_PID_FILE" DUO_SHIM_EXITED="$CASE9_NAMING_EXITED" \
+  CERT_BUNDLE_LOCK_BACKEND="$CASE9_BACKEND" CERT_BUNDLE_PAIR=nameless \
   bash "$SCRATCH/driver.sh" hold "$SCRATCH/ready.nameless" "$HOLD" > "$SCRATCH/nameless.log" 2>&1 &
 NAMELESS_JOB=$!; SPAWNED+=("$NAMELESS_JOB")
-# The shim stalls the record write, so this is the window: lock held, nobody nameable.
-wait_until 30 "the nameless holder to hold the lock without a record" \
-  bash -c '[ -f "$1" ] && [ ! -f "$2" ]' _ "$LOCK_FILE" "$HOLDER_FILE"
+# The shim stalls the record write after acquisition, so this is the window:
+# the helper owns the flock, nobody is nameable, and a contender must still
+# refuse. Run the old predicate as a deliberate mutant beside the real wait.
+(
+  : > "$SCRATCH/case9-corrected-started"
+  wait_until 30 "the nameless holder to enter its gated naming write" case9_naming_window_ready
+  : > "$SCRATCH/case9-corrected-done"
+) &
+CORRECTED_WAIT_JOB=$!; SPAWNED+=("$CORRECTED_WAIT_JOB")
+(
+  : > "$SCRATCH/case9-mutated-started"
+  wait_until 30 "the mutated persistent-file predicate to return" case9_mutated_wait
+  : > "$SCRATCH/case9-mutated-done"
+) &
+MUTATED_WAIT_JOB=$!; SPAWNED+=("$MUTATED_WAIT_JOB")
+wait_until 5 "the corrected and mutated case 9 waits to start" \
+  test -f "$SCRATCH/case9-corrected-started"
+wait_until 5 "the mutated persistent-file predicate to return early" \
+  test -f "$SCRATCH/case9-mutated-done"
+[ ! -f "$SCRATCH/case9-corrected-done" ] \
+  || fail "the corrected readiness wait returned before its helper acquired the flock; the persistent-file mutant was not killed"
+if case9_naming_window_ready; then
+  fail "the gated holder unexpectedly entered naming before the backend gate opened"
+fi
+# This is the mutation tooth's product-path half: with the old pathname/no-
+# holder wait, a contender really would launch here and acquire the lock while
+# the nameless driver is still blocked before its flock(2). The corrected wait
+# must not advance to this probe until the backend gate is opened below.
 rc=0
-CERT_BUNDLE_PAIR=probe bash "$SCRATCH/driver.sh" acquire "$SCRATCH/ready.probe" "$SCRATCH/unused" \
+CERT_BUNDLE_LOCK_BACKEND="$CASE9_CONTENDER_BACKEND" CERT_BUNDLE_PAIR=mutantprobe \
+  bash "$SCRATCH/driver.sh" acquire "$SCRATCH/ready.mutant-probe" "$SCRATCH/unused" \
+  > "$SCRATCH/mutant-probe.log" 2>&1 || rc=$?
+[ "$rc" = "0" ] \
+  || { show "$SCRATCH/mutant-probe.log"; fail "the old persistent-file wait did not expose its early product-path acquisition (rc $rc)"; }
+assert_in "$SCRATCH/mutant-probe.log" "host certification lock acquired" \
+  "the old persistent-file wait mutant did not acquire through the product path"
+[ ! -f "$SCRATCH/case9-corrected-done" ] \
+  || fail "the corrected readiness wait advanced while the nameless helper was still gated"
+: > "$CASE9_BACKEND_GATE"
+rc=0; wait_spawned "$CORRECTED_WAIT_JOB" || rc=$?
+[ "$rc" = "0" ] \
+  || fail "the corrected readiness wait did not observe the causal naming edge, absent record, and live parent (rc $rc)"
+rc=0; wait_spawned "$MUTATED_WAIT_JOB" || rc=$?
+[ "$rc" = "0" ] || fail "the deliberate persistent-file mutant did not expose its early return (rc $rc)"
+[ ! -f "$HOLDER_FILE" ] \
+  || fail "the nameless holder wrote its naming record before the corrected wait reached its positive acquisition marker"
+wait_until 10 "the naming shim to enter its gated write" test -f "$CASE9_NAMING_ENTERED"
+[ -s "$CASE9_NAMING_SHIM_PID_FILE" ] \
+  || fail "the naming shim entered without recording its PID"
+CASE9_NAMING_SHIM_PID=$(cat "$CASE9_NAMING_SHIM_PID_FILE")
+case "$CASE9_NAMING_SHIM_PID" in
+  ''|*[!0-9]*) fail "the naming shim recorded an invalid PID: $CASE9_NAMING_SHIM_PID" ;;
+esac
+kill -0 "$CASE9_NAMING_SHIM_PID" 2>/dev/null \
+  || fail "the naming shim exited before the gated mid-naming contender probe"
+rc=0
+CERT_BUNDLE_LOCK_BACKEND="$CASE9_CONTENDER_BACKEND" CERT_BUNDLE_PAIR=probe \
+  bash "$SCRATCH/driver.sh" acquire "$SCRATCH/ready.probe" "$SCRATCH/unused" \
   > "$SCRATCH/probe.log" 2>&1 || rc=$?
 [ "$rc" = "1" ] || fail "a contender arriving in the naming window exited $rc; the lock must still exclude while its holder is unnamed"
 assert_in "$SCRATCH/probe.log" "cannot be named right now" "the refusal does not admit that the holder is unnamed"
 assert_in "$SCRATCH/probe.log" "it is the kernel that says so" "the refusal does not state what the exclusion actually rests on"
+# The nameless parent is still blocked in the naming shim. Kill that recorded
+# parent while the naming gate remains closed: the jq shim cannot finish the
+# partial holder write until the gate is opened below, preserving the original
+# mid-naming/no-record recovery window rather than turning this into a normal
+# post-naming kill.
 kill -9 "$NAMELESS_JOB"
-rc=0; wait "$NAMELESS_JOB" || rc=$?
-[ "$rc" = "137" ] || fail "the nameless holder exited $rc, not 137"
+rc=0; wait_spawned "$NAMELESS_JOB" || rc=$?
+[ "$rc" = "137" ] || fail "the nameless holder exited $rc, not 137 while its naming gate was closed"
+: > "$CASE9_NAMING_GATE"
+wait_until 10 "the recorded naming shim to finish after its gate opened" \
+  test -f "$CASE9_NAMING_EXITED"
+wait_until 10 "the recorded naming shim to exit" case9_naming_shim_gone
+rm -f "$CASE9_NAMING_SHIM_PID_FILE"
+CASE9_NAMING_SHIM_PID=
 acquire_after_kill after "$SCRATCH/after.log" 20 >/dev/null
 assert_in "$SCRATCH/after.log" "host certification lock acquired" \
   "RACE 2 REGRESSED: the rendezvous wedged after a holder was killed mid-naming (review reproduced exactly this against the mkdir revision)"
@@ -378,13 +582,20 @@ wait_until 30 "the holder and its descendant to start" test -f "$SCRATCH/ready.p
 PARENT_PID=$(cat "$SCRATCH/ready.parent"); CHILD_PID=$(cat "$SCRATCH/ready.parent.child")
 SPAWNED+=("$CHILD_PID")
 kill -9 "$PARENT_PID"
-rc=0; wait "$PARENT_JOB" || rc=$?
+rc=0; wait_spawned "$PARENT_JOB" || rc=$?
 kill -0 "$CHILD_PID" 2>/dev/null \
   || fail "fixture lost its point: the descendant must still be alive to prove it does not hold the lock"
 acquire_after_kill nextrun "$SCRATCH/nextrun.log" 20 >/dev/null
 assert_in "$SCRATCH/nextrun.log" "host certification lock acquired" \
   "an orphaned descendant kept the lock held — the helper must own the descriptor, not the run's process tree"
-kill -9 "$CHILD_PID" 2>/dev/null || true
+if ! kill -9 "$CHILD_PID" 2>/dev/null && kill -0 "$CHILD_PID" 2>/dev/null; then
+  fail "the recorded orphaned child could not be stopped by its exact PID"
+fi
+# This orphan is not a child this shell can wait(2) on. Once its exact PID has
+# been signalled (or is already gone), remove it from the EXIT-trap registry:
+# keeping a dead PID until case 20 would let PID reuse turn cleanup into a
+# signal against an unrelated host process.
+forget_spawned "$CHILD_PID"
 rm -f "$HOLD"
 pass "the orphaned child survived and held nothing; the helper owns the descriptor"
 
@@ -407,7 +618,7 @@ for backend in flock python; do
     > "$SCRATCH/$backend.c.log" 2>&1 || rc=$?
   [ "$rc" = "1" ] || fail "the $backend backend admitted a second holder (contender exited $rc)"
   BPID=$(cat "$SCRATCH/ready.$backend")
-  kill -9 "$BPID"; rc=0; wait "$BJOB" || rc=$?
+  kill -9 "$BPID"; rc=0; wait_spawned "$BJOB" || rc=$?
   BLAT=$(acquire_after_kill "bafter$backend" "$SCRATCH/$backend.a.log" 20 "$backend")
   assert_in "$SCRATCH/$backend.a.log" "host certification lock acquired" \
     "the $backend backend did not release on SIGKILL"
@@ -536,7 +747,7 @@ assert_in "$SCRATCH/intruder.log" "refusing to start a second certification bund
 assert_in "$SCRATCH/intruder.log" "holder pid     : $SURVIVOR_PID" "the intruder did not name the surviving holder"
 # The conservative reading must not cost the crash-safety it protects.
 kill -9 "$SURVIVOR_PID"
-rc=0; wait "$SURVIVOR_JOB" || rc=$?
+rc=0; wait_spawned "$SURVIVOR_JOB" || rc=$?
 [ "$rc" = "137" ] || fail "the survivor exited $rc, not 137"
 PSLAT=$(acquire_after_kill afterps "$SCRATCH/afterps.log" 20)
 assert_in "$SCRATCH/afterps.log" "host certification lock acquired" \
@@ -560,12 +771,14 @@ for pairing in "flock python" "python flock"; do
   [ "$rc" = "1" ] \
     || { show "$SCRATCH/xc$CB.log"; fail "a $CB contender acquired while a $HB holder held it; the two backends must be the same flock(2) on the same file"; }
   assert_in "$SCRATCH/xc$CB.log" "holder pid     : $XPID" "the $CB contender did not name the $HB holder"
-  rm -f "$HOLD"; rc=0; wait "$XJOB" || rc=$?
+  rm -f "$HOLD"; rc=0; wait_spawned "$XJOB" || rc=$?
   pass "$HB holder excluded a $CB contender, which named it correctly"
 done
 
 say "case 20 — no helper control directory started by THIS run outlives it"
-own_helper_dirs() { find "$TMPDIR" -maxdepth 1 -name 'duo-certbundle-helper.*' 2>/dev/null; }
+own_helper_dirs() {
+  find "$TMPDIR" "$CASE9_TMPDIR" -maxdepth 1 -name 'duo-certbundle-helper.*' 2>/dev/null
+}
 # A helper removes its own control directory on the liveness tick that notices
 # its acquirer is gone, so a killed holder's directory can trail the case that
 # killed it. Give it a couple of ticks before calling it a leak — the claim is
