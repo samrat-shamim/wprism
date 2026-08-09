@@ -46,6 +46,19 @@ function el_remove(string $path): void {
     @rmdir($path);
 }
 
+function el_tree_contains(string $root, string $needle): bool {
+    if (!is_dir($root)) return false;
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($iterator as $item) {
+        if (!$item->isFile() || $item->isLink()) continue;
+        $bytes = file_get_contents($item->getPathname());
+        if (is_string($bytes) && str_contains($bytes, $needle)) return true;
+    }
+    return false;
+}
+
 /** @return array{exit:int,stdout:string,stderr:string} */
 function el_process(array $argv, ?string $cwd = null): array {
     $process = proc_open($argv, [
@@ -94,6 +107,12 @@ $identity = [
     'resource_id' => 'resource-identity-0001',
     'url' => 'https://branch.example.test',
 ];
+$secretUrls = [
+    'credential-url' => 'https://provider-user:provider-password@branch.example.test/',
+    'signed-query-url' => 'https://branch.example.test/?X-Amz-Signature=provider-token',
+    'fragment-secret-url' => 'https://branch.example.test/#provider-token',
+];
+if (isset($secretUrls[$mode])) $identity['url'] = $secretUrls[$mode];
 $action = (string) ($request['action'] ?? '');
 $result = match ($action) {
     'capabilities' => ['capabilities' => [
@@ -318,6 +337,57 @@ PHP;
     } catch (Throwable $e) {
         el_ok(!str_contains($e->getMessage(), 'SUPER-SECRET'), 'provider failure output is redacted');
     }
+    foreach (['credential-url', 'signed-query-url', 'fragment-secret-url'] as $mode) {
+        try {
+            $secretUrlProvider = CommandEnvironmentProvider::fromEnvironment($mode, $config($mode));
+            $secretUrlProvider->capabilities($operation);
+            $secretUrlProvider->perform('attach', $operation, []);
+            el_fail("provider $mode was accepted into durable/public identity evidence");
+        } catch (Throwable $e) {
+            el_ok(
+                str_contains($e->getMessage(), 'credential-free HTTP(S) base URL')
+                    && !str_contains($e->getMessage(), 'provider-password')
+                    && !str_contains($e->getMessage(), 'provider-token'),
+                "provider $mode is refused before durable/public identity evidence with a redacted diagnostic"
+            );
+        }
+    }
+
+    $publicRoot = $tmp . '/public-secret-url';
+    mkdir($publicRoot, 0700, true);
+    file_put_contents($publicRoot . '/README.md', "public URL refusal fixture\n");
+    el_ok(el_process(['git', 'init', '--quiet', '--initial-branch=feature-secret-url'], $publicRoot)['exit'] === 0
+        && el_process(['git', 'config', 'user.name', 'DUO environment lifecycle fixture'], $publicRoot)['exit'] === 0
+        && el_process(['git', 'config', 'user.email', 'duo-environment@example.invalid'], $publicRoot)['exit'] === 0
+        && el_process(['git', 'add', '--', 'README.md'], $publicRoot)['exit'] === 0
+        && el_process(['git', 'commit', '--quiet', '-m', 'fixture'], $publicRoot)['exit'] === 0,
+        'public secret-URL fixture has a clean attached branch');
+    $publicEnvs = $tmp . '/public-secret-url-envs.json';
+    $publicEntry = [
+        'transport' => 'local',
+        'wp_path' => '/tmp',
+        'repo_path' => $publicRoot,
+        'environment_provider' => [
+            'command' => [PHP_BINARY, $providerScript, 'signed-query-url'],
+            'timeout_seconds' => 5,
+        ],
+    ];
+    file_put_contents($publicEnvs, json_encode([
+        'envs' => ['production' => $publicEntry, 'branch' => $publicEntry],
+    ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+    $publicRefusal = el_cli([
+        '--envs-file=' . $publicEnvs,
+        'env', 'materialize', 'branch', '--from', 'production',
+        '--branch', 'feature-secret-url', '--format=json',
+    ], $publicRoot);
+    $publicOutput = $publicRefusal['stdout'] . $publicRefusal['stderr'];
+    el_ok($publicRefusal['exit'] !== 0
+        && str_contains($publicRefusal['stderr'], 'credential-free HTTP(S) base URL')
+        && !str_contains($publicOutput, 'provider-token')
+        && !str_contains($publicOutput, 'X-Amz-Signature')
+        && !el_tree_contains($publicRoot . '/.git/duo-environments', 'provider-token')
+        && !el_tree_contains($publicRoot . '/.git/duo-environments', 'X-Amz-Signature'),
+        'public materialize refuses a signed provider URL before journal or CLI receipt disclosure');
 
     $journal = new EnvironmentLifecycleJournal($tmp . '/journal');
     $run = [

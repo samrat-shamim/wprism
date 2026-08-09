@@ -498,8 +498,26 @@ final class CommandEnvironmentProvider {
         }
         self::assertPositiveInt($result['lease_generation'] ?? null, 'lease generation');
         self::assertHash($result['ownership_receipt_sha256'] ?? null, 'ownership receipt');
-        if (!is_string($result['url'] ?? null) || filter_var($result['url'], FILTER_VALIDATE_URL) === false) {
-            throw new \RuntimeException('environment provider URL is invalid');
+        $url = $result['url'] ?? null;
+        $parts = is_string($url) ? parse_url($url) : false;
+        if (!is_string($url)
+            || strlen($url) > 2048
+            || filter_var($url, FILTER_VALIDATE_URL) === false
+            || !is_array($parts)
+            || !isset($parts['scheme'], $parts['host'])
+            || !in_array(strtolower((string) $parts['scheme']), ['http', 'https'], true)
+            || isset($parts['user'])
+            || isset($parts['pass'])
+            || isset($parts['query'])
+            || isset($parts['fragment'])) {
+            // The URL is durable public evidence in the operation journal and
+            // final receipt. It is an environment base URL, never an
+            // authorization carrier: accepting userinfo or signed-query
+            // material here would persist a provider secret before any later
+            // redaction boundary could help.
+            throw new \RuntimeException(
+                'environment provider URL must be a credential-free HTTP(S) base URL without query or fragment'
+            );
         }
     }
 
