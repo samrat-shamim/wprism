@@ -140,8 +140,17 @@ STATE_STATUS_BEFORE=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=
 CAPTURE_DELETE_RC=0
 CAPTURE_DELETE_OUT=$(wp_conf1 duo capture --repo=/siterepo --format=json 2>&1) || CAPTURE_DELETE_RC=$?
 [ "$CAPTURE_DELETE_RC" -ne 0 ] || fail "capture accepted unsupported table:nf3_forms deletion"
-grep -Fq 'deletion intent for table:nf3_forms is unsupported' <<<"$CAPTURE_DELETE_OUT" \
-  || fail "parent-deletion refusal did not name table:nf3_forms: $CAPTURE_DELETE_OUT"
+jq -se '
+  length == 1
+  and .[0].format == "duo-command-refusal/v1"
+  and .[0].ok == false
+  and .[0].command == "capture"
+  and .[0].reason_code == "deletion_capability_missing"
+  and any(.[0].diagnostics[]?;
+    .code == "deletion_capability_missing"
+    and .surface == "table:nf3_forms")
+' <<<"$CAPTURE_DELETE_OUT" >/dev/null \
+  || fail "parent-deletion refusal did not expose the exact table:nf3_forms capability gap: $CAPTURE_DELETE_OUT"
 STATE_STATUS_AFTER=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 [ "$STATE_STATUS_AFTER" = "$STATE_STATUS_BEFORE" ] \
   || fail "failed parent-deletion capture changed canonical state: $STATE_STATUS_AFTER"

@@ -241,6 +241,7 @@ if (!defined('DUO_SPEC_VERSION')) {
 }
 
 use Duo\Capture;
+use Duo\CommandRefusalException;
 use Duo\CompiledRepository;
 use Duo\Db;
 use Duo\Deletion;
@@ -507,7 +508,19 @@ try {
 } catch (Throwable $e) {
     $refused = $e;
 }
-assert_capture_atomicity($refused instanceof RuntimeException, 'unsupported deletion refuses through the real Deletion capability boundary');
+assert_capture_atomicity(
+    $refused instanceof CommandRefusalException,
+    'unsupported deletion is a reviewed public refusal from the real Deletion capability boundary'
+);
+$refusalPayload = $refused instanceof CommandRefusalException ? $refused->payload() : [];
+assert_capture_atomicity(
+    ($refusalPayload['error'] ?? null) === 'deletion_capability_missing',
+    'unsupported deletion has a finite source-owned reason code'
+);
+assert_capture_atomicity(
+    ($refusalPayload['diagnostics'][0]['surface'] ?? null) === 'post:product',
+    'unsupported deletion public evidence names the exact generic selector'
+);
 assert_capture_atomicity($refused !== null && str_contains($refused->getMessage(), 'post:product'), 'unsupported deletion names the refused selector');
 assert_capture_atomicity($wpdb->map === $beforeRefusal['map'], 'refusal rolls back duo_map pruning and identity minting');
 assert_capture_atomicity($wpdb->state === $beforeRefusal['state'], 'refusal rolls back duo_state mutation');
