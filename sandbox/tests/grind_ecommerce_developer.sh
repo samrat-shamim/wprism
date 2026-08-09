@@ -318,6 +318,43 @@ state_tree_hash() {
     done
   ) | sha256sum | awk '{print $1}'
 }
+final_compiled_state_diff() {
+  target_wp eval '
+$policy = \Duo\Policy::load("/siterepo");
+$canonical = \Duo\RepositoryCompiler::compile_staged("/siterepo/state", "/siterepo", $policy);
+$recaptured = \Duo\RepositoryCompiler::compile_staged("/siterepo/.tmp-final-state", "/siterepo", $policy);
+$project = static function ($compiled): array {
+    $out = [];
+    foreach ($compiled->tree() as $entity) {
+        $out[(string) $entity["path"]] = (string) $entity["hash"];
+    }
+    foreach ($compiled->deletions() as $entity) {
+        $path = (string) $entity["path"];
+        if (array_key_exists($path, $out)) {
+            throw new RuntimeException("duplicate compiled state path: " . $path);
+        }
+        $out[$path] = (string) $entity["hash"];
+    }
+    ksort($out, SORT_STRING);
+    return $out;
+};
+$left = $project($canonical);
+$right = $project($recaptured);
+$paths = array_values(array_unique(array_merge(array_keys($left), array_keys($right))));
+sort($paths, SORT_STRING);
+$diff = [];
+foreach ($paths as $path) {
+    if (($left[$path] ?? null) !== ($right[$path] ?? null)) {
+        $diff[] = [
+            "path" => $path,
+            "canonical_hash" => $left[$path] ?? null,
+            "recaptured_hash" => $right[$path] ?? null,
+        ];
+    }
+}
+echo \Duo\Canon::encode($diff);
+'
+}
 target_plugin_tree_hash() {
   target_php '
 $root = "/var/www/html/wp-content/plugins";
@@ -2580,9 +2617,30 @@ pass "code, active dependency/theme lifecycle, authored setting, runtime table s
 
 say "final recapture/status and exact clean-room cleanup"
 target_wp duo capture --repo=/siterepo --out=/siterepo/.tmp-final-state >/dev/null
-if ! diff -r "$OTHER_SITE/state" "$OTHER_SITE/.tmp-final-state" >/dev/null; then
-  diff -ru "$OTHER_SITE/state" "$OTHER_SITE/.tmp-final-state" >&2 || true
-  fail 'final target recapture did not match canonical v1 state byte-for-byte'
+if FINAL_RAW_DIFF="$(diff -rq "$OTHER_SITE/state" "$OTHER_SITE/.tmp-final-state")"; then
+  FINAL_RAW_DIFF_STATUS=0
+else
+  FINAL_RAW_DIFF_STATUS=$?
+fi
+[ "$FINAL_RAW_DIFF_STATUS" -le 1 ] \
+  || fail "could not compare final raw state trees (diff exit $FINAL_RAW_DIFF_STATUS)"
+FINAL_SEMANTIC_DIFF="$(final_compiled_state_diff)"
+if [ -n "$FINAL_RAW_DIFF" ]; then
+  if diff -ru "$OTHER_SITE/state" "$OTHER_SITE/.tmp-final-state" >&2; then
+    fail "raw diff summary reported changes but the unified diff was empty"
+  else
+    FINAL_RAW_DIFF_STATUS=$?
+    [ "$FINAL_RAW_DIFF_STATUS" -eq 1 ] \
+      || fail "could not render final raw state diagnostics (diff exit $FINAL_RAW_DIFF_STATUS)"
+  fi
+fi
+if [ "$FINAL_SEMANTIC_DIFF" != "[]" ]; then
+  fail "final target recapture changed authored or identity-bearing state: $FINAL_SEMANTIC_DIFF"
+fi
+if [ -n "$FINAL_RAW_DIFF" ]; then
+  pass "final raw recapture differences are limited to manifest-declared derived post fields"
+else
+  pass "final target recapture is also byte-identical"
 fi
 assert_extension_runtime_event_excluded 'final recapture'
 assert_eq 0 "$(target_wp eval 'echo get_user_by("email", "runtime-customer@example.invalid") ? 1 : 0;')" 'final recapture target-only runtime customer remains absent'
@@ -2596,6 +2654,6 @@ if ! FINAL_STATUS="$(status 2>&1)"; then
   fail 'final target status was not clean'
 fi
 echo "$FINAL_STATUS"
-pass "final recapture is byte-identical, status is clean, runtime probes/secrets remain outside generated state, and the trap will destroy only this pair"
+pass "final recapture is semantically identical under the pinned policy, status is clean, runtime probes/secrets remain outside generated state, and the trap will destroy only this pair"
 
 printf '\n\033[1;32m✔ ECOMMERCE DEVELOPER GRIND PASSED (%s)\033[0m\n' "$PAIR"

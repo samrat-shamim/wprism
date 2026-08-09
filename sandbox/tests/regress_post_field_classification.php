@@ -7,6 +7,8 @@
  * unchanged. This suite proves the generic field contract without
  * WordPress/Docker:
  *   - only manifest-declared derived timestamps disappear from the hash basis;
+ *   - complete path-to-semantic-hash projections accept only those declared
+ *     derived differences while retaining identity and non-post strictness;
  *   - existing Woo rows preserve those target timestamps while authored
  *     columns are still written;
  *   - new rows still receive captured starting timestamps;
@@ -177,6 +179,27 @@ function post_front(string $type, string $uuid, string $modified = '2026-08-08 0
     ];
 }
 
+/** @return array{path:string,hash:string} */
+function semantic_post_entity(Policy $policy, array $front, string $path): array {
+    return [
+        'path' => $path,
+        'hash' => hash('sha256', Canon::post_hash_basis($front, '', $policy)),
+    ];
+}
+
+/** @param array<int,array{path:string,hash:string}> $entities */
+function semantic_path_hash_projection(array $entities): array {
+    $projection = [];
+    foreach ($entities as $entity) {
+        if (array_key_exists($entity['path'], $projection)) {
+            throw new RuntimeException('duplicate compiled state path: ' . $entity['path']);
+        }
+        $projection[$entity['path']] = $entity['hash'];
+    }
+    ksort($projection, SORT_STRING);
+    return $projection;
+}
+
 /** @return array<int,array<string,mixed>> */
 function post_authorization_diagnostics(Policy $policy, array $front): array {
     $entity = [
@@ -328,6 +351,57 @@ $genericTimestampChanged['modified_gmt'] = '2030-01-01 00:00:01';
 check(
     Canon::post_hash_basis($generic, '', $policy) !== Canon::post_hash_basis($genericTimestampChanged, '', $policy),
     'hash basis keeps undeclared post-type timestamps authored'
+);
+
+$productPath = 'posts/product/' . $uuid . '--product-slug.md';
+$sourceProjection = semantic_path_hash_projection([
+    semantic_post_entity($policy, $source, $productPath),
+]);
+check(
+    Canon::post_file($source, '') !== Canon::post_file($timestampOnly, ''),
+    'derived timestamp probe changes honest raw capture bytes'
+);
+check(
+    $sourceProjection === semantic_path_hash_projection([
+        semantic_post_entity($policy, $timestampOnly, $productPath),
+    ]),
+    'complete semantic projection accepts declared derived-only timestamp differences'
+);
+check(
+    $sourceProjection !== semantic_path_hash_projection([
+        semantic_post_entity($policy, $titleChanged, $productPath),
+    ]),
+    'complete semantic projection rejects an authored product title difference'
+);
+check(
+    semantic_path_hash_projection([
+        semantic_post_entity($policy, $generic, 'posts/article/' . $generic['uuid'] . '--article-slug.md'),
+    ]) !== semantic_path_hash_projection([
+        semantic_post_entity($policy, $genericTimestampChanged, 'posts/article/' . $generic['uuid'] . '--article-slug.md'),
+    ]),
+    'complete semantic projection rejects undeclared post-type timestamp differences'
+);
+check(
+    $sourceProjection !== semantic_path_hash_projection([
+        semantic_post_entity($policy, $timestampOnly, 'posts/product/' . $uuid . '--moved.md'),
+    ]),
+    'complete semantic projection rejects an identity-bearing path difference'
+);
+$optionsContent = Canon::encode(OptionState::document([
+    'fixture' => OptionState::present('one', 'yes'),
+]));
+$changedOptionsContent = Canon::encode(OptionState::document([
+    'fixture' => OptionState::present('two', 'yes'),
+]));
+check(
+    semantic_path_hash_projection([[
+        'path' => 'options/core.json',
+        'hash' => hash('sha256', $optionsContent),
+    ]]) !== semantic_path_hash_projection([[
+        'path' => 'options/core.json',
+        'hash' => hash('sha256', $changedOptionsContent),
+    ]]),
+    'complete semantic projection rejects a non-post state difference'
 );
 
 check(

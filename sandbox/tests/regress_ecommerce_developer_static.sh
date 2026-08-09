@@ -211,6 +211,7 @@ PHASE_ORDER_HELPER_BLOCK="$(function_block assert_phase_order | strip_static_com
 ABSENT_HELPER_BLOCK="$(function_block assert_absent | strip_static_comments)"
 TRACE_HELPER_BLOCK="$(function_block assert_trace_has | strip_static_comments)"
 STATE_TREE_HASH_HELPER_BLOCK="$(function_block state_tree_hash | strip_static_comments)"
+FINAL_COMPILED_STATE_DIFF_HELPER_BLOCK="$(function_block final_compiled_state_diff | strip_static_comments)"
 TARGET_PLUGIN_TREE_HASH_HELPER_BLOCK="$(function_block target_plugin_tree_hash | strip_static_comments)"
 TARGET_MANAGED_CODE_TREE_HASH_HELPER_BLOCK="$(function_block target_managed_code_tree_hash | strip_static_comments)"
 SOURCE_MANAGED_CODE_TREE_HASH_HELPER_BLOCK="$(function_block source_managed_code_tree_hash | strip_static_comments)"
@@ -238,6 +239,7 @@ FAILED_V2_PHASE_BLOCK="$(phase_block 'v2 reviewed change: migrate scalar setting
 FAILED_V2_RECOVERY_PHASE_BLOCK="$(phase_block 'exact checkpoint recovery, then fixed v2 retry' | strip_static_comments)"
 ROLLBACK_PHASE_BLOCK="$(phase_block 'exact rollback: import v1 checkpoint under maintenance, then promote v1' | strip_static_comments)"
 FAIL_CLOSED_PHASE_BLOCK="$(phase_block 'Woo deletion boundary: public product delete is refused before Duo capture mutation' | strip_static_comments)"
+FINAL_RECAPTURE_PHASE_BLOCK="$(phase_block 'final recapture/status and exact clean-room cleanup' | strip_static_comments)"
 CLEANUP_PAIR_DESTROY='if ! bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1; then'
 CLEANUP_DOCKER_CONTAINERS='pair_containers="$(docker ps -aq --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)"'
 CLEANUP_DOCKER_VOLUMES='pair_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)"'
@@ -294,6 +296,22 @@ ordered_contract initial-v1-recapture "$INITIAL_V1_PHASE_BLOCK" \
   'diff -ru "$OTHER_SITE/state" "$OTHER_SITE/.tmp-v1-recapture" >&2 || true' \
   "fail 'initial v1 target recapture did not match canonical state byte-for-byte'" \
   'rm -rf -- "$OTHER_SITE/.tmp-v1-recapture"'
+ordered_contract final-derived-aware-recapture "$FINAL_RECAPTURE_PHASE_BLOCK" \
+  'target_wp duo capture --repo=/siterepo --out=/siterepo/.tmp-final-state >/dev/null' \
+  'if FINAL_RAW_DIFF="$(diff -rq "$OTHER_SITE/state" "$OTHER_SITE/.tmp-final-state")"; then' \
+  '[ "$FINAL_RAW_DIFF_STATUS" -le 1 ]' \
+  'FINAL_SEMANTIC_DIFF="$(final_compiled_state_diff)"' \
+  'if diff -ru "$OTHER_SITE/state" "$OTHER_SITE/.tmp-final-state" >&2; then' \
+  '[ "$FINAL_RAW_DIFF_STATUS" -eq 1 ]' \
+  'if [ "$FINAL_SEMANTIC_DIFF" != "[]" ]; then' \
+  'fail "final target recapture changed authored or identity-bearing state: $FINAL_SEMANTIC_DIFF"' \
+  'rm -rf -- "$OTHER_SITE/.tmp-final-state"' \
+  'FINAL_STATUS="$(status 2>&1)"'
+block_absent final-derived-aware-recapture "$FINAL_RECAPTURE_PHASE_BLOCK" \
+  'final target recapture did not match canonical v1 state byte-for-byte' \
+  'final recapture still enforces the invalid raw-byte contract'
+block_absent final-compiled-state-diff "$FINAL_COMPILED_STATE_DIFF_HELPER_BLOCK" \
+  '| tail -1' 'final semantic diagnostics are truncated to the last pretty-JSON line'
 noop_helper_block() {
   awk '
     NR == 1 { print; next }
@@ -379,6 +397,7 @@ PHASE_ORDER_HELPER_GOLDEN_HASH=b8be7ab1221ac36f7ee6128ce24341d86ae46d66d7f0623ee
 ABSENT_HELPER_GOLDEN_HASH=74e54e8d9c00ba9d83634d57f7d56248999adf428426ab97d95e48dfb5a05616
 TRACE_HELPER_GOLDEN_HASH=dc4e232dae6bbae8b99cd00355e3b890d420d0c74ef70ef8baf170391aad73c5
 STATE_TREE_HASH_HELPER_GOLDEN_HASH=0b405c1bd3820c990ab1e6c3f2fe303fc8e8071be20fe65b133f73771c040349
+FINAL_COMPILED_STATE_DIFF_HELPER_GOLDEN_HASH=f97e2a2f82ecd75644c34a8564bd4c54cde8dec10c47d592c234d1d5afdeb359
 TARGET_PLUGIN_TREE_HASH_HELPER_GOLDEN_HASH=6c9343b7af357aa093efaae96328a2315ee2c1c421a27d0afecc72d4bf68a3a6
 TARGET_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=d80740550295c2df86f1a011941531aca503a475081bfbec685f9f158d9fa1e4
 SOURCE_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=830daaccf4702c0f2dbb27efd6b4aa5b1dd936bd089d744eaa8ec14f0ff35c31
@@ -401,6 +420,7 @@ FRONTEND_HELPER_GOLDEN_HASH=92273a989a026102a60f14fb5904101c2f2e50e66e5afa12372e
 REST_HELPER_GOLDEN_HASH=04e2ae5929d0f588dac14cf7fe5090bf8039e07fe2d9ea6d743635a059564b61
 STORE_API_HTTP_HELPER_GOLDEN_HASH=166220142d61874d76e56c6a18a30f09149c1ed06be33c40bdf8d560d5ef80c6
 FAIL_CLOSED_PHASE_GOLDEN_HASH=2f7531a124792da175133ad4501492bcc94d2abc10947d762f3a57138e810fa3
+FINAL_RECAPTURE_PHASE_GOLDEN_HASH=8ad39bfd59ef81c8c78ef9c6f4c1800af877f2ae5cae2a0ce40488123c10559c
 assert_block_golden_hash cleanup "$CLEANUP_HELPER_BLOCK" "$CLEANUP_HELPER_GOLDEN_HASH"
 assert_block_golden_hash order-helper "$ORDER_HELPER_BLOCK" "$ORDER_HELPER_GOLDEN_HASH"
 assert_block_golden_hash visibility-helper "$VISIBILITY_HELPER_BLOCK" "$VISIBILITY_HELPER_GOLDEN_HASH"
@@ -430,6 +450,15 @@ assert_helper_contracts state-tree-hash "$STATE_TREE_HASH_HELPER_BLOCK" "$STATE_
   'printf '\''%s\t'\'' "$path"' 'state_tree_hash helper does not include each relative path in the digest input' \
   'sha256sum "$path"' 'state_tree_hash helper does not hash each state file' \
   ') | sha256sum | awk' 'state_tree_hash helper does not hash the complete path/content manifest'
+assert_helper_contracts final-compiled-state-diff "$FINAL_COMPILED_STATE_DIFF_HELPER_BLOCK" "$FINAL_COMPILED_STATE_DIFF_HELPER_GOLDEN_HASH" \
+  '\Duo\Policy::load("/siterepo")' 'final semantic diff does not load the pinned repository policy' \
+  '\Duo\RepositoryCompiler::compile_staged("/siterepo/state", "/siterepo", $policy)' 'final semantic diff does not compile the complete canonical tree' \
+  '\Duo\RepositoryCompiler::compile_staged("/siterepo/.tmp-final-state", "/siterepo", $policy)' 'final semantic diff does not compile the complete recaptured tree' \
+  '$out[(string) $entity["path"]] = (string) $entity["hash"];' 'final semantic diff does not bind identity-bearing paths to policy-aware entity hashes' \
+  'foreach ($compiled->deletions() as $entity)' 'final semantic diff omits deletion intents' \
+  '"canonical_hash" => $left[$path] ?? null' 'final semantic diff omits canonical mismatch evidence' \
+  '"recaptured_hash" => $right[$path] ?? null' 'final semantic diff omits recapture mismatch evidence' \
+  'echo \Duo\Canon::encode($diff);' 'final semantic diff is not deterministic canonical JSON'
 assert_helper_contracts target-plugin-tree-hash "$TARGET_PLUGIN_TREE_HASH_HELPER_BLOCK" "$TARGET_PLUGIN_TREE_HASH_HELPER_GOLDEN_HASH" \
   'target_php' 'target_plugin_tree_hash helper does not execute its target-side PHP probe' \
   '$root = "/var/www/html/wp-content/plugins";' 'target_plugin_tree_hash helper is not rooted at the complete plugin tree' \
@@ -925,6 +954,8 @@ fi
 
 [ "$(block_sha256 "$FAIL_CLOSED_PHASE_BLOCK")" = "$FAIL_CLOSED_PHASE_GOLDEN_HASH" ] \
   || fail "golden hash helper detected fail-closed phase executable drift (got $(block_sha256 "$FAIL_CLOSED_PHASE_BLOCK"))"
+[ "$(block_sha256 "$FINAL_RECAPTURE_PHASE_BLOCK")" = "$FINAL_RECAPTURE_PHASE_GOLDEN_HASH" ] \
+  || fail "golden hash helper detected final recapture phase executable drift (got $(block_sha256 "$FINAL_RECAPTURE_PHASE_BLOCK"))"
 
 [ -x "$SCRIPT" ] || fail "$SCRIPT must be executable"
 bash -n "$SCRIPT"
