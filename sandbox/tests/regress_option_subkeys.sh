@@ -163,11 +163,16 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 normalize_repo_permissions() {
+  local host_uid host_gid
+  host_uid=$(id -u)
+  host_gid=$(id -g)
+  mkdir -p "siterepo/${PAIR}1" "siterepo/${PAIR}2"
   # Capture/apply publish as container uid 33. Normalize only this test's
   # pair-owned bind roots before host-side cleanup so reruns cannot fail on
-  # otherwise valid canonical files merely because they are mode 0644.
-  $COMPOSE run --rm -T -u root cli1 sh -c 'chmod -R ugo+rwX /siterepo' >/dev/null 2>&1 || true
-  $COMPOSE run --rm -T -u root cli2 sh -c 'chmod -R ugo+rwX /siterepo' >/dev/null 2>&1 || true
+  # otherwise valid canonical files merely because they are mode 0644. The
+  # chown also repairs a missing bind source that Docker recreated as root.
+  $COMPOSE run --rm -T -u root cli1 sh -c "chown -R ${host_uid}:${host_gid} /siterepo && chmod -R ugo+rwX /siterepo" >/dev/null 2>&1 || true
+  $COMPOSE run --rm -T -u root cli2 sh -c "chown -R ${host_uid}:${host_gid} /siterepo && chmod -R ugo+rwX /siterepo" >/dev/null 2>&1 || true
 }
 
 # DUO-3300's focused owning-layer regression. Polylang stores each language's
