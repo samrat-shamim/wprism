@@ -11,8 +11,10 @@
 # existing, so there is no corpse to detect, no age or liveness heuristic, and
 # no takeover or rename path. Cases 8 and 9 below are the two races review
 # REPRODUCED against the earlier mkdir-gated revision of this section; they
-# pass here because the mechanisms they raced no longer exist, and case 17
-# pins that absence so nobody reintroduces one.
+# pass here because the mechanisms they raced no longer exist, and case 16
+# pins that absence so nobody reintroduces one. Case 18 is a third reproduced
+# defect from the following review round: the helper used to read an empty
+# `ps` as death and drop the lock while its acquirer was still running.
 #
 # Offline, no docker, no pair, no bundle: every case drives the SHIPPED
 # functions by sourcing certify_reference_bundle.sh with
@@ -408,7 +410,23 @@ CERT_BUNDLE_LOCK_BACKEND=nonsense CERT_BUNDLE_PAIR=badbackend \
   > "$SCRATCH/badbackend.log" 2>&1 || rc=$?
 [ "$rc" = "1" ] || fail "an unknown backend exited $rc, expected a refusal (1)"
 assert_in "$SCRATCH/badbackend.log" "must be auto, flock, or python" "the backend refusal does not name the accepted values"
-pass "an uncreatable rendezvous and an unknown backend both refuse by name"
+# A helper that writes `busy` and exits can do both between the parent's
+# marker tests and its kill -0, which would report an ordinary "the lock is
+# taken" as a crashed helper — a refusal misfiled as a hard failure, naming
+# the wrong cause. Review could not reproduce it in 200 contended attempts,
+# so the re-read that closes it is pinned structurally rather than raced: an
+# unreproducible window is exactly the kind a behavioural test stops covering
+# without anyone noticing.
+TRY_BODY="$SCRATCH/lock_try.body"
+awk '/^certbundle_lock_try\(\) \{/{inside=1} inside{print} inside && /^\}$/{exit}' "$SHIPPED" > "$TRY_BODY"
+[ -s "$TRY_BODY" ] || fail "cannot extract certbundle_lock_try() from certify_reference_bundle.sh"
+DIED_LINE=$(grep -n 'outcome=died' "$TRY_BODY" | head -1 | cut -d: -f1)
+KILL_LINE=$(grep -n 'kill -0 "\$CERT_BUNDLE_LOCK_HELPER_PID"' "$TRY_BODY" | head -1 | cut -d: -f1)
+[ -n "$DIED_LINE" ] && [ -n "$KILL_LINE" ] || fail "cannot locate the helper-death branch in certbundle_lock_try()"
+RETESTS=$(awk -v a="$KILL_LINE" -v b="$DIED_LINE" 'NR>a && NR<b && (/\[ -e "\$ready" \]/ || /\[ -e "\$busy" \]/)' "$TRY_BODY" | grep -c .)
+[ "$RETESTS" = "2" ] \
+  || fail "certbundle_lock_try() must re-test BOTH ready and busy after kill -0 reports the helper gone (found $RETESTS of 2 between lines $KILL_LINE and $DIED_LINE); otherwise a helper that reports busy and exits is misreported as a crash"
+pass "an uncreatable rendezvous and an unknown backend both refuse by name; the busy/died window is closed by a re-read of both markers"
 
 # The orderings below cannot be reached without docker and a full bundle, so
 # they are pinned against the shipped source rather than simulated: a suite
@@ -462,7 +480,72 @@ assert_in "$SCRATCH/hook.log" "source-only hook" "the hook refusal does not expl
 [ ! -f "$HOLDER_FILE" ] || fail "the refused hook invocation left a naming record behind"
 pass "the test seam refuses to run a bundle instead of silently skipping the lock"
 
-say "case 18 — no helper process or control directory outlives this suite"
+say "case 18 — a transient ps failure must never be read as the acquirer's death"
+# Review reproduced this against the previous revision: the flock helper read
+# certbundle_process_identity, and an EMPTY result (ps failing to fork under
+# load) was indistinguishable from "the acquirer died", so the helper dropped
+# the descriptor and exited while its acquirer ran on — "SECOND RUN ACQUIRED
+# while the first is alive". The helper spawns that ps thousands of times per
+# bundle on a fork-pressured host, and the failure was completely silent.
+mkdir -p "$SCRATCH/psshim"
+REAL_PS=$(command -v ps) || fail "ps required"
+cat > "$SCRATCH/psshim/ps" <<PSSHIM
+#!/usr/bin/env bash
+# Empty output, exit 0 — a ps that failed to fork, not a dead process.
+[ -e "$SCRATCH/ps-fails" ] && exit 0
+exec $REAL_PS "\$@"
+PSSHIM
+chmod +x "$SCRATCH/psshim/ps"
+rm -f "$SCRATCH/ps-fails"
+: > "$HOLD"
+PATH="$SCRATCH/psshim:$PATH" CERT_BUNDLE_LOCK_BACKEND=flock CERT_BUNDLE_PAIR=survivor \
+  bash "$SCRATCH/driver.sh" hold "$SCRATCH/ready.survivor" "$HOLD" > "$SCRATCH/survivor.log" 2>&1 &
+SURVIVOR_JOB=$!; SPAWNED+=("$SURVIVOR_JOB")
+wait_until 30 "the survivor to acquire with a healthy ps" test -f "$SCRATCH/ready.survivor"
+SURVIVOR_PID=$(cat "$SCRATCH/ready.survivor")
+: > "$SCRATCH/ps-fails"   # every identity read from here on comes back empty
+sleep 2                   # several identity checks, at one per 0.5s
+kill -0 "$SURVIVOR_PID" 2>/dev/null \
+  || fail "fixture lost its point: the holder must still be alive while its identity is unreadable"
+rm -f "$SCRATCH/ps-fails"
+rc=0
+CERT_BUNDLE_PAIR=intruder bash "$SCRATCH/driver.sh" acquire "$SCRATCH/ready.intruder" "$SCRATCH/unused" \
+  > "$SCRATCH/intruder.log" 2>&1 || rc=$?
+[ "$rc" = "1" ] \
+  || { show "$SCRATCH/intruder.log"; fail "a second run acquired while the first was alive: the helper read a transient ps failure as death and dropped the lock"; }
+assert_in "$SCRATCH/intruder.log" "refusing to start a second certification bundle" "the intruder did not refuse"
+assert_in "$SCRATCH/intruder.log" "holder pid     : $SURVIVOR_PID" "the intruder did not name the surviving holder"
+# The conservative reading must not cost the crash-safety it protects.
+kill -9 "$SURVIVOR_PID"
+rc=0; wait "$SURVIVOR_JOB" || rc=$?
+[ "$rc" = "137" ] || fail "the survivor exited $rc, not 137"
+PSLAT=$(acquire_after_kill afterps "$SCRATCH/afterps.log" 20)
+assert_in "$SCRATCH/afterps.log" "host certification lock acquired" \
+  "keeping the lock through an unreadable identity also kept it through a real death"
+rm -f "$HOLD"
+pass "an unreadable identity kept the lock (intruder refused), and a real kill still reclaimed it in ${PSLAT}s"
+
+say "case 19 — the two backends exclude each other, in both directions"
+for pairing in "flock python" "python flock"; do
+  set -- $pairing; HB="$1"; CB="$2"
+  : > "$HOLD"
+  CERT_BUNDLE_LOCK_BACKEND="$HB" CERT_BUNDLE_PAIR=xhold \
+    bash "$SCRATCH/driver.sh" hold "$SCRATCH/ready.x$HB" "$HOLD" > "$SCRATCH/x$HB.log" 2>&1 &
+  XJOB=$!; SPAWNED+=("$XJOB")
+  wait_until 30 "the $HB holder to acquire" test -f "$SCRATCH/ready.x$HB"
+  XPID=$(cat "$SCRATCH/ready.x$HB")
+  rc=0
+  CERT_BUNDLE_LOCK_BACKEND="$CB" CERT_BUNDLE_PAIR=xcontend \
+    bash "$SCRATCH/driver.sh" acquire "$SCRATCH/ready.xc$CB" "$SCRATCH/unused" \
+    > "$SCRATCH/xc$CB.log" 2>&1 || rc=$?
+  [ "$rc" = "1" ] \
+    || { show "$SCRATCH/xc$CB.log"; fail "a $CB contender acquired while a $HB holder held it; the two backends must be the same flock(2) on the same file"; }
+  assert_in "$SCRATCH/xc$CB.log" "holder pid     : $XPID" "the $CB contender did not name the $HB holder"
+  rm -f "$HOLD"; rc=0; wait "$XJOB" || rc=$?
+  pass "$HB holder excluded a $CB contender, which named it correctly"
+done
+
+say "case 20 — no helper process or control directory outlives this suite"
 LEAKED=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'duo-certbundle-helper.*' -newer "$SCRATCH/driver.sh" 2>/dev/null | head -5)
 [ -z "$LEAKED" ] || fail "helper control directories leaked: $LEAKED"
 pass "every helper this suite started cleaned up its own control directory"

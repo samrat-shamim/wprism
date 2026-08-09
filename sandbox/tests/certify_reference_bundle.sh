@@ -131,11 +131,49 @@ certbundle_lock_backend() {
 }
 
 certbundle_process_identity() { # certbundle_process_identity <pid>
-  # A start-time token, empty when the pid is gone. It changes when a PID is
-  # recycled, so a helper cannot mistake a new process for the run that
+  # A start-time token, empty when the pid cannot be read. It changes when a
+  # PID is recycled, so a helper cannot mistake a new process for the run that
   # spawned it. pair.sh reads /proc/<pid>/stat field 22 for the same purpose;
   # ps -o lstart= is the portable equivalent and works where there is no /proc.
-  ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ *//;s/ *$//'
+  # Trimmed with parameter expansion rather than `| tr | sed`: this runs
+  # thousands of times over one bundle, and one fork per read instead of three
+  # is three times less of exactly the fork pressure that makes it fail.
+  local out
+  out="$(ps -o lstart= -p "$1" 2>/dev/null)" || out=
+  out="${out#"${out%%[![:space:]]*}"}"
+  out="${out%"${out##*[![:space:]]}"}"
+  printf '%s' "$out"
+}
+
+certbundle_acquirer_gone() { # certbundle_acquirer_gone <pid> <recorded-identity>
+  # Whether the process that acquired the lock has stopped existing. Only
+  # POSITIVE evidence counts, because the helper releases the lock on a true
+  # answer and an unnecessary hold is recoverable while a wrong release is
+  # not.
+  #
+  # An empty identity read is NOT that evidence. ps can fail transiently --
+  # fork failure under load is the ordinary case on a host running several
+  # bundles and pairs -- and an earlier revision treated empty exactly like
+  # death: the helper dropped the descriptor and exited while its acquirer
+  # ran happily on with its naming record intact, and the next invocation
+  # acquired a lock somebody else was still holding. Review reproduced that
+  # with a ps that returns empty once ("SECOND RUN ACQUIRED while the first
+  # is alive"), and it would have been silent in production.
+  local pid="$1" recorded="$2" ident
+  ident="$(certbundle_process_identity "$pid")"
+  # Explicit returns throughout: `set -e` is only suspended for a function
+  # called in a condition, and this one must be safe to call anywhere.
+  if [ -n "$ident" ] && [ -n "$recorded" ]; then
+    # Both reads succeeded: a different token means the pid was recycled, so
+    # our acquirer is gone; the same token means it is still there.
+    if [ "$ident" != "$recorded" ]; then return 0; fi
+    return 1
+  fi
+  # The read told us nothing. kill -0 is a syscall in the shell itself, with
+  # no fork to fail, so it can corroborate: an unreadable identity while the
+  # pid still answers is a failed probe BY CONSTRUCTION, and we keep holding.
+  if kill -0 "$pid" 2>/dev/null; then return 1; fi
+  return 0
 }
 
 certbundle_lock_read_holder() { # populates LOCK_*; nonzero when unreadable
@@ -258,7 +296,11 @@ certbundle_lock_try() { # 0 = acquired, 1 = held by someone else
   ready="$helper_dir/ready"; busy="$helper_dir/busy"
   cancel="$helper_dir/cancel"; err="$helper_dir/stderr"
   parent_pid="$$"
+  # Recorded once, retried once: an empty token here costs the helper its
+  # PID-reuse defence for the whole run (certbundle_acquirer_gone then falls
+  # back to kill -0 alone, which holds too long rather than releasing early).
   parent_ident="$(certbundle_process_identity "$parent_pid")"
+  [ -n "$parent_ident" ] || parent_ident="$(certbundle_process_identity "$parent_pid")"
 
   if [ "$backend" = flock ]; then
     (
@@ -280,7 +322,7 @@ certbundle_lock_try() { # 0 = acquired, 1 = held by someone else
         while [ ! -e "$cancel" ]; do
           checks=$((checks + 1))
           if [ "$((checks % 10))" -eq 0 ] \
-              && [ "$(certbundle_process_identity "$parent_pid")" != "$parent_ident" ]; then
+              && certbundle_acquirer_gone "$parent_pid" "$parent_ident"; then
             rm -rf -- "$helper_dir" 2>/dev/null || true
             exit 0
           fi
@@ -320,7 +362,16 @@ while not os.path.exists(cancel_path):
   while :; do
     if [ -e "$ready" ]; then outcome=acquired; break; fi
     if [ -e "$busy" ]; then outcome=busy; break; fi
-    kill -0 "$CERT_BUNDLE_LOCK_HELPER_PID" 2>/dev/null || { outcome=died; break; }
+    if ! kill -0 "$CERT_BUNDLE_LOCK_HELPER_PID" 2>/dev/null; then
+      # The helper writes its marker and then exits, so it can do both between
+      # the two tests above and this one. Re-read before calling a normal
+      # "the lock is taken" outcome a crashed helper: that misreport would
+      # turn an ordinary refusal into a hard failure naming the wrong cause.
+      if [ -e "$ready" ]; then outcome=acquired; break; fi
+      if [ -e "$busy" ]; then outcome=busy; break; fi
+      outcome=died
+      break
+    fi
     sleep 0.02
   done
 
