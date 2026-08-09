@@ -251,6 +251,7 @@ namespace {
         'code_stage' => 'code-stage',
         'code_finalize' => 'code-finalize',
         'init' => 'init',
+        'scope' => 'scope',
         'capture' => 'capture',
         'plan' => 'plan',
         'explain' => 'explain',
@@ -298,6 +299,14 @@ namespace {
         check(($payload['message'] ?? null) === "$missing is required for $command", "$command refusal identifies the missing argument");
         check(is_string($payload['remediation'] ?? null) && $payload['remediation'] !== '', "$command refusal carries remediation");
     }
+
+    $scopeRoots = invoke_json(static fn() => $cli->scope([], [
+        'repo' => '/fixture',
+        'format' => 'json',
+    ]));
+    check(($scopeRoots['command'] ?? null) === 'scope', 'scope secondary argument refusal stays on the scope contract');
+    check(($scopeRoots['error'] ?? null) === 'invalid_arguments', 'scope missing roots has a stable argument error code');
+    check(($scopeRoots['message'] ?? null) === '--roots is required for scope', 'scope refusal identifies the missing roots argument');
 
     echo "\n== deliberately public gates keep stable diagnostics ==\n";
     \Duo\Capture::$failure = new \Duo\CommandRefusalException(
