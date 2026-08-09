@@ -88,7 +88,8 @@ function pct_plan(array $overrides = []): array {
         'collision' => [], 'conflict' => [], 'create' => [], 'delete' => [],
         'delete_conflict' => [], 'deleted' => [], 'drift' => [], 'effects_inventory' => [],
         'env_missing' => [], 'incomplete_apply' => [], 'incomplete_lifecycle' => [],
-        'missing_user' => [], 'provider_problems' => [], 'regen_pending' => [], 'skipped_user_meta' => [],
+        'missing_user' => [], 'provider_problems' => [], 'regen_context' => [], 'regen_pending' => [],
+        'skipped_user_meta' => [],
         'unchanged' => [], 'update' => [], 'uploads_inventory' => [], 'warnings' => [],
     ];
 }
@@ -484,6 +485,21 @@ pct_ok($contract::violations([]) === array_map(
     static fn(string $bucket): string => "missing $bucket",
     $contract::requiredBuckets()
 ), 'an empty plan object names every missing bucket rather than rendering clean');
+// DUO-3342's bucket, pinned like `warnings` above because it carries the same
+// hazard: PlanSummary::render() defaults it (`$plan['regen_context'] ?? []`),
+// so an envelope that simply omits it renders as though no derived-state
+// receipt were outstanding — and `ok` is what the convergence and frozen-
+// promotion reconciliation boundaries turn into a receipt. Requiring the
+// bucket is what makes those `ok` reads trustworthy for it.
+pct_ok($contract::violations(pct_plan_without('regen_context')) === ['missing regen_context'],
+    'an envelope omitting the outstanding-receipt bucket is incomplete, so a caller cannot read a clean `ok` '
+    . 'off a document that never carried it');
+pct_ok(\Duo\Orchestrator\PlanSummary::render(pct_plan_without('regen_context'))['ok'] === true
+    && \Duo\Orchestrator\PlanSummary::render(pct_plan([
+        'regen_context' => [['uuid' => 'u', 'type' => 'post', 'post_type' => 'p', 'kind' => 'delete']],
+    ]))['ok'] === false,
+    'and that is exactly the fail-open it closes: the renderer calls the omitting document clean while the '
+    . 'same document carrying the row is not — the difference the contract now refuses to let through');
 pct_ok($contract::violations(pct_plan_without('warnings')) === ['missing warnings'],
     'one absent bucket is named exactly once');
 pct_ok($contract::violations(pct_plan(['drift' => ['state/options/core.json' => []]])) === ['drift is not a list'],
