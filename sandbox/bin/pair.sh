@@ -41,7 +41,9 @@
 # - `up` performs the host-budget check before creating any pair database or
 #   site-repo state. A new pair over the dynamic CPU/RAM budget is refused;
 #   `DUO_PAIR_BUDGET_OVERRIDE=1` is the explicit escape hatch. `list` surfaces
-#   the same budget warning for pairs already up.
+#   the same budget warning for pairs already up. The one exception is the
+#   pair named by a HELD host certification lock, which is already budgeted
+#   for the length of that bundle — see certbundle_reserved_pair() below.
 #
 # - `up`/`reset`/`start` print the agent/manifests bind-mount source they
 #   will actually use (path + HEAD) before doing anything, and refuse if
@@ -803,6 +805,105 @@ disarm_budget_up_cleanup() {
   budget_lock_release
 }
 
+# DUO-3396: the pair a HELD host certification lock names is already budgeted.
+#
+# sandbox/tests/certify_reference_bundle.sh holds the per-host certification
+# lock (DUO-3382) for one whole ~50-minute run, but it destroys and recreates
+# ONE pair -- the pair it recorded in that lock -- once per leg. Every recreate
+# re-enters the reservation below, so a 12-leg bundle asks the host for its own
+# pair twelve times, and a leg that lands after other agents have filled the
+# budget in between is refused ("refusing to bring up new pair ... over
+# budget"), which ends the bundle in an immutable FAIL verdict after the legs
+# it had already earned (observed live: leg 6, ~25 minutes of green burned).
+# DUO_PAIR_BUDGET_OVERRIDE=1 is not the answer for a certification: the run
+# records it as a forced hatch, so the evidence would say the budget was
+# overridden rather than reserved.
+#
+# The slot was committed when the bundle started and the lock is the thing that
+# says it still is, so while that lock is held the recorded pair counts as
+# already budgeted. Two properties carry it, and BOTH fail open toward the
+# ordinary refusal -- no record, an unreadable record, a different name, a lock
+# nobody holds, or no way to ask: the budget then applies exactly as it did
+# before this existed.
+#
+#   Exact name, never a pattern. The recorded name is compared literally; no
+#   prefix, no glob, no `case`. DUO-3382 holds the same discipline for the same
+#   reason (docs/agents/linear-loop.md's field note): a pattern matches
+#   whatever merely CONTAINS the string, including every other agent's pair.
+#
+#   Held right now, decided by the kernel. holder.json is DUO-3382's NAMING
+#   record, not its lock: it is written after the lock is taken, and a crashed
+#   run's record outlives it until the next acquirer sweeps it. Trusting its
+#   existence would hand a dead bundle a permanent reservation on this host --
+#   a phantom that nothing would ever clear. So the question "is it held" goes
+#   to the flock(2) itself, which the kernel drops the instant its holder stops
+#   existing: an acquire that SUCCEEDS is proof that nobody held it.
+#
+# This is the read side of that lock and nothing else. It never creates the
+# rendezvous, never writes or removes the record, and never keeps the
+# descriptor. CERT_BUNDLE_LOCK_DIR is honored so the offline regression can
+# drive a private rendezvous exactly as the bundle's own suite does, and the
+# default is the same fixed literal certify_reference_bundle.sh commits to --
+# both sides must name one path or there is nothing to be exempt from.
+CERT_BUNDLE_LOCK_DIR="${CERT_BUNDLE_LOCK_DIR:-/tmp/duo-certbundle.lock}"
+
+certbundle_lock_held() { # certbundle_lock_held <lock-file>; 0 = somebody holds it
+  # SHARED (flock -s / LOCK_SH), not exclusive, and dropped the moment it is
+  # taken. Two of these probes can race -- separate checkouts reserve against
+  # separate budget locks -- and an exclusive probe would read its own twin as
+  # "a bundle holds this" and grant a reservation nobody owns. A shared probe
+  # can only ever be excluded by the bundle's own exclusive hold, which is the
+  # single fact being asked about.
+  #
+  # The descriptor is read-only: this side must not create or truncate anything
+  # in a rendezvous it does not own (flock(2) is indifferent to the open mode;
+  # `9>` would truncate the very file the bundle's helper is holding). A
+  # missing lock file, a failed redirection, or an flock that cannot run all
+  # exit non-zero too, so "could not take it" is signalled as 3 rather than
+  # flock's own 1 -- every other non-zero status is doubt, not a holder.
+  local lock_file="$1" rc=0
+  if command -v flock >/dev/null 2>&1; then
+    ( flock -s -n 9 || exit 3 ) 9<"$lock_file" 2>/dev/null || rc=$?
+  elif command -v python3 >/dev/null 2>&1; then
+    # The same fcntl.flock fallback pair.sh's own budget lock and the bundle
+    # both document for macOS/BSD hosts with no util-linux flock(1). Both
+    # backends are flock(2) on one file, so they interoperate.
+    python3 -c '
+import fcntl, sys
+handle = open(sys.argv[1])
+try:
+    fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+except BlockingIOError:
+    raise SystemExit(3)
+raise SystemExit(0)
+' "$lock_file" 2>/dev/null || rc=$?
+  else
+    return 1
+  fi
+  # Explicit returns: `set -e` is only suspended for a function called in a
+  # condition, and this one must be safe to call anywhere.
+  case "$rc" in
+    3) return 0 ;;   # could not take it -- a live holder has it
+    *) return 1 ;;   # 0 = we just took it, so nobody did; anything else = doubt
+  esac
+}
+
+certbundle_reserved_pair() { # certbundle_reserved_pair <candidate>; 0 = pre-budgeted
+  local candidate="$1" lock_file="$CERT_BUNDLE_LOCK_DIR/lock" recorded
+  local holder_file="$CERT_BUNDLE_LOCK_DIR/holder.json"
+  [ -n "$candidate" ] || return 1
+  [ -f "$holder_file" ] && [ -f "$lock_file" ] || return 1
+  # jq, the same reader certify_reference_bundle.sh's own
+  # certbundle_lock_read_holder() uses, and already required by live_pairs()
+  # above. A record that is absent, malformed, or carries a non-string pair is
+  # simply not a reservation.
+  recorded="$(jq -r 'if (.pair | type) == "string" then .pair else empty end' \
+    "$holder_file" 2>/dev/null)" || return 1
+  [ "$recorded" = "$candidate" ] || return 1
+  certbundle_lock_held "$lock_file" || return 1
+  return 0
+}
+
 reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
   local candidate="$1" root live budget live_count candidate_live=0 total
   if ! root="$(canonical_root)"; then
@@ -834,7 +935,15 @@ reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
     warn "!! pairs: $(printf '%s' "$live" | tr '\n' ' ')"
     warn "!! stop pairs you're not actively using (pair.sh stop <name>) or destroy finished ones"
     if [ -n "$candidate" ] && [ "$candidate_live" -eq 0 ]; then
-      if [ "${DUO_PAIR_BUDGET_OVERRIDE:-0}" = "1" ]; then
+      # Asked only here, in the branch that would otherwise refuse: an
+      # in-budget `up` never reads the rendezvous at all, and the exemption
+      # can only ever turn a refusal into the bring-up the certification lock
+      # already reserved. Ahead of the override so a certification never has
+      # to set one — DUO_PAIR_BUDGET_OVERRIDE=1 would be recorded as a forced
+      # hatch in the bundle's own evidence.
+      if certbundle_reserved_pair "$candidate"; then
+        warn "!! '$candidate' is the pair recorded by the HELD host certification lock ($CERT_BUNDLE_LOCK_DIR) — already budgeted for that run (DUO-3396), bringing it up at ${total}/${budget}"
+      elif [ "${DUO_PAIR_BUDGET_OVERRIDE:-0}" = "1" ]; then
         warn "!! DUO_PAIR_BUDGET_OVERRIDE=1 set — bringing up '$candidate' ANYWAY, ${total}/${budget} over budget"
       else
         budget_lock_release
@@ -1341,6 +1450,15 @@ Environment:
            CONF_EXPECTED_SOURCE_SHA.
   DUO_PAIR_BUDGET_OVERRIDE=1
            bring a pair up/start it even when the host budget is exceeded.
+  CERT_BUNDLE_LOCK_DIR=<dir>
+           DUO-3382's host certification rendezvous, default
+           /tmp/duo-certbundle.lock, READ ONLY here. While that lock is
+           held, the exact pair name its holder.json records is already
+           budgeted (DUO-3396: a bundle destroys and recreates that one
+           pair per leg for ~50 minutes and must not lose the slot it
+           reserved). Nothing else is exempt, and a released or crashed
+           holder's record grants nothing — the flock, not the record,
+           decides. Set it only in step with the bundle itself.
 USAGE
 }
 

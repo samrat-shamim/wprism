@@ -799,4 +799,217 @@ if [ -n "$FOREIGN" ]; then
 fi
 pass "every helper this suite started cleaned up its own control directory"
 
+# ---------------------------------------------------------------------------
+# DUO-3396: the pair budget's reservation for the pair this lock names.
+#
+# The lock above is held for one whole ~50-minute bundle, but the bundle
+# destroys and recreates ONE pair per leg (each leg's conformance/run.sh calls
+# `pair.sh up`), so every leg re-enters sandbox/bin/pair.sh's host budget check.
+# On 2026-08-09 five legs ran green, other agents filled the host's 4-pair
+# budget in between, leg 6's `up` refused over budget ("5 > 4"), and the bundle
+# recorded an immutable FAIL after ~25 minutes of earned evidence.
+# DUO_PAIR_BUDGET_OVERRIDE=1 is not available to a certification: the run
+# records it as a forced hatch, so the evidence would say the host budget was
+# overridden rather than reserved.
+#
+# So while this lock is HELD, pair.sh treats the exact pair name its record
+# carries as already budgeted. The cases below drive the SHIPPED pair.sh
+# against the SHIPPED lock -- a real holder process, a real flock, a real
+# record -- with a fake `docker` on PATH: the host budget is a fixture, no pair
+# is ever started, and nothing outside this run's own $SCRATCH is touched.
+PAIR_SH="$(cd .. && pwd)/bin/pair.sh"
+[ -f "$PAIR_SH" ] || fail "cannot find the pair tool under test: $PAIR_SH"
+
+write_pair_fakes() { # write_pair_fakes <bin-dir>
+  mkdir -p "$1"
+  cat > "$1/docker" <<'FAKE_DOCKER'
+#!/usr/bin/env bash
+# Answers ONLY the two queries pair.sh's budget reservation makes, so the
+# budget is a fixture instead of whatever this host happens to be running.
+# Every other docker call is a sentinel that ends the run there: reaching one
+# means the budget gate ADMITTED this pair, which is exactly what the admitted
+# cases assert, and stopping means no case ever waits on a container that is
+# never going to exist.
+set -euo pipefail
+if [ "${1:-}" = info ]; then
+  case "${3:-}" in
+    '{{.NCPU}}')     printf '%s\n' "${DUO_PAIR_TEST_CPU:?}" ;;
+    '{{.MemTotal}}') printf '%s\n' "${DUO_PAIR_TEST_MEM:?}" ;;
+  esac
+  exit 0
+fi
+if [ "${1:-}" = compose ] && [ "${2:-}" = ls ]; then
+  printf '%s\n' "${DUO_PAIR_TEST_LIVE_PAIRS:?}"
+  exit 0
+fi
+printf 'FAKE-DOCKER-SENTINEL: %s\n' "$*" >&2
+exit 42
+FAKE_DOCKER
+  cat > "$1/git" <<'FAKE_GIT'
+#!/usr/bin/env bash
+# canonical_root() only, which is all pair.sh needs to reach its budget gate
+# with DUO_EXPECTED_SOURCE_SHA unset. pair.sh's own suites fake git this way.
+set -euo pipefail
+[ "${1:-}" = rev-parse ] || exit 1
+printf '%s/.git\n' "${DUO_PAIR_TEST_CANONICAL_ROOT:?}"
+FAKE_GIT
+  chmod +x "$1/docker" "$1/git"
+}
+
+PAIR_HOST_UTILITIES=(bash python3 jq awk mkdir grep sed tr seq sleep chmod find rm dirname cat mktemp mkfifo rmdir)
+link_host_utilities() { # link_host_utilities <bin-dir>; 1 = this host cannot
+  local bin="$1" utility path
+  for utility in "${PAIR_HOST_UTILITIES[@]}"; do
+    path="$(command -v "$utility")" || return 1
+    ln -sf "$path" "$bin/$utility"
+  done
+  return 0
+}
+
+PAIR_UP_STATUS=0
+pair_up() { # pair_up <label> <pair> <rendezvous> [probe: auto|python]
+  # One private copy of the shipped pair.sh per case, under this run's scratch:
+  # pair.sh writes sandbox/.env and sandbox/siterepo/ relative to its own
+  # location, and no regression may write those into the checkout it is testing.
+  local label="$1" pair="$2" rendezvous="$3" probe="${4:-auto}"
+  local root="$SCRATCH/pair.$label" path_value
+  mkdir -p "$root/sandbox/bin" "$root/bin"
+  cp "$PAIR_SH" "$root/sandbox/bin/pair.sh"
+  chmod +x "$root/sandbox/bin/pair.sh"
+  write_pair_fakes "$root/bin"
+  path_value="$root/bin:$PATH"
+  if [ "$probe" = python ]; then
+    # A PATH with no flock(1) on it at all: the read-side probe must fall back
+    # to the documented python3 fcntl.flock backend, the same fallback pair.sh's
+    # own budget lock and the lock above already offer a macOS/BSD host.
+    link_host_utilities "$root/bin" || return 2
+    path_value="$root/bin"
+  fi
+  PAIR_UP_STATUS=0
+  # Three cores / 5GiB is exactly one budget unit (see pair_budget()), and one
+  # foreign pair is already live: the host is AT its cap for every case below.
+  env -u DUO_PAIR_BUDGET_OVERRIDE PATH="$path_value" \
+    CERT_BUNDLE_LOCK_DIR="$rendezvous" \
+    DUO_PAIR_TEST_CPU=3 DUO_PAIR_TEST_MEM=5368709120 \
+    DUO_PAIR_TEST_LIVE_PAIRS='[{"ConfigFiles":"/fake/pair.yml","Name":"duo-existing"}]' \
+    DUO_PAIR_TEST_CANONICAL_ROOT="$root/canonical" \
+    bash "$root/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless \
+    > "$SCRATCH/$label.log" 2>&1 || PAIR_UP_STATUS=$?
+  return 0
+}
+
+assert_pair_refused() { # assert_pair_refused <label> <pair> <why>
+  local log="$SCRATCH/$1.log"
+  [ "$PAIR_UP_STATUS" = "1" ] || { show "$log"; fail "$3: pair.sh exited $PAIR_UP_STATUS, expected the budget refusal (1)"; }
+  assert_in "$log" "refusing to bring up new pair '$2' over budget" "$3"
+  assert_not_in "$log" "FAKE-DOCKER-SENTINEL" "$3: the refusal was reached only after touching Docker beyond the budget queries"
+  assert_not_in "$log" "already budgeted for that run" "$3: a reservation was announced for a pair that must not have one"
+}
+
+assert_pair_admitted() { # assert_pair_admitted <label> <pair> <why>
+  local log="$SCRATCH/$1.log"
+  assert_not_in "$log" "refusing to bring up new pair '$2' over budget" "$3"
+  assert_in "$log" "is the pair recorded by the HELD host certification lock" "$3: the reservation was not announced"
+  assert_in "$log" "already budgeted for that run" "$3: the reservation did not say what it rests on"
+  assert_not_in "$log" "DUO_PAIR_BUDGET_OVERRIDE=1 set" "$3: the reservation was really the forced hatch, which certification records as one"
+  # Past the gate, the next thing `up` does is bring the shared DB up.
+  assert_in "$log" "FAKE-DOCKER-SENTINEL" "$3: nothing beyond the budget gate was reached"
+  [ "$PAIR_UP_STATUS" = "42" ] \
+    || { show "$log"; fail "$3: pair.sh exited $PAIR_UP_STATUS, expected the fake docker sentinel (42) that follows the gate"; }
+}
+
+say "case 21 — shipped ordering: the pair is recorded before the bundle's first pair.sh call, and both sides name one rendezvous"
+RECORD_LINE=$(grep -n 'CERT_BUNDLE_LOCK_HOLDER_FILE\.\$\$' "$SHIPPED" | head -1 | cut -d: -f1)
+FIRST_PAIR_LINE=$(grep -n 'bin/pair\.sh' "$SHIPPED" | grep -v '^[0-9]*:#' | head -1 | cut -d: -f1)
+[ -n "$RECORD_LINE" ] || fail "certify_reference_bundle.sh no longer writes a naming record"
+[ -n "$FIRST_PAIR_LINE" ] || fail "cannot locate the bundle's first pair.sh invocation"
+[ "$ACQUIRE_LINE" -lt "$FIRST_PAIR_LINE" ] \
+  || fail "the lock is acquired at line $ACQUIRE_LINE, after the first pair.sh call at $FIRST_PAIR_LINE"
+[ "$RECORD_LINE" -lt "$ACQUIRE_LINE" ] \
+  || fail "the naming record is written at line $RECORD_LINE, outside the acquire called at $ACQUIRE_LINE -- every leg after the first would find no record to be exempt by"
+assert_in "$SHIPPED" '--argjson pid "$$" --arg pair "$PAIR"' "the record no longer carries the pair name the exemption is keyed on"
+assert_in "$SHIPPED" 'CONF_PAIR="$PAIR"' "the legs no longer bring up the pair the lock records; the recorded name would be exempting nothing"
+# One rendezvous or there is nothing to be exempt from: the same default
+# literal, the same record filename, on both sides.
+assert_in "$SHIPPED" 'CERT_BUNDLE_LOCK_DIR="${CERT_BUNDLE_LOCK_DIR:-/tmp/duo-certbundle.lock}"' \
+  "the bundle's rendezvous default changed"
+assert_in "$PAIR_SH" 'CERT_BUNDLE_LOCK_DIR="${CERT_BUNDLE_LOCK_DIR:-/tmp/duo-certbundle.lock}"' \
+  "pair.sh does not name the same rendezvous default as the bundle"
+assert_in "$SHIPPED" 'CERT_BUNDLE_LOCK_HOLDER_FILE="$CERT_BUNDLE_LOCK_DIR/holder.json"' \
+  "the bundle's record filename changed"
+assert_in "$PAIR_SH" 'holder_file="$CERT_BUNDLE_LOCK_DIR/holder.json"' \
+  "pair.sh does not read the same record file the bundle writes"
+pass "record written at line $RECORD_LINE inside the acquire (line $ACQUIRE_LINE), both before the first pair.sh call at line $FIRST_PAIR_LINE; one rendezvous, one record filename"
+
+say "case 22 — at the cap, a foreign pair name still refuses while the lock is held (the budget is not weakened)"
+: > "$HOLD"
+CERT_BUNDLE_PAIR=certbundle bash "$SCRATCH/driver.sh" hold "$SCRATCH/ready.certbundle" "$HOLD" \
+  > "$SCRATCH/certbundle.log" 2>&1 &
+CERTBUNDLE_JOB=$!; SPAWNED+=("$CERTBUNDLE_JOB")
+wait_until 30 "the certification holder to acquire" test -f "$SCRATCH/ready.certbundle"
+[ "$(jq -r '.pair' "$HOLDER_FILE")" = certbundle ] || fail "the holder did not record the pair it holds for"
+pair_up foreign otherpair "$LOCK_DIR"
+assert_pair_refused foreign otherpair "a foreign pair was admitted on someone else's reservation"
+# Exact name, never a pattern: DUO-3382's own discipline, and the reason a
+# prefix match is the wrong tool everywhere in this rendezvous.
+pair_up superstring certbundlex "$LOCK_DIR"
+assert_pair_refused superstring certbundlex "a name CONTAINING the recorded one was admitted; the match must be exact"
+pair_up prefix certbund "$LOCK_DIR"
+assert_pair_refused prefix certbund "a PREFIX of the recorded name was admitted; the match must be exact"
+pass "at the cap, 'otherpair', 'certbundlex' and 'certbund' all refuse while 'certbundle' holds the lock"
+
+say "case 23 — at the cap, the pair the held lock records is admitted"
+pair_up recorded certbundle "$LOCK_DIR"
+assert_pair_admitted recorded certbundle "the pair its own certification lock reserved was refused over budget"
+assert_in "$SCRATCH/recorded.log" "$LOCK_DIR" "the reservation does not name the rendezvous it rests on"
+if command -v flock >/dev/null 2>&1; then
+  printf 'note: this host has flock(1); the default probe above used it\n'
+else
+  printf 'note: this host has no flock(1); the default probe above used the python3 fcntl fallback\n'
+fi
+pair_up recordedpy certbundle "$LOCK_DIR" python
+case "$PAIR_UP_STATUS" in
+  2) printf 'note: this host lacks one of the documented pair.sh utilities; python-probe variant skipped\n' ;;
+  *) assert_pair_admitted recordedpy certbundle "the python3 fcntl read-side probe did not see the held lock"
+     pass "admitted through both the default probe and the python3 fcntl fallback" ;;
+esac
+pass "the recorded pair is admitted at ${LOCK_DIR}'s cap while its lock is held, without the forced hatch"
+
+say "case 24 — the reservation dies with its holder: a SIGKILLed bundle's surviving record grants nothing"
+CERTBUNDLE_PID=$(cat "$SCRATCH/ready.certbundle")
+kill -9 "$CERTBUNDLE_PID"
+rc=0; wait "$CERTBUNDLE_JOB" || rc=$?
+[ "$rc" = "137" ] || fail "the certification holder exited $rc, not 137; the fixture must prove SIGKILL ran no trap"
+[ -f "$HOLDER_FILE" ] \
+  || fail "fixture lost its point: the naming record must SURVIVE the kill, or this case cannot tell a record from a lock"
+# The helper drops the descriptor on the tick that notices its acquirer is
+# gone, so the reservation lapses fast but not instantaneously -- the same
+# bound acquire_after_kill() asserts above, for the same kernel reason. No
+# operator step is involved either way.
+REFUSE_START=$(date +%s)
+while :; do
+  pair_up phantom certbundle "$LOCK_DIR"
+  [ "$PAIR_UP_STATUS" = "1" ] && break
+  [ $(( $(date +%s) - REFUSE_START )) -lt 20 ] \
+    || { show "$SCRATCH/phantom.log"; fail "a dead bundle's record still reserved 'certbundle' 20s after its holder was killed; the record must never outrank the flock"; }
+  sleep 0.1
+done
+assert_pair_refused phantom certbundle "a crashed bundle left a phantom reservation behind"
+[ -f "$HOLDER_FILE" ] \
+  || fail "the record vanished during this case; the refusal must be the flock's answer WITH the record still in place"
+pass "the record outlived its holder and reserved nothing: refused $(( $(date +%s) - REFUSE_START ))s after the kill, record still on disk"
+
+say "case 25 — no lock at all is the ordinary budget, and the read side creates nothing"
+EMPTY_RENDEZVOUS="$SCRATCH/never-created.lock"
+[ ! -e "$EMPTY_RENDEZVOUS" ] || fail "fixture: $EMPTY_RENDEZVOUS already exists"
+pair_up nolock certbundle "$EMPTY_RENDEZVOUS"
+assert_pair_refused nolock certbundle "a pair was admitted with no certification lock anywhere"
+[ ! -e "$EMPTY_RENDEZVOUS" ] \
+  || fail "pair.sh created the rendezvous $EMPTY_RENDEZVOUS; this side READS the lock and must never make one"
+rm -f -- "$HOLDER_FILE"
+pair_up norecord certbundle "$LOCK_DIR"
+assert_pair_refused norecord certbundle "a pair was admitted from a rendezvous with no naming record"
+[ -f "$LOCK_FILE" ] || fail "the read side removed the lock file"
+pass "no rendezvous and a record-less rendezvous both fall through to the ordinary budget, with nothing created or removed"
+
 printf '\n\033[1;32m✔ REGRESS_CERTBUNDLE_LOCK PASSED\033[0m\n'
