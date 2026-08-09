@@ -64,6 +64,46 @@ log="${DUO_PAIR_TEST_LOG:?}"
     "${DUO_AGENT_SRC:-}" "${DUO_MANIFESTS_SRC:-}"
 } >> "$log"
 
+# Optional theme state makes the real pair bootstrap's retry contract
+# fault-injectable without Docker or WordPress.org. The fake records an
+# installed/active theme only after the configured number of exact install
+# failures; activation cannot fabricate an install that never completed.
+theme_state_dir="${DUO_PAIR_TEST_THEME_STATE_DIR:-}"
+if [ -n "$theme_state_dir" ]; then
+  mkdir -p "$theme_state_dir"
+  case " $* " in
+    *" cli1 wp core is-installed "*) [ -f "$theme_state_dir/core1" ]; exit $? ;;
+    *" cli2 wp core is-installed "*) [ -f "$theme_state_dir/core2" ]; exit $? ;;
+    *" cli1 wp core install "*) : > "$theme_state_dir/core1"; exit 0 ;;
+    *" cli2 wp core install "*) : > "$theme_state_dir/core2"; exit 0 ;;
+    *" wp theme install twentytwentyone --activate "*)
+      attempts=0
+      [ ! -f "$theme_state_dir/attempts" ] || attempts="$(cat "$theme_state_dir/attempts")"
+      attempts=$((attempts + 1))
+      printf '%s\n' "$attempts" > "$theme_state_dir/attempts"
+      if [ "$attempts" -le "${DUO_PAIR_TEST_THEME_FAILURES:-0}" ]; then
+        printf 'fake transient WordPress.org theme lookup failure\n' >&2
+        exit 37
+      fi
+      : > "$theme_state_dir/installed"
+      : > "$theme_state_dir/active"
+      exit 0
+      ;;
+    *" wp theme activate twentytwentyone "*)
+      [ -f "$theme_state_dir/installed" ] || {
+        printf 'fake theme is not installed\n' >&2
+        exit 38
+      }
+      : > "$theme_state_dir/active"
+      exit 0
+      ;;
+    *" wp theme list --status=active --field=name "*)
+      [ ! -f "$theme_state_dir/active" ] || printf 'twentytwentyone\n'
+      exit 0
+      ;;
+  esac
+fi
+
 if [ "${1:-}" = inspect ]; then
   if [ "${DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER:-}" = "${2:-}" ]; then
     printf 'fake docker inspect failure\n' >&2
@@ -261,6 +301,23 @@ run_case() {
     fail "$label unexpectedly used --force-recreate without --codebind"
   fi
   pass "$label: web-first nested-MU bootstrap ordering and service flags"
+}
+
+run_theme_retry_case() {
+  local label=theme_retry state_dir="$TMP/theme_retry/theme-state"
+  mkdir -p "$state_dir"
+  export DUO_PAIR_TEST_THEME_STATE_DIR="$state_dir" DUO_PAIR_TEST_THEME_FAILURES=1
+  run_case "$label" pairtheme "" canonical
+  unset DUO_PAIR_TEST_THEME_STATE_DIR DUO_PAIR_TEST_THEME_FAILURES
+
+  [ "$(cat "$state_dir/attempts")" = 3 ] \
+    || fail "$label did not perform one bounded retry plus one install for the other side"
+  assert_file_contains "$TMP/$label/output.log" \
+    'Warning: theme twentytwentyone install/activation attempt 1/3 failed; retrying the exact slug' \
+    "$label did not report the transient retry"
+  [ "$(grep -cF 'wp> <theme> <list> <--status=active> <--field=name>' "$TMP/$label/docker.log")" = 2 ] \
+    || fail "$label did not verify the exact active theme on both sides"
+  pass "$label: one transient lookup retries, both sides prove the exact active theme"
 }
 
 run_python_lock_fallback_case() {
@@ -1020,6 +1077,9 @@ run_case default pairunit "" canonical
 
 say "--codebind pair.sh bootstrap (fake compose; no Docker/DB)"
 run_case codebind pairbind demo-plugin canonical
+
+say "bounded theme lookup retry + exact active-state proof (fake compose; no Docker/DB)"
+run_theme_retry_case
 
 say "Python fcntl budget-lock fallback (fake compose; no Docker/DB)"
 run_python_lock_fallback_case

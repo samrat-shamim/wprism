@@ -694,6 +694,45 @@ wait_web_mountpoints() { # wait_web_mountpoints <name>
   fail "env ${name} web containers never exposed the nested Duo MU mountpoints"
 }
 
+install_and_activate_theme() { # install_and_activate_theme <cli service> <theme slug>
+  local cli="$1" theme="$2" attempt active
+  # A fresh pair is an evidence boundary, but WordPress.org is not: a
+  # transient theme-directory lookup must not turn an otherwise healthy
+  # conformance leg red. Keep the retry narrow and bounded, preserve every
+  # WP-CLI diagnostic, and independently prove the requested theme is active
+  # before allowing bootstrap to continue. `theme activate` makes a partial
+  # install retry-safe without forcing or overwriting theme bytes.
+  for attempt in 1 2 3; do
+    if "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme install "$theme" --activate; then
+      :
+    elif "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme activate "$theme"; then
+      printf 'Warning: theme %s was already installed after install attempt %s; activated the existing exact slug\n' \
+        "$theme" "$attempt" >&2
+    else
+      if [ "$attempt" = 3 ]; then
+        fail "theme '$theme' could not be installed and activated after 3 attempts"
+      fi
+      printf 'Warning: theme %s install/activation attempt %s/3 failed; retrying the exact slug\n' \
+        "$theme" "$attempt" >&2
+      sleep "$attempt"
+      continue
+    fi
+
+    if ! active=$("${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme list --status=active --field=name); then
+      active=""
+    fi
+    if [ "$active" = "$theme" ]; then
+      return 0
+    fi
+    if [ "$attempt" = 3 ]; then
+      fail "theme '$theme' install completed but active theme was '${active:-none}' after 3 attempts"
+    fi
+    printf "Warning: theme %s attempt %s/3 did not leave the exact slug active (got '%s'); retrying\n" \
+      "$theme" "$attempt" "${active:-none}" >&2
+    sleep "$attempt"
+  done
+}
+
 install_side() { # install_side <side (1|2)> <url> <title>
   local side="$1" url="$2" title="$3" cli="cli$1"
   if "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp core is-installed >/dev/null 2>&1; then
@@ -704,7 +743,7 @@ install_side() { # install_side <side (1|2)> <url> <title>
     --url="$url" --title="$title" \
     --admin_user=admin --admin_password=admin \
     --admin_email=admin@example.test --skip-email
-  "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme install twentytwentyone --activate
+  install_and_activate_theme "$cli" twentytwentyone
   "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp option update permalink_structure '/%postname%/'
   "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp rewrite flush
   write_htaccess "$side"
