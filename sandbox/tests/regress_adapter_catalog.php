@@ -483,11 +483,14 @@ foreach ($refusalCases as $code => $fixture) {
         "$code is reported as exactly one refusal row rather than thrown (rows: "
         . implode(', ', array_column($rows, 'code')) . ')'
     );
+    // Dedupe on the offending FILE, not on (code, paths): the defect this
+    // pins was two rows with DIFFERENT codes about one file, which a
+    // code-qualified key waves through. Every refuse() call site puts the
+    // offending file first, and no fixture legitimately draws two rows
+    // about one file.
+    $firstPaths = array_map(static fn(array $r): string => (string) (((array) $r['paths'])[0] ?? ''), $rows);
     check(
-        count($rows) === count(array_unique(array_map(
-            static fn(array $r): string => $r['code'] . '|' . implode(',', (array) $r['paths']),
-            $rows
-        ))),
+        $firstPaths === array_unique($firstPaths),
         "$code: one wrong file draws one refusal, not several — a reserved name that is ALSO not a manifest "
         . 'used to be reported twice, the second time as an ambiguous identity nobody claimed (rows: '
         . implode(', ', array_column($rows, 'code')) . ')'
