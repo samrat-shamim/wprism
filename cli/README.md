@@ -213,7 +213,10 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   identity- and lease-fenced `duo env reap`. Retries reuse the immutable
   operation id, skip every journaled phase, and reconcile an uncertain phase
   with the same inputs and ownership tuple, so provider actions must be
-  idempotent for that id.
+  idempotent for that id. Convergence — and any promotion receipt reconciled
+  from a lost controller response — is judged only from a *complete* `wp duo
+  plan --format=json` envelope: a valid JSON document with a missing or
+  non-list required bucket is refused by name, never counted as clean.
 
 - **`duo env reap <env>`** — reads the latest immutable machine-local
   materialization journal, re-inspects the provider resource, and performs a

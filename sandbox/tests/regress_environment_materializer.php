@@ -32,13 +32,22 @@ namespace Duo\Orchestrator {
         }
     }
 
+    /**
+     * The renderer's own verdict is not what this suite exercises; only that
+     * a converged plan is clean and a drifted one is not. PlanContract below
+     * is deliberately NOT stubbed — the complete-envelope check at the
+     * convergence boundary is product behavior under test (DUO-3384).
+     */
     final class PlanSummary {
-        public static function render(array $plan): array { return ['lines' => [], 'ok' => ($plan['clean'] ?? false) === true]; }
+        public static function render(array $plan): array {
+            return ['lines' => [], 'ok' => ($plan['drift'] ?? []) === [] && ($plan['conflict'] ?? []) === []];
+        }
     }
 }
 
 namespace {
 require_once __DIR__ . '/../../cli/src/EnvironmentDriver.php';
+require_once __DIR__ . '/../../cli/src/PlanContract.php';
 require_once __DIR__ . '/../../cli/src/EnvironmentLifecycle.php';
 
 use Duo\Orchestrator\CommandEnvironmentProvider;
@@ -71,9 +80,31 @@ function em_actions(string $log): array {
     return array_map(static fn(string $line): string => (string) (json_decode($line, true)['action'] ?? ''), file($log, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []);
 }
 
+/**
+ * One complete `wp duo plan --format=json` envelope, spelled out the way
+ * agent/src/Apply.php emits it. Branch convergence refuses anything less.
+ *
+ * @param array<string,list<mixed>> $overrides
+ * @return array<string,list<mixed>>
+ */
+function em_plan(array $overrides = []): array {
+    return $overrides + [
+        'adapter_dispositions' => [], 'adopt' => [], 'code_drift' => [], 'code_mismatch' => [],
+        'collision' => [], 'conflict' => [], 'create' => [], 'delete' => [],
+        'delete_conflict' => [], 'deleted' => [], 'drift' => [], 'effects_inventory' => [],
+        'env_missing' => [], 'incomplete_apply' => [], 'incomplete_lifecycle' => [],
+        'missing_user' => [], 'regen_pending' => [], 'skipped_user_meta' => [],
+        'unchanged' => [], 'update' => [], 'uploads_inventory' => [], 'warnings' => [],
+    ];
+}
+
 final class MaterializerDriver implements EnvironmentDriver {
     public array $calls = [];
-    public function __construct(private string $name, private string $repo, private string $productionCommit = '') {}
+    /** Raw `wp duo plan --format=json` stdout; a complete clean envelope by default. */
+    public string $planJson = '';
+    public function __construct(private string $name, private string $repo, private string $productionCommit = '') {
+        $this->planJson = (string) json_encode(em_plan(), JSON_UNESCAPED_SLASHES);
+    }
     public function name(): string { return $this->name; }
     public function driverId(): string { return 'fixture-' . $this->name; }
     public function repoPath(): string { return $this->repo; }
@@ -86,7 +117,7 @@ final class MaterializerDriver implements EnvironmentDriver {
     }
     public function captureWp(array $args): array {
         $this->calls[] = ['wp', $args];
-        return ['exit' => 0, 'stdout' => json_encode(['clean' => true]) . "\n", 'stderr' => ''];
+        return ['exit' => 0, 'stdout' => $this->planJson . "\n", 'stderr' => ''];
     }
     public function streamWp(array $args): int { $this->calls[] = ['stream', $args]; return 0; }
     public function wpInstruction(array $args): string { return 'fixture'; }
@@ -338,6 +369,49 @@ PHP);
     }
     em_ok(array_slice(em_actions($sourceLog), $sourceBeforeBlocked) === ['capabilities']
         && em_actions($blockedLog) === ['capabilities'], 'unsupported create refuses both sides before snapshot or target mutation');
+
+    // DUO-3384: branch convergence trusts PlanSummary::render(...)['ok'], and
+    // the renderer intentionally tolerates partial fixtures — `{}` renders
+    // clean. Convergence must therefore validate the complete agent envelope
+    // first, and must never journal a convergence it did not observe. The
+    // same target is driven through all three plans in order, so a recorded
+    // success would be visible as a resumed release-converged event.
+    $contractLog = $tmp . '/plan-contract.log';
+    $contractDriver = new MaterializerDriver('branch-plan-contract', '/plan-contract/repo');
+    $contractProvider = CommandEnvironmentProvider::fromEnvironment('branch-plan-contract', $cfg('ok', $contractLog));
+    $contractOptions = ['branch' => 'feature', 'create' => false, 'ttl_seconds' => 0];
+    $incomplete = [
+        '{}' => 'an empty plan object',
+        (string) json_encode(array_diff_key(em_plan(), ['conflict' => null]), JSON_UNESCAPED_SLASHES)
+            => 'a plan missing one required bucket',
+    ];
+    $contractPromotionBase = $promotions;
+    foreach ($incomplete as $payload => $label) {
+        $contractDriver->planJson = $payload;
+        try {
+            EnvironmentMaterializer::materialize(
+                $source, $contractDriver, $goodSource, $contractProvider, $journal, $contractOptions, $promote
+            );
+            em_fail("$label was accepted as branch convergence");
+        } catch (Throwable $e) {
+            em_ok(str_contains($e->getMessage(), 'branch environment convergence')
+                && str_contains($e->getMessage(), 'incomplete agent plan envelope'),
+                "$label refuses branch convergence with a contract diagnostic");
+        }
+        $events = $journal->latestForTarget('branch-plan-contract')['events'] ?? [];
+        em_ok(!in_array('release-converged', array_column($events, 'event'), true),
+            "$label never records a converged branch environment");
+        em_ok($promotions === $contractPromotionBase + 1,
+            "$label refuses without replaying the journaled promotion");
+    }
+    $contractDriver->planJson = (string) json_encode(em_plan(), JSON_UNESCAPED_SLASHES);
+    $contractReceipt = EnvironmentMaterializer::materialize(
+        $source, $contractDriver, $goodSource, $contractProvider, $journal, $contractOptions, $promote
+    );
+    $contractEvents = array_column($journal->latestForTarget('branch-plan-contract')['events'] ?? [], 'event');
+    em_ok(($contractReceipt['mode'] ?? null) === 'attach' && in_array('release-converged', $contractEvents, true)
+        && $promotions === $contractPromotionBase + 1,
+        'the same target converges once its plan envelope is complete, on the one journaled promotion');
 
     chdir($old);
     echo "PASS: environment materializer orchestration regression\n";

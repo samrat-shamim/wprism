@@ -672,6 +672,14 @@ regress-environment-materializer-live:
 regress-frozen-materialization-promotion:
 	php sandbox/tests/regress_frozen_materialization_promotion.php
 
+# DUO-3384: PlanSummary::render() tolerates partial fixtures by design, so a
+# valid `{}` renders clean. This drives an empty, a missing-bucket, and a
+# complete plan through both promotion reconciliation boundaries, and pins the
+# validator's required buckets to what agent/src/Apply.php actually emits.
+# Offline: the ssh/wp pair it needs are fixture scripts on PATH.
+regress-plan-contract-trust:
+	php sandbox/tests/regress_plan_contract_trust.php
+
 regress-dynamic-options-policy:
 	bash sandbox/tests/regress_dynamic_options_policy.sh
 
@@ -879,8 +887,8 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-cli-json-refusals regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
-	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog
-	@echo "regress-offline-all: 92 offline suites green"
+	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust
+	@echo "regress-offline-all: 93 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

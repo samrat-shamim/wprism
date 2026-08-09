@@ -49,9 +49,15 @@ namespace Duo\Orchestrator {
         }
     }
 
+    /**
+     * Convergence semantics, not the renderer, are what this fixture needs:
+     * a plan with no drift or conflict is clean. PlanContract stays real —
+     * the complete-envelope refusal at that boundary is product behavior
+     * (DUO-3384), and rr_plan() below emits the envelope the agent emits.
+     */
     final class PlanSummary {
         public static function render(array $plan): array {
-            return ['lines' => [], 'ok' => $plan === []];
+            return ['lines' => [], 'ok' => ($plan['drift'] ?? []) === [] && ($plan['conflict'] ?? []) === []];
         }
     }
 }
@@ -59,6 +65,7 @@ namespace Duo\Orchestrator {
 namespace {
     $rrRoot = dirname(__DIR__, 2);
     require_once $rrRoot . '/cli/src/EnvironmentDriver.php';
+    require_once $rrRoot . '/cli/src/PlanContract.php';
     // A protocol-lane path is only a local validation aid while this test is
     // developed independently. The checked-in default is always the product
     // file, so CI exercises the same public contract after integration.
@@ -83,6 +90,22 @@ namespace {
     function rr_fail(string $message): never {
         fwrite(STDERR, "FAIL: $message\n");
         exit(1);
+    }
+
+    /**
+     * One complete, clean `wp duo plan --format=json` envelope, spelled out
+     * the way agent/src/Apply.php emits it. Branch convergence refuses
+     * anything less (DUO-3384).
+     */
+    function rr_plan(): string {
+        return (string) json_encode([
+            'adapter_dispositions' => [], 'adopt' => [], 'code_drift' => [], 'code_mismatch' => [],
+            'collision' => [], 'conflict' => [], 'create' => [], 'delete' => [],
+            'delete_conflict' => [], 'deleted' => [], 'drift' => [], 'effects_inventory' => [],
+            'env_missing' => [], 'incomplete_apply' => [], 'incomplete_lifecycle' => [],
+            'missing_user' => [], 'regen_pending' => [], 'skipped_user_meta' => [],
+            'unchanged' => [], 'update' => [], 'uploads_inventory' => [], 'warnings' => [],
+        ], JSON_UNESCAPED_SLASHES);
     }
 
     function rr_ok(bool $condition, string $message): void {
@@ -218,7 +241,7 @@ namespace {
         public function captureWp(array $args): array {
             $this->calls[] = ['kind' => 'wp', 'args' => $args];
             if (($args[0] ?? null) === 'duo' && ($args[1] ?? null) === 'plan') {
-                return ['exit' => 0, 'stdout' => "[]\n", 'stderr' => ''];
+                return ['exit' => 0, 'stdout' => rr_plan() . "\n", 'stderr' => ''];
             }
             return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
         }

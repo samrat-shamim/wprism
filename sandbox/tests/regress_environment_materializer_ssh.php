@@ -166,10 +166,16 @@ try {
     $summaryPath = $tmp . '/compile-summary.json';
     $summary = ['artifact_hash' => $artifact['artifact_hash'], 'revision_hash' => $artifact['revision_hash']];
     ssh_proof_write($summaryPath, json_encode($summary, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+    // The complete envelope agent/src/Apply.php emits, not just the buckets
+    // this proof reads: convergence refuses an incomplete plan (DUO-3384).
     $planPath = $tmp . '/plan.json';
     ssh_proof_write($planPath, json_encode([
-        'adopt' => [], 'collision' => [], 'conflict' => [], 'create' => [], 'delete' => [],
-        'delete_conflict' => [], 'deleted' => [], 'drift' => [], 'unchanged' => [], 'update' => [],
+        'adapter_dispositions' => [], 'adopt' => [], 'code_drift' => [], 'code_mismatch' => [],
+        'collision' => [], 'conflict' => [], 'create' => [], 'delete' => [],
+        'delete_conflict' => [], 'deleted' => [], 'drift' => [], 'effects_inventory' => [],
+        'env_missing' => [], 'incomplete_apply' => [], 'incomplete_lifecycle' => [],
+        'missing_user' => [], 'regen_pending' => [], 'skipped_user_meta' => [],
+        'unchanged' => [], 'update' => [], 'uploads_inventory' => [], 'warnings' => [],
     ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 
     mkdir($bin, 0700, true);
