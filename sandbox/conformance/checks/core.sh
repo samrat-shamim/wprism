@@ -474,6 +474,7 @@ ROLL_A_UUID=$(basename "$ROLL_A_FILE" | sed -E 's/--rollback-alpha\.md$//')
 ROLL_B_UUID=$(basename "$ROLL_B_FILE" | sed -E 's/--rollback-beta\.md$//')
 ROLL_A2=$(wp_conf2 post list --post_type=page --name=rollback-alpha --field=ID | tr -d '[:space:]')
 ROLL_B2=$(wp_conf2 post list --post_type=page --name=rollback-beta --field=ID | tr -d '[:space:]')
+require_fixture_ids ROLL_A1 ROLL_B1 ROLL_A2 ROLL_B2
 wp_conf1 post delete "$ROLL_A1" "$ROLL_B1" --force >/dev/null
 wp_conf1 duo capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
