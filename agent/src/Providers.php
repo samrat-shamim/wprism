@@ -165,6 +165,39 @@ final class Providers {
      * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>}
      */
     public static function negotiate(Policy $policy, array $selectedActions): array {
+        return self::diagnose($policy, $selectedActions);
+    }
+
+    /**
+     * The negotiation itself, as a READ-ONLY question (DUO-3339).
+     *
+     * negotiate() is this method — one body, not two — so that `plan` and
+     * `status` can answer "which declared provider capability is missing or
+     * incompatible here?" with exactly the rows apply will refuse on, rather
+     * than with a second implementation that would start agreeing and end up
+     * approximating. spec/repo-format.md's bound (4) was the standing debt:
+     * negotiation ran at apply only, so a missing provider was invisible until
+     * the promotion that needed it.
+     *
+     * "Read-only" is a precise claim, not a comfortable one. This method
+     * invokes NO capability and writes nothing — invoke() is the only thing
+     * that runs provider work, and nothing here calls it. It does LOAD code:
+     * a manifest-sourced provider's file is required and constructed, a
+     * plugin-sourced one is pulled off the `duo_providers` filter, and both
+     * are asked for identity() and capabilities(). There is no way to check a
+     * contract without the object, so that cost is negotiation's, was always
+     * negotiation's, and is now also plan's — which is why plan reports these
+     * rows rather than gating on them (see Apply::plan()).
+     *
+     * The one deliberate throw stays a throw: a manifest-sourced provider
+     * whose file or class is missing is a packaging fault in the adapter, not
+     * a fact about this environment. problems() below is what turns that into
+     * a reportable row for the surfaces that must not die on it.
+     *
+     * @param list<array<string,mixed>> $selectedActions Policy::actions_for()
+     * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>}
+     */
+    public static function diagnose(Policy $policy, array $selectedActions): array {
         $declarations = $policy->provider_declarations();
         $wanted = [];
         foreach ($selectedActions as $action) {
@@ -329,6 +362,49 @@ final class Providers {
             }
         }
         return ['problems' => $problems, 'providers' => $instances, 'capabilities' => $capabilities];
+    }
+
+    /**
+     * Every problem this environment has with every provider capability the
+     * PINNED manifests declare — the plan/status view.
+     *
+     * Two things are deliberately wider than apply's own gate, and both are
+     * the point rather than an accident:
+     *
+     *   1. The action set is `Policy::actions()`, not one run's selection.
+     *      apply negotiates exactly what its work touches, correctly: an
+     *      unrelated adapter's missing plugin must not refuse a promotion that
+     *      never reaches it. But a readiness report answering only "for this
+     *      diff" would go quiet the moment a run happened to touch nothing —
+     *      and "we found no problems" would then mean "we did not look".
+     *      Because the set is wider, these rows are REPORTED and counted, and
+     *      they do not by themselves make `duo status` non-zero; the refusal
+     *      stays where the doctrine puts it, immediately before mutation.
+     *
+     *   2. A packaging fault (a manifest-sourced provider whose file or class
+     *      is missing) is reported here rather than thrown. Apply still throws
+     *      it — that behavior is pinned byte for byte by
+     *      regress_provider_contract.php — because at apply it is a refusal
+     *      before mutation. On a reporting surface, a command that died on the
+     *      broken adapter would be hiding every other adapter's verdict behind
+     *      it, which is the failure mode this whole surface exists to remove.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public static function problems(Policy $policy): array {
+        try {
+            return self::diagnose($policy, $policy->actions())['problems'];
+        } catch (\Throwable $t) {
+            return [self::problem(
+                '?',
+                '?',
+                '?',
+                'provider_code_unavailable',
+                'every declared manifest-sourced provider to resolve to its shipped class',
+                $t->getMessage(),
+                "repair the adapter's own providers/<id>.php, or unpin the manifest that declares it"
+            )];
+        }
     }
 
     /**

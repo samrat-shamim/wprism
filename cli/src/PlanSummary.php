@@ -55,6 +55,14 @@ namespace Duo\Orchestrator;
  *     manifests whose generated capability verdict is blocked. Row shape
  *     {name,status,code,reason}; host promotion consumes the same compiled
  *     claim before lease/checkpoint/mutation.
+ *   - provider_problems (DUO-3339's Apply::plan(), closing spec/repo-format.md
+ *     bound (4)): the rows `Providers::diagnose()` produces for every provider
+ *     capability the PINNED manifests declare — missing plugin, inactive
+ *     plugin, out-of-range version, absent provider, contract or identity
+ *     mismatch, unadvertised capability. Row shape {provider,manifest,plugin,
+ *     code,expected,found,remediation,message} — no uuid/path, so label()
+ *     does not apply. Rendered and counted, but deliberately NOT part of `ok`
+ *     below: see that decision matrix's own entry for why.
  */
 final class PlanSummary {
     private const BUCKETS = [
@@ -88,6 +96,7 @@ final class PlanSummary {
         $uploadsInventory = $plan['uploads_inventory'] ?? [];
         $effectsInventory = $plan['effects_inventory'] ?? [];
         $adapterDispositions = $plan['adapter_dispositions'] ?? [];
+        $providerProblems = $plan['provider_problems'] ?? [];
         $envMissingRequired = array_values(array_filter($envMissing, fn($r) => !empty($r['required'])));
         $summary = 'plan: ' . implode(', ', array_map(fn($k) => "{$counts[$k]} $k", self::BUCKETS));
         $summary .= ', ' . count($codeMismatch) . ' code_mismatch';
@@ -101,6 +110,7 @@ final class PlanSummary {
         $summary .= ', ' . count($uploadsInventory) . ' upload_mutations';
         $summary .= ', ' . count($effectsInventory) . ' declared_effects';
         $summary .= ', ' . count($adapterDispositions) . ' adapter_dispositions';
+        $summary .= ', ' . count($providerProblems) . ' provider_problems';
         $lines[] = $summary;
 
         foreach ($uploadsInventory as $row) {
@@ -287,6 +297,24 @@ final class PlanSummary {
             $lines[] = 'experimental, uncertified out-of-tree, unsupported, version-mismatched, or expired-evidence claims cannot make readiness green';
         }
 
+        if ($providerProblems) {
+            $lines[] = 'PROVIDER_PROBLEM (a pinned manifest declares a provider capability this environment cannot supply):';
+            foreach ($providerProblems as $r) {
+                // Keep lockstep with agent/src/Cli.php's plan renderer: the
+                // declaring manifest and the owning plugin stay on the row —
+                // an operator has to know which pin and which plugin to go fix
+                // — and the remediation gets its own line (DUO-3339).
+                $lines[] = '  - ' . ($r['provider'] ?? '?')
+                    . ' [manifest=' . ($r['manifest'] ?? '?') . ' plugin=' . ($r['plugin'] ?? '?')
+                    . '] [' . ($r['code'] ?? 'unknown') . ']: expected ' . ($r['expected'] ?? '?')
+                    . ', found ' . ($r['found'] ?? '?');
+                if (($r['remediation'] ?? '') !== '') {
+                    $lines[] = '    remediation: ' . $r['remediation'];
+                }
+            }
+            $lines[] = 'duo apply refuses before target mutation on any of these its own selected work reaches';
+        }
+
         // --- fail-closed exit semantics (DUO-3221) ---
         //
         // `duo status` answers "safe to promote?" for this environment, so
@@ -363,6 +391,26 @@ final class PlanSummary {
         //                     certified cannot make readiness green, even
         //                     though lower-level agent calls stay available
         //                     to exercise experimental/test fixtures.
+        // One bucket is rendered and counted above but deliberately NOT here:
+        //   - provider_problems (DUO-3339): these rows cover every provider
+        //                     capability the PINNED manifests declare, which
+        //                     is a SUPERSET of what any one apply negotiates
+        //                     — apply resolves providers only for the actions
+        //                     its own work selects, so a pinned adapter whose
+        //                     plugin is absent refuses nothing until a
+        //                     revision touches that adapter's surfaces. `ok`
+        //                     is the "will promoting this revision refuse?"
+        //                     answer, and flipping it on a capability this
+        //                     revision never reaches would report a refusal
+        //                     that is not going to happen. The rows stay loud
+        //                     and counted because the gap is real and the
+        //                     operator has to see it; the refusal stays where
+        //                     the doctrine puts it, at negotiation
+        //                     immediately before the first mutation
+        //                     (Apply::run()). If a future slice narrows the
+        //                     diagnosis to this run's own selection, that
+        //                     narrowed set belongs in `ok` — the reason for
+        //                     the exclusion is the width, not the severity.
         // Plain $plan['warnings'] entries are rendered loudly above but
         // never flip this by themselves: every warning either accompanies a
         // state already counted here, or is a deliberate, ratified warn-

@@ -412,6 +412,23 @@ self::validate_post_type_children($manifest);
                 'status' => 'unsupported',
                 'code' => 'missing_capability_registry',
                 'reason' => 'manifest dispositions exist but the generated capability registry is absent',
+                // DUO-3339: every field the two blocker renderers print now
+                // rides on the row, because both of them used to invent these
+                // two (`source=shipped tier=unknown`) from a `??` default for
+                // the one row shape that never carried them. `shipped` is
+                // true and load-bearing — a missing registry is a fault in
+                // the agent's own manifest library, never in a site's
+                // adapters/ source, and an operator sent to the wrong
+                // directory is exactly what DUO-3314 put source on these rows
+                // to prevent. `trust_tier` is deliberately NOT one of the
+                // four tiers: this row is about the library's registry file,
+                // not about one adapter's declarations, so it has no tier to
+                // report and says so instead of borrowing one.
+                'source' => AdapterSources::SHIPPED,
+                'trust_tier' => 'unknown',
+                'remediation' => 'regenerate the capability registry with scripts/capability-registry.php, or point '
+                    . 'DUO_MANIFESTS_DIR at a library that carries both dispositions.json and capabilities/'
+                    . 'registry.json — a reviewed disposition set with no generated projection makes no product claim',
             ]];
         }
         return $this->capabilityRegistry->blockers(

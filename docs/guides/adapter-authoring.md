@@ -599,6 +599,19 @@ signed evidence ship now. What remains absent is a remote/catalog mechanism or
 any way for a site adapter to introduce executable code outside an installed
 plugin; do not work around that boundary with manifest fields or copied PHP.
 
+What ships for the adapters you already have is the **installed-adapter
+catalog**: `duo adapter list|inspect|doctor` reports both installed sources
+offline, printing each adapter's derived trust tier — `declarative_manifest`,
+`native_action`, `plugin_provider`, or `compatibility_shim`, computed from the
+privileges its own declarations actually reach and never self-declared — next
+to a `tier_basis` naming the exact declaration that produced it. `doctor`
+reports the discovery conditions that make every other command refuse
+(shadowing, ambiguous identity, case-confusable names, an invalid identity
+slug, a certificate that does not verify) as rows rather than dying on them.
+Separately, `duo plan` and `duo status` now carry `provider_problems` rows for
+every declared provider capability an environment cannot supply, with
+remediation.
+
 ### One naming trap
 
 The word **provider** carries four unrelated meanings here, all shipped. Three

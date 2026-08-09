@@ -75,6 +75,9 @@ require $root . '/agent/src/Policy.php';
 require $root . '/agent/src/CodeCompatibility.php';
 require $root . '/agent/src/Deploy.php';
 require $root . '/agent/src/Providers.php';
+// DUO-3339: `duo status`'s renderer is pure and is one half of the documented
+// two-renderer lockstep for plan rows, so it is driven directly below.
+require $root . '/cli/src/PlanSummary.php';
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -400,6 +403,110 @@ $check(($p['code'] ?? '') === 'contract_shape'
     && ($p['found'] ?? '') === 'identity() threw'
     && $opaqueProviderProblem($p),
     'a provider whose identity() throws becomes a structured, redacted contract problem');
+
+echo "\n== the same detection, reported at plan (DUO-3339) ==\n";
+// spec/repo-format.md's bound (4) was that negotiation ran at APPLY only, so a
+// missing or incompatible provider was invisible until the promotion that
+// needed it. It now runs as a read-only question at plan too — and the whole
+// value of that depends on it being the SAME question. These checks are what
+// makes "same" falsifiable: negotiate() must BE diagnose(), and the rows plan
+// reports must be the rows apply would refuse on.
+$reset();
+$GLOBALS['duo_test_active'] = [];
+$policy = $policyFor($manifest);
+$selected = $policy->actions_for(['post:probe']);
+$negotiated = \Duo\Providers::negotiate($policy, $selected);
+$diagnosed = \Duo\Providers::diagnose($policy, $selected);
+$check($negotiated == $diagnosed && $negotiated['problems'] !== [],
+    'diagnose() and negotiate() return the identical result for a broken selection — one body, not two implementations');
+$check(array_column($diagnosed['problems'], 'code') === ['inactive_plugin'],
+    'and it is the real problem row, with the real code, not an empty stand-in');
+
+$negotiateSource = implode("\n", array_slice(
+    (array) file($root . '/agent/src/Providers.php', FILE_IGNORE_NEW_LINES),
+    (new \ReflectionMethod(\Duo\Providers::class, 'negotiate'))->getStartLine() - 1,
+    2
+));
+$check((bool) preg_match('/return self::diagnose\(\$policy, \$selectedActions\);/', $negotiateSource),
+    'negotiate() is literally the delegation — a second copy of the loop could pass the equality check above on the '
+    . 'day it was written and drift the day after, so the sharing itself is pinned');
+
+$reset();
+$GLOBALS['duo_test_active'] = [];
+$policy = $policyFor($manifest);
+$check(\Duo\Providers::negotiate($policy, $policy->actions_for([]))['problems'] === [],
+    'a read-only apply selects no action, so apply negotiates nothing and refuses nothing');
+$planProblems = \Duo\Providers::problems($policy);
+$check(array_column($planProblems, 'code') === ['inactive_plugin'],
+    'while the PLAN view still reports the inactive plugin: it covers every provider action the PINNED manifests '
+    . 'declare, so "no problems" can never mean "this run happened to look at nothing"');
+$check(($planProblems[0]['manifest'] ?? '') === 'probe' && ($planProblems[0]['plugin'] ?? '') === 'probe/probe.php'
+    && trim($planProblems[0]['remediation'] ?? '') !== '',
+    'and each row names the declaring manifest, the owning plugin, and a remediation — the three things an operator '
+    . 'needs to know which pin to go fix');
+
+$reset();
+$policy = $policyFor($manifest);
+$check(\Duo\Providers::problems($policy) === [], 'a healthy environment reports no provider problems at plan');
+
+// Both halves of the plan-time posture, on one fixture: apply throws the
+// packaging fault (asserted in this file's final group, unchanged), and the
+// reporting surface turns it into a row instead of dying on it.
+$reset();
+$policy = $policyFor($manifest);
+rename($dir . '/providers/probe-cache.php', $dir . '/providers/probe-cache.php.hidden');
+$faultProblems = \Duo\Providers::problems($policy);
+rename($dir . '/providers/probe-cache.php.hidden', $dir . '/providers/probe-cache.php');
+$check(count($faultProblems) === 1 && ($faultProblems[0]['code'] ?? '') === 'provider_code_unavailable'
+    && str_contains($faultProblems[0]['found'] ?? '', 'provider code ships with its manifest'),
+    'a packaging fault reaches the plan view as a ROW carrying the engine\'s own message, rather than taking the '
+    . 'whole plan down the way it (correctly) takes an apply down');
+
+// Apply::plan() is not offline-drivable (it loads policy, compiles the
+// repository, snapshots a live target, and ensures a ledger), so its one
+// threading edge is asserted against its own source — the idiom this file
+// already uses for Apply::run() further down. Read textually rather than by
+// reflection because Apply.php is not loaded until the batch-assembly group
+// below; the slice boundaries are the two method signatures themselves, so a
+// moved method does not silently widen what is being asserted.
+$applySource = (string) file_get_contents($root . '/agent/src/Apply.php');
+$planAt = strpos($applySource, 'public static function plan(');
+$buildPlanAt = strpos($applySource, 'private function build_plan(');
+$check($planAt !== false && $buildPlanAt !== false && $planAt < $buildPlanAt,
+    'Apply::plan() and Apply::build_plan() are both present, in that order (the slice below depends on it)');
+$planSource = substr($applySource, (int) $planAt, (int) $buildPlanAt - (int) $planAt);
+$check((bool) preg_match("/\\\$plan\\['provider_problems'\\]\s*=\s*Providers::problems\(\\\$policy\);/", $planSource),
+    'Apply::plan() — the plan-only entry point — attaches the plan-time diagnosis to the plan it returns');
+$afterPlan = substr($applySource, (int) $buildPlanAt);
+$check(!str_contains($afterPlan, 'Providers::problems') && !str_contains($afterPlan, 'Providers::diagnose'),
+    'and nothing from build_plan() onward calls it: run() calls build_plan() twice around its own negotiation gate, '
+    . 'so diagnosing there would construct every declared provider three times per apply and move the first '
+    . 'construction ahead of the promotion lease, for a report apply never reads');
+
+// The two plan-row renderers are required to stay in lockstep (they are the
+// same advice to one operator through two commands). PlanSummary::render() is
+// pure and is driven for real; agent/src/Cli.php's half runs only inside a
+// wp-cli plan, so it is asserted against its source.
+$summary = \Duo\Orchestrator\PlanSummary::render(['provider_problems' => $planProblems]);
+$summaryText = implode("\n", $summary['lines']);
+$check(str_contains($summaryText, '1 provider_problems'), 'duo status counts provider problems in its summary line');
+$check(str_contains($summaryText, 'PROVIDER_PROBLEM (')
+    && str_contains($summaryText, 'manifest=probe plugin=probe/probe.php')
+    && str_contains($summaryText, '[inactive_plugin]')
+    && str_contains($summaryText, '    remediation: '),
+    'and renders the provider, its declaring manifest, its owning plugin, the code, and the remediation');
+$check($summary['ok'] === true,
+    'but does NOT by itself flip readiness: the diagnosis covers every DECLARED provider action, which is wider than '
+    . 'the set any one apply negotiates, so "will promoting this revision refuse?" is still answered by the buckets '
+    . 'that predict a refusal');
+$check(\Duo\Orchestrator\PlanSummary::render(['conflict' => [['uuid' => 'x', 'type' => 'post']]])['ok'] === false,
+    'while a bucket that DOES predict a refusal still flips it — the exclusion above is about width, not severity');
+
+$cliSource = (string) file_get_contents($root . '/agent/src/Cli.php');
+$check(str_contains($cliSource, "foreach (\$plan['provider_problems'] ?? [] as \$r) {")
+    && str_contains($cliSource, "'PROVIDER_PROBLEM '")
+    && str_contains($cliSource, "count(\$plan['provider_problems'] ?? []) . ' provider_problems'"),
+    'and `wp duo plan` renders and counts the same rows, so the two commands never give one operator different advice');
 
 echo "\n== plugin-sourced providers (a custom plugin advertising its own) ==\n";
 $pluginSourced = array_replace_recursive($manifest, ['providers' => [['source' => 'plugin']]]);

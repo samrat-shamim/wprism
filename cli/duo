@@ -31,6 +31,7 @@ require __DIR__ . '/src/Pending.php';
 require __DIR__ . '/src/Triage.php';
 require __DIR__ . '/src/ClassificationBatch.php';
 require __DIR__ . '/src/ManifestValidate.php';
+require __DIR__ . '/src/AdapterCatalog.php';
 // RefreshPlan lands as a separately-reviewable semantic layer. Keep this
 // host shell loadable while that contract is unavailable; Refresh itself
 // fails closed with an actionable diagnostic before any candidate ref exists.
@@ -52,6 +53,7 @@ use Duo\Orchestrator\PlanSummary;
 use Duo\Orchestrator\RollbackAuthority;
 use Duo\Orchestrator\VerifiedRollbackProfile;
 use Duo\Orchestrator\ManifestValidate;
+use Duo\Orchestrator\AdapterCatalog;
 use Duo\Orchestrator\Registry;
 use Duo\Orchestrator\Transport;
 use Duo\Orchestrator\Triage;
@@ -73,6 +75,9 @@ Usage:
                         [--pins=<name>[,...]|--all] [--site=<site-repo>]
                         [--no-code] [--format=json]
   duo manifest-validate --emit-schema
+  duo adapter list [--repo=<site-repo>] [--format=json]
+  duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
+  duo adapter doctor [--repo=<site-repo>] [--format=json]
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
   duo adopt  <env>
@@ -141,6 +146,41 @@ Verbs:
                           vocabularies at emission time (with a `coverage` note
                           stating what it does NOT publish). Exit 0 all valid,
                           1 any invalid, 2 usage/IO.
+  adapter list            The installed adapter catalog, from both sources the
+    [--repo=<site-repo>]  engine has: the agent's own manifest library and, with
+    [--format=json]       --repo, that site repository's own adapters/ overlay.
+                          One row per adapter — name, source, derived trust tier
+                          and the exact declaration that produced it, reviewed
+                          disposition status or `uncertified`, and an isolated
+                          grammar verdict from the REAL loader. No environment,
+                          no transport, no WordPress.
+  adapter inspect <name>  One adapter in full: the list row plus its reviewed
+    [--repo=<site-repo>]  disposition entry, its generated registry claim
+    [--format=json]       (digest, supported versions, operations, surfaces,
+                          explicit unsupported boundaries, evidence bundle), the
+                          providers it requires with the capabilities each must
+                          advertise, and its verification facts — evidence
+                          status, plugin_execution status, and each cited test
+                          resolved against the bundle's own verdict. Facts only;
+                          there is no verification score.
+  adapter doctor          list, plus every readiness blocker for this
+    [--repo=<site-repo>]  repository's pins (with --repo) and every installed
+    [--format=json]       file the engine refuses to load — a shadowed adapter,
+                          an ambiguous identity, a case-confusable name, a
+                          symlink, a nested or near-miss .json, a reserved name
+                          — each as a ROW carrying the engine's own message, its
+                          code, and its remediation. This is the one command
+                          that reports those states instead of dying on them,
+                          which is the point: it is what an operator can still
+                          run when the repository is in one. Offline-honest —
+                          it never claims a live verdict, and names what it did
+                          not check.
+                          All three: exit 0 healthy, 1 anything surfaced,
+                          2 usage/IO. Every run, passing or failing, ends with
+                          the `deferred` list — the checks needing a live
+                          target, the manifest-shipped PHP it deliberately does
+                          not load, and the cross-manifest guards that belong to
+                          a pin set.
   doctor <env>            Check transport reachability, WordPress install, the
                           duo agent, and repo_path/site.duo.json. Non-zero exit
                           on any failing check.
@@ -407,6 +447,16 @@ function main(array $argv): int {
     // on this machine and drives the engine's own offline validators over them.
     if ($verb === 'manifest-validate') {
         return ManifestValidate::run($rest);
+    }
+
+    // Same shape, same reason (DUO-3339): the adapter catalog reports what is
+    // installed on THIS machine and where it came from. It sits beside
+    // manifest-validate rather than in $verbsNeedingEnv deliberately — the
+    // operator most likely to run `duo adapter doctor` is the one whose
+    // repository is in a state that makes every environment-bound command
+    // refuse, and requiring an <env> would put the answer behind the problem.
+    if ($verb === 'adapter') {
+        return AdapterCatalog::run($rest);
     }
 
     if (!in_array($verb, $verbsNeedingEnv, true)) {

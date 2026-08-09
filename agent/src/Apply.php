@@ -100,6 +100,20 @@ final class Apply {
         // change or apply's 'plan' => array_map('count', $plan) count block
         // would grow a spurious 'warnings' => N entry.
         $plan['warnings'] = $a->warnings;
+        // DUO-3339, closing spec/repo-format.md's bound (4) ("negotiation
+        // currently runs at apply only — plan/status do not yet surface
+        // missing/incompatible providers"). Attached HERE, on the plan-only
+        // entry point, for the same reason `warnings` is: it is a report
+        // bucket, not a precondition.
+        //
+        // Deliberately not inside build_plan(): run() calls build_plan() twice
+        // around its own negotiation gate, so putting the diagnosis there
+        // would construct every declared provider three times per apply and
+        // move the first construction to before the promotion lease — a real
+        // change to the apply path, bought for a report apply does not read.
+        // apply's refusal stays exactly where the doctrine puts it, at the
+        // negotiation immediately before the first mutation.
+        $plan['provider_problems'] = Providers::problems($policy);
         return $plan;
     }
 
