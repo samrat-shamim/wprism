@@ -15,6 +15,8 @@ namespace Duo\Recovery;
  * through this interface; they cannot broaden the receipt after `prepared`.
  */
 final class RollbackControl {
+    private const CERTIFICATION_CRASH_MARKER = '.certification-crash-mode';
+    private const CERTIFICATION_CRASH_MARKER_BYTES = "duo-rollback-certification-crash-mode/v1\n";
     public const TARGET_FORMAT = 'duo-rollback-target/v1';
     public const RECEIPT_FORMAT = 'duo-rollback-receipt/v2';
     private const LEGACY_RECEIPT_FORMAT = 'duo-rollback-receipt/v1';
@@ -156,7 +158,7 @@ final class RollbackControl {
                 'target_id' => $targetId ?? bin2hex(random_bytes(16)),
                 'updated_at' => self::timestamp(),
             ];
-            self::atomicWrite($path, self::canonical($target) . "\n", 0600, 'target');
+            self::atomicWrite($root, $path, self::canonical($target) . "\n", 0600, 'target');
             return $target;
         } finally {
             flock($lock, LOCK_UN);
@@ -180,6 +182,7 @@ final class RollbackControl {
         self::withLock($root, function () use ($root, $keyId, $canonical): array {
             self::ensureDirectory($root . '/public-keys', 0700);
             self::publishExactOrVerify(
+                $root,
                 $root . '/public-keys/' . $keyId . '.pub',
                 $canonical,
                 0644,
@@ -408,16 +411,16 @@ final class RollbackControl {
         self::ensureDirectory($dir, 0700);
         self::ensureDirectory($dir . '/events', 0700);
         $receiptBytes = self::canonical($signedReceipt) . "\n";
-        self::publishExactOrVerify($dir . '/receipt.json', $receiptBytes, 0600, 'receipt');
-        self::crashPoint('claim:after-receipt');
+        self::publishExactOrVerify($root, $dir . '/receipt.json', $receiptBytes, 0600, 'receipt');
+        self::crashPoint($root, 'claim:after-receipt');
 
         $eventPath = self::eventPath($dir, 1, $eventHash);
-        self::publishExactOrVerify($eventPath, self::canonical($signedEvent) . "\n", 0600, 'event');
-        self::crashPoint('claim:after-event');
+        self::publishExactOrVerify($root, $eventPath, self::canonical($signedEvent) . "\n", 0600, 'event');
+        self::crashPoint($root, 'claim:after-event');
 
         $next = self::targetFromEvent($target, $receipt, $event, $eventHash);
-        self::atomicWrite($root . '/target.json', self::canonical($next) . "\n", 0600, 'target');
-        self::crashPoint('claim:after-target');
+        self::atomicWrite($root, $root . '/target.json', self::canonical($next) . "\n", 0600, 'target');
+        self::crashPoint($root, 'claim:after-target');
         return self::statusUnlocked($root, $next);
     }
 
@@ -477,12 +480,12 @@ final class RollbackControl {
 
         $dir = self::receiptDirectory($root, (string) $receipt['receipt_id']);
         $eventPath = self::eventPath($dir, (int) $event['sequence'], $eventHash);
-        self::publishExactOrVerify($eventPath, self::canonical($signedEvent) . "\n", 0600, 'event');
-        self::crashPoint('append:after-event');
+        self::publishExactOrVerify($root, $eventPath, self::canonical($signedEvent) . "\n", 0600, 'event');
+        self::crashPoint($root, 'append:after-event');
 
         $next = self::targetFromEvent($target, $receipt, $event, $eventHash);
-        self::atomicWrite($root . '/target.json', self::canonical($next) . "\n", 0600, 'target');
-        self::crashPoint('append:after-target');
+        self::atomicWrite($root, $root . '/target.json', self::canonical($next) . "\n", 0600, 'target');
+        self::crashPoint($root, 'append:after-target');
         return self::statusUnlocked($root, $next);
     }
 
@@ -1058,7 +1061,13 @@ final class RollbackControl {
         }
     }
 
-    private static function publishExactOrVerify(string $path, string $bytes, int $mode, string $label): void {
+    private static function publishExactOrVerify(
+        string $root,
+        string $path,
+        string $bytes,
+        int $mode,
+        string $label
+    ): void {
         if (file_exists($path) || is_link($path)) {
             self::assertRegularFile($path, $label);
             $existing = file_get_contents($path);
@@ -1067,15 +1076,21 @@ final class RollbackControl {
             }
             return;
         }
-        self::atomicWrite($path, $bytes, $mode, $label);
+        self::atomicWrite($root, $path, $bytes, $mode, $label);
     }
 
-    private static function atomicWrite(string $path, string $bytes, int $mode, string $label): void {
+    private static function atomicWrite(
+        string $root,
+        string $path,
+        string $bytes,
+        int $mode,
+        string $label
+    ): void {
         $dir = dirname($path);
         self::ensureDirectory($dir, 0700);
         self::assertRegularOrAbsent($path, $label);
         $tmp = $dir . '/.' . basename($path) . '.tmp-' . bin2hex(random_bytes(8));
-        self::crashPoint("$label:before-write");
+        self::crashPoint($root, "$label:before-write");
         $handle = @fopen($tmp, 'x+b');
         if (!is_resource($handle)) {
             throw new \RuntimeException("duo rollback: could not create temporary $label");
@@ -1086,7 +1101,7 @@ final class RollbackControl {
             if ($written !== strlen($bytes) || !fflush($handle) || !fsync($handle)) {
                 throw new \RuntimeException("duo rollback: could not durably write temporary $label");
             }
-            self::crashPoint("$label:after-file-fsync");
+            self::crashPoint($root, "$label:after-file-fsync");
         } finally {
             fclose($handle);
         }
@@ -1095,9 +1110,9 @@ final class RollbackControl {
             throw new \RuntimeException("duo rollback: could not atomically publish $label");
         }
         @chmod($path, $mode);
-        self::crashPoint("$label:after-rename");
+        self::crashPoint($root, "$label:after-rename");
         self::fsyncDirectory($dir, $label);
-        self::crashPoint("$label:after-dir-fsync");
+        self::crashPoint($root, "$label:after-dir-fsync");
         $actual = file_get_contents($path);
         if (!is_string($actual) || !hash_equals(hash('sha256', $bytes), hash('sha256', $actual))) {
             throw new \RuntimeException("duo rollback: $label readback did not match published bytes");
@@ -1118,10 +1133,28 @@ final class RollbackControl {
         }
     }
 
-    private static function crashPoint(string $name): void {
-        if (getenv('DUO_ROLLBACK_CRASH_AT') === $name) {
-            exit(97);
+    /**
+     * Fault injection is data-scoped to a disposable certification root.
+     * An SSH login environment can set DUO_ROLLBACK_CRASH_AT, so the variable
+     * alone is never authority to terminate this production runtime. Tests
+     * must create the exact private marker inside the root they own.
+     */
+    private static function crashPoint(string $root, string $name): void {
+        if (getenv('DUO_ROLLBACK_CRASH_AT') !== $name) {
+            return;
         }
+        $marker = $root . '/' . self::CERTIFICATION_CRASH_MARKER;
+        if (is_link($marker) || !is_file($marker)) {
+            return;
+        }
+        $mode = @fileperms($marker);
+        $bytes = @file_get_contents($marker);
+        if (!is_int($mode) || ($mode & 0777) !== 0600
+            || !is_string($bytes)
+            || !hash_equals(self::CERTIFICATION_CRASH_MARKER_BYTES, $bytes)) {
+            return;
+        }
+        exit(97);
     }
 
     private static function ensureDirectory(string $path, int $mode): void {
