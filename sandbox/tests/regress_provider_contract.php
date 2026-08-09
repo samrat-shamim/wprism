@@ -309,6 +309,42 @@ putenv('DUO_MANIFESTS_DIR=' . $dir);
 // Loaded up front so the per-case reset below can address the fixture's static
 // override slots; Providers::negotiate() require_once's the same file itself.
 require_once $dir . '/providers/probe-cache.php';
+// A SECOND manifest-shipped provider, for the one shape a single provider with
+// two capabilities cannot express: a channel collision ACROSS providers, which
+// is the realistic form (two adapters, one surface) and the only one that can
+// tell a complete unbind from a partial one.
+file_put_contents($dir . '/providers/probe-index.php', <<<'PHP'
+<?php
+namespace Duo\Providers;
+
+final class ProbeIndex {
+    public static array $capabilityOverrides = [];
+
+    public function __construct(\Duo\Policy $policy) {}
+
+    public function identity(): array {
+        return ['id' => 'probe-index', 'plugin' => 'probe/probe.php', 'version' => '1.0.0'];
+    }
+
+    public function capabilities(): array {
+        return [
+            'reindex' => self::$capabilityOverrides + [
+                'args' => [],
+                'reads' => ['option:probe_setting'],
+                'writes' => ['entity:probe-index'],
+                'scope' => 'entity',
+                'idempotent' => true,
+                'timeout_seconds' => 30,
+            ],
+        ];
+    }
+
+    public function invoke(string $capability, array $args): array {
+        return ['before' => [], 'after' => [], 'verified' => true];
+    }
+}
+PHP);
+require_once $dir . '/providers/probe-index.php';
 
 $manifest = [
     'name' => 'probe',
@@ -2470,6 +2506,46 @@ $check(str_contains($p['remediation'] ?? '', 'the evidence its own retry depends
     'and the remediation says why one keyspace cannot serve two consumers, not merely that it may not');
 $check(!isset($negotiation['providers']['probe-cache']) && !isset($negotiation['capabilities']['probe-cache']),
     'neither claimant binds — which of them would have cleared the shared marker is the question with no answer');
+// DUO-3314 made a negotiation problem row operator-facing wire data:
+// Policy::provider_readiness_blockers() promotes exactly these keys into the
+// adapter_dispositions rows `duo status` and `duo capabilities` render. A row
+// missing one of them renders as '?' or blank, so the two codes this migration
+// added have to carry the same shape every other refusal does — including
+// carrying NO extra key a renderer would have to know to ignore.
+$promotedKeys = ['provider', 'manifest', 'plugin', 'code', 'expected', 'found', 'remediation', 'message'];
+$rowShapeOk = static function (array $row) use ($promotedKeys): bool {
+    $keys = array_keys($row);
+    sort($keys, SORT_STRING);
+    $expected = $promotedKeys;
+    sort($expected, SORT_STRING);
+    if ($keys !== $expected) {
+        return false;
+    }
+    foreach ($promotedKeys as $key) {
+        if (!is_string($row[$key]) || $row[$key] === '') {
+            return false;
+        }
+    }
+    return true;
+};
+$check($rowShapeOk($p),
+    'and the refusal row carries exactly the keys the readiness projection reads, each non-empty — a '
+    . 'channel collision is legible in `duo status`, not just in an apply that refused');
+$claimantRow = $one($claimantNegotiation(['deletions'])['problems']);
+$check($rowShapeOk($claimantRow),
+    'the dual-claimant refusal carries the same wire shape for the same reason');
+// The other half of DUO-3314's posture: a refusal an operator reads must not
+// carry third-party free-form text. Both rows are built only from closed
+// vocabularies and pattern-validated identities. Pinned as the two markers that
+// betray a leak rather than as a full charset (the engine's own prose uses em
+// dashes and backticks): a PHP class name or namespaced type carries a
+// backslash, and an exception message or stack trace carries a newline.
+$leakFree = static fn(array $row): bool =>
+    !str_contains($row['expected'] . $row['found'] . $row['remediation'] . $row['message'], '\\')
+    && !str_contains($row['expected'] . $row['found'] . $row['remediation'] . $row['message'], "\n");
+$check($leakFree($p) && $leakFree($claimantRow),
+    'and neither carries a backslash or a newline — the two shapes a leaked class name, PHP type, or '
+    . 'exception message would arrive in');
 
 $check($twoConsumers(['deletions'], ['deletions'], ['post:probe_other'])['problems'] === [],
     'the same channel on DIFFERENT surfaces is two keyspaces, not one: no collision');
@@ -2478,6 +2554,44 @@ $check($twoConsumers(['deletions'], ['reparents'])['problems'] === [],
 $check($twoConsumers(['deletions'], [], ['post:probe'], 'flush')['problems'] === [],
     'and ONE capability selected by two actions on the same surface is one consumer, not two — the dedupe is '
     . 'by capability identity, never by action count');
+
+// The cross-PROVIDER shape: two adapters claiming one channel on one surface.
+// This is the realistic collision, and the only one that can tell a complete
+// unbind from a partial one — a single provider's two capabilities both live
+// under one key, so unbinding "the first claimant" alone would look identical.
+$reset();
+\Duo\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => ['deletions']];
+\Duo\Providers\ProbeIndex::$capabilityOverrides = ['context' => ['deletions']];
+$crossManifest = $manifest;
+$crossManifest['actions'][0]['triggers'] = ['post:probe'];
+$crossManifest['providers'][] = [
+    'id' => 'probe-index',
+    'version' => '1.0.0',
+    'source' => 'manifest',
+    'plugin' => 'probe/probe.php',
+    'capabilities' => ['reindex'],
+];
+$crossManifest['actions'][] = [
+    'kind' => 'provider',
+    'provider' => 'probe-index',
+    'capability' => 'reindex',
+    'args' => [],
+    'triggers' => ['post:probe'],
+];
+$crossPolicy = $policyFor($crossManifest);
+$crossNegotiation = \Duo\Providers::negotiate($crossPolicy, $crossPolicy->actions_for(['post:probe']));
+$crossProblem = $one($crossNegotiation['problems']);
+$check(($crossProblem['code'] ?? '') === 'channel_claimed_twice'
+    && str_contains($crossProblem['found'] ?? '', 'probe-cache/flush, probe-index/reindex'),
+    'two DIFFERENT providers claiming one channel on one surface collide too — the accumulator is keyed by '
+    . 'channel and surface, never by provider');
+$check(!isset($crossNegotiation['providers']['probe-cache'])
+    && !isset($crossNegotiation['providers']['probe-index'])
+    && !isset($crossNegotiation['capabilities']['probe-cache'])
+    && !isset($crossNegotiation['capabilities']['probe-index']),
+    'and EVERY claimant is unbound, not just the one the refusal is attributed to — a partial unbind would '
+    . 'leave one of them holding a marker keyspace the refusal says has no owner');
+\Duo\Providers\ProbeIndex::$capabilityOverrides = [];
 $reset();
 
 echo "\n== byte-compatibility with the pre-DUO-3369 contract, in frozen bytes ==\n";
@@ -2514,6 +2628,7 @@ $check(
 $reset();
 
 echo "\n== manifest-shipped provider code is part of the manifest artifact ==\n";
+unlink($dir . '/providers/probe-index.php');
 unlink($dir . '/providers/probe-cache.php');
 $reset();
 $policy = $policyFor($manifest);

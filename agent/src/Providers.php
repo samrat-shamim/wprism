@@ -392,15 +392,20 @@ final class Providers {
                 $capabilities[$id] = $bound;
             }
         }
-        foreach (self::channel_collision_problems($channelClaims) as $problem) {
+        $collisions = self::channel_collision_problems($channelClaims);
+        foreach ($collisions['problems'] as $problem) {
             $problems[] = $problem;
-            // Neither claimant may bind: which of them would have cleared the
-            // shared marker is exactly the question that has no answer, so
-            // leaving either one bound would pick a winner by accident.
-            unset($instances[(string) $problem['provider']], $capabilities[(string) $problem['provider']]);
-            foreach ((array) ($problem['claimants'] ?? []) as $claimantProvider) {
-                unset($instances[(string) $claimantProvider], $capabilities[(string) $claimantProvider]);
-            }
+        }
+        // Neither claimant may bind: which of them would have cleared the
+        // shared marker is exactly the question that has no answer, so leaving
+        // either one bound would pick a winner by accident. Carried beside the
+        // problems rather than ON them (DUO-3314 rebase): a problem row is now
+        // promoted verbatim into the operator-facing readiness wire shape
+        // (Policy::provider_readiness_blockers()), so every row this method
+        // emits stays exactly what self::problem() returns — no extra key some
+        // renderer has to know to ignore.
+        foreach ($collisions['unbind'] as $claimantProvider) {
+            unset($instances[$claimantProvider], $capabilities[$claimantProvider]);
         }
         return ['problems' => $problems, 'providers' => $instances, 'capabilities' => $capabilities];
     }
@@ -541,12 +546,22 @@ final class Providers {
      * owed. The marker records engine inventory, not per-args intent, so
      * this is accepted — but it is a bound, not an accident.
      *
+     * Every string this method puts in a problem row is bounded by a closed
+     * vocabulary or an already-validated identifier — the channel name is a
+     * CONTEXT_CHANNELS member (validate_capability_declaration() ran before the
+     * capability was bound), the surface came from the action's own
+     * SURFACE_PATTERN-checked triggers, and the claimant names are
+     * ID_PATTERN/CAPABILITY_PATTERN identities. That is the property DUO-3314's
+     * fail-closed readiness posture needs from a row it renders to an operator:
+     * no exception text, no class name, no third-party free-form data.
+     *
      * @param array<string,array<string,array<string,array<string,string>>>> $claims
      *   channel => surface => "provider/capability" => claimant row
-     * @return list<array<string,mixed>>
+     * @return array{problems:list<array<string,mixed>>, unbind:list<string>}
      */
     private static function channel_collision_problems(array $claims): array {
         $problems = [];
+        $unbind = [];
         ksort($claims, SORT_STRING);
         foreach ($claims as $channel => $surfaces) {
             ksort($surfaces, SORT_STRING);
@@ -569,14 +584,13 @@ final class Providers {
                         . 'the evidence its own retry depends on. Narrow the triggers so one capability owns '
                         . "$surface, or fold the two repairs into one capability"
                 );
-                $problem['claimants'] = array_values(array_unique(array_map(
-                    static fn(array $row): string => (string) $row['provider'],
-                    $claimants
-                )));
                 $problems[] = $problem;
+                foreach ($claimants as $claimant) {
+                    $unbind[(string) $claimant['provider']] = (string) $claimant['provider'];
+                }
             }
         }
-        return $problems;
+        return ['problems' => $problems, 'unbind' => array_values($unbind)];
     }
 
     /**
@@ -1082,6 +1096,15 @@ final class Providers {
      * random": a post type migrating from the batch channel to a provider drops
      * its `regen_dependency` (batch, verify, and effects move to the action), so
      * the refusal is what a half-finished migration looks like.
+     *
+     * Every string below is bounded by a closed vocabulary or an
+     * already-validated identifier (post types from the action's own
+     * SURFACE_PATTERN-checked triggers, the capability name from
+     * CAPABILITY_PATTERN, the channels from CONTEXT_CHANNELS — the declaration
+     * was validated before this method is reached). DUO-3314 made a problem row
+     * operator-facing wire data (Policy::provider_readiness_blockers() promotes
+     * it into adapter_dispositions), so "no third-party free-form text in a
+     * refusal" is a property this row has to keep, not a style preference.
      *
      * @param array<string,mixed> $providerDeclaration the manifest's providers[] row
      * @param array<string,mixed> $action the selected action
