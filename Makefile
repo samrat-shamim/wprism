@@ -21,6 +21,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-environment-driver \
 	regress-environment-lifecycle \
 	regress-environment-materializer \
+	regress-environment-materializer-ssh \
 	regress-environment-materializer-recovery \
 	regress-frozen-materialization-promotion \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
@@ -585,6 +586,12 @@ regress-environment-lifecycle:
 regress-environment-materializer:
 	php sandbox/tests/regress_environment_materializer.php
 
+# DUO-3324: public attach/materialize over the real SSH driver with an
+# offline SSH wrapper and generic machine-local provider; no provisioning is
+# claimed and reap is verified as exact detach.
+regress-environment-materializer-ssh:
+	php sandbox/tests/regress_environment_materializer_ssh.php
+
 # DUO-3324: phase-exact recovery under provider response loss. This is
 # deliberately offline: its command provider persists each fixture mutation
 # before withholding the response, then proves the public journal resumes
@@ -767,7 +774,7 @@ regress-offline-all: code-half-unit \
 	regress-adopt-rollback regress-capture-publish regress-adapter-contract regress-manifest-dispositions regress-capability-registry regress-certification-bundle regress-interpreter-policy \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan \
 	regress-order-preserving \
-	regress-block-refs regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-materializer regress-environment-materializer-recovery regress-frozen-materialization-promotion \
+	regress-block-refs regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-materializer regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion \
 	regress-dynamic-options-policy regress-env-options-policy regress-export-manifest-roundtrip \
 	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
@@ -779,7 +786,7 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-vocabulary-ownership
-	@echo "regress-offline-all: 79 offline suites green"
+	@echo "regress-offline-all: 80 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
