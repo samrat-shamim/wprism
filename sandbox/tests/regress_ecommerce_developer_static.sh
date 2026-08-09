@@ -1290,7 +1290,11 @@ grep -Fq 'source_wp menu item add-post "$MENU_ID" "$CAP_ID"' "$SCRIPT" || fail '
 grep -Fq 'source_wp menu item add-custom "$MENU_ID" '\''Duo Grind Support'\''' "$SCRIPT" || fail 'menu target-bound custom-link seed is missing'
 grep -Fq 'assert_ecommerce_menu()' "$SCRIPT" || fail 'menu convergence helper is missing'
 grep -Fq '.rows[0].object == "product" and .rows[0].object_id == .cap_id' "$SCRIPT" || fail 'menu helper does not bind the product item to the target product identity'
+grep -Fq '.rows[1].object == "custom" and' "$SCRIPT" || fail 'menu helper does not verify the custom menu-item kind'
 grep -Fq '.rows[1].type == "custom" and .rows[1].url == .support_url' "$SCRIPT" || fail 'menu helper does not verify target-bound custom URL materialization'
+if grep -Fq '.rows[1].object_id == 0' "$SCRIPT"; then
+  fail 'menu helper mistakes the custom menu item target-local object id for portable identity'
+fi
 grep -Fq "assert_ecommerce_menu 'v1 target apply'" "$SCRIPT" || fail 'v1 menu round-trip assertion is missing'
 grep -Fq "assert_ecommerce_menu 'exact v1 rollback'" "$SCRIPT" || fail 'exact-restore menu assertion is missing'
 

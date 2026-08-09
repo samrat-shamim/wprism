@@ -1141,7 +1141,7 @@ echo wp_json_encode([
     .rows[0].object == "product" and .rows[0].object_id == .cap_id and
     .rows[0].position == 1 and .rows[0].title == "Shop the Duo Grind Cap" and
     .rows[0].type == "post_type" and
-    .rows[1].object == "custom" and .rows[1].object_id == 0 and
+    .rows[1].object == "custom" and
     .rows[1].position == 2 and .rows[1].title == "Duo Grind Support" and
     .rows[1].type == "custom" and .rows[1].url == .support_url
   ' <<<"$out" >/dev/null || fail "$label ecommerce menu did not converge: $out"
