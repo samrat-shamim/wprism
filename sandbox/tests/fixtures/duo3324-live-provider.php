@@ -536,7 +536,10 @@ function live_dispatch(array $request, array $config, array &$state): array {
             'expected_source_lease_receipt_sha256' => 'lease_receipt_sha256'] as $provided => $stored) {
             live_require(($input[$provided] ?? null) === $prepared[$stored], "snapshot abort differs at '$provided'");
         }
-        live_require(in_array($prepared['state'] ?? null, ['prepared', 'aborted'], true), 'snapshot abort session is not prepared');
+        // `preparing` was durably written before the source pause. A crash at
+        // that exact boundary has no physical evidence yet, but it still owns
+        // the deterministic session and must be able to abort/unpause it.
+        live_require(in_array($prepared['state'] ?? null, ['preparing', 'prepared', 'aborted'], true), 'snapshot abort session is not resumable');
         if (($prepared['state'] ?? null) !== 'aborted') {
             $staging = $prepared['path'] ?? null;
             if (is_string($staging) && $staging !== '') live_remove_tree($staging);

@@ -209,6 +209,85 @@ assert_snapshot_evidence() { # <materialize-receipt>
   ' "$1" "$STATE/state.json" "$JOURNAL" || fail "snapshot set/readback evidence is not coherent and immutable"
 }
 
+assert_promotion_release_evidence() { # <materialize-receipt>
+  php -r '
+    $receipt=json_decode(file_get_contents($argv[1]),true,512,JSON_THROW_ON_ERROR);
+    $journal=$argv[2]; $op=$receipt["operation_id"] ?? null;
+    if (!is_string($op) || !preg_match("/^[0-9]{8}-[0-9]{6}-[a-f0-9]{24}$/",$op)) exit(1);
+    foreach (["outer_artifact_hash","state_revision","promotion_receipt_sha256","checkpoint_identity"] as $key)
+      if (!is_string($receipt[$key] ?? null) || !preg_match("/^[a-f0-9]{64}$/",$receipt[$key])) exit(1);
+    if (!array_key_exists("code_revision",$receipt) || ($receipt["code_revision"] !== null && (!is_string($receipt["code_revision"]) || !preg_match("/^[a-f0-9]{64}$/",$receipt["code_revision"])))) exit(1);
+    $events=[];
+    foreach (glob($journal . "/runs/" . $op . "/events/*.json") ?: [] as $path) {
+      $event=json_decode(file_get_contents($path),true,512,JSON_THROW_ON_ERROR);
+      if (is_array($event) && is_string($event["event"] ?? null)) $events[$event["event"]]=$event["data"] ?? null;
+    }
+    $release=["outer_artifact_hash"=>$receipt["outer_artifact_hash"],"state_revision"=>$receipt["state_revision"],"code_revision"=>$receipt["code_revision"]];
+    foreach (["release-compiled","release-verified","release-converged"] as $phase) {
+      $data=$events[$phase] ?? null;
+      if (!is_array($data)) exit(1);
+      foreach ($release as $key=>$value) if (!array_key_exists($key,$data) || $data[$key] !== $value) exit(1);
+    }
+    $promotion=$events["promotion-applied"] ?? null;
+    if (!is_array($promotion)
+      || ($promotion["format"] ?? null) !== "duo-branch-environment-promotion-receipt/v1"
+      || ($promotion["status"] ?? null) !== "completed"
+      || !is_string($promotion["owner"] ?? null) || $promotion["owner"] === ""
+      || ($promotion["operation_id"] ?? null) !== $op
+      || ($promotion["artifact_hash"] ?? null) !== $receipt["outer_artifact_hash"]
+      || ($promotion["state_revision"] ?? null) !== $receipt["state_revision"]
+      || !array_key_exists("code_revision",$promotion) || $promotion["code_revision"] !== $receipt["code_revision"]
+      || ($promotion["receipt_sha256"] ?? null) !== $receipt["promotion_receipt_sha256"]
+      || ($promotion["checkpoint_identity"] ?? null) !== $receipt["checkpoint_identity"]) exit(1);
+  ' "$1" "$JOURNAL" || fail "promotion/release journal evidence is not bound to the final receipt"
+}
+
+assert_preparing_snapshot_abort() {
+  local operation session lease_id lease_receipt staging request response
+  operation=20260809-000000-000000000000000000000001
+  session="snapshot-session-preparing-${PAIR}"
+  lease_id="snapshot-lease-preparing-${PAIR}"
+  lease_receipt="$(printf '%s' "${operation}|${session}|${lease_id}" | shasum -a 256 | awk '{print $1}')"
+  staging="$STATE/prepared/preparing-abort-${PAIR}"
+  request="$TMP/preparing-abort-request.json"
+  response="$TMP/preparing-abort-response.json"
+  mkdir -p "$staging"
+  "$PHP_BIN" -r '
+    $state=["fences"=>[],"resources"=>[],"sessions"=>[],"snapshots"=>[],"ttls"=>[]];
+    $state["sessions"][$argv[2]]=[
+      "lease_generation"=>1,"lease_id"=>$argv[4],"lease_receipt_sha256"=>$argv[5],"path"=>$argv[6],
+      "snapshot_session_id"=>$argv[3],"source_identity"=>$argv[7],"source_paused"=>true,"state"=>"preparing"
+    ];
+    $bytes=json_encode($state,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR)."\n";
+    if (file_put_contents($argv[1],$bytes,LOCK_EX)!==strlen($bytes)) exit(1);
+  ' "$STATE/state.json" "production|$operation" "$session" "$lease_id" "$lease_receipt" "$staging" "source-environment-${PAIR}" \
+    || fail "could not persist preparing-session recovery fixture"
+  docker pause "$SOURCE_CONTAINER" >/dev/null
+  [ "$(docker inspect --format '{{.State.Paused}}' "$SOURCE_CONTAINER")" = true ] \
+    || fail "could not establish preparing-session source pause"
+  "$PHP_BIN" -r '
+    $input=[
+      "expected_snapshot_session_id"=>$argv[2],"expected_source_identity"=>$argv[3],
+      "expected_source_lease_generation"=>1,"expected_source_lease_id"=>$argv[4],
+      "expected_source_lease_receipt_sha256"=>$argv[5]
+    ];
+    echo json_encode(["action"=>"snapshot-abort","environment"=>"production","format"=>"duo-branch-environment-provider-request/v1","input"=>$input,"operation_id"=>$argv[1]],JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR),"\n";
+  ' "$operation" "$session" "source-environment-${PAIR}" "$lease_id" "$lease_receipt" >"$request"
+  "$PHP_BIN" "$PROVIDER" "$PROVIDER_CONFIG" <"$request" >"$response" \
+    || fail "provider did not abort the exact preparing source session"
+  "$PHP_BIN" -r '
+    $response=json_decode(file_get_contents($argv[1]),true,512,JSON_THROW_ON_ERROR);
+    $result=$response["result"] ?? null;
+    if (($response["status"] ?? null)!=="ok" || !is_array($result) || ($result["disposition"] ?? null)!=="aborted"
+      || ($result["snapshot_session_id"] ?? null)!==$argv[2] || ($result["lease_id"] ?? null)!==$argv[3]
+      || ($result["lease_receipt_sha256"] ?? null)!==$argv[4] || ($result["source_identity"] ?? null)!==$argv[5]) exit(1);
+  ' "$response" "$session" "$lease_id" "$lease_receipt" "source-environment-${PAIR}" \
+    || fail "preparing-session abort receipt lost its exact identity/lease binding"
+  assert_owned_pair_unpaused || fail "preparing-session abort left a web runtime paused"
+  [ ! -e "$staging" ] || fail "preparing-session abort left its owned staging path behind"
+  pass "exact preparing-session abort unpauses only its source runtime"
+}
+
 say "static preflight before allocating pair resources"
 php -l "$PROVIDER" >/dev/null || fail "provider PHP syntax failed"
 bash -n "$0" || fail "live harness shell syntax failed"
@@ -363,11 +442,15 @@ cat >"$ENVS" <<EOF
 }
 EOF
 
+say "recover a crash-boundary preparing source session without leaving it paused"
+assert_preparing_snapshot_abort
+
 say "materialize attached target exclusively through the public CLI"
 ATTACH_RECEIPT="$TMP/attach.json"
 run_duo_json attach "$ATTACH_RECEIPT" env materialize branchattach --from production --branch feature --format=json
 assert_receipt "$ATTACH_RECEIPT" duo-branch-environment-receipt/v1 attach
 assert_snapshot_evidence "$ATTACH_RECEIPT"
+assert_promotion_release_evidence "$ATTACH_RECEIPT"
 [ "$(target_wp post get "$SOURCE_POST_ID" --field=post_title)" = 'DUO-3324 coherent source' ] \
   || fail "target did not converge to the source semantic state"
 [ "$(docker exec "$TARGET_CONTAINER" sha256sum /var/www/html/wp-content/uploads/duo3324/source-media.txt | awk '{print $1}')" = "$SOURCE_MEDIA_BEFORE" ] \
@@ -405,13 +488,16 @@ say "publish a TTL, prove changed-TTL reap refusal, then restore exact lease and
 TTL_RECEIPT="$TMP/ttl.json"
 run_duo_json ttl "$TTL_RECEIPT" env materialize branchattach --from production --branch feature --ttl 600 --format=json
 assert_receipt "$TTL_RECEIPT" duo-branch-environment-receipt/v1 attach
+assert_snapshot_evidence "$TTL_RECEIPT"
+assert_promotion_release_evidence "$TTL_RECEIPT"
 TTL_ACTIONS_BEFORE="$(provider_actions | wc -l | tr -d ' ')"
 "$PHP_BIN" "$PROVIDER" --mutate-ttl "$PROVIDER_CONFIG" branchattach
 if TTL_REFUSAL="$(cd "$CONTROLLER" && "$DUO" --envs-file="$ENVS" env reap branchattach --format=json 2>&1)"; then
   fail "reap accepted a changed TTL lease"
 fi
-grep -Eqi 'ttl|lease' <<<"$TTL_REFUSAL" || fail "changed TTL refusal did not identify its lease boundary"
 TTL_ACTIONS_AFTER="$(provider_actions | sed -n "$((TTL_ACTIONS_BEFORE + 1)),\$p")"
+grep -Fxq ttl-read <<<"$TTL_ACTIONS_AFTER" \
+  || fail "changed TTL reap did not reach the provider TTL readback boundary"
 if grep -Exq 'detach|destroy' <<<"$TTL_ACTIONS_AFTER"; then
   fail "TTL mismatch reached a destructive cleanup action"
 fi
@@ -425,6 +511,8 @@ say "materialize an explicit created target and prove exact destroy cleanup"
 CREATE_RECEIPT="$TMP/create.json"
 run_duo_json create "$CREATE_RECEIPT" env materialize branchcreate --from production --branch feature --create --format=json
 assert_receipt "$CREATE_RECEIPT" duo-branch-environment-receipt/v1 create
+assert_snapshot_evidence "$CREATE_RECEIPT"
+assert_promotion_release_evidence "$CREATE_RECEIPT"
 grep -Fxq create <<<"$(provider_actions)" || fail "explicit create never reached provider create"
 CREATE_REAP="$TMP/create-reap.json"
 run_duo_json create-reap "$CREATE_REAP" env reap branchcreate --format=json
