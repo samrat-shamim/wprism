@@ -135,6 +135,7 @@ final class Cli {
             'code-stage' => 'inspect the staging receipt and promotion lease, then resume or recover the exact immutable artifact',
             'code-finalize' => 'inspect the staged receipt and promotion lease, then resume or recover the exact immutable artifact',
             'refresh-export' => 'inspect private operator evidence, then complete or recover the interrupted apply, promotion lease, identity, or code receipt before observing production again',
+            'scope' => 'inspect private operator evidence, then compile the revision or correct the root selectors before resolving scope again',
             default => "correct the named $command blocker, then retry the command",
         };
     }

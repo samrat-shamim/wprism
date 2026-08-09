@@ -517,6 +517,24 @@ namespace {
         'scope missing --roots keeps the whole-revision hint in machine remediation'
     );
 
+    // scope's unclassified remediation must be its reviewed arm, not the
+    // default "correct the named $command blocker" — details are redacted on
+    // this path, so nothing IS named and the default contradicts itself.
+    \Duo\Policy::$failure = new RuntimeException('duo: scope refused while compiling /Users/private-customer/site');
+    $scopeArm = invoke_json(static fn() => $cli->scope([], ['repo' => '/fixture', 'roots' => 'all', 'format' => 'json']));
+    check(
+        ($scopeArm['remediation'] ?? null) === 'inspect private operator evidence, then compile the revision or correct the root selectors before resolving scope again',
+        'scope unclassified refusal carries its reviewed remediation arm'
+    );
+
+    // --contract is scope's machine-evidence mode and the mode whose gate
+    // ordering moved the most; its JSON failure must reach the same formatter.
+    $contractScope = invoke_json(static fn() => $cli->scope([], ['repo' => '/fixture', 'roots' => 'all', 'contract' => true, 'format' => 'json']));
+    check(($contractScope['format'] ?? null) === 'duo-command-refusal/v1', 'scope --contract JSON failure names the versioned format');
+    check(($contractScope['command'] ?? null) === 'scope', 'scope --contract JSON failure names the public command');
+    check(!str_contains((string) json_encode($contractScope, JSON_UNESCAPED_SLASHES), 'private-customer'), 'scope --contract JSON failure redacts operator bytes');
+    \Duo\Policy::$failure = null;
+
     echo "\n== serialization failure still emits exactly one valid JSON value ==\n";
     \Duo\Apply::$planFailure = new \Duo\RepositoryCompilationException([[
         'severity' => 'error',

@@ -349,9 +349,9 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
 
   stdout/stderr stream live (not buffered/reformatted) and the exit code is
   exactly the agent's exit code. When `--format=json` reaches the agent,
-  refusals from its primary compile/capture/plan/apply/deploy path (including
-  internal `code-stage` and `code-finalize`) are one JSON record on stdout
-  with non-zero exit:
+  refusals from its primary compile/capture/plan/explain/apply/deploy/
+  refresh-export/scope path (including internal `code-stage` and
+  `code-finalize`) are one JSON record on stdout with non-zero exit:
 
   ```json
   {

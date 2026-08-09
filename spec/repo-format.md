@@ -820,8 +820,8 @@ other effect type or provider resource.
 9. **Verify convergence** — recapture the live target through the canonical snapshot reader in a fresh WordPress process before any convergence metadata advances. The verifier is pinned to the exact compiled artifact used by apply, avoiding stale pre-apply plugin models and refusing a concurrently changed repository. Every entity in the compiled tree must have the same type and canonical hash. Target-only entities remain untouched because absence is not deletion authority; when `--with-deletes` is explicit, every compiled tombstone UUID must be absent. A mismatch names the failed invariant, retains `apply_in_progress`, and leaves all base hashes and `applied_revision` unadvanced.
 10. **Receipts and retry** — only after verification passes, a successful or already-absent deletion stores the tombstone hash in `duo_state` with entity type `deletion`; re-planning returns `deleted`, so retries are idempotent. Live hashes and `applied_revision` update atomically with clearing `apply_in_progress`.
 
-For the primary `compile`, `capture`, `plan`, `explain`, `apply`, `deploy`, `code-stage`,
-and `code-finalize` command path, a JSON-mode refusal wraps the stable object
+For the primary `compile`, `capture`, `plan`, `explain`, `apply`, `deploy`, `refresh-export`,
+`scope`, `code-stage`, and `code-finalize` command path, a JSON-mode refusal wraps the stable object
 above in `format:"duo-command-refusal/v1"` and adds `command`, `reason_code`,
 reviewed public `message`, and reviewed public `remediation`. The established
 top-level `error` and safe `diagnostics` fields retain their exact shape.
