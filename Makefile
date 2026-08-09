@@ -11,7 +11,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-term-meta regress-url-query-refs regress-acf-term-options-fields regress-collision \
 	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
-	regress-snapshot-meta regress-ssh-adopt regress-tec-regen regress-user-meta \
+	regress-snapshot-meta regress-generic-reference-shapes regress-ssh-adopt regress-tec-regen regress-user-meta \
 	regress-option-name-refs-wiring regress-offline-all regress-live-list regress-code-compatibility regress-upload-bundle \
 	regress-effect-bundle regress-woocommerce-effect-contract regress-ssh-rollback-certification \
 	regress-coverage-offline regress-coverage regress-classification-batch \
@@ -740,6 +740,9 @@ regress-scope-gate:
 regress-snapshot-meta:
 	bash sandbox/tests/regress_snapshot_meta.sh
 
+regress-generic-reference-shapes:
+	bash sandbox/tests/regress_generic_reference_shapes.sh
+
 regress-ssh-adopt:
 	bash sandbox/tests/regress_ssh_adopt.sh
 
@@ -846,6 +849,7 @@ regress-live-list:
 	@echo "  regress-repository-compiler-integration   pair conf 8806/8807"
 	@echo "  regress-scope-gate                        pair codexmac3229 8900/8901"
 	@echo "  regress-snapshot-meta                     pair w1a"
+	@echo "  regress-generic-reference-shapes         neutral taxonomy/sidecar fixture pair"
 	@echo "  regress-ssh-adopt                         standalone SSH host, own docker image (NOT pair.sh) -- DUO-3257/DUO-3281"
 	@echo "  certify-ssh-rollback                     four disposable containers: two SSH hosts + two MariaDB servers"
 	@echo "  regress-tec-regen                         pair asnaptec"
