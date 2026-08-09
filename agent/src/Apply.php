@@ -6,6 +6,7 @@ require_once __DIR__ . '/Providers.php';
 require_once __DIR__ . '/StructuredValue.php';
 require_once __DIR__ . '/CommandRefusal.php';
 require_once __DIR__ . '/CanonicalSurfaces.php';
+require_once __DIR__ . '/PlanExplanation.php';
 
 /**
  * Plan + apply: repo state tree -> environment DB.
@@ -125,7 +126,12 @@ final class Apply {
         return $plan;
     }
 
-    private function build_plan(array $opts, CompiledRepository $compiled): array {
+    private function build_plan(
+        array $opts,
+        CompiledRepository $compiled,
+        bool $strictObservation = false,
+        bool $diagnoseAdapters = true
+    ): array {
         $tree = $compiled->tree();
         $this->check_theme_mismatch($tree);
         // Capture::snapshot() runs the SAME build() capture.php's own `duo
@@ -134,12 +140,19 @@ final class Apply {
         // loud-and-blocking gate on an unscoped ref-typed option. Threaded
         // through so plan/apply have the same escape hatch `duo capture`
         // does, matching this file's existing --force-* precedents.
-        $env = Capture::snapshot(
-            $this->repo,
-            !empty($opts['force_unresolved_refs']),
-            $compiled,
-            $this->policy
-        );
+        $env = $strictObservation
+            ? Capture::snapshot_read_only(
+                $this->repo,
+                !empty($opts['force_unresolved_refs']),
+                $compiled,
+                $this->policy
+            )
+            : Capture::snapshot(
+                $this->repo,
+                !empty($opts['force_unresolved_refs']),
+                $compiled,
+                $this->policy
+            );
         $base = Ledger::all_state();
         $adopt = array_fill_keys(array_filter(explode(',', $opts['adopt_by_slug'] ?? '')), true);
         $lifecycleTransition = null;
@@ -169,7 +182,9 @@ final class Apply {
             // Source/evidence facts are plan-independent. Provider runtime
             // blockers are appended at the end from this plan's exact
             // rebuild-surface selection; see rebuild_work() below.
-            'adapter_dispositions' => $this->policy->certification_readiness_blockers(),
+            'adapter_dispositions' => $diagnoseAdapters
+                ? $this->policy->certification_readiness_blockers()
+                : [],
         ];
         $collisionCache = [];
         foreach ($tree as $uuid => $e) {
@@ -664,11 +679,78 @@ final class Apply {
                 $rebuildWork['rebuild_delete_work']
             )
         );
-        $plan['adapter_dispositions'] = array_merge(
-            $plan['adapter_dispositions'],
-            $this->policy->provider_readiness_blockers($selectedActions)
-        );
+        if ($diagnoseAdapters) {
+            $plan['adapter_dispositions'] = array_merge(
+                $plan['adapter_dispositions'],
+                $this->policy->provider_readiness_blockers($selectedActions)
+            );
+        }
         return $plan;
+    }
+
+    /**
+     * Explain one current entity plan row without inheriting plan's repair
+     * authority. The selector is validated before repository/target reads;
+     * the strict snapshot path then refuses stale ledger or identity state
+     * rather than repairing it. Provider declarations are projected from the
+     * pinned policy but never negotiated or invoked here.
+     *
+     * @return array<string,mixed>
+     */
+    public static function explain(string $repo, string $selector, array $opts = []): array {
+        PlanExplanation::parse($selector);
+        $policy = Policy::load($repo);
+        $compiled = self::compiled($repo, $policy, $opts);
+        Canary::suppress_cron_spawn();
+        $apply = new self($repo, $policy, $compiled);
+        try {
+            $plan = $apply->build_plan($opts, $compiled, true, false);
+        } catch (\Throwable $failure) {
+            if (str_contains($failure->getMessage(), 'refresh export refused')) {
+                throw CommandRefusalException::explainObservationPrecondition($failure);
+            }
+            throw $failure;
+        }
+        $selected = PlanExplanation::select($plan, $selector);
+        $bucket = $selected['bucket'];
+        $row = $selected['row'];
+        $key = $selected['key'];
+        $surfaces = [];
+        // Conflicts/drift/collisions are explanations of a blocked choice,
+        // and unchanged/already-deleted rows are no-ops. Only rows that the
+        // default plan contributes to the mutation/rebuild selection project
+        // surfaces here. A delete remains explicitly --with-deletes gated;
+        // its declarations are still trigger-matched before that authority.
+        if (in_array($bucket, ['create', 'update', 'adopt'], true)) {
+            $entity = $compiled->tree()[$key] ?? null;
+            if (is_array($entity)) {
+                $surfaces = $apply->entity_rebuild_surfaces($entity, $row);
+            }
+        } elseif ($bucket === 'delete') {
+            $surfaces = $apply->deletion_rebuild_surfaces($row);
+        }
+        $surfaces = array_values(array_unique(array_map('strval', $surfaces)));
+        sort($surfaces, SORT_STRING);
+        $actions = $policy->actions_for($surfaces);
+        $adoptBySlug = array_values(array_filter(array_map(
+            'strval',
+            explode(',', (string) ($opts['adopt_by_slug'] ?? ''))
+        ), static fn(string $kind): bool => in_array($kind, ['posts', 'terms', 'menus', 'tables'], true)));
+        sort($adoptBySlug, SORT_STRING);
+        return PlanExplanation::build(
+            $selector,
+            $bucket,
+            $row,
+            $compiled,
+            $policy,
+            $surfaces,
+            $actions,
+            [
+                'adopt_by_slug' => $adoptBySlug,
+                'force_unresolved_refs' => !empty($opts['force_unresolved_refs']),
+                'compiled_artifact_provided' => (string) ($opts['compiled'] ?? '') !== '',
+            ]
+        );
     }
 
     /**

@@ -296,6 +296,7 @@ assert_true(
         && str_contains($duoSource, 'CodeDeploy::controlArgs'),
     'scope dispatch is not registered through the isolated control-plane forwarding path'
 );
+assert_true(in_array('explain', $verbsNeedingEnv, true), 'explain is not registered in $verbsNeedingEnv');
 
 // A verb may legitimately never reach the preflight if main() returns for it
 // first (driver-capabilities renders the report itself). Derive that from the
@@ -326,6 +327,10 @@ assert_true(
 assert_true(
     $requirements->invoke(null, 'scope') === $requirements->invoke(null, 'coverage'),
     'scope must demand exactly what the other read-only passthrough demands'
+);
+assert_true(
+    $requirements->invoke(null, 'explain') === $requirements->invoke(null, 'plan'),
+    'explain must demand exactly the attach + wp-cli control capabilities plan requires'
 );
 pass('every cli/duo verb reaching the driver preflight resolves through requirements()');
 

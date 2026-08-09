@@ -447,6 +447,95 @@ final class Capture {
     }
 
     /**
+     * Strict observation twin of snapshot() for `duo explain`.
+     *
+     * Ordinary plan/apply intentionally retain their established maintenance
+     * boundary: ensure the ledger, repair historical widths, and prune stale
+     * identity rows before comparing state. An explanation has no authority
+     * to perform those repairs. It proves the existing ledger schema and every
+     * live identity through SELECTs, refuses missing/stale evidence, captures
+     * one coherent MVCC view, and performs no DDL/DML, map pruning, provider
+     * negotiation, or action invocation.
+     *
+     * @return array<string, array{type:string,hash:string,content:string,path:string}>
+     */
+    public static function snapshot_read_only(
+        string $repo,
+        bool $forceUnresolvedRefs = false,
+        ?CompiledRepository $compiled = null,
+        ?Policy $policy = null
+    ): array {
+        Canary::suppress_cron_spawn();
+        Ledger::assert_read_only_schema();
+        self::assert_read_only_identity_precondition(
+            static function (): void {
+                Identity::assert_embedded_unique();
+            }
+        );
+        $policy ??= Policy::load($repo);
+        self::verify_engine_support($policy);
+        $capture = new self($repo, $policy);
+        $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
+        $repositoryOptions = self::repository_options($repo, $policy, $repository);
+        $repositoryUserLogins = [];
+        foreach ($repository->tree() as $entity) {
+            if (($entity['type'] ?? '') === 'user-meta') {
+                $repositoryUserLogins[] = (string) ($entity['data']['login'] ?? '');
+            }
+        }
+
+        $build = self::run_in_consistent_snapshot(function () use (
+            $capture,
+            $forceUnresolvedRefs,
+            $repositoryOptions,
+            $repositoryUserLogins
+        ): array {
+            self::assert_read_only_identity_precondition(
+                static function (): void {
+                    Identity::assert_embedded_unique();
+                }
+            );
+            $candidate = $capture->build(
+                false,
+                $forceUnresolvedRefs,
+                $repositoryOptions,
+                $repositoryUserLogins,
+                true
+            );
+            self::assert_read_only_identity_precondition(
+                static function () use ($candidate): void {
+                    Identity::assert_entities_unique($candidate['entities']);
+                }
+            );
+            return $candidate;
+        });
+        $out = [];
+        foreach ($build['entities'] as $entity) {
+            $out[(string) $entity['uuid']] = [
+                'type' => (string) $entity['type'],
+                'hash' => hash('sha256', $entity['hash_basis'] ?? $entity['content']),
+                'content' => (string) $entity['content'],
+                'path' => (string) $entity['path'],
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Embedded/captured identity contradictions are known repair
+     * preconditions, not unclassified explain failures. Keep this wrapper
+     * narrow: ordinary database, policy, and capture failures retain their
+     * existing classification instead of being mislabeled as repairable.
+     */
+    private static function assert_read_only_identity_precondition(callable $assertion): void {
+        try {
+            $assertion();
+        } catch (\RuntimeException $failure) {
+            throw CommandRefusalException::explainObservationPrecondition($failure);
+        }
+    }
+
+    /**
      * Build a production-export candidate inside RefreshExport's already
      * opened READ ONLY consistent snapshot.  This is intentionally not a
      * variation of snapshot(): that older diagnostic path is allowed to
@@ -1603,7 +1692,12 @@ final class Capture {
             if ($uuid === null) {
                 continue;
             }
-            [$front, $body, $mediaRef] = $this->build_post($p, $uuid, $forceUnresolvedRefs);
+            [$front, $body, $mediaRef] = $this->build_post(
+                $p,
+                $uuid,
+                $forceUnresolvedRefs,
+                $strictReadOnly
+            );
             if ($mediaRef !== null) {
                 $media[$mediaRef[0]] = $mediaRef[1];
             }
@@ -2067,7 +2161,12 @@ final class Capture {
     }
 
     /** @return array{0: array, 1: string, 2: ?array{0:string,1:string}} [front, body, mediaRef] */
-    private function build_post(object $p, string $uuid, bool $forceUnresolvedRefs = false): array {
+    private function build_post(
+        object $p,
+        string $uuid,
+        bool $forceUnresolvedRefs = false,
+        bool $strictReadOnly = false
+    ): array {
         global $wpdb;
         $id = (int) $p->ID;
         $isAttachment = ($p->post_type === 'attachment');
@@ -2185,13 +2284,22 @@ final class Capture {
              * so providers may leave it alone, replace it with a temporary
              * materialization, or return bytes from their own API.
              */
-            $source = apply_filters(
-                'duo_attachment_capture_source',
-                $source,
-                $id,
-                (string) $attachedFile,
-                $localPath
-            );
+            if (!$strictReadOnly) {
+                $source = apply_filters(
+                    'duo_attachment_capture_source',
+                    $source,
+                    $id,
+                    (string) $attachedFile,
+                    $localPath
+                );
+            } elseif ($source === null) {
+                throw CommandRefusalException::explainObservationPrecondition(
+                    new \RuntimeException(
+                        'duo: strict attachment observation has no local media source; '
+                        . 'the external offload hook is deliberately not invoked by explain'
+                    )
+                );
+            }
             if ($source === null) {
                 throw new \RuntimeException(
                     "duo: attachment $id file '$attachedFile' is not present locally and no offload provider"

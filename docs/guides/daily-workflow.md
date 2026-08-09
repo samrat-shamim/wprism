@@ -159,10 +159,14 @@ still renders as counts alone. Rows with no authored name (options, sidebars,
 typed tables, tombstones) look the same as they always did; the name is never
 guessed or derived.
 
-The rest of that surface — field-level explanations of *what* diverged, and
-guided conflict resolution — is **Planned (DUO-3345)** — not yet shipped. For
+The entity-action explanation surface has shipped. Human `duo plan` prints a
+hash-safe `EXPLAIN` selector beneath each itemized row. `duo explain` follows
+that one row through the compiled source shape, winning policy and manifest
+rules, declared outbound references, selected structured actions, and the
+verification apply would require—without exposing values or running anything.
+Field-level *value* diffs and guided conflict resolution remain planned. For
 `duo refresh` specifically, five counts plus one reason line per conflict is
-what exists today, and it is enough to decide whether to rebase.
+still the complete surface for deciding whether to rebase.
 
 When you are ready to move the branch onto current production:
 
@@ -207,6 +211,22 @@ genuine gap.
 
 `duo status` parses and reformats; it never prints raw JSON. For that, and for
 scripting, use `duo plan <env> --format=json`.
+
+To inspect one itemized action without applying it, copy the selector printed
+directly below that row:
+
+```sh
+duo explain stage update:sha256:<entity-identity-hash>
+duo explain stage update:sha256:<entity-identity-hash> --format=json
+```
+
+The result is a strict observation of the current plan, not a cached receipt.
+It performs no identity repair, target write, provider negotiation, native
+action, or attachment-offload hook. If media is not already local, use the
+ordinary capture/provider workflow first. A declared action is reported as selected/not checked; `duo apply`
+still owns capability negotiation, force/delete gates, mutation, and value-level
+readback. Values, raw selectors, repository paths, target-local ids, action
+arguments, and provider receipts are omitted.
 
 ## Promote
 
