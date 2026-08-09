@@ -12,6 +12,13 @@ final class IdentityNotes {
      * continuity authority, so a later key edit intentionally leaves the UUID
      * different from UUIDv5(current key). Name that ordinary state without
      * treating it as a warning or requesting re-derivation.
+     *
+     * DUO-3318: the derivation itself is Snapshot's, for every reader — a
+     * second copy of "what is this row's natural-key name" here would be free
+     * to disagree with the one capture actually used, and this note's entire
+     * job is to compare the two. That also carries the parent-scoped
+     * multi-column form for free: a renamed slot under an unchanged room
+     * reports exactly like a renamed single-column row does.
      */
     public static function natural_key_continuity(
         string $uuid,
@@ -19,17 +26,33 @@ final class IdentityNotes {
         array $decl,
         array $columns
     ): ?string {
-        if (($decl['identity']['mode'] ?? 'mapped') !== 'natural_key') {
+        $components = Snapshot::natural_key_components_from_front($decl, $columns);
+        if ($components === null) {
             return null;
         }
-        $identityColumn = (string) ($decl['identity']['column'] ?? '');
-        if ($identityColumn === '' || !array_key_exists($identityColumn, $columns)) {
+        if (Uuid::v5(Uuid::NAMESPACE_DUO, Snapshot::natural_key_name($table, $decl, $components)) === $uuid) {
             return null;
         }
-        $key = (string) $columns[$identityColumn];
-        if ($key === '' || Uuid::v5(Uuid::NAMESPACE_DUO, "$table:$key") === $uuid) {
-            return null;
+        return "$table row " . self::key_label($components)
+            . ': renamed since first capture (uuid retained via ledger)';
+    }
+
+    /**
+     * The human half of the note. A single-component key prints its bare
+     * value, byte-identical to what this note has always said; a tuple names
+     * each component, because "slot-a" alone would not say which room's
+     * slot-a moved.
+     *
+     * @param array<string,string> $components
+     */
+    private static function key_label(array $components): string {
+        if (count($components) === 1) {
+            return (string) reset($components);
         }
-        return "$table row $key: renamed since first capture (uuid retained via ledger)";
+        $parts = [];
+        foreach ($components as $column => $value) {
+            $parts[] = "$column=$value";
+        }
+        return implode(', ', $parts);
     }
 }

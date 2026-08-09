@@ -1255,9 +1255,17 @@ final class RepositoryCompiler {
                 $key = 'term|' . ($d['taxonomy'] ?? '') . '|' . ($d['slug'] ?? '');
             } elseif ($entity['type'] === 'menu') {
                 $key = 'term|nav_menu|' . ($d['slug'] ?? '');
-            } elseif (isset($rows[$entity['type']]) && ($rows[$entity['type']]['identity']['mode'] ?? 'mapped') === 'natural_key') {
-                $col = $rows[$entity['type']]['identity']['column'];
-                $key = 'table|' . $entity['type'] . '|' . Canon::encode($d['columns'][$col] ?? null);
+            } elseif (isset($rows[$entity['type']])
+                && ($identityColumns = Policy::natural_key_columns($rows[$entity['type']])) !== []) {
+                // DUO-3318: the whole declared tuple, in declared order — a
+                // parent-scoped key is unique only WITHIN its parent, so
+                // comparing one component would report every sibling row of
+                // every other parent as a duplicate identity.
+                $components = [];
+                foreach ($identityColumns as $col) {
+                    $components[] = $d['columns'][$col] ?? null;
+                }
+                $key = 'table|' . $entity['type'] . '|' . Canon::encode($components);
             }
             if ($key === null) {
                 continue;

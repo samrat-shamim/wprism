@@ -118,6 +118,22 @@ namespace Duo;
  *   ledger/repository history derives from the new key instead; table adopt
  *   is the reconciliation path. Contradictory mappings still block and
  *   ordinary Ledger::set() never deletes or rebinds identity implicitly.
+ *
+ *   `"columns": ["<col>", ...]` (DUO-3318) is the PARENT-SCOPED form of the
+ *   same mode, for the far more common real schema: a key that is unique
+ *   only WITHIN a parent row (a slot code unique per room, an option key
+ *   unique per form). `column` is exactly its 1-component case, unchanged
+ *   and frozen. A component that is a declared `refs[]` column contributes
+ *   the REFERENCED ROW'S OWN UUID, not the local id sitting in the column —
+ *   the identical argument composite_ref's docblock makes below, for the
+ *   identical reason: an auto-increment parent id would derive a different
+ *   uuid per environment for the same authored fact. A scalar component
+ *   contributes its raw value. `pk` stays REQUIRED here (unlike
+ *   composite_ref): the table still has its own surrogate primary key, and
+ *   duo_map's local_id stays that plain scalar — no packing, so delete,
+ *   adopt, and `invalidate` all keep working exactly as they do for any
+ *   other row table. Filenames need `slug_column` for this form (a tuple has
+ *   no portable one-line spelling; see Policy::assert_natural_key_grammar()).
  * - `"identity": {"mode": "composite_ref", "columns": ["<col1>", "<col2>"]}`
  *   (DUO-3235, task #125) — for a PURE JOIN table: no surrogate `pk` column
  *   exists at all, and its real, live composite PRIMARY KEY is exactly the
@@ -740,15 +756,14 @@ final class Snapshot {
     }
 
     /**
-     * The finding-#8 rule made absolute: every live column of a declared
-     * ROW table must be exactly one of {pk, a ref column, a columns entry}
-     * — checked against a live SHOW COLUMNS, not just the manifest's own
-     * idea of the schema, so a plugin update that adds a column this
-     * manifest has never heard of refuses capture instead of silently
-     * treating the new column as invisible. A pure schema check (never
-     * data-dependent), so it's cheap to always run.
+     * duo_map.entity_type/duo_state.entity_type are VARCHAR(64) and a table
+     * row's entity_type IS its table name. A ledger COLUMN WIDTH, not manifest
+     * grammar — which is exactly why it stays here rather than moving to
+     * Policy::assert_table_grammar() with the rest of the declaration checks
+     * (DUO-3318): Policy.php is deliberately loadable with no other engine
+     * class present, and naming Ledger there would end that.
      */
-    public static function assert_row_schema(string $table, array $decl): void {
+    private static function assert_entity_type_width(string $table): void {
         if (strlen($table) > self::MAX_ENTITY_TYPE_LEN) {
             throw new \RuntimeException(
                 "duo: table '$table' name is " . strlen($table) . ' chars — a table row entity_type IS the table '
@@ -756,14 +771,10 @@ final class Snapshot {
                 . ' chars (duo_map.entity_type/duo_state.entity_type are VARCHAR(' . self::MAX_ENTITY_TYPE_LEN . '))'
             );
         }
-        if (self::is_composite_ref($decl)) {
-            self::assert_composite_row_schema($table, $decl);
-            return;
-        }
-        $pk = (string) ($decl['pk'] ?? '');
-        if ($pk === '') {
-            throw new \RuntimeException("duo: table '$table' declares " . self::CLASS_ROW . " with no 'pk'");
-        }
+    }
+
+    /** duo_map.id_kind's own width. @see assert_entity_type_width() */
+    private static function assert_id_kind_width(string $table, array $decl): void {
         $idKind = (string) ($decl['id_kind'] ?? '');
         if ($idKind === '' || strlen($idKind) > self::MAX_ID_KIND_LEN) {
             throw new \RuntimeException(
@@ -771,34 +782,38 @@ final class Snapshot {
                 . ' chars (duo_map.id_kind is VARCHAR(' . self::MAX_ID_KIND_LEN . '))'
             );
         }
-        $mode = $decl['identity']['mode'] ?? 'mapped';
-        if (!in_array($mode, ['mapped', 'natural_key'], true)) {
-            throw new \RuntimeException("duo: table '$table' declares unknown identity.mode '$mode'");
-        }
-        if ($mode === 'natural_key' && empty($decl['identity']['column'])) {
-            throw new \RuntimeException("duo: table '$table' declares identity.mode=natural_key with no 'column'");
-        }
+    }
 
+    /**
+     * The finding-#8 rule made absolute: every live column of a declared
+     * ROW table must be exactly one of {pk, a ref column, a columns entry}
+     * — checked against a live SHOW COLUMNS, not just the manifest's own
+     * idea of the schema, so a plugin update that adds a column this
+     * manifest has never heard of refuses capture instead of silently
+     * treating the new column as invisible. A pure schema check (never
+     * data-dependent), so it's cheap to always run.
+     *
+     * DUO-3318 split this function in two along one line: "does answering
+     * this need the database". Everything answerable from the declaration
+     * alone is Policy::assert_table_grammar()'s, reached from Policy::load()
+     * so a malformed declaration refuses OFFLINE — before a target exists,
+     * let alone is contacted — and re-run here because it is pure and a
+     * directly-constructed Policy (the shape several offline harnesses build)
+     * never went through load(). What remains here is the half that genuinely
+     * needs a live target: the column reconciliation below, plus the two
+     * ledger column widths above.
+     */
+    public static function assert_row_schema(string $table, array $decl): void {
+        self::assert_entity_type_width($table);
+        Policy::assert_table_grammar($table, $decl);
+        if (self::is_composite_ref($decl)) {
+            self::assert_composite_row_schema($table, $decl);
+            return;
+        }
+        self::assert_id_kind_width($table, $decl);
+        $pk = (string) ($decl['pk'] ?? '');
         $colKeys = array_keys($decl['columns'] ?? []);
         $refCols = array_column($decl['refs'] ?? [], 'column');
-        $overlap = array_intersect($colKeys, $refCols);
-        if ($overlap) {
-            throw new \RuntimeException(
-                "duo: table '$table' declares column(s) in BOTH columns and refs: " . implode(', ', $overlap)
-            );
-        }
-        if (array_key_exists('slug_column', $decl)) {
-            $slugCol = $decl['slug_column'];
-            $slugRule = is_string($slugCol) && $slugCol !== ''
-                ? ($decl['columns'][$slugCol] ?? null)
-                : null;
-            if (!is_array($slugRule) || ($slugRule['class'] ?? null) !== 'authored') {
-                throw new \RuntimeException(
-                    "duo: table '$table' slug_column must name a non-empty authored columns entry — "
-                    . 'primary keys, refs, runtime, derived, and env columns are environment-local and cannot name canonical files'
-                );
-            }
-        }
 
         $live = self::live_columns($table);
         if ($live === null) {
@@ -841,66 +856,21 @@ final class Snapshot {
      * 2-column; N>2 is a straightforward mechanical extension (see
      * pack_composite_id()'s docblock for the bit-budget arithmetic it would
      * need) but unexercised, so refused rather than half-supported.
+     *
+     * DUO-3318: the declaration half of all of that now lives in
+     * Policy::assert_table_grammar()'s composite branch (see
+     * assert_row_schema() for the split rule). This function keeps the two
+     * ledger column widths and the live column reconciliation, and re-runs the
+     * pure grammar because it is public — a caller reaching it directly gets
+     * the same verdict as one arriving through assert_row_schema(), and
+     * re-checking a pure function of already-loaded bytes costs nothing.
      */
     public static function assert_composite_row_schema(string $table, array $decl): void {
-        // Also checked by assert_row_schema()'s own dispatch before it ever
-        // reaches here (the only current call path) — duplicated anyway,
-        // matching this function's own id_kind check just below, in case a
-        // future caller invokes this directly.
-        if (strlen($table) > self::MAX_ENTITY_TYPE_LEN) {
-            throw new \RuntimeException(
-                "duo: table '$table' name is " . strlen($table) . ' chars — a table row entity_type IS the table '
-                . 'name itself, which must be 1-' . self::MAX_ENTITY_TYPE_LEN
-                . ' chars (duo_map.entity_type/duo_state.entity_type are VARCHAR(' . self::MAX_ENTITY_TYPE_LEN . '))'
-            );
-        }
-        if (isset($decl['pk'])) {
-            throw new \RuntimeException(
-                "duo: table '$table' declares identity.mode=composite_ref AND a 'pk' — "
-                . "composite_ref tables have no scalar primary key; remove 'pk'"
-            );
-        }
-        $idKind = (string) ($decl['id_kind'] ?? '');
-        if ($idKind === '' || strlen($idKind) > self::MAX_ID_KIND_LEN) {
-            throw new \RuntimeException(
-                "duo: table '$table' declares id_kind '$idKind' — must be 1-" . self::MAX_ID_KIND_LEN
-                . ' chars (duo_map.id_kind is VARCHAR(' . self::MAX_ID_KIND_LEN . '))'
-            );
-        }
-        if (!empty($decl['invalidate'])) {
-            throw new \RuntimeException(
-                "duo: table '$table' declares identity.mode=composite_ref with 'invalidate' — "
-                . "run_invalidate()'s {id} substitution assumes a single scalar local id, which this mode has no "
-                . 'equivalent of; unsupported, not silently ignored (no composite_ref fixture has needed it — see docblock)'
-            );
-        }
-        $idCols = $decl['identity']['columns'] ?? null;
-        if (!is_array($idCols) || count($idCols) !== 2) {
-            throw new \RuntimeException(
-                "duo: table '$table' declares identity.mode=composite_ref with identity.columns != exactly 2 entries "
-                . '— this is the only shape this engine has proven (see assert_composite_row_schema()\'s docblock)'
-            );
-        }
+        self::assert_entity_type_width($table);
+        Policy::assert_table_grammar($table, $decl);
+        self::assert_id_kind_width($table, $decl);
         $refCols = array_column($decl['refs'] ?? [], 'column');
-        $sortedIdCols = $idCols;
-        sort($sortedIdCols);
-        $sortedRefCols = $refCols;
-        sort($sortedRefCols);
-        if ($sortedIdCols !== $sortedRefCols) {
-            throw new \RuntimeException(
-                "duo: table '$table' identity.columns [" . implode(', ', $idCols)
-                . "] must be EXACTLY its refs[] columns [" . implode(', ', $refCols)
-                . '] — composite_ref is only for pure join tables: every identity column is a ref, every ref is an identity column'
-            );
-        }
-
         $colKeys = array_keys($decl['columns'] ?? []);
-        $overlap = array_intersect($colKeys, $refCols);
-        if ($overlap) {
-            throw new \RuntimeException(
-                "duo: table '$table' declares column(s) in BOTH columns and refs: " . implode(', ', $overlap)
-            );
-        }
 
         $live = self::live_columns($table);
         if ($live === null) {
@@ -955,10 +925,12 @@ final class Snapshot {
      * live on this round's own sandbox pair — see manifests/paid-memberships-pro.json).
      */
     public static function assert_meta_schema(string $table, array $decl): void {
+        // DUO-3318: the attached_to declaration check is the pure half and
+        // now lives in Policy::assert_table_grammar(), reachable offline (see
+        // assert_row_schema()'s docblock for the split rule); re-run here for
+        // the same reason its row-table sibling re-runs it.
+        Policy::assert_table_grammar($table, $decl);
         $attachCol = (string) ($decl['attached_to']['column'] ?? '');
-        if (($decl['attached_to']['table'] ?? '') === '' || $attachCol === '') {
-            throw new \RuntimeException("duo: table '$table' declares " . self::CLASS_META . " with no attached_to.{table,column}");
-        }
         $idCol = (string) ($decl['id_column'] ?? 'id');
         $keyCol = (string) ($decl['key_column'] ?? 'meta_key');
         $valCol = (string) ($decl['value_column'] ?? 'meta_value');
@@ -1140,7 +1112,7 @@ final class Snapshot {
         $entities = [];
         foreach ($rows as $row) {
             $localId = (int) $row[$pk];
-            $uuid = self::identify_row($table, $decl, $row, $localId, $mint, $strictReadOnly);
+            $uuid = self::identify_row($table, $decl, $row, $localId, $tokens, $mint, $strictReadOnly);
 
             $columns = [];
             foreach ($decl['columns'] ?? [] as $col => $rule) {
@@ -1341,17 +1313,111 @@ final class Snapshot {
     }
 
     /**
+     * The exact UUIDv5 name a natural_key row derives its identity from
+     * (DUO-3318) — one function, so capture, the continuity note, the
+     * repository compiler's duplicate-identity check, and adoption can never
+     * disagree about what "the same row" means.
+     *
+     * The single-component spelling is FROZEN at "<table>:<value>": every
+     * natural_key uuid ever minted by this engine derives from it, and a
+     * cosmetic reformatting here would re-derive every one of them into a new
+     * identity on the next fresh-environment bootstrap. The multi-component
+     * spelling therefore gets its own unambiguous shape,
+     * "<table>:<col>=<component>:<col>=<component>", which cannot collide with
+     * the single form (a one-column key would have to contain a literal "="
+     * in a column named exactly like the table's other column to alias, and
+     * even then the component ordering differs) and matches
+     * identify_composite_row()'s existing tuple spelling rather than
+     * inventing a third one.
+     *
+     * A component is a REF column's referenced-row uuid, or a scalar column's
+     * raw value — that substitution is the entire point of the parent-scoped
+     * form: a slot code that is unique only within its room is portable only
+     * when the room contributes its portable identity, never its local id.
+     *
+     * @param array<string,string> $components identity column => component value
+     */
+    public static function natural_key_name(string $table, array $decl, array $components): string {
+        $columns = Policy::natural_key_columns($decl);
+        if (count($columns) === 1) {
+            return $table . ':' . $components[$columns[0]];
+        }
+        $parts = [$table];
+        foreach ($columns as $column) {
+            $parts[] = $column . '=' . $components[$column];
+        }
+        return implode(':', $parts);
+    }
+
+    /**
+     * A natural_key row's identity components read back out of an already-
+     * CAPTURED file's flat `columns` map (DUO-3318) — the apply/compile/plan
+     * direction, where a ref column holds a "{{kind:uuid}}" token rather than
+     * a live local id, so the referenced uuid is already present and needs no
+     * ledger lookup at all.
+     *
+     * Returns null when any component is absent, empty, or — DUO-3318 review
+     * (N3) — carries a ref token this engine cannot parse. That is not a
+     * failure: it is the ordinary state of a file captured before the
+     * declaration existed, or of a row whose optional-looking component was
+     * never populated, and every caller of this treats "cannot derive" as
+     * "say nothing" rather than as an error. The malformed-token case joined
+     * that list because both callers are INFORMATIONAL (the identity-
+     * continuity note, at capture and in a plan row): hard-throwing there made
+     * one corrupt byte in one repository file abort a whole `duo plan` from an
+     * annotation nobody asked for. The fail-closed reading of the same token
+     * still exists where it belongs — capture's own live derivation
+     * (live_natural_key_components()) and apply's adoption lookup
+     * (find_collision()) both refuse a malformed token outright.
+     *
+     * @param array<string,mixed> $columns the file's own flat columns map
+     * @return array<string,string>|null identity column => component value
+     */
+    public static function natural_key_components_from_front(array $decl, array $columns): ?array {
+        $wanted = Policy::natural_key_columns($decl);
+        if ($wanted === []) {
+            return null;
+        }
+        $refKinds = [];
+        foreach ($decl['refs'] ?? [] as $ref) {
+            $refKinds[(string) $ref['column']] = (string) $ref['kind'];
+        }
+        $out = [];
+        foreach ($wanted as $column) {
+            $raw = $columns[$column] ?? null;
+            if (!is_scalar($raw) || (string) $raw === '') {
+                return null;
+            }
+            if (!isset($refKinds[$column])) {
+                $out[$column] = (string) $raw;
+                continue;
+            }
+            $uuid = self::uuid_in_token((string) $raw);
+            if ($uuid === null) {
+                return null;
+            }
+            $out[$column] = $uuid;
+        }
+        return $out;
+    }
+
+    /**
      * Identity for one row: reuse the existing duo_map entry if one exists
      * and re-affirm it via contradiction-intolerant Ledger::set(). A
      * never-seen mapped row gets NEW identity only when $mint is true;
      * natural-key rows derive identity in either mode. See this file's
      * docblock for the mapped-vs-natural_key recovery split.
+     *
+     * $tokens is the capture-direction resolver for a REF identity component
+     * (DUO-3318's parent-scoped natural key): the referenced row's uuid, never
+     * the live local id sitting in the column.
      */
     private static function identify_row(
         string $table,
         array $decl,
         array $row,
         int $localId,
+        Tokens $tokens,
         bool $mint,
         bool $strictReadOnly = false
     ): string {
@@ -1376,15 +1442,10 @@ final class Snapshot {
         if ($uuid === null) {
             $mode = $decl['identity']['mode'] ?? 'mapped';
             if ($mode === 'natural_key') {
-                $col = $decl['identity']['column'];
-                $key = (string) ($row[$col] ?? '');
-                if ($key === '') {
-                    throw new \RuntimeException(
-                        "duo: table '$table' row $localId: identity.mode=natural_key column '$col' is empty — "
-                        . 'cannot mint a stable identity for this row'
-                    );
-                }
-                $uuid = Uuid::v5(Uuid::NAMESPACE_DUO, "$table:$key");
+                $uuid = Uuid::v5(
+                    Uuid::NAMESPACE_DUO,
+                    self::natural_key_name($table, $decl, self::live_natural_key_components($table, $decl, $row, $localId, $tokens))
+                );
             } else {
                 if (!$mint) {
                     throw new \RuntimeException(
@@ -1398,6 +1459,61 @@ final class Snapshot {
         }
         Ledger::set($uuid, $table, $idKind, $localId);
         return $uuid;
+    }
+
+    /**
+     * A natural_key row's identity components read off the LIVE row
+     * (DUO-3318) — the capture direction, the mirror of
+     * natural_key_components_from_front().
+     *
+     * Every component throws rather than degrading, because a natural key IS
+     * the row's identity: unlike an ordinary column, there is no partial
+     * version of it to capture. A ref component is structural for the same
+     * reason capture_table()'s own refs[] loop and identify_composite_row()
+     * are (see this file's docblock, "Refs: required vs optional") — a slot
+     * whose room is outside capture scope has no portable identity to derive,
+     * so the honest answer is the scope refusal, not a locally-unique id
+     * smuggled into a uuid.
+     *
+     * @return array<string,string>
+     */
+    private static function live_natural_key_components(
+        string $table,
+        array $decl,
+        array $row,
+        int $localId,
+        Tokens $tokens
+    ): array {
+        $refKinds = [];
+        foreach ($decl['refs'] ?? [] as $ref) {
+            $refKinds[(string) $ref['column']] = (string) $ref['kind'];
+        }
+        $out = [];
+        foreach (Policy::natural_key_columns($decl) as $column) {
+            if (isset($refKinds[$column])) {
+                $raw = (int) ($row[$column] ?? 0);
+                $token = $raw > 0 ? $tokens->id_to_token($raw, $refKinds[$column]) : null;
+                if ($token === null) {
+                    throw new \RuntimeException(
+                        "duo: table '$table' row $localId: identity.mode=natural_key column '$column' holds "
+                        . ($raw > 0 ? "unmanaged {$refKinds[$column]} ref $raw" : 'no reference')
+                        . ' — a parent-scoped natural key derives from the REFERENCED row\'s own uuid, so capture '
+                        . 'scope must include that row'
+                    );
+                }
+                $out[$column] = self::uuid_from_token($token);
+                continue;
+            }
+            $value = (string) ($row[$column] ?? '');
+            if ($value === '') {
+                throw new \RuntimeException(
+                    "duo: table '$table' row $localId: identity.mode=natural_key column '$column' is empty — "
+                    . 'cannot mint a stable identity for this row'
+                );
+            }
+            $out[$column] = $value;
+        }
+        return $out;
     }
 
     /**
@@ -1477,14 +1593,35 @@ final class Snapshot {
      *  shape Tokens::id_to_token() always produces, matched with the exact
      *  uuid pattern Tokens::token_to_id() itself validates against, so this
      *  never silently disagrees with what the rest of the engine considers
-     *  a well-formed token. Used only to build composite_ref's uuid-
-     *  derivation input (identify_composite_row()) from a token this file
-     *  already resolved via Tokens — never a second, independent lookup. */
+     *  a well-formed token. Returns null instead of throwing: the two
+     *  directions that read a ref token for identity have opposite dispositions
+     *  for a malformed one (see the two callers below), so the decision belongs
+     *  to them rather than here. */
+    private static function uuid_in_token(string $token): ?string {
+        return preg_match('/^\{\{[a-z][a-z0-9_]*:([0-9a-f-]{36})\}\}$/', $token, $m) ? $m[1] : null;
+    }
+
+    /**
+     * uuid_in_token()'s fail-closed spelling, for the CAPTURE direction and
+     * for apply-time resolution — every caller here holds a token this same
+     * process just produced through Tokens (identify_composite_row()) or a
+     * token an already-validated repository file carries as structural
+     * identity (find_collision()), so a malformed one is a corruption to
+     * refuse, never a value to derive something wrong from.
+     *
+     * DUO-3318 review (N3): the attribution used to say "composite_ref
+     * identity derivation", which was true when composite_ref was the only
+     * mode that read a ref token for identity; the parent-scoped natural key
+     * reaches it too.
+     */
     private static function uuid_from_token(string $token): string {
-        if (!preg_match('/^\{\{[a-z][a-z0-9_]*:([0-9a-f-]{36})\}\}$/', $token, $m)) {
-            throw new \RuntimeException("duo: malformed ref token '$token' (composite_ref identity derivation)");
+        $uuid = self::uuid_in_token($token);
+        if ($uuid === null) {
+            throw new \RuntimeException(
+                "duo: malformed ref token '$token' (composite_ref/natural_key identity derivation)"
+            );
         }
-        return $m[1];
+        return $uuid;
     }
 
     /**
@@ -1675,23 +1812,138 @@ final class Snapshot {
      * existing slug-based adoption for posts/terms by the same idea, keyed
      * on the table's OWN natural key instead of a slug). mapped-identity
      * tables have no natural collision key at all — always create fresh.
+     *
+     * $tree/$cache/$seen carry the parent-resolution fallback for a
+     * parent-scoped key's ref component (DUO-3318 review, S2) and mirror
+     * Apply::find_collision()'s own signature: $tree is the compiled
+     * repository keyed by uuid, $cache is Apply's shared per-uuid collision
+     * memo, and $seen is the recursion path (by VALUE, so it scopes itself to
+     * one branch) that keeps two tables whose keys reference each other from
+     * recursing forever. A caller with no tree — every offline/unit caller —
+     * simply gets the ledger-only behavior that shipped before.
+     *
+     * @param array<string,array> $tree
+     * @param array<string,?int> $cache
+     * @param array<string,bool> $seen
      */
-    public static function find_collision(Policy $policy, array $entity): ?int {
+    public static function find_collision(
+        Policy $policy,
+        array $entity,
+        array $tree = [],
+        array &$cache = [],
+        array $seen = []
+    ): ?int {
         global $wpdb;
         $decl = self::row_tables($policy)[$entity['type']] ?? null;
-        if ($decl === null || ($decl['identity']['mode'] ?? 'mapped') !== 'natural_key') {
+        if ($decl === null) {
             return null;
         }
+        $columns = Policy::natural_key_columns($decl);
+        if ($columns === []) {
+            return null; // mapped/composite_ref: no natural collision key at all
+        }
         $front = $entity['data'] ?? Canon::decode($entity['content']);
-        $col = $decl['identity']['column'];
-        $value = $front['columns'][$col] ?? null;
-        if (!is_string($value) || $value === '') {
-            return null;
+        $captured = is_array($front['columns'] ?? null) ? $front['columns'] : [];
+        $refKinds = [];
+        foreach ($decl['refs'] ?? [] as $ref) {
+            $refKinds[(string) $ref['column']] = (string) $ref['kind'];
+        }
+        $predicates = [];
+        $args = [];
+        foreach ($columns as $column) {
+            $value = $captured[$column] ?? null;
+            if (!is_string($value) || $value === '') {
+                return null;
+            }
+            if (isset($refKinds[$column])) {
+                // DUO-3318: a parent-scoped key's ref component is matched by
+                // THIS environment's own local id for the referenced entity —
+                // resolved from the uuid the token already carries, never by
+                // the source's id. An unresolvable parent means the row this
+                // key is scoped WITHIN does not exist here yet, so there is
+                // nothing for an unmanaged row to collide with; ordinary
+                // create is the correct outcome.
+                $parentId = self::collision_ref_id(
+                    $policy,
+                    self::uuid_from_token($value),
+                    $refKinds[$column],
+                    $tree,
+                    $cache,
+                    $seen + [(string) ($front['uuid'] ?? '') => true]
+                );
+                if ($parentId === null) {
+                    return null;
+                }
+                $predicates[] = "`$column` = %d";
+                $args[] = $parentId;
+                continue;
+            }
+            $predicates[] = "`$column` = %s";
+            $args[] = $value;
         }
         $prefixed = $wpdb->prefix . $entity['type'];
         $pk = $decl['pk'];
-        $id = $wpdb->get_var($wpdb->prepare("SELECT `$pk` FROM `$prefixed` WHERE `$col` = %s LIMIT 1", $value));
+        $id = $wpdb->get_var($wpdb->prepare(
+            "SELECT `$pk` FROM `$prefixed` WHERE " . implode(' AND ', $predicates) . ' LIMIT 1',
+            $args
+        ));
         return $id !== null ? (int) $id : null;
+    }
+
+    /**
+     * This environment's own local id for one ref component of a parent-scoped
+     * natural key (DUO-3318 review, S2) — the exact shape of
+     * Apply::collision_parent_id(), for the same reason: the ledger is asked
+     * first, and a MISS is not the end of the question.
+     *
+     * A whole plugin arriving on a fresh target for the first time has no
+     * ledger rows at all, so an unmapped parent is the ordinary state, not an
+     * error. If the parent is itself an adoptable row of a declared table —
+     * pre-provisioned by hand on the target, the exact case this whole
+     * adoption path exists for — its own natural key finds it, and the child
+     * can then be matched WITHIN it. Without this, a target where every row
+     * was pre-provisioned adopted the parents and duplicated every child.
+     *
+     * Boundaries, both deliberate:
+     *   - a post/term parent falls through to null. Resolving one means
+     *     slug/parent adoption, which is Apply's own find_collision(); this
+     *     file depends only on Policy/Ledger/Tokens/Canon/Uuid (see the file
+     *     docblock, "Engine boundary") and will not reach across for it.
+     *   - the referenced entity must be a declared row table whose id_kind IS
+     *     the kind the ref names; anything else is a repository that disagrees
+     *     with the manifest, which the compiler refuses on its own terms.
+     *
+     * @param array<string,array> $tree
+     * @param array<string,?int> $cache
+     * @param array<string,bool> $seen recursion path — see find_collision()
+     */
+    private static function collision_ref_id(
+        Policy $policy,
+        string $uuid,
+        string $kind,
+        array $tree,
+        array &$cache,
+        array $seen
+    ): ?int {
+        // Tokens' rename table, not the manifest's spelling: a `tt` ref is
+        // stored in duo_map as `term_taxonomy`, and looking it up raw finds a
+        // keyspace with no rows (DUO-3318 review, N2).
+        $mapped = Ledger::id_for($uuid, Tokens::ledger_kind($kind));
+        if ($mapped !== null) {
+            return $mapped;
+        }
+        if (array_key_exists($uuid, $cache)) {
+            return $cache[$uuid];
+        }
+        $parent = $tree[$uuid] ?? null;
+        if ($parent === null || isset($seen[$uuid])) {
+            return null;
+        }
+        $decl = self::row_tables($policy)[$parent['type'] ?? ''] ?? null;
+        if ($decl === null || (string) ($decl['id_kind'] ?? '') !== $kind) {
+            return null;
+        }
+        return $cache[$uuid] = self::find_collision($policy, $parent, $tree, $cache, $seen);
     }
 
     /** Claim an unmanaged env row by writing identity only — table rows have

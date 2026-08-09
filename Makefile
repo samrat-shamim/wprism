@@ -22,7 +22,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions \
 	regress-post-field-classification regress-capability-registry regress-woocommerce-contract \
-	regress-refresh-export-unit \
+	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key \
 	capability-registry-generate release-gate
 
 up:
@@ -413,6 +413,21 @@ regress-actions-providers:
 regress-provider-contract-live:
 	bash sandbox/tests/regress_provider_contract_live.sh
 
+# DUO-3318: ownership of the engine's closed manifest vocabularies, the safe
+# extension points around them, and the parent-scoped multi-column natural key
+# they were written down for. A second adapter is the fixture: every negative
+# is a well-formed manifest reaching into another manifest's entities or
+# minting a value the engine owns.
+regress-vocabulary-ownership:
+	bash sandbox/tests/regress_vocabulary_ownership.sh
+
+# DUO-3318 live counterpart: the parent-scoped natural key through capture,
+# deploy, apply, rename, and independent recapture across two environments
+# whose local ids genuinely differ. Own pair, so it is live-list material,
+# never offline-all.
+regress-parent-scoped-natural-key:
+	bash sandbox/tests/regress_parent_scoped_natural_key.sh
+
 regress-code-revision-enforcement:
 	php sandbox/tests/regress_code_revision_enforcement.php
 
@@ -743,8 +758,8 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
-	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render
-	@echo "regress-offline-all: 74 offline suites green"
+	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-vocabulary-ownership
+	@echo "regress-offline-all: 75 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
@@ -769,6 +784,7 @@ regress-live-list:
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"
 	@echo "  regress-adapter-theme-range               pair asub3222tr 8918/8919"
 	@echo "  regress-provider-contract-live            pair claudemacb3338 8930/8931"
+	@echo "  regress-parent-scoped-natural-key         pair claudemacb3318 8930/8931 (parameterized: PARENT_KEY_PAIR/PARENT_KEY_PORT1/PARENT_KEY_PORT2)"
 	@echo "  regress-menu-item-meta-gate               pair asub3275 8954/8955"
 	@echo "  regress-widgets                           pair awid3278 8960/..."
 	@echo "  regress-promotion                         pair codexmaca3216 8920/... (also runs in CI as code-half-grind's sibling)"
