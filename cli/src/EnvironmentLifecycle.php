@@ -23,7 +23,13 @@ final class EnvironmentProviderCapability {
     public const ENVIRONMENT_CREATE = 'environment.create';
     public const ENVIRONMENT_DESTROY = 'environment.destroy';
     public const ENVIRONMENT_DETACH = 'environment.detach';
+    /** Provider-held, operation-idempotent fence around target mutations. */
+    public const ENVIRONMENT_MUTATION_ACQUIRE = 'environment.mutation.acquire';
+    public const ENVIRONMENT_MUTATION_READ = 'environment.mutation.read';
+    public const ENVIRONMENT_MUTATION_RELEASE = 'environment.mutation.release';
     public const ENVIRONMENT_TTL = 'environment.ttl';
+    /** Readback is distinct from setting a TTL; expiry/reuse is never inferred. */
+    public const ENVIRONMENT_TTL_READ = 'environment.ttl.read';
     public const URL_DISCOVER = 'environment.url.discover';
     public const URL_SET = 'environment.url.set';
     public const REPOSITORY_MATERIALIZE = 'repository.materialize';
@@ -35,7 +41,9 @@ final class EnvironmentProviderCapability {
             self::SNAPSHOT_SET_ABORT, self::SNAPSHOT_SET_CREATE, self::SNAPSHOT_SET_PREPARE,
             self::SNAPSHOT_SET_READ, self::SNAPSHOT_SET_RESTORE,
             self::ENVIRONMENT_INSPECT, self::ENVIRONMENT_ATTACH, self::ENVIRONMENT_CREATE,
-            self::ENVIRONMENT_DESTROY, self::ENVIRONMENT_DETACH, self::ENVIRONMENT_TTL,
+            self::ENVIRONMENT_DESTROY, self::ENVIRONMENT_DETACH,
+            self::ENVIRONMENT_MUTATION_ACQUIRE, self::ENVIRONMENT_MUTATION_READ,
+            self::ENVIRONMENT_MUTATION_RELEASE, self::ENVIRONMENT_TTL, self::ENVIRONMENT_TTL_READ,
             self::URL_DISCOVER, self::URL_SET, self::REPOSITORY_MATERIALIZE,
             self::OPERATION_RECEIPTS,
         ];
@@ -100,6 +108,29 @@ final class EnvironmentProviderCapabilityReport {
 
     public function providerId(): string {
         return $this->providerId;
+    }
+
+    /**
+     * Stable machine-local pin for one named environment/provider pairing.
+     *
+     * The capability digest deliberately participates in the pin. A resumed
+     * privileged operation must not silently continue after an operator has
+     * pointed the same logical environment at another provider contract, or
+     * after that provider has withdrawn a capability needed by the journaled
+     * operation.
+     *
+     * @return array{capabilities_sha256:string,environment:string,provider:array{id:string,protocol:int}}
+     */
+    public function pin(): array {
+        $body = $this->toArray();
+        return [
+            'capabilities_sha256' => (string) $body['digest'],
+            'environment' => $this->environment,
+            'provider' => [
+                'id' => $this->providerId,
+                'protocol' => $this->providerProtocol,
+            ],
+        ];
     }
 }
 
@@ -328,19 +359,6 @@ final class CommandEnvironmentProvider {
             }
             return;
         }
-        if ($action === 'snapshot-create') {
-            self::assertExactKeys($result, [
-                'database_sha256', 'lease_receipt_sha256', 'media_sha256', 'retention_receipt_sha256',
-                'semantic_snapshot_sha256', 'snapshot_session_id', 'snapshot_set_id', 'source_identity',
-            ], 'snapshot-create result');
-            foreach (['database_sha256', 'lease_receipt_sha256', 'media_sha256', 'retention_receipt_sha256', 'semantic_snapshot_sha256'] as $key) {
-                self::assertHash($result[$key] ?? null, $key);
-            }
-            self::assertIdentifier($result['snapshot_session_id'] ?? null, 'snapshot session id');
-            self::assertIdentifier($result['snapshot_set_id'] ?? null, 'snapshot set id');
-            self::assertIdentifier($result['source_identity'] ?? null, 'source identity');
-            return;
-        }
         if ($action === 'snapshot-prepare') {
             self::assertExactKeys($result, [
                 'lease_generation', 'lease_id', 'lease_receipt_sha256',
@@ -353,13 +371,32 @@ final class CommandEnvironmentProvider {
             self::assertIdentifier($result['source_identity'] ?? null, 'source identity');
             return;
         }
+        if (in_array($action, ['snapshot-create', 'snapshot-read'], true)) {
+            $keys = [
+                'database_sha256', 'lease_generation', 'lease_id', 'lease_receipt_sha256',
+                'media_sha256', 'retention_receipt_sha256', 'semantic_snapshot_sha256',
+                'snapshot_session_id', 'snapshot_set_id', 'snapshot_set_receipt_sha256', 'source_identity',
+            ];
+            if ($action === 'snapshot-read') {
+                $keys[] = 'immutable';
+            }
+            self::assertExactKeys($result, $keys, "$action result");
+            self::validateSnapshotSet($result);
+            if ($action === 'snapshot-read' && ($result['immutable'] ?? null) !== true) {
+                throw new \RuntimeException('environment provider snapshot-read did not prove immutable readback');
+            }
+            return;
+        }
         if ($action === 'snapshot-abort') {
             self::assertExactKeys($result, [
-                'disposition', 'lease_receipt_sha256', 'snapshot_session_id', 'source_identity',
+                'disposition', 'lease_generation', 'lease_id', 'lease_receipt_sha256',
+                'snapshot_session_id', 'source_identity',
             ], 'snapshot-abort result');
             if (($result['disposition'] ?? null) !== 'aborted') {
                 throw new \RuntimeException('environment provider snapshot-abort returned wrong disposition');
             }
+            self::assertPositiveInt($result['lease_generation'] ?? null, 'source snapshot lease generation');
+            self::assertIdentifier($result['lease_id'] ?? null, 'source snapshot lease id');
             self::assertHash($result['lease_receipt_sha256'] ?? null, 'source snapshot lease receipt');
             self::assertIdentifier($result['snapshot_session_id'] ?? null, 'snapshot session id');
             self::assertIdentifier($result['source_identity'] ?? null, 'source identity');
@@ -383,12 +420,26 @@ final class CommandEnvironmentProvider {
             self::validateIdentity($result);
             return;
         }
-        if ($action === 'ttl-set') {
-            self::assertExactKeys($result, array_merge($identityKeys, ['expires_at', 'ttl_generation', 'ttl_lease_id']), 'ttl-set result');
+        if (in_array($action, ['mutation-acquire', 'mutation-read', 'mutation-release'], true)) {
+            self::assertExactKeys($result, array_merge($identityKeys, [
+                'mutation_generation', 'mutation_id', 'mutation_owner', 'mutation_receipt_sha256', 'state',
+            ]), "$action result");
+            self::validateIdentity($result);
+            self::validateMutation($result, $action);
+            return;
+        }
+        if (in_array($action, ['ttl-set', 'ttl-read'], true)) {
+            self::assertExactKeys($result, array_merge($identityKeys, [
+                'expires_at', 'ttl_generation', 'ttl_lease_id', 'ttl_receipt_sha256', 'ttl_state',
+            ]), "$action result");
             self::validateIdentity($result);
             self::assertTimestamp($result['expires_at'] ?? null);
             self::assertPositiveInt($result['ttl_generation'] ?? null, 'ttl generation');
             self::assertIdentifier($result['ttl_lease_id'] ?? null, 'ttl lease id');
+            self::assertHash($result['ttl_receipt_sha256'] ?? null, 'TTL receipt');
+            if (($result['ttl_state'] ?? null) !== 'active') {
+                throw new \RuntimeException("environment provider $action did not return an active TTL lease");
+            }
             return;
         }
         if (in_array($action, ['destroy', 'detach'], true)) {
@@ -411,6 +462,35 @@ final class CommandEnvironmentProvider {
     }
 
     /** @param array<string,mixed> $result */
+    private static function validateSnapshotSet(array $result): void {
+        foreach ([
+            'database_sha256', 'lease_receipt_sha256', 'media_sha256', 'retention_receipt_sha256',
+            'semantic_snapshot_sha256', 'snapshot_set_receipt_sha256',
+        ] as $key) {
+            self::assertHash($result[$key] ?? null, str_replace('_', ' ', $key));
+        }
+        self::assertPositiveInt($result['lease_generation'] ?? null, 'source snapshot lease generation');
+        self::assertIdentifier($result['lease_id'] ?? null, 'source snapshot lease id');
+        self::assertIdentifier($result['snapshot_session_id'] ?? null, 'snapshot session id');
+        self::assertIdentifier($result['snapshot_set_id'] ?? null, 'snapshot set id');
+        self::assertIdentifier($result['source_identity'] ?? null, 'source identity');
+    }
+
+    /** @param array<string,mixed> $result */
+    private static function validateMutation(array $result, string $action): void {
+        self::assertPositiveInt($result['mutation_generation'] ?? null, 'mutation generation');
+        self::assertIdentifier($result['mutation_id'] ?? null, 'mutation id');
+        self::assertIdentifier($result['mutation_owner'] ?? null, 'mutation owner');
+        self::assertHash($result['mutation_receipt_sha256'] ?? null, 'mutation receipt');
+        $state = $result['state'] ?? null;
+        if (!in_array($state, ['held', 'released'], true)
+            || ($action === 'mutation-acquire' && $state !== 'held')
+            || ($action === 'mutation-release' && $state !== 'released')) {
+            throw new \RuntimeException("environment provider $action returned an invalid mutation fence state");
+        }
+    }
+
+    /** @param array<string,mixed> $result */
     private static function validateIdentity(array $result): void {
         foreach (['environment_identity', 'resource_id', 'lease_id'] as $key) {
             self::assertIdentifier($result[$key] ?? null, str_replace('_', ' ', $key));
@@ -425,7 +505,8 @@ final class CommandEnvironmentProvider {
     private static function assertAction(string $action): void {
         if (!in_array($action, [
             'capabilities', 'inspect', 'attach', 'create', 'snapshot-prepare', 'snapshot-create', 'snapshot-abort',
-            'snapshot-restore', 'repository-materialize', 'url-set', 'ttl-set',
+            'snapshot-read', 'snapshot-restore', 'repository-materialize', 'url-set',
+            'mutation-acquire', 'mutation-read', 'mutation-release', 'ttl-set', 'ttl-read',
             'destroy', 'detach',
         ], true)) {
             throw new \RuntimeException("unknown environment provider action '$action'");
@@ -501,10 +582,34 @@ final class EnvironmentLifecycleJournal {
 
     public function __construct(private string $base) {
         $this->base = rtrim($base, '/');
-        foreach ([$this->base, $this->base . '/runs'] as $path) {
+        foreach ([$this->base, $this->base . '/runs', $this->base . '/targets'] as $path) {
             if (!is_dir($path) && !mkdir($path, 0700, true) && !is_dir($path)) {
                 throw new \RuntimeException("could not create environment journal '$path'");
             }
+        }
+    }
+
+    /**
+     * Serialize host-side decisions for one logical target while the provider
+     * holds the authoritative cross-host fence. The target name never enters
+     * a filesystem path directly, so a registry typo cannot escape the
+     * journal root. This lock is an optimization/correctness aid for one
+     * controller; it is not substituted for the provider mutation fence.
+     */
+    public function synchronizedTarget(string $targetEnvironment, callable $callback): mixed {
+        if ($targetEnvironment === '' || str_contains($targetEnvironment, "\0")) {
+            throw new \RuntimeException('invalid environment journal target');
+        }
+        $path = $this->base . '/targets/' . hash('sha256', $targetEnvironment) . '.lock';
+        $lock = fopen($path, 'c');
+        if ($lock === false || !flock($lock, LOCK_EX)) {
+            throw new \RuntimeException("could not lock environment target '$targetEnvironment'");
+        }
+        try {
+            return $callback();
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
         }
     }
 
@@ -582,8 +687,8 @@ final class EnvironmentLifecycleJournal {
         $previous = str_repeat('0', 64);
         foreach ($paths as $index => $path) {
             $event = $this->readCanonical($path, 'environment event');
-            if (($event['sequence'] ?? null) !== $index + 1
-                || ($event['operation_id'] ?? null) !== $operationId
+            self::assertExactEvent($event, $operationId, $index + 1);
+            if (($event['operation_id'] ?? null) !== $operationId
                 || !hash_equals($previous, (string) ($event['previous_event_sha256'] ?? ''))) {
                 throw new \RuntimeException("environment operation '$operationId' has a broken event chain");
             }
@@ -640,6 +745,34 @@ final class EnvironmentLifecycleJournal {
             || !is_string($run['created_at'])) {
             throw new \RuntimeException('environment run record is malformed');
         }
+    }
+
+    /** @param array<string,mixed> $event */
+    private static function assertExactEvent(array $event, string $operationId, int $sequence): void {
+        $expected = [
+            'data', 'event', 'format', 'operation_id', 'previous_event_sha256', 'sequence', 'timestamp',
+        ];
+        $actual = array_keys($event);
+        sort($actual, SORT_STRING);
+        sort($expected, SORT_STRING);
+        if ($actual !== $expected
+            || $event['format'] !== self::EVENT_FORMAT
+            || $event['operation_id'] !== $operationId
+            || $event['sequence'] !== $sequence
+            || !is_string($event['event'])
+            || preg_match('/^[a-z][a-z0-9-]{0,63}$/D', $event['event']) !== 1
+            || !is_array($event['data'])
+            || !is_string($event['previous_event_sha256'])
+            || preg_match('/^[a-f0-9]{64}$/D', $event['previous_event_sha256']) !== 1
+            || !self::isCanonicalUtc($event['timestamp'] ?? null)) {
+            throw new \RuntimeException("environment operation '$operationId' has a malformed event");
+        }
+    }
+
+    private static function isCanonicalUtc(mixed $value): bool {
+        if (!is_string($value)) return false;
+        $time = \DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $value, new \DateTimeZone('UTC'));
+        return $time !== false && $time->format('Y-m-d\TH:i:s\Z') === $value;
     }
 
     private function writeImmutable(string $path, array $record): void {
