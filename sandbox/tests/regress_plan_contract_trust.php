@@ -510,17 +510,45 @@ pct_ok($contract::requireComplete(pct_plan(), 'unit surface') === pct_plan(),
 // about it would silently widen what a promotion receipt is allowed to trust.
 $applySource = file_get_contents(dirname(__DIR__, 2) . '/agent/src/Apply.php');
 if (!is_string($applySource)) pct_fail('could not read the plan emitter');
-$initializerAt = strpos($applySource, '$plan = [');
-$initializerEnd = $initializerAt === false ? false : strpos($applySource, "\n        ];", $initializerAt);
+// The derivation is bounded to plan() + build_plan(): those two methods are
+// the wire emitter. A $plan local elsewhere in the file (e.g. run() holds
+// build_plan()'s result and could grow decorations of its own) must NOT
+// teach the contract a bucket plan() never emits — a contract widened that
+// way would refuse every real envelope at the trust boundaries.
+preg_match_all('/^    (?:public|private|protected) (?:static )?function ([A-Za-z_]+)\(/m', $applySource, $methodDecls, PREG_OFFSET_CAPTURE);
+$methodNames = array_column($methodDecls[1], 0);
+$planIdx = array_search('plan', $methodNames, true);
+$buildIdx = array_search('build_plan', $methodNames, true);
+if ($planIdx === false || $buildIdx === false || $buildIdx !== $planIdx + 1) {
+    pct_fail('plan()/build_plan() moved or separated; the drift pin cannot bound the emitter region');
+}
+$emitStart = $methodDecls[0][$planIdx][1];
+$emitEnd = isset($methodDecls[0][$buildIdx + 1]) ? $methodDecls[0][$buildIdx + 1][1] : strlen($applySource);
+$emitterRegion = substr($applySource, $emitStart, $emitEnd - $emitStart);
+$initializerAt = strpos($emitterRegion, '$plan = [');
+$initializerEnd = $initializerAt === false ? false : strpos($emitterRegion, "\n        ];", $initializerAt);
 if ($initializerAt === false || $initializerEnd === false) {
     pct_fail('plan emitter initializer moved; the drift pin cannot derive its bucket list');
 }
 preg_match_all(
     "/'([a-z_]+)'\s*=>/",
-    substr($applySource, $initializerAt, $initializerEnd - $initializerAt),
+    substr($emitterRegion, $initializerAt, $initializerEnd - $initializerAt),
     $initializerKeys
 );
-preg_match_all("/\\\$plan\['([a-z_]+)'\](?:\[\])?\s*=(?!=)/", $applySource, $assignedKeys);
+preg_match_all("/\\\$plan\['([a-z_]+)'\](?:\[\])?\s*=(?!=)/", $emitterRegion, $assignedKeys);
+// Bucket-growth idioms the assignment regex cannot read must go loud here,
+// not silently widen the wire envelope past the contract: whole-array
+// merges/unions, and variable-key writes beyond the known retry rewrite of
+// an already-literal bucket.
+preg_match_all('/\$plan\[\$([A-Za-z_]+)\]\s*=(?!=)/', $emitterRegion, $variableKeyWrites);
+$unreadableWrites = array_values(array_diff(array_unique($variableKeyWrites[1]), ['retryKind']));
+pct_ok(
+    strpos($emitterRegion, 'array_merge($plan') === false
+        && !preg_match('/\$plan\s*\+=/', $emitterRegion)
+        && $unreadableWrites === [],
+    'the emitter only grows buckets through idioms the drift pin can read'
+    . ($unreadableWrites === [] ? '' : ' (unreadable variable-key write: $' . implode(', $', $unreadableWrites) . ')')
+);
 $emitted = array_values(array_unique(array_merge($initializerKeys[1], $assignedKeys[1])));
 sort($emitted, SORT_STRING);
 pct_ok(count($initializerKeys[1]) > 0 && count($assignedKeys[1]) > 0, 'the drift pin actually read the emitter');
