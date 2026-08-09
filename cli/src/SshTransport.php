@@ -2,7 +2,7 @@
 namespace Duo\Orchestrator;
 
 /** Runs wp-cli over ssh: `ssh <host> 'cd <wp_path> && wp …'`. */
-final class SshTransport extends Transport {
+final class SshTransport extends Transport implements AdoptionTransport {
     private string $host;
     private string $wpPath;
     private ?string $configFile;

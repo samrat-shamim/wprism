@@ -2,6 +2,25 @@
 namespace Duo\Orchestrator;
 
 /**
+ * Exact command surface required by the SSH adoption transaction.
+ *
+ * Keeping this boundary narrower than SshTransport makes the double-failure
+ * contract executable offline without weakening the CLI's SSH-only gate.
+ */
+interface AdoptionTransport {
+    public function repoPath(): string;
+
+    /** @return array{exit:int, stdout:string, stderr:string} */
+    public function captureRaw(string $script): array;
+
+    /** @return array{exit:int, stdout:string, stderr:string} */
+    public function captureWp(array $wpArgs): array;
+
+    /** @return array{exit:int, stdout:string, stderr:string} */
+    public function uploadFile(string $localPath, string $remotePath): array;
+}
+
+/**
  * A transport knows how to run `wp <args...>` and arbitrary shell snippets
  * against one environment (local shell, docker compose, ssh) and how to
  * describe itself for `duo envs`. Every environment carries a `repo_path`
