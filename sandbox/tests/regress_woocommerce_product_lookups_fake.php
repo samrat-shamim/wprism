@@ -139,6 +139,41 @@ namespace {
     }
 
     final class FakeWpdb {
+        /**
+         * wc_product_meta_lookup's real column types, which are what a `<=>`
+         * predicate is actually evaluated against in MySQL: DECIMAL(19,4)
+         * prices, a nullable double stock quantity, a nullable BIGINT sales
+         * counter, tinyint flags, and plain varchars. Woo's derivation is
+         * PHP-typed and the stored row is text, so both sides get coerced by
+         * the column before they are compared — '18' and '18.0000' are one
+         * value here, and so are '' and 0 in an integer column.
+         */
+        private const LOOKUP_COLUMN_TYPES = [
+            'product_id' => 'int',
+            'sku' => 'string',
+            'virtual' => 'int',
+            'downloadable' => 'int',
+            'min_price' => 'decimal',
+            'max_price' => 'decimal',
+            'onsale' => 'int',
+            'stock_quantity' => 'decimal',
+            'stock_status' => 'string',
+            'rating_count' => 'int',
+            'average_rating' => 'decimal',
+            'total_sales' => 'int',
+            'tax_status' => 'string',
+            'tax_class' => 'string',
+            'global_unique_id' => 'string',
+        ];
+
+        private static function coerce_lookup_column(string $column, mixed $value): mixed {
+            return match (self::LOOKUP_COLUMN_TYPES[$column] ?? 'string') {
+                'int' => (int) $value,
+                'decimal' => (float) $value,
+                default => (string) $value,
+            };
+        }
+
         public string $prefix = 'wp_';
         public string $postmeta = 'wp_postmeta';
         public string $posts = 'wp_posts';
@@ -301,6 +336,49 @@ namespace {
                     }
                 }
                 return null;
+            }
+            // DUO-3342 value verification. The adapter asks the DATABASE
+            // whether the stored row equals WooCommerce's own published
+            // derivation — one NULL-safe predicate per column — so that the
+            // column's type does the normalizing instead of a Duo-authored
+            // tolerance table. Model that with the explicit column-type map
+            // below: the same coercion $wpdb->replace() applied on the way in.
+            // Must be tested before the bare cardinality branch, which this
+            // query's prefix would otherwise match.
+            if (preg_match('/COUNT\\(\\*\\) FROM `wp_wc_product_meta_lookup` WHERE product_id = (\\d+) AND (.+)$/s', $query, $m)) {
+                $row = $fakeMetaLookup[(int) $m[1]] ?? null;
+                if (!is_array($row)) {
+                    return 0;
+                }
+                $found = preg_match_all(
+                    "/`([a-z0-9_]+)` (?:<=> '((?:[^'\\\\\\\\]|\\\\\\\\.)*)'|IS (NULL))/",
+                    $m[2],
+                    $predicates,
+                    PREG_SET_ORDER
+                );
+                if ($found !== substr_count($m[2], ' AND ') + 1) {
+                    // Never let an unparsed predicate read as "everything
+                    // matched" — that would make this suite pass vacuously.
+                    throw new \RuntimeException('fake wpdb could not parse lookup verification predicate: ' . $m[2]);
+                }
+                foreach ($predicates as $predicate) {
+                    $column = (string) $predicate[1];
+                    $stored = array_key_exists($column, $row) ? $row[$column] : null;
+                    if (($predicate[3] ?? '') === 'NULL') {
+                        if ($stored !== null) {
+                            return 0;
+                        }
+                        continue;
+                    }
+                    if ($stored === null) {
+                        return 0;
+                    }
+                    if (self::coerce_lookup_column($column, stripslashes($predicate[2]))
+                        !== self::coerce_lookup_column($column, $stored)) {
+                        return 0;
+                    }
+                }
+                return 1;
             }
             if (preg_match('/COUNT\\(\\*\\) FROM `?wp_wc_product_meta_lookup`? WHERE product_id = (\\d+)/', $query, $m)) {
                 return isset($fakeMetaLookup[(int) $m[1]]) ? 1 : 0;
@@ -481,14 +559,33 @@ namespace {
             unset($fakeMetaLookup[$id]);
             unset($fakeMeta[$id], $fakeProducts[$id]);
         }
+        /**
+         * Model WC_Data_Store_WP::update_lookup_table() faithfully, because
+         * the adapter's verification now depends on two of its properties.
+         *
+         * First, Woo compares its fresh derivation against the
+         * `lookup_table`/`object_<id>` object-cache entry — never against the
+         * stored row — and skips BOTH the write and the cache set when they
+         * match, so a warm cache turns a refresh into a silent no-op. Second,
+         * the derivation Woo publishes to that cache is the only channel
+         * through which the protected get_data_for_lookup_table() result is
+         * observable at all.
+         *
+         * $fakeLookupWriteFaults models the write and the cache set diverging:
+         * Woo derived one row and the table ended up holding another. That is
+         * exactly the class of failure a value-level readback exists to catch,
+         * and it is unreachable if the adapter re-derives the expected row
+         * from postmeta itself. $fakeLookupCacheSuppressed models a cache that
+         * drops the entry, which must fail closed rather than skip the check.
+         */
         public function refresh_product_lookup_table(int $id): void {
-            global $fakeMeta, $fakeMetaLookup;
+            global $fakeMeta, $fakeMetaLookup, $fakeLookupWriteFaults, $fakeLookupCacheSuppressed;
             $prices = array_values($fakeMeta[$id]['_price'] ?? []);
             $first = $prices[0] ?? null;
             $last = $prices[count($prices) - 1] ?? null;
             $price = (string) ($first ?? '');
             $sale = (string) ($fakeMeta[$id]['_sale_price'][0] ?? '');
-            $fakeMetaLookup[$id] = [
+            $derived = [
                 'product_id' => $id,
                 'sku' => (string) (($fakeMeta[$id]['_sku'][0] ?? '')),
                 'virtual' => 0,
@@ -518,6 +615,16 @@ namespace {
                 'tax_class' => '',
                 'global_unique_id' => '',
             ];
+            if ($derived === wp_cache_get('lookup_table', 'object_' . $id)) {
+                return;
+            }
+            $fakeMetaLookup[$id] = array_merge(
+                $derived,
+                (array) (($fakeLookupWriteFaults ?? [])[$id] ?? [])
+            );
+            if (!in_array($id, (array) ($fakeLookupCacheSuppressed ?? []), true)) {
+                wp_cache_set('lookup_table', $derived, 'object_' . $id);
+            }
         }
     }
 
@@ -659,6 +766,9 @@ namespace {
     $wpdb = new FakeWpdb();
     $fakeRegisteredTaxonomies = [];
     $fakeDeletedTransients = [];
+    $fakeWpCache = [];
+    $fakeLookupWriteFaults = [];
+    $fakeLookupCacheSuppressed = [];
     $fakeWpCacheDeletes = [];
     $fakeCacheHooks = [];
     $fakeGroupedChildren = [];
@@ -845,8 +955,18 @@ namespace {
         $fakeProductTransientCalls[] = $id;
     }
     function wp_cache_delete(string $key, string $group): void {
-        global $fakeWpCacheDeletes;
+        global $fakeWpCacheDeletes, $fakeWpCache;
         $fakeWpCacheDeletes[] = ['key' => $key, 'group' => $group];
+        unset($fakeWpCache[$group][$key]);
+    }
+    function wp_cache_get(string $key, string $group = '') {
+        global $fakeWpCache;
+        return $fakeWpCache[$group][$key] ?? false;
+    }
+    function wp_cache_set(string $key, $value, string $group = ''): bool {
+        global $fakeWpCache;
+        $fakeWpCache[$group][$key] = $value;
+        return true;
     }
     function wc_stock_amount($value) { return (float) $value; }
     function add_filter(string $hook, callable $callback, int $priority = 10, int $acceptedArgs = 1): bool {
@@ -959,7 +1079,7 @@ namespace {
     $wpdb->failReadContaining = 'wc_product_meta_lookup';
     $deletionReadFailedClosed = false;
     try {
-        $verifyExactState->invoke($adapter, [], [], [], [999 => 999], null);
+        $verifyExactState->invoke($adapter, WC_Data_Store::load('product'), [], [], [], [999 => 999], null);
     } catch (\Throwable $failure) {
         $deletionReadFailedClosed = str_contains(
             $failure->getMessage(),
@@ -986,30 +1106,6 @@ namespace {
     $check($attributeReadFailedClosed,
         'attribute lookup verification cannot treat a failed query as an empty table');
 
-    $ratingEqual = new \ReflectionMethod(\Duo\Regenerators\WoocommerceProductLookups::class, 'lookup_values_equal');
-    $ratingEqual->setAccessible(true);
-    $check((bool) $ratingEqual->invoke($adapter, '', '0.00', 'average_rating'),
-        'empty authored average rating matches Woo decimal zero normalization');
-    $check((bool) $ratingEqual->invoke($adapter, '4.50', '4.5000005', 'average_rating'),
-        'average rating decimal formatting uses a tiny numeric tolerance');
-    $check(!(bool) $ratingEqual->invoke($adapter, '4.50', '4.49', 'average_rating'),
-        'average rating verifier rejects a real nonzero mismatch');
-    $check((bool) $ratingEqual->invoke($adapter, '', '0', 'total_sales'),
-        'empty authored total sales matches Woo integer zero normalization');
-    $check((bool) $ratingEqual->invoke($adapter, '', null, 'total_sales'),
-        'absent total sales matches Woo nullable lookup normalization');
-    $check((bool) $ratingEqual->invoke($adapter, '12', '12.0', 'total_sales'),
-        'numeric total sales values compare by their numeric meaning');
-    $check(!(bool) $ratingEqual->invoke($adapter, 'not-a-number', '0', 'total_sales'),
-        'malformed total sales does not silently compare equal to zero');
-    $check((bool) $ratingEqual->invoke($adapter, null, '0.0000', 'min_price'),
-        'no effective price matches Woo decimal zero normalization');
-    $check((bool) $ratingEqual->invoke($adapter, '12.34', '12.3400', 'max_price'),
-        'priced lookup values retain decimal numeric equivalence');
-    $check(!(bool) $ratingEqual->invoke($adapter, '12.34', '12.35', 'min_price'),
-        'priced lookup verifier rejects a real nonzero mismatch');
-    $check(!(bool) $ratingEqual->invoke($adapter, '0', 'not-a-number', 'max_price'),
-        'malformed price lookup values cannot pass through numeric coercion');
     $check($fakeMeta[11]['_price'] === ['18'], 'stale child _price is recomputed from regular/sale inputs');
     $check($fakeMeta[10]['_price'] === ['18', '21'], 'variable parent _price is synchronized from distinct child prices');
     $check($fakeMeta[10]['_regular_price'] === [''] && $fakeMeta[10]['_sale_price'] === [''],
@@ -1596,6 +1692,96 @@ namespace {
         'child-before-parent fresh target generates the exact cross-language variation lookup graph');
     $check($fakeProducts[70]->get_type() === 'simple',
         'fresh-target classification stays in memory and never persists a derived product_type');
+
+    // DUO-3342: wc_product_meta_lookup verification compares the stored row
+    // against WooCommerce's OWN published derivation, in the database, rather
+    // than against a Duo-authored rebuild of Woo's column rules. The retired
+    // rebuild carried its own per-column tolerance table (empty-vs-zero,
+    // NULL-vs-zero, decimal scale), and those tolerances were the defect: a
+    // row WooCommerce would never have written could satisfy them.
+    $check(!method_exists($adapter, 'lookup_values_equal')
+        && !method_exists($adapter, 'is_on_sale_from_meta')
+        && !method_exists($adapter, 'cogs_lookup_enabled')
+        && !method_exists($adapter, 'stock_quantity_from_meta'),
+        'no Duo-authored copy of WooCommerce lookup column rules remains in the adapter');
+
+    // Product 13 has no total_sales postmeta at all, so Woo derives SQL NULL
+    // for that column (its lookup column is BIGINT NULL). Land a write that
+    // stores 0 instead. The retired verifier expected '' for an absent source
+    // and explicitly accepted null OR '' OR numeric zero, so it certified this
+    // row as converged; the NULL and the 0 are genuinely different rows to
+    // every SQL consumer of the lookup table.
+    $fakeLookupWriteFaults[13] = ['total_sales' => '0'];
+    $nullSalesFaultCaught = false;
+    try {
+        $adapter->regenerate_batch([13], []);
+    } catch (\Throwable $failure) {
+        $nullSalesFaultCaught = str_contains(
+            $failure->getMessage(),
+            'product lookup verification mismatch for product 13'
+        );
+    }
+    $fakeLookupWriteFaults = [];
+    $check($nullSalesFaultCaught,
+        'a lookup row WooCommerce derived as SQL NULL is refused when the table stored zero instead');
+
+    // Parity: an exact-value divergence the retired verifier did catch must
+    // still be caught, and the mismatch must name Woo's derivation.
+    $fakeLookupWriteFaults[13] = ['sku' => 'NOT-WHAT-WOO-DERIVED'];
+    $skuFaultMessage = '';
+    try {
+        $adapter->regenerate_batch([13], []);
+    } catch (\Throwable $failure) {
+        $skuFaultMessage = $failure->getMessage();
+    }
+    $fakeLookupWriteFaults = [];
+    $check(str_contains($skuFaultMessage, 'product lookup verification mismatch for product 13')
+        && str_contains($skuFaultMessage, 'NOT-WHAT-WOO-DERIVED'),
+        'a lookup write that did not land WooCommerce derived values fails closed and reports both rows');
+
+    // A standalone product for the cache cases: ids 10-12 have been through
+    // deletion and reparent fixtures by this point in the suite.
+    $fakeProducts[80] = new FakeProduct(80, 'simple', 0, [], [], true);
+    $fakeMeta[80] = [
+        '_price' => ['21'], '_regular_price' => ['21'], '_sale_price' => [''],
+        '_sale_price_dates_from' => [''], '_sale_price_dates_to' => [''],
+        '_stock_status' => ['instock'], '_manage_stock' => ['yes'], '_stock' => ['5'],
+        '_tax_status' => ['taxable'], '_tax_class' => [''], '_wc_rating_count' => [[]],
+        '_sku' => [''], '_virtual' => ['no'], '_downloadable' => ['no'],
+        'total_sales' => ['0'], '_wc_average_rating' => [''], '_global_unique_id' => [''],
+    ];
+
+    // Woo's update_lookup_table() short-circuits on the `lookup_table` object
+    // cache rather than on the stored row, so a cache warmed earlier in the
+    // same request turns its refresh into a silent no-op. Warm it by
+    // converging once, then corrupt the row behind Woo's back: the adapter's
+    // eviction before each refresh is what keeps both the repair and the
+    // readback real rather than a comparison of one cached value with itself.
+    $adapter->regenerate_batch([80], []);
+    $fakeMetaLookup[80]['min_price'] = '4242';
+    $adapter->regenerate_batch([80], []);
+    $check(($fakeMetaLookup[80]['min_price'] ?? null) === '21',
+        'a warm WooCommerce lookup-derivation cache cannot short-circuit the repair or its verification');
+
+    // Woo publishing no derivation at all must refuse, not silently skip the
+    // value check: an unverifiable readback is exactly the state a receipt is
+    // not allowed to clear on.
+    $fakeLookupCacheSuppressed = [80];
+    $noDerivationCaught = false;
+    try {
+        $adapter->regenerate_batch([80], []);
+    } catch (\Throwable $failure) {
+        $noDerivationCaught = str_contains(
+            $failure->getMessage(),
+            'published no product lookup derivation for product 80'
+        );
+    }
+    $fakeLookupCacheSuppressed = [];
+    $check($noDerivationCaught,
+        'verification fails closed when WooCommerce publishes no lookup derivation to read back');
+    $adapter->regenerate_batch([80], []);
+    $check(($fakeMetaLookup[80]['min_price'] ?? null) === '21',
+        'the batch converges again once WooCommerce publishes its derivation');
 
     if ($failures > 0) {
         echo "FAIL: $failures check(s) failed\n";

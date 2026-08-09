@@ -76,9 +76,31 @@ $needles = [
     'as_unschedule_all_actions' => 'deleted sale actions use bounded public unscheduling',
     'as_next_scheduled_action' => 'sale actions have exact Action Scheduler readback',
     'verify_sale_schedules' => 'sale schedule verification is explicit and separate from lookup verification',
+    // DUO-3342: meta-lookup verification is WooCommerce's own derivation read
+    // back against the stored row, not a Duo-authored rebuild of Woo's column
+    // rules. get_data_for_lookup_table() is protected, so the `lookup_table`
+    // object-cache entry update_lookup_table() publishes is the only channel
+    // through which Woo can state what it derived.
+    "wp_cache_get('lookup_table'" => 'meta lookup verification reads the derivation WooCommerce itself published',
+    'woo_derived_lookup_row' => 'the published WooCommerce derivation has a single named boundary',
+    '<=>' => 'stored lookup values are compared under the lookup table\'s own column semantics',
 ];
 foreach ($needles as $needle => $message) {
     check(is_string($source) && str_contains($source, $needle), $message);
+}
+// The retired rebuild of Woo's lookup columns, stated as absences so a future
+// change cannot quietly reintroduce a second, drifting copy of rules that live
+// in a protected WooCommerce method.
+$retired = [
+    'lookup_values_equal' => 'no Duo-authored per-column tolerance table for lookup values',
+    "get_option('woocommerce_schema_version'" => 'no copied global_unique_id schema-version gate',
+    'CostOfGoodsSoldController' => 'no copied Cost of Goods Sold lookup-column feature gate',
+    '_cogs_total_value' => 'no Duo-side derivation of the COGS lookup column',
+    'wc_format_decimal' => 'no Duo-side reimplementation of Woo onsale decimal comparison',
+    '_stock_status' => 'no Duo-side rebuild of Woo lookup column values from postmeta',
+];
+foreach ($retired as $needle => $message) {
+    check(is_string($source) && !str_contains($source, $needle), $message);
 }
 check(is_string($source) && !str_contains($source, '->on_product_changed('),
     'adapter does not enqueue Woo asynchronous on_product_changed() work');
