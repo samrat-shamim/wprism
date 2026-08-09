@@ -207,6 +207,18 @@ declare(strict_types=1);
 define('DUO_SPEC_VERSION', __SPEC__);
 define('DUO_AGENT_VERSION', __AGENT__);
 function is_multisite(): bool { return false; }
+// Query Monitor, Sentry, and Whoops all install one of these on ordinary
+// WordPress sites, which turns any PHP warning raised inside the scan into a
+// thrown ErrorException — a channel that bypasses the per-adapter refusal
+// scope entirely and takes discover() AND survey() down together.
+if (__STRICT_ERRORS__) {
+    set_error_handler(static function (int $severity, string $message, string $file = '', int $line = 0): bool {
+        throw new ErrorException($message, 0, $severity, $file, $line);
+    });
+}
+if (__MANIFESTS__ !== null) {
+    putenv('DUO_MANIFESTS_DIR=' . __MANIFESTS__);
+}
 $pluginDir = __WP_PLUGIN_DIR__;
 if ($pluginDir !== null) {
     define('WP_PLUGIN_DIR', $pluginDir);
@@ -357,7 +369,7 @@ function child(array $spec): array {
     $script = str_replace(
         [
             '__SPEC__', '__AGENT__', '__WP_PLUGIN_DIR__', '__WITH_GET_OPTION__', '__ACTIVE__',
-            '__ENGINE_ROOT__', '__REPO__', '__NAME__', '__MODE__',
+            '__ENGINE_ROOT__', '__REPO__', '__NAME__', '__MODE__', '__STRICT_ERRORS__', '__MANIFESTS__',
         ],
         [
             (string) DUO_SPEC_VERSION,
@@ -369,6 +381,8 @@ function child(array $spec): array {
             var_export($spec['repo'] ?? null, true),
             var_export($spec['name'] ?? null, true),
             var_export($spec['mode'] ?? 'all', true),
+            ($spec['strict_errors'] ?? false) ? 'true' : 'false',
+            var_export($spec['manifests'] ?? null, true),
         ],
         child_source()
     );
@@ -392,10 +406,22 @@ function child(array $spec): array {
     $exit = proc_close($process);
     $decoded = json_decode((string) $stdout, true);
     if (!is_array($decoded)) {
-        throw new RuntimeException(
-            "fixture child produced no JSON (exit $exit)\nstdout: $stdout\nstderr: $stderr"
-        );
+        // Normally a harness bug, and loud. `tolerate_junk` is for the one
+        // group whose SUBJECT is output purity: there, a corrupted document is
+        // the finding, and throwing would report it as this file being broken
+        // rather than as the scan being unsafe to run.
+        if (empty($spec['tolerate_junk'])) {
+            throw new RuntimeException(
+                "fixture child produced no JSON (exit $exit)\nstdout: $stdout\nstderr: $stderr"
+            );
+        }
+        return ['__unparseable' => (string) $stdout, '__stderr' => (string) $stderr, '__exit' => $exit];
     }
+    // A PHP warning printed by the scan corrupts every --format=json document
+    // downstream of it, so the child's own diagnostic stream is part of the
+    // result rather than noise beside it.
+    $decoded['__stderr'] = (string) $stderr;
+    $decoded['__exit'] = $exit;
     return $decoded;
 }
 
@@ -1112,6 +1138,29 @@ check(
     'and four plugin refusals do not un-judge one shipped adapter — grammar_verdict() filters on scope, so a '
     . 'third party\'s typo cannot mark this whole machine unjudged'
 );
+// A pin must get ITS OWN refusal, which is only observable when several
+// refusals exist and the one being asked about is not the first. Reading the
+// last recorded row by index was correct exactly while every fixture refused
+// once; here `broken/` refuses before `wrongplugin/` does, so an index-based
+// lookup hands a pin the wrong file's message.
+$pinnedAmongMany = child([
+    'plugins' => $mixedPlugins,
+    'active' => [
+        'acme/acme.php', 'beta/beta.php', 'broken/broken.php', 'overreach/overreach.php',
+        'wrongplugin/wrongplugin.php', 'woocommerce/woocommerce.php', 'good/good.php',
+    ],
+    'repo' => null,
+    'name' => 'wrong-widget',
+]);
+check(
+    count($pinnedAmongMany['discover']['plugin_refusals'] ?? []) === 4
+    && str_contains((string) ($pinnedAmongMany['discover']['file_error'] ?? ''), 'declares plugin')
+    && str_contains((string) ($pinnedAmongMany['discover']['file_error'] ?? ''), 'plugins/wrongplugin/')
+    && !str_contains((string) ($pinnedAmongMany['discover']['file_error'] ?? ''), 'plugins/broken/'),
+    'with four refusals recorded, a pin naming the anchor-mismatched adapter gets the ANCHOR row\'s message and '
+    . 'not some other plugin\'s (message: '
+    . substr((string) ($pinnedAmongMany['discover']['file_error'] ?? '(none)'), 0, 130) . '...)'
+);
 // The sharper half of the same claim, and the one that would have regressed
 // silently: a SITE adapter reports `blocked_by_source_refusal` when its own
 // source is refused, and the plugin source's per-adapter refusals are not
@@ -1178,6 +1227,30 @@ check(
     'its summary counts the third source, its refusals, and its not-loaded rows separately (found: '
     . json_encode($document['summary'] ?? [], JSON_UNESCAPED_SLASHES) . ')'
 );
+// The deferred list is a promise about what was NOT done, so its relationship
+// to the host catalog's list is a measured fact rather than a docblock claim.
+// The survey runs ON the target, so it scans the plugin source instead of
+// deferring it, and answers the host's two live-target rows with one command;
+// every other row is the same row, INCLUDING the site-policy one — a survey
+// run without --repo produced its grammar verdicts with no site policy at all,
+// and that caveat is owed to the reader wherever the command runs.
+$surveySurfaces = array_column($document['deferred'] ?? [], 'surface');
+check(
+    count($surveySurfaces) === 4
+    && str_contains(implode("\n", $surveySurfaces), 'site.duo.json policy.tables / policy.options')
+    && str_contains(implode("\n", $surveySurfaces), 'the pinned SET')
+    && str_contains(implode("\n", $surveySurfaces), 'interpreter /')
+    && str_contains(implode("\n", $surveySurfaces), 'provider negotiation and certification'),
+    'the survey defers four things, and the site-policy caveat is one of them — it was missing, which made the '
+    . 'list quietly claim a grammar verdict this run had not earned (surfaces: '
+    . implode(' | ', $surveySurfaces) . ')'
+);
+$surveyDeferredText = implode("\n", array_column($document['deferred'] ?? [], 'why'));
+check(
+    str_contains($surveyDeferredText, 'no --repo')
+    && !str_contains(implode("\n", $surveySurfaces), 'adapter source'),
+    'and it does NOT defer the plugin source, because this process is the target that has one'
+);
 check(
     str_contains((string) ($cli['text'] ?? ''), 'installed, NOT loaded')
     && str_contains((string) ($cli['text'] ?? ''), 'never the exit code')
@@ -1208,6 +1281,339 @@ check(
     && ($cliShadow['document']['summary']['not_installed'] ?? null) === 1,
     'and a SHADOWED adapter is reported on a run that still exits 0 — a permanently red survey on every site '
     . 'running a colliding plugin would destroy the exit code\'s meaning'
+);
+
+// ======================================================================
+echo "\n== a plugin directory this scan cannot ENUMERATE ==\n";
+// ======================================================================
+// Mode 0711 — search without read — is an ordinary hardened-hosting
+// permission, not a contrived one. Unguarded, scandir() there emits a PHP
+// warning and returns false: the warning corrupts every --format=json document
+// the scan feeds, and under a warnings-as-exceptions handler (Query Monitor,
+// Sentry, Whoops — all common on WordPress) it becomes an ErrorException
+// thrown out of BOTH discover() and survey(). That is the site-wide outage the
+// per-adapter refusal scope exists to prevent, arriving through the one
+// channel that bypasses it.
+$lockedRoot = plugins_dir('locked', [
+    'acme' => ['bundle' => bundle('acme-widget', 'acme/acme.php')],
+    'good' => ['bundle' => bundle('other-widget', 'good/good.php')],
+]);
+// 0311, not 0711: the OWNER's read bit is what scandir() consults, and this
+// process owns the fixture. `d-wx--x--x` is the same search-without-read
+// condition a 0711 directory presents to a non-owning web user, reproduced
+// where the harness can actually create it.
+$chmodWorks = @chmod($lockedRoot . '/acme', 0311)
+    && !is_readable($lockedRoot . '/acme')
+    && is_file($lockedRoot . '/acme/duo-adapter.json');
+if (!$chmodWorks) {
+    // Skipping is stated, never silent: a check that quietly stops running is
+    // the same failure as a check that never existed.
+    check(true, '(SKIPPED: this harness cannot create a search-without-read directory on this filesystem/uid)');
+    @chmod($lockedRoot . '/acme', 0755);
+} else {
+    foreach ([false, true] as $strict) {
+        $label = $strict ? 'with a warnings-as-exceptions handler installed' : 'with ordinary PHP error handling';
+        $locked = child([
+            'plugins' => $lockedRoot,
+            'active' => ['acme/acme.php', 'good/good.php'],
+            'name' => 'acme-widget',
+            'strict_errors' => $strict,
+            'tolerate_junk' => true,
+        ]);
+        check(
+            !array_key_exists('__unparseable', $locked),
+            "the scan's own output is still a parseable document, $label — a PHP warning printed mid-scan is not "
+            . 'cosmetic, it is a corrupted `--format=json` answer (junk: '
+            . substr((string) ($locked['__unparseable'] ?? ''), 0, 160) . ')'
+        );
+        check(
+            !isset($locked['discover']['error']) && !isset($locked['survey']['error']),
+            "neither discover() nor survey() throws over an unreadable plugin directory, $label (discover: "
+            . substr((string) ($locked['discover']['error'] ?? 'no error'), 0, 110) . ')'
+        );
+        check(
+            ($locked['__stderr'] ?? '') === '',
+            "and nothing is written to the diagnostic stream, $label — a PHP warning here would corrupt every "
+            . '--format=json document the scan feeds (stderr: '
+            . substr((string) ($locked['__stderr'] ?? ''), 0, 140) . ')'
+        );
+        $lockedRows = rows_with($locked['discover']['plugin_refusals'] ?? [], 'code', 'source_unreadable');
+        check(
+            count($lockedRows) === 1
+            && ($lockedRows[0]['paths'] ?? null) === ['plugins/acme/duo-adapter.json']
+            && ($lockedRows[0]['scope'] ?? null) === 'adapter'
+            && str_contains((string) $lockedRows[0]['message'], 'cannot prove')
+            && ($locked['discover']['source'] ?? null) === null,
+            "the adapter is REFUSED rather than installed, $label: the near-miss set is the evidence that this "
+            . 'plugin bundles exactly one duo-adapter.json, and a directory that will not list has not produced '
+            . 'it (rows: ' . implode(', ', array_column($locked['discover']['plugin_refusals'] ?? [], 'code')) . ')'
+        );
+        check(
+            rows_with($locked['survey']['adapters'] ?? [], 'name', 'other-widget') !== [],
+            "while the readable plugin beside it still installs, $label — per-adapter, as ever"
+        );
+    }
+    @chmod($lockedRoot . '/acme', 0755);
+}
+$lockedPluginsRoot = plugins_dir('lockedroot', [
+    'acme' => ['bundle' => bundle('acme-widget', 'acme/acme.php')],
+]);
+if (@chmod($lockedPluginsRoot, 0311) && !is_readable($lockedPluginsRoot)) {
+    $rootLocked = child([
+        'plugins' => $lockedPluginsRoot,
+        'active' => ['acme/acme.php'],
+        'name' => 'acme-widget',
+        'strict_errors' => true,
+        'tolerate_junk' => true,
+    ]);
+    check(
+        !array_key_exists('__unparseable', $rootLocked),
+        "an unreadable plugins ROOT likewise leaves the scan's output parseable (junk: "
+        . substr((string) ($rootLocked['__unparseable'] ?? ''), 0, 160) . ')'
+    );
+    check(
+        !isset($rootLocked['survey']['error'])
+        && ($rootLocked['__stderr'] ?? '') === ''
+        && rows_with($rootLocked['survey']['refusals'] ?? [], 'code', 'source_unreadable') !== []
+        && ($rootLocked['discover']['source'] ?? null) === 'plugin',
+        'an unreadable PLUGINS ROOT costs only the inactive listing — reported as its own row, while every ACTIVE '
+        . 'plugin is still scanned by name and still installs'
+    );
+    check(
+        array_values(array_unique(array_column(
+            rows_with($rootLocked['survey']['refusals'] ?? [], 'code', 'source_unreadable'),
+            'scope'
+        ))) === ['adapter'],
+        'and it is scoped to `adapter` even though it is about a directory — `source` would blank out every SITE '
+        . "adapter's grammar verdict over a permission on somebody else's tree"
+    );
+    @chmod($lockedPluginsRoot, 0755);
+} else {
+    check(true, '(SKIPPED: this harness cannot create a search-without-read plugins root)');
+    @chmod($lockedPluginsRoot, 0755);
+}
+
+// ======================================================================
+echo "\n== a bundle is CONTAINED before it is read — inactive plugins included ==\n";
+// ======================================================================
+// The inactive path used to read first and test containment never: a bundle
+// symlinked out of WP_PLUGIN_DIR was opened, its declared name lifted into a
+// reported row, and no refusal raised. Canon::read_file has no size ceiling,
+// so "report the name of a file we are not going to install" was also an
+// unbounded read of a path the plugin does not own.
+$escapeRoot = scratch('escape');
+mkdir($escapeRoot . '/plugins/sleeping', 0777, true);
+write_file($escapeRoot . '/plugins/sleeping/sleeping.php', "<?php\n");
+write_file($escapeRoot . '/outside/duo-adapter.json', Canon::encode(
+    bundle('escaped-name', 'sleeping/sleeping.php')
+));
+symlink($escapeRoot . '/outside/duo-adapter.json', $escapeRoot . '/plugins/sleeping/duo-adapter.json');
+// No `name` here on purpose: passing one makes the child call file(), whose
+// not-found message legitimately echoes the name the CALLER asked for. The
+// claim under test is that the name inside the FILE never appears, so nothing
+// else may put it in the payload.
+$escaped = child([
+    'plugins' => $escapeRoot . '/plugins',
+    'active' => [],
+]);
+$escapedRefusals = rows_with($escaped['survey']['refusals'] ?? [], 'code', 'symlink_source');
+check(
+    count($escapedRefusals) === 1
+    && ($escapedRefusals[0]['paths'] ?? null) === ['plugins/sleeping/duo-adapter.json'],
+    'an INACTIVE plugin whose bundle is a symlink out of the plugins directory draws the same symlink_source '
+    . 'refusal an active one does (rows: '
+    . implode(', ', array_column($escaped['survey']['refusals'] ?? [], 'code')) . ')'
+);
+check(
+    $escaped['survey']['not_installed'] === []
+    && rows_with($escaped['survey']['adapters'] ?? [], 'name', 'escaped-name') === [],
+    'and its declared name never reaches a reported row — "not installed" describes what the engine will LOAD, '
+    . 'and is not a licence to open a file the plugin does not own'
+);
+check(
+    !str_contains(json_encode($escaped, JSON_UNESCAPED_SLASHES) ?: '', 'escaped-name'),
+    'the name inside those bytes appears NOWHERE in the report, which is the proof the file was never read'
+);
+
+// ======================================================================
+echo "\n== a third party's bytes cannot forge this report's own output ==\n";
+// ======================================================================
+// Every refusal row is printed to a terminal and embedded in a JSON document.
+// An ANSI escape inside a declared name, a plugin basename, or a directory
+// entry would otherwise clear the screen and print a line indistinguishable
+// from this command's own — a refusal message forging the report it appears in.
+$escape = "\x1b[2J\x1b[1;1Hok: everything is certified";
+$injectionRoot = plugins_dir('injection', [
+    'acme' => [
+        'bundle' => adapter($escape, ['plugin' => 'acme/acme.php', 'version_range' => ['max' => '9.0.0', 'min' => '1.0.0']]),
+    ],
+]);
+$injected = child(['plugins' => $injectionRoot, 'active' => ['acme/acme.php']]);
+$injectedBlob = json_encode($injected, JSON_UNESCAPED_SLASHES) ?: '';
+check(
+    !str_contains($injectedBlob, "\x1b") && !str_contains($injectedBlob, ''),
+    'a declared name carrying ANSI escapes produces a report with no escape byte anywhere in it'
+);
+check(
+    str_contains($injectedBlob, 'hex ') && str_contains($injectedBlob, bin2hex($escape)),
+    'and the hex receipt is still there, so the refusal stays actionable after the substitution'
+);
+$injectedInactive = child([
+    'plugins' => plugins_dir('injection-inactive', [
+        'sleeping' => ['bundle' => adapter($escape, [
+            'plugin' => 'sleeping/sleeping.php',
+            'version_range' => ['max' => '9.0.0', 'min' => '1.0.0'],
+        ])],
+    ]),
+    'active' => [],
+]);
+$inactiveText = implode("\n", array_column($injectedInactive['survey']['not_installed'] ?? [], 'message'));
+check(
+    $injectedInactive['survey']['not_installed'] !== []
+    && strcspn($inactiveText, "\x1b\x00\x07\r") === strlen($inactiveText)
+    && str_contains($inactiveText, 'hex '),
+    'the not_installed row an INACTIVE bundle produces is rendered the same way — that message interpolates a '
+    . 'declared name straight out of a third party\'s JSON'
+);
+$injectedEntry = plugins_dir('injection-entry', [
+    'acme' => ['bundle' => bundle('acme-widget', 'acme/acme.php')],
+]);
+$entryEscape = "duo-adapters\x1b[2J.json";
+write_file($injectedEntry . '/acme/' . $entryEscape, "{}\n");
+$entryInjected = child(['plugins' => $injectedEntry, 'active' => ["acme\x1b[2J/acme.php", 'acme/acme.php']]);
+$entryText = implode("\n", array_column($entryInjected['discover']['plugin_refusals'] ?? [], 'message'));
+check(
+    $entryInjected['discover']['plugin_refusals'] !== []
+    && str_contains($entryText, 'hex ')
+    && strcspn($entryText, "\x1b\x00\x07\r") === strlen($entryText),
+    'and so are a directory ENTRY name and an active_plugins basename, neither of which this scan authored either'
+);
+// Long AND refusable: `assert_name()` has no length cap of its own (a
+// 4000-character lowercase slug is a legal identity), so an uppercase byte is
+// what makes this reach a refusal message at all.
+$longName = str_repeat('A', 4000);
+$capped = child([
+    'plugins' => plugins_dir('longname', [
+        'acme' => ['bundle' => adapter($longName, [
+            'plugin' => 'acme/acme.php',
+            'version_range' => ['max' => '9.0.0', 'min' => '1.0.0'],
+        ])],
+    ]),
+    'active' => ['acme/acme.php'],
+]);
+$cappedRow = ($capped['discover']['plugin_refusals'] ?? [])[0] ?? [];
+check(
+    ($cappedRow['code'] ?? null) === 'invalid_adapter_name'
+    && strlen((string) ($cappedRow['message'] ?? '')) < 1200
+    && str_contains((string) ($cappedRow['message'] ?? ''), 'truncated from 4000 bytes'),
+    'a 4000-byte declared name is rendered capped and SAYS it was capped, rather than pasting itself into every '
+    . 'row of the report (message length: ' . strlen((string) ($cappedRow['message'] ?? '')) . ')'
+);
+
+// ======================================================================
+echo "\n== the anchor names an exact plugin FILE, not merely its directory ==\n";
+// ======================================================================
+// A directory can hold more than one plugin file, and only some of them are
+// active. Anchoring on dirname() alone accepted a manifest in plugins/acme/
+// declaring `acme/other.php` while `acme/acme.php` was the plugin that was
+// activated — after which its version_range, plugin_not_active, and
+// plugin_version_mismatch verdicts were all answered against a plugin file
+// nobody turned on.
+$multiHeader = plugins_dir('multiheader', [
+    'acme' => ['bundle' => bundle('acme-widget', 'acme/other.php'), 'files' => ['other.php' => "<?php\n"]],
+]);
+$wrongFile = child(['plugins' => $multiHeader, 'active' => ['acme/acme.php'], 'name' => 'acme-widget']);
+$wrongFileRows = $wrongFile['discover']['plugin_refusals'] ?? [];
+check(
+    count($wrongFileRows) === 1
+    && ($wrongFileRows[0]['code'] ?? null) === 'plugin_anchor_mismatch'
+    && str_contains((string) $wrongFileRows[0]['message'], "'acme/other.php'")
+    && str_contains((string) $wrongFileRows[0]['message'], "'acme/acme.php'")
+    && ($wrongFile['discover']['source'] ?? null) === null,
+    'a bundle naming a DIFFERENT plugin file in its own directory is refused, and the message names both the '
+    . 'claim and the plugin that actually owns the bundle (rows: '
+    . implode(', ', array_column($wrongFileRows, 'code')) . ')'
+);
+$bothActive = child([
+    'plugins' => $multiHeader,
+    'active' => ['acme/acme.php', 'acme/other.php'],
+    'name' => 'acme-widget',
+]);
+check(
+    ($bothActive['discover']['plugin_refusals'] ?? null) === []
+    && ($bothActive['discover']['source'] ?? null) === 'plugin'
+    && ($bothActive['discover']['path'] ?? null) === 'plugins/acme/duo-adapter.json',
+    'while a directory whose SECOND plugin file is also active accepts the manifest that names it — exact '
+    . 'equality against every active basename in that directory, not against whichever one sorts first'
+);
+
+// ======================================================================
+echo "\n== two shapes that used to be invisible ==\n";
+// ======================================================================
+$dirBundle = plugins_dir('dirbundle', ['acme' => []]);
+mkdir($dirBundle . '/acme/duo-adapter.json', 0777, true);
+write_file($dirBundle . '/acme/duo-adapter.json/real.json', "{}\n");
+$dirBundleResult = child(['plugins' => $dirBundle, 'active' => ['acme/acme.php'], 'name' => 'acme-widget']);
+$dirRows = rows_with($dirBundleResult['discover']['plugin_refusals'] ?? [], 'code', 'symlink_source');
+check(
+    count($dirRows) === 1
+    && str_contains((string) $dirRows[0]['message'], 'a directory')
+    && ($dirBundleResult['discover']['source'] ?? null) === null,
+    'a DIRECTORY named duo-adapter.json draws a refusal naming what it actually is — is_file() alone passed it '
+    . 'over in silence, so a plugin whose author made one installed nothing and was told nothing'
+);
+// The bait is real: a duo-adapter.json ONE LEVEL ABOVE the plugins directory,
+// which is exactly where `..` lands. Without the fixture the exclusion would
+// be untestable — the walk would find nothing there and pass for the wrong
+// reason.
+$traversalRoot = plugins_dir('traversal', ['acme' => ['bundle' => bundle('acme-widget', 'acme/acme.php')]]);
+write_file(dirname($traversalRoot) . '/duo-adapter.json', Canon::encode(adapter('smuggled', [
+    'plugin' => '../x.php',
+])));
+$traversalActive = child([
+    'plugins' => $traversalRoot,
+    'active' => ['../evil.php', 'acme/acme.php'],
+    'name' => 'acme-widget',
+]);
+check(
+    is_file(dirname($traversalRoot) . '/duo-adapter.json'),
+    'the traversal bait exists one level above the plugins directory, so the exclusion below is testable'
+);
+check(
+    ($traversalActive['discover']['plugin_refusals'] ?? null) === []
+    && ($traversalActive['discover']['source'] ?? null) === 'plugin'
+    && !str_contains(json_encode($traversalActive, JSON_UNESCAPED_SLASHES) ?: '', 'smuggled'),
+    'a poisoned active_plugins row whose basename walks up out of the plugins directory is skipped before any '
+    . 'I/O — the file waiting there is never opened, named, or reported'
+);
+
+// ======================================================================
+echo "\n== `uncertified` is the ONLY certification word this source can hold ==\n";
+// ======================================================================
+// A manifest library carrying neither dispositions nor a generated registry
+// makes no product claim, and a SHIPPED row there reports `null`. A plugin row
+// must still report `uncertified` — the word is a property of the source, not
+// of whether this library happens to have a reviewed certification story, and
+// falling through to the site branch there would answer `certification_unjudged`
+// about evidence that could not exist in the first place.
+$bareLibrary = scratch('bare-library');
+write_file($bareLibrary . '/solo.json', Canon::encode(adapter('solo')));
+$bare = child([
+    'plugins' => $happyPlugins,
+    'active' => ['acme/acme.php'],
+    'manifests' => $bareLibrary,
+    'name' => 'acme-widget',
+]);
+$bareRows = $bare['survey']['adapters'] ?? [];
+$barePluginRow = rows_with($bareRows, 'name', 'acme-widget')[0] ?? [];
+$bareShippedRow = rows_with($bareRows, 'name', 'solo')[0] ?? [];
+check(
+    array_key_exists('certification', $barePluginRow) && $barePluginRow['certification'] === 'uncertified'
+    && array_key_exists('certification', $bareShippedRow) && $bareShippedRow['certification'] === null,
+    'against a registry-less library the plugin row still says exactly `uncertified` while the shipped row beside '
+    . 'it correctly says nothing at all (plugin: '
+    . var_export($barePluginRow['certification'] ?? '(absent)', true) . ', shipped: '
+    . var_export($bareShippedRow['certification'] ?? '(absent)', true) . ')'
 );
 
 // ======================================================================

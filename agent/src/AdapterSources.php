@@ -204,6 +204,17 @@ final class AdapterSources {
     public const REFUSAL_PLUGIN_ANCHOR = 'plugin_anchor_mismatch';
 
     /**
+     * A directory this scan does not own could not be enumerated at all —
+     * mode 0711 (search without read) is the ordinary way to reach it. It is
+     * a refusal rather than a shrug because the thing that could not be read
+     * is the evidence: without the directory listing, the near-miss sweep
+     * cannot prove a plugin bundles exactly ONE `duo-adapter.json`, so
+     * installing the one file that happens to be openable would be asserting
+     * something nobody checked.
+     */
+    public const REFUSAL_SOURCE_UNREADABLE = 'source_unreadable';
+
+    /**
      * A refusal row's blast radius, which two different consumers need and
      * neither can infer.
      *
@@ -1013,9 +1024,19 @@ final class AdapterSources {
         // could claim it has been read — a plugin-vs-plugin collision has no
         // precedence to fall back on and both sides have to lose.
         $candidates = [];
-        foreach (self::plugin_candidates($source, $collect) as $candidate) {
+        foreach (self::plugin_candidates($source, $collect, $refusals) as $candidate) {
             $sub = $candidate['dir'];
             $relative = self::PLUGIN_PATH_PREFIX . "/$sub/" . self::PLUGIN_FILE;
+            // Containment is proved BEFORE any read, on both paths. The
+            // inactive path used to read first, which meant a bundle symlinked
+            // out of WP_PLUGIN_DIR was opened, its declared name lifted into a
+            // reported row, and no refusal raised — a file outside the plugin
+            // directory reported under that plugin's name, and read in full by
+            // a path with no size ceiling. "Not installed" is not a licence to
+            // open arbitrary bytes.
+            if (!self::plugin_bundle_contained($candidate, $relative, $refusals)) {
+                continue;
+            }
             if (!$candidate['active']) {
                 // Not a refusal: the bundle is well-formed as far as anybody
                 // knows, and the operator simply has not activated its plugin.
@@ -1024,9 +1045,9 @@ final class AdapterSources {
                 $read = self::read_manifest($candidate['file']);
                 $declared = $read['stage'] === 'ok' ? ($read['manifest']['name'] ?? null) : null;
                 $notInstalled[] = [
-                    'message' => "adapter " . (is_string($declared) ? "'$declared' " : '')
-                        . "is bundled at $relative, but the plugin '{$candidate['plugin']}' that owns it is not "
-                        . 'active — activation is the consent that installs a bundled adapter'
+                    'message' => 'adapter ' . (is_string($declared) ? self::render($declared) . ' ' : '')
+                        . "is bundled at $relative, but the plugin " . self::render($candidate['plugin'])
+                        . ' that owns it is not active — activation is the consent that installs a bundled adapter'
                         . (is_string($declared) ? '' : ', and this bundle\'s declared name could not be read'),
                     'name' => is_string($declared) ? $declared : null,
                     'path' => $relative,
@@ -1059,22 +1080,21 @@ final class AdapterSources {
                 sort($paths, SORT_STRING);
                 $plugins = array_column($claimants, 'plugin');
                 sort($plugins, SORT_STRING);
-                self::refuse(
+                $refusedNames[$name] = self::refuse(
                     true,
                     $refusals,
                     self::PLUGIN,
                     self::REFUSAL_SOURCE_COLLISION,
                     $paths,
-                    "duo: the active plugins " . implode(' and ', array_map(
-                        static fn(string $p): string => "'$p'",
+                    'duo: the active plugins ' . implode(' and ', array_map(
+                        static fn(string $p): string => self::render($p),
                         $plugins
                     )) . " each bundle an adapter named '$name' (" . implode(', ', $paths) . ') — precedence '
                     . 'ranks adapter SOURCES, and these are the same source, so there is no rule that could '
                     . 'decide which definition this site runs. Neither is installed',
-                    "deactivate one of the colliding plugins, or install the definition this site intends to run "
+                    'deactivate one of the colliding plugins, or install the definition this site intends to run '
                     . 'as a site adapter at ' . self::SITE_DIR . "/$name.json, which outranks both"
                 );
-                $refusedNames[$name] = $refusals[count($refusals) - 1];
                 continue;
             }
             $claimant = $claimants[0];
@@ -1089,7 +1109,8 @@ final class AdapterSources {
             if ($winner !== null) {
                 $notInstalled[] = [
                     'message' => "adapter '$name' is bundled at {$claimant['path']} by the active plugin "
-                        . "'{$claimant['plugin']}', and the {$winner['source']} adapter source already answers to "
+                        . self::render((string) $claimant['plugin'])
+                        . ", and the {$winner['source']} adapter source already answers to "
                         . "that name ({$winner['path']}) — adapter sources rank shipped, then site, then plugin, so "
                         . 'the reviewed definition wins and the bundled one is not loaded. Nothing about the plugin '
                         . 'changes: it stays active and its own code keeps running',
@@ -1128,7 +1149,7 @@ final class AdapterSources {
                 }
             }
             if ($confusable !== null) {
-                self::refuse(
+                $refusedNames[$name] = self::refuse(
                     true,
                     $refusals,
                     self::PLUGIN,
@@ -1140,7 +1161,6 @@ final class AdapterSources {
                     . 'case-sensitive one. Choose a name that is distinct without relying on case',
                     'choose a name that is distinct without relying on letter case'
                 );
-                $refusedNames[$name] = $refusals[count($refusals) - 1];
                 continue;
             }
             $origins[$name] = [
@@ -1171,40 +1191,157 @@ final class AdapterSources {
      * third documented divergence between the two modes, and the only one
      * that ADDS I/O rather than changing what happens to a finding.
      *
+     * `plugins` carries EVERY active basename in that one directory, not just
+     * the first. A plugin directory holding two separately activated plugin
+     * files is unusual but legal, and the anchor rule compares the manifest's
+     * `plugin` claim against an exact basename — so anchoring to whichever one
+     * happened to sort first would refuse a manifest that correctly named its
+     * owner. The frozen provenance path is unaffected either way: all of them
+     * share the directory the path is derived from.
+     *
      * @param array{active:list<string>, dir:string} $source
-     * @return list<array{active:bool, dir:string, file:string, plugin:string}>
+     * @param list<array<string,mixed>> $refusals
+     * @return list<array{active:bool, dir:string, file:string, plugin:string, plugins:list<string>}>
      */
-    private static function plugin_candidates(array $source, bool $collect): array {
+    private static function plugin_candidates(array $source, bool $collect, array &$refusals): array {
         $dir = $source['dir'];
         $rows = [];
         foreach ($source['active'] as $basename) {
             $sub = dirname($basename);
             // A single-file plugin has no directory of its own, so there is no
             // place for it to hold a bundle; the plugins-root refusal above
-            // covers the file it would have to use instead.
-            if ($sub === '.' || $sub === '' || $sub === '/' || str_contains($sub, '/')) {
+            // covers the file it would have to use instead. `..` is excluded
+            // explicitly: a poisoned `active_plugins` row must not be able to
+            // walk this scan out of the plugins directory. The anchor rule
+            // would refuse whatever it found there anyway — this is the
+            // cheaper, earlier half of the same fail-closed answer, taken
+            // before any I/O rather than after it.
+            if ($sub === '.' || $sub === '..' || $sub === '' || $sub === '/' || str_contains($sub, '/')) {
+                continue;
+            }
+            if (isset($rows[$sub])) {
+                $rows[$sub]['plugins'][] = $basename;
                 continue;
             }
             $file = $dir . '/' . $sub . '/' . self::PLUGIN_FILE;
-            if (!is_file($file) && !is_link($file)) {
+            if (!self::bundle_present($file)) {
                 continue;
             }
-            $rows[$sub] = ['active' => true, 'dir' => $sub, 'file' => $file, 'plugin' => $basename];
+            $rows[$sub] = [
+                'active' => true,
+                'dir' => $sub,
+                'file' => $file,
+                'plugin' => $basename,
+                'plugins' => [$basename],
+            ];
         }
         if ($collect) {
-            foreach (scandir($dir) ?: [] as $entry) {
-                if ($entry === '.' || $entry === '..' || isset($rows[$entry]) || !is_dir($dir . '/' . $entry)) {
+            $installed = self::entries($dir);
+            if ($installed === null) {
+                // Scoped to `adapter` like every other row in this source,
+                // even though it is about a directory: marking it `source`
+                // would blank out every SITE adapter's grammar verdict and
+                // attribute an unloadable pin set to the plugin source, which
+                // is the whole-scan blast radius this source does not have.
+                self::refuse(
+                    true,
+                    $refusals,
+                    self::PLUGIN,
+                    self::REFUSAL_SOURCE_UNREADABLE,
+                    [self::PLUGIN_PATH_PREFIX . '/'],
+                    'duo: the plugins directory ' . self::render($dir) . ' cannot be enumerated (it is not '
+                    . 'readable by the user running duo), so installed-but-inactive bundles could not be listed. '
+                    . 'Every ACTIVE plugin was still scanned by name',
+                    'make the plugins directory readable by the user running duo, or ignore this if the '
+                    . 'inactive listing is not wanted'
+                );
+            }
+            foreach ($installed ?? [] as $entry) {
+                if (isset($rows[$entry]) || !is_dir($dir . '/' . $entry)) {
                     continue;
                 }
                 $file = $dir . '/' . $entry . '/' . self::PLUGIN_FILE;
-                if (!is_file($file) && !is_link($file)) {
+                if (!self::bundle_present($file)) {
                     continue;
                 }
-                $rows[$entry] = ['active' => false, 'dir' => $entry, 'file' => $file, 'plugin' => $entry];
+                $rows[$entry] = [
+                    'active' => false,
+                    'dir' => $entry,
+                    'file' => $file,
+                    'plugin' => $entry,
+                    'plugins' => [],
+                ];
             }
         }
         ksort($rows, SORT_STRING);
         return array_values($rows);
+    }
+
+    /**
+     * Whether `<plugin>/duo-adapter.json` exists as something this scan has an
+     * opinion about.
+     *
+     * `is_link()` is included so a symlinked bundle becomes a CANDIDATE and is
+     * then refused by name, rather than being skipped as absent — the refusal
+     * is the point. A DIRECTORY under that name is included for the same
+     * reason: `is_file()` alone silently passed it over, so a plugin whose
+     * author made `duo-adapter.json` a directory installed nothing and was
+     * told nothing, which is exactly the silence this source refuses.
+     */
+    private static function bundle_present(string $file): bool {
+        return is_file($file) || is_link($file) || is_dir($file);
+    }
+
+    /**
+     * Prove that `<plugin>/duo-adapter.json` is a real, regular file inside the
+     * plugin that owns it — before anything reads a byte of it.
+     *
+     * A symlinked PLUGIN DIRECTORY is accepted: development checkouts symlink
+     * plugin directories as a matter of course, and both sides are resolved
+     * exactly as Providers::plugin_anchor_problem() resolves them. A symlinked
+     * or otherwise escaping `duo-adapter.json` is not, because the bundle would
+     * then be authored somewhere the plugin's own version, update, and review
+     * story does not reach.
+     *
+     * Called on the inactive path too. "Not installed" describes what the
+     * engine will LOAD; it says nothing about what this scan may OPEN, and
+     * opening a file that resolves outside WP_PLUGIN_DIR is the same mistake
+     * whether or not its plugin happens to be running.
+     *
+     * @param array{active:bool, dir:string, file:string, plugin:string} $candidate
+     * @param list<array<string,mixed>> $refusals
+     */
+    private static function plugin_bundle_contained(
+        array $candidate,
+        string $relative,
+        array &$refusals
+    ): bool {
+        $file = $candidate['file'];
+        $pluginDir = dirname($file);
+        $real = is_link($file) ? false : realpath($file);
+        $realDir = realpath($pluginDir);
+        if (is_link($file) || !is_file($file) || $real === false || $realDir === false
+            || !str_starts_with($real, rtrim($realDir, '/') . '/')) {
+            self::refuse(
+                true,
+                $refusals,
+                self::PLUGIN,
+                self::REFUSAL_SYMLINK_SOURCE,
+                [$relative],
+                'duo: the plugin ' . self::render($candidate['plugin']) . " bundles $relative as "
+                . (is_link($file)
+                    ? 'a symbolic link (-> ' . self::render(readlink($file) ?: '?') . ')'
+                    : (is_dir($file)
+                        ? 'a directory'
+                        : 'a path that does not resolve to a regular file inside the plugin directory'))
+                . ' — a bundled adapter is a real file inside the plugin that owns it, so that what the engine '
+                . "loads is what that plugin's own version, update, and review story covers",
+                'replace it with the real file inside the plugin directory, or install the adapter as a site '
+                    . 'adapter at ' . self::SITE_DIR . '/<name>.json'
+            );
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -1231,7 +1368,30 @@ final class AdapterSources {
     ): ?array {
         $pluginDir = dirname($candidate['file']);
         $ok = true;
-        foreach (scandir($pluginDir) ?: [] as $entry) {
+        // The near-miss set is EVIDENCE, not decoration: it is what proves this
+        // plugin bundles exactly one duo-adapter.json. A directory that cannot
+        // be enumerated has not produced that proof, so the adapter is refused
+        // rather than installed on the strength of the one file that happened
+        // to be openable through search permission.
+        $entries = self::entries($pluginDir);
+        if ($entries === null) {
+            self::refuse(
+                true,
+                $refusals,
+                self::PLUGIN,
+                self::REFUSAL_SOURCE_UNREADABLE,
+                [$relative],
+                'duo: the plugin directory ' . self::render(self::PLUGIN_PATH_PREFIX . '/' . $candidate['dir'])
+                . ' cannot be enumerated (it is not readable by the user running duo), so this scan cannot prove '
+                . 'the plugin bundles exactly one ' . self::PLUGIN_FILE . ' — a directory that is searchable but '
+                . 'not readable can hide a second, near-miss bundle beside the one file that opens. Installing on '
+                . 'that basis would assert something nobody checked',
+                'make the plugin directory readable by the user running duo, or install the adapter as a site '
+                    . 'adapter at ' . self::SITE_DIR . '/<name>.json'
+            );
+            return null;
+        }
+        foreach ($entries as $entry) {
             $folded = self::casefold($entry);
             if ($entry === self::PLUGIN_FILE || !str_starts_with($folded, 'duo-adapter')) {
                 continue;
@@ -1247,7 +1407,8 @@ final class AdapterSources {
                     self::PLUGIN,
                     self::REFUSAL_CERTIFICATION_SOURCE,
                     [$entryPath],
-                    "duo: the plugin '{$candidate['plugin']}' bundles '$entry' beside its adapter — a "
+                    'duo: the plugin ' . self::render($candidate['plugin']) . ' bundles '
+                    . self::render($entry) . ' beside its adapter — a '
                     . 'plugin-bundled adapter cannot carry its own certification. Certification is a '
                     . 'repository-scoped signed companion at ' . self::SITE_DIR . '/' . self::CERTIFICATION_DIR
                     . '/<name>.json, verified against ' . self::SITE_DIR . '/<name>.json, and the signed statement '
@@ -1272,10 +1433,11 @@ final class AdapterSources {
                     self::PLUGIN,
                     self::REFUSAL_EXTENSION_CASE_MISMATCH,
                     [$entryPath],
-                    "duo: the plugin '{$candidate['plugin']}' bundles '$entry', whose extension is not exactly "
-                    . "'.json' — it would load on a case-insensitive filesystem and disappear on a case-sensitive "
-                    . 'one, so the same plugin would install an adapter on one host and none on another. Rename it '
-                    . 'to use a lowercase .json extension',
+                    'duo: the plugin ' . self::render($candidate['plugin']) . ' bundles '
+                    . self::render($entry) . ", whose extension is not exactly '.json' — it would load on a "
+                    . 'case-insensitive filesystem and disappear on a case-sensitive one, so the same plugin '
+                    . 'would install an adapter on one host and none on another. Rename it to use a lowercase '
+                    . '.json extension',
                     'rename it to use a lowercase .json extension, or remove it from the plugin'
                 );
                 $ok = false;
@@ -1287,7 +1449,8 @@ final class AdapterSources {
                 self::PLUGIN,
                 self::REFUSAL_RESERVED_NAME,
                 [$entryPath],
-                "duo: the plugin '{$candidate['plugin']}' bundles '$entry', which is in this engine's reserved "
+                'duo: the plugin ' . self::render($candidate['plugin']) . ' bundles ' . self::render($entry)
+                . ", which is in this engine's reserved "
                 . '`duo-adapter` namespace but is not the one file a plugin may bundle. A plugin installs exactly '
                 . 'one adapter, from exactly one ' . self::PLUGIN_FILE . ' at its own root, so anything else in '
                 . 'that namespace is bytes the engine will never read',
@@ -1296,34 +1459,6 @@ final class AdapterSources {
             $ok = false;
         }
         if (!$ok) {
-            return null;
-        }
-
-        // A symlinked PLUGIN DIRECTORY is accepted — development checkouts
-        // symlink plugin directories as a matter of course, and the anchor
-        // below resolves both sides exactly as
-        // Providers::plugin_anchor_problem() does. A symlinked duo-adapter.json
-        // is not: the bundle would then be authored somewhere the plugin's own
-        // version, update, and review story does not reach.
-        $real = realpath($candidate['file']);
-        $realDir = realpath($pluginDir);
-        if (is_link($candidate['file']) || $real === false || $realDir === false
-            || !str_starts_with($real, rtrim($realDir, '/') . '/')) {
-            self::refuse(
-                true,
-                $refusals,
-                self::PLUGIN,
-                self::REFUSAL_SYMLINK_SOURCE,
-                [$relative],
-                "duo: the plugin '{$candidate['plugin']}' bundles $relative as "
-                . (is_link($candidate['file'])
-                    ? 'a symbolic link (-> ' . (readlink($candidate['file']) ?: '?') . ')'
-                    : 'a path that does not resolve inside the plugin directory')
-                . " — a bundled adapter is a real file inside the plugin that owns it, so that what the engine "
-                . "loads is what that plugin's own version, update, and review story covers",
-                'replace the link with the real file inside the plugin directory, or install the adapter as a site '
-                    . 'adapter at ' . self::SITE_DIR . '/<name>.json'
-            );
             return null;
         }
 
@@ -1384,40 +1519,57 @@ final class AdapterSources {
         // manifest's own `plugin`, so binding this one claim closes the
         // provider story for this source for free.
         $anchored = null;
+        $anchorRow = null;
         if (!self::guarded(
             true,
             $refusals,
             self::PLUGIN,
             self::REFUSAL_PLUGIN_ANCHOR,
             [$relative],
-            "declare `plugin`: \"{$candidate['plugin']}\" in the bundled manifest",
+            'declare `plugin`: ' . self::render($candidate['plugin']) . ' in the bundled manifest',
             static function () use ($manifest, $candidate, $relative, &$anchored): void {
                 if (!array_key_exists('plugin', $manifest)) {
                     throw new \RuntimeException(
                         "duo: plugin adapter '$relative' declares no `plugin` — a bundled adapter must name the "
-                        . "plugin that owns it ('{$candidate['plugin']}'), because that claim is the only thing "
-                        . 'anchoring the manifest to the code it ships with, and it is what a frozen policy '
-                        . 'rebuilds this adapter\'s provenance path from'
+                        . 'plugin that owns it (' . self::render($candidate['plugin']) . '), because that claim '
+                        . 'is the only thing anchoring the manifest to the code it ships with, and it is what a '
+                        . 'frozen policy rebuilds this adapter\'s provenance path from'
                     );
                 }
                 $anchored = self::assert_plugin_basename(
                     $manifest['plugin'],
                     "plugin adapter '$relative' plugin"
                 );
-                if (dirname($anchored) !== $candidate['dir']) {
+                // EXACT basename equality, not merely the same directory. The
+                // claim is what every version check reads: a manifest in
+                // plugins/acme/ declaring `acme/other.php` while `acme/acme.php`
+                // is the plugin that was activated would have its
+                // version_range, plugin_not_active, and plugin_version_mismatch
+                // verdicts evaluated against a plugin file nobody turned on —
+                // a true-looking compatibility answer about the wrong code.
+                // Compared against every ACTIVE basename in that directory,
+                // because a directory holding two separately activated plugin
+                // files has two correct answers and only one of them sorts
+                // first.
+                if (!in_array($anchored, $candidate['plugins'], true)) {
                     throw new \RuntimeException(
                         "duo: plugin adapter '$relative' declares plugin " . self::render($anchored)
-                        . ", but it is bundled by '{$candidate['plugin']}' — a bundled adapter names the plugin "
-                        . 'that owns it, never another one, or the manifest would claim compatibility with code no '
+                        . ', but it is bundled by ' . implode(' / ', array_map(
+                            static fn(string $p): string => self::render($p),
+                            $candidate['plugins']
+                        )) . ' — a bundled adapter names the exact plugin file that owns it, never another one, '
+                        . 'or every version and activation verdict about it would be answered against code no '
                         . 'update to this plugin can change'
                     );
                 }
-            }
+            },
+            $anchorRow
         )) {
-            $refusedNames[(string) $declared] = $refusals[count($refusals) - 1];
+            $refusedNames[(string) $declared] = $anchorRow;
             return null;
         }
 
+        $privilegeRow = null;
         if (!self::guarded(
             true,
             $refusals,
@@ -1431,9 +1583,10 @@ final class AdapterSources {
                 (string) $declared,
                 $relative,
                 'plugin adapter'
-            )
+            ),
+            $privilegeRow
         )) {
-            $refusedNames[(string) $declared] = $refusals[count($refusals) - 1];
+            $refusedNames[(string) $declared] = $privilegeRow;
             return null;
         }
         return $manifest;
@@ -1529,7 +1682,15 @@ final class AdapterSources {
      * adding source to the key could only ever split a duplicate that is
      * already impossible.
      *
+     * Returns the recorded row, so a caller that needs to remember WHICH
+     * refusal it just made — file() answers a pin with that row's own message —
+     * takes it from here rather than reaching back into `$refusals` by index.
+     * Indexing was correct and silently fragile: it reads the last row, which
+     * is a different row the moment a call site refuses twice or dedupe
+     * suppresses the write.
+     *
      * @param list<string> $paths every file or directory the condition is about
+     * @return ?array<string,mixed> the row (existing one on dedupe); null in throw mode
      */
     private static function refuse(
         bool $collect,
@@ -1539,7 +1700,7 @@ final class AdapterSources {
         array $paths,
         string $message,
         string $remediation
-    ): void {
+    ): ?array {
         if (!$collect) {
             throw new \RuntimeException($message);
         }
@@ -1560,10 +1721,11 @@ final class AdapterSources {
         // each call site which earlier check already covered this file.
         foreach ($refusals as $existing) {
             if ($existing['code'] === $row['code'] && $existing['paths'] === $row['paths']) {
-                return;
+                return $existing;
             }
         }
         $refusals[] = $row;
+        return $row;
     }
 
     /**
@@ -1581,6 +1743,8 @@ final class AdapterSources {
      * through a call instead of a branch.
      *
      * @param list<string> $paths
+     * @param ?array<string,mixed> $row set to the recorded refusal row, for the
+     *        same reason refuse() returns one
      * @return bool false when the assertion refused (collect mode only)
      */
     private static function guarded(
@@ -1590,7 +1754,8 @@ final class AdapterSources {
         string $code,
         array $paths,
         string $remediation,
-        callable $assert
+        callable $assert,
+        ?array &$row = null
     ): bool {
         try {
             $assert();
@@ -1599,7 +1764,7 @@ final class AdapterSources {
             if (!$collect) {
                 throw $t;
             }
-            self::refuse($collect, $refusals, $source, $code, $paths, $t->getMessage(), $remediation);
+            $row = self::refuse($collect, $refusals, $source, $code, $paths, $t->getMessage(), $remediation);
             return false;
         }
     }
@@ -1799,9 +1964,12 @@ final class AdapterSources {
      * `artifacts` needs the certificate itself: the derived disposition keeps
      * bundle identity, not the bundle's artifact list, so the retained
      * envelope is decoded for exactly that one field. A malformed envelope
-     * yields an empty artifact list rather than an exception — every field
-     * beside it is already proved, and an inventory must not die reporting an
-     * extra.
+     * yields `null` rather than an exception — every field beside it is
+     * already proved, and an inventory must not die reporting an extra.
+     * `null` and `[]` are kept APART: `[]` is "this bundle exercised no named
+     * artifact", `null` is "the list could not be read", and reporting the
+     * second as the first is the shape of silence this whole surface exists to
+     * remove.
      *
      * @return ?array<string,mixed>
      */
@@ -1810,20 +1978,21 @@ final class AdapterSources {
         if ($proof === null) {
             return null;
         }
-        $artifacts = [];
+        $artifacts = null;
         $encoded = is_string($envelope['certificate_json'] ?? null)
             ? base64_decode((string) $envelope['certificate_json'], true)
             : false;
         if (is_string($encoded)) {
             try {
                 $certificate = Canon::decode($encoded);
+                $artifacts = [];
                 foreach ((array) ($certificate['statement']['bundle']['artifacts'] ?? []) as $artifact) {
                     if (is_array($artifact)) {
                         $artifacts[] = $artifact;
                     }
                 }
             } catch (\Throwable $t) {
-                $artifacts = [];
+                $artifacts = null;
             }
         }
         return [
@@ -2267,13 +2436,64 @@ final class AdapterSources {
      * rendering identically in a terminal — NFC vs NFD 'café' is the reachable
      * case — so a refusal that only prints them is unactionable. The hex suffix
      * is appended exactly when the rendering would otherwise be ambiguous.
+     *
+     * Control characters are REPLACED rather than merely annotated, and the
+     * rendering is length-capped. Every value that reaches here is one this
+     * scan does not own — a declared `name` out of a third party's JSON, a
+     * directory entry, a plugin basename out of an option — and the result is
+     * printed to a terminal and embedded in a JSON document. An ANSI escape
+     * sequence inside a declared name would otherwise clear the screen and
+     * print a line indistinguishable from this command's own output, which is
+     * a refusal message forging the report it appears in. The hex receipt is
+     * unaffected: it already fired for exactly these values, and it is what
+     * keeps the refusal actionable after the substitution.
      */
-    private static function render($value): string {
+    private static function render($value, int $limit = 256): string {
         if (!is_string($value)) {
             return var_export($value, true);
         }
-        $printable = preg_match('/^[\x20-\x7e]*$/D', $value) === 1;
-        return "'" . $value . "'" . ($printable ? '' : ' (hex ' . bin2hex($value) . ')');
+        $truncated = strlen($value) > $limit;
+        $shown = $truncated ? substr($value, 0, $limit) : $value;
+        $printable = preg_match('/^[\x20-\x7e]*$/D', $shown) === 1;
+        return "'" . preg_replace('/[\x00-\x1f\x7f]/', '?', $shown) . "'"
+            . ($printable ? '' : ' (hex ' . bin2hex($shown) . ')')
+            . ($truncated ? ' (truncated from ' . strlen($value) . ' bytes)' : '');
+    }
+
+    /**
+     * `scandir()` for a directory this scan does not own.
+     *
+     * Unguarded, `scandir()` on an unreadable directory emits a PHP warning and
+     * returns false. Both of those are load-bearing failures here rather than
+     * cosmetic ones, and a plugin directory at mode 0711 (search, no read) is
+     * an ordinary hardened-hosting configuration, not a contrived one:
+     *
+     *   - the warning goes to output, which corrupts every `--format=json`
+     *     document this scan feeds; and
+     *   - under a warnings-as-exceptions error handler — Query Monitor,
+     *     Sentry, Whoops, all common on WordPress — the warning becomes an
+     *     ErrorException thrown out of BOTH discover() and survey(), which is
+     *     precisely the site-wide outage a per-adapter refusal scope exists to
+     *     prevent, arriving through the one channel that bypasses it.
+     *
+     * So the read is proved first and suppressed second, and the caller is told
+     * it got nothing rather than an empty directory. The two are different
+     * facts and only one of them means "this plugin bundles nothing".
+     *
+     * @return ?list<string> null when the directory could not be enumerated
+     */
+    private static function entries(string $dir): ?array {
+        if (!is_dir($dir) || !is_readable($dir)) {
+            return null;
+        }
+        $entries = @scandir($dir);
+        if (!is_array($entries)) {
+            return null;
+        }
+        return array_values(array_filter(
+            $entries,
+            static fn(string $entry): bool => $entry !== '.' && $entry !== '..'
+        ));
     }
 
     /**

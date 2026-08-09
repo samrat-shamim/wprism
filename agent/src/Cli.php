@@ -2111,7 +2111,7 @@ final class Cli {
             'adapters' => $survey['adapters'],
             'not_installed' => $survey['not_installed'],
             'refusals' => $survey['refusals'],
-            'deferred' => self::adapter_survey_deferred(),
+            'deferred' => self::adapter_survey_deferred($repo),
             'summary' => [
                 'adapters' => count($survey['adapters']),
                 'shipped' => $counts[AdapterSources::SHIPPED],
@@ -2214,12 +2214,20 @@ final class Cli {
      * listed its limits only on failure would let silence read as "everything
      * about these adapters is verified".
      *
-     * Shorter than the host catalog's list by exactly one row — this process
-     * IS the target, so the plugin source is scanned rather than deferred.
+     * Four rows where the host catalog has six, and the difference is exactly
+     * two facts rather than a shorter list: this process IS the target, so the
+     * PLUGIN SOURCE is scanned instead of deferred, and the host's two
+     * live-target rows (provider identity, and certification evaluated against
+     * one environment) are one row here because a single command answers both
+     * with the same "run it against this environment" remedy. The other four
+     * are the same four, and the site-policy one is the same three-state row —
+     * a survey run without --repo produced its grammar verdicts with no site
+     * policy at all, which is a caveat this command owes its reader whether or
+     * not it happens to be running on the target.
      *
      * @return list<array{status:string, surface:string, check:string, why:string}>
      */
-    private static function adapter_survey_deferred() {
+    private static function adapter_survey_deferred($repo = null) {
         $rows = [
             [
                 'surface' => 'interpreter / post_types[].regen_dependency.regenerator / providers[].source=manifest',
@@ -2237,6 +2245,19 @@ final class Cli {
                     . 'and still be illegal in company — one owner per declared name, globally unique provider '
                     . 'ids, and one plugin/theme range per claim are properties of a SET, which `duo plan` and '
                     . '`duo apply` co-load',
+            ],
+            [
+                'surface' => 'site.duo.json policy.tables / policy.options',
+                'check' => 'Policy::validate_ref_kinds() / Policy::validate_no_conflicting_option_rules()',
+                'why' => $repo === null
+                    ? 'both guards take the SITE half of policy as INPUT: a table declared in site.duo.json '
+                        . 'extends the legal ref/token/ledger kind vocabulary, and a site policy.options rule is '
+                        . 'the explicit resolution for one option two manifests declare differently. This run was '
+                        . 'given no --repo, so the grammar verdicts above were produced with no site policy at '
+                        . 'all, and one can read `error` for an adapter its real site accepts'
+                    : 'the grammar verdicts above were produced against the site.duo.json at the path this run '
+                        . 'was given. Whether that is the revision this environment is meant to run is a fact '
+                        . 'about the repository, not about the adapters',
             ],
             [
                 'surface' => 'provider negotiation and certification against this environment',

@@ -655,8 +655,10 @@ purpose.
 
 **Declare the plugin that owns you.** The file name is a constant here, so it
 carries no identity: the manifest's own `name` is the identity, and the
-manifest MUST also declare `plugin` equal to the basename of the plugin
-bundling it. That claim anchors the manifest to the code it ships with, exactly
+manifest MUST also declare `plugin` equal to the exact basename of the plugin
+bundling it — the file, not just its directory, since a directory can hold
+more than one plugin and only the one you name is what version and activation
+checks will ask about. That claim anchors the manifest to the code it ships with, exactly
 as a plugin-owned provider's class is anchored to its plugin directory, and it
 is what lets a frozen policy rebuild `plugins/<plugin-dir>/duo-adapter.json`
 without reopening the plugin. Because `plugin` is mandatory, the compatibility
@@ -671,9 +673,11 @@ is deactivated. (Two active plugins bundling one name have no such rule
 available: both are dropped and the pair draws one `source_collision`
 refusal.) Everything else in this source is refused per adapter rather than
 whole-directory: a malformed bundle, a bad name, an anchor mismatch, a
-symlinked `duo-adapter.json`, a near-miss inside the reserved `duo-adapter*`
-namespace, or a reach for executable privilege drops that one adapter and
-leaves every other plugin's alone. It becomes fatal only if a repository pins
+`duo-adapter.json` that is a symlink or a directory instead of a real file, a
+plugin directory duo cannot list (make it readable, or the near-miss check
+cannot run and the adapter is refused rather than guessed at), a near-miss
+inside the reserved `duo-adapter*` namespace, or a reach for executable
+privilege drops that one adapter and leaves every other plugin's alone. It becomes fatal only if a repository pins
 that name, which fails with the refusal's own message.
 
 **A bundled adapter cannot be certified in place**, and no field or companion

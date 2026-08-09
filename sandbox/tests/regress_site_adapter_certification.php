@@ -76,6 +76,7 @@ if (!function_exists('apply_filters')) {
 require_once __DIR__ . '/../../agent/src/Cli.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\Policy;
 use Duo\Providers;
@@ -225,7 +226,19 @@ function cert_write_bundle(
         cert_descriptor($adapterPath, 'adapters/' . $name . '.json'),
     ];
     $bundle = [
-        'artifacts' => [],
+        // Non-empty by default (DUO-3339/B2): `artifacts[]` is the half of a
+        // certified adapter's VERSION story that says what was actually
+        // exercised and at which version, and it is the one field
+        // `certification_evidence` has to decode the retained envelope to
+        // recover. A fixture that always shipped an empty list could not tell
+        // "this bundle exercised nothing" from "the projection dropped it".
+        'artifacts' => $options['artifacts'] ?? [[
+            'name' => 'site-demo-boundary',
+            'role' => 'certified-boundary',
+            'sha256' => str_repeat('c', 64),
+            'url' => 'https://example.invalid/site-demo-boundary-1.2.3.zip',
+            'version' => '1.2.3',
+        ]],
         'bound_inputs' => $boundInputs,
         'created_at' => '2026-08-09T00:00:00Z',
         'environment' => cert_descriptor($dir . '/environment.json', 'environment.json'),
@@ -1457,6 +1470,109 @@ try {
     cert_check(
         CodeDeploy::dispositionBlockers(['resolved_adapters' => $pinnedResolved]) === [],
         'host promotion accepts the exact pinned current external claim'
+    );
+
+    // ==================================================================
+    echo "\n== DUO-3339: a signed adapter's VERSION story is reportable (the #168 gap) ==\n";
+    // ==================================================================
+    // CapabilityRegistry::load() is handed the SHIPPED subset only, so
+    // `$registry->claim($name)` answers null for every out-of-tree row and
+    // `duo adapter inspect` printed "registry claim: (none)" for an adapter
+    // carrying a complete, verified signed envelope. survey() now carries that
+    // envelope's own facts on the row instead. Everything asserted here is
+    // PROJECTED, never recomputed: if any of it could drift from the signed
+    // statement it would be a second, unsigned copy of the same claim.
+    $signedSurvey = AdapterSources::survey($site);
+    $signedRow = null;
+    foreach ($signedSurvey['adapters'] as $surveyRow) {
+        if (($surveyRow['name'] ?? null) === 'site-demo') {
+            $signedRow = $surveyRow;
+        }
+    }
+    $signedEvidence = $signedRow['certification_evidence'] ?? null;
+    $signedProof = $verified['disposition']['provenance']['proof'];
+    cert_check(
+        is_array($signedEvidence)
+        && ($signedEvidence['certificate_sha256'] ?? null) === $signedProof['certificate_sha256']
+        && ($signedEvidence['statement_sha256'] ?? null) === $signedProof['statement_sha256']
+        && ($signedEvidence['platform_sha256'] ?? null) === $signedProof['platform_sha256']
+        && ($signedEvidence['authority']['key_id'] ?? null) === 'review-key'
+        && ($signedEvidence['authority']['fingerprint'] ?? null) === $signedProof['authority']['fingerprint'],
+        'a signed, pinned site adapter reports its authority and the exact certificate/statement/platform digests '
+        . 'the signature covers — the facts that used to be invisible'
+    );
+    cert_check(
+        ($signedEvidence['bundle']['digest'] ?? null) === $signedProof['bundle']['digest']
+        && ($signedEvidence['bundle']['git_revision'] ?? null) === $signedProof['bundle']['git_revision']
+        && ($signedEvidence['bundle']['schema'] ?? null) === $signedProof['bundle']['schema']
+        && ($signedEvidence['bundle']['tests'] ?? null) === ['site-conformance'],
+        'and its evidence bundle, the git revision it was produced at, and the named tests it cites'
+    );
+    cert_check(
+        is_array($signedEvidence['artifacts'] ?? null)
+        && count($signedEvidence['artifacts']) === 1
+        && ($signedEvidence['artifacts'][0]['name'] ?? null) === 'site-demo-boundary'
+        && ($signedEvidence['artifacts'][0]['version'] ?? null) === '1.2.3'
+        && ($signedEvidence['artifacts'][0]['role'] ?? null) === 'certified-boundary',
+        'and artifacts[] — WHAT was exercised and at WHICH version — which only exists inside the certificate, so '
+        . 'the retained envelope really is decoded rather than the row guessing from the disposition'
+    );
+    cert_check(
+        ($signedEvidence['supported_versions'] ?? null)
+            === ($verified['claim']['supported_versions'] ?? '(claim absent)'),
+        'and the supported_versions the signed ratification forced to equal the manifest\'s own, byte for byte '
+        . 'from the verified claim'
+    );
+    $unsignedRow = null;
+    foreach (AdapterSources::survey(null)['adapters'] as $shippedRow) {
+        if (($shippedRow['source'] ?? null) === 'shipped') {
+            $unsignedRow = $shippedRow;
+            break;
+        }
+    }
+    cert_check(
+        is_array($unsignedRow) && array_key_exists('certification_evidence', $unsignedRow)
+        && $unsignedRow['certification_evidence'] === null,
+        'while a row with no signed envelope carries the key with an explicit null — absent and "no evidence" '
+        . 'must not read the same to a consumer'
+    );
+    $tamperedEnvelope = $verified['envelope'];
+    $tamperedEnvelope['certificate_json'] = base64_encode('not a certificate');
+    $unreadable = (new ReflectionMethod(AdapterSources::class, 'certification_evidence'))->invoke(
+        null,
+        $verified['disposition'],
+        $tamperedEnvelope,
+        $verified['claim']
+    );
+    cert_check(
+        is_array($unreadable) && array_key_exists('artifacts', $unreadable)
+        && $unreadable['artifacts'] === null,
+        'and an envelope whose artifact list cannot be decoded reports null rather than an empty list — "nothing '
+        . 'was exercised" and "nobody could read what was exercised" are different answers'
+    );
+    // End to end through the REAL host command, because the projection is only
+    // worth having if the surface an operator actually runs prints it.
+    $inspectRun = cert_run([
+        PHP_BINARY,
+        dirname(__DIR__, 2) . '/cli/duo',
+        'adapter',
+        'inspect',
+        'site-demo',
+        '--repo=' . $site,
+    ]);
+    cert_check(
+        str_contains($inspectRun['stdout'], 'signed certification evidence')
+        && str_contains($inspectRun['stdout'], 'site-demo-boundary v1.2.3 [certified-boundary]')
+        && str_contains($inspectRun['stdout'], $signedProof['certificate_sha256'])
+        && str_contains($inspectRun['stdout'], 'site-conformance')
+        && str_contains(
+            $inspectRun['stdout'],
+            'registry claim:    (none — a non-shipped adapter never has a generated registry claim; its own '
+            . 'signed certification evidence is reported below)'
+        ),
+        '`duo adapter inspect` renders that evidence block for the signed site adapter, and the absent shipped '
+        . 'registry claim beside it now says WHY it is absent and where the real evidence is — it used to print a '
+        . 'bare "(none)" and stop, which read as "nothing is known" (exit ' . $inspectRun['exit'] . ')'
     );
 
     $policySnapshot = $pinnedPolicy->export_snapshot();

@@ -869,7 +869,17 @@ final class AdapterCatalog {
 
         $claim = $row['claim'];
         if (!is_array($claim)) {
-            echo "  registry claim:    (none — this adapter has no generated capability claim)\n";
+            // A site adapter has no SHIPPED-registry claim by construction —
+            // `CapabilityRegistry::load()` is handed the shipped subset only.
+            // Saying just "(none)" beside a complete signed envelope read as
+            // "nothing is known about this adapter", which was the whole
+            // complaint: the operator has to be told the claim is absent for a
+            // structural reason and that the real evidence is a few lines
+            // down, not left to infer it.
+            echo '  registry claim:    (none — ' . (($row['certification_evidence'] ?? null) !== null
+                ? 'a non-shipped adapter never has a generated registry claim; its own signed certification '
+                    . 'evidence is reported below'
+                : 'this adapter has no generated capability claim') . ")\n";
         } else {
             echo "  registry claim:\n";
             echo '    status:              ' . ($claim['status'] ?? '?') . "\n";
@@ -902,7 +912,14 @@ final class AdapterCatalog {
             echo '    bundle tests:        ' . (($bundle['tests'] ?? []) === []
                 ? '(none)'
                 : implode(', ', array_map('strval', (array) $bundle['tests']))) . "\n";
-            if (($evidence['artifacts'] ?? []) === []) {
+            // Three answers, not two: a bundle that exercised no named
+            // artifact and a certificate whose artifact list could not be
+            // decoded are different facts, and only one of them is a clean
+            // report.
+            if (($evidence['artifacts'] ?? null) === null) {
+                echo "    artifacts:           (UNREADABLE — this certificate's artifact list could not be "
+                    . "decoded)\n";
+            } elseif ($evidence['artifacts'] === []) {
                 echo "    artifacts:           (none)\n";
             }
             foreach ((array) ($evidence['artifacts'] ?? []) as $artifact) {
