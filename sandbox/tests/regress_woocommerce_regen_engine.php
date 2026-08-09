@@ -98,6 +98,7 @@ file_put_contents($fixtureDir . '/batch.json', json_encode([
     'spec_version' => DUO_SPEC_VERSION,
     'post_types' => [
         'product' => [
+            'children' => ['product_variation'],
             'regen_dependency' => [
                 'regenerator' => 'fake-batch',
                 'verify' => ['table' => 'lookup', 'column' => 'post_id'],
@@ -116,6 +117,39 @@ file_put_contents($fixtureDir . '/batch.json', json_encode([
                 'regenerator' => 'fake-batch',
                 'verify' => ['table' => 'lookup', 'column' => 'post_id'],
                 'batch' => ['enabled' => true, 'always_on_write' => false],
+            ],
+        ],
+        // Deliberately unrelated CPT names: the deletion-receipt mechanism
+        // must follow this declaration rather than a product convention.
+        'duo_story' => [
+            'children' => ['duo_chapter'],
+            'regen_dependency' => [
+                'regenerator' => 'fake-batch',
+                'verify' => ['table' => 'lookup', 'column' => 'post_id'],
+                'batch' => ['enabled' => true, 'always_on_write' => true],
+            ],
+        ],
+        'duo_chapter' => [
+            'regen_dependency' => [
+                'regenerator' => 'fake-batch',
+                'verify' => ['table' => 'lookup', 'column' => 'post_id'],
+                'batch' => ['enabled' => true, 'always_on_write' => true],
+            ],
+        ],
+        // This pair intentionally has no children declaration. Its matching
+        // post_parent rows below must not be inferred into a parent receipt.
+        'duo_unrelated_parent' => [
+            'regen_dependency' => [
+                'regenerator' => 'fake-batch',
+                'verify' => ['table' => 'lookup', 'column' => 'post_id'],
+                'batch' => ['enabled' => true, 'always_on_write' => true],
+            ],
+        ],
+        'duo_unrelated_child' => [
+            'regen_dependency' => [
+                'regenerator' => 'fake-batch',
+                'verify' => ['table' => 'lookup', 'column' => 'post_id'],
+                'batch' => ['enabled' => true, 'always_on_write' => true],
             ],
         ],
     ],
@@ -144,6 +178,8 @@ final class WooEngineFakeWpdb {
     public array $postsRows = [];
     public array $lookupRows = [];
     public array $kv = [];
+    /** @var array<int,array{parent_id:int,post_types:array<int,string>}> */
+    public array $childInventoryQueries = [];
 
     public function prepare(string $query, ...$args): string {
         foreach ($args as $arg) {
@@ -207,19 +243,34 @@ final class WooEngineFakeWpdb {
         if ($this->readFails($query)) {
             return [];
         }
-        if (preg_match("/FROM wp_posts WHERE post_parent = (\\d+) AND post_type = 'product_variation'/", $query, $m)) {
-            $parentId = (int) $m[1];
-            $ids = [];
-            foreach ($this->postsRows as $id => $row) {
-                if ((int) ($row['post_parent'] ?? 0) === $parentId
-                    && (string) ($row['post_type'] ?? '') === 'product_variation') {
-                    $ids[] = (int) $id;
-                }
-            }
-            sort($ids, SORT_NUMERIC);
-            return $ids;
+        if (!preg_match('/FROM wp_posts WHERE post_parent = (\\d+)/', $query, $m)) {
+            return [];
         }
-        return [];
+        $parentId = (int) $m[1];
+        $postTypes = [];
+        if (preg_match("/AND post_type = '((?:[^'\\\\]|\\\\.)*)'/", $query, $typeMatch)) {
+            $postTypes[] = stripslashes($typeMatch[1]);
+        } elseif (preg_match('/AND post_type IN \\(([^)]*)\\)/', $query, $typesMatch)) {
+            preg_match_all("/'((?:[^'\\\\]|\\\\.)*)'/", $typesMatch[1], $quotedTypes);
+            $postTypes = array_map('stripslashes', $quotedTypes[1] ?? []);
+        }
+        sort($postTypes, SORT_STRING);
+        if ($postTypes === []) {
+            return [];
+        }
+        $this->childInventoryQueries[] = [
+            'parent_id' => $parentId,
+            'post_types' => $postTypes,
+        ];
+        $ids = [];
+        foreach ($this->postsRows as $id => $row) {
+            if ((int) ($row['post_parent'] ?? 0) === $parentId
+                && in_array((string) ($row['post_type'] ?? ''), $postTypes, true)) {
+                $ids[] = (int) $id;
+            }
+        }
+        sort($ids, SORT_NUMERIC);
+        return $ids;
     }
 
     public function get_var(string $query): mixed {
@@ -266,6 +317,13 @@ $parentB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 $parentC = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 $captureVariation = '55555555-5555-4555-8555-555555555555';
 $adoptVariation = '66666666-6666-4666-8666-666666666666';
+$storyParent = '88888888-8888-4888-8888-888888888888';
+$storyDeletedChapter = '99999999-9999-4999-8999-999999999999';
+$storyLiveChapter = '12121212-1212-4121-8121-121212121212';
+$storyUnrelatedChild = '13131313-1313-4131-8131-131313131313';
+$undeclaredParent = '14141414-1414-4141-8141-141414141414';
+$undeclaredDeletedChild = '15151515-1515-4151-8151-151515151515';
+$undeclaredLiveChild = '16161616-1616-4161-8161-161616161616';
 $wpdb->map = [
     ['uuid' => $u1, 'kind' => 'post', 'id' => 101],
     ['uuid' => $u2, 'kind' => 'post', 'id' => 102],
@@ -276,12 +334,30 @@ $wpdb->map = [
     ['uuid' => $parentB, 'kind' => 'post', 'id' => 202],
     ['uuid' => $parentC, 'kind' => 'post', 'id' => 203],
     ['uuid' => $captureVariation, 'kind' => 'post', 'id' => 204],
+    ['uuid' => $storyParent, 'kind' => 'post', 'id' => 301],
+    ['uuid' => $storyDeletedChapter, 'kind' => 'post', 'id' => 302],
+    ['uuid' => $storyLiveChapter, 'kind' => 'post', 'id' => 303],
+    ['uuid' => $storyUnrelatedChild, 'kind' => 'post', 'id' => 304],
+    ['uuid' => $undeclaredParent, 'kind' => 'post', 'id' => 305],
+    ['uuid' => $undeclaredDeletedChild, 'kind' => 'post', 'id' => 306],
+    ['uuid' => $undeclaredLiveChild, 'kind' => 'post', 'id' => 307],
 ];
 $wpdb->postsRows[204] = ['post_type' => 'product_variation', 'post_parent' => 201];
 $wpdb->postsRows[205] = ['post_type' => 'product_variation', 'post_parent' => 201];
 $wpdb->postsRows[101] = ['post_type' => 'product', 'post_parent' => 0];
 $wpdb->postsRows[102] = ['post_type' => 'product_variation', 'post_parent' => 100];
-$wpdb->lookupRows = [101 => true, 102 => true, 103 => true, 104 => true, 105 => true];
+$wpdb->postsRows[301] = ['post_type' => 'duo_story', 'post_parent' => 0];
+$wpdb->postsRows[302] = ['post_type' => 'duo_chapter', 'post_parent' => 301];
+$wpdb->postsRows[303] = ['post_type' => 'duo_chapter', 'post_parent' => 301];
+$wpdb->postsRows[304] = ['post_type' => 'duo_unrelated_child', 'post_parent' => 301];
+$wpdb->postsRows[305] = ['post_type' => 'duo_unrelated_parent', 'post_parent' => 0];
+$wpdb->postsRows[306] = ['post_type' => 'duo_unrelated_child', 'post_parent' => 305];
+$wpdb->postsRows[307] = ['post_type' => 'duo_unrelated_child', 'post_parent' => 305];
+$wpdb->lookupRows = [
+    101 => true, 102 => true, 103 => true, 104 => true, 105 => true,
+    301 => true, 302 => true, 303 => true, 304 => true,
+    305 => true, 306 => true, 307 => true,
+];
 
 require __DIR__ . '/../../agent/src/Canon.php';
 require __DIR__ . '/../../agent/src/OptionState.php';
@@ -302,6 +378,11 @@ $captureReparent = $applyReflection->getMethod('capture_regen_reparent_context')
 $captureReparent->setAccessible(true);
 $captureDelete = $applyReflection->getMethod('capture_regen_delete_context');
 $captureDelete->setAccessible(true);
+$captureDeleteSource = implode("\n", array_slice(
+    (array) file($captureDelete->getFileName(), FILE_IGNORE_NEW_LINES),
+    $captureDelete->getStartLine() - 1,
+    $captureDelete->getEndLine() - $captureDelete->getStartLine() + 1
+));
 
 $tree = [
     $u1 => ['type' => 'post', 'data' => ['type' => 'product']],
@@ -323,6 +404,84 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
 $invoke = static function (array $work, array $tree, array $deletions = []) use ($regen, $apply): void {
     $regen->invoke($apply, $work, $tree, $deletions);
 };
+
+// This is a generic engine boundary. The declaration below uses unrelated
+// names so a product/product_variation branch cannot satisfy the behavior.
+$check(!preg_match('/if\\s*\\(\\s*\\$postType\\s*={2,3}\\s*[\'\"]product[\'\"]/', $captureDeleteSource)
+    && !preg_match('/post_type\\s*=\\s*[\'\"]product_variation[\'\"]/', $captureDeleteSource),
+    'deletion receipt inventory has no product/variation literal decision');
+
+// A declared duo_story -> duo_chapter relation uses wp_posts.post_parent.
+// The fixture carries one explicit child tombstone, one live declared child,
+// and one explicit but unrelated child CPT. Only the declared, explicit child
+// belongs in the parent receipt; no implicit cascade is authorized.
+$storyDeleteContexts = $captureDelete->invoke($apply, [
+    ['type' => 'post', 'uuid' => $storyParent],
+    ['type' => 'post', 'uuid' => $storyDeletedChapter],
+    ['type' => 'post', 'uuid' => $storyUnrelatedChild],
+]);
+$storyContextsByUuid = [];
+foreach ($storyDeleteContexts as $context) {
+    $storyContextsByUuid[(string) ($context['uuid'] ?? '')] = $context;
+}
+$storyParentContext = $storyContextsByUuid[$storyParent] ?? null;
+$check(is_array($storyParentContext) && ($storyParentContext['child_ids'] ?? null) === [302],
+    'unrelated parent receipt contains only its explicitly tombstoned declared child');
+$check(isset($storyContextsByUuid[$storyDeletedChapter]) && isset($storyContextsByUuid[$storyUnrelatedChild]),
+    'explicit child tombstones keep their own receipts instead of granting parent cascade authority');
+$storyInventory = $wpdb->childInventoryQueries[count($wpdb->childInventoryQueries) - 1] ?? null;
+$check($storyInventory === ['parent_id' => 301, 'post_types' => ['duo_chapter']],
+    'generic inventory query is driven by the declared unrelated child CPT');
+
+// The existing batch-rebuild consumer must suppress only receipt ids. It must
+// not turn a parent receipt into a cascade over the still-live chapter.
+// No earlier dispatch has loaded the fixture regenerator yet; retain that
+// zero baseline without loading it merely to inspect a static property.
+$storyCallsBefore = 0;
+$invoke([], [], $storyDeleteContexts);
+$storyBatchCall = count(\Duo\Regenerators\FakeBatch::$deletions) - 1;
+$storyBatchParentContext = null;
+foreach (\Duo\Regenerators\FakeBatch::$deletions[$storyBatchCall] as $context) {
+    if (($context['uuid'] ?? '') === $storyParent) {
+        $storyBatchParentContext = $context;
+        break;
+    }
+}
+$check(\Duo\Regenerators\FakeBatch::$calls === $storyCallsBefore + 1
+    && \Duo\Regenerators\FakeBatch::$ids[$storyBatchCall] === [],
+    'parent/child tombstone receipts dispatch no invented live ids');
+$check(is_array($storyBatchParentContext) && ($storyBatchParentContext['child_ids'] ?? null) === [302],
+    'batch rebuild receives the filtered generic parent receipt');
+$check(!isset($wpdb->lookupRows[301]) && !isset($wpdb->lookupRows[302]) && !isset($wpdb->lookupRows[304])
+    && isset($wpdb->lookupRows[303]),
+    'rebuild removes only explicit receipts and retains the live declared child lookup row');
+
+// Matching post_parent values alone must not create a relation. An undeclared
+// parent remains safe even when both it and a child type have batch contracts.
+$inventoryQueriesBefore = count($wpdb->childInventoryQueries);
+$undeclaredDeleteContexts = $captureDelete->invoke($apply, [
+    ['type' => 'post', 'uuid' => $undeclaredParent],
+    ['type' => 'post', 'uuid' => $undeclaredDeletedChild],
+]);
+$undeclaredContextsByUuid = [];
+foreach ($undeclaredDeleteContexts as $context) {
+    $undeclaredContextsByUuid[(string) ($context['uuid'] ?? '')] = $context;
+}
+$undeclaredParentContext = $undeclaredContextsByUuid[$undeclaredParent] ?? null;
+$check(is_array($undeclaredParentContext) && ($undeclaredParentContext['child_ids'] ?? null) === [],
+    'undeclared parent has no inferred child receipt');
+$check(count($wpdb->childInventoryQueries) === $inventoryQueriesBefore,
+    'undeclared parent performs no child inventory query');
+$invoke([], [], $undeclaredDeleteContexts);
+$check(!isset($wpdb->lookupRows[305]) && !isset($wpdb->lookupRows[306]) && isset($wpdb->lookupRows[307]),
+    'undeclared parent rebuild removes only explicit tombstones and retains its live child');
+
+// Keep the long-standing batch scenarios below independent: this new receipt
+// seam has already asserted its own call trace and uses disjoint fixture ids.
+\Duo\Regenerators\FakeBatch::$calls = 0;
+\Duo\Regenerators\FakeBatch::$heartbeats = 0;
+\Duo\Regenerators\FakeBatch::$ids = [];
+\Duo\Regenerators\FakeBatch::$deletions = [];
 
 // The pre-mutation receipt itself accumulates roots across chained moves. This
 // reflection seam stands in for two authored transactions: A->B is captured,

@@ -1996,7 +1996,7 @@ final class Apply {
                 );
             }
 
-            // Capture an existing variation's previous variable root before
+            // Capture an existing batch-owned child's previous parent before
             // phase 1/finalize can move its post_parent. The receipt is in the
             // authored transaction, so a later rebuild failure can replay the
             // old-root cleanup without guessing from the new parent only.
@@ -2098,10 +2098,11 @@ final class Apply {
                     );
                 }
 
-                // Product lookup regeneration needs the local parent id of a
-                // variation even after the post row is deleted. Capture that
-                // context only after all gates above have passed, immediately
-                // before the delete writes, and inside the authored transaction.
+                // Derived lookup regeneration can need a declared parent's
+                // local child ids after their post rows are deleted. Capture
+                // that context only after all gates above have passed,
+                // immediately before the delete writes, and inside the
+                // authored transaction.
                 $regenContext = array_merge($regenContext, $this->capture_regen_delete_context(
                     array_merge($deleteWork, $plan['deleted'])
                 ));
@@ -4307,7 +4308,7 @@ final class Apply {
     /**
      * Preserve the previous parent of an existing batch-owned post before raw
      * SQL moves its post_parent. Plugin adapters decide whether that parent is
-     * a derived root to refresh (Woo's variation adapter does); the engine
+     * a derived root to refresh; the engine
      * remains post-type agnostic. New rows and same-parent writes are
      * intentionally cheap no-ops; a reparent receipt is durable and scoped to
      * an enabled batch declaration just like a delete receipt.
@@ -4541,7 +4542,7 @@ final class Apply {
             if ($row === null) {
                 // A previous apply may have committed the post delete and
                 // then failed during rebuild.  Reuse the durable pre-delete
-                // receipt rather than losing the variation's parent id on
+                // receipt rather than losing the deleted child's parent id on
                 // the retry just because the ledger row still exists.
                 $stored = Ledger::kv_get(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid);
                 $decoded = is_string($stored) ? json_decode($stored, true) : null;
@@ -4570,22 +4571,30 @@ final class Apply {
             }
             $parentId = (int) ($row['post_parent'] ?? 0);
             $childIds = [];
-            if ($postType === 'product') {
-                $childIds = array_map('intval', $this->regen_checked_get_col($wpdb->prepare(
-                    "SELECT ID FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = 'product_variation' ORDER BY ID ASC",
-                    $id
-                ), "delete child inventory for post $id"));
-                // A parent delete can coexist with a still-managed child
-                // post in a partial revision.  Only children that are also
-                // explicit tombstones belong to this deletion receipt;
-                // target-local live children must keep their own derived
-                // lookup rows and will be refreshed by the batch live-id
-                // pass.
-                $childIds = array_values(array_filter(
-                    $childIds,
-                    static fn(int $childId): bool => isset($explicitIds[$childId])
-                ));
+            foreach ($this->policy->child_post_types($postType) as $childPostType) {
+                // Keep this query direct and parameterized: a manifest may
+                // name only validated post-type identifiers, but it never
+                // supplies SQL. Each declared type is queried separately so
+                // the receipt remains deterministic without a catalog scan.
+                foreach ($this->regen_checked_get_col($wpdb->prepare(
+                    "SELECT ID FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = %s ORDER BY ID ASC",
+                    $id,
+                    $childPostType
+                ), "delete child inventory for post $id (type $childPostType)") as $childId) {
+                    $childId = (int) $childId;
+                    // A parent delete can coexist with a still-managed child
+                    // post in a partial revision. Only direct, declared
+                    // children that are also explicit tombstones belong to
+                    // this deletion receipt; target-local live children keep
+                    // their own derived rows and refresh through the batch
+                    // live-id pass.
+                    if ($childId > 0 && isset($explicitIds[$childId])) {
+                        $childIds[$childId] = $childId;
+                    }
+                }
             }
+            $childIds = array_values($childIds);
+            sort($childIds, SORT_NUMERIC);
             $context = [
                 'kind' => 'delete',
                 'uuid' => $uuid,
@@ -5388,7 +5397,7 @@ final class Apply {
         }
 
         // Deletion/reparent contexts are supplied even when there are no live
-        // ids in this revision (for example, deleting the last product).
+        // ids in this revision (for example, deleting the last declared parent).
         // Dedupe by kind+UUID+id so a tombstone and a retry receipt cannot
         // cause duplicate plugin calls.
         foreach (array_merge($durableContext, $deleteContext) as $context) {
@@ -5403,7 +5412,7 @@ final class Apply {
             }
             $kind = (string) ($context['kind'] ?? 'delete');
             if ($kind === 'reparent') {
-                // A marker-only retry still needs the live variation id so a
+                // A marker-only retry still needs the live child id so a
                 // plugin adapter can discover the new root after the old
                 // parent receipt was captured. If its ledger mapping has
                 // already disappeared, retain old/new context without
@@ -5436,9 +5445,9 @@ final class Apply {
             // A failed reparent can be followed by a tombstone before the
             // retry. The stale Ledger mapping is intentionally retained until
             // this rebuild succeeds, so pending/reparent discovery may still
-            // put the deleted id in $job['ids']. Never hand that id to a Woo
-            // adapter as live work: its wc_get_product() read must observe the
-            // deletion context instead. Keep all reparent roots and delete
+            // put the deleted id in $job['ids']. Never hand that id to an
+            // adapter as live work: it must observe the deletion context
+            // instead. Keep all reparent roots and delete
             // cleanup contexts in the same call.
             $deletedIds = [];
             $deletedUuids = [];
@@ -5528,8 +5537,8 @@ final class Apply {
             }
 
             // Keep the old declarative verification as a cheap generic
-            // safety net.  Woo's adapter additionally checks exact values and
-            // exact absence; TEC never enters this branch.
+            // safety net. Adapters additionally check their own exact values
+            // and exact absence.
             foreach ($idTypes as $id => $postType) {
                 $heartbeat();
                 $decl = $this->policy->regen_dependency((string) $postType);

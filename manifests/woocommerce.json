@@ -245,6 +245,7 @@
   "post_types": {
     "product": {
       "class": "authored",
+      "children": ["product_variation"],
       "fields": {
         "modified": {"class": "derived"},
         "modified_gmt": {"class": "derived"}

@@ -132,6 +132,91 @@ check(($decl['verify']['table'] ?? null) === 'widget_cache', 'decl.verify.table 
 check($policy->regen_dependency('gadget') === null, 'undeclared post type returns null, not a default/guess');
 
 // ======================================================================
+echo "\n== parent/child post-type declarations ==\n";
+
+// These deliberately unrelated names prove that relationship semantics live
+// in the manifest, not in a Woo/product naming convention. A child may occur
+// under more than one parent: the inverse API is plural and deterministic.
+write_manifest($fixtureDir, 'relations', [
+    'name' => 'relations',
+    'spec_version' => DUO_SPEC_VERSION,
+    'post_types' => [
+        'duo_album' => ['children' => ['duo_chapter', 'duo_asset']],
+        'duo_story' => ['children' => ['duo_chapter']],
+        'duo_chapter' => [],
+        'duo_asset' => [],
+        'duo_isolated' => [],
+    ],
+]);
+$relationPolicy = Policy::load(null, ['relations']);
+$hasRelationApi = method_exists($relationPolicy, 'child_post_types')
+    && method_exists($relationPolicy, 'parent_post_types')
+    && method_exists($relationPolicy, 'post_type_relation_closure');
+check($hasRelationApi, 'Policy exposes generic child, plural-parent, and bidirectional relation-closure APIs');
+if ($hasRelationApi) {
+    check($relationPolicy->child_post_types('duo_album') === ['duo_asset', 'duo_chapter'],
+        'parent children are sorted deterministically, independent of declaration order');
+    check($relationPolicy->child_post_types('duo_story') === ['duo_chapter'],
+        'an unrelated declared parent returns only its manifest-declared child type');
+    check($relationPolicy->parent_post_types('duo_chapter') === ['duo_album', 'duo_story'],
+        'a shared child returns every declaring parent in sorted order');
+    check($relationPolicy->parent_post_types('duo_asset') === ['duo_album'],
+        'plural inverse retains a one-parent relationship as a one-element array');
+    check($relationPolicy->parent_post_types('duo_isolated') === [],
+        'a declared type without children has no inferred parent');
+    check($relationPolicy->post_type_relation_closure(['duo_story', 'duo_isolated'])
+        === ['duo_album', 'duo_asset', 'duo_chapter', 'duo_isolated', 'duo_story'],
+        'relation closure walks child-to-parent and parent-to-child edges and retains every root');
+    check($relationPolicy->post_type_relation_closure(['duo_not_declared']) === ['duo_not_declared'],
+        'an undeclared root is safely self-only rather than guessed from a product convention');
+}
+
+// Omission is intentional and safe: a manifest need not declare children for
+// every post type. Invalid declarations, on the other hand, must fail while
+// loading the manifest before any Apply query can infer a relation.
+write_manifest($fixtureDir, 'relation-invalid-shape', [
+    'name' => 'relation-invalid-shape',
+    'spec_version' => DUO_SPEC_VERSION,
+    'post_types' => [
+        'duo_parent' => ['children' => 'duo_child'],
+        'duo_child' => [],
+    ],
+]);
+check_throws(fn() => Policy::load(null, ['relation-invalid-shape']), 'children',
+    'a scalar children declaration refuses at manifest load');
+
+write_manifest($fixtureDir, 'relation-missing-child', [
+    'name' => 'relation-missing-child',
+    'spec_version' => DUO_SPEC_VERSION,
+    'post_types' => [
+        'duo_parent' => ['children' => ['duo_missing_child']],
+    ],
+]);
+check_throws(fn() => Policy::load(null, ['relation-missing-child']), 'duo_missing_child',
+    'a child type absent from post_types refuses at manifest load');
+
+write_manifest($fixtureDir, 'relation-duplicate-child', [
+    'name' => 'relation-duplicate-child',
+    'spec_version' => DUO_SPEC_VERSION,
+    'post_types' => [
+        'duo_parent' => ['children' => ['duo_child', 'duo_child']],
+        'duo_child' => [],
+    ],
+]);
+check_throws(fn() => Policy::load(null, ['relation-duplicate-child']), 'duo_child',
+    'a duplicate child in one parent declaration refuses at manifest load');
+
+write_manifest($fixtureDir, 'relation-self-child', [
+    'name' => 'relation-self-child',
+    'spec_version' => DUO_SPEC_VERSION,
+    'post_types' => [
+        'duo_parent' => ['children' => ['duo_parent']],
+    ],
+]);
+check_throws(fn() => Policy::load(null, ['relation-self-child']), 'duo_parent',
+    'a post type cannot declare itself as a child');
+
+// ======================================================================
 echo "\n== validate_regen_dependencies() — load-time shape checking ==\n";
 
 write_manifest($fixtureDir, 'b', [

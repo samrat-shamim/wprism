@@ -29,6 +29,22 @@ $policy = Policy::from_snapshot([
     'site' => ['manifests' => ['woocommerce'], 'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []], 'spec_version' => DUO_SPEC_VERSION],
 ]);
 
+// DUO-3315: this is a manifest declaration, not an engine convention. The
+// generic engine must obtain Woo's product/variation edge through Policy in
+// exactly the same way an unrelated adapter obtains its own CPT relationship.
+woo_ok(($manifest['post_types']['product']['children'] ?? null) === ['product_variation'],
+    'Woo product declares product_variation as its manifest-owned child type');
+woo_ok(method_exists($policy, 'child_post_types')
+    && method_exists($policy, 'parent_post_types')
+    && method_exists($policy, 'post_type_relation_closure'),
+    'Policy exposes the generic parent/child relationship APIs used by the engine');
+woo_ok($policy->child_post_types('product') === ['product_variation'],
+    'Woo product children resolve from the shipped manifest');
+woo_ok($policy->parent_post_types('product_variation') === ['product'],
+    'Woo variation resolves its manifest-declared parent through the plural inverse API');
+woo_ok($policy->post_type_relation_closure(['product_variation']) === ['product', 'product_variation'],
+    'Woo relation closure walks the declared edge in both directions');
+
 $optionNames = preg_split('/\s+/', trim(<<<'OPTIONS'
 action_scheduler_hybrid_store_demarkation action_scheduler_migration_status
 wc_downloads_approved_directories_mode wc_pending_batch_processes
