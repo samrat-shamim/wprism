@@ -228,6 +228,10 @@ assert_complete_html() { # assert_complete_html <body> <label>
 command -v jq >/dev/null || fail "jq required"
 command -v python3 >/dev/null || fail "python3 required"
 
+# A prior interrupted run may have been destroyed already. Compose can still
+# mount the pair-owned roots into a one-shot root CLI container, so normalize
+# stale uid-33 files before pair.sh's host-side reset tries to clear them.
+normalize_repo_permissions
 say "pair.sh reset + up: TRUE clean slate (DROP/CREATE database, not just wp-cli-level content wiping) -- plugin FILES persist in the webroot volume (pair.sh reset never touches it), so the installs below are fast re-activations, not re-downloads"
 bash bin/pair.sh reset "$PAIR"
 bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --http
