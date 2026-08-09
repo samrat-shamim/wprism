@@ -5677,10 +5677,7 @@ self::validate_post_type_children($manifest);
                 // vocabulary entry, or the exact provider capability — which
                 // is what a recovery operator can look up and re-run.
                 $source = self::action_source($action, $i);
-                $effects = $action['effects'] ?? null;
-                if (!is_array($effects) || $effects === []) {
-                    $effects = [self::missing_effect($name . "-action-$i", 'provider_resource', $source)];
-                }
+                $effects = self::action_effects($action + ['manifest' => $name], $i);
                 foreach ($effects as $effect) {
                     $out[] = ['manifest' => $name, 'phase' => 'rebuild', 'source' => $source, 'effect' => $effect];
                 }
@@ -5726,6 +5723,26 @@ self::validate_post_type_children($manifest);
                 . '/' . (string) ($action['capability'] ?? '?');
         }
         return "actions[$index]";
+    }
+
+    /**
+     * Exact effect declaration for one structured action. Public read-only
+     * evidence needs this helper because two native actions can share a
+     * closed source spelling while carrying different triggers/effects.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public static function action_effects(array $action, int $index): array {
+        $effects = $action['effects'] ?? null;
+        if (is_array($effects) && $effects !== []) {
+            return $effects;
+        }
+        $manifest = (string) ($action['manifest'] ?? '?');
+        return [self::missing_effect(
+            $manifest . "-action-$index",
+            'provider_resource',
+            self::action_source($action, $index)
+        )];
     }
 
     /** @return array<string,mixed> */

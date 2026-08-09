@@ -1335,20 +1335,39 @@ final class Cli {
      *   separate code path.
      * [--format=<format>] : Output format. Accepts json (machine-readable,
      *                        versioned by the report's own "format" field).
+     * [--contract] : Emit immutable `duo-scope-contract/v1` read-only
+     *                evidence instead of the legacy preview. Contract mode
+     *                requires the isolated DUO control-plane bootstrap; use
+     *                `duo scope <env> --roots=... --contract` so plugins,
+     *                themes, and ordinary MU code cannot run first.
      */
     public function scope($args, $assoc) {
         $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
         $roots = $assoc['roots'] ?? WP_CLI::error('--roots required (or --roots=all for the whole revision)');
+        $contractMode = array_key_exists('contract', $assoc) && $assoc['contract'] !== false;
         try {
+            if ($contractMode && (!defined('DUO_CONTROL_PLANE') || DUO_CONTROL_PLANE !== true)) {
+                throw new \RuntimeException(
+                    'duo: scope --contract requires the isolated DUO control-plane; run `duo scope <env> --roots=... --contract`'
+                );
+            }
             $policy = Policy::load($repo);
-            $report = ScopeClosure::resolve(
-                RepositoryCompiler::compile($repo, $policy),
-                $policy,
-                explode(',', (string) $roots)
-            );
+            $compiled = RepositoryCompiler::compile($repo, $policy);
+            if ($contractMode) {
+                $contract = ScopeContract::resolve($compiled, $policy, explode(',', (string) $roots));
+            } else {
+                $report = ScopeClosure::resolve($compiled, $policy, explode(',', (string) $roots));
+            }
         } catch (\Throwable $t) {
-            self::halt_json_failure($t, $assoc);
+            self::halt_json_failure($t, $assoc, 'scope');
             WP_CLI::error($t->getMessage());
+        }
+        if ($contractMode) {
+            // Contract bytes are canonical because scope_hash is defined over
+            // Canon::encode() without that field. Unlike the legacy preview,
+            // --contract is always machine evidence, even without --format.
+            WP_CLI::line(rtrim(Canon::encode($contract), "\n"));
+            return;
         }
         if (($assoc['format'] ?? '') === 'json') {
             WP_CLI::line(json_encode($report, JSON_UNESCAPED_SLASHES));

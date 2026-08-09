@@ -53,6 +53,8 @@ require_once __DIR__ . '/src/Code.php';
 require_once __DIR__ . '/src/ReferenceGraph.php';
 require_once __DIR__ . '/src/RepositoryCompiler.php';
 require_once __DIR__ . '/src/ScopeClosure.php';
+require_once __DIR__ . '/src/CanonicalSurfaces.php';
+require_once __DIR__ . '/src/ScopeContract.php';
 require_once __DIR__ . '/src/CodeStateContract.php';
 require_once __DIR__ . '/src/RefreshExport.php';
 require_once __DIR__ . '/src/Apply.php';

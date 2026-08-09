@@ -47,6 +47,7 @@ duo promote <env> [extra apply flags...]
 duo pending <env>
 duo classify <env> [--accept-proposals|--export-batch=<path>|--apply-batch=<path>]
 duo coverage <env> [--format=json]
+duo scope <env> --roots=<selectors> [--contract] [--format=json]
 duo refresh <production-env> --production-ref=<ref>
 duo rebase <production-env> --production-ref=<ref> --new-branch=<name> [--strategy=manual|ours|theirs] [--resolve=<stable-id>=ours|theirs ...]
 duo rebase <production-env> --abort=<run-id>
@@ -357,6 +358,20 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   branch on the finite `reason_code` (the compatibility `error` has the same
   value), not parse prose. Other JSON-capable commands retain their existing
   command-specific contracts; this is not an all-command envelope claim.
+
+- **`duo scope <env> --roots=<selectors> [--contract]`** — resolves a
+  target-independent closure from explicit live roots. The default remains
+  the human/`duo-scope/v1` preview. `--contract` instead emits canonical,
+  self-verifying `duo-scope-contract/v1` evidence: normalized selectors,
+  resolved live/tombstone identities, closure/inbound/excluded byte hashes,
+  filtered uploads/media, exact eligible surfaces, and only potential
+  action/provider/effect declarations. It is not a plan, provider
+  negotiation, guard witness, or mutation authorization. `all` includes every
+  compiled tombstone; a bounded deletion-intent row is named only as
+  `tombstone:<uuid>`. The host runs both modes through the isolated Duo
+  control plane (`--exec`, `--skip-plugins`, `--skip-themes`), so ordinary
+  plugins, themes, and MU code cannot run before the read-only compile.
+  Direct `wp duo scope --contract` without that isolated bootstrap refuses.
 
 - **`duo refresh <production-env> --production-ref=<ref>`** — gets `P` only
   through `wp duo refresh-export --repo=<repo_path> --format=json`; it never

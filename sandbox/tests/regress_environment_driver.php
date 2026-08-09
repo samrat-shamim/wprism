@@ -222,6 +222,51 @@ assert_true(
     'public refusal did not name the exact missing bootstrap capability'
 );
 assert_true(!file_exists($tmp . '/repo'), 'denied public workflow mutated its target path');
+
+// DUO-3344 contract evidence is only truthful when the host path cannot boot
+// arbitrary plugins/themes/ordinary MU code before the agent compiles its
+// target-independent revision. Exercise the real public CLI with a fake wp
+// binary and capture every forwarded argument; this is stronger than a source
+// grep because a future dispatch refactor must still pass the actual control
+// arguments through Transport::streamWp().
+$fakeBin = $tmp . '/scope-bin';
+mkdir($fakeBin, 0700, true);
+$scopeArgs = $tmp . '/scope-args.txt';
+$fakeWp = $fakeBin . '/wp';
+file_put_contents($fakeWp, '#!/usr/bin/env bash' . "\n" . 'printf \'%s\\n\' "$@" > "$DUO_SCOPE_ARGS"' . "\n");
+chmod($fakeWp, 0700);
+$oldPath = getenv('PATH') ?: '';
+putenv('PATH=' . $fakeBin . ':' . $oldPath);
+putenv('DUO_SCOPE_ARGS=' . $scopeArgs);
+$scopeForward = invoke_cli([
+    '--envs-file=' . $envsFile, 'scope', 'local-proof', '--roots=all', '--contract',
+]);
+putenv('PATH=' . $oldPath);
+putenv('DUO_SCOPE_ARGS');
+assert_true($scopeForward['exit'] === 0, 'isolated public scope forwarding returned non-zero: ' . $scopeForward['stderr']);
+$forwarded = is_file($scopeArgs) ? file($scopeArgs, FILE_IGNORE_NEW_LINES) : false;
+assert_true(is_array($forwarded), 'scope forwarding did not invoke the transport wp command');
+assert_true(
+    is_array($forwarded)
+        && count(array_filter($forwarded, static fn(string $arg): bool => str_starts_with($arg, '--exec='))) === 1
+        && in_array('--skip-plugins', $forwarded, true)
+        && in_array('--skip-themes', $forwarded, true)
+        && in_array('duo', $forwarded, true)
+        && in_array('scope', $forwarded, true)
+        && in_array('--repo=' . $tmp . '/repo', $forwarded, true)
+        && in_array('--roots=all', $forwarded, true)
+        && in_array('--contract', $forwarded, true),
+    'scope transport forwards control-plane --exec/skip flags and contract roots verbatim'
+);
+$controlArgs = CodeDeploy::controlArgs(['duo', 'scope']);
+assert_true(
+    str_contains($controlArgs[0], 'DUO_CONTROL_PLANE')
+        && str_contains($controlArgs[0], 'WPMU_PLUGIN_DIR'),
+    'scope control bootstrap isolates ordinary MU-plugin loading before the agent runs'
+);
+unlink($scopeArgs);
+unlink($fakeWp);
+rmdir($fakeBin);
 unlink($envsFile);
 rmdir($tmp);
 pass('public JSON/human paths share the report and refuse before target mutation');
@@ -245,6 +290,12 @@ preg_match_all("/'([^']+)'/", $verbsMatch[1], $verbNames);
 $verbsNeedingEnv = $verbNames[1];
 assert_true(count($verbsNeedingEnv) >= 15, 'scraped an implausibly short $verbsNeedingEnv');
 assert_true(in_array('scope', $verbsNeedingEnv, true), 'scope is not registered in $verbsNeedingEnv');
+assert_true(
+    str_contains($duoSource, "'scope' => cmd_scope(\$transport, \$extra)")
+        && str_contains($duoSource, 'function cmd_scope(')
+        && str_contains($duoSource, 'CodeDeploy::controlArgs'),
+    'scope dispatch is not registered through the isolated control-plane forwarding path'
+);
 
 // A verb may legitimately never reach the preflight if main() returns for it
 // first (driver-capabilities renders the report itself). Derive that from the
