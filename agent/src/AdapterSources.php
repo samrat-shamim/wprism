@@ -1,8 +1,6 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . '/AdapterCertification.php';
-
 /**
  * Where each pinned adapter came from, and what that origin is allowed to do.
  *
@@ -265,6 +263,12 @@ final class AdapterSources {
                 $provenance[$name] = self::provenance_record($name, $relative, $manifest);
                 continue;
             }
+            // Keep the optional certification layer out of the ordinary
+            // unsigned-source loader graph. AdapterCertification depends on
+            // the source contract and capability/disposition validators, so
+            // loading it at file scope would form a circular bootstrap and
+            // make otherwise independent offline entry points order-sensitive.
+            require_once __DIR__ . '/AdapterCertification.php';
             $verified = AdapterCertification::verifyFile(
                 $manifestDir,
                 $repo,
@@ -907,6 +911,10 @@ final class AdapterSources {
                 if ($legacy) {
                     throw new \RuntimeException("duo: legacy frozen adapter source '$name' cannot carry a certificate");
                 }
+                // A legacy/unsigned frozen policy never needs the optional
+                // certification verifier. Load it only for the v2 record that
+                // actually carries a signed external claim; see discover().
+                require_once __DIR__ . '/AdapterCertification.php';
                 $verified = AdapterCertification::verifyFrozen(
                     Policy::manifests_dir(),
                     $name,
