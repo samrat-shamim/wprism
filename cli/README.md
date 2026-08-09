@@ -375,7 +375,9 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   engine-authored refusal — a single-line `duo: `-prefixed message that is
   not one of the wrapper families carrying foreign text and passes the
   sensitivity screen (no secret shapes, logins, or absolute paths) — is
-  public verbatim under `<command>_refused` (DUO-3398). Any other
+  public verbatim under `<command>_refused` (DUO-3398), except from the
+  observation commands (`refresh-export`, `scope`), whose refusals stay
+  fully redacted (DUO-3397). Any other
   unclassified Throwable contributes none of its message, cause, path,
   login, or trace and instead sets `details_redacted: true`. Known uncertain-commit and ambiguous-publication
   refusals explicitly say not to retry or discard retained recovery evidence.

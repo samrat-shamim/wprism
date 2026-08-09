@@ -52,7 +52,7 @@ final class Cli {
             $message = $t->publicMessage;
             $remediation = $t->remediation;
             $redacted = false;
-        } elseif (self::publishable_refusal($t->getMessage())) {
+        } elseif (self::publishable_refusal($command, $t->getMessage())) {
             // The engine's own refusal convention: a message deliberately
             // authored for the operator, prefixed `duo: ` at its throw site
             // (Deletion::capability(), Policy's validators, dozens more).
@@ -178,7 +178,19 @@ final class Cli {
      * their non-JSON rendering and are a candidate for typed refusals, not
      * for this branch.
      */
-    private static function publishable_refusal(string $message): bool {
+    private static function publishable_refusal(string $command, string $message): bool {
+        // DUO-3397's observation commands are excluded wholesale: refresh-
+        // export and scope read PRODUCTION, and their refusal messages
+        // interpolate production-observed identifiers that no pattern can
+        // tell from prose (their suite's "distinctive operator token" case
+        // is exactly that — an arbitrary token with no secret shape). The
+        // mutation-command refusals this branch exists for (capture's
+        // deletion-intent gate and its peers) are value-free by convention
+        // and pattern-screened below; an observation command's unclassified
+        // refusal stays fully redacted, DUO-3397's posture unchanged.
+        if ($command === 'refresh-export' || $command === 'scope') {
+            return false;
+        }
         if (!str_starts_with($message, 'duo: ')) {
             return false;
         }
