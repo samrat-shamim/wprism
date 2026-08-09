@@ -5,6 +5,25 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+SOURCE_SHA="$(git rev-parse --verify 'HEAD^{commit}')" || {
+  printf 'FAIL: init evidence source has no resolvable Git HEAD\n' >&2
+  exit 2
+}
+if [[ ! -d "$REPO_ROOT/.git" ]]; then
+  printf 'FAIL: init evidence must run from a standalone clone, not a linked worktree\n' >&2
+  exit 2
+fi
+if [[ -n "${DUO_EXPECTED_SOURCE_SHA:-}" && "$DUO_EXPECTED_SOURCE_SHA" != "$SOURCE_SHA" ]]; then
+  printf 'FAIL: DUO_EXPECTED_SOURCE_SHA %s does not equal init evidence HEAD %s\n' \
+    "$DUO_EXPECTED_SOURCE_SHA" "$SOURCE_SHA" >&2
+  exit 2
+fi
+if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+  printf 'FAIL: init evidence checkout is dirty; use a clean standalone clone at %s\n' "$SOURCE_SHA" >&2
+  exit 2
+fi
+export DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA"
+
 PAIR="${DUO_INIT_PAIR:-codexmaca3336}"
 PORT1="${DUO_INIT_PORT1:-9300}"
 PORT2="${DUO_INIT_PORT2:-9301}"

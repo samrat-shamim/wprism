@@ -217,6 +217,15 @@ foreach (['product_cat', 'product_tag', 'product_shipping_class', 'product_type'
 check(($woo['taxonomies']['product_visibility']['class'] ?? null) === 'runtime', 'Woo adapter keeps mixed product visibility out of authored state');
 
 $liveHarness = (string) file_get_contents(__DIR__ . '/regress_duo_init.sh');
+$sourceBinding = strpos($liveHarness, 'export DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA"');
+$pairUp = strpos($liveHarness, 'bash sandbox/bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless');
+check(
+    str_contains($liveHarness, "git rev-parse --verify 'HEAD^{commit}'")
+        && str_contains($liveHarness, '[[ ! -d "$REPO_ROOT/.git" ]]')
+        && str_contains($liveHarness, 'git status --porcelain --untracked-files=all')
+        && $sourceBinding !== false && $pairUp !== false && $sourceBinding < $pairUp,
+    'live init evidence binds a clean standalone exact Git HEAD before the first pair mutation'
+);
 $pairValidation = strpos($liveHarness, '[[ ! "$PAIR" =~ ^[a-z][a-z0-9]*$ ]]');
 $pathDerivation = strpos($liveHarness, 'HOST_REPO="$REPO_ROOT/sandbox/siterepo/${PAIR}1"');
 check(
