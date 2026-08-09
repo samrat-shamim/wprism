@@ -47,6 +47,7 @@ final class PlanContract {
         'incomplete_apply',
         'incomplete_lifecycle',
         'missing_user',
+        'provider_problems',
         'regen_pending',
         'skipped_user_meta',
         'unchanged',

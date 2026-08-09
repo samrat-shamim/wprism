@@ -93,7 +93,7 @@ function em_plan(array $overrides = []): array {
         'collision' => [], 'conflict' => [], 'create' => [], 'delete' => [],
         'delete_conflict' => [], 'deleted' => [], 'drift' => [], 'effects_inventory' => [],
         'env_missing' => [], 'incomplete_apply' => [], 'incomplete_lifecycle' => [],
-        'missing_user' => [], 'regen_pending' => [], 'skipped_user_meta' => [],
+        'missing_user' => [], 'provider_problems' => [], 'regen_pending' => [], 'skipped_user_meta' => [],
         'unchanged' => [], 'update' => [], 'uploads_inventory' => [], 'warnings' => [],
     ];
 }
