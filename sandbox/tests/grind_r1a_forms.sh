@@ -127,8 +127,10 @@ reset_env_state() { # reset_env_state <r1a1|r1a2>
   # (nothing to do with Duo specifically) can hit the same silent staleness,
   # and it directly informs the typed-snapshot acceptance criteria below —
   # a future capture/apply capability for nf3_* MUST rebuild this cache per
-  # form id, the same "manifest declares rebuilders" pattern already used
-  # for Yoast/Elementor.
+  # form id, the same "manifest declares actions" pattern already used
+  # for Yoast/Elementor (a `rebuilders` command string when this was written;
+  # a provider capability since DUO-3338 — the declaration channel changed,
+  # the obligation it records did not).
   for t in nf3_forms nf3_form_meta nf3_fields nf3_field_meta nf3_actions nf3_action_meta nf3_objects nf3_object_meta nf3_relationships nf3_chunks nf3_upgrades; do
     wp_env "$env" db query "TRUNCATE TABLE wp_${t}" >/dev/null 2>&1 || true
   done
@@ -404,11 +406,11 @@ echo "$APPLY_OUT"
 grep -qi 'canary clean' <<<"$APPLY_OUT" || fail "apply canary not clean"
 pass "deploy + apply succeeded on r1a2 (canary clean)"
 
-say "DUO-3267/DUO-3282 rebuilder-fired probe -- immediately after apply, before any fetch. The rebuilder command itself is independently proven correct (team-lead ran it verbatim via the ordinary wp-cli shell path: count 0->1, zero error output) and the manifest declaration is independently proven to parse/aggregate correctly (offline Policy::rebuilders() check, no WordPress needed). The ONLY layer left unverified is whether Apply::rebuild()'s own WP_CLI::runcommand() launch actually invokes it during a real apply -- exactly where DUO-3282's stdout/stderr-swallowing gap hides evidence. A non-zero count here closes that question for good; zero is now unambiguous evidence of a runcommand launch-layer failure, not a render-mystery artifact -- the render mystery is independently resolved by the byte-truncation-window fix below, and a cold render with zero nf3_upgrades rows has already been proven to work correctly, so this probe is about the manifest declaration's own integrity, not the render."
+say "DUO-3267/DUO-3282/DUO-3338 action-fired probe -- immediately after apply, before any fetch. The cache rebuild itself is independently proven correct (team-lead ran the original one-liner verbatim via the ordinary wp-cli shell path: count 0->1, zero error output; DUO-3338 moved that exact payload into manifests/providers/ninja-forms-form-cache.php without changing what it calls) and the manifest declaration is independently proven to parse/aggregate correctly (offline Policy::actions() check, no WordPress needed). The ONLY layer left unverified is whether Apply::rebuild()'s own dispatch actually invokes it during a real apply -- exactly where DUO-3282's stdout/stderr-swallowing gap hid evidence. A non-zero count here closes that question for good; zero is now unambiguous evidence of a dispatch-layer failure, not a render-mystery artifact -- the render mystery is independently resolved by the byte-truncation-window fix below, and a cold render with zero nf3_upgrades rows has already been proven to work correctly, so this probe is about the manifest declaration's own integrity, not the render."
 NF_UPGRADES_COUNT=$(wp_2 db query "SELECT COUNT(*) FROM wp_nf3_upgrades" --skip-column-names)
 echo "nf3_upgrades row count immediately post-apply: $NF_UPGRADES_COUNT"
-[ "${NF_UPGRADES_COUNT:-0}" -gt 0 ] 2>/dev/null || fail "rebuilder-fired probe: nf3_upgrades has ZERO rows immediately post-apply (got: '$NF_UPGRADES_COUNT') -- the command and the manifest declaration are both independently proven correct, so this is unambiguous evidence of a WP_CLI::runcommand() launch-layer failure inside Apply::rebuild() -- file as its own precisely-scoped engine bug (see DUO-3282), do not re-litigate the command or the manifest"
-pass "rebuilder-fired probe: nf3_upgrades has $NF_UPGRADES_COUNT row(s) immediately post-apply -- Apply's own WP_CLI::runcommand() launch DID invoke the declared rebuilder"
+[ "${NF_UPGRADES_COUNT:-0}" -gt 0 ] 2>/dev/null || fail "action-fired probe: nf3_upgrades has ZERO rows immediately post-apply (got: '$NF_UPGRADES_COUNT') -- the provider capability and the manifest declaration are both independently proven correct, so this is unambiguous evidence of a dispatch-layer failure inside Apply::rebuild() -- file as its own precisely-scoped engine bug (see DUO-3282), do not re-litigate the capability or the manifest"
+pass "action-fired probe: nf3_upgrades has $NF_UPGRADES_COUNT row(s) immediately post-apply -- Apply::rebuild()'s dispatch DID invoke the declared action"
 
 say "byte-identical recapture across environments"
 wp_2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final

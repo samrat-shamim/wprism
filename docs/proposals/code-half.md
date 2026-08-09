@@ -390,7 +390,7 @@ To be explicit since the mission calls this out specifically: **no change to `ma
 
 ### 4.3 `version_range` mechanics
 
-**Where declared**: a new, optional top-level key on each plugin manifest (`manifests/<name>.json`), sibling to the existing `options`/`post_meta`/`rebuilders`/`deletions` keys:
+**Where declared**: a new, optional top-level key on each plugin manifest (`manifests/<name>.json`), sibling to the existing `options`/`post_meta`/`actions`/`deletions` keys:
 
 ```jsonc
 // manifests/woocommerce.json — proposed addition

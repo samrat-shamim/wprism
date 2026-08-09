@@ -209,7 +209,7 @@ cat >"$TMP/envs.json" <<EOF
       },
       "effects_inventory": [
         {"effect":{"adapter":{"id":"fixture-file","inverse":"restore-bytes","inverse_inputs":["path","prior_sha256"],"verifier":"fresh-readback","verifier_inputs":["path","prior_sha256"],"version":"1.0.0"},"id":"lifecycle-file","kind":"filesystem","mode":"reversible","selector":{"scope":"external","type":"path","value":"wp-content/uploads/duo-rollback-effect.txt"}},"manifest":"rollback-fixture","phase":"lifecycle","source":"lifecycle_effects"},
-        {"effect":{"id":"rebuild-table","kind":"database","mode":"restorable","selector":{"scope":"database_checkpoint","type":"table","value":"duo_cert_state"}},"manifest":"rollback-fixture","phase":"rebuild","source":"rebuilders[0].effects"},
+        {"effect":{"id":"rebuild-table","kind":"database","mode":"restorable","selector":{"scope":"database_checkpoint","type":"table","value":"duo_cert_state"}},"manifest":"rollback-fixture","phase":"rebuild","source":"provider:rollback-fixture/rebuild_table"},
         {"effect":{"id":"prevent-http","kind":"http","mode":"prevented","prevention":"receipt_outbox","selector":{"scope":"external","type":"url_prefix","value":"https://rollback.invalid/hooks/"}},"manifest":"rollback-fixture","phase":"lifecycle","source":"lifecycle_effects"}
       ],
       "resolved_adapters": [{"name":"rollback-fixture","version":"1.0.0"}],
@@ -226,7 +226,7 @@ cat >"$TMP/envs.json" <<EOF
       },
       "effects_inventory": [
         {"effect":{"adapter":{"id":"fixture-file","inverse":"restore-bytes","inverse_inputs":["path","prior_sha256"],"verifier":"fresh-readback","verifier_inputs":["path","prior_sha256"],"version":"1.0.0"},"id":"lifecycle-file","kind":"filesystem","mode":"reversible","selector":{"scope":"external","type":"path","value":"wp-content/uploads/duo-rollback-effect.txt"}},"manifest":"rollback-fixture","phase":"lifecycle","source":"lifecycle_effects"},
-        {"effect":{"id":"rebuild-table","kind":"database","mode":"restorable","selector":{"scope":"database_checkpoint","type":"table","value":"duo_cert_state"}},"manifest":"rollback-fixture","phase":"rebuild","source":"rebuilders[0].effects"},
+        {"effect":{"id":"rebuild-table","kind":"database","mode":"restorable","selector":{"scope":"database_checkpoint","type":"table","value":"duo_cert_state"}},"manifest":"rollback-fixture","phase":"rebuild","source":"provider:rollback-fixture/rebuild_table"},
         {"effect":{"id":"prevent-http","kind":"http","mode":"prevented","prevention":"receipt_outbox","selector":{"scope":"external","type":"url_prefix","value":"https://rollback.invalid/hooks/"}},"manifest":"rollback-fixture","phase":"lifecycle","source":"lifecycle_effects"}
       ],
       "resolved_adapters": [{"name":"rollback-fixture","version":"1.0.0"}],

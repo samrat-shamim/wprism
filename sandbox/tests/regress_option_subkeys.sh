@@ -48,7 +48,7 @@
 #       process; that path was correct before this fix and unchanged by it).
 #       Two candidate mechanisms were RULED OUT, empirically, not assumed,
 #       before landing on the real one: (a) DUO-3272's polylang.json
-#       rebuilder -- read directly, it recomputes ONLY the theme_mods
+#       rebuild action -- read directly, it recomputes ONLY the theme_mods
 #       `nav_menu_locations` slot, nothing taxonomy- or post_types-related;
 #       (b) the `pll_languages_list` transient (team-lead's first suspect)
 #       -- this manifest's OWN pre-existing note already recorded it
@@ -377,9 +377,9 @@ assert_language_descriptions 1 "after source capture and target apply"
 assert_language_descriptions 2 "after first target apply"
 pass "single-attempt apply succeeded on a fresh target, canary clean -- no retry wrapper involved"
 
-say "DUO-3282: this apply's own polylang.json rebuilder (DUO-3272's nav_menu_locations eval) fired -- a DIFFERENT rebuilder than DUO-3267/grind_r1a_forms.sh's own nf3_upgrades probe, same new confirmation-line mechanism (Apply::rebuild()'s per-declaration 'rebuilder fired' warning)"
-grep -q "rebuilder fired: " <<<"$APPLY1" || fail "expected an unconditional 'rebuilder fired' confirmation line in apply's warnings (got no match in: $APPLY1)"
-pass "confirmed: Apply::rebuild()'s own WP_CLI::runcommand() launch reports back per-declaration, no more inferring it indirectly from a rebuilder's own side-effect table"
+say "DUO-3282/DUO-3338: this apply's own polylang.json action (DUO-3272's nav_menu_locations synchronization, now the polylang-nav-menus provider capability) fired -- a DIFFERENT declaration than DUO-3267/grind_r1a_forms.sh's own nf3_upgrades probe, same per-declaration confirmation-line mechanism in Apply::rebuild()"
+grep -q "provider capability fired: polylang-nav-menus@" <<<"$APPLY1" || fail "expected an unconditional 'provider capability fired' confirmation line in apply's warnings (got no match in: $APPLY1)"
+pass "confirmed: Apply::rebuild() reports back per-declaration with the provider identity and its value-level verification, no more inferring it indirectly from a declaration's own side-effect table"
 
 say "(6) sub-key merge, re-asserted directly against the database: side2's OWN pre-existing polylang/wpseo bookkeeping survives untouched"
 POLYLANG_AFTER=$(wp2 option get polylang --format=json | tail -1)

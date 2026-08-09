@@ -1,0 +1,204 @@
+<?php
+namespace Duo;
+
+/**
+ * The closed native-action vocabulary: engine-implemented operations whose
+ * semantics belong to WordPress core rather than to any one plugin.
+ *
+ * The boundary doctrine bounds this file precisely (docs/proposals/
+ * engine-adapter-boundary.md, "Structured native action"): a native action is
+ * appropriate only when the operation means the same thing no matter which
+ * plugin declared it. Anything whose behavior is a plugin's own belongs in a
+ * provider, so this vocabulary stays deliberately small and never grows an
+ * argument shaped like one plugin's data model.
+ *
+ * A manifest selects an action by name and cannot mint one: an unknown name,
+ * an unknown argument key, or a mistyped argument is refused at manifest load
+ * time, before any target contact. That closure is what keeps executable text
+ * out of the channel entirely — arguments are typed scalars checked against a
+ * per-action schema, never command strings handed to a shell, eval, or WP-CLI.
+ *
+ * validate() is called from Policy::load(), which runs in pure-PHP contexts
+ * with no WordPress bootstrap (RepositoryCompiler validates a revision offline
+ * before Tokens/Ledger/Capture can exist). No WordPress function may therefore
+ * be reached outside execute().
+ */
+final class NativeActions {
+    /**
+     * action name => argument schema (key => {type, required, pattern?}).
+     *
+     * v1 is exactly one action. `transient.delete` earns native status because
+     * a WordPress transient's storage contract — the `_transient_<name>` and
+     * `_transient_timeout_<name>` option rows, or the `transient` cache group
+     * under an external object cache — is core's, identical for every plugin
+     * that keeps a blanket cache there.
+     *
+     * The name charset is WordPress's own transient-name bound (172 bytes,
+     * so `_transient_timeout_` + name still fits option_name's 191); the
+     * leading-character restriction keeps a manifest from naming a row whose
+     * own name is already prefixed, which would delete a different key than
+     * the one it appears to name.
+     */
+    private const ACTIONS = [
+        'transient.delete' => [
+            'name' => [
+                'type' => 'string',
+                'required' => true,
+                'pattern' => '/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,170}$/D',
+            ],
+        ],
+    ];
+
+    /** @return list<string> */
+    public static function vocabulary(): array {
+        return array_keys(self::ACTIONS);
+    }
+
+    /**
+     * Load-time gate for one manifest action entry. Unknown names and unknown
+     * argument keys are refused rather than ignored: an action a manifest
+     * believes it declared, silently dropped, is a derived-state repair that
+     * never happens and never reports itself.
+     *
+     * @param array<string,mixed> $args
+     * @param string $where caller-supplied manifest coordinate for the message
+     */
+    public static function validate(string $action, array $args, string $where): void {
+        $schema = self::ACTIONS[$action] ?? null;
+        if ($schema === null) {
+            throw new \RuntimeException(
+                "duo: $where names unknown native action '$action' — the engine vocabulary is closed ("
+                . implode(', ', self::vocabulary()) . '); a plugin-specific operation belongs in a provider'
+            );
+        }
+        if (array_is_list($args) && $args !== []) {
+            throw new \RuntimeException("duo: $where.args must be an object");
+        }
+        $unknown = array_diff(array_keys($args), array_keys($schema));
+        if ($unknown !== []) {
+            throw new \RuntimeException(
+                "duo: $where.args contains unknown key(s) for native action '$action': "
+                . implode(', ', $unknown)
+            );
+        }
+        foreach ($schema as $key => $rule) {
+            if (!array_key_exists($key, $args)) {
+                if ($rule['required']) {
+                    throw new \RuntimeException(
+                        "duo: $where.args is missing required key '$key' for native action '$action'"
+                    );
+                }
+                continue;
+            }
+            $value = $args[$key];
+            if ($rule['type'] === 'string'
+                && (!is_string($value) || preg_match($rule['pattern'], $value) !== 1)) {
+                throw new \RuntimeException(
+                    "duo: $where.args.$key must be a bounded string matching {$rule['pattern']}"
+                );
+            }
+        }
+    }
+
+    /**
+     * Run one validated action and return its receipt.
+     *
+     * All-or-throw, matching the regenerator/interpreter idiom: there is no
+     * success/failure return protocol, so a caller that gets an array back has
+     * value-level proof the effect landed. `verified` is unconditionally true
+     * in a returned receipt precisely because a false one is unreachable — the
+     * failure path throws.
+     *
+     * @param array<string,mixed> $args already validated by validate()
+     * @return array{action:string, args:array<string,mixed>, before:array, after:array, verified:true}
+     */
+    public static function execute(string $action, array $args): array {
+        self::validate($action, $args, "native action '$action'");
+        return match ($action) {
+            'transient.delete' => self::delete_transient_action($args),
+        };
+    }
+
+    /**
+     * delete_transient() covers both storage paths (object-cache group and
+     * option rows) and fires the same hooks a plugin's own invalidation would,
+     * which is why the engine calls it rather than deleting rows directly.
+     *
+     * Its bool return is deliberately not the success signal: WordPress
+     * returns false both when the row was absent to begin with (already
+     * converged) and when the delete failed, and WP-CLI's own `transient
+     * delete` treats the absent case as success for the same reason. The
+     * verification is therefore value-level — a fresh, checked read proving
+     * both option rows are gone and the cache group no longer answers — so a
+     * surviving row fails the apply instead of passing as "command exited 0".
+     *
+     * @param array<string,mixed> $args
+     * @return array{action:string, args:array<string,mixed>, before:array, after:array, verified:true}
+     */
+    private static function delete_transient_action(array $args): array {
+        $name = (string) $args['name'];
+        if (!function_exists('delete_transient') || !function_exists('wp_cache_get')) {
+            throw new \RuntimeException(
+                "duo: native action 'transient.delete' requires a loaded WordPress runtime; "
+                . 'run it through the ordinary apply path'
+            );
+        }
+        $before = self::transient_state($name);
+        delete_transient($name);
+        $after = self::transient_state($name);
+        $survivors = [];
+        if ($after['value_row']) {
+            $survivors[] = "option row _transient_$name";
+        }
+        if ($after['timeout_row']) {
+            $survivors[] = "option row _transient_timeout_$name";
+        }
+        if ($after['cached']) {
+            $survivors[] = "object cache entry transient/$name";
+        }
+        if ($survivors !== []) {
+            throw new \RuntimeException(
+                "duo: native action 'transient.delete' left '$name' present after deletion ("
+                . implode(', ', $survivors) . ') — the target still serves the stale value; '
+                . 'check for a persistent object cache that refused the delete, then retry the apply'
+            );
+        }
+        return [
+            'action' => 'transient.delete',
+            'args' => ['name' => $name],
+            'before' => $before,
+            'after' => $after,
+            'verified' => true,
+        ];
+    }
+
+    /** @return array{value_row:bool, timeout_row:bool, cached:bool} */
+    private static function transient_state(string $name): array {
+        return [
+            'value_row' => self::option_row_present('_transient_' . $name, $name),
+            'timeout_row' => self::option_row_present('_transient_timeout_' . $name, $name),
+            'cached' => wp_cache_get($name, 'transient') !== false,
+        ];
+    }
+
+    /**
+     * WordPress database reads return empty-looking values on SQL failure, so
+     * a receipt may only clear once a real empty result has been told apart
+     * from a failed query (the same checked-read discipline every adapter's
+     * decision reads use).
+     */
+    private static function option_row_present(string $option, string $transient): bool {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $found = $wpdb->get_var($wpdb->prepare(
+            "SELECT option_name FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+            $option
+        ));
+        if ($found === false || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException(
+                "duo: native action 'transient.delete' option-row read failed for transient '$transient'"
+            );
+        }
+        return $found !== null;
+    }
+}

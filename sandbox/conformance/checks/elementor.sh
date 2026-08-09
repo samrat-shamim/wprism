@@ -49,8 +49,10 @@ grep -q 'href="http://localhost:'"$CONF2_PORT"'/duo-elementor-target/"' <<<"$FRO
 
 # section background-image (json_refs $..background_image.id): lives in
 # Elementor's regenerated per-page CSS, never in an HTML attribute — the
-# rebuilder (manifests/elementor.json's "elementor flush-css --regenerate")
-# must have run during apply's rebuild pass for this file to exist at all.
+# elementor-css provider capability (manifests/elementor.json's
+# regenerate_css action, which runs the plugin's own "elementor flush-css
+# --regenerate") must have run during apply's rebuild pass for this file to
+# exist at all.
 # The page also loads the KIT's own global CSS (a second "elementor-post-
 # <id>-css" link, e.g. "post-1.css" for the adopted default kit) — grepping
 # the FIRST css link found is wrong (caught empirically: it grabbed the
@@ -64,9 +66,9 @@ grep -q "elementor-post-${PAGE_ID}-css" <<<"$FRONT" \
   || fail "conf2's rendered page has no elementor CSS link for its own post id ($PAGE_ID)"
 CSS=$(curl -fs "$POST_CSS_URL") || fail "could not fetch conf2's regenerated elementor CSS ($POST_CSS_URL)"
 if grep -q "localhost:${CONF1_PORT}" <<<"$CSS"; then
-    fail "conf2's regenerated elementor CSS still references conf1 (localhost:${CONF1_PORT}) — rebuilder did not pick up the rebound background_image"
+    fail "conf2's regenerated elementor CSS still references conf1 (localhost:${CONF1_PORT}) — the elementor-css provider did not pick up the rebound background_image"
 fi
 grep -q 'background-image:url("http://localhost:'"$CONF2_PORT"'/wp-content/uploads/[0-9]\{4\}/[0-9]\{2\}/duo-conf-elementor-bg[^"]*")' <<<"$CSS" \
-  || fail "section background-image did not regenerate pointing at conf2's own uploads (json_refs \$..background_image.id + the elementor flush-css --regenerate rebuilder)"
+  || fail "section background-image did not regenerate pointing at conf2's own uploads (json_refs \$..background_image.id + the elementor-css provider capability)"
 
 pass "conf2 renders its own image/gallery/background-image (json_refs, incl. the array case) and internal link (plain-URL tokenize) — none point at conf1"

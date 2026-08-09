@@ -115,8 +115,10 @@ final class CompiledRepository {
      * remains the independent proof of what is installed on the target.
      * DUO-3227's generated capability claim is now carried beside exactly
      * this shape (one machine-readable row per adapter); its digest remains
-     * the digest of manifest+interpreter+external disposition, avoiding a
-     * self-referential hash while the outer artifact binds the claim too.
+     * the digest of manifest+interpreter+manifest-sourced-provider+external
+     * disposition (DUO-3338 folded provider file bytes in beside the
+     * interpreter's), avoiding a self-referential hash while the outer
+     * artifact binds the claim too.
      *
      * @return list<array{name:string, digest:string, spec_version:?int, plugin:?string, version_range:?array, theme:?string, theme_version_range:?array, disposition:?array, capability:?array}>
      */
@@ -423,8 +425,11 @@ final class RepositoryCompiler {
      * (resolved_adapters() below) and the pre-existing combined hash
      * (manifest_hash()) are provably the SAME content, never two
      * independently-maintained notions of "what identifies this manifest."
+     * CapabilityRegistry::adapter_digest() mirrors this row shape (it cannot
+     * call in here — the registry loads without a compiled repository), so
+     * any key added to this row must be added there in the same change.
      *
-     * @return list<array{name:string, manifest:array, disposition:?array, interpreter?:array{name:string,sha256:?string}}>
+     * @return list<array{name:string, manifest:array, disposition:?array, interpreter?:array{name:string,sha256:?string}, providers?:list<array{id:string,sha256:?string}>}>
      */
     private static function manifest_rows(Policy $policy): array {
         $rows = [];
@@ -442,6 +447,35 @@ final class RepositoryCompiler {
                     'name' => $interpreter,
                     'sha256' => is_file($file) ? hash_file('sha256', $file) : null,
                 ];
+            }
+            // DUO-3338: a manifest-sourced provider is executable code whose
+            // identity the manifest asserts, so its bytes join the identity
+            // row exactly as an interpreter's do — a changed provider file is
+            // a changed adapter, not an invisible drift behind a stable
+            // manifest digest. Plugin-sourced providers are deliberately NOT
+            // file-hashed here: their trust anchor is the installed plugin
+            // itself, whose identity the code half already checks against the
+            // manifest's version_range at negotiation time. A missing file
+            // hashes as null (Policy::load() has already refused it loudly;
+            // this layer only records identity, mirroring the interpreter
+            // line above).
+            $providerHashes = [];
+            foreach ((array) ($manifest['providers'] ?? []) as $declaration) {
+                if (!is_array($declaration) || ($declaration['source'] ?? null) !== 'manifest') {
+                    continue;
+                }
+                $id = (string) ($declaration['id'] ?? '');
+                if ($id === '') {
+                    continue;
+                }
+                $file = Policy::manifests_dir() . '/providers/' . basename($id) . '.php';
+                $providerHashes[] = [
+                    'id' => $id,
+                    'sha256' => is_file($file) ? hash_file('sha256', $file) : null,
+                ];
+            }
+            if ($providerHashes !== []) {
+                $row['providers'] = $providerHashes;
             }
             $rows[] = $row;
         }

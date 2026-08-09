@@ -7,7 +7,7 @@
 > The protected target identity, never-reused generation fence, immutable
 > signed receipt, signed event hash chain, claimant takeover, status evidence,
 > SSH adoption wiring, encrypted checkpoint executor, and immutable atomic
-> code-release executor, upload journal, lifecycle/rebuilder effect bundle,
+> code-release executor, upload journal, lifecycle/rebuild effect bundle,
 > resumable controller operation API, and signed production-form SSH crash
 > certification described below are implemented. `duo promote` now selects
 > this profile only from explicit SSH runtime/provider capability plus local
@@ -435,7 +435,7 @@ whose acceptance can be certified independently:
    undeclared-path refusal. Implemented by
    [`../upload-bundle.md`](../upload-bundle.md).
 6. **DUO-3298 — Reversibility grammar and adapter preflight** — lifecycle, migrations,
-   rebuilders, derived stores, schedules, queues, caches, mail/HTTP, and other
+   rebuild actions, derived stores, schedules, queues, caches, mail/HTTP, and other
    external effects classified as restorable/reversible/prevented/irreversible;
    unsupported effects block before code stage. Implemented by
    [`../effect-bundle.md`](../effect-bundle.md).

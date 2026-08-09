@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Regression — DUO-3338: structured native actions and the plugin-owned
+# provider contract that replaced the free-form `rebuilders` command channel.
+#
+# Two harnesses run under this one target because the contract has two halves
+# that need different fixtures, and splitting them keeps each honest:
+#
+#   regress_actions_providers.php  LOAD TIME. Never stubs a WordPress function.
+#     The `rebuilders` refusal (the regression: that exact manifest shape
+#     loaded and was executed verbatim before this change), the closed
+#     actions/providers grammar, effects_inventory()'s rebuild sources, the
+#     REAL shipped manifests and the five REAL provider files they carry, and
+#     the digest that binds manifest-shipped provider bytes to their adapter.
+#
+#   regress_provider_contract.php  RUNTIME. Stubs exactly the four WordPress
+#     lifecycle primitives Deploy::plugin_runtime_state() reads plus
+#     apply_filters(), and exercises negotiation refusals, plugin-sourced
+#     `duo_providers` discovery, invocation receipts, value-level
+#     verification, and the post-hoc timeout budget.
+#
+# Both are pure PHP against real engine files under a scratch
+# DUO_MANIFESTS_DIR — no docker, no sandbox pair, no WordPress bootstrap. Same
+# idiom as sandbox/tests/regress_adapter_contract.sh (DUO-3222/DUO-3243).
+#
+# What this does NOT cover, because it genuinely needs a live target: Apply's
+# placement of the negotiation gate ahead of the first mutation and the
+# post-commit fatality of a failing action (sandbox/tests/regress_fatal_mutations.sh),
+# the per-declaration confirmation lines (regress_option_subkeys.sh for a
+# provider capability, regress_woo_attribute_deletion.sh for a native action),
+# and the shipped providers' own invoke() bodies against real plugins (the
+# conformance sweeps; the WooCommerce one is additionally exercised against a
+# fake public API by regress_woocommerce_deletion_authority.php).
+set -euo pipefail
+cd "$(dirname "$0")"   # -> sandbox/tests/
+say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
+pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
+fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
+
+command -v php >/dev/null || fail "php required on PATH"
+
+say "php -l syntax check (both harnesses, every engine file they exercise, and every shipped provider)"
+php -l regress_actions_providers.php >/dev/null || fail "regress_actions_providers.php has a syntax error"
+php -l regress_provider_contract.php >/dev/null || fail "regress_provider_contract.php has a syntax error"
+php -l ../../agent/src/Policy.php >/dev/null || fail "agent/src/Policy.php has a syntax error"
+php -l ../../agent/src/NativeActions.php >/dev/null || fail "agent/src/NativeActions.php has a syntax error"
+php -l ../../agent/src/Providers.php >/dev/null || fail "agent/src/Providers.php has a syntax error"
+php -l ../../agent/src/Apply.php >/dev/null || fail "agent/src/Apply.php has a syntax error"
+php -l ../../agent/src/RepositoryCompiler.php >/dev/null || fail "agent/src/RepositoryCompiler.php has a syntax error"
+php -l ../../agent/src/CapabilityRegistry.php >/dev/null || fail "agent/src/CapabilityRegistry.php has a syntax error"
+php -l ../../agent/src/Deploy.php >/dev/null || fail "agent/src/Deploy.php has a syntax error"
+for provider in ../../manifests/providers/*.php; do
+  php -l "$provider" >/dev/null || fail "$provider has a syntax error"
+done
+pass "no syntax errors"
+
+say "load-time contract: rebuilders refusal, actions/providers grammar, effect inventory, shipped adapters, digest binding"
+php regress_actions_providers.php || fail "regress_actions_providers.php reported failing checks (see output above)"
+
+say "runtime contract: negotiation, plugin-sourced discovery, receipts, verification, timeout budget"
+php regress_provider_contract.php || fail "regress_provider_contract.php reported failing checks (see output above)"
+
+printf '\n\033[1;32m✔ REGRESS_ACTIONS_PROVIDERS PASSED\033[0m\n'

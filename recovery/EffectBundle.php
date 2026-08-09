@@ -107,7 +107,7 @@ final class EffectBundle {
     }
 
     /**
-     * Reconcile one actual lifecycle/rebuilder effect against the immutable
+     * Reconcile one actual lifecycle/rebuild effect against the immutable
      * inventory. Callers invoke this before a prevented effect escapes, or
      * immediately after a restorable/reversible mutation. Unknown effects
      * fail without broadening receipt authority.

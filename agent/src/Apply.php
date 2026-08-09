@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/PlainData.php';
+require_once __DIR__ . '/Providers.php';
 
 /**
  * Plan + apply: repo state tree -> environment DB.
@@ -34,6 +35,12 @@ final class Apply {
     private ?array $snapshotRowTablesCache = null;
     private string $promotionOwner = '';
     private string $promotionArtifact = '';
+    /** @var list<array<string,mixed>> actions selected by this run's canonical surfaces (DUO-3338) */
+    private array $selectedActions = [];
+    /** @var array{providers: array<string,object>, capabilities: array<string,array>}|null negotiated before the first mutation */
+    private ?array $negotiatedProviders = null;
+    /** @var list<array<string,mixed>> structured rebuild-action receipts for this run's summary */
+    private array $actionReceipts = [];
 
     private function __construct(string $repo, Policy $policy, CompiledRepository $compiled) {
         $this->repo = rtrim($repo, '/');
@@ -414,7 +421,7 @@ final class Apply {
 
         // A prior apply that committed authored rows but failed a required
         // rebuild deliberately left this marker. The live canonical hash can
-        // now be unchanged, drift, or conflict: rebuilders may normalize the
+        // now be unchanged, drift, or conflict: rebuild actions may normalize
         // just-written row after COMMIT, while duo_state intentionally still
         // names the pre-apply base. In every case the interrupted promotion's
         // repository tree remains the recovery target. Re-run every mapped
@@ -526,7 +533,7 @@ final class Apply {
      * Return only option names whose canonical records changed. The options
      * document format and record envelope are deliberately compared by
      * OptionState::record_hash(), so unrelated option records do not widen a
-     * scoped rebuilder's authority.
+     * scoped action's authority.
      *
      * @return list<string>
      */
@@ -1868,7 +1875,7 @@ final class Apply {
         // A previous apply can have committed authored rows and failed after
         // a tombstone target was already absent. Include those immutable
         // tombstones in the retry surface set so bounded derived-state
-        // rebuilders still clear/verify their rows on the next attempt.
+        // actions still clear/verify their rows on the next attempt.
         $rebuildDeleteWork = $deleteWork;
         if ($retryingIncompleteApply) {
             $rebuildDeleteWork = array_merge($rebuildDeleteWork, $plan['deleted']);
@@ -1912,6 +1919,33 @@ final class Apply {
 
         $deleteUuids = array_fill_keys(array_column($deleteWork, 'uuid'), true);
         $guardRepairUuids = $this->guard_repair_uuids($plan);
+
+        // DUO-3338 provider negotiation, deliberately positioned here: the
+        // rebuild pass at the far end of this method is what actually invokes
+        // a plugin-owned provider, but the boundary doctrine requires an
+        // unsupported or unverifiable capability to fail BEFORE destructive
+        // writes — discovering a missing provider after phase 2 has committed
+        // would leave a target half-converged with no derived-state repair.
+        // rebuild_surfaces() is a pure projection over $work/$tree/tombstones
+        // (its own docblock: it never reads target ids), so it is safe to run
+        // before the first mutation and returns the identical selection the
+        // rebuild pass will act on. An empty surface set selects nothing and
+        // negotiates nothing, so a read-only apply contacts no provider code.
+        $this->selectedActions = $this->policy->actions_for(
+            $this->rebuild_surfaces($work, $tree, $rebuildDeleteWork)
+        );
+        $negotiation = Providers::negotiate($this->policy, $this->selectedActions);
+        if ($negotiation['problems'] !== []) {
+            throw new \RuntimeException(
+                'duo: apply refused before target mutation — declared provider capabilities are unavailable '
+                . "or incompatible in this environment:\n  - "
+                . implode("\n  - ", array_column($negotiation['problems'], 'message'))
+            );
+        }
+        $this->negotiatedProviders = [
+            'providers' => $negotiation['providers'],
+            'capabilities' => $negotiation['capabilities'],
+        ];
 
         // Planning is intentionally read-only and can be expensive. The
         // target-authoritative lease prevents another Duo writer from racing
@@ -2111,10 +2145,10 @@ final class Apply {
         // failed run — see that method's own docblock for why plan's content
         // hash alone (unchanged after a regen-verify failure, since derived
         // tables are excluded from the hash basis) can't carry this signal.
-        $this->rebuild($attachmentIds, $work, $tree, $regenContext, $rebuildDeleteWork);
+        $this->rebuild($attachmentIds, $work, $tree, $regenContext);
 
         // DUO-3220: never infer convergence from the absence of a thrown
-        // mutation/rebuilder error. Re-capture the target through the same
+        // mutation/rebuild error. Re-capture the target through the same
         // canonical reader used by plan/capture and prove that every entity
         // in the immutable compiled tree landed byte-semantically (same
         // type + canonical hash). Target-only entities are deliberately not
@@ -2177,6 +2211,11 @@ final class Apply {
             'applied' => count($work) + (!empty($opts['with_deletes']) ? count($deleteWork) : 0),
             'drift' => array_column($plan['drift'], 'path'),
             'warnings' => array_merge($this->warnings, $this->tokens->warnings),
+            // DUO-3338 receipts: what each selected rebuild action observed,
+            // not merely that it ran. The warnings above stay the human line;
+            // this is the machine-readable evidence a recovery controller can
+            // correlate with the compiled effects inventory through `source`.
+            'actions' => $this->actionReceipts,
             'canary' => 'clean',
             'verification' => $verification,
         ];
@@ -2812,7 +2851,7 @@ final class Apply {
             // Post-field classification: written unconditionally even for a
             // 'derived'-classified field (e.g. a Woo variation title or
             // product timestamp) — a new
-            // row needs SOME starting value and there's no rebuilder to
+            // row needs SOME starting value and there's no rebuild action to
             // conjure one; finalize_post() below is where derived fields
             // stop being overwritten, once the row actually exists.
             'post_title' => $front['title'],
@@ -2980,7 +3019,7 @@ final class Apply {
         // this map can be omitted; an undeclared front key remains authored.
         // ensure_post_row() (phase 1, moments ago in this same apply for a
         // brand-new row) already wrote captured derived values as real
-        // starting values — there's no rebuilder to conjure them the way
+        // starting values — there's no rebuild action to conjure them the way
         // _wp_attachment_metadata gets one on create, and WordPress
         // requires SOME value on insert — so this only ever skips touching
         // an ALREADY-populated column, never leaves one null.
@@ -3369,7 +3408,7 @@ final class Apply {
         // declaring manifest's own sub_keys (Polylang: options.polylang.
         // sub_keys.nav_menus) and, if that plugin's own request lifecycle
         // does not self-heal the raw slot from it, a manifest-declared
-        // rebuilder (never hardcoded Polylang knowledge here -- see
+        // rebuild action (never hardcoded Polylang knowledge here -- see
         // Apply::rebuild()).
         if ($this->policy->menu_field_class('locations') !== 'derived') {
             $this->assign_locations((int) $menuTermId, (array) ($front['locations'] ?? []));
@@ -4568,23 +4607,25 @@ final class Apply {
      * @param array<string,array> $tree the full compiled repository tree,
      *   keyed by uuid — needed to resolve a $work entry's post_type
      *   ($tree[$uuid]['data']['type']).
-     * @param array<int,array> $deleteWork actual deletes plus immutable
-     *   tombstones included when an incomplete apply is being retried; these
-     *   rows contribute exact deletion surfaces but are never re-deleted.
+     *
+     * Deletion rows are deliberately NOT a parameter: they only ever fed the
+     * canonical surface projection, and DUO-3338 moved that projection (and
+     * the action selection it drives) into run()'s pre-mutation negotiation
+     * gate, so the surfaces this pass acts on are fixed before the first
+     * write rather than re-derived after the commit.
      */
     private function rebuild(
         array $attachmentIds,
         array $work = [],
         array $tree = [],
-        array $regenContext = [],
-        array $deleteWork = []
+        array $regenContext = []
     ): void {
         global $wpdb;
 
         // DUO-3234: derived tables with a hard per-entity query-availability
         // dependency — run FIRST, deliberately, since it is the only step in
         // this method that can hard-fail the whole apply; no point spending
-        // time on term recounts/attachment metadata/rebuilders first if this
+        // time on term recounts/attachment metadata/actions first if this
         // is about to throw. It runs regardless of authored work because a
         // prior run's still-outstanding regen_pending marker must be retried
         // even when this run's $work is empty (see regen_dependencies()'s own
@@ -4699,56 +4740,89 @@ final class Apply {
             }
         }
 
-        // Manifest-declared rebuilders: the hooks we deliberately skip are
-        // also what maintain plugin derived state (indexables, lookup tables)
-        // — manifests declare the regeneration command instead. Rebuilders
-        // with exact triggers are narrowed to the canonical surfaces touched
-        // by this request; legacy declarations without triggers remain
-        // selected for backward compatibility. An empty surface set is a
-        // no-op, including a read-only apply.
-        $surfaces = $this->rebuild_surfaces($work, $tree, $deleteWork);
-        foreach ($this->policy->rebuilders_for($surfaces) as $r) {
-            $cmd = (string) ($r['command'] ?? '');
-            if ($cmd === '') {
-                continue;
-            }
-            if (!class_exists('\WP_CLI')) {
-                throw new \RuntimeException("duo: required manifest rebuilder unavailable outside wp-cli: '$cmd'");
-            }
+        // Manifest-declared rebuild actions (DUO-3338): the hooks we
+        // deliberately skip are also what maintain plugin derived state
+        // (indexables, lookup tables), so manifests declare the repair as
+        // structured data — a closed native action the engine implements, or
+        // a capability of a provider owned by the plugin itself. Actions with
+        // exact triggers are narrowed to the canonical surfaces touched by
+        // this request; declarations without triggers remain selected
+        // unscoped. An empty surface set is a no-op, including a read-only
+        // apply.
+        //
+        // The selection and every provider it reaches were resolved and
+        // negotiated in run() BEFORE the first target mutation, so nothing
+        // here can discover a missing or incompatible capability after the
+        // authored transaction has already committed.
+        $declarations = $this->selectedActions === [] ? [] : $this->policy->provider_declarations();
+        foreach ($this->selectedActions as $action) {
+            $source = Policy::action_source($action, (int) ($action['index'] ?? 0));
             try {
-                $res = \WP_CLI::runcommand($cmd, ['launch' => true, 'return' => 'all', 'exit_error' => false]);
-                if ((int) $res->return_code !== 0) {
-                    // DUO-3282: the launch layer (a genuinely separate
-                    // process boundary from the rest of apply — see
-                    // 'launch' => true above) can fail for reasons a
-                    // bare exit code doesn't explain on its own (a
-                    // fatal in the eval'd command, a missing wp-cli
-                    // sub-command). Surfacing stdout/stderr here is the
-                    // difference between a one-line "exited 255" a
-                    // human has to go reproduce by hand, and the actual
-                    // error message that already existed and was being
-                    // silently discarded.
-                    $out = trim((string) ($res->stdout ?? ''));
-                    $err = trim((string) ($res->stderr ?? ''));
+                if (($action['kind'] ?? '') === 'native') {
+                    $receipt = NativeActions::execute(
+                        (string) $action['action'],
+                        (array) ($action['args'] ?? [])
+                    );
+                    // DUO-3282: unconditional per-declaration confirmation
+                    // that this pass actually invoked the declaration — the
+                    // layer that was previously unverifiable from outside (a
+                    // caller could only ever infer it indirectly, e.g. by
+                    // querying a rebuilder's own side-effect table after the
+                    // fact, as DUO-3267's grind script did before that fix
+                    // existed). The structured receipt below carries the
+                    // observed before/after state the warning line cannot.
+                    $this->warnings[] = "native action fired: {$action['action']} (verified)";
+                    $this->actionReceipts[] = [
+                        'manifest' => (string) $action['manifest'],
+                        'source' => $source,
+                        'kind' => 'native',
+                        'before' => $receipt['before'],
+                        'after' => $receipt['after'],
+                        'verified' => true,
+                    ];
+                    continue;
+                }
+                $id = (string) $action['provider'];
+                $capability = (string) $action['capability'];
+                $declaration = $this->negotiatedProviders['capabilities'][$id][$capability] ?? null;
+                if ($declaration === null) {
+                    // Unreachable: run() negotiates the same selection before
+                    // any mutation and refuses on any problem. Fail closed
+                    // rather than fatal on a null instance if that ordering
+                    // is ever changed.
                     throw new \RuntimeException(
-                        "duo: required manifest rebuilder '$cmd' exited {$res->return_code}"
-                        . ($out !== '' ? "\nstdout: $out" : '')
-                        . ($err !== '' ? "\nstderr: $err" : '')
+                        "duo: required manifest action '$source' was never negotiated before mutation"
                     );
                 }
-                // DUO-3282: unconditional per-declaration confirmation
-                // that Apply's own WP_CLI::runcommand() launch actually
-                // invoked this rebuilder — the layer that was
-                // previously unverifiable from outside (a caller could
-                // only ever infer it indirectly, e.g. by querying a
-                // rebuilder's own side-effect table after the fact, as
-                // DUO-3267's grind script did before this fix existed).
-                $this->warnings[] = "rebuilder fired: '$cmd' (exit 0)";
+                $receipt = Providers::invoke(
+                    $this->negotiatedProviders['providers'][$id],
+                    $action,
+                    $declaration,
+                    $declaration['scope'] === 'entity'
+                        ? $this->action_entities($action, $work, $tree)
+                        : []
+                );
+                $version = (string) ($declarations[$id]['version'] ?? '?');
+                $this->warnings[] = "provider capability fired: $id@$version $capability ("
+                    . $receipt['duration_seconds'] . 's, verified)';
+                $this->actionReceipts[] = [
+                    'manifest' => (string) $action['manifest'],
+                    'source' => $source,
+                    'kind' => 'provider',
+                    'provider_version' => $version,
+                    'duration_seconds' => $receipt['duration_seconds'],
+                    'before' => $receipt['before'],
+                    'after' => $receipt['after'],
+                    'verified' => true,
+                ];
             } catch (\Throwable $t) {
-                if (str_starts_with($t->getMessage(), 'duo: required manifest rebuilder')) {
+                // DUO-3206 posture, unchanged by the channel swap: a failed
+                // required rebuild is a hard apply failure, never a warning,
+                // so the target stays truthfully unapplied and retryable.
+                if (str_starts_with($t->getMessage(), 'duo: required manifest action')) {
                     throw $t;
                 }
-                throw new \RuntimeException("duo: required manifest rebuilder '$cmd' failed", 0, $t);
+                throw new \RuntimeException("duo: required manifest action '$source' failed", 0, $t);
             }
         }
 
@@ -4759,10 +4833,83 @@ final class Apply {
     }
 
     /**
+     * Assemble the entity batch one `scope: entity` provider capability
+     * receives: the exact rows of this run's authored work whose canonical
+     * surface is named by the action's own triggers, each carrying that
+     * surface and the target-local id the ledger already minted.
+     *
+     * Batched into one invoke() rather than one call per entity, because a
+     * plugin's own repair of a derived projection is usually cheaper in bulk
+     * (the WooCommerce lookup regenerator's batch entry point exists for the
+     * same reason) and because a per-entity loop would multiply the declared
+     * timeout budget by a number the manifest cannot see.
+     *
+     * A matching row whose id the ledger cannot resolve fails closed: handing
+     * a provider a silently shortened batch would let it verify the entities
+     * it did receive and report success for a repair that skipped the rest.
+     *
+     * @param array<string,mixed> $action a selected provider-kind declaration
+     * @param array<int,array> $work
+     * @param array<string,array> $tree
+     * @return list<array{kind:string, id:int}>
+     */
+    private function action_entities(array $action, array $work, array $tree): array {
+        $triggers = array_fill_keys((array) ($action['triggers'] ?? []), true);
+        $entities = [];
+        foreach ($work as $entry) {
+            $uuid = (string) ($entry['uuid'] ?? '');
+            $entity = $uuid !== '' ? ($tree[$uuid] ?? null) : null;
+            if (!is_array($entity)) {
+                continue;
+            }
+            foreach ($this->entity_rebuild_surfaces($entity, $entry) as $surface) {
+                if (!isset($triggers[$surface])) {
+                    continue;
+                }
+                $id = $this->entity_local_id($entity, $uuid);
+                if ($id === null) {
+                    throw new \RuntimeException(
+                        "duo: entity-scoped provider capability '{$action['provider']}/{$action['capability']}' "
+                        . "selected canonical surface '$surface', but $uuid has no resolvable target-local id; "
+                        . 'declare triggers naming only surfaces whose entities carry one'
+                    );
+                }
+                $entities[$surface . "\0" . $id] = ['kind' => $surface, 'id' => $id];
+            }
+        }
+        $out = array_values($entities);
+        usort($out, static fn(array $a, array $b): int =>
+            strcmp($a['kind'], $b['kind']) ?: ($a['id'] <=> $b['id']));
+        return $out;
+    }
+
+    /**
+     * The ledger-minted target-local id for one compiled entity, or null when
+     * that entity kind has no single row id (an options document, a user-meta
+     * sidecar). Deliberately a ledger lookup rather than a target query: the
+     * ledger is the identity truth apply itself just wrote through, so this
+     * cannot resurrect an id for a row phase 1 failed to create.
+     */
+    private function entity_local_id(array $entity, string $uuid): ?int {
+        $type = (string) ($entity['type'] ?? '');
+        if ($type === 'post') {
+            return Ledger::id_for($uuid, Ledger::KIND_POST);
+        }
+        if ($type === 'term' || $type === 'menu') {
+            return Ledger::id_for($uuid, Ledger::KIND_TERM);
+        }
+        $table = $this->snapshotRowTables()[$type] ?? null;
+        if (is_array($table) && is_string($table['id_kind'] ?? null)) {
+            return Ledger::id_for($uuid, $table['id_kind']);
+        }
+        return null;
+    }
+
+    /**
      * Derive exact canonical surfaces from authored work and deletion rows.
      * This is deliberately a pure projection: it never reads target ids and
      * never turns an id into a selector. The resulting keys are only compared
-     * with manifest trigger literals by Policy::rebuilders_for().
+     * with manifest trigger literals by Policy::actions_for().
      *
      * @param array<int,array> $work
      * @param array<string,array> $tree
@@ -4862,9 +5009,9 @@ final class Apply {
      * manifest-shipped regenerator, then verify the declared table/column
      * actually gained a row for it. A failure here is a hard apply failure
      * (Architecture Rulings §2 — no third "green with warnings" state) —
-     * this was written to deliberately NOT follow the `rebuilders` step's
-     * warn-only behavior a few lines below (that gap was DUO-3206, tracked
-     * separately). DUO-3206 has since landed and made rebuilders/mutations
+     * this was written to deliberately NOT follow the manifest-declared
+     * rebuild step's warn-only behavior (that gap was DUO-3206, tracked
+     * separately). DUO-3206 has since landed and made that step/mutations
      * fatal too, so both steps now share the same hard-fail posture; this
      * method's own marker-retry mechanics (below) remain necessary regardless
      * — DUO-3206's apply_in_progress marker forces a full-tree retry on the

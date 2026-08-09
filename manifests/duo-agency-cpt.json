@@ -1,9 +1,38 @@
 {
+    "actions": [
+        {
+            "kind": "provider",
+            "provider": "duo-agency-index",
+            "capability": "rebuild_project_index",
+            "args": {},
+            "triggers": [
+                "post:project"
+            ]
+        },
+        {
+            "kind": "native",
+            "action": "transient.delete",
+            "args": {
+                "name": "duo_agency_project_cache"
+            },
+            "triggers": [
+                "post:project"
+            ]
+        }
+    ],
     "name": "duo-agency-cpt",
+    "notes": {
+        "generated project index (DUO-3338)": "duo_agency_project_index is the plugin's own derived projection of its authored projects (ordered id list + id => title map), recomputed on save_post_project. It is classified 'derived' rather than 'authored' because its ids are environment-local and its whole content is reproducible from the project posts alone — capturing it would carry one environment's local ids into another's canonical state. Duo writes project rows with direct SQL and does not fire save_post, so the projection must be repaired during apply's rebuild pass; the plugin advertises that repair itself through the `duo_providers` filter (source \"plugin\"), because how the index is built is a fact about the plugin's data model and not something the engine can own, version, or verify.",
+        "no version_range (DUO-3338)": "This manifest declares no top-level `plugin`/`version_range`: the fixture plugin ships through the site repo's own code/ tree, so its version is whatever that revision carries and the code half already binds those bytes. Provider negotiation therefore checks that duo-agency-cpt/duo-agency-cpt.php is installed and ACTIVE and skips the range comparison, which is the documented behavior for a provider whose declaring manifest pins no range.",
+        "project cache transient (DUO-3338)": "duo_agency_project_cache is an ordinary WordPress transient, so it is cleared by the engine's own closed native action rather than by the provider: a transient's storage contract is core's and means the same thing for every plugin. Both declarations are triggered on the exact canonical surface post:project, so a promotion touching nothing else fires neither."
+    },
     "options": {
         "duo_agency_client_api_key": {
             "class": "env",
             "required": false
+        },
+        "duo_agency_project_index": {
+            "class": "derived"
         }
     },
     "post_meta": {
@@ -14,6 +43,17 @@
             "class": "runtime"
         }
     },
+    "providers": [
+        {
+            "id": "duo-agency-index",
+            "version": "1.0.0",
+            "source": "plugin",
+            "plugin": "duo-agency-cpt/duo-agency-cpt.php",
+            "capabilities": [
+                "rebuild_project_index"
+            ]
+        }
+    ],
     "spec_version": 2,
     "term_meta": {},
     "user_meta": {}

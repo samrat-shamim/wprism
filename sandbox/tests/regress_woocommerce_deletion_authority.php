@@ -498,32 +498,36 @@ $cacheNote = (string) ($policy->manifests[0]['notes']['shipping/tax typed-row de
 check(str_contains($cacheNote, 'WC_Cache_Helper::invalidate_cache_group')
     && str_contains($cacheNote, 'persistent object-cache'),
     'manifest pins Woo public cache invalidation for persistent shipping/tax caches');
-$rebuilders = $policy->rebuilders();
-check(count(array_filter($rebuilders, static fn(array $rebuild): bool => str_contains(
-    (string) ($rebuild['command'] ?? ''), 'WC_Cache_Helper::invalidate_cache_group'
-))) === 1,
-    'Woo cache invalidation rebuilder calls the version-pinned public boundary');
-$cacheCommand = (string) (array_values(array_filter(
-    $rebuilders,
-    static fn(array $rebuild): bool => str_contains((string) ($rebuild['command'] ?? ''), 'WC_Cache_Helper::invalidate_cache_group')
-))[0]['command'] ?? '');
-check(str_contains($cacheCommand, 'shipping_zones')
-    && str_contains($cacheCommand, 'woocommerce-attributes')
-    && str_contains($cacheCommand, 'get_transient_version')
-    && str_contains($cacheCommand, 'get_transient_version("shipping", false)')
-    && str_contains($cacheCommand, 'freshShippingVersion !== $shippingVersion')
-    && str_contains($cacheCommand, '"taxes"'),
-    'Woo cache rebuilder covers shipping-zone namespace, shipping transient version, tax namespace, and fresh-read persistence proof');
+// DUO-3338: the cache boundary moved from an eval'd command string to a
+// plugin-owned provider. The manifest now carries identity and arguments as
+// data; the executable half is manifests/providers/woocommerce-cache.php,
+// exercised for real below against a fake public Woo boundary.
+$cacheActions = array_values(array_filter(
+    $policy->actions(),
+    static fn(array $row): bool => ($row['provider'] ?? '') === 'woocommerce-cache'
+));
+check(count($cacheActions) === 1
+    && ($cacheActions[0]['capability'] ?? '') === 'invalidate_cache_groups',
+    'Woo cache invalidation is one declared provider capability, not a command string');
+$cacheArgs = (array) ($cacheActions[0]['args'] ?? []);
+check(($cacheArgs['groups'] ?? []) === ['woocommerce-attributes', 'shipping_zones', 'taxes'],
+    'Woo cache action names the attribute, shipping-zone, and tax groups as structured arguments');
+$cacheProviderDeclaration = $policy->provider_declarations()['woocommerce-cache'] ?? [];
+check(($cacheProviderDeclaration['source'] ?? '') === 'manifest'
+    && ($cacheProviderDeclaration['plugin'] ?? '') === 'woocommerce/woocommerce.php'
+    && ($cacheProviderDeclaration['version'] ?? '') === '1.0.0',
+    'Woo cache provider is manifest-shipped code owned by the version-pinned plugin');
 check(($policy->manifests[0]['version_range']['min'] ?? '') === '11.0.0'
     && ($policy->manifests[0]['version_range']['max'] ?? '') === '12.0.0',
     'Woo cache boundary remains pinned to the certified 11.x manifest range');
-check(str_contains((string) file_get_contents($root . '/agent/src/Apply.php'),
-    "WP_CLI::runcommand(\$cmd, ['launch' => true"),
-    'manifest rebuilders execute through a fresh WP-CLI process boundary');
+check(str_contains((string) file_get_contents($root . '/agent/src/Providers.php'),
+    "\$provider->invoke(\$capability, \$args)"),
+    'provider capabilities are invoked through the engine contract, never as an engine-executed string');
 
-// Execute the manifest command against a tiny fake public Woo boundary. This
-// proves the command invokes the exact namespaces and refresh flag without
-// loading WordPress or WooCommerce in the offline suite.
+// Execute the REAL provider against a tiny fake public Woo boundary. This
+// proves the shipped adapter code invokes the exact namespaces and refresh
+// flag, and returns a verified receipt, without loading WordPress or
+// WooCommerce in the offline suite.
 if (!class_exists('WC_Cache_Helper')) {
     class WC_Cache_Helper {
         public static array $calls = [];
@@ -551,8 +555,27 @@ if (!class_exists('WP_CLI')) {
         }
     }
 }
-$cacheEval = substr($cacheCommand, strlen("eval '"), -1);
-eval($cacheEval . ';');
+if (!function_exists('get_transient')) {
+    function get_transient(string $name): mixed {
+        return false;
+    }
+}
+require_once $root . '/manifests/providers/woocommerce-cache.php';
+$cacheProvider = new \Duo\Providers\WoocommerceCache($policy);
+check($cacheProvider->identity() === [
+    'id' => 'woocommerce-cache',
+    'plugin' => 'woocommerce/woocommerce.php',
+    'version' => '1.0.0',
+], 'Woo cache provider states the exact identity its manifest declaration negotiated against');
+$cacheCapability = $cacheProvider->capabilities()['invalidate_cache_groups'] ?? [];
+check(($cacheCapability['scope'] ?? '') === 'site'
+    && ($cacheCapability['idempotent'] ?? null) === true
+    && ($cacheCapability['args']['groups'] ?? []) === ['type' => 'list<string>', 'required' => true],
+    'Woo cache capability is site-scoped, idempotent, and takes a bounded group list');
+$cacheReceipt = $cacheProvider->invoke('invalidate_cache_groups', $cacheArgs);
+check(($cacheReceipt['verified'] ?? null) === true
+    && ($cacheReceipt['after']['shipping_transient_version_fresh_read'] ?? null) === 'fake-version',
+    'Woo cache provider returns a verified receipt carrying the freshly re-read shipping version');
 check(WC_Cache_Helper::$calls === [
     ['group', 'woocommerce-attributes'],
     ['group', 'shipping_zones'],
@@ -565,7 +588,7 @@ WC_Cache_Helper::$calls = [];
 WC_Cache_Helper::$freshReadOverride = 'not-persisted';
 $freshReadFailure = null;
 try {
-    eval($cacheEval . ';');
+    $cacheProvider->invoke('invalidate_cache_groups', $cacheArgs);
 } catch (Throwable $exception) {
     $freshReadFailure = $exception->getMessage();
 }
@@ -577,7 +600,7 @@ check($freshReadFailure !== null
         ['group', 'taxes'],
         ['transient', 'shipping', true],
         ['transient', 'shipping', false],
-    ], 'shipping rebuilder fails loudly when the fresh version differs from the refresh return');
+    ], 'Woo cache provider fails loudly when the fresh version differs from the refresh return');
 WC_Cache_Helper::$freshReadOverride = null;
 
 $childUuid = '11111111-1111-4111-8111-111111111111';

@@ -78,6 +78,32 @@ final class CapabilityRegistry {
                 'sha256' => is_file($file) ? hash_file('sha256', $file) : null,
             ];
         }
+        // DUO-3338: manifest-sourced provider bytes join the identity row
+        // exactly as RepositoryCompiler::manifest_rows() folds them — the two
+        // methods are the "provably the SAME content" pair that docblock
+        // names, so a key added to one without the other would silently split
+        // the per-adapter digest from the combined manifest hash. Plugin-
+        // sourced providers stay un-hashed here; the installed plugin is
+        // their identity anchor.
+        $providerHashes = [];
+        foreach ((array) ($manifest['providers'] ?? []) as $declaration) {
+            if (!is_array($declaration) || ($declaration['source'] ?? null) !== 'manifest') {
+                continue;
+            }
+            $id = (string) ($declaration['id'] ?? '');
+            if ($id === '') {
+                continue;
+            }
+            $dir = $manifestDir ?? self::manifests_dir();
+            $file = rtrim($dir, '/') . '/providers/' . basename($id) . '.php';
+            $providerHashes[] = [
+                'id' => $id,
+                'sha256' => is_file($file) ? hash_file('sha256', $file) : null,
+            ];
+        }
+        if ($providerHashes !== []) {
+            $row['providers'] = $providerHashes;
+        }
         return hash('sha256', Canon::encode($row));
     }
 

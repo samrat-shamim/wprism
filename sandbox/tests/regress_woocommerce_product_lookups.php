@@ -5,7 +5,7 @@
  * WordPress/WooCommerce itself is intentionally not bootstrapped here.  The
  * live pair test owns the real data-store calls; this check protects the
  * manifest/Policy dispatch boundary and the adapter's public API choices from
- * being silently replaced with an asynchronous hook or a blanket rebuilder.
+ * being silently replaced with an asynchronous hook or a blanket rebuild action.
  */
 
 if (!defined('DUO_SPEC_VERSION')) {
@@ -89,10 +89,18 @@ $refreshGrouped = is_string($source) ? strpos($source, 'refresh_grouped_children
 $groupedStoreLoad = is_string($source) ? strpos($source, "WC_Data_Store::load('product-grouped')") : false;
 check($refreshGrouped !== false && $groupedStoreLoad !== false && $refreshGrouped < $groupedStoreLoad,
     'grouped child cache refresh runs before the grouped public sync_price() call');
-$rebuilders = $policy->rebuilders();
-check(count($rebuilders) === 2
-    && !str_contains(implode(' ', array_map(static fn(array $row): string => (string) ($row['command'] ?? ''), $rebuilders)), 'WooCommerceContract::rebuild'),
-    'Woo policy no longer dispatches the whole-catalog projection rebuilder');
+// DUO-3338: the whole-catalog projection can no longer be dispatched at all,
+// not merely "is not declared" — the structured action channel has no field
+// that can carry a PHP callable or command string for the engine to run.
+$actions = $policy->actions();
+$sources = array_map(
+    static fn(array $row): string => \Duo\Policy::action_source($row, (int) $row['index']),
+    $actions
+);
+check($sources === ['native:transient.delete', 'provider:woocommerce-cache/invalidate_cache_groups'],
+    'Woo policy declares only the bounded transient and cache repairs, and no whole-catalog projection');
+check(array_filter($actions, static fn(array $row): bool => array_key_exists('command', $row)) === [],
+    'no Woo action carries an executable command string');
 
 if ($failures > 0) {
     echo "FAIL: $failures check(s) failed\n";

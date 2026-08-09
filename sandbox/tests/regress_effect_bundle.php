@@ -44,11 +44,11 @@ try {
             ['adapter' => ['id' => 'fixture-file', 'inverse' => 'restore-bytes', 'inverse_inputs' => ['path', 'prior_sha256'], 'verifier' => 'fresh-readback', 'verifier_inputs' => ['path', 'prior_sha256'], 'version' => '1.0.0'], 'id' => 'probe-file', 'kind' => 'filesystem', 'mode' => 'reversible', 'selector' => ['scope' => 'external', 'type' => 'path', 'value' => 'wp-content/uploads/duo-promotion-probe.txt']],
         ],
         'name' => 'effect-probe', 'plugin' => 'duo-promotion-probe/duo-promotion-probe.php',
-        'rebuilders' => [['command' => 'duo probe rebuild', 'effects' => [['id' => 'probe-db', 'kind' => 'database', 'mode' => 'restorable', 'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'options']]]]],
+        'actions' => [['kind' => 'native', 'action' => 'transient.delete', 'args' => ['name' => 'duo_probe_rebuild'], 'effects' => [['id' => 'probe-db', 'kind' => 'database', 'mode' => 'restorable', 'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'options']]]]],
         'spec_version' => 2, 'version_range' => ['max' => '2.0.0', 'min' => '1.0.0'],
     ];
     $inventory = eb_policy($manifest)->effects_inventory();
-    eb_ok(count($inventory) === 8, 'compiled inventory includes lifecycle, rebuilder, and engine-owned effects deterministically');
+    eb_ok(count($inventory) === 8, 'compiled inventory includes lifecycle, rebuild-action, and engine-owned effects deterministically');
     $missing = $manifest; unset($missing['lifecycle_effects']);
     $missingRows = eb_policy($missing)->effects_inventory();
     eb_ok(count(array_filter($missingRows, fn($r) => ($r['effect']['mode'] ?? '') === 'irreversible')) === 1, 'undeclared lifecycle effects become explicit automatic-profile blockers');

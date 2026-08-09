@@ -166,7 +166,7 @@ promotion cannot mix code from one revision with state from another.
 - Provenance false signals (authenticated ≠ author; cron-borne authored content; wp-cli cron transport) → capability×surface signal, hook-context classification, external/re-sync class.
 - Journal overhead & blind spots (reads, rollbacks, direct mysqli) → learning-mode→sampling decay, ledger-diff ground truth, checksum reconciler.
 - Apply vs. live traffic races → write-gate + optimistic checks.
-- Derived-state staleness after hook-free apply → manifest-declared rebuilders + core rebuild pass.
+- Derived-state staleness after hook-free apply → manifest-declared structured actions (closed native actions and plugin-owned provider capabilities) + core rebuild pass.
 - Page-builder payloads (Elementor JSON-escaped URLs; Beaver Builder PHP objects) → escaped-form tokenizer + verbatim-preservation path.
 - Secrets in options → pattern denylists + env-bound defaults, commit block.
 - Revisions/auto-drafts excluded as derived; `_edit_lock`/`_edit_last` runtime.
