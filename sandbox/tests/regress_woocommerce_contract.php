@@ -105,8 +105,10 @@ woo_ok(count($rebuilders) === 2
 // These assertions fail against the pre-DUO-3341 tree (class present,
 // require_once in agent/duo.php), which is this issue's regression proof.
 woo_ok(!is_file($root . '/agent/src/WooCommerceContract.php'), 'the whole-catalog Woo projection class is deleted from engine core (DUO-3341)');
+$engineSrcEntries = scandir($root . '/agent/src');
+woo_ok(is_array($engineSrcEntries) && count($engineSrcEntries) > 2, 'agent/src enumerates non-empty for the WooCommerce-named source scan');
 $wooNamedEngineSources = array_values(array_filter(
-    scandir($root . '/agent/src') ?: [],
+    (array) $engineSrcEntries,
     static fn(string $name): bool => stripos($name, 'woocommerce') !== false || stripos($name, 'woo') === 0
 ));
 woo_ok($wooNamedEngineSources === [], 'no WooCommerce-named production class remains under agent/src (DUO-3341)');

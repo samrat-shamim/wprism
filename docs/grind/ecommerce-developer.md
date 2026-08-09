@@ -192,7 +192,7 @@ with lease heartbeats around its bounded loops. Manifest cache commands are
 selected only when the current authored table or option surfaces intersect
 their exact triggers. The legacy whole-catalog `WooCommerceContract::rebuild()`
 projection is deleted from engine core outright (DUO-3341); the bounded batch
-regeneration above is the only automatic path. In particular,
+regeneration above is the only automatic projection path. In particular,
 `wc_category_lookup` remains derived but outside this certification because
 WooCommerce 11.0.0 exposes only a public whole-catalog regeneration method;
 an operator must repair and verify that table explicitly until a bounded
