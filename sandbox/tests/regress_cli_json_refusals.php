@@ -224,14 +224,56 @@ namespace {
         check(!str_contains((string) json_encode($signedRedaction), 'MUSTNOTLEAK'), "$shape value is absent from structured JSON");
     }
 
+    // DUO-3398 REVERSES the original expectation of this case. The first
+    // envelope redacted EVERY raw Throwable, including the engine's own
+    // `duo: `-prefixed refusals — messages deliberately authored for the
+    // operator at their throw sites. That broke the older, certification-
+    // carrying contract (ninja-forms conformance asserts the parent-deletion
+    // refusal names table:nf3_forms through --format=json) and the refusal
+    // doctrine itself: "duo: target drift requires a fresh capture" IS the
+    // remediation, and sending the operator to private evidence for it is
+    // the envelope withholding the answer. The message is public; the
+    // Throwable's class, chain, file, and trace stay private, and the
+    // sensitivity screen (both entry and final pass) still redacts a
+    // refusal embedding a secret-shaped value — pinned two cases below.
     \Duo\Apply::$planFailure = new RuntimeException('duo: target drift requires a fresh capture');
     $plan = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
-    check(($plan['error'] ?? null) === 'plan_failed', 'plan maps an unclassified runtime gate to plan_failed');
+    check(($plan['error'] ?? null) === 'plan_refused', 'plan maps an engine-authored refusal to plan_refused');
     check(
-        ($plan['details_redacted'] ?? null) === true
-            && !str_contains((string) json_encode($plan), 'target drift')
-            && ($plan['diagnostics'][0]['code'] ?? null) === 'plan_failed',
-        'unclassified plan exceptions expose only a safe generic diagnostic'
+        !array_key_exists('details_redacted', $plan)
+            && ($plan['message'] ?? null) === 'duo: target drift requires a fresh capture'
+            && ($plan['diagnostics'][0]['message'] ?? null) === 'duo: target drift requires a fresh capture',
+        'a duo:-prefixed refusal is PUBLIC — the operator reads the engine\'s own words, not a redaction notice'
+    );
+
+    \Duo\Capture::$failure = new RuntimeException(
+        'duo: deletion intent for table:nf3_forms is unsupported — no pinned adapter declares its reverse-reference checks and cascade effects'
+    );
+    $captureRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+    check(
+        ($captureRefusal['error'] ?? null) === 'capture_refused'
+            && str_contains((string) ($captureRefusal['message'] ?? ''), 'deletion intent for table:nf3_forms is unsupported')
+            && !array_key_exists('details_redacted', $captureRefusal),
+        'the conformance-carried deletion refusal reaches JSON naming its table (the DUO-3398 regression)'
+    );
+
+    \Duo\Capture::$failure = new RuntimeException(
+        'duo: refusing capture — option sk_live_1234567890ABCDEFGHIJ looks like a live secret'
+    );
+    $secretRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+    check(
+        ($secretRefusal['details_redacted'] ?? null) === true
+            && !str_contains((string) json_encode($secretRefusal), 'sk_live_1234567890ABCDEFGHIJ'),
+        'a duo:-prefixed refusal embedding a secret-shaped value is still redacted by the sensitivity screen'
+    );
+
+    \Duo\Capture::$failure = new RuntimeException('TypeError-shaped accident with no refusal prefix');
+    $accident = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+    check(
+        ($accident['error'] ?? null) === 'capture_failed'
+            && ($accident['details_redacted'] ?? null) === true
+            && !str_contains((string) json_encode($accident), 'TypeError-shaped'),
+        'an unprefixed Throwable stays fully redacted — the reversal is scoped to the engine\'s own refusal convention'
     );
 
     $forcedEntityHash = hash('sha256', 'private-option-or-user-identity');

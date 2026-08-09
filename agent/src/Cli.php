@@ -51,6 +51,33 @@ final class Cli {
             $message = $t->publicMessage;
             $remediation = $t->remediation;
             $redacted = false;
+        } elseif (str_starts_with($t->getMessage(), 'duo: ')
+            && !CommandRefusalException::containsSensitivePublicDetail(['message' => $t->getMessage()])) {
+            // The engine's own refusal convention: a message deliberately
+            // authored for the operator, prefixed `duo: ` at its throw site
+            // (Deletion::capability(), Policy's validators, dozens more).
+            // Redacting these broke the product's refusal transparency —
+            // observed live as DUO-3398, where the ninja-forms conformance's
+            // parent-deletion refusal ("deletion intent for table:nf3_forms
+            // is unsupported…") surfaced as an unclassified redacted
+            // envelope and the operator was sent to private evidence for a
+            // refusal that WAS the public answer. The message is public;
+            // everything else about the Throwable (class, previous chain,
+            // file, trace) remains private, and the sensitivity screen both
+            // here and in the final pass below still redacts a refusal that
+            // embeds a secret-shaped value.
+            $reasonCode = str_replace('-', '_', $command) . '_refused';
+            $message = $t->getMessage();
+            $remediation = self::refusal_remediation($command);
+            $specific = [
+                'error' => $reasonCode,
+                'diagnostics' => [[
+                    'code' => $reasonCode,
+                    'message' => $message,
+                    'remediation' => $remediation,
+                ]],
+            ];
+            $redacted = false;
         } else {
             $reasonCode = str_replace('-', '_', $command) . '_failed';
             $message = "$command refused at an unclassified safety gate";
@@ -63,8 +90,9 @@ final class Cli {
                     'remediation' => $remediation,
                 ]],
             ];
-            // A catch-all Throwable is private operator evidence.  Never copy
-            // its message, previous chain, file, or trace into public JSON.
+            // A catch-all Throwable without the engine's own refusal prefix
+            // is private operator evidence.  Never copy its message,
+            // previous chain, file, or trace into public JSON.
             $redacted = true;
         }
 
