@@ -133,6 +133,34 @@ cat >"$TMP/envs.json" <<EOF
 }
 EOF
 
+say "negotiate the SSH driver before any adoption target call"
+if DRIVER_JSON="$("$DUO" --envs-file="$TMP/envs.json" driver-capabilities target --operation=adopt --format=json 2>"$TMP/driver-adopt.err")"; then
+  DRIVER_CODE=0
+else
+  DRIVER_CODE=$?
+fi
+[ "$DRIVER_CODE" -eq 0 ] || fail "SSH adopt driver preflight failed: $(cat "$TMP/driver-adopt.err")"
+php -r '
+  $r=json_decode($argv[1],true);
+  if (!is_array($r) || ($r["format"] ?? null) !== "duo-environment-driver-capabilities/v1"
+      || ($r["driver"]["id"] ?? null) !== "ssh" || ($r["operation"] ?? null) !== "adopt"
+      || ($r["ready"] ?? null) !== true
+      || preg_match("/^sha256:[a-f0-9]{64}$/", (string)($r["digest"] ?? "")) !== 1) {
+    fwrite(STDERR,"invalid SSH adopt driver report\n"); exit(1);
+  }
+' "$DRIVER_JSON" || fail "SSH adopt driver report was not canonical and ready"
+if CREATE_JSON="$("$DUO" --envs-file="$TMP/envs.json" driver-capabilities target --operation=create --format=json 2>"$TMP/driver-create.err")"; then
+  CREATE_CODE=0
+else
+  CREATE_CODE=$?
+fi
+[ "$CREATE_CODE" -ne 0 ] || fail "attach-only SSH driver silently claimed environment creation"
+php -r '$r=json_decode($argv[1],true); exit(is_array($r) && ($r["ready"] ?? null) === false ? 0 : 1);' "$CREATE_JSON" \
+  || fail "unsupported SSH create capability was not visible in JSON"
+ssh_fixture 'test ! -e /var/www/html/wp-content/mu-plugins/duo && test ! -e /home/duo/site' \
+  || fail "driver negotiation contacted or mutated the SSH target"
+pass "SSH driver reports adopt ready, create unsupported, and performs zero target mutation during negotiation"
+
 say "adopt the pre-existing target through the product command"
 if OUT="$("$DUO" --envs-file="$TMP/envs.json" adopt target 2>&1)"; then CODE=0; else CODE=$?; fi
 echo "$OUT"
