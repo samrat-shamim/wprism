@@ -16,6 +16,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-effect-bundle regress-woocommerce-effect-contract regress-ssh-rollback-certification \
 	regress-coverage-offline regress-coverage regress-classification-batch \
 	regress-refresh-orchestration \
+	regress-refresh-compile-refs \
 	regress-refresh-rebase \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions \
@@ -558,6 +559,9 @@ regress-classification-batch:
 regress-refresh-orchestration:
 	php sandbox/tests/regress_refresh_orchestration.php
 
+regress-refresh-compile-refs:
+	php sandbox/tests/regress_refresh_compile_refs.php
+
 regress-refresh-rebase:
 	php sandbox/tests/regress_refresh_rebase.php
 
@@ -686,7 +690,7 @@ regress-offline-all: code-half-unit \
 	regress-dynamic-options-policy regress-env-options-policy regress-export-manifest-roundtrip \
 	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
-	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch regress-refresh-orchestration regress-refresh-rebase \
+	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch regress-refresh-orchestration regress-refresh-compile-refs regress-refresh-rebase \
 	regress-coverage-offline regress-bundle-coverage regress-rollback-authority \
 	regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-upload-bundle \
 	regress-effect-bundle regress-woocommerce-effect-contract regress-woocommerce-product-lookups \
@@ -694,7 +698,7 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-regen-engine regress-rebuilder-scope regress-pair-bootstrap-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit
-	@echo "regress-offline-all: 69 offline suites green"
+	@echo "regress-offline-all: 70 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
