@@ -55,6 +55,23 @@ final class NativeActions {
     }
 
     /**
+     * The per-action argument schemas validate() checks against (DUO-3327).
+     *
+     * Additive and read-only. vocabulary() answers "which names exist"; an
+     * offline authoring aid also has to answer "which arguments does this one
+     * take, which are required, and what shape must each be" — and the only
+     * honest answer is the schema the refusal itself consults. A published
+     * schema assembled from a second list would let an editor offer an argument
+     * key this class rejects, which is the drift a closed vocabulary exists to
+     * make impossible.
+     *
+     * @return array<string, array<string, array{type:string, required:bool, pattern?:string}>>
+     */
+    public static function arg_schemas(): array {
+        return self::ACTIONS;
+    }
+
+    /**
      * Load-time gate for one manifest action entry. Unknown names and unknown
      * argument keys are refused rather than ignored: an action a manifest
      * believes it declared, silently dropped, is a derived-state repair that

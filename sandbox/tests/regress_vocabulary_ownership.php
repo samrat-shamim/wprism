@@ -304,96 +304,11 @@ function load_frozen(array $manifests): Policy {
 
 // ---------------------------------------------------------------- fixtures
 
-/**
- * Adapter A: an ordinary, well-formed plugin manifest. It owns a post type
- * (with a body mode, a phase, and a derived-field claim), an option
- * namespace, a table keyspace, and a provider. Everything manifest B tries
- * below is an attempt to reach into one of those.
- */
-function manifest_a(array $overrides = []): array {
-    return array_merge([
-        'name' => 'a',
-        'spec_version' => DUO_SPEC_VERSION,
-        'plugin' => 'acme-a/acme-a.php',
-        'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
-        'option_namespaces' => [['match' => '^acme_a_']],
-        'options' => ['acme_a_setting' => ['class' => 'authored', 'autoload' => 'yes']],
-        'post_types' => [
-            'acme_thing' => [
-                'class' => 'authored',
-                'body' => 'verbatim',
-                'phase' => 'early',
-                'fields' => ['modified' => ['class' => 'derived']],
-                'regen_dependency' => [
-                    'regenerator' => 'acme-a',
-                    'verify' => ['table' => 'acme_a_index', 'column' => 'room_id'],
-                ],
-            ],
-        ],
-        'providers' => [[
-            'id' => 'acme-a-cache',
-            'version' => '1.0.0',
-            'source' => 'manifest',
-            'plugin' => 'acme-a/acme-a.php',
-            'capabilities' => ['flush'],
-        ]],
-        'tables' => [
-            'acme_a_rooms' => [
-                'class' => 'authored_snapshot',
-                'id_kind' => 'acme_room',
-                'pk' => 'room_id',
-                'slug_column' => 'room_code',
-                'columns' => ['room_code' => ['class' => 'authored']],
-                'refs' => [],
-                'identity' => ['mode' => 'natural_key', 'column' => 'room_code'],
-            ],
-        ],
-    ], $overrides);
-}
-
-/**
- * Adapter B: the second plugin. Its POSITIVE form is the intended extension
- * path in full — it declares its own post type with its own body/phase/field
- * claims, its own provider, and a child table whose authored key is unique
- * only WITHIN its parent room, expressed as a parent-scoped natural key whose
- * first component is a ref into a table adapter A owns.
- */
-function manifest_b(array $overrides = []): array {
-    return array_merge([
-        'name' => 'b',
-        'spec_version' => DUO_SPEC_VERSION,
-        'plugin' => 'acme-b/acme-b.php',
-        'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
-        'option_namespaces' => [['match' => '^acme_b_']],
-        'post_types' => [
-            'acme_widget' => [
-                'class' => 'authored',
-                'body' => 'verbatim',
-                'phase' => 'early',
-                'fields' => ['title' => ['class' => 'derived']],
-            ],
-        ],
-        'providers' => [[
-            'id' => 'acme-b-cache',
-            'version' => '1.0.0',
-            'source' => 'manifest',
-            'plugin' => 'acme-b/acme-b.php',
-            'capabilities' => ['flush'],
-        ]],
-        'tables' => [
-            'acme_b_slots' => [
-                'class' => 'authored_snapshot',
-                'id_kind' => 'acme_slot',
-                'pk' => 'slot_id',
-                'slug_column' => 'slot_code',
-                'columns' => ['slot_code' => ['class' => 'authored']],
-                'refs' => [['column' => 'room_id', 'kind' => 'acme_room']],
-                'identity' => ['mode' => 'natural_key', 'columns' => ['room_id', 'slot_code']],
-                'invalidate' => [['table' => 'acme_b_cache', 'column' => 'slot_id'], ['option_pattern' => 'acme_b_slot_{id}']],
-            ],
-        ],
-    ], $overrides);
-}
+// manifest_a()/manifest_b() were established here and now live in
+// sandbox/tests/manifest_fixtures.php, so DUO-3327's offline authoring aid
+// exercises the identical declarations rather than a second copy of them.
+// See that file's header for why it is not named regress_*.
+require __DIR__ . '/manifest_fixtures.php';
 
 /** One-off variant of B, loaded beside an unmodified A. */
 function load_pair(array $b, ?array $a = null): Policy {

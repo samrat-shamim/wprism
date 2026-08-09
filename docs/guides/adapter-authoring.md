@@ -205,6 +205,87 @@ manifest-sourced provider with a triggered, effect-declaring native
 [`manifests/duo-agency-cpt.json`](../../manifests/duo-agency-cpt.json) fixture
 shows a plugin-advertised one.
 
+## Checking the grammar offline
+
+Almost everything above is refusable without a WordPress anywhere: a manifest is
+data, and the validators that read it are the pure half of policy load, which
+runs before any target is contacted. `duo manifest-validate` is that half,
+exposed on its own so you can iterate on a declaration in seconds instead of
+reinstalling an agent to find out you transposed a letter.
+
+```sh
+duo manifest-validate manifests/
+duo manifest-validate manifests/ --manifest=contact-form-7
+duo manifest-validate manifests/ --pins=core,woocommerce --format=json
+```
+
+It needs no environment, no database, no docker, and no `site.duo.json`. Every
+manifest in the directory is loaded on its own first — so one broken file does
+not hide the verdict on the other nine — and then the requested pin set is
+co-loaded, which is the only way the cross-manifest guards run at all
+(one owner per declared name, overlapping option namespaces, conflicting plugin
+claims, duplicate provider ids, duplicate table `id_kind`s). `--manifest`
+narrows what is checked individually; `--pins`/`--all` choose the co-loaded set.
+
+Refusals are the engine's own, printed verbatim with their exact coordinates
+(`manifest 'x' actions[0].args.name …`, `table 'y' … identity.columns …`), plus
+the file path of the manifest they came from. Exit status is `0` when
+everything is valid, `1` when anything is not, and `2` for a usage or IO
+problem.
+
+Two things it is deliberately not. It is **not a gate** — nothing runs it for
+you, and passing it is not a certification, a disposition, or permission to
+promote. And it is **not complete coverage**: every run, passing or failing,
+ends with the list of checks that genuinely need a live target — live table
+schema, `taxonomy_patterns` expansion, installed plugin/theme versions, provider
+negotiation, native-action execution, capability evaluation, and lint's live id
+cross-reference — each marked `deferred` and each naming the engine function
+that owns it. Read that list as the honest boundary of what just happened.
+
+### The JSON report, for editors
+
+`--format=json` emits the same verdict as a document an editor or language
+server can consume directly:
+
+```json
+{
+  "format": "duo-manifest-validation/v1",
+  "spec_version": 2,
+  "manifests_dir": "/path/to/manifests",
+  "status": "ok",
+  "manifests": [{"name": "core", "file": "/path/to/manifests/core.json",
+                 "status": "ok", "message": null}],
+  "pinned_set": {"names": ["core"], "status": "ok", "message": null},
+  "deferred": [{"status": "deferred", "surface": "tables",
+                "check": "Snapshot::assert_row_schema() …", "why": "…"}],
+  "summary": {"checked": 1, "ok": 1, "error": 0}
+}
+```
+
+A `manifests[]` row whose `status` is `error` carries the engine message in
+`message` and the file it belongs to in `file`. A row may additionally carry
+`pinned_set_note` when the manifest failed *in isolation* but is valid inside
+the requested pin set — that is the legitimate case of an adapter naming another
+adapter's declared `id_kind`, where the repair is a pin rather than an edit.
+
+### The grammar document
+
+```sh
+duo manifest-validate --emit-schema
+```
+
+prints the closed vocabularies, bounded patterns, and native-action argument
+schemas as one versioned JSON document (`duo-manifest-grammar/v1`) — the raw
+material for editor completion, a schema-aware linter, or a review checklist.
+
+Every set in it is read out of the engine at emission time, never written down
+in the emitter. That is the only property that makes it worth trusting: a
+hand-maintained copy would keep offering `verbatim` for a release after the
+engine stopped accepting it. Vocabularies whose legal values depend on which
+manifests are pinned — ref, token, and ledger kinds, which extend by *declaring
+a table* — publish the engine-owned base only, named as such; the declared half
+belongs to a pin set, not to the engine.
+
 ## The authoring loop
 
 ### 1. Observe
@@ -267,7 +348,10 @@ policy.
 
 Move the emitted JSON into `manifests/<name>.json`, add `plugin`,
 `version_range`, and the evidence notes by hand, and drop the now-redundant
-site-local rules from `site.duo.json`.
+site-local rules from `site.duo.json`. Run
+`duo manifest-validate manifests/ --manifest=<name>` on the result before going
+further — see [Checking the grammar offline](#checking-the-grammar-offline);
+the hand-added parts are exactly the ones no export path checked.
 
 ### 5. Pin it
 
