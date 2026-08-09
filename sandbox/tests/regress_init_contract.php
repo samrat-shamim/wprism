@@ -121,6 +121,13 @@ check(strpos($agentSource, 'hash_equals') < strpos($agentSource, 'Canon::write_f
 check(str_contains($agentSource, "'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => Code::SOURCE]"), 'site config declares code independently from state policy');
 check(str_contains($agentSource, 'Code::descriptor_from_source($stage)'), 'captured code is validated by the existing descriptor contract before publication');
 check(str_contains($agentSource, 'RepositoryCompiler::compile($repo, $policy)'), 'confirmed baseline is compiled through the loaded policy contract');
+check(str_contains($agentSource, 'Code::complete_initial_baseline($repo, $compiled)'), 'confirmed source baseline completes the generic code lifecycle contract');
+
+$codeSource = file_get_contents(__DIR__ . '/../../agent/src/Code.php');
+check(is_string($codeSource), 'code lifecycle source is readable');
+check(str_contains($codeSource, 'public static function complete_initial_baseline'), 'code lifecycle exposes a narrow initial-baseline primitive');
+check(str_contains($codeSource, 'lifecycle metadata') && str_contains($codeSource, 'already exists'), 'initial baseline refuses to overwrite existing lifecycle metadata');
+check(str_contains($codeSource, 'self::verify_payload($descriptor)') && str_contains($codeSource, 'self::owned_extra_files($descriptor)'), 'initial baseline verifies live bytes and rejects unrecorded managed files');
 
 $woo = json_decode((string) file_get_contents(__DIR__ . '/../../manifests/woocommerce.json'), true, 512, JSON_THROW_ON_ERROR);
 foreach (['product_cat', 'product_tag', 'product_shipping_class', 'product_type'] as $taxonomy) {

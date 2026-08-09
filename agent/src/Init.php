@@ -283,6 +283,7 @@ final class Init {
             $policy = Policy::load($repo);
             $capture = Capture::run($repo);
             $compiled = RepositoryCompiler::compile($repo, $policy);
+            $codeBaseline = Code::complete_initial_baseline($repo, $compiled);
             return [
                 'format' => 'duo-init-result/v1',
                 'proposal_digest' => $expectedDigest,
@@ -297,6 +298,7 @@ final class Init {
                     'management' => 'managed-baseline',
                     'revision_hash' => $descriptor['code_revision'],
                     'source' => Code::SOURCE,
+                    'lifecycle' => $codeBaseline,
                 ],
                 'state' => ['repository' => $repo, 'site_config' => $siteFile],
                 'unsupported' => [],
