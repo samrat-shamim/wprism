@@ -109,21 +109,32 @@ put("$manifestDir/duo-scope-fixture.json", Canon::encode([
     ],
     'spec_version' => 2,
 ]));
+// A term-keyspace relationship taxonomy (DUO-3316) so term -> term
+// `relationships` is a real closure edge here rather than an untested branch.
+// Kept in its OWN manifest so the unpinning experiment below can drop the
+// parent/child declaration while the tree it compiles stays byte-identical.
+put("$manifestDir/duo-scope-taxonomy.json", Canon::encode([
+    'taxonomies' => [
+        'duo_link' => ['object_keyspace' => 'term'],
+    ],
+    'spec_version' => 2,
+]));
 putenv("DUO_MANIFESTS_DIR=$manifestDir");
 
 $ids = [
     'topics' => uuid(1), 'news' => uuid(2), 'about' => uuid(3), 'photo' => uuid(4),
     'menu' => uuid(5), 'item' => uuid(6), 'contact' => uuid(7),
     'parentDoc' => uuid(8), 'childDoc' => uuid(9), 'widget' => uuid(10),
+    'linked' => uuid(11),
 ];
 
 $repo = "$tmp/repo";
 put("$repo/site.duo.json", Canon::encode([
-    'manifests' => ['core', 'duo-scope-fixture'],
+    'manifests' => ['core', 'duo-scope-taxonomy', 'duo-scope-fixture'],
     'policy' => [
         'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [],
         'post_types' => ['post', 'page', 'attachment', 'duo_parent', 'duo_child'],
-        'taxonomies' => ['category', 'post_tag'],
+        'taxonomies' => ['category', 'post_tag', 'duo_link'],
     ],
     'spec_version' => 2,
 ]));
@@ -136,7 +147,12 @@ put("$repo/state/terms/category/{$ids['topics']}--topics.json", Canon::encode([
 ]));
 put("$repo/state/terms/category/{$ids['news']}--news.json", Canon::encode([
     'description' => '', 'meta' => (object) [], 'name' => 'News', 'parent' => $ids['topics'],
-    'relationships' => (object) [], 'slug' => 'news', 'taxonomy' => 'category', 'uuid' => $ids['news'],
+    'relationships' => (object) ['duo_link' => [$ids['linked']]],
+    'slug' => 'news', 'taxonomy' => 'category', 'uuid' => $ids['news'],
+]));
+put("$repo/state/terms/category/{$ids['linked']}--linked.json", Canon::encode([
+    'description' => '', 'meta' => (object) [], 'name' => 'Linked', 'parent' => null,
+    'relationships' => (object) [], 'slug' => 'linked', 'taxonomy' => 'category', 'uuid' => $ids['linked'],
 ]));
 
 $mediaBytes = "duo-scope-media\n";
@@ -219,6 +235,12 @@ check(
     'closure is transitive: the term parent of an included term joins too'
 );
 check(
+    in_array("terms/category/{$ids['linked']}--linked.json", $includedPaths, true)
+    && $reasonByPath["terms/category/{$ids['linked']}--linked.json"] === 'relationship'
+    && $fromByPath["terms/category/{$ids['linked']}--linked.json"] === 'relationships.duo_link[0]',
+    'a declared term-keyspace relationship (DUO-3316) is a closure edge with its own provenance'
+);
+check(
     in_array("posts/attachment/{$ids['photo']}--photo.md", $includedPaths, true)
     && $reasonByPath["posts/attachment/{$ids['photo']}--photo.md"] === 'reference',
     'an attachment referenced only from a block attribute inside the post body is closed over'
@@ -275,11 +297,11 @@ check(
 // The engine must learn the relation only from the manifest. With the
 // fixture adapter unpinned, the identical tree must NOT descend.
 put("$repo/site.duo.json", Canon::encode([
-    'manifests' => ['core'],
+    'manifests' => ['core', 'duo-scope-taxonomy'],
     'policy' => [
         'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [],
         'post_types' => ['post', 'page', 'attachment', 'duo_parent', 'duo_child'],
-        'taxonomies' => ['category', 'post_tag'],
+        'taxonomies' => ['category', 'post_tag', 'duo_link'],
     ],
     'spec_version' => 2,
 ]));
@@ -326,6 +348,20 @@ check(
 );
 
 // ------------------------------------------------------- the all-roots scope
+
+// One entity is one root however many selectors named it, or roots would
+// exceed included and the summary line would read as nonsense.
+$duped = ScopeClosure::resolve($compiled, $policy, [
+    'post:' . $ids['about'],
+    'path:posts/page/' . $ids['about'] . '--about.md',
+]);
+check(
+    $duped['totals']['roots'] === 1
+    && count($duped['roots']) === 1
+    && $duped['totals']['roots'] <= $duped['totals']['included']
+    && $duped['totals']['closure'] === $duped['totals']['included'] - 1,
+    'two selectors naming one entity resolve to a single root, and the totals stay coherent'
+);
 
 $all = ScopeClosure::resolve($compiled, $policy, ['all']);
 check(
@@ -402,7 +438,7 @@ $edges = ReferenceGraph::edges($compiled->tree(), $policy);
 $relations = array_values(array_unique(array_column($edges, 'relation')));
 sort($relations, SORT_STRING);
 check(
-    $relations === ['parent', 'reference', 'term'],
+    $relations === ['parent', 'reference', 'relationship', 'term'],
     'one enumeration produces every declared relation kind present in the revision'
 );
 check(

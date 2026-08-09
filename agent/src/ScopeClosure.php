@@ -334,15 +334,24 @@ final class ScopeClosure {
         }
         usort($inbound, static fn(array $a, array $b): int => [$a['path'], $a['locator']] <=> [$b['path'], $b['locator']]);
 
+        // One entity is one root however many selectors named it — `all`
+        // beside an explicit root, or the same entity by uuid and by path.
+        // Counting the request instead of the result made roots exceed
+        // included, which reads as nonsense. First selector wins, matching
+        // how the closure itself keeps the first reason for an inclusion.
         $rootRows = [];
         foreach ($roots as $root) {
-            $rootRows[] = [
+            if (isset($rootRows[$root['entity']])) {
+                continue;
+            }
+            $rootRows[$root['entity']] = [
                 'selector' => $root['selector'],
                 'entity' => $root['entity'],
                 'path' => (string) $tree[$root['entity']]['path'],
                 'type' => (string) $tree[$root['entity']]['type'],
             ];
         }
+        $rootRows = array_values($rootRows);
 
         return [
             'format' => self::FORMAT,
@@ -354,7 +363,7 @@ final class ScopeClosure {
             'totals' => [
                 'roots' => count($rootRows),
                 'included' => count($rows),
-                'closure' => count($rows) - count(array_unique(array_column($rootRows, 'entity'))),
+                'closure' => count($rows) - count($rootRows),
                 'excluded' => $excludedTotal,
                 'media' => count($media),
                 'inbound' => count($inbound),

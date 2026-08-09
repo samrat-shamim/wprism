@@ -226,4 +226,56 @@ unlink($envsFile);
 rmdir($tmp);
 pass('public JSON/human paths share the report and refuse before target mutation');
 
+// DUO-3344: every verb that reaches the driver preflight must be known to
+// DriverCapabilityReport::requirements(). Registering a verb in cli/duo's
+// dispatch and usage while forgetting this third table produces a command
+// that parses, documents, and routes correctly and then dies in the
+// preflight on EVERY transport before any work — which is exactly how
+// `duo scope` shipped broken. The verb list and the exemptions are both
+// read out of cli/duo rather than restated here, so this cannot pass by
+// being updated in lockstep with the bug.
+$duoSource = file_get_contents(__DIR__ . '/../../cli/duo');
+assert_true(is_string($duoSource) && $duoSource !== '', 'could not read cli/duo');
+
+assert_true(
+    preg_match('/\$verbsNeedingEnv\s*=\s*\[(.*?)\];/s', $duoSource, $verbsMatch) === 1,
+    'could not locate $verbsNeedingEnv in cli/duo'
+);
+preg_match_all("/'([^']+)'/", $verbsMatch[1], $verbNames);
+$verbsNeedingEnv = $verbNames[1];
+assert_true(count($verbsNeedingEnv) >= 15, 'scraped an implausibly short $verbsNeedingEnv');
+assert_true(in_array('scope', $verbsNeedingEnv, true), 'scope is not registered in $verbsNeedingEnv');
+
+// A verb may legitimately never reach the preflight if main() returns for it
+// first (driver-capabilities renders the report itself). Derive that from the
+// source position rather than trusting a hand-kept exemption list.
+$preflightAt = strpos($duoSource, '$transport->capabilityReport(');
+assert_true($preflightAt !== false, 'could not locate the driver preflight call in cli/duo');
+
+$requirements = new ReflectionMethod(DriverCapabilityReport::class, 'requirements');
+$unknown = [];
+$reachedPreflight = 0;
+foreach ($verbsNeedingEnv as $verb) {
+    $earlyReturn = strpos($duoSource, "\$verb === '$verb'");
+    if ($earlyReturn !== false && $earlyReturn < $preflightAt) {
+        continue;
+    }
+    $reachedPreflight++;
+    try {
+        $requirements->invoke(null, $verb);
+    } catch (\Throwable $t) {
+        $unknown[] = $verb . ' (' . $t->getMessage() . ')';
+    }
+}
+assert_true($reachedPreflight >= 14, 'derived exemptions swallowed nearly every verb — the check would prove nothing');
+assert_true(
+    $unknown === [],
+    'these cli/duo verbs reach the driver preflight but are unknown to requirements(): ' . implode('; ', $unknown)
+);
+assert_true(
+    $requirements->invoke(null, 'scope') === $requirements->invoke(null, 'coverage'),
+    'scope must demand exactly what the other read-only passthrough demands'
+);
+pass('every cli/duo verb reaching the driver preflight resolves through requirements()');
+
 echo "REGRESS_ENVIRONMENT_DRIVER PASSED\n";

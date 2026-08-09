@@ -1255,26 +1255,6 @@ final class Cli {
      * [--format=<format>] : Output format. Accepts json (machine-readable,
      *                        versioned by the report's own "format" field).
      */
-    /**
-     * A resolved scope can legitimately be the whole site (--roots=all), so
-     * the human renderer truncates its listings while the counts beside them
-     * stay exact — same bargain `coverage` already strikes with its own
-     * large listings. JSON is never truncated.
-     *
-     * @param list<array<string,mixed>> $rows
-     * @return list<array<string,mixed>>
-     */
-    private static function scope_listing(array $rows, string $noun): array {
-        if (count($rows) <= Coverage::LARGE_LISTING_THRESHOLD) {
-            return $rows;
-        }
-        WP_CLI::warning(sprintf(
-            '%d %s — showing the first %d; the count above is exact regardless. Use --format=json for the full listing.',
-            count($rows), $noun, Coverage::LARGE_LISTING_THRESHOLD
-        ));
-        return array_slice($rows, 0, Coverage::LARGE_LISTING_THRESHOLD);
-    }
-
     public function scope($args, $assoc) {
         $repo = $assoc['repo'] ?? WP_CLI::error('--repo required');
         $roots = $assoc['roots'] ?? WP_CLI::error('--roots required (or --roots=all for the whole revision)');
@@ -1347,6 +1327,30 @@ final class Cli {
         ));
         WP_CLI::line('');
         WP_CLI::success('scope resolved — this is a read-only preview; it captures, promotes, and deletes nothing.');
+    }
+
+    /**
+     * A resolved scope can legitimately be the whole site (--roots=all), so
+     * the human renderer truncates its listings while the counts beside them
+     * stay exact — same bargain `coverage` already strikes with its own
+     * large listings. JSON is never truncated.
+     *
+     * Deliberately BELOW scope(): a private helper between a command and its
+     * docblock silently orphans the wp-cli synopsis, leaving `wp duo scope
+     * --help` empty and the declared options unvalidated.
+     *
+     * @param list<array<string,mixed>> $rows
+     * @return list<array<string,mixed>>
+     */
+    private static function scope_listing(array $rows, string $noun): array {
+        if (count($rows) <= Coverage::LARGE_LISTING_THRESHOLD) {
+            return $rows;
+        }
+        WP_CLI::warning(sprintf(
+            '%d %s — showing the first %d; the count above is exact regardless. Use --format=json for the full listing.',
+            count($rows), $noun, Coverage::LARGE_LISTING_THRESHOLD
+        ));
+        return array_slice($rows, 0, Coverage::LARGE_LISTING_THRESHOLD);
     }
 
     /**
