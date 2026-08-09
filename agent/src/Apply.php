@@ -42,6 +42,15 @@ final class Apply {
     private ?array $negotiatedProviders = null;
     /** @var list<array<string,mixed>> structured rebuild-action receipts for this run's summary */
     private array $actionReceipts = [];
+    /**
+     * Whether this run found DUO-3206's apply_in_progress marker still set,
+     * i.e. it is retrying an apply that committed something and then failed.
+     * run() already reads that marker to widen the rebuild surface set with
+     * already-absent tombstones; DUO-3369's `retry` batch channel hands the
+     * same fact to a provider capability that declared it, so an adapter can
+     * re-verify rather than assume the previous pass got that far.
+     */
+    private bool $retryingIncompleteApply = false;
 
     private function __construct(string $repo, Policy $policy, CompiledRepository $compiled) {
         $this->repo = rtrim($repo, '/');
@@ -1770,6 +1779,7 @@ final class Apply {
         global $wpdb;
         $tree = $compiled->tree();
         $retryingIncompleteApply = Ledger::kv_get('apply_in_progress') !== null;
+        $this->retryingIncompleteApply = $retryingIncompleteApply;
         $plan = $this->build_plan($opts, $compiled);
 
         if ($plan['collision']) {
@@ -2150,7 +2160,12 @@ final class Apply {
         // failed run — see that method's own docblock for why plan's content
         // hash alone (unchanged after a regen-verify failure, since derived
         // tables are excluded from the hash basis) can't carry this signal.
-        $this->rebuild($attachmentIds, $work, $tree, $regenContext);
+        // $rebuildDeleteWork is the SAME tombstone set the pre-mutation
+        // selection projected its surfaces from, handed to the rebuild pass so
+        // a capability that declared the `deletions` channel receives exactly
+        // the tombstones its own triggers selected it for — not a set
+        // re-derived after the commit (see rebuild()'s own docblock).
+        $this->rebuild($attachmentIds, $work, $tree, $regenContext, $rebuildDeleteWork);
 
         // DUO-3220: never infer convergence from the absence of a thrown
         // mutation/rebuild error. Re-capture the target through the same
@@ -4660,17 +4675,29 @@ final class Apply {
      *   keyed by uuid — needed to resolve a $work entry's post_type
      *   ($tree[$uuid]['data']['type']).
      *
-     * Deletion rows are deliberately NOT a parameter: they only ever fed the
-     * canonical surface projection, and DUO-3338 moved that projection (and
-     * the action selection it drives) into run()'s pre-mutation negotiation
-     * gate, so the surfaces this pass acts on are fixed before the first
-     * write rather than re-derived after the commit.
+     * @param array<int,array<string,mixed>> $regenContext this run's captured
+     *   pre-mutation derived-state receipts (delete and reparent), already
+     *   used by regen_dependencies(); DUO-3369 also projects the reparent half
+     *   into the `reparents` provider batch channel.
+     * @param array<int,array<string,mixed>> $deleteWork the tombstone rows the
+     *   PRE-MUTATION selection projected its canonical surfaces from.
+     *
+     * Deletion rows were deliberately not a parameter between DUO-3338 and
+     * DUO-3369: they only ever fed the canonical surface projection, and
+     * DUO-3338 moved that projection (and the action selection it drives) into
+     * run()'s pre-mutation negotiation gate. That property is unchanged — this
+     * pass still never re-derives WHICH actions run — and the rows return for
+     * a different job: a capability declaring the `deletions` channel needs
+     * the tombstones themselves, not merely the surfaces they projected. They
+     * are the identical array run() selected from, passed rather than
+     * recomputed, so the two can never disagree.
      */
     private function rebuild(
         array $attachmentIds,
         array $work = [],
         array $tree = [],
-        array $regenContext = []
+        array $regenContext = [],
+        array $deleteWork = []
     ): void {
         global $wpdb;
 
@@ -4864,10 +4891,14 @@ final class Apply {
                         "duo: required manifest action '$source' was never negotiated before mutation"
                     );
                 }
-                $entities = $declaration['scope'] === 'entity'
-                    ? $this->action_entities($action, $work, $tree)
-                    : [];
-                if ($declaration['scope'] === 'entity' && $entities === []) {
+                $entities = [];
+                $context = [];
+                if ($declaration['scope'] === 'entity') {
+                    $entities = $this->action_entities($action, $work, $tree);
+                    $context = $this->action_context($action, $declaration, $deleteWork, $regenContext);
+                }
+                if ($declaration['scope'] === 'entity'
+                    && !$this->action_batch_has_work($declaration, $entities, $context)) {
                     // A trigger can select this action off deletion or retry-
                     // tombstone surfaces alone (rebuild_surfaces() includes
                     // both), and a deleted entity has no generated data left
@@ -4875,13 +4906,28 @@ final class Apply {
                     // the provider verify the nothing it received and record
                     // a repair as done — so the skip is explicit, in both the
                     // human line and the machine receipt, never silent.
+                    //
+                    // DUO-3369 narrowed WHEN that is true rather than
+                    // loosening it: a capability that declared the `deletions`
+                    // channel asked to be told about tombstones, so a
+                    // deletion-only selection is real work for it and no
+                    // longer skipped. The skip survives for exactly the case
+                    // it was written for — nothing declared, or everything
+                    // declared came back empty. The receipt strings below stay
+                    // byte-identical on the channel-less path.
+                    $declared = (array) ($declaration['context'] ?? []);
                     $this->warnings[] = "provider capability skipped: $id $capability "
-                        . '(entity-scoped; no created/updated entity matched its triggers this run)';
+                        . '(entity-scoped; no created/updated entity matched its triggers this run'
+                        . ($declared === [] ? '' : ', and every declared batch channel ('
+                            . implode(', ', $declared) . ') is empty') . ')';
                     $this->actionReceipts[] = [
                         'manifest' => (string) $action['manifest'],
                         'source' => $source,
                         'kind' => 'provider',
-                        'skipped' => 'empty entity batch (deletion/tombstone-only trigger match)',
+                        'skipped' => $declared === []
+                            ? 'empty entity batch (deletion/tombstone-only trigger match)'
+                            : 'empty entity batch and empty declared batch channels ('
+                                . implode(', ', $declared) . ')',
                     ];
                     continue;
                 }
@@ -4889,7 +4935,8 @@ final class Apply {
                     $this->negotiatedProviders['providers'][$id],
                     $action,
                     $declaration,
-                    $entities
+                    $entities,
+                    $context
                 );
                 $version = (string) ($declarations[$id]['version'] ?? '?');
                 $this->warnings[] = "provider capability fired: $id@$version $capability ("
@@ -4981,6 +5028,202 @@ final class Apply {
         $out = array_values($entities);
         usort($out, static fn(array $a, array $b): int =>
             strcmp($a['kind'], $b['kind']) ?: ($a['id'] <=> $b['id']));
+        return $out;
+    }
+
+    /**
+     * Assemble the engine batch channels one `scope: entity` capability
+     * DECLARED (DUO-3369), and only those.
+     *
+     * Opt-in is the whole design. The entity batch above answers "what did
+     * this run write"; a derived-state repair usually also needs "what did it
+     * remove, and what moved" — the facts the regenerator channel already
+     * hands its batch adapters, and whose absence from the provider contract
+     * is what blocked migrating that dispatch (DUO-3342). Handing every
+     * capability all of it instead would change what already-shipped providers
+     * receive, so each channel is delivered only where the negotiated
+     * declaration named it, and a capability that named none takes the exact
+     * pre-DUO-3369 path (Providers::batch_payload()).
+     *
+     * Channels are narrowed by the action's OWN triggers, identically to the
+     * entity batch: an action selected for `post:product` receives product
+     * tombstones, never every tombstone in the revision. That keeps one
+     * adapter's declaration from becoming a window onto another adapter's
+     * entities, which is the ownership rule the closed trigger vocabulary
+     * exists to enforce.
+     *
+     * @param array<string,mixed> $action a selected provider-kind declaration
+     * @param array<string,mixed> $declaration the negotiated capability
+     * @param array<int,array<string,mixed>> $deleteWork tombstone rows
+     * @param array<int,array<string,mixed>> $regenContext pre-mutation receipts
+     * @return array<string,mixed> channel name => assembled value
+     */
+    private function action_context(
+        array $action,
+        array $declaration,
+        array $deleteWork,
+        array $regenContext
+    ): array {
+        $context = [];
+        if (Providers::declares_channel($declaration, 'deletions')) {
+            $context['deletions'] = $this->action_deletions($action, $deleteWork);
+        }
+        if (Providers::declares_channel($declaration, 'reparents')) {
+            $context['reparents'] = $this->action_reparents($action, $regenContext);
+        }
+        if (Providers::declares_channel($declaration, 'retry')) {
+            $context['retry'] = $this->retryingIncompleteApply;
+        }
+        return $context;
+    }
+
+    /**
+     * Is there anything for this capability to do, across every channel it
+     * declared?
+     *
+     * `always_on_write` mirrors regen_dependency's flag of the same name
+     * (Apply::regen_batch_dependencies(): a batch declaration carrying it
+     * receives every write candidate even when the cheap existence check would
+     * have skipped it). The engine's cheap check on this path is the empty
+     * batch, so declaring the flag here means the same thing: fire anyway, and
+     * let the capability's own readback decide there was nothing to repair.
+     *
+     * A true `retry` counts as work for the same reason a regen_pending marker
+     * is a candidate in its own right — a previous pass committed something
+     * and then failed, so "this run wrote nothing" is not evidence the derived
+     * state is converged.
+     *
+     * @param array<string,mixed> $declaration the negotiated capability
+     * @param list<array{kind:string,id:int}> $entities
+     * @param array<string,mixed> $context
+     */
+    private function action_batch_has_work(array $declaration, array $entities, array $context): bool {
+        if ($entities !== []) {
+            return true;
+        }
+        if (Providers::declares_channel($declaration, 'always_on_write')) {
+            return true;
+        }
+        foreach ($context as $value) {
+            if ($value === true || (is_array($value) && $value !== [])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The `deletions` channel: this run's tombstones whose canonical surface
+     * the action's triggers name, each as {kind, uuid, id}.
+     *
+     * `kind` is the same exact canonical-surface literal the trigger matched,
+     * so a row identifies its own surface without the capability re-deriving
+     * one from a post type. `uuid` is the canonical identity, which outlives
+     * the target row and is the only stable handle for an entity that no
+     * longer exists. `id` is the target-local id the ledger still holds:
+     * Ledger::forget() runs in the ledger transaction AFTER this pass, so a
+     * tombstone applied by this run still resolves, while one already applied
+     * by a previous, incomplete run (plan['deleted'], folded in only while
+     * retrying) may not — that case carries 0, meaning "the mapping is gone",
+     * never a guessed id.
+     *
+     * The unresolvable case is deliberately NOT the hard failure
+     * action_entities() raises for the same situation: there, a just-written
+     * entity with no ledger id is a bug that would silently shorten a repair
+     * batch; here, a missing mapping is the expected end state of a deletion
+     * and refusing on it would make retrying an incomplete apply impossible.
+     *
+     * @param array<string,mixed> $action
+     * @param array<int,array<string,mixed>> $deleteWork
+     * @return list<array{kind:string, uuid:string, id:int}>
+     */
+    private function action_deletions(array $action, array $deleteWork): array {
+        $triggers = array_fill_keys((array) ($action['triggers'] ?? []), true);
+        $rows = [];
+        foreach ($deleteWork as $entry) {
+            $uuid = (string) ($entry['uuid'] ?? '');
+            if ($uuid === '') {
+                continue;
+            }
+            foreach ($this->deletion_rebuild_surfaces($entry) as $surface) {
+                if (!isset($triggers[$surface])) {
+                    continue;
+                }
+                $rows[$surface . "\0" . $uuid] = [
+                    'kind' => $surface,
+                    'uuid' => $uuid,
+                    'id' => $this->entity_local_id($entry, $uuid) ?? 0,
+                ];
+            }
+        }
+        $out = array_values($rows);
+        usort($out, static fn(array $a, array $b): int =>
+            strcmp($a['kind'], $b['kind']) ?: strcmp($a['uuid'], $b['uuid']));
+        return $out;
+    }
+
+    /**
+     * The `reparents` channel: the pre-mutation reparent receipts this apply
+     * captured, for surfaces the action's triggers name — one row per
+     * (entity, root), as {kind, uuid, id, root_id, old_parent_id,
+     * new_parent_id}.
+     *
+     * One row per ROOT, rather than one row per entity carrying a list, is
+     * what the closed row grammar costs and buys: a row field is a scalar
+     * (Providers::FIELD_TYPES), so a receipt whose root set accumulated across
+     * a chained A->B->C move — capture_regen_reparent_context() merges the
+     * durable marker precisely so root A is not lost when a rebuild fails
+     * between moves — normalizes into rows instead of smuggling a list into a
+     * string. Dropping the extra roots instead would silently reintroduce the
+     * stale-root bug that merge exists to prevent; the old/new pair rides on
+     * every row of the same entity so a consumer that only wants "where did
+     * this move" still has it without a second channel.
+     *
+     * Bound worth stating: the engine captures a reparent receipt only for
+     * post types whose manifest declares a batch regen_dependency (that
+     * capture is what writes the receipt at all). A provider-only manifest
+     * therefore sees this channel empty until that capture widens — the
+     * channel is honest about what the engine holds today, not a promise the
+     * capture does not keep.
+     *
+     * @param array<string,mixed> $action
+     * @param array<int,array<string,mixed>> $regenContext
+     * @return list<array{kind:string, uuid:string, id:int, root_id:int, old_parent_id:int, new_parent_id:int}>
+     */
+    private function action_reparents(array $action, array $regenContext): array {
+        $triggers = array_fill_keys((array) ($action['triggers'] ?? []), true);
+        $rows = [];
+        foreach ($regenContext as $entry) {
+            if (!is_array($entry) || ($entry['kind'] ?? 'delete') !== 'reparent') {
+                continue;
+            }
+            $postType = (string) ($entry['post_type'] ?? '');
+            $surface = $postType !== '' ? 'post:' . $postType : 'entity:post';
+            if (!isset($triggers[$surface])) {
+                continue;
+            }
+            $uuid = (string) ($entry['uuid'] ?? '');
+            // capture_regen_reparent_context() records nothing without a
+            // previous parent, so the root set is non-empty in practice; the
+            // fallback keeps a malformed receipt VISIBLE as a move with no
+            // known root rather than dropping the entity from the channel.
+            $roots = $this->regen_context_root_ids($entry) ?: [0];
+            foreach ($roots as $rootId) {
+                $rows[$surface . "\0" . $uuid . "\0" . (int) $rootId] = [
+                    'kind' => $surface,
+                    'uuid' => $uuid,
+                    'id' => (int) ($entry['id'] ?? 0),
+                    'root_id' => (int) $rootId,
+                    'old_parent_id' => (int) ($entry['old_parent_id'] ?? $entry['parent_id'] ?? 0),
+                    'new_parent_id' => (int) ($entry['new_parent_id'] ?? 0),
+                ];
+            }
+        }
+        $out = array_values($rows);
+        usort($out, static fn(array $a, array $b): int =>
+            strcmp($a['kind'], $b['kind'])
+            ?: strcmp($a['uuid'], $b['uuid'])
+            ?: ($a['root_id'] <=> $b['root_id']));
         return $out;
     }
 

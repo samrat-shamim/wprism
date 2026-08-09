@@ -356,6 +356,23 @@ $m = probe_manifest();
 $m['actions'][1]['args'] = ['groups' => [['deep']]];
 refuse_probe($m, 'must be a scalar or a list of scalars', 'a list-of-lists provider argument is refused');
 
+// DUO-3369 widened this load-time bound by exactly one shape: a list of FLAT
+// objects, for the `list<object>` argument type the capability declaration
+// grammar gained. The depth bound is what moved (from zero object levels to
+// exactly one), not the principle — the negotiated field vocabulary still
+// decides which fields this particular capability accepts, and
+// regress_provider_contract.php owns that half.
+$m = probe_manifest();
+$m['actions'][1]['args'] = ['groups' => [['kind' => 'post:probe', 'id' => 7, 'purged' => true]]];
+load_probe($m);
+check(true, 'a list of FLAT objects is a legal provider argument shape at load (DUO-3369 list<object> values)');
+$m = probe_manifest();
+$m['actions'][1]['args'] = ['groups' => [['kind' => 'post:probe', 'children' => [['id' => 8]]]]];
+refuse_probe($m, "row 0 field 'children' must be a scalar", 'an object row carrying its own nested payload is still refused — one level, not arbitrary depth');
+$m = probe_manifest();
+$m['actions'][1]['args'] = ['groups' => [['Kind' => 'post:probe']]];
+refuse_probe($m, 'row 0 field names must match', 'an object row field name outside the bounded charset is refused');
+
 // Cross-manifest reach is refused as its own case: `providers` is a per-manifest
 // namespace at load time even though provider_declarations() is global, so one
 // adapter cannot make its behavior depend on another adapter's pin.

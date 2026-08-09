@@ -28,13 +28,75 @@ final class Providers {
      * capability may not declare it in its own argument schema — otherwise the
      * batch the engine assembled and the batch the manifest asked for could
      * silently disagree about which entities were repaired.
+     *
+     * DUO-3369: its VALUE now has two shapes, and which one a capability
+     * receives is decided by that capability's OWN declaration, never by what
+     * this run happened to produce:
+     *   - no `context` key declared — the bare `list<array{kind,id}>` batch,
+     *     byte-identical to what DUO-3338 injected. An already-shipped
+     *     provider cannot observe that this channel grew at all;
+     *     regress_provider_contract.php freezes the exact serialized bytes a
+     *     channel-less capability receives, captured from the pre-change
+     *     engine, so "byte-compatible" is a failing check rather than a claim.
+     *   - one or more declared channels — an envelope
+     *     `{entities: [...], deletions?: [...], reparents?: [...], retry?: bool}`
+     *     carrying ONLY the declared channels, always in that key order. An
+     *     undeclared channel is ABSENT rather than empty, so a capability can
+     *     tell "declared, and nothing happened this run" from "never asked
+     *     for" without consulting its own manifest.
      */
     public const ENTITIES_ARG = 'entities';
+
+    /**
+     * The engine batch channels a `scope: entity` capability may opt into
+     * (DUO-3369). This is the doctrine's "declared … required lifecycle
+     * context" and "batching … and retry semantics" (docs/proposals/
+     * engine-adapter-boundary.md, "The provider contract must define"), made
+     * declarable instead of implicit. Closed for the same reason the
+     * native-action vocabulary is closed: every name is engine-assembled
+     * evidence with one fixed meaning, so an adapter may opt IN to a channel
+     * but may never mint one — a name the engine does not assemble would be a
+     * claim nothing ever satisfies.
+     *
+     *   - `deletions`        tombstone rows from the deletion work this run's
+     *                        action selection already projected surfaces from,
+     *                        narrowed to the action's own triggers.
+     *   - `reparents`        the reparent receipts this apply captured before
+     *                        moving a post_parent, narrowed the same way.
+     *   - `retry`            whether this apply is retrying an incomplete one
+     *                        (the `apply_in_progress` marker the selection
+     *                        already consults for its tombstone surfaces).
+     *   - `always_on_write`  behavioral, and deliberately carries NO payload
+     *                        key: it mirrors regen_dependency's flag of the
+     *                        same name (Apply::regen_batch_dependencies() —
+     *                        fire even when the engine's own cheap check says
+     *                        there is nothing to do), which for this channel
+     *                        means the empty-batch skip receipt is suppressed
+     *                        and the capability fires anyway.
+     */
+    public const CONTEXT_CHANNELS = ['always_on_write', 'deletions', 'reparents', 'retry'];
+
+    /**
+     * The channels that actually carry a payload key, in injection order. The
+     * order is the engine's, not the declaration's: two capabilities declaring
+     * the same channels in different orders must receive byte-identical
+     * envelopes, or a provider comparing receipts across runs would see a
+     * difference that means nothing.
+     */
+    public const BATCH_CHANNELS = ['deletions', 'reparents', 'retry'];
 
     private const ID_PATTERN = '/^[a-z][a-z0-9-]{0,63}$/D';
     private const CAPABILITY_PATTERN = '/^[a-z0-9_]{1,64}$/D';
     private const ARG_NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/D';
-    private const ARG_TYPES = ['bool', 'int', 'list<string>', 'string'];
+    private const ARG_TYPES = ['bool', 'int', 'list<object>', 'list<string>', 'string'];
+    /**
+     * Types a `list<object>` row FIELD may declare. Deliberately the scalars
+     * only: the object grammar is exactly one level deep, so neither a nested
+     * `list<object>` nor a `list<string>` field can open a second nesting axis
+     * the validator would then have to walk to an unbounded depth. A shape
+     * that genuinely needs two levels is a second argument, not a deeper one.
+     */
+    private const FIELD_TYPES = ['bool', 'int', 'string'];
 
     /**
      * Resolve, verify, and bind every provider the selected actions reach.
@@ -218,19 +280,34 @@ final class Providers {
      * @param array<string,mixed> $actionEntry one Policy::actions_for() row
      * @param array<string,mixed> $capabilityDecl the negotiated declaration
      * @param list<array{kind:string,id:int}> $entities batch for scope=entity
+     * @param array<string,mixed> $context engine batch channels the caller
+     *   assembled, keyed by channel name — exactly the declared BATCH_CHANNELS,
+     *   no more and no fewer (see batch_payload()).
      * @return array{before:mixed, after:mixed, verified:true, duration_seconds:float}
      */
     public static function invoke(
         object $provider,
         array $actionEntry,
         array $capabilityDecl,
-        array $entities
+        array $entities,
+        array $context = []
     ): array {
         $id = (string) $actionEntry['provider'];
         $capability = (string) $actionEntry['capability'];
         $args = (array) ($actionEntry['args'] ?? []);
         if (($capabilityDecl['scope'] ?? '') === 'entity') {
-            $args[self::ENTITIES_ARG] = $entities;
+            $args[self::ENTITIES_ARG] = self::batch_payload($id, $capability, $capabilityDecl, $entities, $context);
+        } elseif ($context !== []) {
+            // Unreachable through Apply, which only assembles channels for an
+            // entity-scoped declaration (and negotiation refuses `context` on
+            // scope: site outright). Fail closed rather than drop the context
+            // silently: a caller that assembled deletion evidence and had it
+            // discarded would report a repair that never saw the tombstones.
+            throw new \RuntimeException(
+                "duo: provider '$id' capability '$capability' is scope: site but was handed engine batch "
+                . 'context (' . implode(', ', array_keys($context)) . ') — only scope: entity capabilities '
+                . 'receive a batch'
+            );
         }
         $started = microtime(true);
         try {
@@ -264,6 +341,109 @@ final class Providers {
             );
         }
         return $receipt + ['duration_seconds' => round($elapsed, 3)];
+    }
+
+    /**
+     * Does this negotiated declaration opt into one engine batch channel?
+     *
+     * The lookup is the engine's own, not a string comparison scattered across
+     * Apply: asking for a name outside CONTEXT_CHANNELS is a programming error
+     * that throws here rather than quietly answering "no" — a mistyped channel
+     * that reads as undeclared would silently withhold evidence the capability
+     * did ask for.
+     *
+     * @param array<string,mixed> $capabilityDecl the negotiated declaration
+     */
+    public static function declares_channel(array $capabilityDecl, string $channel): bool {
+        if (!in_array($channel, self::CONTEXT_CHANNELS, true)) {
+            throw new \RuntimeException(
+                "duo: '$channel' is not an engine batch channel — the closed set is "
+                . implode(', ', self::CONTEXT_CHANNELS)
+            );
+        }
+        return in_array($channel, (array) ($capabilityDecl['context'] ?? []), true);
+    }
+
+    /**
+     * The value injected under ENTITIES_ARG: the bare batch, or the envelope.
+     *
+     * Byte-compatibility is the load-bearing property, and it is structural
+     * rather than careful: a declaration with no `context` key takes the early
+     * return and hands back the caller's `$entities` array itself, so there is
+     * no code path on which an existing capability's injected argument could
+     * acquire a key, a reordering, or a re-encoding. Everything below the
+     * early return is reachable only for a capability that asked for it.
+     *
+     * Both mismatch directions are refusals, because both are engine bugs with
+     * silent, wrong-looking-correct outcomes: a channel supplied but never
+     * declared would hand a provider evidence its negotiated contract never
+     * promised, and a channel declared but not supplied would let it verify a
+     * deletion sweep against a batch that simply omitted the tombstones.
+     *
+     * @param array<string,mixed> $decl the negotiated capability declaration
+     * @param list<array{kind:string,id:int}> $entities
+     * @param array<string,mixed> $context channel name => assembled value
+     * @return list<array{kind:string,id:int}>|array<string,mixed>
+     */
+    private static function batch_payload(
+        string $id,
+        string $capability,
+        array $decl,
+        array $entities,
+        array $context
+    ): array {
+        $channels = (array) ($decl['context'] ?? []);
+        if ($channels === []) {
+            if ($context !== []) {
+                throw new \RuntimeException(
+                    "duo: provider '$id' capability '$capability' was handed engine batch context ("
+                    . implode(', ', array_keys($context)) . ') it never declared — a capability receives '
+                    . 'only the channels its own declaration names'
+                );
+            }
+            return $entities;
+        }
+        $unknown = array_diff(array_keys($context), self::BATCH_CHANNELS);
+        if ($unknown !== []) {
+            throw new \RuntimeException(
+                "duo: provider '$id' capability '$capability' received engine batch context under name(s) the "
+                . 'engine does not assemble: ' . implode(', ', $unknown) . ' — the closed set is '
+                . implode(', ', self::BATCH_CHANNELS)
+            );
+        }
+        $payload = [self::ENTITIES_ARG => $entities];
+        foreach (self::BATCH_CHANNELS as $channel) {
+            $declared = in_array($channel, $channels, true);
+            if (!$declared) {
+                if (array_key_exists($channel, $context)) {
+                    throw new \RuntimeException(
+                        "duo: provider '$id' capability '$capability' was handed the '$channel' batch channel "
+                        . 'it never declared — declared: ' . implode(', ', $channels)
+                    );
+                }
+                continue;
+            }
+            if (!array_key_exists($channel, $context)) {
+                throw new \RuntimeException(
+                    "duo: provider '$id' capability '$capability' declared the '$channel' batch channel but "
+                    . 'the engine assembled none — an absent declared channel would be indistinguishable '
+                    . 'from an empty one'
+                );
+            }
+            $value = $context[$channel];
+            $wellFormed = $channel === 'retry'
+                ? is_bool($value)
+                : is_array($value) && array_is_list($value);
+            if (!$wellFormed) {
+                throw new \RuntimeException(
+                    "duo: provider '$id' capability '$capability' batch channel '$channel' was assembled as "
+                    . get_debug_type($value) . ' — ' . ($channel === 'retry' ? 'that channel is a boolean flag'
+                        : 'that channel is a list of engine-assembled rows')
+                );
+            }
+            $payload[$channel] = $value;
+        }
+        return $payload;
     }
 
     /**
@@ -553,14 +733,25 @@ final class Providers {
      * the action's `effects` list, which has its own selector grammar; these
      * two lists are the negotiation-time summary, not a second effects
      * channel.
+     *
+     * `context` (DUO-3369) is the one OPTIONAL key: absent means a capability
+     * declared exactly what DUO-3338 allowed and receives exactly what it
+     * received then. It is validated here, at negotiation, for the same reason
+     * every other axis is — an unhonored channel name in a declaration is a
+     * claim the engine would otherwise silently ignore while the operator
+     * believes deletion evidence was being delivered.
      */
     private static function validate_capability_declaration(array $decl, string $where): void {
         $keys = array_keys($decl);
         sort($keys, SORT_STRING);
-        $expected = ['args', 'idempotent', 'reads', 'scope', 'timeout_seconds', 'writes'];
-        if ($keys !== $expected) {
+        $required = ['args', 'idempotent', 'reads', 'scope', 'timeout_seconds', 'writes'];
+        $optional = ['context'];
+        $missing = array_diff($required, $keys);
+        $unknown = array_diff($keys, $required, $optional);
+        if ($missing !== [] || $unknown !== []) {
             throw new \RuntimeException(
-                "$where must declare exactly " . implode(', ', $expected)
+                "$where must declare exactly " . implode(', ', $required)
+                . ' (optional: ' . implode(', ', $optional) . ')'
                 . ' (found: ' . ($keys === [] ? 'nothing' : implode(', ', $keys)) . ')'
             );
         }
@@ -592,6 +783,47 @@ final class Providers {
                 $seen[$surface] = true;
             }
         }
+        if (array_key_exists('context', $decl)) {
+            $channels = $decl['context'];
+            if (!is_array($channels) || !array_is_list($channels) || $channels === []) {
+                // An empty list is refused rather than treated as "no
+                // channels": it would declare the envelope shape while
+                // carrying nothing, so a provider author reading their own
+                // declaration and the payload they receive would disagree
+                // about whether the engine honored the key at all.
+                throw new \RuntimeException(
+                    "$where.context must be a non-empty list of engine batch channels ("
+                    . implode(', ', self::CONTEXT_CHANNELS) . ')'
+                );
+            }
+            $seenChannel = [];
+            foreach ($channels as $channel) {
+                $channel = is_string($channel) ? $channel : get_debug_type($channel);
+                if (!in_array($channel, self::CONTEXT_CHANNELS, true)) {
+                    throw new \RuntimeException(
+                        "$where.context names '$channel', which is not an engine batch channel — the closed "
+                        . 'set is ' . implode(', ', self::CONTEXT_CHANNELS)
+                        . ' (the engine assembles these; a capability may opt in, never mint one)'
+                    );
+                }
+                if (isset($seenChannel[$channel])) {
+                    throw new \RuntimeException("$where.context repeats channel '$channel'");
+                }
+                $seenChannel[$channel] = true;
+            }
+            if ($decl['scope'] !== 'entity') {
+                // Every channel is assembled from per-entity work the action's
+                // own triggers narrow. A site-scoped capability receives no
+                // batch at all, so honoring `context` there would mean
+                // inventing a scope the declaration did not ask for.
+                throw new \RuntimeException(
+                    "$where.context is only meaningful for scope: entity, but this declaration is scope: "
+                    . (is_string($decl['scope']) ? $decl['scope'] : get_debug_type($decl['scope']))
+                    . ' (declared channels: ' . implode(', ', $channels)
+                    . ') — make the capability scope: entity, or drop the context key'
+                );
+            }
+        }
         $args = $decl['args'];
         if (!is_array($args) || (array_is_list($args) && $args !== [])) {
             throw new \RuntimeException("$where.args must be an object mapping argument name to its type");
@@ -609,8 +841,12 @@ final class Providers {
             }
             $ruleKeys = is_array($rule) ? array_keys($rule) : [];
             sort($ruleKeys, SORT_STRING);
-            if ($ruleKeys !== ['required', 'type']) {
-                throw new \RuntimeException("$where.args.$arg must declare exactly type and required");
+            $objectList = is_array($rule) && ($rule['type'] ?? null) === 'list<object>';
+            if ($ruleKeys !== ($objectList ? ['fields', 'required', 'type'] : ['required', 'type'])) {
+                throw new \RuntimeException(
+                    "$where.args.$arg must declare exactly type and required"
+                    . ($objectList ? ' and fields (list<object> carries its own closed field vocabulary)' : '')
+                );
             }
             if (!in_array($rule['type'], self::ARG_TYPES, true)) {
                 throw new \RuntimeException(
@@ -619,6 +855,58 @@ final class Providers {
             }
             if (!is_bool($rule['required'])) {
                 throw new \RuntimeException("$where.args.$arg.required must be a boolean");
+            }
+            if ($objectList) {
+                self::validate_field_declarations($rule['fields'], "$where.args.$arg");
+            }
+        }
+    }
+
+    /**
+     * The row-field vocabulary of one `list<object>` argument (DUO-3369).
+     *
+     * A typed object list exists so a capability can receive STRUCTURED rows —
+     * a tombstone's surface, uuid, and prior local id — without the contract
+     * degrading into "pass whatever you like as an array". That only holds if
+     * the field vocabulary is as closed as the argument vocabulary above it,
+     * which is why an empty `fields` map refuses: a list<object> with no
+     * declared fields would accept nothing but empty objects while READING as
+     * a free-form payload channel, the exact shape the DUO-3338 contract
+     * exists to keep out of manifests.
+     *
+     * Exactly one level of nesting, enforced by FIELD_TYPES rather than by a
+     * depth counter: an object grammar that can contain itself has no bound a
+     * reviewer can state, and every case this issue's regenerator-channel
+     * migration needs is one level deep.
+     *
+     * @param mixed $fields the declared `fields` map
+     */
+    private static function validate_field_declarations(mixed $fields, string $where): void {
+        if (!is_array($fields) || $fields === [] || array_is_list($fields)) {
+            throw new \RuntimeException(
+                "$where.fields must be a non-empty object mapping row field name to its type — a list<object> "
+                . 'without a closed field vocabulary would be a free-form payload'
+            );
+        }
+        foreach ($fields as $field => $rule) {
+            $field = (string) $field;
+            if (preg_match(self::ARG_NAME_PATTERN, $field) !== 1) {
+                throw new \RuntimeException("$where.fields has an unbounded or malformed field name '$field'");
+            }
+            $ruleKeys = is_array($rule) ? array_keys($rule) : [];
+            sort($ruleKeys, SORT_STRING);
+            if ($ruleKeys !== ['required', 'type']) {
+                throw new \RuntimeException("$where.fields.$field must declare exactly type and required");
+            }
+            if (!in_array($rule['type'], self::FIELD_TYPES, true)) {
+                throw new \RuntimeException(
+                    "$where.fields.$field.type must be one of " . implode(', ', self::FIELD_TYPES)
+                    . ' — a list<object> nests exactly one level, so a row field may not itself be a list '
+                    . 'or an object'
+                );
+            }
+            if (!is_bool($rule['required'])) {
+                throw new \RuntimeException("$where.fields.$field.required must be a boolean");
             }
         }
     }
@@ -630,7 +918,7 @@ final class Providers {
      * that quietly does something other than what the declaration says.
      *
      * @param array<string,mixed> $args
-     * @param array<string,array{type:string,required:bool}> $schema
+     * @param array<string,array{type:string,required:bool,fields?:array<string,array{type:string,required:bool}>}> $schema
      */
     private static function validate_args(array $args, array $schema, string $where): void {
         $unknown = array_diff(array_keys($args), array_keys($schema));
@@ -653,9 +941,73 @@ final class Providers {
                 'bool' => is_bool($value),
                 'list<string>' => is_array($value) && array_is_list($value)
                     && array_filter($value, 'is_string') === $value,
+                'list<object>' => is_array($value) && array_is_list($value),
             };
             if (!$ok) {
                 throw new \RuntimeException("$where argument '$name' must be of type {$rule['type']}");
+            }
+            if ($rule['type'] === 'list<object>') {
+                // A validated declaration always carries `fields` (the
+                // declaration check above refuses the type without it); the
+                // fallback keeps this fail-closed for any future caller
+                // validating against a hand-built schema — an absent field
+                // vocabulary then rejects every row rather than accepting any.
+                self::validate_object_rows(
+                    $value,
+                    (array) ($rule['fields'] ?? []),
+                    "$where argument '$name'"
+                );
+            }
+        }
+    }
+
+    /**
+     * The rows of one `list<object>` argument value against its declared field
+     * vocabulary (DUO-3369).
+     *
+     * Same posture as the argument-level check one frame up, one level down: a
+     * field the manifest believes it passed and the capability never declared
+     * is silently dropped work, and a row that is really a nested list arrives
+     * here as integer keys — reported as the unknown fields they are, so the
+     * one-level bound is enforced on VALUES too and not only on declarations.
+     *
+     * @param list<mixed> $rows
+     * @param array<string,array{type:string,required:bool}> $fields
+     */
+    private static function validate_object_rows(array $rows, array $fields, string $where): void {
+        foreach ($rows as $index => $row) {
+            if (!is_array($row)) {
+                throw new \RuntimeException(
+                    "$where row $index must be an object of " . implode(', ', array_keys($fields))
+                    . ' (found: ' . get_debug_type($row) . ')'
+                );
+            }
+            $unknown = array_diff(array_map('strval', array_keys($row)), array_keys($fields));
+            if ($unknown !== []) {
+                throw new \RuntimeException(
+                    "$where row $index contains field(s) the capability does not declare: "
+                    . implode(', ', $unknown) . ' (declared: ' . implode(', ', array_keys($fields)) . ')'
+                );
+            }
+            foreach ($fields as $field => $rule) {
+                if (!array_key_exists($field, $row)) {
+                    if ($rule['required']) {
+                        throw new \RuntimeException("$where row $index is missing required field '$field'");
+                    }
+                    continue;
+                }
+                $value = $row[$field];
+                $ok = match ($rule['type']) {
+                    'string' => is_string($value),
+                    'int' => is_int($value),
+                    'bool' => is_bool($value),
+                };
+                if (!$ok) {
+                    throw new \RuntimeException(
+                        "$where row $index field '$field' must be of type {$rule['type']} (found: "
+                        . get_debug_type($value) . ')'
+                    );
+                }
             }
         }
     }

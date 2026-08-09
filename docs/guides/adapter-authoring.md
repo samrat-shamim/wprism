@@ -197,6 +197,17 @@ refused — an exit code is not evidence that derived state was repaired. A
 successful native action surfaces in apply's output as
 `native action fired: <action> (verified)`.
 
+An argument may be a scalar, a `list<string>`, or a `list<object>` — the last
+declaring its own closed `fields` vocabulary of `bool`/`int`/`string`, exactly
+one level deep, so a row is structured without becoming a free-form payload. An
+entity-scoped capability may additionally declare
+`"context": ["deletions", "reparents", "retry", "always_on_write"]` (any subset,
+no duplicates, refused on `scope: "site"`), which is how a capability receives
+what the batch regenerator channel receives: tombstones, reparent roots, the
+incomplete-retry flag, and fire-anyway semantics. Declared channels arrive
+alongside the entity batch under the reserved `entities` argument; declare none
+and the argument stays exactly the bare row list it has always been.
+
 An adapter needing no executable semantics declares neither key and stays purely
 declarative. Most should. For worked examples,
 [`manifests/woocommerce.json`](../../manifests/woocommerce.json) pairs a
