@@ -178,17 +178,26 @@ final class Cli {
      * their non-JSON rendering and are a candidate for typed refusals, not
      * for this branch.
      */
+    /**
+     * The commands whose duo:-prefixed raw refusals may publish. This is an
+     * ALLOWLIST, and the rule is contract provenance, not command category:
+     * these are the commands whose reachable refusal messages were audited
+     * value-free at DUO-3398 (one of them load-bearing for the DUO-3328
+     * ninja-forms certification contract). refresh-export and scope are
+     * absent because DUO-3397 deliberately pinned blanket redaction for
+     * them — a fresh reviewed decision this branch does not reverse —
+     * and explain is absent because its own catch declares a stricter
+     * value-free posture than any other command. A command not on this
+     * list is redacted until someone audits it and adds it here WITH its
+     * suite pins; silently inheriting publication is how the DUO-3398
+     * fix-forward incident happened.
+     */
+    private const PUBLIC_REFUSAL_COMMANDS = [
+        'apply', 'capture', 'code-finalize', 'code-stage', 'compile', 'deploy', 'plan',
+    ];
+
     private static function publishable_refusal(string $command, string $message): bool {
-        // DUO-3397's observation commands are excluded wholesale: refresh-
-        // export and scope read PRODUCTION, and their refusal messages
-        // interpolate production-observed identifiers that no pattern can
-        // tell from prose (their suite's "distinctive operator token" case
-        // is exactly that — an arbitrary token with no secret shape). The
-        // mutation-command refusals this branch exists for (capture's
-        // deletion-intent gate and its peers) are value-free by convention
-        // and pattern-screened below; an observation command's unclassified
-        // refusal stays fully redacted, DUO-3397's posture unchanged.
-        if ($command === 'refresh-export' || $command === 'scope') {
+        if (!in_array($command, self::PUBLIC_REFUSAL_COMMANDS, true)) {
             return false;
         }
         if (!str_starts_with($message, 'duo: ')) {
