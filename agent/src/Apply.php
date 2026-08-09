@@ -4,6 +4,7 @@ namespace Duo;
 require_once __DIR__ . '/PlainData.php';
 require_once __DIR__ . '/Providers.php';
 require_once __DIR__ . '/StructuredValue.php';
+require_once __DIR__ . '/CommandRefusal.php';
 
 /**
  * Plan + apply: repo state tree -> environment DB.
@@ -21,6 +22,8 @@ final class Apply {
     private string $repo;
     /** @var string[] */
     private array $warnings = [];
+    /** @var list<array<string,mixed>> reviewed public evidence for forced plan conflicts */
+    private array $forcedOverrideEvidence = [];
     /** @var array<string,int> login -> user id */
     private array $userIds = [];
     /** @var array<string,int> exact (binary) login -> user id */
@@ -258,7 +261,20 @@ final class Apply {
                     $row['option_deletes'] = $pendingDeletes;
                 }
                 if ($deleteConflicts) {
-                    $plan['conflict'][] = $row + ['reason' => implode('; ', $deleteConflicts)];
+                    $plan['conflict'][] = $row + [
+                        'reason' => implode('; ', $deleteConflicts),
+                        'conflict_view' => self::conflict_view(
+                            'option_delete_and_target_changed_since_base',
+                            'update',
+                            $baseH === null ? 'missing' : 'present',
+                            $baseH,
+                            $fileH,
+                            $baseH,
+                            null,
+                            $comparisonEnvH,
+                            ['--with-deletes', '--force-theirs']
+                        ),
+                    ];
                     continue;
                 }
             }
@@ -270,7 +286,19 @@ final class Apply {
                 } elseif ($fileH === $baseH) {
                     $plan['drift'][] = $row;
                 } else {
-                    $plan['conflict'][] = $row;
+                    $plan['conflict'][] = $row + [
+                        'conflict_view' => self::conflict_view(
+                            'repository_and_target_changed_since_base',
+                            'update',
+                            'present',
+                            $baseH,
+                            $fileH,
+                            $baseH,
+                            null,
+                            $comparisonEnvH,
+                            ['--force-theirs']
+                        ),
+                    ];
                 }
                 continue;
             }
@@ -329,24 +357,71 @@ final class Apply {
             if ($baseE === null) {
                 $plan['delete_conflict'][] = $row + [
                     'reason' => 'target entity exists but has no last-synced base',
+                    'conflict_view' => self::conflict_view(
+                        'target_without_last_synced_base',
+                        'delete',
+                        'missing',
+                        null,
+                        null,
+                        $expected,
+                        $receipt,
+                        (string) $envE['hash'],
+                        ['--with-deletes', '--force-theirs']
+                    ),
                 ];
                 continue;
             }
+            $baseContentHash = is_string($baseE['content_hash'] ?? null)
+                ? $baseE['content_hash']
+                : null;
             if (($baseE['entity_type'] ?? '') === 'deletion') {
                 $plan['delete_conflict'][] = $row + [
                     'reason' => 'target entity was recreated after this deletion intent was applied',
+                    'conflict_view' => self::conflict_view(
+                        'target_recreated_after_delete',
+                        'delete',
+                        'deleted',
+                        $baseContentHash,
+                        null,
+                        $expected,
+                        $receipt,
+                        (string) $envE['hash'],
+                        ['--with-deletes', '--force-theirs']
+                    ),
                 ];
                 continue;
             }
-            if (!hash_equals($expected, (string) ($baseE['content_hash'] ?? ''))) {
+            if (!hash_equals($expected, (string) $baseContentHash)) {
                 $plan['delete_conflict'][] = $row + [
                     'reason' => 'tombstone expected hash does not match the target last-synced base',
+                    'conflict_view' => self::conflict_view(
+                        'repository_expected_base_mismatch',
+                        'delete',
+                        'present',
+                        $baseContentHash,
+                        null,
+                        $expected,
+                        $receipt,
+                        (string) $envE['hash'],
+                        ['--with-deletes', '--force-theirs']
+                    ),
                 ];
                 continue;
             }
             if (!hash_equals($expected, (string) $envE['hash'])) {
                 $plan['delete_conflict'][] = $row + [
                     'reason' => 'target entity changed locally since the tombstone base',
+                    'conflict_view' => self::conflict_view(
+                        'target_changed_since_delete_base',
+                        'delete',
+                        'present',
+                        $baseContentHash,
+                        null,
+                        $expected,
+                        $receipt,
+                        (string) $envE['hash'],
+                        ['--with-deletes', '--force-theirs']
+                    ),
                 ];
                 continue;
             }
@@ -392,6 +467,18 @@ final class Apply {
                 }
                 if ($blocks) {
                     $row['blocked'] = implode('; ', $blocks);
+                    if ($bucket === 'delete_conflict' && isset($row['conflict_view']['choices'])) {
+                        // A referential guard is a separate authorization
+                        // boundary. Do not advertise the destructive
+                        // repository-delete choice until those declared
+                        // references are repaired; --force-delete-referenced
+                        // is report-not-hide but never a "safe choice."
+                        $row['conflict_view']['choices'] = array_values(array_filter(
+                            (array) $row['conflict_view']['choices'],
+                            static fn($choice): bool => is_array($choice)
+                                && ($choice['id'] ?? null) !== 'apply_repository'
+                        ));
+                    }
                 }
                 if ($guardRefs) {
                     $row['guard_refs'] = $guardRefs;
@@ -652,6 +739,178 @@ final class Apply {
                 $row['annotations'][] = $note;
             }
         }
+    }
+
+    /**
+     * Stable, additive conflict evidence for plan JSON. The three roles are
+     * deliberately semantic rather than value-bearing: repository entities
+     * can contain secrets, PII, or plugin-owned opaque structures, so a plan
+     * may expose their already-canonical hashes and intent but never copy raw
+     * entity values into a diagnostic surface. `reconcile_in_repository` is
+     * the non-destructive default; `apply_repository` maps the existing named
+     * report-not-hide escape hatch and states every required flag.
+     *
+     * @param list<string> $applyRequirements
+     * @return array<string,mixed>
+     */
+    private static function conflict_view(
+        string $reasonCode,
+        string $repositoryIntent,
+        string $baseState,
+        ?string $baseHash,
+        ?string $repositoryHash,
+        ?string $expectedBaseHash,
+        ?string $intentReceiptHash,
+        ?string $targetHash,
+        array $applyRequirements
+    ): array {
+        $destructiveEffect = $repositoryIntent === 'delete'
+            ? 'delete_target_authored_state'
+            : 'replace_target_authored_state';
+
+        return [
+            'format' => 'duo-plan-conflict/v1',
+            'kind' => $repositoryIntent === 'delete' ? 'tombstone_conflict' : 'concurrent_change',
+            'reason_code' => $reasonCode,
+            'base' => [
+                'role' => 'last_synced',
+                'source' => 'duo_state',
+                'state' => $baseState,
+                'content_hash' => $baseHash,
+            ],
+            'repository' => [
+                'role' => 'repository_intent',
+                'source' => 'compiled_repository',
+                'intent' => $repositoryIntent,
+                'content_hash' => $repositoryHash,
+                'expected_base_hash' => $expectedBaseHash,
+                'intent_receipt_hash' => $intentReceiptHash,
+            ],
+            'target' => [
+                'role' => 'target_observation',
+                'source' => 'live_target_snapshot',
+                'intent' => 'preserve_target_change',
+                'state' => 'present',
+                'content_hash' => $targetHash,
+            ],
+            'recommended_choice' => 'reconcile_in_repository',
+            'choices' => [
+                [
+                    'id' => 'reconcile_in_repository',
+                    'effect' => 'preserve_and_reconcile_both_intents',
+                    'requires' => [],
+                    'destructive' => false,
+                ],
+                [
+                    'id' => 'apply_repository',
+                    'effect' => $destructiveEffect,
+                    'requires' => array_values($applyRequirements),
+                    'destructive' => true,
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Public failure evidence for a conflict override is intentionally less
+     * identifying than the successful plan row: hash the canonical entity
+     * identity so option/user-meta identities and WordPress names cannot leak
+     * through a later JSON refusal. All remaining fields are engine-owned
+     * enums already present in the reviewed conflict view.
+     *
+     * A referentially blocked tombstone deliberately does not advertise the
+     * destructive apply_repository choice. Report required and actually
+     * supplied flags separately; only their exact equality is authorization.
+     * This keeps a partial attempt truthful and never fabricates the
+     * suppressed plan choice.
+     *
+     * @return array<string,mixed>
+     */
+    private static function forced_override_evidence(array $row, string $bucket, array $opts): array {
+        $view = (array) ($row['conflict_view'] ?? []);
+        $choice = [];
+        foreach ((array) ($view['choices'] ?? []) as $candidate) {
+            if (is_array($candidate) && ($candidate['id'] ?? null) === 'apply_repository') {
+                $choice = $candidate;
+                break;
+            }
+        }
+        $kind = in_array($view['kind'] ?? null, ['concurrent_change', 'tombstone_conflict'], true)
+            ? (string) $view['kind']
+            : 'concurrent_change';
+        $reasonCode = preg_match('/^[a-z][a-z0-9_]{2,63}$/', (string) ($view['reason_code'] ?? '')) === 1
+            ? (string) $view['reason_code']
+            : 'plan_conflict';
+        $isDeletion = $bucket === 'delete_conflict' || $kind === 'tombstone_conflict';
+        $effect = in_array(
+            $choice['effect'] ?? null,
+            ['replace_target_authored_state', 'delete_target_authored_state'],
+            true
+        ) ? (string) $choice['effect'] : ($isDeletion
+            ? 'delete_target_authored_state'
+            : 'replace_target_authored_state');
+        $choiceId = $choice === [] ? 'explicit_force_flags' : 'apply_repository';
+        $requiredFlags = $choice === []
+            ? ($isDeletion ? ['--with-deletes', '--force-theirs'] : ['--force-theirs'])
+            : array_values(array_filter(
+                (array) ($choice['requires'] ?? []),
+                static fn($flag): bool => is_string($flag)
+                    && in_array($flag, ['--force-theirs', '--with-deletes'], true)
+        ));
+        $guardOverride = $isDeletion && array_key_exists('blocked', $row);
+        if ($guardOverride) {
+            $requiredFlags[] = '--force-delete-referenced';
+        }
+        $requiredFlags = array_values(array_unique($requiredFlags));
+        $flagOptions = [
+            '--with-deletes' => 'with_deletes',
+            '--force-theirs' => 'force_theirs',
+            '--force-delete-referenced' => 'force_delete_referenced',
+        ];
+        $suppliedFlags = [];
+        foreach ($requiredFlags as $flag) {
+            $option = $flagOptions[$flag] ?? null;
+            if ($option !== null && !empty($opts[$option])) {
+                $suppliedFlags[] = $flag;
+            }
+        }
+        $status = $suppliedFlags === $requiredFlags ? 'authorized' : 'incomplete';
+
+        $evidence = [
+            'format' => 'duo-forced-plan-override/v1',
+            'plan_bucket' => $bucket === 'delete_conflict' ? 'delete_conflict' : 'conflict',
+            'entity_identity_sha256' => hash('sha256', (string) ($row['uuid'] ?? '')),
+            'conflict_kind' => $kind,
+            'reason_code' => $reasonCode,
+            'choice' => $choiceId,
+            'effect' => $effect,
+            'required_flags' => $requiredFlags,
+            'supplied_flags' => $suppliedFlags,
+            'status' => $status,
+        ];
+        if ($guardOverride && in_array('--force-delete-referenced', $suppliedFlags, true)) {
+            $evidence['guard_override'] = 'force_delete_referenced';
+        }
+        return $evidence;
+    }
+
+    /**
+     * A requested destructive conflict override is not authorization until
+     * every advertised gate is present. Keep the refusal machine-readable
+     * without promoting a missing flag into a false FORCED/authorized claim.
+     *
+     * @param list<array<string,mixed>> $evidence
+     */
+    private static function incomplete_override_refusal(array $evidence, string $operatorMessage): CommandRefusalException {
+        return new CommandRefusalException(
+            'apply_conflict_override_incomplete',
+            'apply refused an incomplete plan conflict override authorization',
+            'supply every flag listed in required_flags or reconcile the target and repository intents before applying again',
+            [],
+            $operatorMessage,
+            null,
+            $evidence
+        );
     }
 
     /**
@@ -1727,27 +1986,56 @@ final class Apply {
                 // The original failure is the actionable cause. A lost lease
                 // is already fail-closed and expires without human cleanup.
             }
-            // Forced guarded deletion can make the mandatory fresh-process
-            // convergence recapture refuse on the intentionally orphaned
-            // survivors. The mutation is already committed at that point,
-            // so do not lose the operator's informed-force warning merely
-            // because the truthful convergence error prevents a summary.
-            // Keep this scoped to that escape hatch; unrelated failures
-            // retain their original type/message behavior.
-            $forcedDeleteWarnings = $a === null ? [] : array_values(array_filter(
-                $a->warnings,
-                fn(string $warning): bool => str_starts_with($warning, 'FORCED delete')
-            ));
-            if ($forcedDeleteWarnings) {
-                throw new \RuntimeException(
-                    implode("\n", array_map(fn(string $w): string => 'Warning: ' . $w, $forcedDeleteWarnings))
-                    . "\n" . $t->getMessage(),
-                    0,
-                    $t
-                );
-            }
-            throw $t;
+            throw self::failure_with_forced_warnings($t, $a);
         }
+    }
+
+    /**
+     * Report-not-hide applies to every explicit force gate, including when a
+     * later gate, mutation, rebuild, or convergence check prevents the normal
+     * JSON summary. Force warnings describe authorization/intent, not a claim
+     * that the target mutation committed, so they remain truthful even when a
+     * pre-mutation safety gate refuses. Without a force warning the original
+     * throwable object and type pass through unchanged.
+     */
+    private static function failure_with_forced_warnings(\Throwable $failure, ?self $apply): \Throwable {
+        $forcedWarnings = $apply === null ? [] : array_values(array_filter(
+            $apply->warnings,
+            fn(string $warning): bool => str_starts_with($warning, 'FORCED ')
+        ));
+        if (!$forcedWarnings) {
+            return $failure;
+        }
+        $operatorMessage = implode(
+            "\n",
+            array_map(fn(string $w): string => 'Warning: ' . $w, $forcedWarnings)
+        ) . "\n" . $failure->getMessage();
+        if ($failure instanceof CommandRefusalException
+            && $failure->reasonCode === 'apply_conflict_override_incomplete') {
+            $wrapped = new CommandRefusalException(
+                $failure->reasonCode,
+                $failure->publicMessage,
+                $failure->remediation,
+                $failure->diagnostics,
+                $operatorMessage,
+                $failure,
+                $failure->forcedOverrides
+            );
+            $wrapped->detailsRedacted = $failure->detailsRedacted || $wrapped->detailsRedacted;
+            return $wrapped;
+        }
+        if ($apply !== null && $apply->forcedOverrideEvidence !== []) {
+            return new CommandRefusalException(
+                'apply_forced_override_failed',
+                'apply failed after explicit plan conflict overrides were authorized',
+                'inspect private operator evidence and apply recovery state; reconcile the failed gate before another attempt and do not assume the authorized override committed',
+                [],
+                $operatorMessage,
+                $failure,
+                $apply->forcedOverrideEvidence
+            );
+        }
+        return new \RuntimeException($operatorMessage, 0, $failure);
     }
 
     /**
@@ -1830,6 +2118,44 @@ final class Apply {
                 . "capture/reconcile first or --force-theirs:\n  - $list"
             );
         }
+        if ($plan['delete_conflict'] && empty($opts['with_deletes'])) {
+            $list = implode("\n  - ", array_map(
+                fn($r) => "{$r['path']}: {$r['reason']}",
+                $plan['delete_conflict']
+            ));
+            $evidence = array_map(
+                fn(array $row): array => self::forced_override_evidence($row, 'delete_conflict', $opts),
+                $plan['delete_conflict']
+            );
+            throw self::incomplete_override_refusal(
+                $evidence,
+                "duo: deletion conflict override requires --with-deletes together with --force-theirs; "
+                    . "no target mutation attempted:\n  - $list"
+            );
+        }
+
+        $pendingOptionDeletes = [];
+        $pendingOptionConflictEvidence = [];
+        foreach (array_merge($plan['create'], $plan['update'], $plan['conflict']) as $r) {
+            foreach ($r['option_deletes'] ?? [] as $name) {
+                $pendingOptionDeletes[] = $name;
+            }
+        }
+        foreach ($plan['conflict'] as $r) {
+            if (($r['option_deletes'] ?? []) !== []) {
+                $pendingOptionConflictEvidence[] = self::forced_override_evidence($r, 'conflict', $opts);
+            }
+        }
+        if ($pendingOptionDeletes && empty($opts['with_deletes'])) {
+            sort($pendingOptionDeletes, SORT_STRING);
+            $operatorMessage = "duo: authored option deletion intent requires --with-deletes; "
+                . "no target mutation attempted:\n  - "
+                . implode("\n  - ", array_unique($pendingOptionDeletes));
+            if ($pendingOptionConflictEvidence !== []) {
+                throw self::incomplete_override_refusal($pendingOptionConflictEvidence, $operatorMessage);
+            }
+            throw new \RuntimeException($operatorMessage);
+        }
         if ($plan['missing_user']) {
             $list = implode("\n  - ", array_map(
                 fn($r) => "{$r['path']}: exact login '{$r['login']}' is absent",
@@ -1841,24 +2167,6 @@ final class Apply {
                 . 'authored key in that sidecar to warn-and-skip it.'
             );
         }
-        foreach ($plan['delete_conflict'] as $r) {
-            $this->warnings[] = "FORCED deletion conflict {$r['uuid']} ({$r['reason']})";
-        }
-
-        $pendingOptionDeletes = [];
-        foreach (array_merge($plan['create'], $plan['update'], $plan['conflict']) as $r) {
-            foreach ($r['option_deletes'] ?? [] as $name) {
-                $pendingOptionDeletes[] = $name;
-            }
-        }
-        if ($pendingOptionDeletes && empty($opts['with_deletes'])) {
-            sort($pendingOptionDeletes, SORT_STRING);
-            throw new \RuntimeException(
-                "duo: authored option deletion intent requires --with-deletes; no target mutation attempted:\n  - "
-                . implode("\n  - ", array_unique($pendingOptionDeletes))
-            );
-        }
-
         // The completed code_revision is the ordering witness between the
         // code and state halves. It is deliberately NOT part of the generic
         // --force-code-mismatch escape hatch: state writes before stage ->
@@ -1913,13 +2221,35 @@ final class Apply {
                     fn($r) => "{$r['type']} {$r['uuid']}: {$r['blocked']}",
                     $blocked
                 ));
-                throw new \RuntimeException(
-                    "duo: deletes blocked by referential guards (this environment's runtime data references them; --force-delete-referenced to override):\n  - $list"
-                );
+                $operatorMessage = "duo: deletes blocked by referential guards "
+                    . "(this environment's runtime data references them; --force-delete-referenced to override):\n  - $list";
+                $conflictEvidence = [];
+                foreach ($blocked as $row) {
+                    if (isset($row['conflict_view'])) {
+                        $conflictEvidence[] = self::forced_override_evidence($row, 'delete_conflict', $opts);
+                    }
+                }
+                if ($conflictEvidence !== []) {
+                    throw self::incomplete_override_refusal($conflictEvidence, $operatorMessage);
+                }
+                throw new \RuntimeException($operatorMessage);
             }
             foreach ($blocked as $r) {
                 $this->warn_forced_guard_refs($r, 'FORCED delete of guarded');
             }
+        }
+
+        // Every plan/option/referential gate above is now satisfied. Only at
+        // this boundary may report-not-hide call the override FORCED and its
+        // structured evidence authorized; later failures preserve that exact
+        // authorization without claiming the target mutation committed.
+        foreach ($plan['conflict'] as $r) {
+            $this->warnings[] = "FORCED conflict {$r['uuid']} (repository intent authorized to replace target authored state)";
+            $this->forcedOverrideEvidence[] = self::forced_override_evidence($r, 'conflict', $opts);
+        }
+        foreach ($plan['delete_conflict'] as $r) {
+            $this->warnings[] = "FORCED deletion conflict {$r['uuid']} ({$r['reason']})";
+            $this->forcedOverrideEvidence[] = self::forced_override_evidence($r, 'delete_conflict', $opts);
         }
 
         $this->defaultAuthor = $this->resolve_login($opts['default_author'] ?? '') ?? null;

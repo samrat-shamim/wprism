@@ -141,8 +141,8 @@ from the same list:
 
 | Bucket | What it means | Remedy |
 |---|---|---|
-| `conflict` | Repo and environment both changed the same entity. | Recapture, or `duo apply --force-theirs` to take the repo's side knowingly. |
-| `delete_conflict` | The target no longer matches the base a deletion tombstone expected — someone changed the entity after the tombstone was written. Distinct from a blocked delete: nothing is referencing it, the *base* moved. | Capture/reconcile first, or `duo apply --force-theirs`. |
+| `conflict` | Repo and environment both changed the same entity. Plan JSON and human output identify the last-synced base, repository intent, and target intent without exposing raw values. | The recommended choice is to capture/reconcile both intents in the repository and re-plan. `duo apply --force-theirs` selects the explicitly destructive alternative and reports every override; when that intent includes declared option deletion, the view also requires `--with-deletes`. Supplying deletion authority alone does not select the conflict override. |
+| `delete_conflict` | The target no longer matches the base a deletion tombstone expected — someone changed the entity after the tombstone was written. Distinct from a blocked delete: nothing is referencing it, the *base* moved. The view includes the tombstone's expected-base and receipt evidence. | Capture/reconcile first, or knowingly use `duo apply --with-deletes --force-theirs`; both flags are mandatory. Once `--force-theirs` selects the override, a missing companion flag refuses before mutation and reports required versus supplied flags without calling the override authorized. `--with-deletes` alone retains the ordinary conflict refusal. |
 | `collision` | An unmanaged environment entity already holds this slug. | `duo apply --adopt-by-slug=<kinds>`, or rename. Inspect every collision first. |
 | blocked `delete` | A referential guard found live rows pointing at the deletion target. | Repair the referencing owner, or `duo apply --with-deletes --force-delete-referenced`. Forced execution stays loud. |
 | `missing_user` | An authored user-meta sidecar names an exact login that does not exist here. Apply refuses before mutation. | Create or reconcile the user outside Duo, or declare `missing_user: "warn"` on every authored key in that sidecar to warn-and-skip it. |
@@ -155,6 +155,11 @@ from the same list:
 | `env_missing` (required) | A manifest-declared `class: "env"` option is unset here. | `duo env-set <env> --name=<name> --stdin`. |
 | ordinary `drift` | The environment changed outside Duo. | `duo capture` first — this plan's comparison is already stale. |
 | `adapter_dispositions` | A pinned manifest is experimental, unsupported, version-mismatched, or its evidence expired. | Pin a certified manifest and version, or accept the boundary and do not promote. |
+
+If an apply fails after you explicitly authorized a conflict override, its
+JSON refusal includes `forced_overrides`: hash-only, versioned evidence of the
+choice that was authorized. It does not claim that the mutation committed;
+inspect the private failure and apply recovery state before retrying.
 
 Two of those rows are the ones that surprise people. `regen_pending` and
 ordinary `drift` are cases `duo apply` does **not** refuse on — but `duo status`
@@ -236,8 +241,10 @@ rather than working around it.
   — it captures, promotes, and deletes nothing, and no capture/promote/rollback
   command accepts a scope yet. A root that does not resolve is refused rather
   than silently dropped.
-- Field-level diff explanations and guided conflict resolution — **Planned (DUO-3345)** — not yet shipped.
-  Plan rows already carry authored WordPress display names; that slice shipped.
+- Field-level value diffs and an interactive conflict resolver — **Planned (DUO-3345)** — not yet shipped.
+  Plan rows already carry authored WordPress display names and a stable,
+  hash-only three-way conflict view with bounded safe choices; those slices
+  shipped without serializing secret/PII-bearing entity values.
 - Provider-backed plugin and theme replacement — **Planned (DUO-3357)** — not yet shipped.
 - Theme upgrade, downgrade refusal, and removal as a managed lifecycle — **Planned (DUO-3358)** — not yet shipped.
 - Moving WordPress cron as managed state — **Planned (DUO-3359)** — not yet shipped.

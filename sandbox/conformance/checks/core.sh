@@ -169,29 +169,82 @@ diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-identity-recovered" \
 
 pass "copied and invalid _duo_uuid metadata block before atomic state publication; original identities recover deterministically"
 
-# DUO-3345 (plan naming slice): a planned change names its entity in
-# WordPress terms — the authored post title rides the plan row as `title`
-# in JSON and is rendered in single quotes beside the repository path by
-# the agent's human renderer. Proven through the real capture → push →
-# pull → plan → apply product path, and convergence is re-verified so the
-# probe leaves the pair exactly synchronized for the scenarios below.
-wp_conf1 post update "$A" --post_title='Branch A Renamed For Plan Naming' >/dev/null
+# DUO-3345 (plan naming + three-way conflict slices): both sides edit the
+# same named WordPress entity after their shared base. The public JSON must
+# identify base/repository/target roles and safe choices without serializing
+# raw entity values; the human renderer must make those roles actionable.
+# The explicit override then stays report-not-hide and converges the target,
+# leaving the pair synchronized for the deletion scenarios below.
+wp_conf2 post update "$(wp_conf2 post list --post_type=page --name=branch-a --field=ID | tr -d '[:space:]')" \
+  --post_title='Target Environment Intent For Conflict' >/dev/null
+wp_conf1 post update "$A" --post_title='Branch Repository Intent For Conflict' >/dev/null
 wp_conf1 duo capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: rename branch-a for plan naming'
+git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: branch-vs-target conflict intent'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
 TITLE_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 jq -e --arg uuid "$UA" \
-  '.update | any(.uuid == $uuid and .title == "Branch A Renamed For Plan Naming")' \
-  <<<"$TITLE_PLAN" >/dev/null || fail "planned update row does not carry its WordPress title: $TITLE_PLAN"
+  '.conflict | any(
+    .uuid == $uuid
+    and .title == "Branch Repository Intent For Conflict"
+    and .conflict_view.format == "duo-plan-conflict/v1"
+    and .conflict_view.kind == "concurrent_change"
+    and .conflict_view.reason_code == "repository_and_target_changed_since_base"
+    and .conflict_view.base.role == "last_synced"
+    and .conflict_view.base.source == "duo_state"
+    and .conflict_view.base.state == "present"
+    and (.conflict_view.base.content_hash | test("^[a-f0-9]{64}$"))
+    and .conflict_view.repository.role == "repository_intent"
+    and .conflict_view.repository.source == "compiled_repository"
+    and .conflict_view.repository.intent == "update"
+    and (.conflict_view.repository.content_hash | test("^[a-f0-9]{64}$"))
+    and .conflict_view.repository.expected_base_hash == .conflict_view.base.content_hash
+    and .conflict_view.repository.intent_receipt_hash == null
+    and .conflict_view.target.role == "target_observation"
+    and .conflict_view.target.source == "live_target_snapshot"
+    and .conflict_view.target.intent == "preserve_target_change"
+    and .conflict_view.target.state == "present"
+    and (.conflict_view.target.content_hash | test("^[a-f0-9]{64}$"))
+    and .conflict_view.repository.content_hash != .conflict_view.base.content_hash
+    and .conflict_view.target.content_hash != .conflict_view.base.content_hash
+    and .conflict_view.repository.content_hash != .conflict_view.target.content_hash
+    and .conflict_view.recommended_choice == "reconcile_in_repository"
+    and (.conflict_view.choices | any(.id == "reconcile_in_repository" and .destructive == false))
+    and (.conflict_view.choices | any(.id == "apply_repository" and .destructive == true and .requires == ["--force-theirs"] and .effect == "replace_target_authored_state"))
+  )' <<<"$TITLE_PLAN" >/dev/null \
+  || fail "planned conflict row does not carry exact base/repository/target intent and safe choices: $TITLE_PLAN"
+! grep -q 'Target Environment Intent For Conflict' <<<"$TITLE_PLAN" \
+  || fail "plan JSON leaked the target's raw conflicting title instead of hash-only evidence: $TITLE_PLAN"
 TITLE_HUMAN=$(wp_conf2 duo plan --repo=/siterepo)
-grep -qE "^UPDATE +.*'Branch A Renamed For Plan Naming'" <<<"$TITLE_HUMAN" \
+grep -qE "^CONFLICT +.*'Branch Repository Intent For Conflict'" <<<"$TITLE_HUMAN" \
   || fail "human plan line does not show the WordPress title: $TITLE_HUMAN"
-wp_conf2 duo apply --repo=/siterepo --default-author=admin >/dev/null
-[ "$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title)" = 'Branch A Renamed For Plan Naming' ] \
-  || fail "renamed page did not converge on target"
-pass "plan rows speak WordPress names in JSON (.title) and human output (DUO-3345)"
+for NEEDLE in \
+  'WHY repository_and_target_changed_since_base' \
+  'BASE last-synced: present sha256:' \
+  'REPOSITORY intent=update state=sha256:' \
+  'TARGET observation: intent=preserve_target_change state=present sha256:' \
+  'SAFE CHOICE reconcile_in_repository:' \
+  'DESTRUCTIVE OVERRIDE apply_repository (--force-theirs): replace target authored state'; do
+  grep -Fq "$NEEDLE" <<<"$TITLE_HUMAN" \
+    || fail "human conflict view is missing '$NEEDLE': $TITLE_HUMAN"
+done
+CONFLICT_TARGET_BEFORE=$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title)
+CONFLICT_BASE_BEFORE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$UA'" --skip-column-names | tr -d '[:space:]')
+CONFLICT_RC=0
+CONFLICT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
+[ "$CONFLICT_RC" -ne 0 ] && grep -qi 'conflicts (env and repo both changed' <<<"$CONFLICT_OUT" \
+  || fail "unforced three-way conflict did not refuse before mutation: $CONFLICT_OUT"
+[ "$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title)" = "$CONFLICT_TARGET_BEFORE" ] \
+  || fail "unforced conflict mutated the target title"
+[ "$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$UA'" --skip-column-names | tr -d '[:space:]')" = "$CONFLICT_BASE_BEFORE" ] \
+  || fail "unforced conflict advanced the target's last-synced base"
+FORCED_CONFLICT=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e --arg uuid "$UA" '.warnings | any(contains("FORCED conflict " + $uuid))' <<<"$FORCED_CONFLICT" >/dev/null \
+  || fail "--force-theirs did not report the overridden conflict in machine output: $FORCED_CONFLICT"
+[ "$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title)" = 'Branch Repository Intent For Conflict' ] \
+  || fail "forced repository intent did not converge on target"
+pass "plan conflicts speak WordPress names, expose hash-only base/repository/target intent, recommend reconciliation, and report destructive override (DUO-3345)"
 
 # DUO-3210: absence alone is not authority; capture replaces the prior Home
 # page with a versioned tombstone. A target-only comment blocks deletion,
@@ -238,15 +291,107 @@ HELLO_UUID=$(basename "$HELLO_FILE" | sed -E 's/--hello-conformance\.md$//')
 HELLO1=$(wp_conf1 post list --post_type=post --name=hello-conformance --field=ID | tr -d '[:space:]')
 HELLO2=$(wp_conf2 post list --post_type=post --name=hello-conformance --field=ID | tr -d '[:space:]')
 wp_conf2 post update "$HELLO2" --post_content='target-only deletion conflict' >/dev/null
+HELLO_COMMENT=$(wp_conf2 comment create --comment_post_ID="$HELLO2" --comment_content='runtime conflict guard' --comment_author='Runtime Visitor' --porcelain)
 wp_conf1 post delete "$HELLO1" --force >/dev/null
 wp_conf1 duo capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
 git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: delete against target local edit'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
+BLOCKED_LOCAL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e --arg uuid "$HELLO_UUID" '.delete_conflict | any(
+  .uuid == $uuid
+  and (.blocked | contains("comments reference"))
+  and (.conflict_view.choices | any(.id == "apply_repository") | not)
+  and (.conflict_view.choices | any(.id == "reconcile_in_repository" and .destructive == false))
+)' <<<"$BLOCKED_LOCAL_PLAN" >/dev/null \
+  || fail "guard-blocked deletion conflict advertised a destructive repository choice: $BLOCKED_LOCAL_PLAN"
+BLOCKED_LOCAL_HUMAN=$(wp_conf2 duo plan --repo=/siterepo)
+! grep -Fq 'DESTRUCTIVE OVERRIDE apply_repository' <<<"$BLOCKED_LOCAL_HUMAN" \
+  || fail "guard-blocked deletion conflict advertised a destructive override in human output: $BLOCKED_LOCAL_HUMAN"
+BLOCKED_CONTENT_BEFORE=$(wp_conf2 post get "$HELLO2" --field=post_content)
+BLOCKED_BASE_BEFORE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]')
+BLOCKED_FORCE_RC=0
+BLOCKED_FORCE_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin --format=json 2>/dev/null) \
+  || BLOCKED_FORCE_RC=$?
+[ "$BLOCKED_FORCE_RC" -ne 0 ] \
+  || fail "guard-blocked deletion conflict accepted incomplete force authorization: $BLOCKED_FORCE_OUT"
+BLOCKED_FORCE_JSON=$(awk 'NF { line=$0 } END { print line }' <<<"$BLOCKED_FORCE_OUT")
+BLOCKED_ENTITY_HASH=$(printf '%s' "$HELLO_UUID" | shasum -a 256 | awk '{print $1}')
+jq -e --arg entity_hash "$BLOCKED_ENTITY_HASH" '.format == "duo-command-refusal/v1"
+  and .error == "apply_conflict_override_incomplete"
+  and (.forced_overrides | length) == 1
+  and .forced_overrides[0].format == "duo-forced-plan-override/v1"
+  and .forced_overrides[0].plan_bucket == "delete_conflict"
+  and .forced_overrides[0].entity_identity_sha256 == $entity_hash
+  and .forced_overrides[0].conflict_kind == "tombstone_conflict"
+  and .forced_overrides[0].choice == "explicit_force_flags"
+  and .forced_overrides[0].effect == "delete_target_authored_state"
+  and .forced_overrides[0].required_flags == ["--with-deletes","--force-theirs","--force-delete-referenced"]
+  and .forced_overrides[0].supplied_flags == ["--with-deletes","--force-theirs"]
+  and (.forced_overrides[0] | has("guard_override") | not)
+  and .forced_overrides[0].status == "incomplete"' <<<"$BLOCKED_FORCE_JSON" >/dev/null \
+  || fail "guard-blocked deletion refusal did not preserve truthful bounded force evidence: $BLOCKED_FORCE_JSON"
+! grep -Fq "$HELLO_UUID" <<<"$BLOCKED_FORCE_JSON" \
+  || fail "guard-blocked deletion refusal leaked the raw entity identity: $BLOCKED_FORCE_JSON"
+! grep -Fq 'runtime conflict guard' <<<"$BLOCKED_FORCE_JSON" \
+  || fail "guard-blocked deletion refusal leaked raw guard detail: $BLOCKED_FORCE_JSON"
+[ "$(wp_conf2 post get "$HELLO2" --field=post_content)" = "$BLOCKED_CONTENT_BEFORE" ] \
+  || fail "guard-blocked forced deletion mutated the target post"
+[ "$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]')" = "$BLOCKED_BASE_BEFORE" ] \
+  || fail "guard-blocked forced deletion advanced the last-synced base"
+wp_conf2 comment get "$HELLO_COMMENT" --field=comment_ID >/dev/null \
+  || fail "guard-blocked forced deletion removed its runtime reference"
+pass "guard-blocked deletion conflict refuses incomplete force authorization with truthful typed evidence and zero target/ledger mutation"
+wp_conf2 comment delete "$HELLO_COMMENT" --force >/dev/null
 LOCAL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-jq -e --arg uuid "$HELLO_UUID" '.delete_conflict | any(.uuid == $uuid and (.reason | contains("changed locally")) and (has("blocked") | not))' \
+jq -e --arg uuid "$HELLO_UUID" '.delete_conflict | any(
+  .uuid == $uuid
+  and (.reason | contains("changed locally"))
+  and (has("blocked") | not)
+  and .conflict_view.format == "duo-plan-conflict/v1"
+  and .conflict_view.kind == "tombstone_conflict"
+  and .conflict_view.reason_code == "target_changed_since_delete_base"
+  and .conflict_view.base.role == "last_synced"
+  and .conflict_view.repository.intent == "delete"
+  and .conflict_view.repository.expected_base_hash == .conflict_view.base.content_hash
+  and (.conflict_view.repository.intent_receipt_hash | test("^[a-f0-9]{64}$"))
+  and .conflict_view.target.intent == "preserve_target_change"
+  and .conflict_view.recommended_choice == "reconcile_in_repository"
+  and (.conflict_view.choices | any(.id == "apply_repository" and .requires == ["--with-deletes","--force-theirs"] and .effect == "delete_target_authored_state" and .destructive == true))
+)' \
   <<<"$LOCAL_PLAN" >/dev/null || fail "local edit did not become a deletion conflict: $LOCAL_PLAN"
+LOCAL_HUMAN=$(wp_conf2 duo plan --repo=/siterepo)
+for NEEDLE in \
+  'WHY target_changed_since_delete_base' \
+  'REPOSITORY intent=delete state=none expected-base=sha256:' \
+  'DESTRUCTIVE OVERRIDE apply_repository (--with-deletes --force-theirs): delete target authored state'; do
+  grep -Fq "$NEEDLE" <<<"$LOCAL_HUMAN" \
+    || fail "human deletion-conflict view is missing '$NEEDLE': $LOCAL_HUMAN"
+done
+LOCAL_FORCE_ONLY_CONTENT=$(wp_conf2 post get "$HELLO2" --field=post_content)
+LOCAL_FORCE_ONLY_BASE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]')
+LOCAL_FORCE_ONLY_RC=0
+LOCAL_FORCE_ONLY_OUT=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json 2>/dev/null) \
+  || LOCAL_FORCE_ONLY_RC=$?
+[ "$LOCAL_FORCE_ONLY_RC" -ne 0 ] \
+  || fail "entity tombstone conflict accepted --force-theirs without --with-deletes: $LOCAL_FORCE_ONLY_OUT"
+LOCAL_FORCE_ONLY_JSON=$(awk 'NF { line=$0 } END { print line }' <<<"$LOCAL_FORCE_ONLY_OUT")
+jq -e --arg entity_hash "$BLOCKED_ENTITY_HASH" '.format == "duo-command-refusal/v1"
+  and .error == "apply_conflict_override_incomplete"
+  and (.forced_overrides | length) == 1
+  and .forced_overrides[0].entity_identity_sha256 == $entity_hash
+  and .forced_overrides[0].choice == "apply_repository"
+  and .forced_overrides[0].effect == "delete_target_authored_state"
+  and .forced_overrides[0].required_flags == ["--with-deletes","--force-theirs"]
+  and .forced_overrides[0].supplied_flags == ["--force-theirs"]
+  and .forced_overrides[0].status == "incomplete"' <<<"$LOCAL_FORCE_ONLY_JSON" >/dev/null \
+  || fail "entity tombstone conflict did not report the missing --with-deletes authorization honestly: $LOCAL_FORCE_ONLY_JSON"
+[ "$(wp_conf2 post get "$HELLO2" --field=post_content)" = "$LOCAL_FORCE_ONLY_CONTENT" ] \
+  || fail "--force-theirs without --with-deletes mutated the deletion-conflict target"
+[ "$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]')" = "$LOCAL_FORCE_ONLY_BASE" ] \
+  || fail "--force-theirs without --with-deletes advanced the deletion-conflict base"
+pass "entity tombstone conflicts require both advertised flags and refuse incomplete authorization without mutation"
 LOCAL_RC=0
 LOCAL_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || LOCAL_RC=$?
 [ "$LOCAL_RC" -ne 0 ] && grep -qi 'deletion conflicts' <<<"$LOCAL_OUT" \

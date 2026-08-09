@@ -14,6 +14,8 @@ require_once __DIR__ . '/Secrets.php';
 final class CommandRefusalException extends \RuntimeException {
     /** @var list<array<string,mixed>> */
     public array $diagnostics;
+    /** @var list<array<string,mixed>> */
+    public array $forcedOverrides;
     public bool $detailsRedacted = false;
 
     public function __construct(
@@ -22,7 +24,8 @@ final class CommandRefusalException extends \RuntimeException {
         public string $remediation,
         array $diagnostics = [],
         ?string $operatorMessage = null,
-        ?\Throwable $previous = null
+        ?\Throwable $previous = null,
+        array $forcedOverrides = []
     ) {
         if (preg_match('/^[a-z][a-z0-9_]{2,63}$/', $reasonCode) !== 1) {
             throw new \InvalidArgumentException('command refusal reason code is invalid');
@@ -31,14 +34,17 @@ final class CommandRefusalException extends \RuntimeException {
             throw new \InvalidArgumentException('command refusal guidance must not be empty');
         }
         $this->diagnostics = array_values($diagnostics);
+        $this->forcedOverrides = array_values($forcedOverrides);
         if (self::containsSensitivePublicDetail([
             'message' => $this->publicMessage,
             'remediation' => $this->remediation,
             'diagnostics' => $this->diagnostics,
+            'forced_overrides' => $this->forcedOverrides,
         ])) {
             $this->publicMessage = 'structured refusal details were redacted';
             $this->remediation = 'inspect private operator evidence and recovery state before another attempt';
             $this->diagnostics = [];
+            $this->forcedOverrides = [];
             $this->detailsRedacted = true;
         }
         // Human mode keeps the rich operator-only evidence.  JSON mode reads
@@ -84,6 +90,9 @@ final class CommandRefusalException extends \RuntimeException {
         ];
         if ($this->diagnostics !== []) {
             $payload['diagnostics'] = $this->diagnostics;
+        }
+        if ($this->forcedOverrides !== []) {
+            $payload['forced_overrides'] = $this->forcedOverrides;
         }
         if ($this->detailsRedacted) {
             $payload['details_redacted'] = true;

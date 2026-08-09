@@ -673,6 +673,60 @@ other effect type or provider resource.
 0. **Offline compilation + repository authorization**: compile the complete immutable revision into the verified artifact above before any target contact. Its final layer checks every repository-carried post-meta key, option, typed-table column, and attached-meta key against current policy. The three managed code options and managed menu/attachment fields are accepted only through named dedicated routes. Unknown, runtime, derived, environment, stale-policy, and misplaced managed fields preserve the stable `{ok:false,error:"repository_authorization_failed",diagnostics:[...]}` contract; all earlier semantic failures return `{ok:false,error:"repository_compilation_failed",diagnostics:[...]}`.
 1. **Plan live entities**: for each entity file: `create` (uuid not in map), `update` (canonical hash ≠ `duo_state` hash), `unchanged`; environment drift remains explicit. A ledger UUID absent from state and lacking a tombstone schedules nothing.
 2. **Plan tombstones**: compare the tombstone `expected_hash`, target `duo_state` base, and current canonical environment hash. Exact base + unchanged target → `delete`; target already absent → `deleted`; missing/mismatched base, local edit, or recreation after a deletion receipt → `delete_conflict`. `--force-theirs` may override a deletion conflict but reports it loudly. Fresh and previously mapped targets therefore interpret the same repository deletion intent; absence alone never differs by ledger history.
+
+   Every `conflict` and `delete_conflict` row carries an additive
+   `conflict_view` object with `format: "duo-plan-conflict/v1"`. Its three
+   named roles are `base` (`last_synced`, sourced from `duo_state`, with
+   `present`, `missing`, or `deleted` state), `repository`
+   (`repository_intent`, sourced from the compiled repository, `update` or
+   `delete`), and `target` (`target_observation`, sourced from the live target
+   snapshot and preserving the current target change). The direct apply
+   planner never calls those roles “branch” or “production,” because it has no
+   Git/environment-role evidence; refresh/rebase owns that separate B/P/W
+   vocabulary. Evidence is hash-only: full canonical content hashes, the
+   deletion intent's expected-base hash, and its receipt hash where relevant;
+   raw entity values never enter this diagnostic surface. A finite
+   `reason_code` distinguishes both-sides-changed, option-delete conflict,
+   missing base, recreation after delete, expected-base mismatch, and target
+   change after the deletion base. `recommended_choice` is always
+   `reconcile_in_repository`, whose non-destructive choice preserves both
+   intents for capture/review/re-plan. The alternative `apply_repository` choice
+   is explicitly destructive and lists the conflict-resolution flags
+   (`--force-theirs`, plus `--with-deletes` for a tombstone or an option-record
+   deletion). A tombstone row
+   with a referential `blocked` finding omits that destructive choice until
+   the declared references are repaired; `--force-delete-referenced` remains
+   a report-not-hide escape hatch but is never described as a safe conflict
+   choice. Human plan and
+   status output render the same roles and choices with bounded hash prefixes;
+   JSON retains the full evidence. `--force-theirs` is the flag that selects
+   the destructive conflict choice; companion authorities such as
+   `--with-deletes` or `--force-delete-referenced` do not select that choice
+   by themselves and therefore retain the ordinary conflict refusal. Once
+   `--force-theirs` requests the choice, omitting any other required flag
+   refuses before mutation as `apply_conflict_override_incomplete`;
+   its hashed `duo-forced-plan-override/v1` evidence separates
+   `required_flags` from `supplied_flags` and uses `status=incomplete`, never
+   a `FORCED` or authorization claim. Entity tombstone conflicts therefore
+   cannot proceed on `--force-theirs` alone: `--with-deletes` is independently
+   mandatory. Once every required flag is present, a forced ordinary conflict
+   is reported in apply's human and machine warnings just like a forced
+   deletion conflict; the escape hatch never hides what it overrode. If a later gate or
+   convergence check prevents the normal apply summary, JSON returns the
+   typed `apply_forced_override_failed` refusal with a `forced_overrides`
+   list. Each entry is `duo-forced-plan-override/v1` evidence containing only
+   the SHA-256 of the plan entity identity and engine-owned bucket, conflict,
+   reason, choice, effect, and authorization enums—never the raw entity
+   identity, value, title, later exception text, or guard/provider detail.
+   An advertised destructive choice is recorded as `choice=apply_repository`
+   with its exact required and supplied flags. A referentially blocked tombstone has no
+   such advertised choice; if every explicit escape hatch is supplied and a
+   later failure occurs, its evidence instead records
+   `choice=explicit_force_flags`, deletion effect, the exact three required
+   and supplied force flags, `status=authorized`, and
+   `guard_override=force_delete_referenced`. Missing that guard flag instead
+   returns `status=incomplete` and omits the guard-override claim. It never fabricates
+   the conflict choice that the guarded plan intentionally suppressed.
 3. **Reference safety**: compilation blocks surviving canonical references. Adapter guards check runtime reverse references; a missing required guard table also blocks. `--force-delete-referenced` is an explicit report-not-hide escape hatch.
 4. **Canary armed**: listeners on `save_post`, `transition_post_status`, `created_term`, `wp_insert_comment` + `pre_wp_mail` + `pre_http_request`; any fire during apply = hard failure.
 5. **Phase 1** — upsert rows (posts, terms) with placeholder refs, direct `$wpdb`; mint local ids; write `_duo_uuid`.
