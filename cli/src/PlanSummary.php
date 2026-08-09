@@ -5,7 +5,7 @@ namespace Duo\Orchestrator;
  * Turns the JSON from `wp duo plan --format=json` (agent/src/Apply.php
  * build_plan(): keys create/update/unchanged/drift/conflict/adopt/
  * collision/delete/delete_conflict/deleted, each a list of
- * {uuid,type,path?,blocked?,env_id?,reason?}) into
+ * {uuid,type,path?,title?,blocked?,env_id?,reason?}) into
  * `duo status`'s human summary.
  *
  * More top-level keys live outside BUCKETS and get their own handling
@@ -375,8 +375,8 @@ final class PlanSummary {
         // Keep lockstep with agent/src/Cli.php's plan line renderer: the raw
         // authored title stays in plan JSON; display collapses whitespace so
         // one row stays one line (DUO-3345).
-        if (is_string($r['title'] ?? null) && $r['title'] !== '') {
-            $label .= " '" . preg_replace('/\s+/', ' ', (string) $r['title']) . "'";
+        if (is_string($r['title'] ?? null) && trim($r['title']) !== '') {
+            $label .= " '" . trim((string) preg_replace('/\s+/', ' ', $r['title'])) . "'";
         }
         return $label;
     }
