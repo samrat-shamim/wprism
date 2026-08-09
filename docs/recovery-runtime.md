@@ -16,6 +16,12 @@ The code provider must additionally attest plan-bound compiled-code inventory;
 automatic preparation sends that inventory through the signed v2 request and
 refuses a generation-specific descriptor whose roots or file hashes diverge.
 
+The authority's deterministic crash hooks are inert on adopted production
+roots even if `DUO_ROLLBACK_CRASH_AT` reaches the non-interactive SSH
+environment. A hook is enabled only for a disposable test root containing the
+exact mode-0600 `.certification-crash-mode` marker; adoption never creates that
+marker. The regression harness creates it only around each injected request.
+
 ## Controller configuration
 
 Put this in the gitignored `.duo-envs.json` SSH environment beside

@@ -207,11 +207,22 @@ function append_event(
     return submit($root, signed_request('append', $payload, null, $secret));
 }
 
-/** Run a request in a process stopped at one deterministic crash hook. */
-function crash_request(string $runtime, string $root, array $request, string $hook): int {
+/** Run one request with ambient fault injection and optional root authority. */
+function crash_request(
+    string $runtime,
+    string $root,
+    array $request,
+    string $hook,
+    bool $certificationMode = true
+): int {
     $path = tempnam(sys_get_temp_dir(), 'duo-rollback-crash-');
     if ($path === false) {
         fail_test('could not allocate crash request');
+    }
+    $marker = $root . '/.certification-crash-mode';
+    if ($certificationMode) {
+        file_put_contents($marker, "duo-rollback-certification-crash-mode/v1\n");
+        chmod($marker, 0600);
     }
     file_put_contents($path, RollbackControl::canonical($request) . "\n");
     $pipes = [];
@@ -232,6 +243,7 @@ function crash_request(string $runtime, string $root, array $request, string $ho
     fclose($pipes[2]);
     $code = proc_close($process);
     @unlink($path);
+    @unlink($marker);
     return $code;
 }
 
@@ -503,6 +515,21 @@ try {
             '2026-08-08T00:00:00Z'
         ),
         'automatic claim refuses a missing compiled plan inventory'
+    );
+
+    $productionRoot = $tmp . '/production-env/control';
+    $productionStatus = RollbackControl::initialize($productionRoot);
+    RollbackControl::installPublicKey($productionRoot, $keyId, base64_encode($public));
+    $productionReceipt = receipt($productionStatus, 1, str_repeat('9', 48), '2026-01-31T00:00:00Z');
+    $productionEvent = event($productionReceipt, 1, str_repeat('0', 64), 'prepared', 'state_transition', 'promotion-claim', 1, 'production-worker', 1, '2026-01-31T00:00:00Z');
+    $productionRequest = signed_request('claim', $productionEvent, $productionReceipt, $secret);
+    ok_test(
+        crash_request($runtime, $productionRoot, $productionRequest, 'claim:after-receipt', false) === 0,
+        'ambient crash environment cannot terminate an unmarked production authority root'
+    );
+    ok_test(
+        RollbackControl::status($productionRoot)['state'] === 'prepared',
+        'unmarked production authority completes the exact request despite ambient crash input'
     );
 
     $claimHooks = [
