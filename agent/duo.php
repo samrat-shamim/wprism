@@ -21,6 +21,7 @@ require_once __DIR__ . '/src/Db.php';
 require_once __DIR__ . '/src/Secrets.php';
 require_once __DIR__ . '/src/PersonalData.php';
 require_once __DIR__ . '/src/ManifestDispositions.php';
+require_once __DIR__ . '/src/AdapterSources.php';
 require_once __DIR__ . '/src/CapabilityRegistry.php';
 require_once __DIR__ . '/src/NativeActions.php';
 require_once __DIR__ . '/src/Policy.php';

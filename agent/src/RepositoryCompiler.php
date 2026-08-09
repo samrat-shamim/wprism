@@ -497,14 +497,25 @@ final class RepositoryCompiler {
      * independently checkable without needing every OTHER pinned
      * manifest's bytes too.
      *
-     * @return list<array{name:string, digest:string, spec_version:?int, plugin:?string, version_range:?array, theme:?string, theme_version_range:?array, disposition:?array, capability:?array}>
+     * DUO-3314 adds `source`/`trust_tier`: which adapter source installed this
+     * manifest and how much executable authority it reaches. `digest` is
+     * deliberately unchanged for shipped adapters — provenance reaches the
+     * digest through the `disposition` slot manifest_rows() already hashes
+     * (Policy::manifest_disposition() answers with the synthesized provenance
+     * record for an out-of-tree adapter), so no shipped adapter's digest, and
+     * therefore no existing site.duo.json pin or registry claim, moves.
+     *
+     * @return list<array{name:string, digest:string, source:string, trust_tier:string, spec_version:?int, plugin:?string, version_range:?array, theme:?string, theme_version_range:?array, disposition:?array, capability:?array}>
      */
     public static function resolved_adapters(Policy $policy): array {
+        $sources = $policy->adapter_sources();
         $out = [];
         foreach (self::manifest_rows($policy) as $row) {
             $manifest = $row['manifest'];
             $out[] = [
                 'name' => $row['name'],
+                'source' => $sources->source((string) $row['name']),
+                'trust_tier' => AdapterSources::trust_tier($manifest),
                 'digest' => class_exists(CapabilityRegistry::class)
                     ? CapabilityRegistry::adapter_digest($manifest, $row['disposition'])
                     : hash('sha256', Canon::encode($row)),
