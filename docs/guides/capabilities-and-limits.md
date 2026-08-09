@@ -205,6 +205,17 @@ That last pattern is doctrine, not accident: capability *reduction* is a
 legitimate certification outcome. Working-but-unprovable behavior gets removed
 and refused rather than shipped under-proven.
 
+**Per-host environment lifecycle.** `duo env materialize` requires two
+independent truths: a local/Docker/SSH environment driver that can run the
+ordinary refresh and promotion workflows, and a privileged machine-local
+provider that explicitly advertises coherent snapshot, attach or create,
+mutation-fence, URL, receipt, and matching detach or destroy capabilities.
+Checked-in `site.duo.json` cannot grant that authority. Unsupported create,
+destroy, detach, snapshot, or TTL operations refuse before target mutation.
+TTL is observable expiry metadata only; it never authorizes automatic deletion.
+`duo env reap` is the sole cleanup path and compares the exact resource,
+ownership lease, mutation fence, and optional TTL generation before acting.
+
 ## Planned capabilities
 
 Everything below is unshipped at this commit. It is listed so you can tell
@@ -217,7 +228,6 @@ rather than working around it.
   Structured native actions and plugin-owned providers, once bundled with this,
   have shipped; see
   [adapter-authoring.md](adapter-authoring.md#declaring-repair-work-actions-and-providers).
-- On-demand branch environment materialization — **Planned (DUO-3324)** — not yet shipped.
 - Scoped promotion and synchronization with dependency closure — **Planned (DUO-3344)** — not yet shipped.
 - Field-level diff explanations and guided conflict resolution — **Planned (DUO-3345)** — not yet shipped.
   Plan rows already carry authored WordPress display names; that slice shipped.

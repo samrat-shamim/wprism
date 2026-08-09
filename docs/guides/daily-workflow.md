@@ -2,7 +2,7 @@
 
 This is the loop a WordPress team runs once Duo is installed:
 
-**branch → capture → refresh/rebase → plan/status → promote → recover.**
+**branch → materialize → capture → refresh/rebase → plan/status → promote → recover/reap.**
 
 Every verb below is documented flag-by-flag in
 [cli/README.md](../../cli/README.md). This guide is the connective tissue: what
@@ -61,9 +61,40 @@ sandbox pair, whatever your team uses — because WordPress content is authored
 in WordPress, not in a text editor over canonical JSON. Duo's job starts when
 you want that change to become a reviewable diff.
 
-Materializing a whole environment from a branch on demand is **Planned (DUO-3324)** — not yet shipped.
-Today each developer points an existing environment at their branch checkout of
-the site repo.
+When the host exposes a machine-local environment provider, materialize the
+branch from one coherent production cut:
+
+```sh
+duo env materialize preview --from production --branch feature/pricing-page --ttl 86400
+```
+
+The branch ref must resolve to the clean branch currently checked out. Duo
+freezes production while it reads semantic truth, binds that export to one
+immutable database/media snapshot set, attaches the named target, restores the
+physical baseline, materializes the rebased candidate commit, and promotes the
+exact compiled code-and-state release. Attach is the default because many
+hosts provision environments outside Duo. Use `--create` only when the target
+provider explicitly advertises both create and receipt-backed destroy; Duo
+never guesses that attach implies provisioning.
+
+`--ttl` publishes observable expiry metadata. It does not grant a provider
+permission to delete the environment when the clock passes that time. Cleanup
+is always the explicit, identity- and lease-fenced command:
+
+```sh
+duo env reap preview
+```
+
+A target whose resource identity, ownership lease, mutation fence, or TTL
+generation changed is refused before destroy or detach. Created targets are
+destroyed; attached targets are detached and never destroyed. Repeating reap
+returns the recorded absence proof without another provider mutation.
+
+Hosts without the provider contract keep the existing workflow: point an
+already-provisioned environment at the branch checkout, then use the ordinary
+capture/deploy/apply/promote commands. The transport and provider remain
+separate contracts—being able to run WP-CLI over local, Docker, or SSH does not
+claim infrastructure authority.
 
 ## Capture
 
@@ -241,8 +272,10 @@ always leave an exit path through `duo` — never through operator SQL.
 
 - **Monday** — `duo doctor` each environment; `duo status production` to
   confirm you are starting from a clean baseline.
-- **During the week** — branch; author on a dev environment; `duo capture dev`;
-  review the state diff in the pull request like any other diff.
+- **During the week** — branch; optionally `duo env materialize preview --from
+  production --branch=<branch> --ttl=86400`; author on the branch environment;
+  `duo capture preview`; review the state diff in the pull request like any
+  other diff.
 - **Before merging** — `duo refresh production --production-ref=<ref>`; rebase
   if production moved; `duo status stage` after applying to staging.
 - **Release** — `duo promote production`, then `duo status production` once
@@ -252,3 +285,6 @@ always leave an exit path through `duo` — never through operator SQL.
   and match the bucket name. Every refusal in this system has exactly one
   documented remedy, and reaching for a force flag before reading it is how
   teams lose the guarantees they installed Duo for.
+- **End of branch** — `duo env reap preview`; verify the receipt says
+  `destroyed` for an explicitly created target or `detached` for an attached
+  target.
