@@ -275,6 +275,7 @@ receipt, runtime-isolation, ACF-schema, frontend, REST, and rollback guards.
 They are Docker-free; the bounded HTTP/database assertions remain live-only.
 
 These suites are also part of `make regress-offline-all`, the local merge gate
-while hosted CI is disabled. The live command is intentionally not wired into `Makefile` by this scenario;
+while hosted CI is disabled. The `grind-ecommerce-developer-live` Make target is intentionally gated by explicit
+`ECOMMERCE_PAIR`, `PORT1`, and `PORT2` values;
 the owner should authorize a unique `ECOMMERCE_PAIR` and ports before running
 it.
