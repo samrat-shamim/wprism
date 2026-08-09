@@ -374,6 +374,7 @@ final class CapabilityRegistry {
                     'remediation' => (string) ($reason['remediation'] ?? ''),
                     'source' => (string) ($source['source'] ?? AdapterSources::SHIPPED),
                     'trust_tier' => (string) ($source['trust_tier'] ?? ''),
+                    'certification' => (string) ($source['certification'] ?? 'registry'),
                 ];
             }
         }

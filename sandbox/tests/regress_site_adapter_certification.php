@@ -101,6 +101,16 @@ function cert_expect_throw(callable $fn, string $needle, string $message): void 
     }
 }
 
+/** @return ?array<string,mixed> */
+function cert_provider_blocker(array $rows, string $code): ?array {
+    foreach ($rows as $row) {
+        if (is_array($row) && ($row['code'] ?? null) === $code) {
+            return $row;
+        }
+    }
+    return null;
+}
+
 function cert_remove_tree(string $path): void {
     if (!file_exists($path) && !is_link($path)) {
         return;
@@ -266,6 +276,11 @@ if (!function_exists('sodium_crypto_sign_seed_keypair')) {
 }
 
 $root = sys_get_temp_dir() . '/duo_site_adapter_certification_' . bin2hex(random_bytes(6));
+if (!defined('ABSPATH')) {
+    // The provider diagnostic gate recognizes an ordinary WordPress target,
+    // while this harness supplies its narrow lifecycle primitives itself.
+    define('ABSPATH', $root . '/');
+}
 $agent = $root . '/agent-manifests';
 $site = $root . '/site';
 $bundle = $root . '/bundle';
@@ -625,10 +640,55 @@ final class DuoCertificationPluginProvider {
     }
 
     public function invoke(string $capability, array $args): array {
+        $GLOBALS['cert_provider_invocations'] = (int) ($GLOBALS['cert_provider_invocations'] ?? 0) + 1;
         if ($capability !== 'rebuild_cache' || $args !== []) {
             throw new RuntimeException('unexpected provider fixture invocation');
         }
         return ['before' => 'fixture-before', 'after' => 'fixture-after', 'verified' => true];
+    }
+}
+
+final class DuoCertificationWrongRegistrationProvider {
+    public function identity(): array {
+        return ['id' => 'site-cache', 'plugin' => 'acme/acme.php', 'version' => '9.9.9'];
+    }
+
+    public function capabilities(): array {
+        return ['rebuild_cache' => [
+            'args' => [],
+            'idempotent' => true,
+            'reads' => ['post:page'],
+            'scope' => 'site',
+            'timeout_seconds' => 1,
+            'writes' => ['post:page'],
+        ]];
+    }
+
+    public function invoke(string $capability, array $args): array {
+        $GLOBALS['cert_provider_invocations'] = (int) ($GLOBALS['cert_provider_invocations'] ?? 0) + 1;
+        throw new RuntimeException('diagnostics must not invoke a wrong-registration provider');
+    }
+}
+
+final class DuoCertificationMissingCapabilityProvider {
+    public function identity(): array {
+        return ['id' => 'site-cache', 'plugin' => 'acme/acme.php', 'version' => '1.2.3'];
+    }
+
+    public function capabilities(): array {
+        return ['rebuild_other_cache' => [
+            'args' => [],
+            'idempotent' => true,
+            'reads' => ['post:page'],
+            'scope' => 'site',
+            'timeout_seconds' => 1,
+            'writes' => ['post:page'],
+        ]];
+    }
+
+    public function invoke(string $capability, array $args): array {
+        $GLOBALS['cert_provider_invocations'] = (int) ($GLOBALS['cert_provider_invocations'] ?? 0) + 1;
+        throw new RuntimeException('diagnostics must not invoke a missing-capability provider');
     }
 }
 PLUGIN
@@ -646,6 +706,132 @@ cert_check(
     && !str_starts_with((string) realpath($providerCodeFile), rtrim((string) realpath($providerSite), '/') . '/adapters/'),
     'the negotiated provider class is physically plugin-owned rather than copied into the site adapter'
 );
+
+echo "\n== target context lazy plugin API negotiation ==\n";
+// A real WP-CLI request has ABSPATH/WP_PLUGIN_DIR and the ordinary runtime
+// seams before wp-admin/includes/plugin.php is loaded. Deploy owns that
+// include-on-demand step. Run a clean PHP child so validate_plugin(),
+// get_plugins(), and is_wp_error() genuinely begin absent: making the
+// Policy diagnostic gate require them would skip the very runtime check this
+// change needs to add.
+$lazyWp = $root . '/lazy-wp';
+$lazyPlugins = $lazyWp . '/wp-content/plugins';
+$lazyProvider = $lazyPlugins . '/lazy/lazy.php';
+cert_write($lazyWp . '/wp-admin/includes/plugin.php', <<<'PHP'
+<?php
+function validate_plugin(string $plugin): int { return 0; }
+function get_plugins(): array { return ['lazy/lazy.php' => ['Version' => '1.0.0']]; }
+function is_wp_error(mixed $value): bool { return false; }
+PHP
+);
+cert_write($lazyProvider, <<<'PHP'
+<?php
+final class DuoCertificationLazyApiProvider {
+    public function identity(): array {
+        return ['id' => 'lazy-cache', 'plugin' => 'lazy/lazy.php', 'version' => '1.0.0'];
+    }
+    public function capabilities(): array {
+        return ['flush' => [
+            'args' => [], 'idempotent' => true, 'reads' => ['post:page'],
+            'scope' => 'site', 'timeout_seconds' => 1, 'writes' => ['post:page'],
+        ]];
+    }
+    public function invoke(string $capability, array $args): array {
+        $GLOBALS['lazy_provider_invocations'] = (int) ($GLOBALS['lazy_provider_invocations'] ?? 0) + 1;
+        return ['before' => null, 'after' => null, 'verified' => true];
+    }
+}
+PHP
+);
+$lazyScript = str_replace(
+    ['__ABSPATH__', '__WP_PLUGIN_DIR__', '__PROVIDER_FILE__', '__ENGINE_ROOT__'],
+    [
+        var_export($lazyWp . '/', true),
+        var_export($lazyPlugins, true),
+        var_export($lazyProvider, true),
+        var_export(dirname(__DIR__, 2), true),
+    ],
+    <<<'PHP'
+<?php
+declare(strict_types=1);
+define('DUO_SPEC_VERSION', 2);
+define('ABSPATH', __ABSPATH__);
+define('WP_PLUGIN_DIR', __WP_PLUGIN_DIR__);
+function apply_filters(string $tag, mixed $value): mixed {
+    return $tag === 'duo_providers' ? (array) ($GLOBALS['lazy_providers'] ?? []) : $value;
+}
+function get_option(string $name, mixed $default = false): mixed {
+    return $name === 'active_plugins' ? ['lazy/lazy.php'] : $default;
+}
+$payload = [
+    'admin_api_absent_before' => !function_exists('validate_plugin')
+        && !function_exists('get_plugins') && !function_exists('is_wp_error'),
+];
+require __ENGINE_ROOT__ . '/agent/src/Canon.php';
+require __ENGINE_ROOT__ . '/agent/src/OptionState.php';
+require __ENGINE_ROOT__ . '/agent/src/Policy.php';
+require __ENGINE_ROOT__ . '/agent/src/Deploy.php';
+require __ENGINE_ROOT__ . '/agent/src/Providers.php';
+require __PROVIDER_FILE__;
+$GLOBALS['lazy_providers'] = [new DuoCertificationLazyApiProvider()];
+$GLOBALS['lazy_provider_invocations'] = 0;
+$payload['gate_before_loader'] = \Duo\Providers::runtime_negotiation_available();
+try {
+    $policy = \Duo\Policy::from_snapshot([
+        'format' => 'duo-policy-snapshot/v4',
+        'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
+        'capabilities' => null,
+        'dispositions' => null,
+        'site' => [
+            'manifests' => ['lazy-provider'],
+            'spec_version' => 2,
+            'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
+        ],
+        'manifests' => [[
+            'name' => 'lazy-provider',
+            'spec_version' => 2,
+            'plugin' => 'lazy/lazy.php',
+            'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
+            'providers' => [[
+                'id' => 'lazy-cache', 'plugin' => 'lazy/lazy.php',
+                'source' => 'plugin', 'version' => '1.0.0', 'capabilities' => ['flush'],
+            ]],
+            'actions' => [[
+                'kind' => 'provider', 'provider' => 'lazy-cache', 'capability' => 'flush', 'args' => [],
+                'triggers' => ['post:page'],
+                'effects' => [[
+                    'id' => 'lazy-cache-effect', 'kind' => 'external', 'mode' => 'irreversible',
+                    'selector' => ['scope' => 'external', 'type' => 'provider_resource', 'value' => 'provider:lazy-cache/flush'],
+                ]],
+            ]],
+        ]],
+    ]);
+    $negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:page']));
+    $payload['problems'] = $negotiation['problems'];
+} catch (\Throwable $failure) {
+    $payload['error'] = $failure->getMessage();
+}
+$payload['admin_api_loaded_after'] = function_exists('validate_plugin')
+    && function_exists('get_plugins') && function_exists('is_wp_error');
+$payload['invocations'] = $GLOBALS['lazy_provider_invocations'];
+echo json_encode($payload, JSON_THROW_ON_ERROR);
+PHP
+);
+$lazyScriptPath = $lazyWp . '/lazy-api-negotiation.php';
+cert_write($lazyScriptPath, $lazyScript);
+$lazyRun = cert_run([PHP_BINARY, $lazyScriptPath]);
+$lazyPayload = json_decode($lazyRun['stdout'], true);
+cert_check(
+    $lazyRun['exit'] === 0
+    && is_array($lazyPayload)
+    && ($lazyPayload['admin_api_absent_before'] ?? null) === true
+    && ($lazyPayload['gate_before_loader'] ?? null) === true
+    && ($lazyPayload['admin_api_loaded_after'] ?? null) === true
+    && ($lazyPayload['problems'] ?? null) === []
+    && ($lazyPayload['invocations'] ?? null) === 0,
+    'runtime diagnostics negotiate a real target after Deploy lazily loads wp-admin plugin APIs, without invoking the provider'
+);
+
 echo "\n== plugin-owned provider identity boundary ==\n";
 $providerManifest = $manifest;
 $providerManifest['providers'] = [[
@@ -767,13 +953,15 @@ try {
     );
 
     $providerActions = $providerUnpinnedPolicy->actions_for(['post:page']);
+    $GLOBALS['cert_provider_invocations'] = 0;
     $negotiated = Providers::negotiate($providerUnpinnedPolicy, $providerActions);
     cert_check(
         count($providerActions) === 1
         && ($providerActions[0]['provider'] ?? null) === 'site-cache'
         && $negotiated['problems'] === []
-        && isset($negotiated['providers']['site-cache'], $negotiated['capabilities']['site-cache']['rebuild_cache']),
-        'offline negotiation resolves the typed provider action against the active, exact-version plugin'
+        && isset($negotiated['providers']['site-cache'], $negotiated['capabilities']['site-cache']['rebuild_cache'])
+        && $GLOBALS['cert_provider_invocations'] === 0,
+        'offline negotiation resolves the typed provider action through identity/capabilities without invoking it'
     );
     $providerReceipt = Providers::invoke(
         $negotiated['providers']['site-cache'],
@@ -785,9 +973,13 @@ try {
         $providerReceipt['before'] === 'fixture-before'
         && $providerReceipt['after'] === 'fixture-after'
         && $providerReceipt['verified'] === true
-        && isset($providerReceipt['duration_seconds']),
-        'plugin-owned negotiation returns the exact value-verified before/after receipt required by the engine boundary'
+        && isset($providerReceipt['duration_seconds'])
+        && $GLOBALS['cert_provider_invocations'] === 1,
+        'an explicitly invoked negotiated provider returns the required value-verified receipt'
     );
+    // The diagnostic assertions below must prove their own read-only posture,
+    // independent of this explicit provider-contract exercise.
+    $GLOBALS['cert_provider_invocations'] = 0;
 
     $providerPlan = PlanSummary::render([
         'adapter_dispositions' => $providerUnpinnedPolicy->adapter_readiness_blockers(),
@@ -796,7 +988,7 @@ try {
     cert_check(
         $providerPlan['ok'] === false
         && str_contains($providerPlanText, 'site-plugin')
-        && str_contains($providerPlanText, 'source=site tier=plugin_provider')
+        && str_contains($providerPlanText, 'source=site tier=plugin_provider certification=signed_unpinned')
         && str_contains($providerPlanText, 'adapter_certification_unpinned')
         && str_contains($providerPlanText, 'remediation:'),
         'human status/plan rendering identifies the signed-unpinned provider row, tier, blocker, and remediation'
@@ -843,8 +1035,9 @@ try {
         && ($providerPinnedResolved[0]['capability']['status'] ?? null) === 'certified'
         && ($providerPinnedRow['source']['certification'] ?? null) === 'third_party_signed'
         && ($providerPinnedRow['source']['trust_tier'] ?? null) === 'plugin_provider'
-        && $providerPinnedPolicy->adapter_readiness_blockers() === [],
-        'the exact site/digest pin elevates the same plugin-provider row to certified, ready status'
+        && $providerPinnedPolicy->adapter_readiness_blockers() === []
+        && $GLOBALS['cert_provider_invocations'] === 0,
+        'the exact site/digest pin elevates the same negotiated plugin-provider row to ready status without invoking it'
     );
     $providerPinnedPlan = PlanSummary::render([
         'adapter_dispositions' => $providerPinnedPolicy->adapter_readiness_blockers(),
@@ -874,6 +1067,127 @@ try {
         && ($providerPinnedMachine['manifests'][0]['verdict']['status'] ?? null) === 'certified'
         && ($providerPinnedMachine['manifests'][0]['source']['certification'] ?? null) === 'third_party_signed',
         'the product machine capability renderer reports ready with no blockers after the exact pin'
+    );
+
+    echo "\n== signed plugin-provider runtime readiness diagnostics ==\n";
+    // Capability reports deliberately test every declared provider action;
+    // status/plan rows deliberately test only the actions selected by their
+    // current canonical surfaces. This fixture's one action is post:page.
+    $providerPlanDispositions = static function (Policy $policy, array $surfaces): array {
+        return array_merge(
+            $policy->certification_readiness_blockers(),
+            $policy->provider_readiness_blockers($policy->actions_for($surfaces))
+        );
+    };
+    $hasProviderDiagnosticFields = static function (?array $blocker, string $code): bool {
+        return is_array($blocker)
+            && ($blocker['name'] ?? null) === 'site-plugin'
+            && ($blocker['status'] ?? null) === 'blocked'
+            && ($blocker['code'] ?? null) === $code
+            && ($blocker['provider'] ?? null) === 'site-cache'
+            && ($blocker['manifest'] ?? null) === 'site-plugin'
+            && ($blocker['plugin'] ?? null) === 'acme/acme.php'
+            && trim((string) ($blocker['expected'] ?? '')) !== ''
+            && trim((string) ($blocker['found'] ?? '')) !== ''
+            && trim((string) ($blocker['remediation'] ?? '')) !== ''
+            && ($blocker['source'] ?? null) === 'site'
+            && ($blocker['trust_tier'] ?? null) === 'plugin_provider'
+            && ($blocker['certification'] ?? null) === 'third_party_signed';
+    };
+    $validProviderRegistration = $GLOBALS['cert_plugin_providers'];
+
+    // A signed, exact-pinned claim proves reviewed adapter bytes, not that its
+    // plugin registered a usable provider in this runtime. The capability
+    // report has no active surface input, yet must still reject this missing
+    // declared action; the plan-facing rows reject it only for post:page.
+    $GLOBALS['cert_plugin_providers'] = [];
+    $GLOBALS['cert_provider_invocations'] = 0;
+    $missingProviderReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
+    $missingProviderBlocker = cert_provider_blocker(
+        (array) ($missingProviderReport['blockers'] ?? []),
+        'missing_plugin_provider'
+    );
+    $missingProviderRowReason = cert_provider_blocker(
+        (array) (($missingProviderReport['manifests'][0]['verdict']['reasons'] ?? [])),
+        'missing_plugin_provider'
+    );
+    $missingProviderPlanRows = $providerPlanDispositions($providerPinnedPolicy, ['post:page']);
+    $missingProviderPlanBlocker = cert_provider_blocker($missingProviderPlanRows, 'missing_plugin_provider');
+    $missingProviderStatus = PlanSummary::render(['adapter_dispositions' => $missingProviderPlanRows]);
+    $missingProviderStatusText = implode("\n", $missingProviderStatus['lines']);
+    cert_check(
+        ($missingProviderReport['ready'] ?? null) === false
+        && ($missingProviderReport['manifests'][0]['verdict']['status'] ?? null) === 'blocked'
+        && $hasProviderDiagnosticFields($missingProviderBlocker, 'missing_plugin_provider')
+        && is_array($missingProviderRowReason)
+        && ($missingProviderRowReason['provider'] ?? null) === 'site-cache'
+        && ($missingProviderRowReason['plugin'] ?? null) === 'acme/acme.php'
+        && trim((string) ($missingProviderRowReason['remediation'] ?? '')) !== '',
+        'capability JSON blocks an exact signed provider whose required registration is missing, with structured responsibility and remediation'
+    );
+    cert_check(
+        $hasProviderDiagnosticFields($missingProviderPlanBlocker, 'missing_plugin_provider')
+        && $missingProviderStatus['ok'] === false
+        && str_contains($missingProviderStatusText, 'site-cache')
+        && str_contains($missingProviderStatusText, 'acme/acme.php')
+        && str_contains($missingProviderStatusText, 'source=site tier=plugin_provider certification=third_party_signed')
+        && str_contains($missingProviderStatusText, 'remediation:'),
+        'selected plan/status adapter_dispositions expose the missing provider, plugin, signed source/tier/certification, and remediation'
+    );
+    cert_check(
+        $providerPlanDispositions($providerPinnedPolicy, ['post:post']) === []
+        && $GLOBALS['cert_provider_invocations'] === 0,
+        'an unrelated plan surface does not inherit a global provider blocker, and diagnostics invoked no provider action'
+    );
+
+    $GLOBALS['cert_plugin_providers'] = [new \DuoCertificationWrongRegistrationProvider()];
+    $GLOBALS['cert_provider_invocations'] = 0;
+    $wrongRegistrationReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
+    $wrongRegistrationPlanRows = $providerPlanDispositions($providerPinnedPolicy, ['post:page']);
+    cert_check(
+        ($wrongRegistrationReport['ready'] ?? null) === false
+        && $hasProviderDiagnosticFields(
+            cert_provider_blocker((array) ($wrongRegistrationReport['blockers'] ?? []), 'identity_mismatch'),
+            'identity_mismatch'
+        )
+        && $hasProviderDiagnosticFields(
+            cert_provider_blocker($wrongRegistrationPlanRows, 'identity_mismatch'),
+            'identity_mismatch'
+        )
+        && $GLOBALS['cert_provider_invocations'] === 0,
+        'wrong provider registration identity blocks global capability JSON and the selected plan without invoking it'
+    );
+
+    $GLOBALS['cert_plugin_providers'] = [new \DuoCertificationMissingCapabilityProvider()];
+    $GLOBALS['cert_provider_invocations'] = 0;
+    $missingCapabilityReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
+    $missingCapabilityPlanRows = $providerPlanDispositions($providerPinnedPolicy, ['post:page']);
+    cert_check(
+        ($missingCapabilityReport['ready'] ?? null) === false
+        && $hasProviderDiagnosticFields(
+            cert_provider_blocker((array) ($missingCapabilityReport['blockers'] ?? []), 'missing_capability'),
+            'missing_capability'
+        )
+        && $hasProviderDiagnosticFields(
+            cert_provider_blocker($missingCapabilityPlanRows, 'missing_capability'),
+            'missing_capability'
+        )
+        && $GLOBALS['cert_provider_invocations'] === 0,
+        'missing advertised capability blocks global capability JSON and the selected plan without invoking it'
+    );
+
+    $GLOBALS['cert_plugin_providers'] = $validProviderRegistration;
+    $GLOBALS['cert_provider_invocations'] = 0;
+    $validProviderReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
+    $validProviderPlanRows = $providerPlanDispositions($providerPinnedPolicy, ['post:page']);
+    $validProviderStatus = PlanSummary::render(['adapter_dispositions' => $validProviderPlanRows]);
+    cert_check(
+        ($validProviderReport['ready'] ?? null) === true
+        && ($validProviderReport['blockers'] ?? []) === []
+        && $validProviderPlanRows === []
+        && $validProviderStatus['ok'] === true
+        && $GLOBALS['cert_provider_invocations'] === 0,
+        'a valid negotiated provider remains ready globally and for its selected plan, without running an action'
     );
 
     cert_write_canon($site . '/site.duo.json', [

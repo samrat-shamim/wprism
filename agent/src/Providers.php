@@ -130,6 +130,26 @@ final class Providers {
     private const FIELD_TYPES = ['bool', 'int', 'string'];
 
     /**
+     * Whether this process has the live WordPress seams negotiation reads.
+     *
+     * Policy and registry validators deliberately have offline entry points:
+     * loading a manifest library must not manufacture a "missing provider"
+     * result merely because there is no WordPress target in this PHP process.
+     * A target-facing capability/status/plan path has this WordPress context
+     * and may therefore ask providers for identity/capabilities without
+     * invoking an action. Do NOT require validate_plugin()/get_plugins() here:
+     * Deploy::plugin_runtime_state() deliberately loads wp-admin's plugin API
+     * on demand under WP-CLI. Keep that distinction here rather than making
+     * Policy learn the WordPress lifecycle primitives Deploy owns.
+     */
+    public static function runtime_negotiation_available(): bool {
+        return defined('ABSPATH')
+            && defined('WP_PLUGIN_DIR')
+            && function_exists('apply_filters')
+            && function_exists('get_option');
+    }
+
+    /**
      * Resolve, verify, and bind every provider the selected actions reach.
      *
      * Returns problems rather than throwing them so one refusal can name every

@@ -141,7 +141,10 @@ final class Apply {
             // derivative is safe.
             'uploads_inventory' => $compiled->uploads_inventory(),
             'effects_inventory' => $compiled->effects_inventory(),
-            'adapter_dispositions' => $this->policy->adapter_readiness_blockers(),
+            // Source/evidence facts are plan-independent. Provider runtime
+            // blockers are appended at the end from this plan's exact
+            // rebuild-surface selection; see rebuild_work() below.
+            'adapter_dispositions' => $this->policy->certification_readiness_blockers(),
         ];
         $collisionCache = [];
         foreach ($tree as $uuid => $e) {
@@ -438,7 +441,8 @@ final class Apply {
         // canonical entity through phase 2/rebuild until the marker clears;
         // otherwise the ordinary three-way gate can make a truthful failure
         // impossible to retry without an unrelated --force-theirs override.
-        if (Ledger::kv_get('apply_in_progress') !== null) {
+        $retryingIncompleteApply = Ledger::kv_get('apply_in_progress') !== null;
+        if ($retryingIncompleteApply) {
             $plan['incomplete_apply'][] = [
                 'reason' => 'previous apply did not complete required rebuilds or convergence metadata',
             ];
@@ -536,6 +540,25 @@ final class Apply {
         if ($inactiveWarning !== null && !in_array($inactiveWarning, $this->warnings, true)) {
             $this->warnings[] = $inactiveWarning;
         }
+
+        // A global capability report evaluates every declared provider action,
+        // but a plan/status must answer what THIS plan can actually run. Use
+        // the exact work/delete/retry projection Apply::run() uses before its
+        // pre-mutation negotiation, so an unrelated or empty trigger cannot
+        // turn a clean plan red while a selected missing capability stays
+        // visible in adapter_dispositions.
+        $rebuildWork = $this->rebuild_work($plan, $tree, $opts, $retryingIncompleteApply);
+        $selectedActions = $this->policy->actions_for(
+            $this->rebuild_surfaces(
+                $rebuildWork['work'],
+                $tree,
+                $rebuildWork['rebuild_delete_work']
+            )
+        );
+        $plan['adapter_dispositions'] = array_merge(
+            $plan['adapter_dispositions'],
+            $this->policy->provider_readiness_blockers($selectedActions)
+        );
         return $plan;
     }
 
@@ -1878,26 +1901,10 @@ final class Apply {
             $this->warnings[] = 'FORCED past code_mismatch: ' . $r['message'];
         }
 
-        $deleteWork = $plan['delete'];
-        if (!empty($opts['force_theirs'])) {
-            $deleteWork = array_merge($deleteWork, $plan['delete_conflict']);
-        }
-        usort($deleteWork, fn(array $a, array $b): int =>
-            $this->deletion_rank($b) <=> $this->deletion_rank($a)
-            ?: ($a['uuid'] <=> $b['uuid'])
-        );
-        // A previous apply can have committed authored rows and failed after
-        // a tombstone target was already absent. Include those immutable
-        // tombstones in the retry surface set so bounded derived-state
-        // actions still clear/verify their rows on the next attempt.
-        $rebuildDeleteWork = $deleteWork;
-        if ($retryingIncompleteApply) {
-            $rebuildDeleteWork = array_merge($rebuildDeleteWork, $plan['deleted']);
-            usort($rebuildDeleteWork, fn(array $a, array $b): int =>
-                $this->deletion_rank($b) <=> $this->deletion_rank($a)
-                ?: ((string) ($a['uuid'] ?? '') <=> (string) ($b['uuid'] ?? ''))
-            );
-        }
+        $rebuildWork = $this->rebuild_work($plan, $tree, $opts, $retryingIncompleteApply);
+        $deleteWork = $rebuildWork['delete_work'];
+        $rebuildDeleteWork = $rebuildWork['rebuild_delete_work'];
+        $work = $rebuildWork['work'];
 
         if (!empty($opts['with_deletes'])) {
             $blocked = array_filter($deleteWork, fn($r) => isset($r['blocked']));
@@ -1917,19 +1924,6 @@ final class Apply {
 
         $this->defaultAuthor = $this->resolve_login($opts['default_author'] ?? '') ?? null;
         $this->tokens->defaultUserId = $this->defaultAuthor;
-
-        // Deterministic, declared ordering for BOTH phases: 'early' post types
-        // (definition CPTs) lead — phase 1 row creation was glob-alphabetical
-        // luck until the FSE frontier report flagged it (phase 2 was fixed in
-        // task #10; usort is stable on PHP 8).
-        $work = array_merge(
-            $plan['create'],
-            $plan['adopt'],
-            $plan['update'],
-            array_map(fn($r) => $r, $plan['conflict']) // only reachable with force_theirs
-        );
-        usort($work, fn($x, $y) =>
-            $this->phase2_rank($tree[$x['uuid']]) <=> $this->phase2_rank($tree[$y['uuid']]));
 
         $deleteUuids = array_fill_keys(array_column($deleteWork, 'uuid'), true);
         $guardRepairUuids = $this->guard_repair_uuids($plan);
@@ -5514,6 +5508,63 @@ final class Apply {
             return Ledger::id_for($uuid, $table['id_kind']);
         }
         return null;
+    }
+
+    /**
+     * The one work/deletion projection every rebuild consumer must share.
+     *
+     * A plan needs it to diagnose only provider actions it would select;
+     * run() needs the same rows for its pre-mutation negotiation and actual
+     * rebuild. Keeping retry tombstones, forced conflicts, and sort order in
+     * one helper prevents status from diagnosing a different action set from
+     * the one Apply can later invoke.
+     *
+     * @param array<string,mixed> $plan
+     * @param array<string,array<string,mixed>> $tree
+     * @param array<string,mixed> $opts
+     * @return array{work:list<array<string,mixed>>,delete_work:list<array<string,mixed>>,rebuild_delete_work:list<array<string,mixed>>}
+     */
+    private function rebuild_work(array $plan, array $tree, array $opts, bool $retryingIncompleteApply): array {
+        $deleteWork = (array) ($plan['delete'] ?? []);
+        if (!empty($opts['force_theirs'])) {
+            $deleteWork = array_merge($deleteWork, (array) ($plan['delete_conflict'] ?? []));
+        }
+        usort($deleteWork, fn(array $a, array $b): int =>
+            $this->deletion_rank($b) <=> $this->deletion_rank($a)
+            ?: ($a['uuid'] <=> $b['uuid'])
+        );
+
+        // A previous apply can have committed authored rows and failed after
+        // a tombstone target was already absent. Include those immutable
+        // tombstones in the retry surface set so bounded derived-state
+        // actions still clear/verify their rows on the next attempt.
+        $rebuildDeleteWork = $deleteWork;
+        if ($retryingIncompleteApply) {
+            $rebuildDeleteWork = array_merge($rebuildDeleteWork, (array) ($plan['deleted'] ?? []));
+            usort($rebuildDeleteWork, fn(array $a, array $b): int =>
+                $this->deletion_rank($b) <=> $this->deletion_rank($a)
+                ?: ((string) ($a['uuid'] ?? '') <=> (string) ($b['uuid'] ?? ''))
+            );
+        }
+
+        // Deterministic, declared ordering for BOTH phases: 'early' post
+        // types (definition CPTs) lead. This is also the exact authored work
+        // set whose canonical surfaces may select a provider action.
+        $work = array_merge(
+            (array) ($plan['create'] ?? []),
+            (array) ($plan['adopt'] ?? []),
+            (array) ($plan['update'] ?? []),
+            array_map(fn(array $row): array => $row, (array) ($plan['conflict'] ?? []))
+        );
+        usort($work, fn(array $x, array $y): int =>
+            $this->phase2_rank($tree[(string) $x['uuid']]) <=> $this->phase2_rank($tree[(string) $y['uuid']])
+        );
+
+        return [
+            'work' => $work,
+            'delete_work' => $deleteWork,
+            'rebuild_delete_work' => $rebuildDeleteWork,
+        ];
     }
 
     /**

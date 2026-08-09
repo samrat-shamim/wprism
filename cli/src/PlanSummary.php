@@ -269,6 +269,7 @@ final class PlanSummary {
                 // its remediation gets its own line (DUO-3314).
                 $lines[] = '  - ' . ($r['name'] ?? '?') . ' [' . ($r['status'] ?? 'unreviewed')
                     . '] [source=' . ($r['source'] ?? 'shipped') . ' tier=' . ($r['trust_tier'] ?? 'unknown')
+                    . ' certification=' . ($r['certification'] ?? 'registry')
                     . '] [' . ($r['code'] ?? 'not_certified') . ']: ' . ($r['reason'] ?? 'not certified');
                 if (($r['remediation'] ?? '') !== '') {
                     $lines[] = '    remediation: ' . $r['remediation'];

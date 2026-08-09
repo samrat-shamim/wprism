@@ -393,8 +393,16 @@ self::validate_post_type_children($manifest);
         return $this->adapter_sources()->claim($name) ?? $this->capabilityRegistry?->claim($name);
     }
 
-    /** Non-certified pinned adapters are a structured readiness blocker. */
-    public function adapter_readiness_blockers(): array {
+    /**
+     * Certification/source-only blockers for a pinned adapter set.
+     *
+     * This intentionally does not contact provider code. Apply::build_plan()
+     * starts with this stable source/evidence view, then appends provider
+     * problems for only the actions its own work/deletion surfaces selected.
+     * Calling the global provider view here would turn an unrelated or empty
+     * plan into a blocker for a declaration it cannot execute on that plan.
+     */
+    public function certification_readiness_blockers(): array {
         if ($this->manifestDispositions === null) {
             return [];
         }
@@ -415,6 +423,83 @@ self::validate_post_type_children($manifest);
         );
     }
 
+    /**
+     * Every source/evidence and runtime-provider blocker for this policy.
+     *
+     * This is the global readiness answer used by callers that ask whether
+     * the installed adapter set is usable at all. It deliberately negotiates
+     * every declared provider ACTION, irrespective of that action's trigger:
+     * a capability report must not be green merely because this particular
+     * moment has no matching authored surface. Plan construction uses
+     * certification_readiness_blockers() plus the selected-action method
+     * below instead.
+     */
+    public function adapter_readiness_blockers(): array {
+        return array_merge(
+            $this->certification_readiness_blockers(),
+            $this->provider_readiness_blockers($this->actions())
+        );
+    }
+
+    /**
+     * Negotiate selected provider actions for a target-facing diagnostic.
+     *
+     * Providers::negotiate() calls only identity() and capabilities() on a
+     * provider; it never calls invoke(). Its structured problems are promoted
+     * into the same adapter_dispositions wire shape plan/status already render
+     * so provider, plugin, source, tier, and operator remediation remain
+     * visible instead of a signed claim masking a live incompatibility.
+     *
+     * @param list<array<string,mixed>> $actions
+     * @return list<array<string,mixed>>
+     */
+    public function provider_readiness_blockers(array $actions): array {
+        $providerActions = array_values(array_filter(
+            $actions,
+            static fn(array $action): bool => ($action['kind'] ?? null) === 'provider'
+        ));
+        if ($providerActions === [] || $this->manifestDispositions === null || $this->capabilityRegistry === null) {
+            return [];
+        }
+
+        // These classes are intentionally late-bound: Policy retains its
+        // pure/offline loading entry point, while a real target path gains the
+        // one runtime contract Deploy and Providers already share.
+        require_once __DIR__ . '/Deploy.php';
+        require_once __DIR__ . '/Providers.php';
+        if (!Providers::runtime_negotiation_available()) {
+            return [];
+        }
+
+        $negotiation = Providers::negotiate($this, $providerActions);
+        $sources = $this->adapter_sources()->diagnostics($this->manifests);
+        $rows = [];
+        foreach ($negotiation['problems'] as $problem) {
+            $manifest = (string) ($problem['manifest'] ?? '?');
+            $source = $sources[$manifest] ?? [
+                'certification' => 'unknown',
+                'source' => 'unknown',
+                'trust_tier' => 'unknown',
+            ];
+            $rows[] = [
+                'name' => $manifest,
+                'status' => 'blocked',
+                'code' => (string) ($problem['code'] ?? 'provider_negotiation_failed'),
+                'reason' => (string) ($problem['message'] ?? 'provider negotiation failed'),
+                'remediation' => (string) ($problem['remediation'] ?? ''),
+                'provider' => (string) ($problem['provider'] ?? '?'),
+                'manifest' => $manifest,
+                'plugin' => (string) ($problem['plugin'] ?? '?'),
+                'expected' => (string) ($problem['expected'] ?? ''),
+                'found' => (string) ($problem['found'] ?? ''),
+                'source' => (string) ($source['source'] ?? 'unknown'),
+                'trust_tier' => (string) ($source['trust_tier'] ?? 'unknown'),
+                'certification' => (string) ($source['certification'] ?? 'unknown'),
+            ];
+        }
+        return $rows;
+    }
+
     /** Resolve CLI capability output from the same manifests and external review bytes. */
     public function capability_report(array $query = []): array {
         if ($this->manifestDispositions === null || $this->capabilityRegistry === null) {
@@ -431,13 +516,49 @@ self::validate_post_type_children($manifest);
                 'profiles' => new \stdClass(),
             ];
         }
-        return $this->capabilityRegistry->report(
+        $report = $this->capabilityRegistry->report(
             $this->manifests,
             $query,
             CapabilityRegistry::probe_target(),
             $this->adapter_sources()->diagnostics($this->manifests),
             $this->adapter_sources()->certification_contexts()
         );
+        $providerBlockers = $this->provider_readiness_blockers($this->actions());
+        if ($providerBlockers === []) {
+            return $report;
+        }
+
+        // Preserve the registry claim (the signed/certified source fact), but
+        // make its executable provider state a separate blocked verdict. The
+        // provider fields travel both on the top-level blocker and the row's
+        // reason so JSON consumers do not have to reconstruct responsibility
+        // from a human-formatted string.
+        $rowsByName = [];
+        foreach ($report['manifests'] as $index => $row) {
+            $rowsByName[(string) ($row['name'] ?? '?')][] = $index;
+        }
+        foreach ($providerBlockers as $blocker) {
+            $reason = [
+                'code' => $blocker['code'],
+                'message' => $blocker['reason'],
+                'remediation' => $blocker['remediation'],
+                'provider' => $blocker['provider'],
+                'manifest' => $blocker['manifest'],
+                'plugin' => $blocker['plugin'],
+                'expected' => $blocker['expected'],
+                'found' => $blocker['found'],
+                'source' => $blocker['source'],
+                'trust_tier' => $blocker['trust_tier'],
+                'certification' => $blocker['certification'],
+            ];
+            foreach ($rowsByName[(string) $blocker['name']] ?? [] as $index) {
+                $report['manifests'][$index]['verdict']['status'] = 'blocked';
+                $report['manifests'][$index]['verdict']['reasons'][] = $reason;
+            }
+            $report['blockers'][] = $blocker;
+        }
+        $report['ready'] = $report['blockers'] === [];
+        return $report;
     }
 
     /**

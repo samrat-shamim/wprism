@@ -585,6 +585,7 @@ final class Cli {
                 'CAPABILITY_' . strtoupper((string) ($r['status'] ?? 'unsupported')) . ' '
                 . ($r['name'] ?? '?') . ' [source=' . ($r['source'] ?? 'shipped')
                 . ' tier=' . ($r['trust_tier'] ?? 'unknown')
+                . ' certification=' . ($r['certification'] ?? 'registry')
                 . '] [' . ($r['code'] ?? 'not_certified') . ']: '
                 . ($r['reason'] ?? 'not certified')
             );
