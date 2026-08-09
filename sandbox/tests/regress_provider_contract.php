@@ -317,6 +317,11 @@ $opaqueProviderProblem = static function (array $problem): bool {
         && !str_contains($serialized, 'INJECTED_PROVIDER_LINE')
         && !str_contains((string) ($problem['found'] ?? ''), "\n");
 };
+$opaqueProviderRefusal = static function (array $problem, string $code, string $found) use ($opaqueProviderProblem): bool {
+    return ($problem['code'] ?? '') === $code
+        && ($problem['found'] ?? '') === $found
+        && $opaqueProviderProblem($problem);
+};
 
 $p = $one($problemFor([], static function (): void {
     $GLOBALS['duo_test_plugins'] = [];
@@ -470,6 +475,38 @@ $GLOBALS['duo_test_providers'] = [new class {
 $negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
 $check($negotiation['problems'] === [] && isset($negotiation['providers']['probe-cache']),
     "an unrelated registration whose identity() throws is skipped, not a fatal for the provider actually wanted");
+
+$reset();
+$GLOBALS['duo_test_providers'] = [
+    new class {
+        public function identity(): array {
+            return ['id' => new \stdClass()];
+        }
+    },
+    new class($providerSecret) {
+        public function __construct(private string $secret) {}
+
+        public function identity(): array {
+            return ['id' => new class($this->secret) {
+                public function __construct(private string $secret) {}
+
+                public function __toString(): string {
+                    throw new \RuntimeException($this->secret);
+                }
+            }];
+        }
+    },
+    new \Duo\Providers\ProbeSupplied(),
+];
+$negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
+$malformedIdentityJson = json_encode($negotiation, JSON_THROW_ON_ERROR);
+$check(
+    $negotiation['problems'] === []
+    && isset($negotiation['providers']['probe-cache'])
+    && !str_contains($malformedIdentityJson, 'DUO_PROVIDER_SECRET')
+    && !str_contains($malformedIdentityJson, 'INJECTED_PROVIDER_LINE'),
+    'malformed or throwing Stringable plugin registration ids are skipped without a fatal or public payload leak'
+);
 
 echo "\n== entity scope negotiates its batch preconditions before any mutation ==\n";
 $reset();
@@ -628,22 +665,31 @@ $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability' && str_contains($p['found'] ?? '', 'closed field vocabulary'),
-    'a list<object> declaration without `fields` is refused — an object list with no field vocabulary is a free-form payload');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a list<object> declaration without `fields` is refused through an opaque public capability diagnostic');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true, 'fields' => []]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability' && str_contains($p['found'] ?? '', 'non-empty object'),
-    'an EMPTY fields map is refused rather than read as "accepts anything"');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'an EMPTY fields map is refused through an opaque public capability diagnostic');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true, 'fields' => ['kind', 'id']]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability' && str_contains($p['found'] ?? '', 'non-empty object'),
-    'a fields LIST (rather than a name => rule map) is refused');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a fields LIST (rather than a name => rule map) is refused through an opaque public capability diagnostic');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true, 'fields' => [
@@ -651,9 +697,11 @@ $p = $rowsProblem(
     ]]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', "malformed field name 'Kind Of Thing'"),
-    'a field name outside the bounded argument-name charset is refused, naming the token');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a field name outside the bounded argument-name charset is refused without publishing the provider field name');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true, 'fields' => [
@@ -661,9 +709,11 @@ $p = $rowsProblem(
     ]]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'fields.kind must declare exactly type and required'),
-    'an unknown key inside a field rule is refused rather than ignored');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'an unknown key inside a field rule is refused without publishing the provider schema');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true, 'fields' => [
@@ -671,9 +721,11 @@ $p = $rowsProblem(
     ]]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'nests exactly one level'),
-    'a list<object> INSIDE a list<object> is refused — the object grammar is exactly one level deep');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a list<object> INSIDE a list<object> is refused through an opaque public capability diagnostic');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true, 'fields' => [
@@ -681,9 +733,11 @@ $p = $rowsProblem(
     ]]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'must be one of bool, int, string'),
-    'a list-typed row field is refused too: one level means scalars only inside a row');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a list-typed row field is refused through an opaque public capability diagnostic');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<object>', 'required' => true, 'fields' => [
@@ -691,17 +745,21 @@ $p = $rowsProblem(
     ]]],
     ['rows' => $goodRows]
 );
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'fields.kind.required must be a boolean'),
-    'a non-boolean field `required` is refused');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a non-boolean field `required` is refused through an opaque public capability diagnostic');
 
 $p = $rowsProblem(
     ['rows' => ['type' => 'list<string>', 'required' => true, 'fields' => $rowFields]],
     ['rows' => ['a']]
 );
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'must declare exactly type and required'),
-    'a scalar-typed argument may not carry a `fields` map — only list<object> declares one');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a scalar-typed argument may not carry a `fields` map through an opaque public capability diagnostic');
 
 echo "\n== list<object> VALUES: two gates, load-time shape then negotiated vocabulary ==\n";
 // Depth is bounded at LOAD (Policy::validate_provider_action(), where no
@@ -739,25 +797,32 @@ $expectLoadRefusal(
 );
 
 $p = $rowsProblem($rowsArgs, ['rows' => [['kind' => 'post:probe', 'id' => 7, 'flush' => true]]]);
-$check(($p['code'] ?? '') === 'invalid_capability_args'
-    && str_contains($p['found'] ?? '', 'does not declare: flush')
-    && str_contains($p['found'] ?? '', 'declared: kind, id, purged'),
-    'an undeclared row field is refused, naming both the unknown field and the declared vocabulary');
+$check($opaqueProviderRefusal(
+    $p,
+    'invalid_capability_args',
+    'action arguments do not match advertised schema'
+), 'an undeclared row field is refused without publishing the provider field vocabulary');
 
 $p = $rowsProblem($rowsArgs, ['rows' => [['kind' => 'post:probe']]]);
-$check(($p['code'] ?? '') === 'invalid_capability_args'
-    && str_contains($p['found'] ?? '', "row 0 is missing required field 'id'"),
-    'a missing required row field is refused, naming the row index');
+$check($opaqueProviderRefusal(
+    $p,
+    'invalid_capability_args',
+    'action arguments do not match advertised schema'
+), 'a missing required row field is refused through an opaque public argument diagnostic');
 
 $p = $rowsProblem($rowsArgs, ['rows' => [['kind' => 'post:probe', 'id' => '7']]]);
-$check(($p['code'] ?? '') === 'invalid_capability_args'
-    && str_contains($p['found'] ?? '', "field 'id' must be of type int"),
-    'a mistyped row field is refused (a numeric string is not an int)');
+$check($opaqueProviderRefusal(
+    $p,
+    'invalid_capability_args',
+    'action arguments do not match advertised schema'
+), 'a mistyped row field is refused through an opaque public argument diagnostic');
 
 $p = $rowsProblem($rowsArgs, ['rows' => [['kind' => 'post:probe', 'id' => 7], 'not-an-object']]);
-$check(($p['code'] ?? '') === 'invalid_capability_args'
-    && str_contains($p['found'] ?? '', 'row 1 must be an object'),
-    'a scalar where a row belongs passes the load gate (it is a scalar) and is refused against the declared type');
+$check($opaqueProviderRefusal(
+    $p,
+    'invalid_capability_args',
+    'action arguments do not match advertised schema'
+), 'a scalar where a row belongs is refused through an opaque public argument diagnostic');
 
 // The negotiated half of the one-level bound, reached directly because the
 // load gate above already refuses this shape in a manifest: a capability
@@ -820,31 +885,80 @@ $check(\Duo\Providers::CONTEXT_CHANNELS === ['always_on_write', 'deletions', 're
     'the channel vocabulary is exactly deletions, reparents, retry, always_on_write — a capability cannot mint a fifth');
 
 $p = $channelProblem(['deletions', 'tombstones']);
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', "names 'tombstones'")
-    && str_contains($p['found'] ?? '', 'always_on_write, deletions, reparents, retry'),
-    'an unknown channel is refused, naming the token and the closed set');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'an unknown channel is refused without publishing the provider-declared token');
 
 $p = $channelProblem(['deletions', 'deletions']);
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', "repeats channel 'deletions'"),
-    'a duplicated channel is refused rather than deduplicated');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a duplicated channel is refused through an opaque public capability diagnostic');
 
 $p = $channelProblem([]);
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'must be a non-empty list'),
-    'an empty context list is refused — it would declare the envelope while carrying nothing');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'an empty context list is refused through an opaque public capability diagnostic');
 
 $p = $channelProblem('deletions');
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'must be a non-empty list'),
-    'a bare channel string (not a list) is refused');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'a bare channel string is refused through an opaque public capability diagnostic');
 
 $p = $channelProblem(['deletions', 'reparents'], 'site');
-$check(($p['code'] ?? '') === 'malformed_capability'
-    && str_contains($p['found'] ?? '', 'only meaningful for scope: entity')
-    && str_contains($p['found'] ?? '', 'declared channels: deletions, reparents'),
-    'context on a scope: site capability is refused, and the message names which channels were declared');
+$check($opaqueProviderRefusal(
+    $p,
+    'malformed_capability',
+    'provider advertised a malformed capability declaration'
+), 'context on a scope: site capability is refused without publishing declared channels');
+
+echo "\n== internal schema validator detail stays private ==\n";
+// Public readiness rows intentionally collapse untrusted provider schemas to
+// fixed labels. The private validator still has exact author-facing detail;
+// keep representative assertions here so redaction does not weaken the
+// list<object> or context grammar itself.
+$validateCapabilityDeclaration = new \ReflectionMethod(\Duo\Providers::class, 'validate_capability_declaration');
+$expectInternalDeclarationRefusal = static function (array $decl, string $needle, string $label) use (
+    $check, $validateCapabilityDeclaration
+): void {
+    try {
+        $validateCapabilityDeclaration->invoke(null, $decl, 'probe capability');
+        $check(false, $label);
+    } catch (\Throwable $t) {
+        $check(str_contains($t->getMessage(), $needle), $label . ' (validator: ' . $t->getMessage() . ')');
+    }
+};
+$capabilityDeclaration = static function (array $args, string $scope = 'site', mixed $context = null): array {
+    $decl = [
+        'args' => $args,
+        'idempotent' => true,
+        'reads' => ['option:probe_setting'],
+        'scope' => $scope,
+        'timeout_seconds' => 30,
+        'writes' => ['entity:probe-cache-groups'],
+    ];
+    if ($context !== null) {
+        $decl['context'] = $context;
+    }
+    return $decl;
+};
+$expectInternalDeclarationRefusal(
+    $capabilityDeclaration(['rows' => ['type' => 'list<object>', 'required' => true]]),
+    'closed field vocabulary',
+    'the private declaration validator keeps the list<object> field-vocabulary detail'
+);
+$expectInternalDeclarationRefusal(
+    $capabilityDeclaration(['groups' => ['type' => 'list<string>', 'required' => true]], 'entity', ['deletions', 'tombstones']),
+    "names 'tombstones'",
+    'the private declaration validator keeps the closed context-channel detail'
+);
 
 echo "\n== the injected batch: an envelope only for what was declared ==\n";
 $reset();

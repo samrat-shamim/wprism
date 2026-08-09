@@ -731,6 +731,32 @@ final class DuoCertificationThrowingIdentityProvider {
         throw new RuntimeException('diagnostics must not invoke an identity-throwing provider');
     }
 }
+
+final class DuoCertificationMalformedIdentityProvider {
+    public function identity(): array {
+        return ['id' => new class {
+            public function __toString(): string {
+                throw new RuntimeException("https://provider.example.test/identity?access_token=DUO_PROVIDER_SECRET_TOKEN\nINJECTED_PROVIDER_LINE");
+            }
+        }];
+    }
+
+    public function capabilities(): array {
+        return ['rebuild_cache' => [
+            'args' => [],
+            'idempotent' => true,
+            'reads' => ['post:page'],
+            'scope' => 'site',
+            'timeout_seconds' => 1,
+            'writes' => ['post:page'],
+        ]];
+    }
+
+    public function invoke(string $capability, array $args): array {
+        $GLOBALS['cert_provider_invocations'] = (int) ($GLOBALS['cert_provider_invocations'] ?? 0) + 1;
+        throw new RuntimeException('diagnostics must not invoke a malformed-identity provider');
+    }
+}
 PLUGIN
 );
 require_once $pluginFile;
@@ -1293,6 +1319,31 @@ try {
         )
         && $GLOBALS['cert_provider_invocations'] === 0,
         'an identity()-throwing plugin registration remains a structured, redacted global/selected-plan blocker without invoking it'
+    );
+
+    $GLOBALS['cert_plugin_providers'] = [new \DuoCertificationMalformedIdentityProvider()];
+    $GLOBALS['cert_provider_invocations'] = 0;
+    $malformedIdentityReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
+    $malformedIdentityPlanRows = $providerPlanDispositions($providerPinnedPolicy, ['post:page']);
+    $malformedIdentityBlocker = cert_provider_blocker(
+        (array) ($malformedIdentityReport['blockers'] ?? []),
+        'missing_plugin_provider'
+    );
+    cert_check(
+        ($malformedIdentityReport['ready'] ?? null) === false
+        && $hasProviderDiagnosticFields($malformedIdentityBlocker, 'missing_plugin_provider')
+        && (($malformedIdentityBlocker['found'] ?? null) === 'no registered provider matched the declared identity')
+        && $hasProviderDiagnosticFields(
+            cert_provider_blocker($malformedIdentityPlanRows, 'missing_plugin_provider'),
+            'missing_plugin_provider'
+        )
+        && $providerDiagnosticsAreSecretFree(
+            $malformedIdentityReport,
+            $malformedIdentityPlanRows,
+            'missing_plugin_provider'
+        )
+        && $GLOBALS['cert_provider_invocations'] === 0,
+        'a malformed Stringable plugin registration id is skipped without a fatal or public payload leak'
     );
 
     $GLOBALS['cert_plugin_registry_throw'] = "https://provider.example.test/registry?access_token=DUO_PROVIDER_SECRET_TOKEN\nINJECTED_PROVIDER_LINE";

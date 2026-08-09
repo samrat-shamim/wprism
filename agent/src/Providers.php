@@ -588,11 +588,17 @@ final class Providers {
             // reports the accurate missing_plugin_provider problem.
             try {
                 $identity = $entry->identity();
+                // A provider registration is untrusted until its id survives
+                // this bounded, string-only discovery gate. In particular, do
+                // not coerce a Stringable here: its __toString() is plugin code
+                // and may throw or carry data that must never escape readiness
+                // diagnostics.
+                $id = is_array($identity) ? ($identity['id'] ?? null) : null;
+                if (!is_string($id) || $id === ''
+                    || preg_match(self::ID_PATTERN, $id) !== 1 || isset($out[$id])) {
+                    continue;
+                }
             } catch (\Throwable $t) {
-                continue;
-            }
-            $id = is_array($identity) ? (string) ($identity['id'] ?? '') : '';
-            if ($id === '' || preg_match(self::ID_PATTERN, $id) !== 1 || isset($out[$id])) {
                 continue;
             }
             $out[$id] = $entry;
