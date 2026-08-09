@@ -87,6 +87,46 @@ namespace Duo {
             return [];
         }
     }
+
+    /**
+     * DUO-3397: refresh-export and scope reach their catch boundaries through
+     * their own real backends, so both stubs do exactly what the others do —
+     * throw the chosen Throwable and nothing else.
+     */
+    final class RefreshExport {
+        public static ?\Throwable $failure = null;
+
+        public static function run($repo): array {
+            if (self::$failure !== null) {
+                throw self::$failure;
+            }
+            return [];
+        }
+    }
+
+    /**
+     * Nothing on a refusal path may serialize through the canonical encoder
+     * any more — the common formatter owns every refusal byte.  The stub is
+     * deliberately present and deliberately unused: a reintroduced private
+     * catch path would encode through Canon, and this suite must then report
+     * the leaked bytes rather than a confusing "class not found" fatal.
+     */
+    final class Canon {
+        public static function encode($value): string {
+            return json_encode($value, JSON_UNESCAPED_SLASHES) . "\n";
+        }
+    }
+
+    final class Policy {
+        public static ?\Throwable $failure = null;
+
+        public static function load($repo, ?array $pins = null, bool $capabilities = false): array {
+            if (self::$failure !== null) {
+                throw self::$failure;
+            }
+            return [];
+        }
+    }
 }
 
 namespace {
@@ -138,6 +178,11 @@ namespace {
         'explain' => 'explain',
         'apply' => 'apply',
         'deploy' => 'deploy',
+        // DUO-3397: refresh-export used a private JSON catch path and scope
+        // refused its selectors before its boundary; both now answer a
+        // machine caller with the same envelope every other command does.
+        'refresh_export' => 'refresh-export',
+        'scope' => 'scope',
     ];
     foreach ($commands as $method => $command) {
         $payload = invoke_json(static fn() => $cli->$method([], ['format' => 'json']));
@@ -373,6 +418,123 @@ namespace {
         check(($redacted['message'] ?? null) === 'capture refused at an unclassified safety gate', "$shape gets the constant safe message");
     }
 
+    echo "\n== DUO-3397: refresh-export and scope answer machines with the same envelope ==\n";
+    $productLeakShapes = [
+        'hard token' => 'sk_live_1234567890PRODUCTLEAK',
+        'credential URL' => 'https://user:SECRETPASS@db.example/production',
+        'private path' => '/Users/private-customer/sites/production/site.duo.json',
+        'distinctive operator token' => 'PRODUCTLEAK-0f9c2d41',
+    ];
+    foreach ($productLeakShapes as $shape => $token) {
+        $refreshOperator = "duo: refresh export refused while observing production $token";
+        \Duo\RefreshExport::$failure = new RuntimeException($refreshOperator);
+        $refresh = invoke_json(static fn() => $cli->refresh_export([], ['repo' => '/fixture', 'format' => 'json']));
+        $refreshBytes = (string) json_encode($refresh, JSON_UNESCAPED_SLASHES);
+        check(($refresh['format'] ?? null) === 'duo-command-refusal/v1', "refresh-export $shape refusal names the versioned format");
+        check(($refresh['ok'] ?? null) === false, "refresh-export $shape refusal is unambiguously not ok");
+        check(($refresh['command'] ?? null) === 'refresh-export', "refresh-export $shape refusal names the public command");
+        check(
+            ($refresh['error'] ?? null) === 'refresh_export_failed'
+                && ($refresh['reason_code'] ?? null) === 'refresh_export_failed',
+            "refresh-export $shape refusal keeps the established refresh_export_failed code"
+        );
+        check(
+            ($refresh['message'] ?? null) === 'refresh-export refused at an unclassified safety gate',
+            "refresh-export $shape refusal states only the constant safe message"
+        );
+        check(
+            str_contains((string) ($refresh['remediation'] ?? ''), 'before observing production again'),
+            "refresh-export $shape refusal carries this command's reviewed remediation"
+        );
+        check(($refresh['details_redacted'] ?? null) === true, "refresh-export $shape refusal records an explicit redaction witness");
+        check(
+            !str_contains($refreshBytes, $token) && !str_contains($refreshBytes, $refreshOperator),
+            "refresh-export $shape bytes are absent from machine output"
+        );
+
+        $scopeOperator = "duo: scope refused while compiling $token";
+        \Duo\Policy::$failure = new RuntimeException($scopeOperator);
+        $scope = invoke_json(static fn() => $cli->scope([], ['repo' => '/fixture', 'roots' => 'all', 'format' => 'json']));
+        $scopeBytes = (string) json_encode($scope, JSON_UNESCAPED_SLASHES);
+        check(($scope['format'] ?? null) === 'duo-command-refusal/v1', "scope $shape refusal names the versioned format");
+        check(($scope['command'] ?? null) === 'scope', "scope $shape refusal names the public command");
+        check(
+            ($scope['error'] ?? null) === 'scope_failed' && ($scope['reason_code'] ?? null) === 'scope_failed',
+            "scope $shape refusal has a stable unclassified reason code"
+        );
+        check(($scope['details_redacted'] ?? null) === true, "scope $shape refusal records an explicit redaction witness");
+        check(
+            !str_contains($scopeBytes, $token) && !str_contains($scopeBytes, $scopeOperator),
+            "scope $shape bytes are absent from machine output"
+        );
+    }
+
+    // wp-cli rewrites a bare --json into format=json, but refresh-export
+    // derives its own $format from both spellings, so both must reach the
+    // same formatter rather than only the one the dispatcher happens to use.
+    \Duo\RefreshExport::$failure = new RuntimeException('duo: refresh export refused with sk_live_1234567890BARELEAK');
+    $bareJson = invoke_json(static fn() => $cli->refresh_export([], ['repo' => '/fixture', 'json' => true]));
+    check(($bareJson['reason_code'] ?? null) === 'refresh_export_failed', 'refresh-export --json spelling reaches the common formatter');
+    check(!str_contains((string) json_encode($bareJson), 'BARELEAK'), 'refresh-export --json spelling redacts the same bytes');
+
+    // refresh-export runs the real capture builder, so its reviewed typed
+    // refusals must survive the change instead of flattening to the
+    // unclassified code.
+    \Duo\RefreshExport::$failure = new \Duo\CommandRefusalException(
+        'incomplete_state_discovery',
+        'refresh export found state that has no reviewed classification',
+        'review it with duo pending, then classify or exclude it before observing production again',
+        [[
+            'code' => 'unclassified_state',
+            'surface' => 'options:acme_widget_color',
+            'message' => 'state surface has no reviewed classification',
+            'remediation' => 'review it with duo pending, then classify or exclude it explicitly',
+        ]],
+        'duo: operator-only path /Users/private-customer/site holds unclassified option acme_widget_color'
+    );
+    $typedRefresh = invoke_json(static fn() => $cli->refresh_export([], ['repo' => '/fixture', 'format' => 'json']));
+    check(($typedRefresh['error'] ?? null) === 'incomplete_state_discovery', 'known typed refresh-export refusal retains its reviewed reason code');
+    check(
+        ($typedRefresh['remediation'] ?? null) === 'review it with duo pending, then classify or exclude it before observing production again',
+        'known typed refresh-export refusal retains its reviewed remediation'
+    );
+    check(
+        ($typedRefresh['diagnostics'][0]['surface'] ?? null) === 'options:acme_widget_color',
+        'known typed refresh-export refusal keeps its reviewed diagnostic'
+    );
+    check(!str_contains((string) json_encode($typedRefresh), 'private-customer'), 'known typed refresh-export refusal omits operator-only evidence');
+    \Duo\RefreshExport::$failure = null;
+
+    // The selector gates themselves: scope refused --roots before its catch
+    // boundary, so a machine caller got human stderr and no record at all.
+    \Duo\Policy::$failure = null;
+    $missingRoots = invoke_json(static fn() => $cli->scope([], ['repo' => '/fixture', 'format' => 'json']));
+    check(($missingRoots['command'] ?? null) === 'scope', 'scope missing --roots refusal names the public command');
+    check(($missingRoots['error'] ?? null) === 'invalid_arguments', 'scope missing --roots has the stable argument error code');
+    check(($missingRoots['message'] ?? null) === '--roots is required for scope', 'scope missing --roots identifies the missing selector');
+    check(
+        str_contains((string) ($missingRoots['remediation'] ?? ''), '--roots=all'),
+        'scope missing --roots keeps the whole-revision hint in machine remediation'
+    );
+
+    // scope's unclassified remediation must be its reviewed arm, not the
+    // default "correct the named $command blocker" — details are redacted on
+    // this path, so nothing IS named and the default contradicts itself.
+    \Duo\Policy::$failure = new RuntimeException('duo: scope refused while compiling /Users/private-customer/site');
+    $scopeArm = invoke_json(static fn() => $cli->scope([], ['repo' => '/fixture', 'roots' => 'all', 'format' => 'json']));
+    check(
+        ($scopeArm['remediation'] ?? null) === 'inspect private operator evidence, then compile the revision or correct the root selectors before resolving scope again',
+        'scope unclassified refusal carries its reviewed remediation arm'
+    );
+
+    // --contract is scope's machine-evidence mode and the mode whose gate
+    // ordering moved the most; its JSON failure must reach the same formatter.
+    $contractScope = invoke_json(static fn() => $cli->scope([], ['repo' => '/fixture', 'roots' => 'all', 'contract' => true, 'format' => 'json']));
+    check(($contractScope['format'] ?? null) === 'duo-command-refusal/v1', 'scope --contract JSON failure names the versioned format');
+    check(($contractScope['command'] ?? null) === 'scope', 'scope --contract JSON failure names the public command');
+    check(!str_contains((string) json_encode($contractScope, JSON_UNESCAPED_SLASHES), 'private-customer'), 'scope --contract JSON failure redacts operator bytes');
+    \Duo\Policy::$failure = null;
+
     echo "\n== serialization failure still emits exactly one valid JSON value ==\n";
     \Duo\Apply::$planFailure = new \Duo\RepositoryCompilationException([[
         'severity' => 'error',
@@ -420,6 +582,67 @@ namespace {
         check(!str_contains($e->getMessage(), $explainSecret), 'human explain never forwards private exception detail');
     }
     check(WP_CLI::$lines === [], 'human explain failure emits no JSON record');
+    // DUO-3397: the operator evidence these two commands print is the whole
+    // point of keeping the raw message private, so assert it byte for byte.
+    $humanCases = [
+        'refresh-export backend refusal' => [
+            static function () use ($cli): void {
+                \Duo\RefreshExport::$failure = new RuntimeException(
+                    'duo: refresh export refused — apply_in_progress is present; recover or complete the interrupted apply before observing production'
+                );
+                $cli->refresh_export([], ['repo' => '/Users/private-customer/site']);
+            },
+            'duo: refresh export refused — apply_in_progress is present; recover or complete the interrupted apply before observing production',
+        ],
+        'refresh-export missing --repo' => [
+            static function () use ($cli): void {
+                $cli->refresh_export([], []);
+            },
+            '--repo required',
+        ],
+        'refresh-export empty --repo' => [
+            static function () use ($cli): void {
+                $cli->refresh_export([], ['repo' => '']);
+            },
+            '--repo required',
+        ],
+        'scope backend refusal' => [
+            static function () use ($cli): void {
+                \Duo\Policy::$failure = new RuntimeException('duo: scope refused — /Users/private-customer/site has no revision');
+                $cli->scope([], ['repo' => '/Users/private-customer/site', 'roots' => 'all']);
+            },
+            'duo: scope refused — /Users/private-customer/site has no revision',
+        ],
+        'scope missing --repo' => [
+            static function () use ($cli): void {
+                $cli->scope([], ['roots' => 'all']);
+            },
+            '--repo required',
+        ],
+        'scope missing --roots' => [
+            static function () use ($cli): void {
+                $cli->scope([], ['repo' => '/fixture']);
+            },
+            '--roots required (or --roots=all for the whole revision)',
+        ],
+    ];
+    foreach ($humanCases as $case => [$run, $expected]) {
+        WP_CLI::reset();
+        \Duo\RefreshExport::$failure = null;
+        \Duo\Policy::$failure = null;
+        try {
+            $run();
+            check(false, "human $case exits through WP_CLI::error");
+        } catch (CliJsonHumanError $e) {
+            check($e->getMessage() === $expected, "human $case preserves its exact actionable operator evidence");
+        } catch (Throwable $e) {
+            check(false, "human $case refuses through WP_CLI::error, not " . get_class($e) . ': ' . $e->getMessage());
+        }
+        check(WP_CLI::$errors === [$expected], "human $case reaches WP_CLI::error exactly once");
+        check(WP_CLI::$lines === [], "human $case emits no JSON record");
+    }
+    \Duo\RefreshExport::$failure = null;
+    \Duo\Policy::$failure = null;
 
     echo "\n== host preflight mirrors the same one-value contract ==\n";
     $tmp = sys_get_temp_dir() . '/duo-cli-json-refusal-' . bin2hex(random_bytes(6));
