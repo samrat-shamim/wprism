@@ -43,9 +43,13 @@ function fmp_ok(bool $condition, string $message): void {
 final class FrozenPromotionDriver implements EnvironmentDriver {
     /** @var array<string,string> */
     public array $files = [];
+    /** @var array<string,bool> */
+    public array $symlinks = [];
     /** @var list<array{kind:string,args:mixed}> */
     public array $calls = [];
     public bool $cleanPlan = true;
+    public bool $emptyExport = false;
+    public string $artifactHash = '';
 
     public function __construct(private string $repo) {}
     public function name(): string { return 'branch'; }
@@ -61,8 +65,17 @@ final class FrozenPromotionDriver implements EnvironmentDriver {
             $start = strrpos($script, $marker);
             if ($start === false) return $this->fail('malformed PHP hash fixture');
             $path = substr($script, $start + strlen($marker), -1);
+            if (str_contains($path, '/.duo/artifacts/')) {
+                return $this->ok(($this->artifactHash !== '' ? $this->artifactHash : hash('sha256', 'frozen-artifact')) . "\n");
+            }
             if (!isset($this->files[$path])) return $this->fail('missing file');
             return $this->ok(hash('sha256', $this->files[$path]) . "\n");
+        }
+        if (str_starts_with($script, 'test -L ')) {
+            if (preg_match("/^test -L '([^']+)'$/D", $script, $m) !== 1) {
+                return $this->fail('malformed symlink fixture');
+            }
+            return isset($this->symlinks[$m[1]]) ? $this->ok() : $this->fail('not a symlink');
         }
         if (str_starts_with($script, 'test ')) {
             if (preg_match("/^test (-[efs]) '([^']+)'$/D", $script, $m) !== 1) {
@@ -100,7 +113,7 @@ final class FrozenPromotionDriver implements EnvironmentDriver {
         $verb = (string) ($args[1] ?? '');
         if (($args[0] ?? '') === 'db' && ($args[1] ?? '') === 'export') {
             $path = (string) ($args[2] ?? '');
-            $this->files[$path] = "-- frozen checkpoint\n";
+            $this->files[$path] = $this->emptyExport ? '' : "-- frozen checkpoint\n";
             return $this->ok();
         }
         if ($verb === 'plan') {
@@ -163,13 +176,14 @@ $summary = [
 $operation = '20260809-123456-' . str_repeat('a', 24);
 $context = [
     'operation_id' => $operation,
-    'promotion_owner' => 'materialize-' . $operation,
+    'promotion_owner' => 'duo-env-promotion-' . $operation,
     'artifact_path' => '/target/repo/.duo/artifacts/materialize-' . $operation . '.json',
     'checkpoint_path' => '/target/repo/.duo/checkpoints/materialize-' . $operation . '.sql',
     'compiled_summary' => $summary,
 ];
 
 $driver = new FrozenPromotionDriver('/target/repo');
+$driver->artifactHash = $artifactHash;
 $first = cmd_promote_frozen($driver, $context);
 fmp_ok(is_array($first) && ($first['status'] ?? null) === 'completed', 'frozen promotion returns completed structured receipt');
 $receiptKeys = array_keys($first);
@@ -196,6 +210,7 @@ $retryVerbs = array_values(array_map(static fn(array $call): string => $call['ki
 fmp_ok(in_array('plan', $retryVerbs, true) && !in_array('promotion-begin', $retryVerbs, true) && !in_array('apply', $retryVerbs, true), 'same-owner retry never replays promotion');
 
 $recovery = new FrozenPromotionDriver('/target/repo');
+$recovery->artifactHash = $artifactHash;
 $lost = cmd_promote_frozen($recovery, $context);
 fmp_ok(is_array($lost) && ($lost['status'] ?? null) === 'completed', 'initial apply returns exact receipt before controller journaling');
 $beforeRecoveryRetry = count($recovery->calls);
@@ -206,6 +221,7 @@ $verbs = array_values(array_map(static fn(array $call): string => $call['kind'] 
 fmp_ok(in_array('plan', $verbs, true) && !in_array('promotion-begin', $verbs, true) && !in_array('apply', $verbs, true), 'receipt-loss retry reconciles before any new mutation');
 
 $invalid = new FrozenPromotionDriver('/target/repo');
+$invalid->artifactHash = $artifactHash;
 $invalid->files[$context['checkpoint_path']] = '';
 $invalidResult = cmd_promote_frozen($invalid, $context);
 fmp_ok($invalidResult === 1, 'empty checkpoint evidence refuses instead of being overwritten');
@@ -220,5 +236,50 @@ try {
 } catch (InvalidArgumentException $e) {
     echo "ok: frozen promotion rejects paths outside target /.duo\n";
 }
+
+$nonCanonical = $context;
+$nonCanonical['artifact_path'] = '/target/repo/.duo/artifacts/other.json';
+try {
+    cmd_promote_frozen(new FrozenPromotionDriver('/target/repo'), $nonCanonical);
+    fmp_fail('non-canonical artifact path was accepted');
+} catch (InvalidArgumentException $e) {
+    echo "ok: frozen promotion requires the operation-canonical artifact path\n";
+}
+
+$alias = $context;
+$alias['owner'] = $context['promotion_owner'];
+try {
+    cmd_promote_frozen(new FrozenPromotionDriver('/target/repo'), $alias);
+    fmp_fail('frozen context alias key was accepted');
+} catch (InvalidArgumentException $e) {
+    echo "ok: frozen promotion rejects context alias keys\n";
+}
+
+$stateSummary = $summary;
+unset($stateSummary['code']);
+$stateContext = $context;
+$stateContext['compiled_summary'] = $stateSummary;
+$stateDriver = new FrozenPromotionDriver('/target/repo');
+$stateDriver->artifactHash = $artifactHash;
+$stateReceipt = cmd_promote_frozen($stateDriver, $stateContext);
+fmp_ok(is_array($stateReceipt) && ($stateReceipt['code_revision'] ?? null) === null, 'state-only promotion returns nullable code revision');
+$stateRetry = cmd_promote_frozen($stateDriver, $stateContext);
+fmp_ok(is_array($stateRetry) && ($stateRetry['code_revision'] ?? null) === null && $stateRetry === $stateReceipt, 'state-only receipt recovery preserves code_revision=null');
+
+$mismatchedArtifact = new FrozenPromotionDriver('/target/repo');
+$mismatchedArtifact->artifactHash = hash('sha256', 'different-artifact');
+$mismatchedArtifact->files[$context['checkpoint_path']] = "-- frozen checkpoint\n";
+$mismatchResult = cmd_promote_frozen($mismatchedArtifact, $context);
+fmp_ok($mismatchResult === 1, 'receipt recovery refuses a target artifact with the wrong content hash');
+
+$symlinked = new FrozenPromotionDriver('/target/repo');
+$symlinked->symlinks[$context['artifact_path']] = true;
+$symlinkResult = cmd_promote_frozen($symlinked, $context);
+fmp_ok($symlinkResult === 1, 'frozen promotion refuses symlinked artifact evidence');
+
+$emptyExport = new FrozenPromotionDriver('/target/repo');
+$emptyExport->emptyExport = true;
+$emptyResult = cmd_promote_frozen($emptyExport, $context);
+fmp_ok($emptyResult === 1, 'frozen promotion refuses an empty newly exported checkpoint');
 
 echo "PASS: frozen materialization promotion regression\n";
