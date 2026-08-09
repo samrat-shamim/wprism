@@ -48,7 +48,7 @@ before-fix/after-fix convergence path.
 
 The explicit gaps are initialization/adoption (DUO-3336), branch
 materialization (DUO-3324), authored-user synchronization (DUO-3344),
-refresh/rebase (DUO-3343), scoped promotion (DUO-3344), and provider-backed
+refresh/rebase live-grind coverage (the public workflow landed in DUO-3343), scoped promotion (DUO-3344), and provider-backed
 plugin/theme replacement (DUO-3357). Theme upgrade, downgrade refusal, and
 removal are routed to DUO-3358; the separate WordPress-cron move is routed to
 DUO-3359. Reproduced boundaries include unsupported Woo deletion (DUO-3338),

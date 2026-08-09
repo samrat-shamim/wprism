@@ -104,7 +104,10 @@ check_matrix() {
         esac
         ;;
       planned_gap)
-        [[ "$public_command" == PROPOSED/UNAVAILABLE:* ]] || return 1
+        case "$public_command" in
+          PROPOSED/UNAVAILABLE:*|'wp duo '*|'php cli/duo '*) ;;
+          *) echo "matrix gap row '$id' names neither a proposed nor existing public entrypoint: $public_command" >&2; return 1 ;;
+        esac
         ;;
     esac
 
