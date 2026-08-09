@@ -1356,11 +1356,19 @@ final class Snapshot {
      * a live local id, so the referenced uuid is already present and needs no
      * ledger lookup at all.
      *
-     * Returns null when any component is absent or empty. That is not a
+     * Returns null when any component is absent, empty, or — DUO-3318 review
+     * (N3) — carries a ref token this engine cannot parse. That is not a
      * failure: it is the ordinary state of a file captured before the
      * declaration existed, or of a row whose optional-looking component was
      * never populated, and every caller of this treats "cannot derive" as
-     * "say nothing" rather than as an error.
+     * "say nothing" rather than as an error. The malformed-token case joined
+     * that list because both callers are INFORMATIONAL (the identity-
+     * continuity note, at capture and in a plan row): hard-throwing there made
+     * one corrupt byte in one repository file abort a whole `duo plan` from an
+     * annotation nobody asked for. The fail-closed reading of the same token
+     * still exists where it belongs — capture's own live derivation
+     * (live_natural_key_components()) and apply's adoption lookup
+     * (find_collision()) both refuse a malformed token outright.
      *
      * @param array<string,mixed> $columns the file's own flat columns map
      * @return array<string,string>|null identity column => component value
@@ -1380,9 +1388,15 @@ final class Snapshot {
             if (!is_scalar($raw) || (string) $raw === '') {
                 return null;
             }
-            $out[$column] = isset($refKinds[$column])
-                ? self::uuid_from_token((string) $raw)
-                : (string) $raw;
+            if (!isset($refKinds[$column])) {
+                $out[$column] = (string) $raw;
+                continue;
+            }
+            $uuid = self::uuid_in_token((string) $raw);
+            if ($uuid === null) {
+                return null;
+            }
+            $out[$column] = $uuid;
         }
         return $out;
     }
@@ -1579,14 +1593,35 @@ final class Snapshot {
      *  shape Tokens::id_to_token() always produces, matched with the exact
      *  uuid pattern Tokens::token_to_id() itself validates against, so this
      *  never silently disagrees with what the rest of the engine considers
-     *  a well-formed token. Used only to build composite_ref's uuid-
-     *  derivation input (identify_composite_row()) from a token this file
-     *  already resolved via Tokens — never a second, independent lookup. */
+     *  a well-formed token. Returns null instead of throwing: the two
+     *  directions that read a ref token for identity have opposite dispositions
+     *  for a malformed one (see the two callers below), so the decision belongs
+     *  to them rather than here. */
+    private static function uuid_in_token(string $token): ?string {
+        return preg_match('/^\{\{[a-z][a-z0-9_]*:([0-9a-f-]{36})\}\}$/', $token, $m) ? $m[1] : null;
+    }
+
+    /**
+     * uuid_in_token()'s fail-closed spelling, for the CAPTURE direction and
+     * for apply-time resolution — every caller here holds a token this same
+     * process just produced through Tokens (identify_composite_row()) or a
+     * token an already-validated repository file carries as structural
+     * identity (find_collision()), so a malformed one is a corruption to
+     * refuse, never a value to derive something wrong from.
+     *
+     * DUO-3318 review (N3): the attribution used to say "composite_ref
+     * identity derivation", which was true when composite_ref was the only
+     * mode that read a ref token for identity; the parent-scoped natural key
+     * reaches it too.
+     */
     private static function uuid_from_token(string $token): string {
-        if (!preg_match('/^\{\{[a-z][a-z0-9_]*:([0-9a-f-]{36})\}\}$/', $token, $m)) {
-            throw new \RuntimeException("duo: malformed ref token '$token' (composite_ref identity derivation)");
+        $uuid = self::uuid_in_token($token);
+        if ($uuid === null) {
+            throw new \RuntimeException(
+                "duo: malformed ref token '$token' (composite_ref/natural_key identity derivation)"
+            );
         }
-        return $m[1];
+        return $uuid;
     }
 
     /**
@@ -1777,8 +1812,27 @@ final class Snapshot {
      * existing slug-based adoption for posts/terms by the same idea, keyed
      * on the table's OWN natural key instead of a slug). mapped-identity
      * tables have no natural collision key at all — always create fresh.
+     *
+     * $tree/$cache/$seen carry the parent-resolution fallback for a
+     * parent-scoped key's ref component (DUO-3318 review, S2) and mirror
+     * Apply::find_collision()'s own signature: $tree is the compiled
+     * repository keyed by uuid, $cache is Apply's shared per-uuid collision
+     * memo, and $seen is the recursion path (by VALUE, so it scopes itself to
+     * one branch) that keeps two tables whose keys reference each other from
+     * recursing forever. A caller with no tree — every offline/unit caller —
+     * simply gets the ledger-only behavior that shipped before.
+     *
+     * @param array<string,array> $tree
+     * @param array<string,?int> $cache
+     * @param array<string,bool> $seen
      */
-    public static function find_collision(Policy $policy, array $entity): ?int {
+    public static function find_collision(
+        Policy $policy,
+        array $entity,
+        array $tree = [],
+        array &$cache = [],
+        array $seen = []
+    ): ?int {
         global $wpdb;
         $decl = self::row_tables($policy)[$entity['type']] ?? null;
         if ($decl === null) {
@@ -1804,12 +1858,19 @@ final class Snapshot {
             if (isset($refKinds[$column])) {
                 // DUO-3318: a parent-scoped key's ref component is matched by
                 // THIS environment's own local id for the referenced entity —
-                // resolved through the ledger from the uuid the token already
-                // carries, never by the source's id. An unresolvable parent
-                // means the row this key is scoped WITHIN does not exist here
-                // yet, so there is nothing for an unmanaged row to collide
-                // with; ordinary create is the correct outcome.
-                $parentId = Ledger::id_for(self::uuid_from_token($value), $refKinds[$column]);
+                // resolved from the uuid the token already carries, never by
+                // the source's id. An unresolvable parent means the row this
+                // key is scoped WITHIN does not exist here yet, so there is
+                // nothing for an unmanaged row to collide with; ordinary
+                // create is the correct outcome.
+                $parentId = self::collision_ref_id(
+                    $policy,
+                    self::uuid_from_token($value),
+                    $refKinds[$column],
+                    $tree,
+                    $cache,
+                    $seen + [(string) ($front['uuid'] ?? '') => true]
+                );
                 if ($parentId === null) {
                     return null;
                 }
@@ -1827,6 +1888,62 @@ final class Snapshot {
             $args
         ));
         return $id !== null ? (int) $id : null;
+    }
+
+    /**
+     * This environment's own local id for one ref component of a parent-scoped
+     * natural key (DUO-3318 review, S2) — the exact shape of
+     * Apply::collision_parent_id(), for the same reason: the ledger is asked
+     * first, and a MISS is not the end of the question.
+     *
+     * A whole plugin arriving on a fresh target for the first time has no
+     * ledger rows at all, so an unmapped parent is the ordinary state, not an
+     * error. If the parent is itself an adoptable row of a declared table —
+     * pre-provisioned by hand on the target, the exact case this whole
+     * adoption path exists for — its own natural key finds it, and the child
+     * can then be matched WITHIN it. Without this, a target where every row
+     * was pre-provisioned adopted the parents and duplicated every child.
+     *
+     * Boundaries, both deliberate:
+     *   - a post/term parent falls through to null. Resolving one means
+     *     slug/parent adoption, which is Apply's own find_collision(); this
+     *     file depends only on Policy/Ledger/Tokens/Canon/Uuid (see the file
+     *     docblock, "Engine boundary") and will not reach across for it.
+     *   - the referenced entity must be a declared row table whose id_kind IS
+     *     the kind the ref names; anything else is a repository that disagrees
+     *     with the manifest, which the compiler refuses on its own terms.
+     *
+     * @param array<string,array> $tree
+     * @param array<string,?int> $cache
+     * @param array<string,bool> $seen recursion path — see find_collision()
+     */
+    private static function collision_ref_id(
+        Policy $policy,
+        string $uuid,
+        string $kind,
+        array $tree,
+        array &$cache,
+        array $seen
+    ): ?int {
+        // Tokens' rename table, not the manifest's spelling: a `tt` ref is
+        // stored in duo_map as `term_taxonomy`, and looking it up raw finds a
+        // keyspace with no rows (DUO-3318 review, N2).
+        $mapped = Ledger::id_for($uuid, Tokens::ledger_kind($kind));
+        if ($mapped !== null) {
+            return $mapped;
+        }
+        if (array_key_exists($uuid, $cache)) {
+            return $cache[$uuid];
+        }
+        $parent = $tree[$uuid] ?? null;
+        if ($parent === null || isset($seen[$uuid])) {
+            return null;
+        }
+        $decl = self::row_tables($policy)[$parent['type'] ?? ''] ?? null;
+        if ($decl === null || (string) ($decl['id_kind'] ?? '') !== $kind) {
+            return null;
+        }
+        return $cache[$uuid] = self::find_collision($policy, $parent, $tree, $cache, $seen);
     }
 
     /** Claim an unmanaged env row by writing identity only — table rows have

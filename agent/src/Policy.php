@@ -161,7 +161,9 @@ self::validate_post_type_children($manifest);
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_no_conflicting_provider_ids($p->manifests);
         self::validate_no_conflicting_post_type_contracts($p->manifests);
+        self::validate_one_owner_per_declared_name($p->manifests);
         self::validate_ref_kinds($p->manifests, $p->site['policy'] ?? []);
+        self::validate_unique_table_id_kinds($p->declared_tables());
         self::validate_manifest_pins($pins, $p);
         if ($p->manifestDispositions !== null && class_exists(CapabilityRegistry::class)) {
             $p->capabilityRegistry = CapabilityRegistry::load(
@@ -288,7 +290,9 @@ self::validate_post_type_children($manifest);
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_no_conflicting_provider_ids($p->manifests);
         self::validate_no_conflicting_post_type_contracts($p->manifests);
+        self::validate_one_owner_per_declared_name($p->manifests);
         self::validate_ref_kinds($p->manifests, $p->site['policy'] ?? []);
+        self::validate_unique_table_id_kinds($p->declared_tables());
         self::validate_manifest_pins($pins, $p);
         return $p;
     }
@@ -1024,7 +1028,7 @@ self::validate_post_type_children($manifest);
      * @return list<string>
      */
     public static function natural_key_columns(array $decl): array {
-        if (($decl['identity']['mode'] ?? 'mapped') !== 'natural_key') {
+        if (!is_array($decl['identity'] ?? null) || ($decl['identity']['mode'] ?? 'mapped') !== 'natural_key') {
             return [];
         }
         $identity = $decl['identity'];
@@ -1062,9 +1066,12 @@ self::validate_post_type_children($manifest);
         $where = $source === null ? '' : " (declared by $source)";
         // `mixed`, not `array`, so a scalar or list declaration produces this
         // engine's ordinary "duo: " refusal rather than a PHP TypeError at the
-        // call site. An EMPTY object decodes to `[]`, which array_is_list()
-        // calls a list, so it deliberately falls through to the class check
-        // below — "declares class=NULL" says far more than "not an object".
+        // call site — a promise assert_table_section_shapes() below now keeps
+        // for the declaration's INNER sections too, which used to reach
+        // array_column()/array_keys() as scalars and raise a TypeError. An
+        // EMPTY object decodes to `[]`, which array_is_list() calls a list, so
+        // it deliberately falls through to the class check below — "declares
+        // class=NULL" says far more than "not an object".
         if (!is_array($decl) || (array_is_list($decl) && $decl !== [])) {
             throw new \RuntimeException(
                 "duo: table '$table'$where must be declared as an object of table rules, got " . gettype($decl)
@@ -1094,6 +1101,7 @@ self::validate_post_type_children($manifest);
             return; // an inert marker or a target-local disposition: nothing further is declarable
         }
 
+        self::assert_table_section_shapes($table, $decl, $where);
         $mode = $decl['identity']['mode'] ?? 'mapped';
         if (!in_array($mode, self::IDENTITY_MODES, true)) {
             throw new \RuntimeException(
@@ -1138,6 +1146,105 @@ self::validate_post_type_children($manifest);
             }
         }
         self::assert_invalidate_grammar($table, $decl, $where);
+    }
+
+    /**
+     * The SHAPE of an authored_snapshot declaration's four structural
+     * sections, checked before anything reads them (DUO-3318 review, S1).
+     *
+     * Every check here closes a case where PHP's own coercion answered a
+     * malformed declaration instead of this engine doing so:
+     *   - `"identity": "natural_key"` — a string, not an object — makes
+     *     `$decl['identity']['mode'] ?? 'mapped'` evaluate to 'mapped' (the
+     *     `??` swallows the illegal string offset), so the table silently
+     *     becomes surrogate-identity: every row mints a UUIDv7 that is
+     *     environment-local, which is precisely what declaring natural_key
+     *     was meant to prevent.
+     *   - `"refs": ["room_id"]` — a list of strings — makes
+     *     array_column($refs, 'column') return `[]`, so the ref column is
+     *     treated as an ordinary scalar and its raw local id reaches
+     *     canonical state; a scalar `refs` or `columns` reached array_column()
+     *     /array_keys() and raised a PHP TypeError instead of this engine's
+     *     "duo: " refusal (the docblock above already promised otherwise).
+     *   - `"pk": ["id"]` casts to the string "Array" (a Warning, not an
+     *     error), which is non-empty and therefore passed the pk check, then
+     *     named a column no table has.
+     *
+     * The messages name the object/list form the author meant, because the
+     * mistake is almost always a spelling of the right intent.
+     */
+    private static function assert_table_section_shapes(string $table, array $decl, string $where): void {
+        if (array_key_exists('pk', $decl) && (!is_string($decl['pk']) || $decl['pk'] === '')) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where declares pk=" . var_export($decl['pk'], true)
+                . ' — pk must be a non-empty string naming this table\'s own primary key column'
+            );
+        }
+        $refs = $decl['refs'] ?? [];
+        if (!is_array($refs) || !array_is_list($refs)) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where declares refs=" . var_export($refs, true)
+                . ' — refs must be a LIST of {"column": "<col>", "kind": "<ref kind>"} objects (an empty list when '
+                . 'the table references nothing); a ref that is not declared in this shape is captured as an '
+                . 'ordinary scalar, which puts an environment-local id into canonical state'
+            );
+        }
+        foreach ($refs as $i => $ref) {
+            if (!is_array($ref) || (array_is_list($ref) && $ref !== [])) {
+                throw new \RuntimeException(
+                    "duo: table '$table'$where declares refs[$i]=" . var_export($ref, true)
+                    . ' — every refs[] entry must be an object declaring both `column` and `kind`'
+                );
+            }
+            foreach (['column', 'kind'] as $key) {
+                if (!is_string($ref[$key] ?? null) || $ref[$key] === '') {
+                    throw new \RuntimeException(
+                        "duo: table '$table'$where declares refs[$i].$key=" . var_export($ref[$key] ?? null, true)
+                        . " — every refs[] entry needs a non-empty string `column` (the column holding the id) and "
+                        . '`kind` (the keyspace it points into)'
+                    );
+                }
+            }
+        }
+        $columns = $decl['columns'] ?? [];
+        if (!is_array($columns) || (array_is_list($columns) && $columns !== [])) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where declares columns=" . var_export($columns, true)
+                . ' — columns must be an object keyed by column name, each value a rule declaring its `class`'
+            );
+        }
+        $identity = $decl['identity'] ?? [];
+        if (!is_array($identity) || (array_is_list($identity) && $identity !== [])) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where declares identity=" . var_export($identity, true)
+                . ' — identity must be an OBJECT naming the mode, e.g. {"mode": "natural_key", "column": "<col>"}; '
+                . 'a bare string is read as no identity declaration at all, which silently means '
+                . 'identity.mode=mapped (surrogate, environment-local identity)'
+            );
+        }
+        if (array_key_exists('column', $identity)
+            && (!is_string($identity['column']) || $identity['column'] === '')) {
+            throw new \RuntimeException(
+                "duo: table '$table'$where declares identity.column=" . var_export($identity['column'], true)
+                . ' — identity.column is the SINGLE-component spelling and must be one non-empty column name; the '
+                . 'ordered multi-component form is identity.columns: ["<col>", ...]'
+            );
+        }
+        if (array_key_exists('columns', $identity)) {
+            $idCols = $identity['columns'];
+            $ok = is_array($idCols) && array_is_list($idCols) && $idCols !== [];
+            foreach ($ok ? $idCols : [] as $col) {
+                $ok = $ok && is_string($col) && $col !== '';
+            }
+            if (!$ok) {
+                throw new \RuntimeException(
+                    "duo: table '$table'$where declares identity.columns=" . var_export($idCols, true)
+                    . ' — identity.columns is the ordered LIST spelling and must be a non-empty list of column '
+                    . 'names; the one-component case is spelled identity.column: "<col>" instead, and exactly one '
+                    . 'of the two may be declared'
+                );
+            }
+        }
     }
 
     /**
@@ -2963,47 +3070,80 @@ self::validate_post_type_children($manifest);
             throw new \RuntimeException("duo: manifest '$name' widgets must be an object keyed by widget type");
         }
         foreach ($widgets as $type => $decl) {
-            $where = "manifest '$name' widgets.$type";
-            if (!is_string($type) || !preg_match('/^[a-z0-9_-]+$/', $type)) {
+            self::assert_widget_grammar((string) $type, $decl, "manifest '$name'");
+        }
+    }
+
+    /**
+     * The pure-grammar half of ONE `widgets.<type>` declaration — the exact
+     * mirror of assert_table_grammar() above, and for the same reason
+     * (DUO-3318 review, S4).
+     *
+     * This is the only implementation of these rules: validate_widgets() runs
+     * it for every declared type at load, and SidebarState::assert_policy()
+     * runs it again immediately before its own genuinely-live work (re-checking
+     * a pure function of already-loaded bytes costs nothing, and keeps a
+     * directly-constructed Policy — the shape several offline harnesses build —
+     * covered by the same rules). SidebarState keeps exactly one check of its
+     * own, the one that is genuinely its own: the duo_map.id_kind width budget
+     * its DERIVED `widget_<type>` kind has to fit, which is Ledger's schema
+     * rather than the manifest's grammar.
+     *
+     * The two copies used to disagree in three places, all of them the same
+     * direction — SidebarState accepted what a load-time check refused, so a
+     * declaration could pass sidebar capture and still fail the next `Policy::
+     * load()`: an EMPTY settings map, a settings LIST rather than an object,
+     * and `"codec": null`/`"ref": null` (isset() reads a declared null as
+     * absent). The stricter reading is the correct one in all three: a widget
+     * whose allowlist names no field can never capture an instance, and an
+     * explicitly-null codec is a declaration the author meant to write.
+     *
+     * $source names the declaring manifest when one is known; it is prefixed
+     * to the existing "widgets.<type>…" wordings rather than interpolated into
+     * them, so the live caller (which has no manifest name to report) still
+     * gets a complete sentence.
+     */
+    public static function assert_widget_grammar(string $type, mixed $decl, ?string $source = null): void {
+        $where = ($source === null ? '' : "$source ") . "widgets.$type";
+        if (!preg_match('/^[a-z0-9_-]+$/', $type)) {
+            throw new \RuntimeException(
+                "duo: $where names an invalid widget type — a type is WordPress's own id_base "
+                . '(the widget_<type> option name), matching ^[a-z0-9_-]+$'
+            );
+        }
+        $settings = is_array($decl) ? ($decl['settings'] ?? null) : null;
+        if (!is_array($settings) || $settings === [] || array_is_list($settings)) {
+            throw new \RuntimeException(
+                "duo: $where must declare a non-empty `settings` object — capture refuses any live setting "
+                . 'this map does not name, so an absent map makes every instance of the type uncapturable'
+            );
+        }
+        foreach ($settings as $setting => $rule) {
+            if (!is_string($setting) || $setting === '' || !is_array($rule)
+                || ($rule['class'] ?? null) !== 'authored') {
                 throw new \RuntimeException(
-                    "duo: $where names an invalid widget type — a type is WordPress's own id_base "
-                    . '(the widget_<type> option name), matching ^[a-z0-9_-]+$'
+                    "duo: $where.settings.$setting must declare class=authored — a widget settings map is an "
+                    . 'allowlist of portable fields, so a non-authored entry has nothing to mean (leave the '
+                    . 'field out to exclude it)'
                 );
             }
-            $settings = is_array($decl) ? ($decl['settings'] ?? null) : null;
-            if (!is_array($settings) || $settings === [] || array_is_list($settings)) {
+            if (array_key_exists('codec', $rule) && $rule['codec'] !== 'blocks') {
                 throw new \RuntimeException(
-                    "duo: $where must declare a non-empty `settings` object — capture refuses any live setting "
-                    . 'this map does not name, so an absent map makes every instance of the type uncapturable'
+                    "duo: $where.settings.$setting declares codec=" . var_export($rule['codec'], true)
+                    . ' but the widget settings codec vocabulary is closed and engine-owned (blocks)'
                 );
             }
-            foreach ($settings as $setting => $rule) {
-                if (!is_string($setting) || $setting === '' || !is_array($rule)
-                    || ($rule['class'] ?? null) !== 'authored') {
-                    throw new \RuntimeException(
-                        "duo: $where.settings.$setting must declare class=authored — a widget settings map is an "
-                        . 'allowlist of portable fields, so a non-authored entry has nothing to mean (leave the '
-                        . 'field out to exclude it)'
-                    );
-                }
-                if (array_key_exists('codec', $rule) && $rule['codec'] !== 'blocks') {
-                    throw new \RuntimeException(
-                        "duo: $where.settings.$setting declares codec=" . var_export($rule['codec'], true)
-                        . ' but the widget settings codec vocabulary is closed and engine-owned (blocks)'
-                    );
-                }
-                if (array_key_exists('ref', $rule) && $rule['ref'] !== 'term') {
-                    throw new \RuntimeException(
-                        "duo: $where.settings.$setting declares ref=" . var_export($rule['ref'], true)
-                        . ' but the widget settings ref vocabulary is closed and engine-owned (term)'
-                    );
-                }
-                if (array_key_exists('codec', $rule) && array_key_exists('ref', $rule)) {
-                    throw new \RuntimeException(
-                        "duo: $where.settings.$setting cannot declare codec and ref — a setting value is either a "
-                        . 'structured document the engine decodes or a single entity reference it resolves'
-                    );
-                }
+            if (array_key_exists('ref', $rule) && $rule['ref'] !== 'term') {
+                throw new \RuntimeException(
+                    "duo: $where.settings.$setting declares ref=" . var_export($rule['ref'], true)
+                    . ' but the widget settings ref vocabulary is closed and engine-owned (term)'
+                );
+            }
+            if (array_key_exists('codec', $rule) && array_key_exists('ref', $rule)) {
+                throw new \RuntimeException(
+                    "duo: $where.settings.$setting cannot declare codec and ref — a setting value is either a "
+                    . 'structured document the engine decodes or a single entity reference it resolves'
+                );
             }
         }
     }
@@ -3890,6 +4030,188 @@ self::validate_post_type_children($manifest);
     }
 
     /**
+     * One owner per NAME on the three bulk-enumerated declaration surfaces —
+     * `post_types.<t>`, `tables.<t>`, `widgets.<t>` (DUO-3318 review, B1).
+     *
+     * The per-key post-type guard above is the sharper diagnostic and runs
+     * first, but it can only see a contradiction about the SAME key. Two
+     * manifests declaring DISJOINT keys of one post type — or one whole table
+     * / widget type — never contradicted anything under it, and yet the
+     * lookups behind those surfaces resolve by pin order in three different
+     * directions: post-type behavior takes the FIRST declaration, while
+     * declared_tables()/widget_types() take the LAST. Which adapter wins is
+     * therefore decided by where an operator happened to put a name in
+     * site.duo.json's list, on a surface where the loser's declaration
+     * disappears silently and completely. That is the same class of hazard
+     * validate_no_conflicting_option_rules() and
+     * validate_no_conflicting_adapter_claims() already refuse, and it is
+     * acceptance-4 of this issue: extension must never grant one adapter
+     * authority over another adapter's state.
+     *
+     * Byte-identical declarations pass, exactly as the option-rule and
+     * version-range guards allow a repeated identical claim: two adapters
+     * saying the SAME thing is redundant, not ambiguous, and there is no
+     * winner to pick. Equality is Canon-encoded, so it is the wire bytes that
+     * must agree, not PHP's loose comparison.
+     *
+     * `core` is NOT exempt here. The DUO-3249 core-yields-to-plugin layer is
+     * an option/meta RULE mechanism (rule_details()); no lookup on these three
+     * surfaces implements it, so exempting core would silently reintroduce the
+     * pin-order coin flip it is meant to resolve.
+     *
+     * site.duo.json's own policy.tables is deliberately outside this walk. A
+     * site override is the operator's own authority over their own site — the
+     * documented, wholesale, last-word layer declared_tables() applies after
+     * every manifest — not a second adapter reaching into the first.
+     *
+     * @param list<array> $manifests
+     */
+    private static function validate_one_owner_per_declared_name(array $manifests): void {
+        $seen = [];
+        foreach ($manifests as $manifest) {
+            $name = (string) ($manifest['name'] ?? '?');
+            foreach (['post_types', 'tables', 'widgets'] as $surface) {
+                foreach ((array) ($manifest[$surface] ?? []) as $declared => $decl) {
+                    $slot = "$surface\0$declared";
+                    $fingerprint = Canon::encode([$decl]);
+                    if (!isset($seen[$slot])) {
+                        $seen[$slot] = ['manifest' => $name, 'fingerprint' => $fingerprint];
+                        continue;
+                    }
+                    if ($seen[$slot]['manifest'] === $name || $seen[$slot]['fingerprint'] === $fingerprint) {
+                        continue;
+                    }
+                    throw new \RuntimeException(
+                        "duo: manifests '{$seen[$slot]['manifest']}' and '$name' both declare $surface.$declared "
+                        . "with different declarations — $surface.<name> has exactly ONE owner, and this lookup "
+                        . 'resolves by pin order, so accepting both would let one adapter silently redefine '
+                        . "another adapter's state depending on the order site.duo.json happens to list them. "
+                        . 'Pin only one declaring manifest, or make the two declarations byte-identical; there is '
+                        . 'no composition grammar for this surface in v1. Reclassifying an individual FIELD of '
+                        . "another adapter's surface is what the menu_fields-style precedence layers exist for — "
+                        . 'never a whole-declaration takeover'
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * Two declared tables may never share one `id_kind` (DUO-3318 review, N4).
+     *
+     * duo_map's unique key is (id_kind, local_id), so two tables sharing a
+     * kind collide their rows' identities the instant both hold a row with the
+     * same local id — one table's uuid silently resolving to the other
+     * table's row. Snapshot::row_tables() has always refused this and keeps
+     * doing so as the defensive twin (it is reached by directly-constructed
+     * Policy objects that never went through load()); what it cannot do is
+     * refuse OFFLINE, before any target contact, on the cross-manifest case
+     * this rule mostly exists for — two independently-authored adapters
+     * picking the same short abbreviation. Checked against the RESOLVED
+     * declaration set (declared_tables()), so a site.duo.json override that
+     * retypes a table is judged on the declaration that will actually be used.
+     *
+     * @param array<string,array> $declaredTables
+     */
+    private static function validate_unique_table_id_kinds(array $declaredTables): void {
+        $seen = [];
+        foreach ($declaredTables as $table => $decl) {
+            // The literal, not Snapshot::CLASS_ROW: this file must stay
+            // loadable with no other engine class present (see TABLE_CLASSES).
+            if (!is_array($decl) || ($decl['class'] ?? '') !== 'authored_snapshot') {
+                continue;
+            }
+            $kind = (string) ($decl['id_kind'] ?? '');
+            if ($kind === '') {
+                continue; // width/emptiness is Snapshot::assert_id_kind_width()'s own refusal
+            }
+            if (isset($seen[$kind])) {
+                throw new \RuntimeException(
+                    "duo: id_kind '$kind' is declared by both '{$seen[$kind]}' and '$table' — each "
+                    . 'authored_snapshot table needs its own unique id_kind, because duo_map is keyed by '
+                    . '(id_kind, local_id): two tables sharing one kind resolve each other\'s rows the moment '
+                    . 'both hold the same local id. An id_kind is the adapter\'s own namespace to choose; pick a '
+                    . 'distinct one (typically a short prefix of the owning plugin)'
+                );
+            }
+            $seen[$kind] = (string) $table;
+        }
+    }
+
+    /**
+     * The two remaining surfaces that name a duo_map keyspace directly
+     * (DUO-3318 review, S6), closed the same way the ref/token vocabularies
+     * above are.
+     *
+     * These are LEDGER kinds, a third vocabulary rather than a restatement of
+     * the token one, because both reach Ledger::id_for() with the declared
+     * string verbatim (Apply::count_guard_refs(), and the option-name-ref
+     * resolution path) instead of going through Tokens. So the engine-owned
+     * base here is the ledger's own LONG spellings — `term_taxonomy`, never
+     * the `tt` a manifest writes in a token kind — and `user` is absent
+     * because duo_map has no user keyspace at all (a user reference is
+     * serialized as a login, never an id).
+     *
+     * `option_name_refs[].id_kind` is narrower still: its own contract is
+     * that the captured id names a row of a declared table (that is what
+     * makes the id in an option NAME portable), so post/term/term_taxonomy
+     * are not legal there — only an id_kind some pinned manifest declared for
+     * a table it owns. Both were previously validated for SHAPE only
+     * (`^[a-z][a-z0-9_]*$`), so a typo produced a keyspace with no rows:
+     * a guard whose identity mapping is "absent" blocks every delete it
+     * guards with a message about missing identity, and an option-name ref
+     * that resolves to nothing drops the option from canonical state.
+     *
+     * @param list<array> $manifests
+     * @param list<string> $declaredIdKinds every pinned/site-declared table's id_kind
+     */
+    private static function validate_ledger_kind_claims(array $manifests, array $declaredIdKinds): void {
+        // The three literals repeat Ledger::KIND_POST/KIND_TERM/KIND_TT rather
+        // than referencing them, for the same reason TABLE_CLASSES repeats
+        // Snapshot's two class names: this file must stay loadable with no
+        // other engine class present, and these spellings are wire format a
+        // manifest already carries, not an internal name either side may change.
+        $ledgerKinds = array_merge(['post', 'term', 'term_taxonomy'], $declaredIdKinds);
+        sort($ledgerKinds, SORT_STRING);
+        sort($declaredIdKinds, SORT_STRING);
+        foreach ($manifests as $manifest) {
+            $label = "manifest '" . (string) ($manifest['name'] ?? '?') . "'";
+            $claims = [];
+            foreach ((array) ($manifest['deletions'] ?? []) as $selector => $decl) {
+                foreach ((array) (is_array($decl) ? ($decl['guards'] ?? []) : []) as $i => $guard) {
+                    foreach (['id_kind', 'source_id_kind'] as $key) {
+                        if (is_array($guard) && array_key_exists($key, $guard)) {
+                            $claims[] = ["deletions.$selector.guards[$i].$key", $guard[$key], $ledgerKinds];
+                        }
+                    }
+                }
+            }
+            foreach ((array) ($manifest['option_name_refs'] ?? []) as $i => $rule) {
+                if (is_array($rule) && array_key_exists('id_kind', $rule)) {
+                    $claims[] = ["option_name_refs[$i].id_kind", $rule['id_kind'], $declaredIdKinds];
+                }
+            }
+            foreach ($claims as [$path, $value, $legal]) {
+                if (is_string($value) && in_array($value, $legal, true)) {
+                    continue;
+                }
+                throw new \RuntimeException(
+                    "duo: $label declares $path=" . var_export($value, true) . ' but the ledger kind vocabulary '
+                    . 'is closed here (' . ($legal === [] ? '<no table id_kind is declared by any pinned manifest>'
+                        : implode(', ', $legal)) . '). This value is looked up in duo_map verbatim, so an '
+                    . 'unrecognized one names a keyspace with no rows rather than failing — '
+                    . ($legal === $declaredIdKinds
+                        ? 'an option-name reference resolves against a declared TABLE, so name the id_kind of a '
+                          . 'table some pinned manifest declares'
+                        : 'post/term/term_taxonomy are the engine\'s own (the ledger\'s LONG spellings, not the '
+                          . '"tt" a token kind uses), and every other legal value is an id_kind a pinned manifest '
+                          . 'declared for a table it owns')
+                );
+            }
+        }
+    }
+
+    /**
      * The ref-kind vocabulary, closed across every pinned manifest and the
      * site's own policy (DUO-3318).
      *
@@ -3936,6 +4258,10 @@ self::validate_post_type_children($manifest);
         $refKinds = array_merge(['post', 'term', 'tt', 'user'], array_keys($idKinds));
         sort($tokenKinds, SORT_STRING);
         sort($refKinds, SORT_STRING);
+        // The third vocabulary built on the same declared-id_kind set, called
+        // from here rather than from load() so that set is computed once and
+        // the three can never be derived from different inputs.
+        self::validate_ledger_kind_claims($manifests, array_keys($idKinds));
 
         $sources = [];
         foreach ($manifests as $manifest) {
@@ -3980,6 +4306,16 @@ self::validate_post_type_children($manifest);
      * has exactly one meaning, which is what makes a blind walk correct rather
      * than fragile — and why a bare `kind` is NOT walked blindly, but read at
      * its four exact declared locations instead.
+     *
+     * Unbounded recursion by construction, deliberately: the input is an
+     * already-decoded manifest, so its depth is bounded by json_decode()'s own
+     * 512-level default (Canon::decode() takes it) long before PHP's stack is,
+     * and the manifests directory is operator-controlled — the same trust
+     * decision as running the agent at all (see manifests_dir()). Every other
+     * structural walker in this engine — Canon::normalize(), JsonRefs::walk(),
+     * SidebarState::rewrite_strings() — recurses on the same terms; adding a
+     * depth counter to this one alone would claim a threat model the rest of
+     * the engine does not share.
      *
      * @param list<array{0:string,1:mixed,2:bool}> $out
      */

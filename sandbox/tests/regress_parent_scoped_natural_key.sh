@@ -234,6 +234,34 @@ diff -r "siterepo/${PAIR}1/state/tables" "siterepo/${PAIR}2/.tmp-side2state/tabl
   || fail "side 2's independent recapture diverged from side 1 — same authored facts, different bytes or filenames"
 pass "identical UUIDs, identical bytes, identical filenames — derived independently on each side from ITS OWN local ids"
 
+say "(3b) the DERIVATION itself, on side 2: drop the slot identities and make it re-derive from side 2's own local ids"
+# Step (3) is necessary but not sufficient on its own: every slot uuid it
+# compared came out of a duo_map row apply had just written, so
+# live_natural_key_components() never actually ran against side 2's genuinely
+# different room ids — identify_row() short-circuits on Ledger::uuid_for()
+# before it reaches the natural_key branch at all. Deleting exactly the
+# agency_slot mappings (the rooms stay mapped, which is the point) forces that
+# branch: each slot's room_id is resolved THROUGH the ledger to the room's
+# UUID, and the tuple is re-derived from scratch. Byte-identical uuids after
+# that can only mean the ref component contributed the room's UUID — side 2's
+# own room local ids differ from side 1's, so a derivation that used them
+# would produce three different uuids here and nowhere else.
+SLOT_MAPS=$(q2 "SELECT COUNT(*) FROM wp_duo_map WHERE id_kind='agency_slot'")
+[ "$SLOT_MAPS" = "3" ] || fail "expected 3 agency_slot ledger rows on side 2 before dropping them (got: $SLOT_MAPS)"
+wp2 db query "DELETE FROM wp_duo_map WHERE id_kind='agency_slot'" >/dev/null
+[ "$(q2 "SELECT COUNT(*) FROM wp_duo_map WHERE id_kind='agency_slot'")" = "0" ] \
+  || fail "the agency_slot ledger rows were not actually removed"
+[ "$(q2 "SELECT COUNT(*) FROM wp_duo_map WHERE id_kind='agency_room'")" = "2" ] \
+  || fail "the agency_room mappings must survive — they are what the ref component resolves through"
+wp2m duo capture --repo=/siterepo --out=/siterepo/.tmp-side2rederived >/dev/null
+SIDE1_SLOT_UUIDS=$(jq -r '.uuid' "$SLOT_DIR"/*.json | sort)
+REDERIVED_SLOT_UUIDS=$(jq -r '.uuid' "siterepo/${PAIR}2/.tmp-side2rederived/tables/duo_agency_room_slots"/*.json | sort)
+[ "$SIDE1_SLOT_UUIDS" = "$REDERIVED_SLOT_UUIDS" ] \
+  || fail "re-derived slot uuids differ from side 1's — the ref component is NOT the room's uuid (side 1: $SIDE1_SLOT_UUIDS | side 2 re-derived: $REDERIVED_SLOT_UUIDS)"
+diff -r "siterepo/${PAIR}1/state/tables" "siterepo/${PAIR}2/.tmp-side2rederived/tables" \
+  || fail "the re-derived capture diverged from side 1 in bytes or filenames"
+pass "every slot uuid re-derived from scratch against side 2's OWN local ids is byte-identical to side 1's"
+
 say "(4) a slot_code rename is an ordinary update, not delete+create (ledger continuity)"
 EVENING_FILE=$(grep -l '"slot_code": "evening"' "$SLOT_DIR"/*.json)
 EVENING_UUID=$(jq -r '.uuid' "$EVENING_FILE")

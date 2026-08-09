@@ -15,18 +15,25 @@
  * not say where the extension path IS just sends an adapter author back to
  * guessing, which is how the engine grew plugin-shaped branches before.
  *
- * Runs the REAL, unmodified agent/src/{Canon,Policy,Uuid,Snapshot,
- * IdentityNotes}.php against manifest fixture files this test writes into a
- * scratch DUO_MANIFESTS_DIR — the same idiom as
- * sandbox/tests/regress_adapter_contract.sh (DUO-3222/DUO-3243). No $wpdb
- * stub is needed at all: every path exercised here is either manifest
- * validation or the two pure natural-key derivation helpers, which is itself
- * the DUO-3318 grammar-split claim being demonstrated (a declaration is
- * refusable with no database in the process).
+ * Runs the REAL, unmodified agent/src/{Canon,Policy,Uuid,Ledger,Tokens,
+ * Snapshot,IdentityNotes}.php against manifest fixture files this test writes
+ * into a scratch DUO_MANIFESTS_DIR — the same idiom as
+ * sandbox/tests/regress_adapter_contract.sh (DUO-3222/DUO-3243).
+ *
+ * Most of the file needs no database at all, which is itself the DUO-3318
+ * grammar-split claim being demonstrated: a declaration is refusable with no
+ * database in the process. The last two groups do need one, because the two
+ * DIRECTIONS of the parent-scoped key — deriving identity off a live row, and
+ * matching an existing unmanaged row for adoption — are the halves that read
+ * the environment. They use the minimal fake $wpdb below rather than a live
+ * target: same "real engine code, fake database" approach as
+ * regress_composite_ref.php / regress_block_refs.php, and a deliberately
+ * smaller stand-in than either (this file's paths issue six query shapes and
+ * mutate nothing but duo_map).
  *
  * What this file does NOT cover, because it genuinely needs a live target:
- * capture/apply of a parent-scoped natural key end to end, cross-environment
- * UUID equality against genuinely different local ids, and rename-as-ordinary-
+ * apply of a parent-scoped natural key end to end, cross-environment UUID
+ * equality against two real auto-increment sequences, and rename-as-ordinary-
  * update continuity — sandbox/tests/regress_parent_scoped_natural_key.sh owns
  * those against a real database pair.
  *
@@ -42,18 +49,174 @@ function is_multisite(): bool {
     return (bool) $GLOBALS['duo_test_is_multisite'];
 }
 
+// ---------------------------------------------------------------- WP stubs
+
+if (!defined('ARRAY_A')) {
+    define('ARRAY_A', 'ARRAY_A');
+}
+function get_option($name, $default = false) {
+    return ['home' => 'http://example.test'][$name] ?? $default;
+}
+function wp_upload_dir($time = null, $create_dir = true, $refresh_cache = false) {
+    return ['baseurl' => 'http://example.test/wp-content/uploads', 'basedir' => sys_get_temp_dir() . '/duo-uploads'];
+}
+function untrailingslashit($string) {
+    return rtrim((string) $string, '/\\');
+}
+function sanitize_title($s) {
+    return strtolower(trim((string) $s));
+}
+
+/**
+ * Stands in for exactly the six query shapes the two groups at the end of
+ * this file issue — read by reading agent/src/{Ledger,Snapshot}.php directly,
+ * the discipline regress_block_refs.php's own FakeWpdb docblock states, NOT a
+ * general SQL engine. Rows are read-only here (nothing in this file inserts or
+ * updates an authored row); duo_map is the only thing that changes, because
+ * capture mints identity as a side effect of the derivation being tested.
+ */
+final class FakeWpdb {
+    public $prefix = 'wp_';
+    public $last_error = '';
+    /** @var array<string, array<int, string>> id_kind => [local_id => uuid] */
+    public $identity = [];
+    /** @var array<string, array<int, string>> id_kind => [local_id => entity_type] */
+    public $identityType = [];
+    /** @var array<string, array{columns: array<string,string>, rows: list<array<string,mixed>>}> */
+    public $tables = [];
+
+    public function prepare($query, ...$args) {
+        if (count($args) === 1 && is_array($args[0])) {
+            $args = $args[0];
+        }
+        return ['__prepared' => true, 'sql' => $query, 'args' => $args];
+    }
+
+    public function get_var($prepared) {
+        [$sql, $args] = $this->unwrap($prepared);
+        if (str_contains($sql, 'SHOW TABLES LIKE')) {
+            $unprefixed = $this->strip_prefix((string) $args[0]);
+            return isset($this->tables[$unprefixed]) ? (string) $args[0] : null;
+        }
+        if (str_contains($sql, 'SELECT local_id FROM') && str_contains($sql, 'duo_map')) {
+            [$uuid, $kind] = $args;
+            foreach ($this->identity[$kind] ?? [] as $localId => $u) {
+                if ($u === $uuid) {
+                    return $localId;
+                }
+            }
+            return null;
+        }
+        if (str_contains($sql, 'SELECT uuid FROM') && str_contains($sql, 'duo_map')) {
+            [$kind, $localId] = $args;
+            return $this->identity[$kind][(int) $localId] ?? null;
+        }
+        // Snapshot::find_collision()'s natural-key lookup: one projected
+        // column, one AND-joined equality predicate per identity component,
+        // in declared order — matched positionally against prepare()'s args.
+        if (preg_match('/^SELECT `([^`]+)` FROM `([^`]+)` WHERE (.+) LIMIT 1$/s', trim($sql), $m)) {
+            $rows = $this->tables[$this->strip_prefix($m[2])]['rows'] ?? [];
+            preg_match_all('/`([^`]+)` = %[ds]/', $m[3], $cols);
+            foreach ($rows as $row) {
+                $hit = true;
+                foreach ($cols[1] as $i => $col) {
+                    if ((string) ($row[$col] ?? '') !== (string) ($args[$i] ?? '')) {
+                        $hit = false;
+                        break;
+                    }
+                }
+                if ($hit) {
+                    return $row[$m[1]] ?? null;
+                }
+            }
+            return null;
+        }
+        throw new \RuntimeException("FakeWpdb::get_var: unrecognized query shape: $sql");
+    }
+
+    public function get_row($prepared, $output = ARRAY_A) {
+        [$sql, $args] = $this->unwrap($prepared);
+        if (str_contains($sql, 'SELECT entity_type, local_id FROM') && str_contains($sql, 'duo_map')) {
+            [$uuid, $kind] = $args;
+            foreach ($this->identity[$kind] ?? [] as $localId => $candidate) {
+                if ($candidate === $uuid) {
+                    return ['entity_type' => $this->identityType[$kind][$localId] ?? '', 'local_id' => $localId];
+                }
+            }
+            return null;
+        }
+        if (str_contains($sql, 'SELECT uuid, entity_type FROM') && str_contains($sql, 'duo_map')) {
+            [$kind, $localId] = $args;
+            $localId = (int) $localId;
+            return isset($this->identity[$kind][$localId])
+                ? [
+                    'uuid' => $this->identity[$kind][$localId],
+                    'entity_type' => $this->identityType[$kind][$localId] ?? '',
+                ]
+                : null;
+        }
+        throw new \RuntimeException("FakeWpdb::get_row: unrecognized query shape: $sql");
+    }
+
+    public function get_results($prepared, $output = ARRAY_A) {
+        [$sql, ] = $this->unwrap($prepared);
+        $sql = trim($sql);
+        if (preg_match('/^SHOW COLUMNS FROM `([^`]+)`/', $sql, $m)) {
+            $out = [];
+            foreach ($this->tables[$this->strip_prefix($m[1])]['columns'] ?? [] as $name => $type) {
+                $out[] = ['Field' => $name, 'Type' => $type];
+            }
+            return $out;
+        }
+        if (preg_match('/^SELECT \* FROM `([^`]+)` ORDER BY/', $sql, $m)) {
+            return $this->tables[$this->strip_prefix($m[1])]['rows'] ?? [];
+        }
+        throw new \RuntimeException("FakeWpdb::get_results: unrecognized query shape: $sql");
+    }
+
+    public function query($prepared) {
+        [$sql, $args] = $this->unwrap($prepared);
+        if (str_starts_with(trim($sql), 'INSERT INTO') && str_contains($sql, 'duo_map')) {
+            [$uuid, $entityType, $kind, $localId] = $args;
+            $this->identity[$kind][(int) $localId] = $uuid;
+            $this->identityType[$kind][(int) $localId] = $entityType;
+            return 1;
+        }
+        return 1; // no other mutation is reachable from this file's paths
+    }
+
+    private function strip_prefix(string $prefixed): string {
+        return str_starts_with($prefixed, $this->prefix) ? substr($prefixed, strlen($this->prefix)) : $prefixed;
+    }
+
+    private function unwrap($prepared): array {
+        return is_array($prepared) && ($prepared['__prepared'] ?? false)
+            ? [$prepared['sql'], $prepared['args']]
+            : [(string) $prepared, []];
+    }
+}
+
+$wpdb = new FakeWpdb();
+$GLOBALS['wpdb'] = $wpdb;
+
 require __DIR__ . '/../../agent/src/Canon.php';
 require __DIR__ . '/../../agent/src/OptionState.php';
 require __DIR__ . '/../../agent/src/Db.php';
 require __DIR__ . '/../../agent/src/Policy.php';
 require __DIR__ . '/../../agent/src/Uuid.php';
+require __DIR__ . '/../../agent/src/Secrets.php';
+require __DIR__ . '/../../agent/src/Ledger.php';
+require __DIR__ . '/../../agent/src/Tokens.php';
 require __DIR__ . '/../../agent/src/Snapshot.php';
+require __DIR__ . '/../../agent/src/SidebarState.php';
 require __DIR__ . '/../../agent/src/IdentityNotes.php';
 
 use Duo\Canon;
 use Duo\IdentityNotes;
 use Duo\Policy;
+use Duo\SidebarState;
 use Duo\Snapshot;
+use Duo\Tokens;
 use Duo\Uuid;
 
 if (!defined('DUO_SPEC_VERSION')) {
@@ -304,10 +467,79 @@ refuse_pair(
     'both declare post_types.acme_thing.regen_dependency',
     'B cannot attach its own regenerator to a post type A owns'
 );
-$identicalRestatement = manifest_b();
-$identicalRestatement['post_types']['acme_thing'] = ['body' => 'verbatim'];
-load_pair($identicalRestatement);
-check(true, 'an IDENTICAL restatement of the same key is redundant rather than ambiguous and is allowed through (same allowance the adapter-claim guard already makes)');
+echo "\n== B1: one owner per declared NAME, on all three bulk-declaration surfaces ==\n";
+
+// The per-key guard above can only see a contradiction about the SAME key.
+// These are the cases it never saw: a partial restatement whose every shared
+// key AGREES, and the two surfaces (tables, widgets) that have no per-key
+// guard at all because their lookups take the LAST pin rather than the first.
+$partialRestatement = manifest_b();
+$partialRestatement['post_types']['acme_thing'] = ['body' => 'verbatim']; // identical to A's own body
+refuse_pair(
+    $partialRestatement,
+    'both declare post_types.acme_thing with different declarations',
+    'a PARTIAL restatement of another adapter\'s post type is refused even though every key it repeats agrees — the two declarations are not the same declaration, so one of them would silently lose'
+);
+expect_throw(
+    fn() => load_pair($partialRestatement),
+    'Pin only one declaring manifest, or make the two declarations byte-identical',
+    'the one-owner refusal states the resolution path, and that v1 has no composition grammar for the surface'
+);
+$wholeRestatement = manifest_b();
+$wholeRestatement['post_types']['acme_thing'] = manifest_a()['post_types']['acme_thing'];
+load_pair($wholeRestatement);
+check(true, 'a BYTE-IDENTICAL whole declaration is redundant rather than ambiguous and is allowed through (same allowance the option-rule and version-range guards already make)');
+
+refuse_pair(
+    manifest_b(['tables' => manifest_b()['tables'] + ['acme_a_rooms' => array_merge(
+        manifest_a()['tables']['acme_a_rooms'],
+        ['slug_column' => 'room_label', 'columns' => ['room_code' => ['class' => 'authored'], 'room_label' => ['class' => 'authored']]]
+    )]]),
+    'both declare tables.acme_a_rooms',
+    'B cannot re-declare a table A owns — declared_tables() takes the LAST pin, so B\'s declaration would silently replace A\'s'
+);
+load_pair(manifest_b(['tables' => manifest_b()['tables'] + ['acme_a_rooms' => manifest_a()['tables']['acme_a_rooms']]]));
+check(true, 'a byte-identical table restatement is allowed through, on the same terms');
+
+$widget = ['settings' => ['title' => ['class' => 'authored']]];
+refuse_pair(
+    manifest_b(['widgets' => ['acme_shared' => ['settings' => ['title' => ['class' => 'authored'], 'text' => ['class' => 'authored']]]]]),
+    'both declare widgets.acme_shared',
+    'B cannot re-declare a widget type A owns — widget_types() takes the LAST pin too',
+    manifest_a(['widgets' => ['acme_shared' => $widget]])
+);
+load_pair(
+    manifest_b(['widgets' => ['acme_shared' => $widget]]),
+    manifest_a(['widgets' => ['acme_shared' => $widget]])
+);
+check(true, 'a byte-identical widget restatement is allowed through, on the same terms');
+
+// core is deliberately NOT exempt: the DUO-3249 core-yields-to-plugin layer
+// is an option/meta RULE mechanism, and no lookup on these three surfaces
+// implements it, so exempting core would reintroduce the coin flip.
+expect_throw(
+    function (): void {
+        fresh_manifests_dir([
+            'a' => manifest_a(),
+            'core' => [
+                'name' => 'core',
+                'spec_version' => DUO_SPEC_VERSION,
+                'tables' => ['acme_a_rooms' => ['class' => 'runtime']],
+            ],
+        ]);
+        Policy::load(null, ['a', 'core']);
+    },
+    "manifests 'a' and 'core' both declare tables.acme_a_rooms",
+    'core is not exempt from the one-owner rule — there is no ratified precedence layer for these surfaces to appeal to'
+);
+fresh_manifests_dir(['a' => manifest_a()]);
+Policy::load(fresh_site_repo(['a'], ['tables' => [
+    'acme_a_rooms' => array_merge(manifest_a()['tables']['acme_a_rooms'], [
+        'slug_column' => 'room_label',
+        'columns' => ['room_code' => ['class' => 'authored'], 'room_label' => ['class' => 'authored']],
+    ]),
+]]));
+check(true, "site.duo.json's own policy.tables override is EXEMPT — the site's wholesale last word over its own state is not a second adapter reaching into the first");
 
 $namespaceGrab = load_pair(manifest_b(['option_namespaces' => [['match' => '^acme_a_']]]));
 expect_throw(
@@ -445,6 +677,104 @@ refuse_pair(
     'an option_pattern with no {id} is refused — without it every row names the same one option row'
 );
 
+echo "\n== S1: a fuzzed declaration produces a duo: refusal, never PHP coercion or a TypeError ==\n";
+
+// Every case below used to be answered by PHP rather than by this engine:
+// `??` swallowing an illegal string offset, array_column() returning [] for a
+// list of strings, (string)[] evaluating to the non-empty "Array", or a raw
+// TypeError out of array_keys(). expect_throw() catches \RuntimeException
+// only, so a TypeError here would kill this script outright — which is
+// exactly the failure this group is written to detect.
+$mangled = static fn(array $overrides): array => manifest_b(['tables' => ['acme_b_slots' => array_merge(
+    manifest_b()['tables']['acme_b_slots'],
+    $overrides
+)]]);
+
+refuse_pair(
+    $mangled(['identity' => 'natural_key']),
+    'identity must be an OBJECT naming the mode',
+    'a bare-string identity is refused instead of silently meaning identity.mode=mapped — the exact opposite of what the author wrote'
+);
+refuse_pair(
+    $mangled(['refs' => ['room_id']]),
+    'every refs[] entry must be an object declaring both `column` and `kind`',
+    'a list-of-strings refs is refused instead of resolving to zero ref columns, which captures the raw parent id into canonical state'
+);
+refuse_pair(
+    $mangled(['refs' => 'room_id']),
+    'refs must be a LIST of',
+    'a scalar refs produces this engine\'s own refusal, not the PHP TypeError array_column() used to raise'
+);
+refuse_pair(
+    $mangled(['refs' => [['column' => 'room_id']]]),
+    'refs[0].kind',
+    'a ref entry missing its kind is refused, naming the entry and the missing half'
+);
+refuse_pair(
+    $mangled(['columns' => 'slot_code']),
+    'columns must be an object keyed by column name',
+    'a scalar columns produces this engine\'s own refusal, not the PHP TypeError array_keys() used to raise'
+);
+refuse_pair(
+    $mangled(['pk' => ['slot_id']]),
+    'pk must be a non-empty string',
+    'an array pk is refused instead of casting to the literal string "Array" and naming a column no table has'
+);
+refuse_pair(
+    $mangled(['identity' => ['mode' => 'natural_key', 'columns' => 'slot_code']]),
+    'identity.columns is the ordered LIST spelling',
+    'a string identity.columns is refused, and the refusal states the exactly-one-spelling rule instead of silently wrapping the string in a 1-element list'
+);
+refuse_pair(
+    $mangled(['identity' => ['mode' => 'natural_key', 'column' => ['slot_code']]]),
+    'identity.column is the SINGLE-component spelling',
+    'an array identity.column is refused, pointing at identity.columns as the multi-component spelling'
+);
+
+echo "\n== N4/S6: the duo_map keyspace — unique per table, and closed where a manifest names one ==\n";
+
+refuse_pair(
+    $mangled(['id_kind' => 'acme_room']),
+    "id_kind 'acme_room' is declared by both",
+    'two tables may not share one id_kind — duo_map is keyed by (id_kind, local_id), so they would resolve each other\'s rows (refused at LOAD, offline, not at the first capture)'
+);
+$optionNameRef = static fn(string $idKind): array => manifest_b(['option_name_refs' => [[
+    'autoload' => 'yes',
+    'class' => 'authored',
+    'id_kind' => $idKind,
+    'match' => '^acme_b_slot_(?<id>[1-9][0-9]*)_settings$',
+]]]);
+load_pair($optionNameRef('acme_slot'));
+check(true, 'an option_name_refs rule naming a DECLARED table id_kind loads — that is the whole contract, since the embedded id names a row of that table');
+refuse_pair(
+    $optionNameRef('acme_slto'),
+    'option_name_refs[0].id_kind',
+    'a typo\'d option_name_refs id_kind is refused instead of resolving to a keyspace with no rows (which drops the option from canonical state)'
+);
+refuse_pair(
+    $optionNameRef('post'),
+    'ledger kind vocabulary is closed here',
+    'even a REAL engine keyspace is refused for an option-name ref: the id embedded in an option name names a declared table row, not a post'
+);
+$guarded = static fn(array $guard): array => manifest_b(['deletions' => ['table:acme_b_slots' => [
+    'cascades' => [],
+    'guards' => [array_merge(['table' => 'acme_b_cache', 'column' => 'slot_id'], $guard)],
+]]]);
+load_pair($guarded(['id_kind' => 'term_taxonomy']));
+check(true, "a deletion guard may name the ledger's own long spellings (post/term/term_taxonomy) — Apply looks the value up in duo_map verbatim");
+load_pair($guarded(['id_kind' => 'acme_slot', 'source_id_kind' => 'acme_room', 'source_pk' => 'room_id']));
+check(true, 'and any id_kind a pinned manifest declared for a table it owns, on both the guard and its source half');
+refuse_pair(
+    $guarded(['id_kind' => 'tt']),
+    'ledger kind vocabulary is closed here',
+    "the TOKEN spelling 'tt' is refused in a guard — this surface reaches Ledger::id_for() directly, where the keyspace is spelled term_taxonomy"
+);
+refuse_pair(
+    $guarded(['id_kind' => 'acme_slot', 'source_id_kind' => 'acme_rooom', 'source_pk' => 'room_id']),
+    'deletions.table:acme_b_slots.guards[0].source_id_kind',
+    'a typo\'d source_id_kind is refused too, and the refusal names its exact path'
+);
+
 echo "\n== the parent-scoped natural key: declaration grammar ==\n";
 
 $slotDecl = static fn(array $identity, array $extra = []): array => manifest_b(['tables' => ['acme_b_slots' => array_merge(
@@ -460,8 +790,13 @@ refuse_pair(
 );
 refuse_pair(
     $slotDecl(['mode' => 'natural_key', 'columns' => []]),
-    'a derived identity needs at least one authored component',
+    'must be a non-empty list of column names',
     'an empty component list is refused'
+);
+refuse_pair(
+    $slotDecl(['mode' => 'natural_key']),
+    'a derived identity needs at least one authored component',
+    'declaring the mode with NEITHER spelling is refused by the mode\'s own rule, which states what a derivation needs'
 );
 refuse_pair(
     $slotDecl(['mode' => 'natural_key', 'columns' => ['slot_id', 'slot_code']]),
@@ -594,6 +929,49 @@ refuse_pair(
     'an empty attribute path is refused — an unmatched path is silently skipped at rewrite time'
 );
 
+echo "\n== S4: the widget declaration grammar has exactly one implementation ==\n";
+
+// SidebarState kept a hand-copy of these rules, reachable only through a live
+// sidebar capture, and it had drifted permissive in three places — so a
+// declaration could pass the sidebar path and be refused by the very next
+// Policy::load(). Both now run the same function; these drive the SIDEBAR
+// entry point (which needs no database for this half) and assert Policy's
+// stricter reading arrives there too.
+$widgetPolicy = static function (array $widgets): Policy {
+    $p = new Policy();
+    $p->manifests = [['widgets' => $widgets]];
+    return $p;
+};
+expect_throw(
+    fn() => SidebarState::assert_policy($widgetPolicy(['text' => ['settings' => []]])),
+    'must declare a non-empty `settings` object',
+    'an EMPTY settings map is refused through the sidebar path too (it used to pass there — an allowlist naming no field can never capture an instance)'
+);
+expect_throw(
+    fn() => SidebarState::assert_policy($widgetPolicy(['text' => ['settings' => [['class' => 'authored']]]])),
+    'must declare a non-empty `settings` object',
+    'a settings LIST is refused through the sidebar path too (it used to pass there, then index by integer)'
+);
+expect_throw(
+    fn() => SidebarState::assert_policy($widgetPolicy(['text' => ['settings' => [
+        'title' => ['class' => 'authored', 'codec' => null],
+    ]]])),
+    'codec vocabulary is closed and engine-owned',
+    'an explicitly-NULL codec is refused through the sidebar path too (isset() used to read a declared null as absent)'
+);
+expect_throw(
+    fn() => SidebarState::assert_policy($widgetPolicy([str_repeat('m', 30) => ['settings' => [
+        'title' => ['class' => 'authored'],
+    ]]])),
+    'exceeds duo_map.id_kind',
+    "the derived-kind WIDTH budget stays SidebarState's own — it is Ledger's schema, not the manifest's grammar, which is why Policy's copy cannot make it"
+);
+SidebarState::assert_policy($widgetPolicy(['text' => ['settings' => [
+    'title' => ['class' => 'authored'],
+    'text' => ['class' => 'authored', 'codec' => 'blocks'],
+]]]));
+check(true, 'a well-formed widget declaration passes both halves unchanged');
+
 echo "\n== effect grammar: one refusal per closed vocabulary, each naming its own token ==\n";
 
 $effectAction = static fn(array $effect): array => manifest_b(['actions' => [[
@@ -675,6 +1053,188 @@ expect_throw(
 );
 Policy::load(fresh_site_repo(['a']));
 check(true, 'an ordinary site repo pinning the same manifest still loads cleanly');
+
+// ======================================================================
+// The two groups that need an environment. Everything above is a pure
+// function of manifest bytes; these two are the halves that READ the target —
+// deriving identity off a live row, and matching an existing unmanaged row
+// for adoption — driven against the fake $wpdb at the top of this file.
+// ======================================================================
+echo "\n== S3: the CAPTURE direction — identity derived off a live row, with the parent's UUID ==\n";
+
+/** The two fixture tables, at a chosen pair of local ids, with an empty ledger. */
+function seed_agency(FakeWpdb $wpdb, int $roomId, int $slotId, string $slotCode = 'morning'): void {
+    $wpdb->identity = [];
+    $wpdb->identityType = [];
+    $wpdb->tables = [
+        'acme_a_rooms' => [
+            'columns' => ['room_id' => 'bigint(20) unsigned', 'room_code' => 'varchar(64)'],
+            'rows' => [['room_id' => $roomId, 'room_code' => 'studio-one']],
+        ],
+        'acme_b_slots' => [
+            'columns' => [
+                'slot_id' => 'bigint(20) unsigned',
+                'room_id' => 'bigint(20) unsigned',
+                'slot_code' => 'varchar(64)',
+            ],
+            'rows' => [['slot_id' => $slotId, 'room_id' => $roomId, 'slot_code' => $slotCode]],
+        ],
+    ];
+}
+
+/** @return array<string,array> captured entity by table name */
+function capture_agency(Policy $policy): array {
+    $out = [];
+    foreach (Snapshot::capture($policy, new Tokens(), true) as $entity) {
+        $out[$entity['type']] = $entity;
+    }
+    return $out;
+}
+
+$policy = load_pair(manifest_b());
+$roomUuid = Uuid::v5(Uuid::NAMESPACE_DUO, 'acme_a_rooms:studio-one');
+$expectedSlotUuid = Uuid::v5(Uuid::NAMESPACE_DUO, "acme_b_slots:room_id=$roomUuid:slot_code=morning");
+
+seed_agency($wpdb, 7, 3);
+$captured = capture_agency($policy);
+check(
+    ($captured['acme_a_rooms']['uuid'] ?? null) === $roomUuid,
+    'the parent row derives the frozen single-component identity off its own live value'
+);
+check(
+    ($captured['acme_b_slots']['uuid'] ?? null) === $expectedSlotUuid,
+    'the child row derives its identity from the PARENT ROW\'S UUID — live_natural_key_components() resolved the ref column through the ledger rather than using the raw local id sitting in it'
+);
+check(
+    (Canon::decode($captured['acme_b_slots']['content'])['columns']['room_id'] ?? null)
+        === "{{acme_room:$roomUuid}}",
+    'and the captured file carries that same parent as a portable token, never the local id'
+);
+
+// The property the whole mode exists for, offline: nothing in either derived
+// identity moves when this environment's auto-increment values do.
+seed_agency($wpdb, 41, 96);
+$other = capture_agency($policy);
+check(
+    ($other['acme_a_rooms']['uuid'] ?? null) === $roomUuid
+        && ($other['acme_b_slots']['uuid'] ?? null) === $expectedSlotUuid,
+    'a SECOND environment whose local ids are entirely different derives byte-identical identities for the same authored facts'
+);
+
+seed_agency($wpdb, 7, 3);
+$wpdb->tables['acme_b_slots']['rows'][0]['room_id'] = 99; // a parent outside capture scope
+expect_throw(
+    fn() => capture_agency($policy),
+    "identity.mode=natural_key column 'room_id' holds unmanaged acme_room ref 99",
+    'an unresolvable ref component fails CLOSED at capture — a parent-scoped key has no honest partial form, so the scope refusal is the only correct answer (never a locally-unique id smuggled into a uuid)'
+);
+seed_agency($wpdb, 7, 3, '');
+expect_throw(
+    fn() => capture_agency($policy),
+    "identity.mode=natural_key column 'slot_code' is empty",
+    'an empty scalar component fails closed for the same reason, naming the column'
+);
+check(
+    Tokens::ledger_kind('tt') === 'term_taxonomy' && Tokens::ledger_kind('acme_room') === 'acme_room',
+    "Tokens::ledger_kind() is the one public spelling of the token-kind rename table ('tt' is stored as term_taxonomy; a declared id_kind passes through)"
+);
+
+echo "\n== S2: the ADOPTION direction — matching an unmanaged row by its parent-scoped key ==\n";
+
+$slotTable = manifest_b()['tables']['acme_b_slots'];
+$slotUuid = $expectedSlotUuid;
+$roomEntity = [
+    'type' => 'acme_a_rooms',
+    'data' => ['columns' => ['room_code' => 'studio-one'], 'table' => 'acme_a_rooms', 'uuid' => $roomUuid],
+];
+$slotEntity = [
+    'type' => 'acme_b_slots',
+    'data' => [
+        'columns' => ['room_id' => "{{acme_room:$roomUuid}}", 'slot_code' => 'morning'],
+        'table' => 'acme_b_slots',
+        'uuid' => $slotUuid,
+    ],
+];
+$tree = [$roomUuid => $roomEntity, $slotUuid => $slotEntity];
+
+// A target where the whole plugin was pre-provisioned by hand: both rows
+// exist, at ids that match nothing in the source, and NOTHING is in the
+// ledger yet. This is the case the adoption path exists for.
+seed_agency($wpdb, 12, 4);
+$cache = [];
+check(
+    Snapshot::find_collision($policy, $slotEntity, $tree, $cache) === 4,
+    'a child row whose parent is UNMAPPED but adoptable still resolves — the parent is found by its OWN natural key, then the child is matched within it (before this, the parent miss returned null and every child was duplicated)'
+);
+check(
+    ($cache[$roomUuid] ?? null) === 12,
+    'the parent\'s resolution is memoized in the shared collision cache, so a second child of the same parent costs no second lookup'
+);
+$noTree = [];
+check(
+    Snapshot::find_collision($policy, $slotEntity, [], $noTree) === null,
+    'with no repository tree to consult, the ledger-only behavior that shipped before is unchanged'
+);
+$wpdb->identity['acme_room'] = [12 => $roomUuid];
+$mapped = [];
+check(
+    Snapshot::find_collision($policy, $slotEntity, [], $mapped) === 4,
+    'and an already-MAPPED parent resolves straight out of the ledger, with no tree and no recursion'
+);
+seed_agency($wpdb, 12, 4);
+$wpdb->tables['acme_a_rooms']['rows'] = []; // the parent genuinely does not exist here
+$orphan = [];
+check(
+    Snapshot::find_collision($policy, $slotEntity, $tree, $orphan) === null,
+    'a child whose parent exists NOWHERE on the target is not adopted — there is nothing for it to be scoped within, so an ordinary create is the correct outcome'
+);
+
+// N2: the same lookup for a `tt` ref. The manifest spelling and the duo_map
+// spelling differ for exactly this one kind, so a raw lookup finds a keyspace
+// with no rows and silently answers "no collision" for every row in it.
+$ttUuid = '01980000-3318-7000-8000-00000000ab12';
+$linkPolicy = load_pair(manifest_b(['tables' => manifest_b()['tables'] + ['acme_b_links' => [
+    'class' => 'authored_snapshot',
+    'id_kind' => 'acme_link',
+    'pk' => 'link_id',
+    'slug_column' => 'code',
+    'columns' => ['code' => ['class' => 'authored']],
+    'refs' => [['column' => 'tt_id', 'kind' => 'tt']],
+    'identity' => ['mode' => 'natural_key', 'columns' => ['tt_id', 'code']],
+]]]));
+$wpdb->identity = ['term_taxonomy' => [5 => $ttUuid]];
+$wpdb->tables['acme_b_links'] = [
+    'columns' => ['link_id' => 'bigint(20) unsigned', 'tt_id' => 'bigint(20) unsigned', 'code' => 'varchar(64)'],
+    'rows' => [['link_id' => 1, 'tt_id' => 5, 'code' => 'x']],
+];
+$ttCache = [];
+check(
+    Snapshot::find_collision($linkPolicy, [
+        'type' => 'acme_b_links',
+        'data' => ['columns' => ['tt_id' => "{{tt:$ttUuid}}", 'code' => 'x'], 'uuid' => $ttUuid],
+    ], [], $ttCache) === 1,
+    "a `tt` ref component is resolved through duo_map's own spelling (term_taxonomy) — passing the manifest's `tt` verbatim looks up a keyspace with no rows and answers \"no collision\" for every term relationship there is"
+);
+
+echo "\n== N3: a corrupt ref token — fail-closed where identity is decided, silent where it is only observed ==\n";
+
+$corrupt = ['room_id' => '{{acme_room:not-a-uuid}}', 'slot_code' => 'morning'];
+check(
+    Snapshot::natural_key_components_from_front($slotTable, $corrupt) === null,
+    'the FRONT-matter derivation reports "cannot derive" for an unparseable ref token, exactly as it does for an absent component — its documented contract, which every caller reads as "say nothing"'
+);
+check(
+    IdentityNotes::natural_key_continuity($slotUuid, 'acme_b_slots', $slotTable, $corrupt) === null,
+    'so the identity-continuity NOTE stays silent instead of aborting a whole plan from an annotation nobody asked for'
+);
+expect_throw(
+    fn() => Snapshot::find_collision($policy, [
+        'type' => 'acme_b_slots',
+        'data' => ['columns' => $corrupt, 'uuid' => $slotUuid],
+    ], [], $noTree),
+    'composite_ref/natural_key identity derivation',
+    'while the lookup that DECIDES whether to adopt an existing row still refuses the same token outright — and the refusal no longer attributes it to composite_ref alone'
+);
 
 // ======================================================================
 echo "\n";

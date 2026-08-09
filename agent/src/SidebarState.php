@@ -218,29 +218,31 @@ final class SidebarState {
         return $value;
     }
 
+    /**
+     * DUO-3318 review (S4): the DECLARATION grammar is Policy's, for every
+     * reader — one implementation, exactly as Snapshot's schema assertions
+     * delegate their pure half to Policy::assert_table_grammar(). This file
+     * had its own hand-copy of the same five rules, reachable only once a
+     * sidebar was actually captured or applied (so it needed a live
+     * WordPress), and it had drifted three ways in the permissive direction:
+     * an empty `settings` map, a settings LIST, and an explicitly-null
+     * `codec`/`ref` all passed here and were refused by the load-time copy.
+     *
+     * What stays is the one check that is genuinely this file's: the derived
+     * `widget_<type>` ledger kind has to FIT duo_map.id_kind, which is
+     * Ledger's schema rather than the manifest's grammar (and the reason
+     * Policy's copy cannot make it — naming Ledger there would drag a second
+     * engine class into a file whose whole point is that it loads alone).
+     */
     private static function assert_declared_types(array $declared): void {
         foreach ($declared as $type => $rule) {
-            $kind = self::kind($type);
-            if (!preg_match('/^[a-z0-9_-]+$/', $type) || strlen($kind) > Ledger::ID_KIND_WIDTH) {
-                throw new \RuntimeException("duo: invalid or over-budget manifest widget type '$type'");
-            }
-            if (!isset($rule['settings']) || !is_array($rule['settings'])) {
-                throw new \RuntimeException("duo: widget type '$type' must declare its settings fields");
-            }
-            foreach ($rule['settings'] as $setting => $settingRule) {
-                if (!is_string($setting) || $setting === '' || !is_array($settingRule)
-                    || ($settingRule['class'] ?? null) !== 'authored') {
-                    throw new \RuntimeException("duo: widget '$type' setting '$setting' must declare class=authored");
-                }
-                if (isset($settingRule['codec']) && $settingRule['codec'] !== 'blocks') {
-                    throw new \RuntimeException("duo: widget '$type' setting '$setting' has an unsupported codec");
-                }
-                if (isset($settingRule['ref']) && $settingRule['ref'] !== 'term') {
-                    throw new \RuntimeException("duo: widget '$type' setting '$setting' has an unsupported ref");
-                }
-                if (isset($settingRule['codec'], $settingRule['ref'])) {
-                    throw new \RuntimeException("duo: widget '$type' setting '$setting' cannot declare codec and ref");
-                }
+            Policy::assert_widget_grammar((string) $type, $rule);
+            if (strlen(self::kind((string) $type)) > Ledger::ID_KIND_WIDTH) {
+                throw new \RuntimeException(
+                    "duo: over-budget manifest widget type '$type' — its derived identity kind '"
+                    . self::kind((string) $type) . "' exceeds duo_map.id_kind (VARCHAR("
+                    . Ledger::ID_KIND_WIDTH . '))'
+                );
             }
         }
     }

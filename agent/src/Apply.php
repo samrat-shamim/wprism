@@ -1501,8 +1501,11 @@ final class Apply {
             // natural_key-identity tables only (e.g. woocommerce_attribute_
             // taxonomies pre-provisioned by hand on the target) — see
             // Snapshot::find_collision()'s own docblock; mapped-identity
-            // tables have no collision concept and return null here.
-            $id = Snapshot::find_collision($this->policy, $e);
+            // tables have no collision concept and return null here. $tree and
+            // $cache travel with it for the same reason collision_parent_id()
+            // below needs them: a parent-scoped key's ref component may name a
+            // parent row that is itself only adoptable, not yet mapped.
+            $id = Snapshot::find_collision($this->policy, $e, $tree, $cache);
             if ($uuid !== '') {
                 $cache[$uuid] = $id;
             }

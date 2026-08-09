@@ -385,6 +385,24 @@ final class Tokens {
     private const KIND_NAME_RE = '[a-z][a-z0-9_]*';
 
     /**
+     * A manifest-written ref KIND translated to the duo_map `id_kind` it is
+     * stored under (DUO-3318).
+     *
+     * The rename is invisible for every declared table id_kind and for
+     * post/term, and load-bearing for exactly one value: `tt` is written in
+     * manifests and stored as `term_taxonomy`. Any code path that resolves a
+     * manifest kind against the ledger ITSELF — rather than through
+     * id_to_token()/token_to_id() above, which already apply the map — must
+     * go through this, or a `tt` ref silently looks up a keyspace that has no
+     * rows and answers "not here" for every entity in it. Exposed as the one
+     * public spelling of KIND_MAP so a second call site cannot grow a second,
+     * quietly divergent copy of the same three-entry table.
+     */
+    public static function ledger_kind(string $refKind): string {
+        return self::KIND_MAP[$refKind] ?? $refKind;
+    }
+
+    /**
      * id -> "{{<kind>:uuid}}" (capture direction). Returns null when unmapped.
      *
      * DUO-3212: deliberately silent on failure — this method has no opinion
@@ -408,7 +426,7 @@ final class Tokens {
      * capture_meta_rows() ref handling, respectively.)
      */
     public function id_to_token(int $id, string $refKind): ?string {
-        $kind = self::KIND_MAP[$refKind] ?? $refKind;
+        $kind = self::ledger_kind($refKind);
         if ($kind === '' || $id <= 0) {
             return null;
         }
@@ -421,7 +439,7 @@ final class Tokens {
         if (!preg_match('/^\{\{(' . self::KIND_NAME_RE . '):([0-9a-f-]{36})\}\}$/', $token, $m)) {
             throw new \RuntimeException("duo: malformed ref token '$token'");
         }
-        $kind = self::KIND_MAP[$m[1]] ?? $m[1];
+        $kind = self::ledger_kind($m[1]);
         $id = Ledger::id_for($m[2], $kind);
         if ($id === null) {
             throw new \RuntimeException("duo: unresolvable ref $token (entity not in this environment)");
