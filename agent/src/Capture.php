@@ -1280,7 +1280,11 @@ final class Capture {
         }
         $posts = $this->scope_posts();
         $terms = $this->scope_terms();
-        $taxesByObjectType = $this->taxes_by_object_type($this->policy->taxonomies(), $this->policy->post_types());
+        $taxesByObjectType = $this->taxes_by_object_type(
+            $this->policy->taxonomies(),
+            $this->policy->post_types(),
+            $strictReadOnly
+        );
         $this->taxesForPostType = $taxesByObjectType['by_post_type'];
         $this->termObjectTaxes = $taxesByObjectType['term_object'];
 
@@ -1654,14 +1658,21 @@ final class Capture {
      *
      * A scoped taxonomy that isn't registered at runtime (its plugin is
      * inactive on this environment) can't be checked at all — silently
-     * trusting it would reintroduce the same hazard, so it's excluded
-     * entirely and named in a loud warning instead.
+     * trusting it would reintroduce the same hazard, so ordinary capture
+     * excludes it and names it in a loud warning. Strict refresh export is
+     * different: a partial production truth is not a usable observation, so
+     * it refuses unless a plugin-owned manifest pattern supplies the missing
+     * object-type fact.
      *
      * @param string[] $taxes policy-scoped taxonomy names
      * @param string[] $postTypes policy-scoped post types
      * @return array{by_post_type: array<string,string[]>, term_object: string[]}
      */
-    private function taxes_by_object_type(array $taxes, array $postTypes): array {
+    private function taxes_by_object_type(
+        array $taxes,
+        array $postTypes,
+        bool $strictReadOnly = false
+    ): array {
         $byPostType = array_fill_keys($postTypes, []);
         $termObject = [];
         foreach ($taxes as $tax) {
@@ -1680,6 +1691,14 @@ final class Capture {
             // still warns+skips exactly as before if unregistered.
             $objectTypes = $taxObj !== false ? (array) $taxObj->object_type : $this->policy->pattern_object_type($tax);
             if ($objectTypes === null) {
+                if ($strictReadOnly) {
+                    throw new \RuntimeException(
+                        "duo: refresh export refused — taxonomy '$tax' is in policy scope but is not registered "
+                        . 'under the isolated control bootstrap, and no plugin-owned taxonomy_patterns '
+                        . 'object_type declaration can prove which post or term relationships belong to it; '
+                        . 'add that manifest/provider contract before refreshing production'
+                    );
+                }
                 $this->tokens->warnings[] =
                     "taxonomy '$tax' is in policy scope but not registered on this environment"
                     . " (plugin inactive?) — cannot determine which object type its relationships"
