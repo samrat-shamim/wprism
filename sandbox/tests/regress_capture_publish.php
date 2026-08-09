@@ -59,6 +59,7 @@ if (!defined('DUO_SPEC_VERSION')) {
 }
 
 use Duo\Canon;
+use Duo\CommandRefusalException;
 use Duo\OptionState;
 use Duo\Policy;
 use Duo\Publish;
@@ -735,6 +736,12 @@ echo "\n== P9: transaction-bound capture publication recovery ==\n";
         $recordFailure = $t;
     }
     check($recordFailure instanceof RuntimeException && str_contains($recordFailure->getMessage(), 'tampered intent'), 'P9f: modified durable intent is refused by its canonical self-hash');
+    check(
+        $recordFailure instanceof CommandRefusalException
+            && $recordFailure->reasonCode === 'capture_recovery_ambiguous'
+            && str_contains($recordFailure->remediation, 'do not retry or discard'),
+        'P9f: malformed or tampered durable records expose the stable no-retry recovery refusal'
+    );
     check(is_dir(Publish::stage_dir($stateDir)) && read_tree($stateDir) === ['revision.txt' => "old\n"], 'P9f: sealed-record refusal leaves both published and staged evidence untouched');
 
     $root = fresh_root('protocol_tampered_tree');
@@ -749,6 +756,12 @@ echo "\n== P9: transaction-bound capture publication recovery ==\n";
         $treeFailure = $t;
     }
     check($treeFailure instanceof RuntimeException && str_contains($treeFailure->getMessage(), 'does not match'), 'P9g: changed candidate tree refuses destructive rollback');
+    check(
+        $treeFailure instanceof CommandRefusalException
+            && $treeFailure->reasonCode === 'capture_recovery_ambiguous'
+            && str_contains($treeFailure->remediation, 'do not retry or discard'),
+        'P9g: ambiguous recovery exposes a stable no-retry machine refusal'
+    );
     check(read_tree($stateDir) === ['revision.txt' => "out-of-band\n"] && is_dir(Publish::backup_dir($stateDir)), 'P9g: tree-hash refusal preserves the candidate, backup, and recovery evidence');
 
     // A filesystem receipt cannot be manufactured before the durable intent
@@ -769,6 +782,12 @@ echo "\n== P9: transaction-bound capture publication recovery ==\n";
         $earlyReceiptFailure = $t;
     }
     check($earlyReceiptFailure instanceof RuntimeException && str_contains($earlyReceiptFailure->getMessage(), 'COMMIT-attempt'), 'P9h: receipt cannot be written before the durable COMMIT-attempt boundary');
+    check(
+        $earlyReceiptFailure instanceof CommandRefusalException
+            && $earlyReceiptFailure->reasonCode === 'capture_recovery_ambiguous'
+            && str_contains($earlyReceiptFailure->remediation, 'do not retry or discard'),
+        'P9h: premature receipt creation exposes the stable no-retry recovery refusal'
+    );
     $intent = Publish::mark_committing($stateDir, $intent);
     $receipt = Publish::write_receipt($stateDir, $intent);
     $receiptContradiction = null;
@@ -778,6 +797,12 @@ echo "\n== P9: transaction-bound capture publication recovery ==\n";
         $receiptContradiction = $t;
     }
     check($receiptContradiction instanceof RuntimeException && str_contains($receiptContradiction->getMessage(), 'receipt exists'), 'P9h: matching receipt plus absent DB commit marker fails closed as contradictory evidence');
+    check(
+        $receiptContradiction instanceof CommandRefusalException
+            && $receiptContradiction->reasonCode === 'capture_recovery_ambiguous'
+            && str_contains($receiptContradiction->remediation, 'do not retry or discard'),
+        'P9h: receipt/commit-proof contradiction exposes the stable no-retry recovery refusal'
+    );
     check(is_dir(Publish::backup_dir($stateDir)) && is_file(Publish::intent_path($stateDir)), 'P9h: contradictory receipt/DB evidence preserves every recovery artifact');
 
     // Cleanup validates the matching intent before deleting the retained old
@@ -791,6 +816,12 @@ echo "\n== P9: transaction-bound capture publication recovery ==\n";
         $missingIntentFailure = $t;
     }
     check($missingIntentFailure instanceof RuntimeException && str_contains($missingIntentFailure->getMessage(), 'no matching intent'), 'P9i: retained-artifact cleanup refuses without its matching intent');
+    check(
+        $missingIntentFailure instanceof CommandRefusalException
+            && $missingIntentFailure->reasonCode === 'capture_recovery_ambiguous'
+            && str_contains($missingIntentFailure->remediation, 'do not retry or discard'),
+        'P9i: cleanup evidence contradiction exposes the stable no-retry recovery refusal'
+    );
     check(is_dir(Publish::backup_dir($stateDir)), 'P9i: missing-intent refusal occurs before deleting the retained tree');
 }
 
