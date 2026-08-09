@@ -2591,7 +2591,42 @@ $check(!isset($crossNegotiation['providers']['probe-cache'])
     && !isset($crossNegotiation['capabilities']['probe-index']),
     'and EVERY claimant is unbound, not just the one the refusal is attributed to — a partial unbind would '
     . 'leave one of them holding a marker keyspace the refusal says has no owner');
+// DUO-3339 gave these refusals a SECOND surface: Providers::problems() runs the
+// same diagnosis over every pinned action for plan/status, and subtracts rows
+// the narrowed gating diagnosis already reported. Both new codes have to travel
+// that path like any other — they are ordinary problem rows, and the moment
+// they were not, a collision would be reported twice to one operator, or not at
+// all.
+$crossWide = \Duo\Providers::problems($crossPolicy);
+$check(array_column($crossWide, 'code') === ['channel_claimed_twice'],
+    'a channel collision reaches the wide plan/status view too, so a half-finished migration is visible before '
+    . 'the apply that would refuse on it');
+$crossGating = [[
+    'name' => $crossWide[0]['manifest'],
+    'provider' => $crossWide[0]['provider'],
+    'manifest' => $crossWide[0]['manifest'],
+    'plugin' => $crossWide[0]['plugin'],
+    'code' => $crossWide[0]['code'],
+    'status' => 'blocked',
+]];
+$check(\Duo\Providers::problems($crossPolicy, $crossGating) === [],
+    'and once the scoped diagnosis has gated on it, the wide view drops it — one collision is one finding, '
+    . 'even though the row is attributed to only one of its claimants');
+$check(\Duo\Providers::problems($crossPolicy) !== [],
+    'subtraction, never suppression: with nothing gating, the same call still reports it');
 \Duo\Providers\ProbeIndex::$capabilityOverrides = [];
+
+$reset();
+\Duo\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => ['deletions']];
+$claimantWide = \Duo\Providers::problems($policyFor($claimantManifest));
+$check(array_column($claimantWide, 'code') === ['post_type_claimed_by_regen_batch'],
+    'the dual-claimant refusal travels the same surface, for the same reason');
+$check(\Duo\Providers::problems($policyFor($claimantManifest), [[
+    'provider' => $claimantWide[0]['provider'],
+    'manifest' => $claimantWide[0]['manifest'],
+    'code' => $claimantWide[0]['code'],
+]]) === [],
+    'and subtracts on the same (provider, manifest, code) key every other row uses');
 $reset();
 
 echo "\n== byte-compatibility with the pre-DUO-3369 contract, in frozen bytes ==\n";
