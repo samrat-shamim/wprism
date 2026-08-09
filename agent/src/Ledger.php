@@ -33,6 +33,12 @@ final class Ledger {
     /** Long enough for the closed widget_<type> family (longest core member:
      * widget_media_gallery, 20) and declared custom-table kinds. */
     public const ID_KIND_WIDTH = 32;
+    /**
+     * MySQL and MariaDB cap physical table identifiers at 64 characters.
+     * Journal's SQL recognizer accepts only single-byte identifier characters,
+     * so this is an exact database ceiling rather than a guessed plugin budget.
+     */
+    public const TABLE_IDENTIFIER_WIDTH = 64;
 
     private static function checked_get_var(mixed $sql, string $context): mixed {
         global $wpdb;
@@ -71,6 +77,7 @@ final class Ledger {
         $charset = $wpdb->get_charset_collate();
         $w = self::ENTITY_TYPE_WIDTH;
         $kw = self::ID_KIND_WIDTH;
+        $tw = self::TABLE_IDENTIFIER_WIDTH;
         Db::query("CREATE TABLE IF NOT EXISTS {$p}duo_map (
             uuid CHAR(36) NOT NULL,
             entity_type VARCHAR($w) NOT NULL,
@@ -94,7 +101,7 @@ final class Ledger {
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             t DATETIME NOT NULL,
             op VARCHAR(8) NOT NULL,
-            tbl VARCHAR(64) NOT NULL,
+            tbl VARCHAR($tw) NOT NULL,
             item VARCHAR(191) NOT NULL DEFAULT '',
             surface VARCHAR(32) NOT NULL,
             actor BIGINT UNSIGNED NOT NULL DEFAULT 0,

@@ -68,6 +68,24 @@ if ($normal) {
         exit(1);
     }
     echo "ok: ordinary journal opt-in boots and installs its hooks\n";
+
+    $GLOBALS['wpdb'] = (object) ['prefix' => 'wp_'];
+    $journal->setStaticPropertyValue('buffer', []);
+    $maxTableIdentifier = \Duo\Ledger::TABLE_IDENTIFIER_WIDTH;
+    $validPhysicalTable = 'wp_' . str_repeat('v', $maxTableIdentifier - 3);
+    $overlongPhysicalTable = 'wp_' . str_repeat('x', $maxTableIdentifier - 2);
+    \Duo\Journal::observe("INSERT INTO `$validPhysicalTable` (`id`) VALUES (1)");
+    \Duo\Journal::observe("INSERT INTO `$overlongPhysicalTable` (`id`) VALUES (2)");
+    $buffer = $journal->getStaticPropertyValue('buffer');
+    if ($maxTableIdentifier !== 64
+        || strlen($validPhysicalTable) !== 64
+        || strlen($overlongPhysicalTable) !== 65
+        || count($buffer) !== 1
+        || ($buffer[0][2] ?? null) !== substr($validPhysicalTable, 3)) {
+        fwrite(STDERR, "FAIL: journal table identifiers do not honor the exact database width ceiling\n");
+        exit(1);
+    }
+    echo "ok: journal records the 64-character database boundary and ignores an impossible overlong identifier\n";
     exit(0);
 }
 

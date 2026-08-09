@@ -45,6 +45,13 @@ final class Journal {
         if ($tbl === null) {
             return $sql;
         }
+        // The query filter runs before the database executes the statement.
+        // An overlong match can therefore only be an invalid physical table
+        // identifier, never successful plugin provenance. Ignore it instead
+        // of truncating it into a false table name during journal flush.
+        if (strlen($tbl) > Ledger::TABLE_IDENTIFIER_WIDTH) {
+            return $sql;
+        }
         $tbl = self::unprefix($tbl);
         if (str_starts_with($tbl, 'duo_')) {
             return $sql;
