@@ -220,7 +220,11 @@ $conflictPost = ['name' => 'conflict_post', 'spec_version' => DUO_SPEC_VERSION, 
 $conflictTerm = ['name' => 'conflict_term', 'spec_version' => DUO_SPEC_VERSION, 'taxonomies' => ['shared' => ['object_keyspace' => 'term']]];
 tok_write_manifest($manifestDir, 'conflict_post', $conflictPost);
 tok_write_manifest($manifestDir, 'conflict_term', $conflictTerm);
-tok_expect_failure(fn() => Policy::load(null, ['conflict_post', 'conflict_term']), 'conflicting object_keyspace declarations', 'contradictory exact declarations');
+tok_expect_failure(
+    fn() => Policy::load(null, ['conflict_post', 'conflict_term']),
+    'both declare taxonomies.shared',
+    'contradictory exact declarations use the stronger one-owner refusal'
+);
 
 $samePatternPost = ['name' => 'same_pattern_post', 'spec_version' => DUO_SPEC_VERSION, 'taxonomy_patterns' => [[
     'match' => '^same_', 'object_type' => ['post'], 'object_keyspace' => 'post',

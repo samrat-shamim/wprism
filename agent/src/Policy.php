@@ -188,14 +188,14 @@ self::validate_post_type_children($manifest);
             $p->site['policy']['options'] ?? []
         );
         self::validate_no_overlapping_option_name_refs($p->manifests);
-        self::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
-        self::validate_no_conflicting_description_reference_rules($p->manifests);
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_no_conflicting_provider_ids($p->manifests);
         self::validate_no_conflicting_post_type_contracts($p->manifests);
         self::validate_one_owner_per_declared_name($p->manifests);
         self::validate_ref_kinds($p->manifests, $p->site['policy'] ?? []);
         self::validate_unique_table_id_kinds($p->declared_tables());
+        self::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
+        self::validate_no_conflicting_description_reference_rules($p->manifests);
         self::validate_reference_keyspaces_and_sidecars($p);
         self::validate_manifest_pins($pins, $p);
         if ($p->manifestDispositions !== null && class_exists(CapabilityRegistry::class)) {
@@ -336,14 +336,14 @@ self::validate_post_type_children($manifest);
             $p->site['policy']['options'] ?? []
         );
         self::validate_no_overlapping_option_name_refs($p->manifests);
-        self::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
-        self::validate_no_conflicting_description_reference_rules($p->manifests);
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_no_conflicting_provider_ids($p->manifests);
         self::validate_no_conflicting_post_type_contracts($p->manifests);
         self::validate_one_owner_per_declared_name($p->manifests);
         self::validate_ref_kinds($p->manifests, $p->site['policy'] ?? []);
         self::validate_unique_table_id_kinds($p->declared_tables());
+        self::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
+        self::validate_no_conflicting_description_reference_rules($p->manifests);
         self::validate_reference_keyspaces_and_sidecars($p);
         self::validate_manifest_pins($pins, $p);
         return $p;
