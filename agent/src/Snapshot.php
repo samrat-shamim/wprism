@@ -1716,7 +1716,8 @@ final class Snapshot {
      * do), because nothing observed inside them is ever a numeric ref
      * (confirmed empirically — see the manifest's own notes) and byte-
      * verbatim passthrough is strictly safer than a decode/re-encode round
-     * trip this mechanism doesn't need to attempt.
+     * trip this mechanism doesn't need to attempt. Keys that explicitly
+     * declare json_refs/key_refs take the shared structured codec path.
      */
     private static function capture_meta_rows(string $metaTable, array $decl, int $ownerLocalId, Tokens $tokens): array {
         global $wpdb;
@@ -2180,7 +2181,8 @@ final class Snapshot {
      * (Apply.php:806-811), and, since DUO-3204, the SAME ownership gate:
      * finalize_post() only deletes a live meta_id whose rule class ===
      * 'authored'; the delete loop below now does the exact same check,
-     * via meta_key_rule() — the identical lookup capture_meta_rows() uses,
+     * via ReferenceRules::attached_meta_key() — the identical lookup
+     * capture_meta_rows() uses,
      * so the two paths can never independently disagree about which keys
      * this mechanism owns.
      *

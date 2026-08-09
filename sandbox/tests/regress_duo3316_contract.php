@@ -472,6 +472,21 @@ $invalid['taxonomy_patterns'][] = [
 ];
 expect_throw(fn() => load_fixture_policy($tmp, $invalid), 'conflicting taxonomy_patterns object_keyspaces are refused at manifest load');
 
+$first = fixture_manifest();
+$second = fixture_manifest();
+$second['name'] = 'duo3316-conflicting-description';
+$second['taxonomies']['dks_term_relation']['description_refs']['json_refs'][0]['path'] = '$.*.other_post';
+put_json("$tmp/manifests/{$first['name']}.json", $first);
+put_json("$tmp/manifests/{$second['name']}.json", $second);
+$twoManifestSite = fixture_site();
+$twoManifestSite['manifests'] = [$first['name'], $second['name']];
+put_json("$tmp/site.duo.json", $twoManifestSite);
+putenv("DUO_MANIFESTS_DIR=$tmp/manifests");
+expect_throw(
+    fn() => Policy::load($tmp),
+    'conflicting duplicate taxonomy description reference grammars are refused at manifest load'
+);
+
 $invalid = fixture_manifest();
 $invalid['taxonomies']['dks_term_relation']['description_refs']['json_refs'][0]['kind'] = 'comment';
 expect_throw(fn() => load_fixture_policy($tmp, $invalid), 'unknown description reference keyspace is refused at manifest load');
@@ -507,6 +522,17 @@ echo "\n== frozen-policy refusal mirrors normal load ==\n";
 $snapshot = $policy->export_snapshot();
 $snapshot['manifests'][0]['taxonomies']['dks_term_relation']['object_keyspace'] = 'comment';
 expect_throw(fn() => Policy::from_snapshot($snapshot), 'frozen policy refuses an invalid object_keyspace before consumers run');
+
+$snapshot = $policy->export_snapshot();
+$conflictingFrozen = fixture_manifest();
+$conflictingFrozen['name'] = 'duo3316-conflicting-description';
+$conflictingFrozen['taxonomies']['dks_term_relation']['description_refs']['key_refs']['kind'] = 'post';
+$snapshot['site']['manifests'] = ['duo3316-fixture', 'duo3316-conflicting-description'];
+$snapshot['manifests'][] = $conflictingFrozen;
+expect_throw(
+    fn() => Policy::from_snapshot($snapshot),
+    'frozen policy refuses conflicting duplicate taxonomy description reference grammars'
+);
 
 echo "\n== repository compiler: canonical tokens accepted, raw structured ids refused ==\n";
 $validRepo = "$tmp/valid-repo";

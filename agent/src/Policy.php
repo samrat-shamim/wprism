@@ -188,6 +188,7 @@ self::validate_post_type_children($manifest);
         );
         self::validate_no_overlapping_option_name_refs($p->manifests);
         self::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
+        self::validate_no_conflicting_description_reference_rules($p->manifests);
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_no_conflicting_provider_ids($p->manifests);
         self::validate_no_conflicting_post_type_contracts($p->manifests);
@@ -334,6 +335,7 @@ self::validate_post_type_children($manifest);
         );
         self::validate_no_overlapping_option_name_refs($p->manifests);
         self::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
+        self::validate_no_conflicting_description_reference_rules($p->manifests);
         self::validate_no_conflicting_adapter_claims($p->manifests);
         self::validate_no_conflicting_provider_ids($p->manifests);
         self::validate_no_conflicting_post_type_contracts($p->manifests);
@@ -1060,12 +1062,9 @@ self::validate_post_type_children($manifest);
 
     /**
      * Every declared table rule, keyed by unprefixed table name, merged
-     * across manifests (last pinned manifest declaring a given table wins —
-     * same enumeration precedence as authored_options()/block_attr_rules(),
-     * a different precedence than the single-name lookup table_rule()/
-     * rule() use, which is an existing, pre-existing inconsistency in this
-     * class, not one this method introduces) with site policy overrides
-     * applied last. Snapshot.php filters this by `class` itself (row-shaped
+     * across manifests (last pinned manifest declaring a given table wins,
+     * matching table_rule()/declared_table_details()) with site policy
+     * overrides applied last. Snapshot.php filters this by `class` itself (row-shaped
      * "authored_snapshot" vs attached-meta "authored_snapshot_meta" vs the
      * honest-intent-only "authored_typed_snapshot_post_v1" markers that have
      * no engine effect) — this accessor just answers "what did every pinned
@@ -1616,10 +1615,9 @@ self::validate_post_type_children($manifest);
      * (Capture::term_description() / Apply::encode_description() own
      * deciding how to (un)serialize; this only returns the declared rule).
      *
-     * Manifest-only, first declaration in pin order wins — same precedence
-     * as block_attr_rules()/deletion_capability(): a structural fact
-     * about the taxonomy's OWN data shape (like block_attrs is a structural
-     * fact about a block type's shape), not a site-local policy choice, so
+     * Manifest-only structural fact about the taxonomy's OWN data shape
+     * (like block_attrs is a structural fact about a block type's shape),
+     * not a site-local policy choice, so
      * — unlike options/post_meta/term_meta — there is no site.duo.json
      * policy override. This also sidesteps a real naming collision:
      * site.duo.json's policy.taxonomies is already the flat taxonomy-scope
@@ -1627,7 +1625,11 @@ self::validate_post_type_children($manifest);
      * rule map would silently shadow it instead of erroring, since PHP's
      * array access on a list by an unknown string key just returns null.
      *
-     * @return ?array {"kind": "post"|"term"}
+     * Duplicate declarations must normalize identically; load() and
+     * from_snapshot() reject pin-order-dependent shapes before this accessor
+     * can run.
+     *
+     * @return ?array{json_refs:array,key_refs:?array,legacy_flat_map:bool}
      */
     public function description_reference_rule(string $tax): ?array {
         foreach ($this->manifests as $m) {
@@ -4415,6 +4417,42 @@ self::validate_post_type_children($manifest);
                         "duo: taxonomy '$tax' has conflicting object_keyspace declarations: "
                         . implode(', ', $claims[$value]) . " says $value, but {$pattern['source']} says "
                         . "{$pattern['value']} — exact and matching pattern declarations must agree"
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * A taxonomy description has one physical carrier and therefore one
+     * structural-reference grammar. Pin order may not select between two
+     * adapters that describe that same carrier differently. Identical
+     * declarations remain shareable, including the legacy flat-map mode;
+     * normalized comparison deliberately retains legacy_flat_map because it
+     * controls the byte-compatible empty-map representation.
+     *
+     * @param list<array> $manifests
+     */
+    private static function validate_no_conflicting_description_reference_rules(array $manifests): void {
+        /** @var array<string,array{rule:array,source:string}> $claims */
+        $claims = [];
+        foreach ($manifests as $manifest) {
+            $name = (string) ($manifest['name'] ?? '?');
+            foreach ((array) ($manifest['taxonomies'] ?? []) as $taxonomy => $declaration) {
+                if (!is_array($declaration) || !array_key_exists('description_refs', $declaration)) {
+                    continue;
+                }
+                $source = "manifest '$name' taxonomies.$taxonomy.description_refs";
+                $rule = ReferenceRules::description($declaration['description_refs'], $source);
+                if (!isset($claims[$taxonomy])) {
+                    $claims[$taxonomy] = ['rule' => $rule, 'source' => $source];
+                    continue;
+                }
+                if ($claims[$taxonomy]['rule'] != $rule) {
+                    throw new \RuntimeException(
+                        "duo: taxonomy '$taxonomy' has conflicting description_refs declarations from "
+                        . "{$claims[$taxonomy]['source']} and $source — pin order may not choose a "
+                        . 'serialized-description reference grammar'
                     );
                 }
             }
