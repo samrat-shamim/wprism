@@ -5224,7 +5224,7 @@ final class Apply {
             return true;
         }
         foreach ($context as $channel => $value) {
-            if ($channel === 'always_on_write') {
+            if (in_array($channel, Providers::NO_WORK_CHANNELS, true)) {
                 continue;
             }
             if ($value === true || (is_array($value) && $value !== [])) {
@@ -5252,7 +5252,7 @@ final class Apply {
         $parts = [];
         foreach ($declared as $channel) {
             $channel = (string) $channel;
-            if ($channel === 'always_on_write') {
+            if (in_array($channel, Providers::NO_WORK_CHANNELS, true)) {
                 $parts[] = "$channel (a flag; never work of its own)";
                 continue;
             }
@@ -5399,7 +5399,10 @@ final class Apply {
      *     declares no batch regenerator, so on a provider-ONLY manifest the
      *     marker is swept in the same pass that first read it: the union
      *     delivers it to this run (rebuild() reads before that sweep), not to a
-     *     later one. Marker lifetime owned by the provider path is DUO-3342's
+     *     later one. The consequence: a rebuild that fails at or after the
+     *     capability loses the marker, so the retry sees an empty channel and
+     *     is skipped — which is why `idempotent: true` alone cannot rescue
+     *     that path. Marker lifetime owned by the provider path is DUO-3342's
      *     to add along with the consumer that clears it.
      *
      * @param array<string,mixed> $action

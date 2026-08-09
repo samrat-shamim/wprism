@@ -224,7 +224,9 @@ regenerator channel an adapter may be migrating from, what it does *not*:
   surface a `reparents`-declaring capability in the same run triggers on — a
   move on any other post type produces no row. On a provider-only manifest the
   durable marker is swept by the batch pass in the same run that reads it, so
-  treat the channel as this run's evidence, not a queue.
+  treat the channel as this run's evidence, not a queue: a rebuild that fails
+  at or after your capability loses the marker, and the retry sees an empty
+  channel — `idempotent: true` does not rescue that path.
 - `retry` — whether this apply is retrying an incomplete one.
 - `always_on_write` — a flag stating you fired on an always-on basis. It mirrors
   `regen_dependency`'s flag, which suppresses a per-candidate existence check

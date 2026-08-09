@@ -106,6 +106,16 @@ final class Providers {
      */
     public const FLAG_CHANNELS = ['always_on_write', 'retry'];
 
+    /**
+     * The flags that carry no work of their own: their truth must never, by
+     * itself, make a batch fire. `retry` is deliberately NOT here — a retried
+     * apply IS work evidence, because the capability must re-fire over
+     * whatever the interrupted run half-did. Apply consults this set instead
+     * of naming channels, so a future no-work flag is skipped there by
+     * declaration rather than by remembering to edit a string comparison.
+     */
+    public const NO_WORK_CHANNELS = ['always_on_write'];
+
     private const ID_PATTERN = '/^[a-z][a-z0-9-]{0,63}$/D';
     private const CAPABILITY_PATTERN = '/^[a-z0-9_]{1,64}$/D';
     private const ARG_NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/D';
