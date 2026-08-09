@@ -397,6 +397,76 @@ expect_throw(
     'which the engine never loads',
     'a site adapter source shipping an interpreters/ directory is refused rather than silently ignored'
 );
+// A regular FILE by one of those names is the same misunderstanding as a
+// directory; an is_dir()-keyed guard would wave it through into the exact
+// "silently ignored" bucket the guard exists to close.
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        ['core'],
+        ['acme-widget' => site_adapter('acme-widget')],
+        ['adapters/providers' => '<?php // inert']
+    )),
+    'which the engine never loads',
+    'a regular FILE named providers is refused too, not only a providers/ directory'
+);
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        ['core'],
+        ['acme-widget' => site_adapter('acme-widget')],
+        ['adapters/vendor/nested.json' => site_adapter('nested')]
+    )),
+    'nested adapter',
+    'a *.json nested under a subdirectory is refused — discovery is top-level only, so it would never be loaded'
+);
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        ['core'],
+        ['acme-widget' => site_adapter('acme-widget')],
+        ['adapters/Legacy.JSON' => site_adapter('Legacy')]
+    )),
+    "extension is not exactly '.json'",
+    'an extension near-miss (.JSON) is refused — it would load on a case-insensitive filesystem and vanish on a case-sensitive one'
+);
+
+// A symlink sources bytes from OUTSIDE the repository while every downstream
+// record still reads `adapters/<name>.json`, which would make the repo-relative
+// provenance a lie and break the checkout-independence the digest rests on.
+$linkRepo = fresh_site(['core'], ['real-widget' => site_adapter('real-widget')]);
+$outside = scratch('outside');
+Canon::write_file("$outside/escape.json", Canon::encode(site_adapter('escape')));
+symlink("$outside/escape.json", "$linkRepo/adapters/escape.json");
+expect_throw(
+    fn() => Policy::load($linkRepo),
+    'symbolic link',
+    'a symlinked site adapter is refused rather than silently sourced from outside the repository'
+);
+unlink("$linkRepo/adapters/escape.json");
+symlink($outside, "$linkRepo/adapters/linked-dir");
+expect_throw(
+    fn() => Policy::load($linkRepo),
+    'symbolic link',
+    'a symlinked DIRECTORY inside the adapter source is refused too, and is never followed'
+);
+unlink("$linkRepo/adapters/linked-dir");
+check(
+    count(Policy::load($linkRepo)->manifests) === 1,
+    'removing the links leaves the real out-of-tree adapter loading normally'
+);
+
+// Case-only and normalization-only differences are ambiguous identity by
+// another route: the same repository would resolve differently depending on
+// whether the host filesystem folds case.
+expect_throw(
+    fn() => Policy::load(fresh_site(['core'], ['CORE' => site_adapter('CORE')])),
+    'only by letter case',
+    'a site adapter whose name differs from a shipped one only by case is refused'
+);
+$nfd = "caf\u{65}\u{301}"; // 'cafe' + combining acute — renders as 'café'
+expect_throw(
+    fn() => Policy::load(fresh_site(['core'], ['cafe-widget' => site_adapter($nfd)])),
+    'hex ',
+    'a name mismatch that renders identically (NFC vs NFD) is reported with hex bytes, so it is actionable'
+);
 
 // ======================================================================
 echo "\n== a data-only manifest acquires no executable privileges ==\n";
@@ -597,6 +667,128 @@ expect_throw(
     fn() => Policy::from_snapshot($smuggled),
     'names manifests absent from the snapshot',
     'a frozen record naming an adapter the snapshot does not carry is refused'
+);
+
+// The frozen path holds no file to reopen, so both meaningful fields are
+// DERIVED here rather than pattern-matched. A "starts with adapters/" test
+// would accept the traversal below.
+$traversal = $snapshot;
+$traversal['adapter_sources']['out_of_tree']['acme-widget']['provenance']['path'] =
+    'adapters/../../../etc/passwd.json';
+expect_throw(
+    fn() => Policy::from_snapshot($traversal),
+    'the only path this record can describe',
+    'a frozen provenance path that escapes the adapter source is refused — the expected path is rebuilt from the record key, so traversal has nothing to express'
+);
+$renamedPath = $snapshot;
+$renamedPath['adapter_sources']['out_of_tree']['acme-widget']['provenance']['path'] = 'adapters/other.json';
+expect_throw(
+    fn() => Policy::from_snapshot($renamedPath),
+    'the only path this record can describe',
+    'a frozen record pointing at a different file than its own name is refused'
+);
+$rehashed = $snapshot;
+$rehashed['adapter_sources']['out_of_tree']['acme-widget']['provenance']['sha256'] = str_repeat('a', 64);
+expect_throw(
+    fn() => Policy::from_snapshot($rehashed),
+    'does not describe its own manifest',
+    'the recorded content hash is RECOMPUTED from the frozen manifest, so a record moved onto a different adapter is caught'
+);
+check(
+    $snapshot['adapter_sources']['out_of_tree']['acme-widget']['provenance']['sha256']
+        === hash('sha256', Canon::encode($overlay->manifests[1])),
+    'the recorded provenance hash is the canonical manifest hash — recomputable on the frozen path, not an unverifiable breadcrumb'
+);
+
+// ======================================================================
+echo "\n== site-controlled identifier fields cannot carry filesystem paths ==\n";
+// ======================================================================
+// `plugin`/`theme` became site-controlled the moment adapters could be
+// installed out-of-tree, and three code paths concatenate them into
+// filesystem paths. Held to a shape at load, for every source.
+$shapeDir = scratch('shape');
+putenv("DUO_MANIFESTS_DIR=$shapeDir");
+$writeShipped = function (string $name, array $extra) use ($shapeDir): void {
+    Canon::write_file("$shapeDir/$name.json", Canon::encode(site_adapter($name, $extra)));
+};
+$writeShipped('traversal', [
+    'plugin' => '../../../etc/passwd',
+    'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
+]);
+expect_throw(
+    fn() => Policy::load(null, ['traversal']),
+    'never one containing a ".." segment',
+    'a plugin identifier containing a traversal segment is refused at load, before any consumer concatenates it into a path'
+);
+$writeShipped('absolute', [
+    'plugin' => '/etc/passwd',
+    'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
+]);
+expect_throw(
+    fn() => Policy::load(null, ['absolute']),
+    'never an absolute path',
+    'an absolute plugin identifier is refused'
+);
+$writeShipped('deep', [
+    'plugin' => 'a/b/c.php',
+    'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
+]);
+expect_throw(
+    fn() => Policy::load(null, ['deep']),
+    "'<directory>/<file>.php'",
+    'a plugin identifier deeper than <directory>/<file>.php is refused'
+);
+$writeShipped('themepath', [
+    'theme' => 'themes/../evil',
+    'theme_version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
+]);
+expect_throw(
+    fn() => Policy::load(null, ['themepath']),
+    'a bare directory slug',
+    'a theme identifier is a bare slug — a path is refused'
+);
+$writeShipped('plain', [
+    'plugin' => 'acme/acme.php',
+    'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
+]);
+$writeShipped('bare', [
+    'plugin' => 'hello.php',
+    'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
+]);
+check(
+    count(Policy::load(null, ['plain'])->manifests) === 1
+    && count(Policy::load(null, ['bare'])->manifests) === 1,
+    'the two real-world plugin shapes (<dir>/<file>.php and a bare <file>.php) still load'
+);
+
+// A non-string interpreter used to slip past every is_string()-keyed guard and
+// fail late inside preg_match(). It is a load-time refusal now, for every
+// source — the shipped library reaches this validator on the same path.
+foreach ([['int', 7], ['bool', true], ['list', ['acf']], ['empty', '']] as [$label, $value]) {
+    Canon::write_file(
+        "$shapeDir/interp-$label.json",
+        Canon::encode(site_adapter("interp-$label", ['interpreter' => $value]))
+    );
+    expect_throw(
+        fn() => Policy::load(null, ["interp-$label"]),
+        'an interpreter name must be a non-empty string',
+        "a non-string interpreter ($label) is refused at manifest validation, for every adapter source"
+    );
+}
+putenv('DUO_MANIFESTS_DIR');
+// The out-of-tree privilege refusal is keyed on PRESENCE, so a malformed
+// declaration cannot dodge it by being unrecognizable.
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        ['acme-widget'],
+        ['acme-widget' => site_adapter('acme-widget', ['interpreter' => ['acf']])]
+    )),
+    'acquires no executable privileges',
+    'an out-of-tree adapter declaring a MALFORMED interpreter is still refused as a privilege request, not merely as bad data'
+);
+check(
+    AdapterSources::trust_tier(['name' => 'x', 'interpreter' => 7]) === 'compatibility_shim',
+    'a malformed interpreter still reports the compatibility_shim tier — it can never report a lower tier than the privilege it reaches for'
 );
 
 // A provenance record is shaped so that pasting it into the reviewed registry

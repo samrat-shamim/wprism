@@ -4545,6 +4545,21 @@ self::validate_post_type_children($manifest);
                 . " but this engine requires spec_version $supported — pin a compatible manifest or update it"
             );
         }
+        // The interpreter NAME is validated at load rather than only in
+        // interpreters(), which reaches it lazily and would hand a non-string
+        // straight to preg_match(). Type first, shape second — both here, so
+        // every manifest from every source is held to the same contract and a
+        // malformed declaration cannot survive as far as a use site.
+        if (array_key_exists('interpreter', $manifest) && $manifest['interpreter'] !== null) {
+            $interpreter = $manifest['interpreter'];
+            if (!is_string($interpreter) || preg_match('/^[a-z0-9_-]+$/D', $interpreter) !== 1) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares interpreter " . var_export($interpreter, true)
+                    . ' — an interpreter name must be a non-empty string matching ^[a-z0-9_-]+$, since it resolves '
+                    . 'to <manifests_dir>/interpreters/<name>.php'
+                );
+            }
+        }
         foreach ([['plugin', 'version_range'], ['theme', 'theme_version_range']] as [$idKey, $rangeKey]) {
             $id = $manifest[$idKey] ?? null;
             if ($id === null) {
@@ -4552,6 +4567,30 @@ self::validate_post_type_children($manifest);
             }
             if (!is_string($id) || $id === '') {
                 throw new \RuntimeException("duo: manifest '$name' declares a non-string or empty '$idKey'");
+            }
+            // DUO-3314: this field became site-controlled the moment adapters
+            // could be installed out-of-tree, and three call sites concatenate
+            // it into a filesystem path (CapabilityRegistry::
+            // installed_plugin_version(), Deploy's code-half version reads,
+            // Providers' owning-plugin resolution). None is reachable with a
+            // traversing value today — they all miss and report "missing"
+            // — but "no reachable sink today" is not a property a manifest
+            // field should have to keep proving. A plugin id is
+            // `<dir>/<file>.php` or a bare `<file>.php`; a theme id is a bare
+            // directory slug. Anything with a `..` segment, an absolute root,
+            // or a backslash is refused at load, before any consumer.
+            $segments = explode('/', $id);
+            $depthOk = $idKey === 'plugin' ? count($segments) <= 2 : count($segments) === 1;
+            if (!$depthOk || $id[0] === '/' || str_contains($id, '\\')
+                || in_array('..', $segments, true) || in_array('.', $segments, true)
+                || in_array('', $segments, true)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares '$idKey' " . var_export($id, true)
+                    . ' — a ' . $idKey . ' identifier is '
+                    . ($idKey === 'plugin' ? "'<directory>/<file>.php' or '<file>.php'" : 'a bare directory slug')
+                    . ', never an absolute path and never one containing a ".." segment; it is concatenated into '
+                    . 'filesystem paths by the code-half version checks'
+                );
             }
             $range = $manifest[$rangeKey] ?? null;
             if (!is_array($range)) {

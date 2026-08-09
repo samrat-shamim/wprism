@@ -39,13 +39,23 @@ php -l ../../cli/src/PlanSummary.php >/dev/null || fail "cli/src/PlanSummary.php
 pass "no syntax errors"
 
 say "the shipped manifest library must be untouched by this suite"
-before="$(cd ../.. && find manifests -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256)"
+tree_hash() { (cd ../.. && find manifests -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256); }
+before="$(tree_hash)"
 
 say "running the offline harness (overlay, identity refusals, privilege boundary, uncertified diagnostics, frozen provenance)"
-php regress_adapter_sources.php || fail "regress_adapter_sources.php reported failing checks (see output above)"
+# `php ... || fail` would exit before the after-hash below, so the containment
+# assertion would be skipped on exactly the run where a fixture escaped its
+# scratch directory. Capture the status, hash unconditionally, report both.
+harness_rc=0
+php regress_adapter_sources.php || harness_rc=$?
+after="$(tree_hash)"
 
-after="$(cd ../.. && find manifests -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256)"
-[ "$before" = "$after" ] || fail "the suite mutated the shipped manifest library — fixtures must stay in scratch directories"
-pass "shipped manifest library is byte-identical after the run"
+if [ "$before" = "$after" ]; then
+  pass "shipped manifest library is byte-identical after the run"
+else
+  printf '\033[1;31mFAIL: the suite mutated the shipped manifest library — fixtures must stay in scratch directories\033[0m\n'
+fi
+[ "$harness_rc" -eq 0 ] || fail "regress_adapter_sources.php reported failing checks (exit $harness_rc; see output above)"
+[ "$before" = "$after" ] || fail "shipped manifest library containment check failed (see above)"
 
 printf '\n\033[1;32m✔ REGRESS_ADAPTER_SOURCES PASSED\033[0m\n'

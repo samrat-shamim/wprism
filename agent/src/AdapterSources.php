@@ -124,15 +124,20 @@ final class AdapterSources {
                 );
             }
         }
+        // file_exists(), not is_dir(): a regular FILE named `interpreters` is
+        // the same misunderstanding as a directory, and is_dir() would have
+        // waved it through into the "silently ignored" bucket this whole block
+        // exists to close.
         foreach (['interpreters', 'providers', 'regenerators'] as $codeDir) {
-            if (is_dir($siteDir . '/' . $codeDir)) {
+            if (file_exists($siteDir . '/' . $codeDir)) {
                 throw new \RuntimeException(
-                    "duo: site adapter source $siteDir contains $codeDir/, which the engine never loads — "
+                    "duo: site adapter source $siteDir contains $codeDir, which the engine never loads — "
                     . 'out-of-tree adapters are data only. Install the adapter into the agent manifest library if it '
                     . 'genuinely needs to ship executable code, or declare a plugin-owned provider instead'
                 );
             }
         }
+        self::assert_flat_json_source($siteDir);
 
         $shippedNames = self::declared_names($origins);
         $siteFiles = glob($siteDir . '/*.json') ?: [];
@@ -141,9 +146,14 @@ final class AdapterSources {
         foreach ($siteFiles as $file) {
             $name = basename($file, '.json');
             $relative = self::SITE_DIR . '/' . basename($file);
-            if (isset($origins[$name])) {
+            // Symlinks are already refused for the whole directory by
+            // assert_flat_json_source() above — deliberately there rather than
+            // here, so a symlinked README or subdirectory is caught too, and
+            // so nothing in this source is read before the check runs.
+            $collision = $origins[$name] ?? null;
+            if ($collision !== null) {
                 throw new \RuntimeException(
-                    "duo: site adapter '$relative' shadows the shipped adapter '$name' ({$origins[$name]['file']}) — "
+                    "duo: site adapter '$relative' shadows the shipped adapter '$name' ({$collision['file']}) — "
                     . 'an out-of-tree adapter overlays the shipped set, it never replaces a member of it. Rename the '
                     . 'site adapter, or remove it and pin the shipped adapter'
                 );
@@ -152,10 +162,10 @@ final class AdapterSources {
             $declared = $manifest['name'] ?? null;
             if (!is_string($declared) || $declared !== $name) {
                 throw new \RuntimeException(
-                    "duo: site adapter '$relative' declares name " . var_export($declared, true)
-                    . " but its file name is '$name' — a pin names the file while every downstream identity "
-                    . '(dispositions, digests, diagnostics) keys off the declared name, so the two disagreeing is '
-                    . 'ambiguous identity. Make the declared name match the file name'
+                    "duo: site adapter '$relative' declares name " . self::render($declared)
+                    . ' but its file name is ' . self::render($name) . ' — a pin names the file while every '
+                    . 'downstream identity (dispositions, digests, diagnostics) keys off the declared name, so the '
+                    . 'two disagreeing is ambiguous identity. Make the declared name match the file name'
                 );
             }
             if (isset($shippedNames[$name])) {
@@ -164,12 +174,126 @@ final class AdapterSources {
                     . "'{$shippedNames[$name]}' — two adapters cannot answer to one name"
                 );
             }
+            // Case-insensitive too: a name that differs from a shipped one only
+            // by case is one name on a case-insensitive filesystem and two on a
+            // case-sensitive one, so the SAME repository would resolve
+            // differently per host. That is ambiguous identity by any other
+            // route, and it is refused by the same rule.
+            $folded = self::casefold($name);
+            foreach ([$origins, $shippedNames] as $shippedIndex) {
+                foreach (array_keys($shippedIndex) as $shippedName) {
+                    if ($shippedName !== $name && self::casefold((string) $shippedName) === $folded) {
+                        throw new \RuntimeException(
+                            "duo: site adapter '$relative' claims the name " . self::render($name)
+                            . ', which differs from the shipped adapter ' . self::render((string) $shippedName)
+                            . ' only by letter case — one name on a case-insensitive filesystem, two on a '
+                            . 'case-sensitive one. Choose a name that is distinct without relying on case'
+                        );
+                    }
+                }
+            }
             $origins[$name] = ['source' => self::SITE, 'file' => $file, 'path' => $relative];
-            $provenance[$name] = self::provenance_record($name, $relative, hash_file('sha256', $file), $manifest);
+            $provenance[$name] = self::provenance_record($name, $relative, $manifest);
         }
         ksort($origins, SORT_STRING);
         ksort($provenance, SORT_STRING);
         return new self($origins, $provenance);
+    }
+
+    /**
+     * The site adapter source is a FLAT directory of `<name>.json` files, and
+     * this file's own doctrine is that inert bytes an operator believed in are
+     * the failure mode to refuse. glob('*.json') silently skips both classes
+     * below, so they are enumerated explicitly instead:
+     *
+     * - a nested *.json, which the engine will never look at; and
+     * - an extension near-miss (`.JSON`, `.Json`), which loads on a
+     *   case-insensitive filesystem and vanishes on a case-sensitive one — the
+     *   same adapter set resolving differently per host.
+     *
+     * Non-JSON companions (README, .gitignore) are deliberately left alone:
+     * they assert nothing about adapters and refusing them would be noise.
+     */
+    private static function assert_flat_json_source(string $siteDir): void {
+        foreach (scandir($siteDir) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $full = $siteDir . '/' . $entry;
+            if (is_link($full)) {
+                throw new \RuntimeException(
+                    "duo: site adapter source $siteDir contains the symbolic link '$entry' (-> "
+                    . (readlink($full) ?: '?') . ') — an out-of-tree adapter source holds only real files inside '
+                    . 'the site repository, so that its recorded provenance travels with the repository'
+                );
+            }
+            if (is_dir($full)) {
+                $nested = self::first_nested_json($full);
+                if ($nested !== null) {
+                    throw new \RuntimeException(
+                        "duo: site adapter source $siteDir contains a nested adapter '$entry/$nested' — adapters are "
+                        . 'discovered only at the top level of this directory, so a nested file is never loaded. '
+                        . 'Move it to ' . self::SITE_DIR . '/<name>.json'
+                    );
+                }
+                continue;
+            }
+            if (preg_match('/\.json$/iD', $entry) === 1 && !str_ends_with($entry, '.json')) {
+                throw new \RuntimeException(
+                    "duo: site adapter source $siteDir contains '$entry', whose extension is not exactly '.json' — "
+                    . 'it would load on a case-insensitive filesystem and disappear on a case-sensitive one. '
+                    . 'Rename it to use a lowercase .json extension'
+                );
+            }
+        }
+    }
+
+    /** @return ?string the first JSON-ish file found under $dir, relative to it */
+    private static function first_nested_json(string $dir): ?string {
+        foreach (scandir($dir) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $full = $dir . '/' . $entry;
+            if (is_link($full)) {
+                continue; // never followed; the caller already refuses links it can see
+            }
+            if (is_dir($full)) {
+                $deeper = self::first_nested_json($full);
+                if ($deeper !== null) {
+                    return $entry . '/' . $deeper;
+                }
+                continue;
+            }
+            if (preg_match('/\.json$/iD', $entry) === 1) {
+                return $entry;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Case folding for identity comparison only — never for storage or lookup.
+     * mbstring is not a hard dependency of this engine, so fall back to the
+     * byte-wise fold: ASCII case is the confusable class this guards, and a
+     * missed non-ASCII fold still leaves the exact-match checks in force.
+     */
+    private static function casefold(string $value): string {
+        return function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
+    }
+
+    /**
+     * Render a name for an operator. Two names can differ in bytes while
+     * rendering identically in a terminal — NFC vs NFD 'café' is the reachable
+     * case — so a refusal that only prints them is unactionable. The hex suffix
+     * is appended exactly when the rendering would otherwise be ambiguous.
+     */
+    private static function render($value): string {
+        if (!is_string($value)) {
+            return var_export($value, true);
+        }
+        $printable = preg_match('/^[\x20-\x7e]*$/D', $value) === 1;
+        return "'" . $value . "'" . ($printable ? '' : ' (hex ' . bin2hex($value) . ')');
     }
 
     /**
@@ -197,13 +321,21 @@ final class AdapterSources {
      * disposition — it is the assertion that no review happened, recorded in a
      * shape the digest can bind. `path` is repo-relative so the same adapter
      * digests identically in every checkout of the site repo.
+     *
+     * `sha256` hashes the CANONICAL manifest, not the file's raw bytes. The
+     * frozen verification path holds no file to reopen, so a raw-byte hash
+     * there could only ever be an unverifiable breadcrumb; hashing canonical
+     * content instead makes it recomputable from the frozen record itself, so
+     * from_snapshot() proves this record describes the manifest it is attached
+     * to rather than one moved onto it. Nothing is lost: the manifest's own
+     * content is already inside the adapter digest either way.
      */
     private static function provenance_record(
         string $name,
         string $relativePath,
-        string $sha256,
         array $manifest
     ): array {
+        $sha256 = hash('sha256', Canon::encode($manifest));
         return [
             'certification' => 'uncertified',
             'provenance' => [
@@ -225,7 +357,11 @@ final class AdapterSources {
      * privileges it actually asks for.
      */
     public static function trust_tier(array $manifest): string {
-        if (is_string($manifest['interpreter'] ?? null) && $manifest['interpreter'] !== '') {
+        // Presence, not well-formedness — the same reason
+        // assert_out_of_tree_contract() keys on presence: a malformed
+        // declaration must not be able to report a LOWER tier than the
+        // privilege it is reaching for.
+        if (array_key_exists('interpreter', $manifest) && $manifest['interpreter'] !== null) {
             return self::TIER_COMPATIBILITY_SHIM;
         }
         foreach ((array) ($manifest['post_types'] ?? []) as $declaration) {
@@ -264,12 +400,17 @@ final class AdapterSources {
     public static function assert_out_of_tree_contract(array $manifest, string $name, string $relativePath): void {
         $remedy = "install the adapter into the agent's own manifest library (where its code ships, digest-binds, and "
             . 'is reviewed with it), or declare a plugin-owned provider whose code the installed plugin already owns';
-        $interpreter = $manifest['interpreter'] ?? null;
-        if (is_string($interpreter) && $interpreter !== '') {
+        // Keyed on PRESENCE, not on the value being a well-formed string: an
+        // out-of-tree manifest that declares this key at all is asking for a
+        // privilege it cannot have, and the refusal must not depend on the
+        // declaration being well-formed enough to recognize. (Type/shape is
+        // Policy::validate_adapter_contract()'s job, for every source.)
+        if (array_key_exists('interpreter', $manifest) && $manifest['interpreter'] !== null) {
             throw new \RuntimeException(
-                "duo: site adapter '$relativePath' declares interpreter '$interpreter', but interpreter code loads "
-                . "only from the agent's manifest library — an out-of-tree manifest is data and acquires no "
-                . "executable privileges. Remediation: $remedy"
+                "duo: site adapter '$relativePath' declares interpreter "
+                . var_export($manifest['interpreter'], true) . ", but interpreter code loads only from the agent's "
+                . 'manifest library — an out-of-tree manifest is data and acquires no executable privileges. '
+                . "Remediation: $remedy"
             );
         }
         foreach ((array) ($manifest['post_types'] ?? []) as $postType => $declaration) {
@@ -389,7 +530,11 @@ final class AdapterSources {
     /**
      * Rebuild frozen provenance and re-prove the out-of-tree contract against
      * the frozen manifest bytes — the snapshot path re-validates, it never
-     * trusts.
+     * trusts. Concretely, every field of a frozen record is either derived here
+     * or recomputed here: validate_frozen_record() rebuilds the expected path
+     * from the record's own key and recomputes the canonical content hash from
+     * the frozen manifest, and the trust tier is re-derived from that manifest's
+     * declarations rather than read off the record.
      *
      * Deliberately no filesystem probe for the shipped side: this method exists
      * to reconstruct a policy "without reopening mutable repository files"
@@ -423,7 +568,7 @@ final class AdapterSources {
                 $origins[$name] = ['source' => self::SHIPPED, 'file' => $file, 'path' => $file];
                 continue;
             }
-            self::validate_frozen_record($name, $record);
+            self::validate_frozen_record($name, $record, $manifest);
             self::assert_out_of_tree_contract($manifest, $name, (string) $record['provenance']['path']);
             if ($record['trust_tier'] !== self::trust_tier($manifest)) {
                 throw new \RuntimeException(
@@ -450,7 +595,21 @@ final class AdapterSources {
         return new self($origins, $provenance);
     }
 
-    private static function validate_frozen_record(string $name, $record): void {
+    /**
+     * The frozen path re-validates, it does not trust — so both fields that
+     * carry meaning are PROVED here rather than pattern-matched:
+     *
+     * - `path` must be exactly the one path discovery could have produced for
+     *   this record's own key. A prefix test ("starts with adapters/") accepts
+     *   `adapters/../../../etc/x.json`; deriving the expected string from
+     *   $name instead leaves no traversal to express. The explicit `..`/
+     *   separator guard on $name closes the same escape one level up, where
+     *   the name itself is the site-controlled half.
+     * - `sha256` must be the canonical hash of the manifest this record is
+     *   attached to, which is recomputable here precisely because
+     *   provenance_record() hashes canonical content rather than file bytes.
+     */
+    private static function validate_frozen_record(string $name, $record, array $manifest): void {
         $provenance = is_array($record) ? ($record['provenance'] ?? null) : null;
         $keys = is_array($record) ? array_keys($record) : [];
         $provenanceKeys = is_array($provenance) ? array_keys($provenance) : [];
@@ -469,9 +628,30 @@ final class AdapterSources {
             || ($provenance['format'] ?? null) !== self::FORMAT
             || ($provenance['source'] ?? null) !== self::SITE
             || !is_string($provenance['path'] ?? null)
-            || !str_starts_with((string) $provenance['path'], self::SITE_DIR . '/')
             || preg_match('/^[0-9a-f]{64}$/D', (string) ($provenance['sha256'] ?? '')) !== 1) {
             throw new \RuntimeException("duo: frozen adapter source record for '$name' is malformed");
+        }
+        if ($name === '' || str_contains($name, '/') || str_contains($name, '\\')
+            || in_array($name, ['.', '..'], true)) {
+            throw new \RuntimeException(
+                "duo: frozen adapter source record names " . self::render($name)
+                . ', which is not a usable adapter name — a name is a single path-free file name'
+            );
+        }
+        $expected = self::SITE_DIR . '/' . $name . '.json';
+        if (!hash_equals($expected, (string) $provenance['path'])) {
+            throw new \RuntimeException(
+                "duo: frozen adapter source record for '$name' declares path "
+                . self::render((string) $provenance['path']) . " but the only path this record can describe is "
+                . "'$expected'"
+            );
+        }
+        $actual = hash('sha256', Canon::encode($manifest));
+        if (!hash_equals($actual, (string) $provenance['sha256'])) {
+            throw new \RuntimeException(
+                "duo: frozen adapter source record for '$name' does not describe its own manifest: recorded "
+                . "content hash {$provenance['sha256']}, actual $actual"
+            );
         }
     }
 }

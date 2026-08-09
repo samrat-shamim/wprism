@@ -1333,6 +1333,12 @@ final class Cli {
      * passed as an explicit pin, so the repository's own (possibly stale)
      * `manifests` array is never resolved even when --repo is given.
      *
+     * --repo does, however, put the whole repository through ordinary policy
+     * loading, so an UNRELATED site.duo.json error (a malformed policy
+     * override, an invalid code declaration) blocks pin generation with that
+     * error. Fix the repository, or omit --repo when pinning a shipped
+     * adapter, which needs no repository at all.
+     *
      * ## OPTIONS
      * --name=<name> : Manifest file name without the .json suffix.
      * [--repo=<path>] : Site repository whose `adapters/` source may also supply the manifest.
