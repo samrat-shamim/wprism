@@ -55,6 +55,13 @@ EOF
 THUMB_ID=$($COMPOSE run --rm -T cli1 bash -c \
   "wp eval-file /siterepo/.tmp-make-woo-category-image.php >/dev/null && wp media import /tmp/conf-woo-category.png --title='Woo Category Thumbnail' --porcelain")
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-make-woo-category-image.php
+# DUO-3381: assert the premise before anything consumes it. `term meta update
+# <id> thumbnail_id ""` succeeds silently, so an empty capture from a
+# load-starved `docker compose run` (see run.sh's require_fixture_ids) would
+# author a termmeta ref that points nowhere — and checks/woocommerce.sh would
+# then report "thumbnail_id did not resolve to a local attachment" as an
+# engine failure.
+require_fixture_ids CAT_ID THUMB_ID
 wp_conf1 term meta update "$CAT_ID" thumbnail_id "$THUMB_ID" >/dev/null
 
 PID=$(wp_conf1 wc product create --name='Conformance Widget' --type=simple \
@@ -62,6 +69,7 @@ PID=$(wp_conf1 wc product create --name='Conformance Widget' --type=simple \
   --manage_stock=true --stock_quantity=25 --virtual=false \
   --tax_status=taxable --backorders=no --sold_individually=false \
   --status=publish --user=admin --porcelain)
+require_fixture_ids PID
 
 wp_conf1 post term add "$PID" product_cat conformance-widgets --by=slug
 
@@ -81,6 +89,7 @@ COUPON_ID=$(wp_conf1 wc shop_coupon create --code=CONF-WELCOME10 \
 # leave a different starting id across repeated runs).
 SIZE_ATTR_ID=$(wp_conf1 wc product_attribute create --name="Conf Size" --slug="conf-size" --type=select --order_by=menu_order --has_archives=false --porcelain --user=admin)
 COLOR_ATTR_ID=$(wp_conf1 wc product_attribute create --name="Conf Color" --slug="conf-color" --type=select --order_by=menu_order --has_archives=false --porcelain --user=admin)
+require_fixture_ids COUPON_ID SIZE_ATTR_ID COLOR_ATTR_ID
 wp_conf1 wc product_attribute_term create "$SIZE_ATTR_ID" --name=Small --user=admin >/dev/null
 wp_conf1 wc product_attribute_term create "$SIZE_ATTR_ID" --name=Large --user=admin >/dev/null
 wp_conf1 wc product_attribute_term create "$COLOR_ATTR_ID" --name=Red --user=admin >/dev/null
@@ -89,6 +98,7 @@ wp_conf1 wc product_attribute_term create "$COLOR_ATTR_ID" --name=Blue --user=ad
 VPID=$(wp_conf1 wc product create --name='Conformance Variable Widget' --type=variable \
   --attributes="[{\"id\":$SIZE_ATTR_ID,\"variation\":true,\"visible\":true,\"options\":[\"Small\",\"Large\"]},{\"id\":$COLOR_ATTR_ID,\"variation\":true,\"visible\":true,\"options\":[\"Red\",\"Blue\"]}]" \
   --status=publish --user=admin --porcelain)
+require_fixture_ids VPID
 wp_conf1 wc product_variation create "$VPID" \
   --attributes="[{\"id\":$SIZE_ATTR_ID,\"option\":\"Small\"},{\"id\":$COLOR_ATTR_ID,\"option\":\"Red\"}]" \
   --regular_price=9.99 --sku=CONF-VAR-S-RED --manage_stock=true --stock_quantity=10 --user=admin --porcelain >/dev/null
@@ -103,9 +113,14 @@ wp_conf1 option update woocommerce_calc_taxes yes >/dev/null
 wp_conf1 option update woocommerce_cod_settings --format=json \
   '{"enabled":"yes","title":"Conformance COD Desk","description":"Pay at the conformance desk.","instructions":"Use code CONF-COD-7 at pickup.","enable_for_methods":[],"enable_for_virtual":"yes"}' >/dev/null
 ZONE_ID=$(wp_conf1 wc shipping_zone create --name='Conformance United States' --order=1 --user=admin --porcelain)
+# WC_Shipping_Zone's constructor argument is optional, so an empty id here
+# would silently construct (and save) a SECOND, unrelated zone rather than
+# configure this one — checked before it is interpolated, not after.
+require_fixture_ids ZONE_ID
 wp_conf1 eval "\$z = new WC_Shipping_Zone($ZONE_ID); \$z->add_location('US', 'country'); \$z->save();" >/dev/null
 FLAT_INSTANCE=$(wp_conf1 wc shipping_zone_method create "$ZONE_ID" --method_id=flat_rate --enabled=true --order=1 --user=admin --porcelain)
 FREE_INSTANCE=$(wp_conf1 wc shipping_zone_method create "$ZONE_ID" --method_id=free_shipping --enabled=true --order=2 --user=admin --porcelain)
+require_fixture_ids FLAT_INSTANCE FREE_INSTANCE
 wp_conf1 eval "
 \$flat = WC_Shipping_Zones::get_shipping_method($FLAT_INSTANCE);
 \$flat->instance_settings['title'] = 'Conformance Flat Rate';
@@ -148,6 +163,12 @@ SOURCE_REVIEW_ID=$(wp_conf1 comment create --comment_post_ID="$PID" \
   --comment_content='Source-only runtime review' --comment_author='Source Reviewer' \
   --comment_author_email='source-review@example.test' --comment_type=review \
   --comment_approved=1 --porcelain)
+# The source-only order and review are premises for checks/woocommerce.sh's
+# runtime-sovereignty assertions ("source order propagated", "Woo runtime
+# sovereignty failed for reviews, sessions, or queues"): a row this seed
+# never created would make those pass VACUOUSLY rather than fail, which is
+# the quieter half of the same fixture-manufacture blind spot (DUO-3381).
+require_fixture_ids TAX_ID SOURCE_ORDER_ID SOURCE_REVIEW_ID
 wp_conf1 comment meta update "$SOURCE_REVIEW_ID" rating 5 >/dev/null
 wp_conf1 eval '
 global $wpdb;

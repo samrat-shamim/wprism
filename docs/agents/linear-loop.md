@@ -440,6 +440,23 @@ debugging time. Follow them; extend this list when you pay for a new one.
   any content grep, and print `${#VAR}` in every failure path; `?page_id=N`
   301s under pretty permalinks, so bare curl without `-L` sees an empty
   body.
+- **Assert the premise before the behavior in a live check.** A check that
+  manufactures its own fixture and then asserts the engine's reaction has
+  two failure domains, but its failure MESSAGE is written for only one of
+  them — the engine's. `conformance/postdeploy/core.sh` manufactured a
+  duplicate adoption key with five `docker compose run` calls and asserted
+  the refusal; under five-agent docker load one of those returned empty
+  with exit 0 (nothing for `set -e` to fire on), so the refusal
+  legitimately did not fire and the sweep reported "duplicate full
+  hierarchical adoption key was not rejected" — a false engine-regression
+  scare plus a full certification-bundle restart (~1h, DUO-3380; the
+  identical sweep standalone passed). Same family as DUO-3267: the harness
+  lying about the system. Fix: read the manufactured state back and assert
+  its exact shape BEFORE the behavior assertion, and say which domain
+  failed — `conformance/run.sh` exports `require_fixture_ids` /
+  `require_fixture_values` / `require_fixture_state` to every seed/
+  postdeploy/check hook, and every message they emit carries the grep-able
+  `fixture manufacture failed:` prefix (DUO-3381).
 - **CLOSED (DUO-3277) — the "bring up shared pairs from `duo-wp-main`,
   never a worktree" discipline this bullet used to require is now
   enforced by the tooling itself, not by remembering to follow it.**

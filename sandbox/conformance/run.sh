@@ -82,6 +82,43 @@ say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
+# DUO-3381: assert the premise before the behavior. A seed/postdeploy hook
+# manufactures its fixture through `docker compose run` (wp_env, below), and
+# under multi-agent host load that can hand back an EMPTY or noise-polluted
+# --porcelain capture without a non-zero exit — `set -e` never fires, the
+# fixture silently never lands, and the engine assertion that depends on it
+# then fails for a reason that has nothing to do with the engine. Observed
+# live 2026-08-09 (DUO-3380's first certification bundle, main 7938476):
+# postdeploy/core.sh's ambiguous-adoption-key refusal legitimately did not
+# fire and the sweep reported "duplicate full hierarchical adoption key was
+# not rejected" — a false engine-regression scare plus a ~1h bundle restart;
+# the identical sweep standalone passed. These three helpers are what a hook
+# calls BETWEEN its manufacture and its engine assertion, so a fixture
+# failure names ITSELF: every message they emit carries the grep-able
+# "fixture manufacture failed:" prefix, which is an infrastructure signal,
+# never an accusation against Duo. They only ever move a failure from the
+# wrong domain into the right one — no engine assertion is weakened, and a
+# hook whose fixture landed sees no behavior change at all.
+require_fixture_ids() { # require_fixture_ids <VAR_NAME>... — each named var must hold a numeric id
+  local name value
+  for name in "$@"; do
+    value="${!name-}"
+    [[ "$value" =~ ^[0-9]+$ ]] \
+      || fail "fixture manufacture failed: $name is not a numeric id (got: '${value:-<empty>}') — this hook's own fixture never landed, so nothing after it is testing the engine"
+  done
+}
+require_fixture_values() { # require_fixture_values <VAR_NAME>... — each named var must be non-empty (ids that aren't numeric: uuids, slugs, hashes)
+  local name
+  for name in "$@"; do
+    [ -n "${!name-}" ] \
+      || fail "fixture manufacture failed: $name is empty — this hook's own fixture never landed, so nothing after it is testing the engine"
+  done
+}
+require_fixture_state() { # require_fixture_state <what> <expected> <actual>
+  [ "$2" = "$3" ] \
+    || fail "fixture manufacture failed: $1 — expected '$2', got '${3:-<empty>}'"
+}
+
 ENTRY=$(jq -e --arg m "$MANIFEST" '.[$m]' "$REG") \
   || fail "unknown manifest '$MANIFEST' (see $REG)"
 mapfile -t PLUGINS < <(echo "$ENTRY" | jq -r '.plugins[]?')
@@ -188,7 +225,8 @@ wp_conf2() { wp_env conf2 "$@"; }
 # warning that would have pointed straight at the cause.
 export DUO_PAIR="$CONF_PAIR" DUO_PORT1="$CONF1_PORT" DUO_PORT2="$CONF2_PORT"
 export COMPOSE CONF1_PORT CONF2_PORT
-export -f wp_env wp_conf1 wp_conf2 say pass fail
+export -f wp_env wp_conf1 wp_conf2 say pass fail \
+  require_fixture_ids require_fixture_values require_fixture_state
 
 # DUO-3377: a sweep IS evidence, so it must be able to state which
 # agent/manifests bytes produced it. CONF_EXPECTED_SOURCE_SHA=$(git rev-parse

@@ -145,6 +145,15 @@ A=$(wp_conf1 post list --post_type=page --name=branch-a --field=ID | tr -d '[:sp
 B=$(wp_conf1 post list --post_type=page --name=branch-b --field=ID | tr -d '[:space:]')
 UA=$(wp_conf1 post meta get "$A" _duo_uuid | tr -d '[:space:]')
 UB=$(wp_conf1 post meta get "$B" _duo_uuid | tr -d '[:space:]')
+# DUO-3381: the duplicate-identity condition below is manufactured from
+# these four READS, and `post list --field=ID` on no match — like a
+# load-starved `docker compose run` — returns empty with exit 0, while
+# `post meta update <id> _duo_uuid ""` then succeeds just as silently. The
+# refusal being asserted afterwards would legitimately not fire, and its
+# message would report the ENGINE for a corruption this check never managed
+# to author. Asserted before the write, so a failure names the right domain.
+require_fixture_ids A B
+require_fixture_values UA UB
 
 wp_conf1 post meta update "$B" _duo_uuid "$UA" >/dev/null
 RC=0
