@@ -94,15 +94,20 @@ namespace Duo\Providers;
 
 final class ProbeCache {
     public array $calls = [];
+    public static ?array $capabilityMapOverride = null;
     public static array $capabilityOverrides = [];
     public static ?string $capabilitiesThrows = null;
     public static array $identityOverrides = [];
+    public static ?string $identityThrows = null;
     public static mixed $receiptOverride = null;
     public static float $sleepSeconds = 0.0;
 
     public function __construct(\Duo\Policy $policy) {}
 
     public function identity(): array {
+        if (self::$identityThrows !== null) {
+            throw new \RuntimeException(self::$identityThrows);
+        }
         return self::$identityOverrides + [
             'id' => 'probe-cache',
             'plugin' => 'probe/probe.php',
@@ -114,7 +119,7 @@ final class ProbeCache {
         if (self::$capabilitiesThrows !== null) {
             throw new \RuntimeException(self::$capabilitiesThrows);
         }
-        return [
+        $default = [
             'flush' => self::$capabilityOverrides + [
                 'args' => ['groups' => ['type' => 'list<string>', 'required' => true]],
                 'reads' => ['option:probe_setting'],
@@ -124,6 +129,7 @@ final class ProbeCache {
                 'timeout_seconds' => 30,
             ],
         ];
+        return self::$capabilityMapOverride ?? $default;
     }
 
     public function invoke(string $capability, array $args): array {
@@ -221,9 +227,11 @@ $reset = static function (): void {
     $GLOBALS['duo_test_plugins'] = ['probe/probe.php' => ['Version' => '1.5.0']];
     $GLOBALS['duo_test_active'] = ['probe/probe.php'];
     $GLOBALS['duo_test_providers'] = [];
+    \Duo\Providers\ProbeCache::$capabilityMapOverride = null;
     \Duo\Providers\ProbeCache::$capabilityOverrides = [];
     \Duo\Providers\ProbeCache::$capabilitiesThrows = null;
     \Duo\Providers\ProbeCache::$identityOverrides = [];
+    \Duo\Providers\ProbeCache::$identityThrows = null;
     \Duo\Providers\ProbeCache::$receiptOverride = null;
     \Duo\Providers\ProbeCache::$sleepSeconds = 0.0;
 };
@@ -292,6 +300,13 @@ $one = static function (array $problems) use ($check): array {
     $check(count($problems) === 1, 'exactly one problem row is reported');
     return $problems[0] ?? [];
 };
+$providerSecret = "https://provider.example.test/rebuild?access_token=DUO_PROVIDER_SECRET\nINJECTED_PROVIDER_LINE";
+$opaqueProviderProblem = static function (array $problem): bool {
+    $serialized = json_encode($problem, JSON_THROW_ON_ERROR);
+    return !str_contains($serialized, 'DUO_PROVIDER_SECRET')
+        && !str_contains($serialized, 'INJECTED_PROVIDER_LINE')
+        && !str_contains((string) ($problem['found'] ?? ''), "\n");
+};
 
 $p = $one($problemFor([], static function (): void {
     $GLOBALS['duo_test_plugins'] = [];
@@ -314,17 +329,25 @@ $check(($p['code'] ?? '') === 'outside_version_range'
     && ($p['found'] ?? '') === '2.4.0',
     'a live plugin version outside the declaring manifest range is refused with both versions named');
 
-$p = $one($problemFor([], static function (): void {
-    \Duo\Providers\ProbeCache::$identityOverrides = ['version' => '2.0.0'];
+$p = $one($problemFor([], static function () use ($providerSecret): void {
+    \Duo\Providers\ProbeCache::$identityOverrides = ['version' => $providerSecret];
 }));
 $check(($p['code'] ?? '') === 'identity_mismatch'
     && str_contains($p['expected'] ?? '', 'version=1.0.0')
-    && str_contains($p['found'] ?? '', 'version=2.0.0'),
-    'a provider whose identity() disagrees with its declaration is refused, expected vs found');
+    && ($p['found'] ?? '') === 'identity() did not match the declared provider identity'
+    && $opaqueProviderProblem($p),
+    'a provider identity mismatch is structured without exposing returned identity values');
 
-$p = $one($problemFor(['actions' => [['capability' => 'purge']], 'providers' => [['capabilities' => ['purge']]]]));
-$check(($p['code'] ?? '') === 'missing_capability' && str_contains($p['found'] ?? '', 'advertised: flush'),
-    'a capability the installed provider does not advertise is refused, listing what it does advertise');
+$p = $one($problemFor(
+    ['actions' => [['capability' => 'purge']], 'providers' => [['capabilities' => ['purge']]]],
+    static function () use ($providerSecret): void {
+        \Duo\Providers\ProbeCache::$capabilityMapOverride = [$providerSecret => []];
+    }
+));
+$check(($p['code'] ?? '') === 'missing_capability'
+    && ($p['found'] ?? '') === 'provider did not advertise the declared capability'
+    && $opaqueProviderProblem($p),
+    'a missing capability is structured without exposing advertised capability names');
 
 $p = $one($problemFor([], static function (): void {
     \Duo\Providers\ProbeCache::$capabilityOverrides = ['idempotent' => false];
@@ -333,23 +356,35 @@ $check(($p['code'] ?? '') === 'non_idempotent_capability' && str_contains($p['re
     "a non-idempotent capability is refused because apply's retry re-fires the rebuild pass");
 
 $p = $one($problemFor(['actions' => [['args' => ['groups' => 'not-a-list']]]]));
-$check(($p['code'] ?? '') === 'invalid_capability_args' && str_contains($p['found'] ?? '', 'list<string>'),
-    'manifest arguments that do not match the provider-declared schema are refused');
+$check(($p['code'] ?? '') === 'invalid_capability_args'
+    && ($p['found'] ?? '') === 'action arguments do not match advertised schema',
+    'manifest arguments that do not match the provider-declared schema are refused without echoing validator text');
 
-$p = $one($problemFor([], static function (): void {
-    \Duo\Providers\ProbeCache::$capabilityOverrides = ['sabotage' => true];
+$p = $one($problemFor([], static function () use ($providerSecret): void {
+    \Duo\Providers\ProbeCache::$capabilityOverrides = [$providerSecret => true];
 }));
-$check(($p['code'] ?? '') === 'malformed_capability',
-    'a capability declaration with an unknown key is refused rather than partially honored');
+$check(($p['code'] ?? '') === 'malformed_capability'
+    && ($p['found'] ?? '') === 'provider advertised a malformed capability declaration'
+    && $opaqueProviderProblem($p),
+    'a malformed capability is refused without exposing provider-controlled schema keys');
 
-$p = $one($problemFor([], static function (): void {
-    \Duo\Providers\ProbeCache::$capabilitiesThrows = 'fixture capabilities failure';
+$p = $one($problemFor([], static function () use ($providerSecret): void {
+    \Duo\Providers\ProbeCache::$capabilitiesThrows = $providerSecret;
 }));
 $check(($p['code'] ?? '') === 'contract_shape'
     && ($p['expected'] ?? '') === 'capabilities() returning a name => declaration map'
-    && str_contains((string) ($p['found'] ?? ''), 'capabilities() threw: fixture capabilities failure')
-    && str_contains((string) ($p['remediation'] ?? ''), 'upgrade the provider'),
-    'a provider whose capabilities() throws becomes a structured contract problem rather than aborting negotiation');
+    && ($p['found'] ?? '') === 'capabilities() threw'
+    && $opaqueProviderProblem($p),
+    'a provider whose capabilities() throws becomes a structured, redacted contract problem');
+
+$p = $one($problemFor([], static function () use ($providerSecret): void {
+    \Duo\Providers\ProbeCache::$identityThrows = $providerSecret;
+}));
+$check(($p['code'] ?? '') === 'contract_shape'
+    && ($p['expected'] ?? '') === 'identity() returning an array'
+    && ($p['found'] ?? '') === 'identity() threw'
+    && $opaqueProviderProblem($p),
+    'a provider whose identity() throws becomes a structured, redacted contract problem');
 
 echo "\n== plugin-sourced providers (a custom plugin advertising its own) ==\n";
 $pluginSourced = array_replace_recursive($manifest, ['providers' => [['source' => 'plugin']]]);

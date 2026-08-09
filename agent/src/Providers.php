@@ -251,7 +251,7 @@ final class Providers {
                     $problems[] = self::problem(
                         $id, $manifest, $plugin, 'missing_plugin_provider',
                         "a `duo_providers` filter entry with identity id '$id'",
-                        $pluginSupplied === [] ? 'no plugin supplied any provider' : 'supplied: ' . implode(', ', array_keys($pluginSupplied)),
+                        'no registered provider matched the declared identity',
                         "upgrade $plugin to a version that registers the '$id' provider, or install its adapter package"
                     );
                     continue;
@@ -278,7 +278,7 @@ final class Providers {
                 $problems[] = self::problem(
                     $id, $manifest, $plugin, 'contract_shape',
                     'capabilities() returning a name => declaration map',
-                    'capabilities() threw: ' . $t->getMessage(),
+                    'capabilities() threw',
                     'upgrade the provider to the current adapter contract'
                 );
                 continue;
@@ -287,7 +287,7 @@ final class Providers {
                 $problems[] = self::problem(
                     $id, $manifest, $plugin, 'contract_shape',
                     'capabilities() returning a name => declaration map',
-                    get_debug_type($advertised),
+                    'capabilities() did not return a name => declaration map',
                     'upgrade the provider to the current adapter contract'
                 );
                 continue;
@@ -628,8 +628,8 @@ final class Providers {
             || !str_starts_with($real . '', rtrim($anchor, '/') . '/')) {
             return self::problem(
                 $id, $manifest, $plugin, 'provider_outside_owning_plugin',
-                "the provider class defined under $anchor",
-                $real === false ? 'an unresolvable class file' : "class file $real",
+                'provider class defined under the owning plugin directory',
+                'provider class is not anchored under the owning plugin',
                 "register the '$id' provider from $plugin itself, or declare it source: manifest"
             );
         }
@@ -654,7 +654,7 @@ final class Providers {
                 return self::problem(
                     $id, $manifest, $plugin, 'contract_shape',
                     'identity(): array, capabilities(): array, invoke(string, array): array',
-                    get_class($provider) . " has no public $method()",
+                    "provider lacks required public $method()",
                     'upgrade the provider to the current adapter contract'
                 );
             }
@@ -666,7 +666,7 @@ final class Providers {
             return self::problem(
                 $id, $manifest, $plugin, 'contract_shape',
                 'identity() returning an array',
-                'identity() threw: ' . $t->getMessage(),
+                'identity() threw',
                 'upgrade the provider to the current adapter contract'
             );
         }
@@ -677,7 +677,7 @@ final class Providers {
             return self::problem(
                 $id, $manifest, $plugin, 'identity_mismatch',
                 self::describe($expected),
-                self::describe($found),
+                'identity() did not match the declared provider identity',
                 "align the provider's identity() with manifest '$manifest', or pin the manifest revision "
                     . 'that matches the installed provider'
             );
@@ -709,12 +709,10 @@ final class Providers {
         $plugin = (string) $declaration['plugin'];
         $decl = $advertised[$capability] ?? null;
         if (!is_array($decl)) {
-            $names = array_keys($advertised);
-            sort($names, SORT_STRING);
             return self::problem(
                 $id, $manifest, $plugin, 'missing_capability',
                 "capability '$capability'",
-                $names === [] ? 'no capabilities advertised' : 'advertised: ' . implode(', ', $names),
+                'provider did not advertise the declared capability',
                 "upgrade $plugin (or its adapter package) to a version advertising '$capability'"
             );
         }
@@ -724,7 +722,7 @@ final class Providers {
             return self::problem(
                 $id, $manifest, $plugin, 'malformed_capability',
                 'a well-formed capability declaration',
-                $t->getMessage(),
+                'provider advertised a malformed capability declaration',
                 'upgrade the provider to the current adapter contract'
             );
         }
@@ -775,7 +773,7 @@ final class Providers {
             return self::problem(
                 $id, $manifest, $plugin, 'invalid_capability_args',
                 'arguments matching the capability schema',
-                $t->getMessage(),
+                'action arguments do not match advertised schema',
                 "correct the action arguments in manifest '$manifest', or pin a manifest matching this "
                     . 'provider version'
             );

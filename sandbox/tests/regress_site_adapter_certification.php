@@ -698,12 +698,34 @@ final class DuoCertificationThrowingCapabilitiesProvider {
     }
 
     public function capabilities(): array {
-        throw new RuntimeException('fixture capabilities failure');
+        throw new RuntimeException("https://provider.example.test/rebuild?access_token=DUO_PROVIDER_SECRET_TOKEN\nINJECTED_PROVIDER_LINE");
     }
 
     public function invoke(string $capability, array $args): array {
         $GLOBALS['cert_provider_invocations'] = (int) ($GLOBALS['cert_provider_invocations'] ?? 0) + 1;
         throw new RuntimeException('diagnostics must not invoke a capabilities-throwing provider');
+    }
+}
+
+final class DuoCertificationThrowingIdentityProvider {
+    public function identity(): array {
+        throw new RuntimeException("https://provider.example.test/identity?access_token=DUO_PROVIDER_SECRET_TOKEN\nINJECTED_PROVIDER_LINE");
+    }
+
+    public function capabilities(): array {
+        return ['rebuild_cache' => [
+            'args' => [],
+            'idempotent' => true,
+            'reads' => ['post:page'],
+            'scope' => 'site',
+            'timeout_seconds' => 1,
+            'writes' => ['post:page'],
+        ]];
+    }
+
+    public function invoke(string $capability, array $args): array {
+        $GLOBALS['cert_provider_invocations'] = (int) ($GLOBALS['cert_provider_invocations'] ?? 0) + 1;
+        throw new RuntimeException('diagnostics must not invoke an identity-throwing provider');
     }
 }
 PLUGIN
@@ -1109,6 +1131,27 @@ try {
             && ($blocker['trust_tier'] ?? null) === 'plugin_provider'
             && ($blocker['certification'] ?? null) === 'third_party_signed';
     };
+    $providerDiagnosticsAreSecretFree = static function (array $report, array $planRows) use ($providerSite): bool {
+        $reportJson = json_encode($report, JSON_THROW_ON_ERROR);
+        $planJson = json_encode($planRows, JSON_THROW_ON_ERROR);
+        $status = PlanSummary::render(['adapter_dispositions' => $planRows]);
+        $statusText = implode("\n", $status['lines']);
+        WP_CLI::$lines = [];
+        (new \Duo\Cli())->capabilities([], ['repo' => $providerSite]);
+        $cliText = implode("\n", WP_CLI::$lines);
+        foreach ([$reportJson, $planJson, $statusText, $cliText] as $public) {
+            if (str_contains($public, 'DUO_PROVIDER_SECRET_TOKEN')
+                || str_contains($public, 'INJECTED_PROVIDER_LINE')) {
+                return false;
+            }
+        }
+        foreach (array_merge((array) ($report['blockers'] ?? []), $planRows) as $row) {
+            if (is_array($row) && str_contains((string) ($row['found'] ?? ''), "\n")) {
+                return false;
+            }
+        }
+        return $status['ok'] === false;
+    };
     $validProviderRegistration = $GLOBALS['cert_plugin_providers'];
 
     // A signed, exact-pinned claim proves reviewed adapter bytes, not that its
@@ -1203,13 +1246,35 @@ try {
         ($throwingCapabilitiesReport['ready'] ?? null) === false
         && $hasProviderDiagnosticFields($throwingCapabilitiesBlocker, 'contract_shape')
         && (($throwingCapabilitiesBlocker['expected'] ?? null) === 'capabilities() returning a name => declaration map')
-        && str_contains((string) ($throwingCapabilitiesBlocker['found'] ?? ''), 'capabilities() threw: fixture capabilities failure')
+        && (($throwingCapabilitiesBlocker['found'] ?? null) === 'capabilities() threw')
         && $hasProviderDiagnosticFields(
             cert_provider_blocker($throwingCapabilitiesPlanRows, 'contract_shape'),
             'contract_shape'
         )
+        && $providerDiagnosticsAreSecretFree($throwingCapabilitiesReport, $throwingCapabilitiesPlanRows)
         && $GLOBALS['cert_provider_invocations'] === 0,
-        'a capabilities()-throwing provider remains a structured global/selected-plan blocker without invoking it'
+        'a capabilities()-throwing provider remains a structured, redacted global/selected-plan blocker without invoking it'
+    );
+
+    $GLOBALS['cert_plugin_providers'] = [new \DuoCertificationThrowingIdentityProvider()];
+    $GLOBALS['cert_provider_invocations'] = 0;
+    $throwingIdentityReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
+    $throwingIdentityPlanRows = $providerPlanDispositions($providerPinnedPolicy, ['post:page']);
+    $throwingIdentityBlocker = cert_provider_blocker(
+        (array) ($throwingIdentityReport['blockers'] ?? []),
+        'missing_plugin_provider'
+    );
+    cert_check(
+        ($throwingIdentityReport['ready'] ?? null) === false
+        && $hasProviderDiagnosticFields($throwingIdentityBlocker, 'missing_plugin_provider')
+        && (($throwingIdentityBlocker['found'] ?? null) === 'no registered provider matched the declared identity')
+        && $hasProviderDiagnosticFields(
+            cert_provider_blocker($throwingIdentityPlanRows, 'missing_plugin_provider'),
+            'missing_plugin_provider'
+        )
+        && $providerDiagnosticsAreSecretFree($throwingIdentityReport, $throwingIdentityPlanRows)
+        && $GLOBALS['cert_provider_invocations'] === 0,
+        'an identity()-throwing plugin registration remains a structured, redacted global/selected-plan blocker without invoking it'
     );
 
     $GLOBALS['cert_plugin_providers'] = $validProviderRegistration;
