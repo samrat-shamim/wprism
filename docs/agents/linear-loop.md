@@ -457,6 +457,28 @@ debugging time. Follow them; extend this list when you pay for a new one.
   `require_fixture_values` / `require_fixture_state` to every seed/
   postdeploy/check hook, and every message they emit carries the grep-able
   `fixture manufacture failed:` prefix (DUO-3381).
+- **An assertion about an answer must first assert there WAS one.** The
+  sibling half of the bullet above, and the residual path it left open: a
+  refusal check neutralizes its own invocation's exit status on purpose —
+  `OUT=$(wp_conf2 duo plan ... 2>&1) || RC=$?` so it can grep `$OUT`, or
+  `|| fail` so it can name the engine — which is precisely what disables
+  `set -e` for that call. When the `docker compose run` then dies at the
+  DOCKER layer (container creation refused, daemon saturated by parallel
+  agents), the check still runs, over a capture holding nothing but
+  compose's container-creation chatter: the refusal grep legitimately does
+  not match and the sweep accuses the ENGINE for a command that never
+  reached it (that chatter pasted into the message from `$OUT` — exactly
+  what DUO-3380 archived). The RC-only variants are worse: any non-zero
+  exit satisfies them, so a dead invocation reports GREEN. Fix:
+  `conformance/run.sh` exports `require_duo_answered <what> <human|json>
+  <output>`, called BETWEEN the invocation and the assertion, prefix
+  `infrastructure failure:` — a deliberate sibling of `fixture manufacture
+  failed:` above, distinct because the domains differ (never built the
+  premise vs. never got an answer). Keep the "answered" marker BROAD
+  (wp-cli's `Success:`/`Error:`/`Warning:` framing, duo's own `duo:`
+  prefix, PHP's fatal framing): a narrow one would demote a real,
+  differently-worded engine failure into an infrastructure signal, which is
+  the one thing such a helper must never do (DUO-3391).
 - **CLOSED (DUO-3277) — the "bring up shared pairs from `duo-wp-main`,
   never a worktree" discipline this bullet used to require is now
   enforced by the tooling itself, not by remembering to follow it.**
