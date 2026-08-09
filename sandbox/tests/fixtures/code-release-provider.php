@@ -74,7 +74,8 @@ if ($action === 'probe') {
     release_output($base + [
         'atomic_pointer' => true, 'available' => true, 'build_resolution_off_target' => true,
         'immutable_releases' => true, 'mutable_resolution' => false,
-        'provider_id' => 'ssh-release-fixture', 'provider_version' => '1.0.0',
+        'plan_bound_code_inventory' => true,
+        'provider_id' => 'ssh-release-fixture', 'provider_version' => '2.0.0',
         'state' => 'ready', 'target_generation_fenced' => true,
         'target_git_history' => false, 'target_registry_credentials' => false,
         'verified_descriptors' => true,
@@ -92,7 +93,12 @@ if ($action === 'prepare') {
     $prior = release_descriptor('prior', $priorRelease, hash('sha256', 'prior-artifact'), hash('sha256', 'prior-code'), max(0, (int) $request['generation'] - 1), (string) hash_file('sha256', $priorFile));
     $desired = release_descriptor('desired', $desiredRelease, (string) $request['artifact_hash'], (string) $request['desired_code_revision'], (int) $request['generation'], (string) hash_file('sha256', $desiredFile));
     $desiredBytes = release_canonical($desired) . "\n";
-    if (!hash_equals(hash('sha256', $desiredBytes), (string) $request['desired_descriptor_sha256'])) release_fail('desired descriptor request mismatch');
+    if (($request['format'] ?? '') === 'duo-code-release-provider-request/v1') {
+        if (!hash_equals(hash('sha256', $desiredBytes), (string) ($request['desired_descriptor_sha256'] ?? ''))) release_fail('desired descriptor request mismatch');
+    } elseif (($request['format'] ?? '') !== 'duo-code-release-provider-request/v2'
+        || !is_array($request['desired_code_inventory'] ?? null)) {
+        release_fail('unsupported prepare request format');
+    }
     release_atomic_write((string) $request['prior_descriptor_path'], release_canonical($prior) . "\n");
     release_atomic_write((string) $request['desired_descriptor_path'], $desiredBytes);
     if (is_file($state . '.kill-after-upload')) { @unlink($state . '.kill-after-upload'); exit(92); }
@@ -105,7 +111,8 @@ if ($action === 'prepare') {
         'immutable_releases' => true, 'mutable_resolution' => false,
         'prior_descriptor_path' => $request['prior_descriptor_path'], 'prior_descriptor_sha256' => hash('sha256', release_canonical($prior) . "\n"),
         'prior_pointer_sha256' => release_pointer_hash($priorRelease), 'prior_release_id' => $priorRelease,
-        'provider_id' => 'ssh-release-fixture', 'provider_version' => '1.0.0', 'state' => 'prepared',
+        'plan_bound_code_inventory' => true,
+        'provider_id' => 'ssh-release-fixture', 'provider_version' => '2.0.0', 'state' => 'prepared',
         'target_generation' => (int) $request['generation'], 'target_generation_fenced' => true,
         'target_git_history' => false, 'target_registry_credentials' => false, 'verified_descriptors' => true,
     ]);
@@ -142,7 +149,7 @@ if (in_array($action, ['select_desired', 'restore_prior', 'verify_desired', 'ver
         'action' => $action, 'atomic_pointer' => true, 'available' => true,
         'descriptor_sha256' => hash('sha256', $descriptorBytes), 'generation' => (int) $request['generation'],
         'no_unrecorded_owned_paths' => true, 'pointer_sha256' => release_pointer_hash($target),
-        'provider_id' => 'ssh-release-fixture', 'provider_version' => '1.0.0', 'release_id' => $target,
+        'provider_id' => 'ssh-release-fixture', 'provider_version' => '2.0.0', 'release_id' => $target,
         'result_sha256' => $result, 'state' => $isVerify ? 'verified' : 'selected',
         'symlinks_absent' => true, 'target_id' => $request['target_id'], 'verified_file_inventory' => true,
     ]);
@@ -155,7 +162,7 @@ if ($action === 'delete_prior') {
     $file = $dir . '/wp-content/plugins/acme/acme.php';
     @unlink($file); @rmdir(dirname($file)); @rmdir(dirname(dirname($file))); @rmdir(dirname(dirname(dirname($file)))); @rmdir($dir);
     if (is_file($state . '.kill-after-delete')) { @unlink($state . '.kill-after-delete'); exit(96); }
-    release_output($base + ['action' => 'delete_prior', 'available' => true, 'prior_release_absent' => !is_dir($dir), 'provider_id' => 'ssh-release-fixture', 'provider_version' => '1.0.0', 'state' => 'deleted']);
+    release_output($base + ['action' => 'delete_prior', 'available' => true, 'prior_release_absent' => !is_dir($dir), 'provider_id' => 'ssh-release-fixture', 'provider_version' => '2.0.0', 'state' => 'deleted']);
 }
 
 release_fail('unsupported fixture action');

@@ -439,7 +439,7 @@ Per-transport required keys:
 |---|---|---|
 | `local` | `wp_path`, `repo_path` | — |
 | `docker` | `compose_file`, `service`, `repo_path` | `profile` |
-| `ssh` | `host`, `wp_path`, `repo_path` | `ssh_config`, paired `rollback_key_id` + `rollback_signing_key`, `rollback_recovery` |
+| `ssh` | `host`, `wp_path`, `repo_path` | `ssh_config`, paired `rollback_key_id` + `rollback_signing_key`, `rollback_recovery`, `verified_rollback` |
 
 A missing required key is a loud, specific error naming the environment,
 the key, and the transport — never a guess.
@@ -463,7 +463,7 @@ event hash chain. An invalid chain or any active nonterminal state is
 non-green; only `committed` and `rolled_back` active generations are green.
 `duo deploy` and `duo promote` refuse target mutation while that external
 authority is invalid or nonterminal. A host adopted before this runtime emits
-a manual-recovery warning and retains the existing operator-directed behavior.
+a manual-recovery warning and retains the operator-directed behavior.
 
 `rollback_recovery` configures a target-owned exclusion provider plus exact
 `code_restore`, `database_restore`, `prior_verify`, and `storage_restore` argv
@@ -480,11 +480,23 @@ Its optional `effect_provider` prepares the compiled lifecycle/rebuilder effect
 inventory, receipt outboxes, and pinned inverse inputs, then enables
 `effects_inverse` with fresh prior readback; without it, effect recovery is
 explicitly manual.
+`verified_rollback` is controller-only policy and contains exactly
+`claim_ttl_seconds` (30..3600), `encryption_key_id` (the external KMS/provider
+label, never key material), and `retention_seconds` (60..31536000). It is not
+copied into the adopted recovery runtime. When this policy and all four
+checkpoint/code/upload/effect providers are configured and pass runtime
+preflight, `duo promote` selects the automatic profile by those capabilities,
+binds the compiled plan's exact code/upload/effect inventories into the
+provider preparation and receipt v2,
+and uses the signed operation journal. Any missing capability produces a loud
+WARN and retains the operator-directed checkpoint path; a configured but
+failed preflight refuses instead of degrading.
+
 Adoption probes all configured capabilities. Provider tokens and key
 material never enter the registry or command line; only hashes and the
 external key id are bound into a signed receipt. See
 [docs/recovery-runtime.md](../docs/recovery-runtime.md) for the protocol and
-the boundary between this executor and future automatic rollback, and
+automatic-profile boundary, and
 [docs/checkpoint-bundle.md](../docs/checkpoint-bundle.md) for the checkpoint
 contract, and [docs/code-release-runtime.md](../docs/code-release-runtime.md)
 for the atomic code-release contract.

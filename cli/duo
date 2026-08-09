@@ -20,6 +20,7 @@ require __DIR__ . '/src/DockerTransport.php';
 require __DIR__ . '/src/SshTransport.php';
 require dirname(__DIR__) . '/recovery/rollback-control.php';
 require __DIR__ . '/src/RollbackAuthority.php';
+require __DIR__ . '/src/VerifiedRollbackProfile.php';
 require __DIR__ . '/src/Adopt.php';
 require __DIR__ . '/src/Doctor.php';
 require __DIR__ . '/src/CodeDeploy.php';
@@ -34,6 +35,7 @@ use Duo\Orchestrator\CodeDeploy;
 use Duo\Orchestrator\Pending;
 use Duo\Orchestrator\PlanSummary;
 use Duo\Orchestrator\RollbackAuthority;
+use Duo\Orchestrator\VerifiedRollbackProfile;
 use Duo\Orchestrator\Registry;
 use Duo\Orchestrator\Transport;
 use Duo\Orchestrator\Triage;
@@ -117,8 +119,12 @@ Verbs:
                           own global flag); --value is scriptable but lands
                           in shell history like any other flag. Refuses any
                           name not declared class="env" by the loaded policy.
-  promote <env> [...]     Compile once, acquire an artifact-bound target lease,
-                          export a database checkpoint, then run code stage ->
+  promote <env> [...]     Compile once. A production SSH target with the
+                          complete verified_rollback capability prepares a
+                          signed provider-backed claim and converges to
+                          committed or verified rolled_back. Other targets
+                          warn and use the operator-directed artifact-bound
+                          lease + database checkpoint, then run code stage ->
                           lifecycle retire -> fresh-process activate -> code
                           finalize -> apply (or
                           lifecycle retire -> activate -> apply for a repository
@@ -636,6 +642,37 @@ function cmd_promote(Transport $t, array $extra): int {
     $artifactHash = (string) $compile['summary']['artifact_hash'];
     $codeEnabled = CodeDeploy::enabled($compile['summary']);
 
+    if ($t instanceof \Duo\Orchestrator\SshTransport) {
+        try {
+            $selection = VerifiedRollbackProfile::select($t, $compile['summary']);
+        } catch (\Throwable $e) {
+            fwrite(STDERR, 'duo: promote: verified rollback preflight failed; refusing before promotion-begin: '
+                . $e->getMessage() . "\n");
+            return 1;
+        }
+        if ($selection['automatic']) {
+            // The external exclusion provider must be able to reconcile an
+            // interrupted prepare from a fresh process. Bind its claimant and
+            // the WordPress promotion lease to the immutable artifact instead
+            // of the temporary artifact filename's random invocation id.
+            $verifiedRunId = 'verified-' . $artifactHash;
+            return cmd_promote_verified(
+                $t,
+                $compile['summary'],
+                $repo,
+                $artifact,
+                $verifiedRunId,
+                $artifactHash,
+                $extra
+            );
+        }
+        fwrite(
+            STDERR,
+            "duo: promote: WARN automatic verified rollback unavailable ({$selection['reason']}); "
+            . "using operator-directed checkpoint/recovery\n"
+        );
+    }
+
     echo "promote phase: promotion-begin\n";
     $begin = $t->captureWp(CodeDeploy::beginArgs($runId, $artifactHash));
     if ($begin['exit'] !== 0) {
@@ -716,6 +753,227 @@ function cmd_promote(Transport $t, array $extra): int {
         : "promote complete: lifecycle-retire -> lifecycle-activate -> apply\n";
     echo "database checkpoint retained: $checkpoint\n";
     return 0;
+}
+
+/**
+ * Provider-backed SSH promotion. The external receipt/checkpoint is prepared
+ * before the target's database lease or code pointer can change. Every failure
+ * after `promoting` attempts exact signed rollback and never falls through to
+ * the operator-directed database-dump path.
+ */
+function cmd_promote_verified(
+    \Duo\Orchestrator\SshTransport $t,
+    array $plan,
+    string $repo,
+    string $artifact,
+    string $runId,
+    string $artifactHash,
+    array $extra
+): int {
+    $profile = new VerifiedRollbackProfile($t);
+    $codeSelected = false;
+    $uploadsApplied = false;
+    $effectsTouched = false;
+
+    echo "promote profile: automatic verified rollback\n";
+    echo "promote phase: rollback-claim\n";
+    try {
+        $claim = $profile->claim($plan, $runId, $runId);
+        if (($claim['status']['state'] ?? '') !== 'prepared') {
+            throw new \RuntimeException('target did not publish the prepared receipt');
+        }
+        $profile->startPromotion();
+    } catch (\Throwable $e) {
+        fwrite(
+            STDERR,
+            "duo: promote: verified rollback preparation failed before WordPress mutation: {$e->getMessage()}\n"
+        );
+        fwrite(
+            STDERR,
+            "duo: promote: do not use the operator-directed path; retry the exact promotion to reconcile any held preparation reservation\n"
+        );
+        return 1;
+    }
+
+    echo "promote phase: promotion-begin\n";
+    $begin = $t->captureWp(CodeDeploy::beginArgs($runId, $artifactHash));
+    if ($begin['exit'] !== 0) {
+        fwrite(STDERR, "duo: promote: promotion-begin failed under verified rollback\n");
+        print_transport_detail($begin);
+        return promote_verified_failed(
+            $profile,
+            'promotion-begin',
+            $begin['exit'] !== 0 ? $begin['exit'] : 1,
+            $effectsTouched,
+            $uploadsApplied,
+            $codeSelected
+        );
+    }
+
+    echo "promote phase: code-release-select\n";
+    // The provider may switch the pointer and lose the SSH response. From the
+    // moment the call starts, rollback must conservatively reconcile code.
+    $codeSelected = true;
+    try {
+        $profile->selectCode();
+    } catch (\Throwable $e) {
+        return promote_verified_exception(
+            $profile,
+            'code-release-select',
+            $e,
+            $effectsTouched,
+            $uploadsApplied,
+            $codeSelected
+        );
+    }
+
+    // The verified provider selects the immutable desired release. Code-stage
+    // then binds the agent's existing lifecycle/ledger handoff to those exact
+    // already-verified bytes; it is no longer the recovery authority.
+    echo "promote phase: code-stage\n";
+    $stage = $t->streamWp(CodeDeploy::stageArgs($repo, $artifact, $runId, $artifactHash));
+    if ($stage !== 0) {
+        return promote_verified_failed(
+            $profile, 'code-stage', $stage, $effectsTouched, $uploadsApplied, $codeSelected
+        );
+    }
+    try {
+        $profile->keepalive();
+    } catch (\Throwable $e) {
+        return promote_verified_exception(
+            $profile, 'rollback-keepalive', $e, $effectsTouched, $uploadsApplied, $codeSelected
+        );
+    }
+
+    $deployExtra = array_values(array_filter($extra, static function (string $arg): bool {
+        return $arg === '--force-code-mismatch'
+            || $arg === '--force-code-drift'
+            || $arg === '--force-unresolved-refs'
+            || str_starts_with($arg, '--force-code-mismatch=')
+            || str_starts_with($arg, '--force-code-drift=')
+            || str_starts_with($arg, '--force-unresolved-refs=');
+    }));
+
+    echo "promote phase: lifecycle-retire\n";
+    $effectsTouched = true;
+    $retire = $t->streamWp(CodeDeploy::lifecycleArgs(
+        $repo, $artifact, $runId, $artifactHash, true, true, true, 'retire', $deployExtra
+    ));
+    if ($retire !== 0) {
+        return promote_verified_failed(
+            $profile, 'lifecycle-retire', $retire, $effectsTouched, $uploadsApplied, $codeSelected
+        );
+    }
+    try {
+        $profile->keepalive();
+    } catch (\Throwable $e) {
+        return promote_verified_exception(
+            $profile, 'rollback-keepalive', $e, $effectsTouched, $uploadsApplied, $codeSelected
+        );
+    }
+
+    echo "promote phase: lifecycle-activate\n";
+    $activate = $t->streamWp(CodeDeploy::lifecycleArgs(
+        $repo, $artifact, $runId, $artifactHash, true, true, true, 'activate', $deployExtra
+    ));
+    if ($activate !== 0) {
+        return promote_verified_failed(
+            $profile, 'lifecycle-activate', $activate, $effectsTouched, $uploadsApplied, $codeSelected
+        );
+    }
+
+    echo "promote phase: code-finalize\n";
+    $finalize = $t->streamWp(CodeDeploy::finalizeArgs($repo, $artifact, $runId, $artifactHash, true));
+    if ($finalize !== 0) {
+        return promote_verified_failed(
+            $profile, 'code-finalize', $finalize, $effectsTouched, $uploadsApplied, $codeSelected
+        );
+    }
+
+    echo "promote phase: upload-provider-apply\n";
+    // Publication and controller acknowledgement are separate crash edges.
+    // Treat an attempted call as possibly mutated so restore is never skipped.
+    $uploadsApplied = true;
+    try {
+        $profile->applyUploads();
+    } catch (\Throwable $e) {
+        return promote_verified_exception(
+            $profile,
+            'upload-provider-apply',
+            $e,
+            $effectsTouched,
+            $uploadsApplied,
+            $codeSelected
+        );
+    }
+
+    echo "promote phase: apply\n";
+    $apply = $t->streamWp(array_merge(
+        [
+            'duo', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
+            '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
+        ],
+        $extra
+    ));
+    if ($apply !== 0) {
+        return promote_verified_failed(
+            $profile, 'apply', $apply, $effectsTouched, $uploadsApplied, $codeSelected
+        );
+    }
+
+    try {
+        $profile->commit();
+    } catch (\Throwable $e) {
+        return promote_verified_exception(
+            $profile,
+            'new-world-verification-publication',
+            $e,
+            $effectsTouched,
+            $uploadsApplied,
+            $codeSelected
+        );
+    }
+    echo "promote complete: verified committed receipt; traffic exclusion released\n";
+    return 0;
+}
+
+function promote_verified_exception(
+    VerifiedRollbackProfile $profile,
+    string $phase,
+    \Throwable $error,
+    bool $effectsTouched,
+    bool $uploadsApplied,
+    bool $codeSelected
+): int {
+    fwrite(STDERR, "duo: promote: $phase failed under verified rollback: {$error->getMessage()}\n");
+    return promote_verified_failed(
+        $profile, $phase, 1, $effectsTouched, $uploadsApplied, $codeSelected
+    );
+}
+
+function promote_verified_failed(
+    VerifiedRollbackProfile $profile,
+    string $phase,
+    int $exit,
+    bool $effectsTouched,
+    bool $uploadsApplied,
+    bool $codeSelected
+): int {
+    fwrite(STDERR, "duo: promote: $phase failed; entering signed verified rollback\n");
+    try {
+        $status = $profile->rollback($effectsTouched, $uploadsApplied, $codeSelected);
+        fwrite(
+            STDERR,
+            "duo: promote: prior world verified; rollback generation {$status['generation']} is rolled_back and exclusion is released\n"
+        );
+    } catch (\Throwable $rollbackError) {
+        fwrite(
+            STDERR,
+            "duo: promote: automatic rollback remains nonterminal with traffic excluded: {$rollbackError->getMessage()}\n"
+        );
+        fwrite(STDERR, "duo: promote: resume the active signed generation; do not start operator-directed recovery\n");
+    }
+    return $exit !== 0 ? $exit : 1;
 }
 
 /**

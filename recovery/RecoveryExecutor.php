@@ -129,16 +129,10 @@ final class RecoveryExecutor {
                 $ready['automatic_code_rollback'] = false;
                 $ready['code_recovery'] = 'manual';
             }
-            if (array_key_exists('upload_provider', self::config($root))) {
-                $ready['automatic_upload_rollback'] = true;
-            } else {
-                $ready['automatic_upload_rollback'] = false;
+            if (!array_key_exists('upload_provider', self::config($root))) {
                 $ready['upload_recovery'] = 'manual';
             }
-            if (array_key_exists('effect_provider', self::config($root))) {
-                $ready['automatic_effect_rollback'] = true;
-            } else {
-                $ready['automatic_effect_rollback'] = false;
+            if (!array_key_exists('effect_provider', self::config($root))) {
                 $ready['effect_recovery'] = 'manual';
             }
             return $ready;
@@ -172,6 +166,7 @@ final class RecoveryExecutor {
                 'generation' => (int) $record['generation'],
                 'owner' => (string) $record['owner'],
                 'receipt_id' => (string) $record['receipt_id'],
+                'reserved_at' => (string) $record['updated_at'],
                 'token_sha256' => (string) $record['token_sha256'],
             ],
             'exclusion_state' => (string) $record['state'],
@@ -203,7 +198,6 @@ final class RecoveryExecutor {
         if (array_key_exists('upload_provider', self::config($root))) {
             $hasBoundUploads = empty($status['active'])
                 || is_string($status['uploads_inventory_sha256'] ?? null);
-            $decorated['automatic_upload_rollback'] = $hasBoundUploads;
             if (!empty($status['active']) && $hasBoundUploads) {
                 $decorated['uploads'] = UploadBundle::statusEvidence($root, (string) $status['receipt_id']);
                 if (!hash_equals((string) $status['uploads_inventory_sha256'], (string) $decorated['uploads']['metadata_sha256'])) {
@@ -211,13 +205,11 @@ final class RecoveryExecutor {
                 }
             }
         } else {
-            $decorated['automatic_upload_rollback'] = false;
             $decorated['upload_recovery'] = 'manual';
         }
         if (array_key_exists('effect_provider', self::config($root))) {
             $hasBoundEffects = empty($status['active'])
                 || is_string($status['lifecycle_receipts_sha256'] ?? null);
-            $decorated['automatic_effect_rollback'] = $hasBoundEffects;
             if (!empty($status['active']) && $hasBoundEffects) {
                 $decorated['effects'] = EffectBundle::statusEvidence($root, (string) $status['receipt_id']);
                 if (!hash_equals(
@@ -230,7 +222,6 @@ final class RecoveryExecutor {
                 $decorated['effect_recovery'] = 'manual';
             }
         } else {
-            $decorated['automatic_effect_rollback'] = false;
             $decorated['effect_recovery'] = 'manual';
         }
         return $decorated;

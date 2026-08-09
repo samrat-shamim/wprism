@@ -4,8 +4,9 @@ The effect bundle is the lifecycle/rebuilder/regenerator slice of verified
 SSH rollback. It compiles every possible mutation into an immutable inventory,
 prepares prior evidence while maintenance exclusion is held, binds that
 evidence to the signed rollback receipt, and refuses undeclared runtime effects.
-It is a substrate for the integrated automatic profile owned by DUO-3299; the
-existing standalone `duo promote` path does not yet use it end to end.
+It is consumed by the integrated automatic profile: `duo promote` passes the
+compiled plan inventory into receipt preparation and uses the provider's live
+receipt evidence and inverse operation under the signed generation fence.
 
 ## Manifest grammar
 

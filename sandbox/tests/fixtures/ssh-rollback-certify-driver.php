@@ -6,10 +6,12 @@ require dirname(__DIR__, 3) . '/recovery/rollback-control.php';
 require dirname(__DIR__, 3) . '/cli/src/Transport.php';
 require dirname(__DIR__, 3) . '/cli/src/SshTransport.php';
 require dirname(__DIR__, 3) . '/cli/src/RollbackAuthority.php';
+require dirname(__DIR__, 3) . '/cli/src/VerifiedRollbackProfile.php';
 require dirname(__DIR__, 2) . '/bin/ssh-rollback-certification.php';
 
 use Duo\Orchestrator\RollbackAuthority;
 use Duo\Orchestrator\SshTransport;
+use Duo\Orchestrator\VerifiedRollbackProfile;
 use Duo\Recovery\RollbackControl;
 
 function srd_fail(string $message): never { fwrite(STDERR,"FAIL: $message\n");exit(1); }
@@ -67,42 +69,16 @@ function srd_marker(RollbackAuthority $authority,SshTransport $transport,string 
     $status=RollbackAuthority::status($transport);$input=srd_hash($id.':input');$authority->append($state,'prepared',$id,1,(string)$status['claimant'],$input,str_repeat('0',64),srd_time());$status=RollbackAuthority::status($transport);$authority->append($state,'completed',$id,1,(string)$status['claimant'],$input,srd_hash($id.':result'),srd_time());
 }
 
-/** @return list<array<string,mixed>> */
-function srd_effect_inventory(): array {
-    return [
-        ['effect'=>['adapter'=>['id'=>'fixture-file','inverse'=>'restore-bytes','inverse_inputs'=>['path','prior_sha256'],'verifier'=>'fresh-readback','verifier_inputs'=>['path','prior_sha256'],'version'=>'1.0.0'],'id'=>'lifecycle-file','kind'=>'filesystem','mode'=>'reversible','selector'=>['scope'=>'external','type'=>'path','value'=>'wp-content/uploads/duo-rollback-effect.txt']],'manifest'=>'rollback-fixture','phase'=>'lifecycle','source'=>'lifecycle_effects'],
-        ['effect'=>['id'=>'rebuild-table','kind'=>'database','mode'=>'restorable','selector'=>['scope'=>'database_checkpoint','type'=>'table','value'=>'duo_cert_state']],'manifest'=>'rollback-fixture','phase'=>'rebuild','source'=>'rebuilders[0].effects'],
-        ['effect'=>['id'=>'prevent-http','kind'=>'http','mode'=>'prevented','prevention'=>'receipt_outbox','selector'=>['scope'=>'external','type'=>'url_prefix','value'=>'https://rollback.invalid/hooks/']],'manifest'=>'rollback-fixture','phase'=>'lifecycle','source'=>'lifecycle_effects'],
-    ];
-}
-
 /** @return array<string,mixed> */
-function srd_upload_inventory(array $fixture): array {
-    return [[
-        'attachment_uuid'=>'11111111-1111-4111-8111-111111111111','derivative_basename_prefix'=>'photo-',
-        'derivative_directory'=>'2026/08','media_blob'=>$fixture['media_blob'],'original_path'=>'2026/08/photo.jpg',
-        'original_sha256'=>$fixture['media_sha256'],
-    ]];
-}
-
-/** @return array<string,mixed> */
-function srd_claim_fields(SshTransport $transport,array $fixture,int $generation,string $created): array {
-    $file=$fixture['release_root'].'/release-desired-'.$generation.'/wp-content/plugins/acme/acme.php';
-    $fileHash=trim(srd_remote($transport,'sha256sum '.escapeshellarg($file)." | cut -d' ' -f1",'desired release hash')['stdout']);
-    $artifact=srd_hash('artifact-generation-'.$generation);$revision=srd_hash('code-generation-'.$generation);
-    $descriptor=[
-        'artifact_hash'=>$artifact,'code_revision'=>$revision,
-        'files'=>[['path'=>'wp-content/plugins/acme','sha256'=>srd_hash(''),'type'=>'directory'],['path'=>'wp-content/plugins/acme/acme.php','sha256'=>$fileHash,'type'=>'file']],
-        'format'=>'duo-code-release-descriptor/v1','generation'=>$generation,'owned_roots'=>['wp-content/plugins/acme'],
-        'release_id'=>'release-desired-'.$generation,'role'=>'desired',
-    ];
-    return [
-        'adapter_versions_sha256'=>srd_hash('ssh-adapters-v1'),'artifact_hash'=>$artifact,'claim_ttl_seconds'=>120,
-        'desired_code_revision'=>$revision,'desired_descriptor_sha256'=>srd_hash(RollbackControl::canonical($descriptor)."\n"),
-        'effect_inventory'=>srd_effect_inventory(),'encryption_key_id'=>'ssh-kms-fixture','owner'=>'controller:duo-3299',
-        'resources_inventory_sha256'=>srd_hash('database-code-uploads-effects-v1'),
-        'retention_until'=>gmdate('Y-m-d\TH:i:s\Z',strtotime($created)+86400),'upload_inventory'=>srd_upload_inventory($fixture),
-    ];
+function srd_claim_fields(SshTransport $transport,array $fixture,array $plan,int $generation,string $created): array {
+    $artifact=srd_hash('artifact-generation-'.$generation);
+    if(($plan['artifact_hash']??'')!==$artifact||!is_array($plan['code']??null))srd_fail('certification plan identity does not match generation');
+    return VerifiedRollbackProfile::claimFields(
+        $plan,
+        ['claim_ttl_seconds'=>120,'encryption_key_id'=>'ssh-kms-fixture','retention_seconds'=>86400],
+        'controller:duo-3299',
+        $created
+    );
 }
 
 /** @return array<string,mixed> */
@@ -190,16 +166,16 @@ if(($argv[1]??'')==='verify-world'){
 
 if($argc!==8)srd_fail('usage: driver ENV OUTPUT SOURCE_HOST SOURCE_DB TARGET_HOST TARGET_DB HARNESS_REVISION');
 [$script,$envPath,$output,$sourceHost,$sourceDb,$targetHost,$targetDb,$harnessRevision]=$argv;
-$document=srd_read($envPath);$cfg=$document['envs']['target']??null;$fixture=$document['fixture']??null;if(!is_array($cfg)||!is_array($fixture))srd_fail('environment lacks envs.target/fixture');$cfg['_dir']=dirname($envPath);
+$document=srd_read($envPath);$cfg=$document['envs']['target']??null;$fixture=$document['fixture']??null;$plans=$document['plans']??null;if(!is_array($cfg)||!is_array($fixture)||!is_array($plans))srd_fail('environment lacks envs.target/fixture/plans');$cfg['_dir']=dirname($envPath);
 $transport=new SshTransport('target',$cfg);$authority=new RollbackAuthority($transport);$faultEvidence=[];$negativeEvidence=[];$dbProbe='php '.escapeshellarg($fixture['db_probe']).' '.escapeshellarg($fixture['db_config']);
 
 // Generation one: preparation and every forward mutation are followed by a
 // deliberate verification failure, then all recovery resources converge to
 // the prior world under a fresh claimant.
 srd_remote($transport,'touch '.escapeshellarg($fixture['code_state'].'.kill-before-upload'),'arm partial claim');
-$created=srd_time();try{$authority->claim(srd_claim_fields($transport,$fixture,1,$created),'worker-a',$created);srd_fail('partial claim fault was not observed');}catch(Throwable $e){}
+$created=srd_time();try{$authority->claim(srd_claim_fields($transport,$fixture,(array)($plans['1']??[]),1,$created),'worker-a',$created);srd_fail('partial claim fault was not observed');}catch(Throwable $e){}
 srd_inject('generation-claim','before',$transport,$dbProbe,$envPath,$faultEvidence);
-$claim1=$authority->claim(srd_claim_fields($transport,$fixture,1,$created),'worker-a',$created);
+$claim1=$authority->claim(srd_claim_fields($transport,$fixture,(array)($plans['1']??[]),1,$created),'worker-a',$created);
 srd_inject('generation-claim','after',$transport,$dbProbe,$envPath,$faultEvidence);
 foreach(['exclusion-acquire','checkpoint-export','checkpoint-verify','prepared-publication','code-upload']as$boundary)srd_boundary($boundary,$transport,$dbProbe,$envPath,$faultEvidence,fn()=>srd_marker($authority,$transport,'prepared',str_replace('-','_',$boundary)));
 srd_refusal('concurrent-claimant',$transport,$fixture,$negativeEvidence,function()use($authority,$transport){$status=RollbackAuthority::status($transport);$authority->append((string)$status['state'],'state_transition','foreign_claimant',1,'worker-foreign',srd_hash('foreign-claimant'),str_repeat('0',64),srd_time());});
@@ -262,7 +238,7 @@ $audit1=RollbackAuthority::audit($transport);$authority->releaseExclusion(srd_ti
 // Generation two reaches a freshly verified new world. It owns the commit
 // and terminal retention/deletion boundaries that cannot occur in generation
 // one's rolled-back release selection.
-$created2=srd_time();$claim2=$authority->claim(srd_claim_fields($transport,$fixture,2,$created2),'worker-b',$created2);srd_transition($authority,$transport,'promoting','promotion_start_2');
+$created2=srd_time();$claim2=$authority->claim(srd_claim_fields($transport,$fixture,(array)($plans['2']??[]),2,$created2),'worker-b',$created2);srd_transition($authority,$transport,'promoting','promotion_start_2');
 $status=RollbackAuthority::status($transport);$authority->runOperation('promoting','code_select',1,srd_code_input($status,'select_desired'),srd_time(),srd_time());$status=RollbackAuthority::status($transport);$authority->runOperation('promoting','storage_apply',1,srd_upload_input($status,'apply_desired'),srd_time(),srd_time());srd_wp($transport,['db','query',"UPDATE duo_cert_state SET value='desired-2'; DELETE FROM duo_cert_lease"],'second authored commit');
 srd_transition($authority,$transport,'verifying_new','verifying_new_2');srd_remote($transport,'chmod -R a-w '.escapeshellarg($fixture['release_root'].'/release-desired-2'),'freeze desired release');$newWorld=srd_world($transport,$fixture);$newVerifier=srd_fresh_verifier($envPath,(string)$claim2['receipt']['artifact_hash'],'new',2);
 srd_boundary('committed-publication',$transport,$dbProbe,$envPath,$faultEvidence,fn()=>srd_transition($authority,$transport,'committed','committed_verified'));

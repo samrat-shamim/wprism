@@ -254,6 +254,11 @@ try {
     $acquire = recovery_submit_exclusion($root, recovery_exclusion_payload($receipt, 'acquire', 'worker-a', 1, '2026-01-01T00:00:00Z'), $keyId, $secret);
     $receipt['exclusion_token_sha256'] = $acquire['token_sha256'];
     recovery_ok($acquire['state'] === 'held', 'acquisition persists a fail-closed exclusion reservation');
+    recovery_ok(
+        RecoveryExecutor::decorateStatus($root, RollbackControl::status($root))['exclusion_reservation']['reserved_at']
+            === '2026-01-01T00:00:00Z',
+        'pre-receipt reservation exposes its stable retry timestamp without the opaque token'
+    );
     recovery_ok((fileperms($root . '/exclusion.json') & 0077) === 0, 'opaque provider token is protected mode 0600');
     recovery_ok(!str_contains((string) file_get_contents($root . '/target.json'), 'opaque-'), 'opaque provider token never enters authority metadata');
 
