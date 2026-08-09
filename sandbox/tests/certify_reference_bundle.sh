@@ -487,6 +487,37 @@ assert_exact_certification_checkout() {
 }
 assert_exact_certification_checkout
 
+# Freeze the commit identity before the first child process or Docker/pair
+# mutation. A clean checkout is only a point-in-time fact; without this SHA
+# handoff, a stale/moved source mount could be exercised and the bundle could
+# later label those results with a different HEAD. Respect any launcher-owned
+# expectation, then give every existing gate the same exact commit.
+SOURCE_SHA=$(git -C "$REPO_ROOT" rev-parse --verify 'HEAD^{commit}') \
+  || fail "refusing certification: cannot resolve the exact source commit"
+assert_expected_source_sha() { # assert_expected_source_sha <name> <value>
+  local name="$1" value="$2"
+  [ -z "$value" ] && return 0
+  [[ "$value" =~ ^[0-9a-f]{40}$ ]] \
+    || fail "refusing certification: $name must be one full lowercase Git commit SHA"
+  [ "$value" = "$SOURCE_SHA" ] \
+    || fail "refusing certification: $name names $value but the clean checkout is $SOURCE_SHA"
+}
+assert_expected_source_sha CERT_BUNDLE_EXPECTED_SOURCE_SHA "${CERT_BUNDLE_EXPECTED_SOURCE_SHA:-}"
+assert_expected_source_sha DUO_EXPECTED_SOURCE_SHA "${DUO_EXPECTED_SOURCE_SHA:-}"
+assert_expected_source_sha CONF_EXPECTED_SOURCE_SHA "${CONF_EXPECTED_SOURCE_SHA:-}"
+export DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA"
+export CONF_EXPECTED_SOURCE_SHA="$SOURCE_SHA"
+
+assert_exact_source_unchanged() {
+  local current
+  current=$(git -C "$REPO_ROOT" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) \
+    || fail "refusing certification: source HEAD became unreadable during the run"
+  [ "$current" = "$SOURCE_SHA" ] \
+    || fail "refusing certification: source HEAD moved from $SOURCE_SHA to $current during the run"
+  [ -z "$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" ] \
+    || fail "refusing certification: source checkout changed after the exact-SHA preflight"
+}
+
 WORK_ROOT=$(mktemp -d /tmp/duo-certbundle.XXXXXX)
 cleanup_run() {
   case "$WORK_ROOT" in
@@ -510,6 +541,8 @@ trap cleanup_run EXIT   # replaces the release-only trap armed by certbundle_loc
 ENV_FILE="$WORK_ROOT/environment.json"
 MULTISITE_LOG="$WORK_ROOT/multisite-refusal.log"
 MATRIX_LOG="$WORK_ROOT/exact-artifact-version-matrix.log"
+INIT_CONTRACT_LOG="$WORK_ROOT/init-contract.log"
+INIT_GOLDEN_LOG="$WORK_ROOT/duo-init-golden-path.log"
 CONFORMANCE_MANIFESTS=(
   core fse acf contact-form-7 elementor ninja-forms
   polylang woocommerce yoast paid-memberships-pro
@@ -523,6 +556,15 @@ write_result() { # write_result <id> <rc> <reason> <assertions-json> <path>
     --arg test "$id" --arg verdict "$verdict" --arg reason "$reason" \
     --argjson exit_code "$rc" --argjson assertions "$assertions" \
     '{schema_version:1,test:$test,verdict:$verdict,exit_code:$exit_code,reason:$reason,assertions:$assertions}' > "$path"
+}
+
+write_scoped_result() { # write_scoped_result <id> <rc> <reason> <assertions-json> <scope> <exclusions-json> <path>
+  local id="$1" rc="$2" reason="$3" assertions="$4" scope="$5" exclusions="$6" path="$7" tmp
+  write_result "$id" "$rc" "$reason" "$assertions" "$path"
+  tmp="$path.tmp"
+  jq --arg scope "$scope" --argjson exclusions "$exclusions" \
+    '. + {scope:$scope,exclusions:$exclusions}' "$path" > "$tmp"
+  mv "$tmp" "$path"
 }
 
 write_fragment() { # write_fragment <id> <manifest> <result> <diff> <fragment>
@@ -555,13 +597,14 @@ destroy_own_pair() {
 
 say "source/static preflight"
 php -l bin/certification-bundle.php >/dev/null
-bash -n conformance/run.sh tests/regress_multisite_refusal.sh tests/certify_version_matrix.sh
+php -l tests/regress_init_contract.php >/dev/null
+bash -n conformance/run.sh tests/regress_multisite_refusal.sh tests/certify_version_matrix.sh tests/regress_duo_init.sh
 bash bin/pair.sh list
 pass "bundle builder and all invoked harnesses parse; pair load inspected"
 
 overall=0
 leg=0
-total_legs=$((${#CONFORMANCE_MANIFESTS[@]} + 2))
+total_legs=$((${#CONFORMANCE_MANIFESTS[@]} + 4))
 for manifest in "${CONFORMANCE_MANIFESTS[@]}"; do
   leg=$((leg + 1))
   id="conformance-$manifest"
@@ -728,12 +771,114 @@ write_fragment exact-artifact-version-matrix version-matrix \
   "$WORK_ROOT/exact-artifact-version-matrix.fragment.json"
 append_fragment "$WORK_ROOT/exact-artifact-version-matrix.fragment.json" "$MATRIX_LOG"
 
+leg=$((leg + 1))
+init_contract_assertions='["authenticated_target_proposal","digest_bound_confirmation","separate_code_and_state_declarations","redacted_risk_rendering","fail_closed_transport","generic_authored_only_scope","initial_baseline_lifecycle"]'
+init_contract_exclusions='["live_wordpress_runtime","plugin_semantic_conformance","agent_installation_or_adoption"]'
+if [ "$overall" -eq 0 ]; then
+  say "reference leg $leg/$total_legs: existing-site init platform contract"
+  set +e
+  php tests/regress_init_contract.php > "$INIT_CONTRACT_LOG" 2>&1
+  init_contract_rc=$?
+  set -e
+  tail -30 "$INIT_CONTRACT_LOG"
+  init_contract_reason=passed
+  if [ "$init_contract_rc" -eq 0 ] && ! grep -qF 'REGRESS_INIT_CONTRACT PASSED' "$INIT_CONTRACT_LOG"; then
+    init_contract_rc=70
+    init_contract_reason=invalid_checker_output
+  fi
+  if [ "$init_contract_rc" -ne 0 ]; then
+    overall=1
+    [ "$init_contract_reason" = passed ] && init_contract_reason=command_failed
+    init_contract_result_assertions='[]'
+    init_contract_status=unknown
+  else
+    init_contract_result_assertions="$init_contract_assertions"
+    init_contract_status=clean
+  fi
+  write_scoped_result init-contract "$init_contract_rc" "$init_contract_reason" \
+    "$init_contract_result_assertions" platform-init-contract "$init_contract_exclusions" \
+    "$WORK_ROOT/init-contract.result.json"
+  jq -n --arg status "$init_contract_status" --arg scope platform-init-contract \
+    --argjson assertions "$init_contract_result_assertions" --argjson exclusions "$init_contract_exclusions" \
+    '{status:$status,scope:$scope,assertions:$assertions,exclusions:$exclusions}' \
+    > "$WORK_ROOT/init-contract.diff.json"
+else
+  printf 'SKIPPED: blocked by an earlier failed reference-certification leg\n' > "$INIT_CONTRACT_LOG"
+  write_scoped_result init-contract 99 blocked_by_prior_failure '[]' \
+    platform-init-contract "$init_contract_exclusions" "$WORK_ROOT/init-contract.result.json"
+  jq -n --arg scope platform-init-contract --argjson exclusions "$init_contract_exclusions" \
+    '{status:"unknown",scope:$scope,reason:"blocked_by_prior_failure",assertions:[],exclusions:$exclusions}' \
+    > "$WORK_ROOT/init-contract.diff.json"
+fi
+write_fragment init-contract platform-init-contract \
+  "$WORK_ROOT/init-contract.result.json" "$WORK_ROOT/init-contract.diff.json" \
+  "$WORK_ROOT/init-contract.fragment.json"
+append_fragment "$WORK_ROOT/init-contract.fragment.json" "$INIT_CONTRACT_LOG"
+
+leg=$((leg + 1))
+init_golden_assertions='["no_write_blockers_and_cancel","public_digest_confirmation","separate_code_and_state_baselines","selected_authored_product_and_taxonomy_scope","runtime_order_exclusion","clean_public_status","completed_within_fifteen_minutes"]'
+init_golden_exclusions='["woocommerce_semantic_conformance","full_site_coverage","code_and_database_rollback","agent_installation_or_adoption"]'
+if [ "$overall" -eq 0 ]; then
+  say "reference leg $leg/$total_legs: public existing-site duo init golden path"
+  set +e
+  DUO_INIT_PAIR="$PAIR" DUO_INIT_PORT1="$PORT1" DUO_INIT_PORT2="$PORT2" \
+    bash tests/regress_duo_init.sh > "$INIT_GOLDEN_LOG" 2>&1
+  init_golden_rc=$?
+  set -e
+  tail -40 "$INIT_GOLDEN_LOG"
+  init_golden_reason=passed
+  if [ "$init_golden_rc" -eq 0 ] && ! grep -qF '✔ REGRESS_DUO_INIT PASSED' "$INIT_GOLDEN_LOG"; then
+    init_golden_rc=70
+    init_golden_reason=invalid_checker_output
+  fi
+  if ! destroy_own_pair; then
+    init_golden_rc=72
+    init_golden_reason=cleanup_failed
+  fi
+  if [ "$init_golden_rc" -ne 0 ]; then
+    overall=1
+    [ "$init_golden_reason" = passed ] && init_golden_reason=command_failed
+    init_golden_result_assertions='[]'
+    init_golden_status=unknown
+  else
+    init_golden_result_assertions="$init_golden_assertions"
+    init_golden_status=clean
+  fi
+  write_scoped_result duo-init-golden-path "$init_golden_rc" "$init_golden_reason" \
+    "$init_golden_result_assertions" existing-site-init-workflow "$init_golden_exclusions" \
+    "$WORK_ROOT/duo-init-golden-path.result.json"
+  jq -n --arg status "$init_golden_status" --arg scope existing-site-init-workflow \
+    --argjson assertions "$init_golden_result_assertions" --argjson exclusions "$init_golden_exclusions" \
+    '{status:$status,scope:$scope,assertions:$assertions,exclusions:$exclusions,
+      fixture:{plugin:"woocommerce",version:"11.0.0",version_checked_only:true,
+        semantic_conformance:"not_certified_by_this_test"}}' \
+    > "$WORK_ROOT/duo-init-golden-path.diff.json"
+else
+  printf 'SKIPPED: blocked by an earlier failed reference-certification leg\n' > "$INIT_GOLDEN_LOG"
+  write_scoped_result duo-init-golden-path 99 blocked_by_prior_failure '[]' \
+    existing-site-init-workflow "$init_golden_exclusions" \
+    "$WORK_ROOT/duo-init-golden-path.result.json"
+  jq -n --arg scope existing-site-init-workflow --argjson exclusions "$init_golden_exclusions" \
+    '{status:"unknown",scope:$scope,reason:"blocked_by_prior_failure",assertions:[],exclusions:$exclusions,
+      fixture:{plugin:"woocommerce",version:"11.0.0",version_checked_only:true,
+        semantic_conformance:"not_certified_by_this_test"}}' \
+    > "$WORK_ROOT/duo-init-golden-path.diff.json"
+fi
+write_fragment duo-init-golden-path existing-site-init-workflow \
+  "$WORK_ROOT/duo-init-golden-path.result.json" "$WORK_ROOT/duo-init-golden-path.diff.json" \
+  "$WORK_ROOT/duo-init-golden-path.fragment.json"
+append_fragment "$WORK_ROOT/duo-init-golden-path.fragment.json" "$INIT_GOLDEN_LOG"
+
+assert_exact_source_unchanged
 say "materialize the content-addressed machine-readable bundle"
 BOUND_INPUTS=$({ git -C "$REPO_ROOT" ls-files \
   agent cli manifests sandbox/bin sandbox/conformance \
   sandbox/tests/certify_reference_bundle.sh \
   sandbox/tests/certify_version_matrix.sh \
   sandbox/tests/regress_multisite_refusal.sh \
+  sandbox/tests/regress_init_contract.php \
+  sandbox/tests/regress_duo_init.sh \
+  sandbox/pair.yml sandbox/db.yml sandbox/init-cli.Dockerfile \
   scripts/capability-registry.php docs/compatibility-baseline.json \
   DESIGN.md spec/repo-format.md Makefile .github/workflows/conformance.yml; \
   printf '%s\n' manifests/dispositions.json; } \
@@ -741,14 +886,14 @@ BOUND_INPUTS=$({ git -C "$REPO_ROOT" ls-files \
 ARTIFACTS=$(jq '[to_entries[] as $slug | $slug.value | to_entries[] | {name:$slug.key,version:.key,url:.value.url,sha256:.value.sha256,role:.value.role}]' conformance/artifacts.lock.json)
 TESTS=$(printf '%s\n' "${TEST_FRAGMENTS[@]}" | jq -s .)
 CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-GIT_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
+GIT_REVISION="$SOURCE_SHA"
 jq -n \
   --arg repo_root "$REPO_ROOT" --arg created_at "$CREATED_AT" --arg git_revision "$GIT_REVISION" \
   --arg environment "$ENV_FILE" --argjson bound_inputs "$BOUND_INPUTS" --argjson artifacts "$ARTIFACTS" \
   --arg ratification "$REPO_ROOT/manifests/dispositions.json" --argjson tests "$TESTS" \
   '{
     repo_root:$repo_root,created_at:$created_at,git_revision:$git_revision,
-    harness:{name:"duo-reference-certification",version:3},force_hatches:[],
+    harness:{name:"duo-reference-certification",version:4},force_hatches:[],
     environment:$environment,ratification:$ratification,bound_inputs:$bound_inputs,artifacts:$artifacts,
     tests:$tests
   }' > "$WORK_ROOT/spec.json"
@@ -766,6 +911,8 @@ VERIFY_OUT=$(php bin/certification-bundle.php verify "$BUNDLE" "$REPO_ROOT")
 verify_rc=$?
 set -e
 printf '%s\n' "$VERIFY_OUT" | jq .
+
+assert_exact_source_unchanged
 
 if [ "$overall" -ne 0 ] || [ "$build_rc" -ne 0 ] || [ "$verify_rc" -ne 0 ]; then
   fail "reference certification failed; immutable evidence remains at $BUNDLE"

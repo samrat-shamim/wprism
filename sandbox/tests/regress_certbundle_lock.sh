@@ -674,6 +674,25 @@ WORKROOT_LINE=$(grep -n 'WORK_ROOT=$(mktemp -d ' "$SHIPPED" | head -1 | cut -d: 
   || fail "the lock is acquired at line $ACQUIRE_LINE, after the work root is allocated at $WORKROOT_LINE"
 pass "acquire (line $ACQUIRE_LINE) precedes the preflight (line $PREFLIGHT_LINE) and the work root (line $WORKROOT_LINE)"
 
+say "case 14b — every evidence child and the final bundle are bound to one preflighted source commit"
+SOURCE_LINE=$(grep -n '^SOURCE_SHA=$(git -C "\$REPO_ROOT" rev-parse' "$SHIPPED" | head -1 | cut -d: -f1)
+DUO_EXPORT_LINE=$(line_of "$SHIPPED" 'export DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA"')
+CONF_EXPORT_LINE=$(line_of "$SHIPPED" 'export CONF_EXPECTED_SOURCE_SHA="$SOURCE_SHA"')
+MATERIALIZE_LINE=$(line_of "$SHIPPED" 'say "materialize the content-addressed machine-readable bundle"')
+[ -n "$SOURCE_LINE" ] && [ -n "$DUO_EXPORT_LINE" ] && [ -n "$CONF_EXPORT_LINE" ] \
+  || fail "the bundle runner must snapshot HEAD and export it through both pair/conformance exact-source gates"
+[ "$PREFLIGHT_LINE" -lt "$SOURCE_LINE" ] && [ "$SOURCE_LINE" -lt "$WORKROOT_LINE" ] \
+  || fail "the source SHA must be frozen after clean-checkout proof and before the first work-root/mutation"
+[ "$DUO_EXPORT_LINE" -lt "$MATERIALIZE_LINE" ] && [ "$CONF_EXPORT_LINE" -lt "$MATERIALIZE_LINE" ] \
+  || fail "exact-source expectations must reach every child before any evidence is materialized"
+[ "$(grep -c '^assert_exact_source_unchanged$' "$SHIPPED")" -ge 2 ] \
+  || fail "the runner must re-read HEAD/cleanliness before bundle materialization and again before success"
+assert_in "$SHIPPED" 'assert_expected_source_sha CERT_BUNDLE_EXPECTED_SOURCE_SHA' \
+  "a launcher-owned expected commit is not enforced"
+assert_in "$SHIPPED" 'GIT_REVISION="$SOURCE_SHA"' \
+  "the bundle labels evidence with a late HEAD read instead of the exercised source snapshot"
+pass "one reviewed SHA is enforced for callers, pair/conformance children, materialization, and final readback"
+
 say "case 15 — shipped ordering: one EXIT trap clears the work root, then releases, and a failed removal cannot skip the release"
 CLEANUP_BODY="$SCRATCH/cleanup_run.body"
 awk '/^cleanup_run\(\) \{$/{inside=1} inside{print} inside && /^\}$/{exit}' "$SHIPPED" > "$CLEANUP_BODY"
