@@ -74,6 +74,24 @@ check(
     'exact-checkout refusal runs before temporary allocation or Docker pair inspection'
 );
 
+echo "\n== Contact Form 7 checker does not race Docker output against an early reader ==\n";
+$cf7Checker = (string) file_get_contents(__DIR__ . '/../conformance/checks/contact-form-7.sh');
+check(
+    str_contains(
+        $cf7Checker,
+        '--post_type=wpcf7_contact_form --name=conformance-contact-form --format=ids'
+    ),
+    'CF7 checker asks WP-CLI for the exact authored fixture ID without a truncating reader'
+);
+check(
+    str_contains($cf7Checker, '[[ "$CONF1_WPCF7_ID" =~ ^[0-9]+$ ]]'),
+    'CF7 checker rejects zero or multiple source form IDs explicitly'
+);
+check(
+    !preg_match('/\\$COMPOSE[^\n]*\\|[[:space:]]*head(?:[[:space:]]|$)/', $cf7Checker),
+    'CF7 checker never pipes Docker output into head under pipefail'
+);
+
 echo "\n== version-matrix cross-user repository permissions ==\n";
 $versionMatrix = (string) file_get_contents(__DIR__ . '/certify_version_matrix.sh');
 check(
