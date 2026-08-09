@@ -550,6 +550,33 @@ $invalid = fixture_manifest();
 $invalid['tables']['dks_entry_meta_a']['keys']['payload_a']['key_refs']['path'] = '$';
 expect_throw(fn() => load_fixture_policy($tmp, $invalid), 'bare attached key_refs path is refused at manifest load');
 
+foreach ([
+    'ref' => 'post',
+    'json_refs' => [['path' => '$.term_id', 'kind' => 'term']],
+    'key_refs' => ['path' => '$.term_map', 'kind' => 'term'],
+    'json_encoded' => true,
+    'cast' => 'string',
+    'order_preserving' => true,
+    'allow_secret' => true,
+    'lint_ok' => true,
+] as $field => $value) {
+    $invalid = fixture_manifest();
+    $invalid['options']['dks_structured_option'][$field] = $value;
+    expect_throw(
+        fn() => load_fixture_policy($tmp, $invalid),
+        "sub-keyed option parent whole-value field '$field' is refused at manifest load"
+    );
+}
+
+$invalid = fixture_manifest();
+$invalid['options']['dks_structured_option']['sub_keys']['payload']['sub_keys'] = [
+    'nested' => ['class' => 'authored'],
+];
+expect_throw(
+    fn() => load_fixture_policy($tmp, $invalid),
+    'nested option sub_keys are refused instead of silently ignored'
+);
+
 $invalid = fixture_manifest('both');
 expect_throw(fn() => load_fixture_policy($tmp, $invalid), 'two attached sidecars for one owner are refused at manifest load');
 
@@ -589,6 +616,24 @@ $snapshot['manifests'][] = $conflictingFrozen;
 expect_throw(
     fn() => Policy::from_snapshot($snapshot),
     'frozen policy refuses conflicting duplicate taxonomy description reference grammars'
+);
+
+$snapshot = $policy->export_snapshot();
+$snapshot['manifests'][0]['options']['dks_structured_option']['json_refs'] = [
+    ['path' => '$.term_id', 'kind' => 'term'],
+];
+expect_throw(
+    fn() => Policy::from_snapshot($snapshot),
+    'frozen policy refuses a whole-value reference declaration on a sub-keyed option parent'
+);
+
+$snapshot = $policy->export_snapshot();
+$snapshot['manifests'][0]['options']['dks_structured_option']['sub_keys']['payload']['sub_keys'] = [
+    'nested' => ['class' => 'authored'],
+];
+expect_throw(
+    fn() => Policy::from_snapshot($snapshot),
+    'frozen policy refuses nested sub_keys instead of accepting a dead declaration'
 );
 
 $snapshot = $policy->export_snapshot();

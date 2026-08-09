@@ -130,6 +130,7 @@ final class Policy {
             self::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_user_meta_rules($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_tables($p->site['policy'] ?? [], 'site.duo.json');
+            self::validate_sub_keys($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_reference_shapes($p->site['policy'] ?? [], 'site.duo.json');
         }
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
@@ -170,7 +171,7 @@ self::validate_post_type_children($manifest);
             self::validate_env_options($manifest, "manifest '$name'");
             self::validate_user_meta_rules($manifest, "manifest '$name'");
             self::validate_scope_classes($manifest, "manifest '$name'", false);
-            self::validate_sub_keys($manifest);
+            self::validate_sub_keys($manifest, "manifest '$name'");
             self::validate_object_type_option_refs($manifest);
             self::validate_taxonomy_object_keyspace_declarations($manifest);
             self::validate_dynamic_options($manifest);
@@ -257,6 +258,7 @@ self::validate_post_type_children($manifest);
         self::validate_env_options($p->site['policy'] ?? [], 'frozen site.duo.json');
         self::validate_user_meta_rules($p->site['policy'] ?? [], 'frozen site.duo.json');
         self::validate_tables($p->site['policy'] ?? [], 'frozen site.duo.json');
+        self::validate_sub_keys($p->site['policy'] ?? [], 'frozen site.duo.json');
         self::validate_reference_shapes($p->site['policy'] ?? [], 'frozen site.duo.json');
 
         $pins = self::normalize_manifest_pins($p->site['manifests'] ?? ['core']);
@@ -284,7 +286,7 @@ self::validate_post_type_children($manifest);
             self::validate_env_options($manifest, "frozen manifest '$name'");
             self::validate_user_meta_rules($manifest, "frozen manifest '$name'");
             self::validate_scope_classes($manifest, "frozen manifest '$name'", false);
-            self::validate_sub_keys($manifest);
+            self::validate_sub_keys($manifest, "frozen manifest '$name'");
             self::validate_object_type_option_refs($manifest);
             // DUO-3318: validate_dynamic_options() was missing here while
             // load() had called it since DUO-3264. A frozen snapshot is
@@ -3050,7 +3052,11 @@ self::validate_post_type_children($manifest);
                 if (!is_array($rule) || array_is_list($rule)) {
                     continue; // the section's existing validator owns its base shape
                 }
-                self::validate_reference_value_rule($rule, "$label.$section.$name");
+                self::validate_reference_value_rule(
+                    $rule,
+                    "$label.$section.$name",
+                    $section === 'options'
+                );
             }
         }
         foreach (['option_patterns', 'meta_patterns', 'option_name_refs'] as $section) {
@@ -3093,11 +3099,20 @@ self::validate_post_type_children($manifest);
         }
     }
 
-    private static function validate_reference_value_rule(array $rule, string $where): void {
+    private static function validate_reference_value_rule(
+        array $rule,
+        string $where,
+        bool $allowSubKeys = false
+    ): void {
         ReferenceRules::value_rule($rule, $where);
+        if (array_key_exists('sub_keys', $rule) && !$allowSubKeys) {
+            throw new \RuntimeException(
+                "duo: $where cannot declare sub_keys; the one-level sub_keys map belongs only on an exact or dynamic option declaration"
+            );
+        }
         foreach (($rule['sub_keys'] ?? []) as $name => $subRule) {
             if (is_array($subRule) && !array_is_list($subRule)) {
-                self::validate_reference_value_rule($subRule, "$where.sub_keys.$name");
+                self::validate_reference_value_rule($subRule, "$where.sub_keys.$name", false);
             }
         }
     }
@@ -4128,34 +4143,60 @@ self::validate_post_type_children($manifest);
      *   - class=authored and sub_keys are mutually exclusive on the SAME
      *     option rule: class=authored already captures the WHOLE value
      *     (authored_options()), so a manifest declaring both is stating two
-     *     contradictory capture strategies for the same option name — the
-     *     kind of ambiguous manifest state this project's posture (DESIGN.md
-     *     3.1.5, "loud-and-blocking default") requires rejecting outright
-     *     rather than silently picking one.
+     *     contradictory capture strategies for the same option name;
+     *   - whole-value codec/safety fields are likewise mutually exclusive
+     *     with sub_keys. Every capture/apply/lint/compiler consumer delegates
+     *     value semantics to the named sub-key rules once sub_keys exists, so
+     *     accepting one of those fields on the parent would silently ignore a
+     *     declaration rather than establish a second ownership layer.
+     *
+     * These are the kind of ambiguous manifest states this project's posture
+     * (DESIGN.md 3.1.5, "loud-and-blocking default") requires rejecting
+     * outright rather than silently picking one.
      */
-    private static function validate_sub_keys(array $manifest): void {
-        $name = (string) ($manifest['name'] ?? '?');
-        foreach ($manifest['options'] ?? [] as $optName => $rule) {
+    private static function validate_sub_keys(array $source, string $label): void {
+        foreach ($source['options'] ?? [] as $optName => $rule) {
             $subKeys = $rule['sub_keys'] ?? null;
             if ($subKeys === null) {
                 continue;
             }
             if (!is_array($subKeys) || !$subKeys) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' declares options.$optName.sub_keys but it is not a non-empty object"
+                    "duo: $label declares options.$optName.sub_keys but it is not a non-empty object"
                 );
             }
             if (($rule['class'] ?? '') === 'authored') {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' declares options.$optName with BOTH class=authored and sub_keys — "
+                    "duo: $label declares options.$optName with BOTH class=authored and sub_keys — "
                     . 'these are mutually exclusive (class=authored already captures the WHOLE value; sub_keys '
                     . 'narrows independent capture to named keys of an otherwise-excluded blob). Pick one.'
+                );
+            }
+            $wholeValueFields = [
+                'ref',
+                'json_refs',
+                'key_refs',
+                'json_encoded',
+                'cast',
+                'order_preserving',
+                'allow_secret',
+                'lint_ok',
+            ];
+            $ambiguous = array_values(array_filter(
+                $wholeValueFields,
+                static fn(string $field): bool => array_key_exists($field, $rule)
+            ));
+            if ($ambiguous) {
+                throw new \RuntimeException(
+                    "duo: $label declares options.$optName.sub_keys together with whole-value field(s) "
+                    . implode(', ', $ambiguous) . '; put value/reference/secret/lint behavior on each named '
+                    . 'sub-key rule instead'
                 );
             }
             foreach ($subKeys as $subKey => $subRule) {
                 if (!is_array($subRule) || !in_array($subRule['class'] ?? null, self::CLASSES, true)) {
                     throw new \RuntimeException(
-                        "duo: manifest '$name' declares options.$optName.sub_keys.$subKey with an invalid or "
+                        "duo: $label declares options.$optName.sub_keys.$subKey with an invalid or "
                         . 'missing class (expected one of ' . implode('|', self::CLASSES) . ')'
                     );
                 }
