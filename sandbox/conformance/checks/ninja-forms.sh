@@ -142,6 +142,7 @@ CAPTURE_DELETE_RC=0
 # progress to stderr even for a healthy `run --rm`; folding both streams would
 # make jq judge Docker's prose as if it were part of Duo's machine contract.
 CAPTURE_DELETE_OUT=$(wp_conf1 duo capture --repo=/siterepo --format=json) || CAPTURE_DELETE_RC=$?
+require_duo_answered "parent-deletion capture" json "$CAPTURE_DELETE_OUT"
 [ "$CAPTURE_DELETE_RC" -ne 0 ] || fail "capture accepted unsupported table:nf3_forms deletion"
 jq -se '
   length == 1
