@@ -647,6 +647,23 @@ check(
     'exactly one report and exactly one copy of the site\'s refusal — no per-manifest rows were produced at all'
 );
 
+// --- the pre-flight's empty-pin load still walks the manifests directory, so
+// a defect THERE also surfaces through it. That refusal must not wear the
+// --site headline: the site file is fine, and blaming it sends the author to
+// the wrong file.
+$dir = fixtures([
+    'a' => manifest_a(),
+    'dispositions' => ['format' => 'duo-dispositions/v1'],
+]);
+$goodSite = site_repo(['tables' => new \stdClass()], ['a']);
+$result = duo([$dir, '--site=' . $goodSite]);
+check(
+    $result['exit'] === 2
+        && !str_contains($result['stderr'], 'site.duo.json this command cannot load')
+        && str_contains($result['stderr'], 'dispositions'),
+    'a broken MANIFESTS DIR surfacing through the site pre-flight is reported unprefixed — the --site headline is reserved for defects the engine attributes to site.duo.json'
+);
+
 // ======================================================================
 echo "\n== the code half a manifest NAMES: interpreters and regenerators are resolved, not deferred ==\n";
 

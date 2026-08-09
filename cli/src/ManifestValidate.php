@@ -357,10 +357,18 @@ final class ManifestValidate {
             try {
                 Policy::load($site, []);
             } catch (\Throwable $t) {
-                return self::fail(
-                    "--site '$site' has a site.duo.json this command cannot load, so no manifest was judged "
-                    . 'against it: ' . $t->getMessage()
-                );
+                // The empty-pin load still walks the manifests directory
+                // (sources, dispositions, capability registry), so a defect
+                // THERE also surfaces here. Blame --site only when the engine
+                // names the site file; anything else is the input dir's own
+                // problem and gets the message unprefixed.
+                if (str_contains($t->getMessage(), 'site.duo.json')) {
+                    return self::fail(
+                        "--site '$site' has a site.duo.json this command cannot load, so no manifest was judged "
+                        . 'against it: ' . $t->getMessage()
+                    );
+                }
+                return self::fail($t->getMessage());
             }
         }
 
