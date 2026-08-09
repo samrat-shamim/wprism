@@ -101,6 +101,38 @@ function live_chmod_tree(string $path, int $mode = 0777): void {
     foreach ($iterator as $item) @chmod($item->getPathname(), $mode);
 }
 
+function live_container_is_paused(string $container): bool {
+    $state = trim(live_checked(['docker', 'inspect', '--format', '{{.State.Paused}}', $container]));
+    live_require(in_array($state, ['true', 'false'], true), "fixture container '$container' has an invalid pause state");
+    return $state === 'true';
+}
+
+/** Pause only the configured source web runtime; never the shared database. */
+function live_pause_source(array $environment, array $config): void {
+    $container = $environment['container'] ?? null;
+    live_require(is_string($container) && $container !== '', 'source fixture container is absent');
+    live_require($container !== ($config['db_container'] ?? null), 'fixture must never pause the shared database');
+    if (!live_container_is_paused($container)) live_checked(['docker', 'pause', $container]);
+    live_require(live_container_is_paused($container), "fixture did not pause source web container '$container'");
+}
+
+/** Idempotent release of the exact source runtime pause held by a session. */
+function live_unpause_source(array $environment, array $config): void {
+    $container = $environment['container'] ?? null;
+    live_require(is_string($container) && $container !== '', 'source fixture container is absent');
+    live_require($container !== ($config['db_container'] ?? null), 'fixture must never unpause the shared database');
+    if (live_container_is_paused($container)) live_checked(['docker', 'unpause', $container]);
+    live_require(!live_container_is_paused($container), "fixture did not unpause source web container '$container'");
+}
+
+/** Docker Desktop may preserve container modes in docker-cp output. */
+function live_assert_fixture_tree_writable(string $path): void {
+    live_chmod_tree($path, 0700);
+    $probe = $path . '/.duo3324-owner-probe-' . bin2hex(random_bytes(6));
+    live_require(file_put_contents($probe, "fixture\n", LOCK_EX) === 8, 'docker-cp media evidence is not fixture-writable');
+    live_require(unlink($probe), 'could not remove media ownership probe');
+}
+
 /** Deterministic byte/tree digest for the fixture's opaque media store. */
 function live_tree_hash(string $root): string {
     $context = hash_init('sha256');
@@ -273,7 +305,7 @@ function live_driver_wp(array $config, string $service, array $args): string {
 
 function live_dump_database(array $config, string $database): string {
     return live_checked([
-        'docker', 'exec', $config['db_container'], 'mariadb-dump', '--single-transaction', '--skip-comments',
+        'docker', 'exec', $config['db_container'], 'mariadb-dump', '--single-transaction', '--skip-comments', '--skip-dump-date',
         '-uroot', '-proot', $database,
     ]);
 }
@@ -294,14 +326,13 @@ function live_copy_media_from_container(string $container, string $destination):
     if (!is_dir($destination) && !mkdir($destination, 0700, true)) {
         throw new RuntimeException("could not create media destination '$destination'");
     }
-    // docker cp preserves container ownership, which can strand root-owned
-    // fixture snapshots on the host.  Stream a tar archive instead: host tar
-    // owns the extracted exact bytes, so immutable evidence remains safely
-    // removable by this operation's deterministic cleanup.
-    $archive = live_checked([
-        'docker', 'exec', $container, 'tar', '-C', '/var/www/html/wp-content/uploads', '-cf', '-', '.',
-    ]);
-    live_checked(['tar', '-xf', '-', '-C', $destination], $archive);
+    // A paused source cannot safely run `docker exec tar`. Docker's daemon
+    // copy path remains available while paused and copies opaque bytes without
+    // resuming the web runtime; immediately prove the host can clean up the
+    // extracted fixture evidence even if Docker preserved restrictive modes.
+    live_require(live_container_is_paused($container), 'media evidence requires the source web container to remain paused');
+    live_checked(['docker', 'cp', $container . ':/var/www/html/wp-content/uploads/.', $destination]);
+    live_assert_fixture_tree_writable($destination);
 }
 
 function live_restore_media_to_container(string $source, string $container): void {
@@ -349,23 +380,52 @@ function live_dispatch(array $request, array $config, array &$state): array {
             $staging = $config['state_root'] . '/prepared/' . hash('sha256', $key);
             live_remove_tree($staging);
             if (!mkdir($staging . '/media', 0700, true)) throw new RuntimeException('could not create source snapshot staging');
-            $dump = live_dump_database($config, $environment['database']);
-            file_put_contents($staging . '/database.sql', $dump, LOCK_EX);
-            live_copy_media_from_container($environment['container'], $staging . '/media');
             $prepared = [
-                'database_sha256' => hash_file('sha256', $staging . '/database.sql'),
                 'lease_generation' => 1,
                 'lease_id' => 'snapshot-lease-' . substr(hash('sha256', $key), 0, 20),
                 'lease_receipt_sha256' => live_hash('snapshot-lease:' . $key),
-                'media_sha256' => live_tree_hash($staging . '/media'),
                 'path' => $staging,
                 'snapshot_session_id' => $session,
                 'source_identity' => $identity['environment_identity'],
-                'state' => 'prepared',
+                'source_paused' => false,
+                'state' => 'preparing',
             ];
             $state['sessions'][$key] = $prepared;
+            // Persist the deterministic session before pausing. If a process
+            // dies after Docker acknowledges pause, retry can only retain this
+            // exact source session rather than touching another runtime.
+            live_save_state($config['state_root'], $state);
         }
-        live_require($prepared['snapshot_session_id'] === $session, 'snapshot prepare session changed');
+        live_require(($prepared['snapshot_session_id'] ?? null) === $session, 'snapshot prepare session changed');
+        live_require(($prepared['source_identity'] ?? null) === $identity['environment_identity'], 'snapshot prepare source changed');
+        live_require(in_array($prepared['state'] ?? null, ['preparing', 'prepared'], true), 'snapshot prepare session is no longer resumable');
+        // The physical source freeze precedes both DB and media evidence and
+        // stays in force during Refresh's read-only source export. It never
+        // pauses the shared MariaDB container.
+        live_pause_source($environment, $config);
+        $prepared['source_paused'] = true;
+        $state['sessions'][$key] = $prepared;
+        live_save_state($config['state_root'], $state);
+        if (($prepared['state'] ?? null) === 'preparing') {
+            $staging = $prepared['path'] ?? null;
+            live_require(is_string($staging) && $staging !== '', 'snapshot prepare staging path is absent');
+            // A lost prepare response may leave only incomplete, operation-
+            // owned staging. With source paused, replace exactly that staging
+            // directory and take a coherent physical witness again.
+            live_remove_tree($staging);
+            if (!mkdir($staging . '/media', 0700, true)) throw new RuntimeException('could not recreate source snapshot staging');
+            $dump = live_dump_database($config, $environment['database']);
+            live_require(file_put_contents($staging . '/database.sql', $dump, LOCK_EX) === strlen($dump),
+                'could not write source database evidence');
+            live_copy_media_from_container($environment['container'], $staging . '/media');
+            $databaseHash = hash_file('sha256', $staging . '/database.sql');
+            live_require(is_string($databaseHash), 'could not hash source database evidence');
+            $prepared['database_sha256'] = $databaseHash;
+            $prepared['media_sha256'] = live_tree_hash($staging . '/media');
+            $prepared['state'] = 'prepared';
+            $state['sessions'][$key] = $prepared;
+            live_save_state($config['state_root'], $state);
+        }
         return [
             'lease_generation' => $prepared['lease_generation'],
             'lease_id' => $prepared['lease_id'],
@@ -389,6 +449,12 @@ function live_dispatch(array $request, array $config, array &$state): array {
         }
         $snapshot = $state['snapshots'][$key] ?? null;
         if (!is_array($snapshot)) {
+            // Retain/recover the exact source pause before the second physical
+            // readback. A lost-response retry cannot take a new session.
+            live_pause_source($environment, $config);
+            $prepared['source_paused'] = true;
+            $state['sessions'][$key] = $prepared;
+            live_save_state($config['state_root'], $state);
             $currentDump = live_dump_database($config, $environment['database']);
             $currentDb = hash('sha256', $currentDump);
             $mediaScratch = $config['state_root'] . '/create-media-' . hash('sha256', $key);
@@ -428,9 +494,19 @@ function live_dispatch(array $request, array $config, array &$state): array {
             ]);
             live_chmod_tree($snapshotDir, 0555);
             $state['snapshots'][$key] = $snapshot;
+            // Publish immutable set evidence before source can resume. This
+            // makes an acknowledged-but-unrecorded create response exactly
+            // retryable with the same snapshot identity.
+            live_save_state($config['state_root'], $state);
         }
         live_require(($snapshot['semantic_snapshot_sha256'] ?? null) === ($input['expected_semantic_snapshot_sha256'] ?? null),
             'snapshot create semantic identity changed');
+        // Only immutable set publication (above) or exact abort may unpause
+        // source. This call is idempotent for a lost create response.
+        live_unpause_source($environment, $config);
+        $prepared['source_paused'] = false;
+        $state['sessions'][$key] = $prepared;
+        live_save_state($config['state_root'], $state);
         return live_snapshot_result($snapshot);
     }
 
@@ -460,8 +536,29 @@ function live_dispatch(array $request, array $config, array &$state): array {
             'expected_source_lease_receipt_sha256' => 'lease_receipt_sha256'] as $provided => $stored) {
             live_require(($input[$provided] ?? null) === $prepared[$stored], "snapshot abort differs at '$provided'");
         }
+        live_require(in_array($prepared['state'] ?? null, ['prepared', 'aborted'], true), 'snapshot abort session is not prepared');
+        if (($prepared['state'] ?? null) !== 'aborted') {
+            $staging = $prepared['path'] ?? null;
+            if (is_string($staging) && $staging !== '') live_remove_tree($staging);
+            $snapshot = $state['snapshots'][$key] ?? null;
+            if (is_array($snapshot)) {
+                $snapshotDir = dirname((string) ($snapshot['database_path'] ?? ''));
+                $expectedDir = $config['state_root'] . '/snapshots/' . hash('sha256', $key);
+                live_require($snapshotDir === $expectedDir, 'snapshot abort refuses a foreign immutable set path');
+                live_remove_tree($snapshotDir);
+                unset($state['snapshots'][$key]);
+            }
+        }
         $prepared['state'] = 'aborted';
         $state['sessions'][$key] = $prepared;
+        // Persist the exact abort before unpausing. If Docker's response is
+        // lost, retry sees this session only and idempotently releases its
+        // source web runtime.
+        live_save_state($config['state_root'], $state);
+        live_unpause_source($environment, $config);
+        $prepared['source_paused'] = false;
+        $state['sessions'][$key] = $prepared;
+        live_save_state($config['state_root'], $state);
         return [
             'disposition' => 'aborted', 'lease_generation' => $prepared['lease_generation'], 'lease_id' => $prepared['lease_id'],
             'lease_receipt_sha256' => $prepared['lease_receipt_sha256'], 'snapshot_session_id' => $prepared['snapshot_session_id'],

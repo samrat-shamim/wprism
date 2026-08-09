@@ -19,6 +19,7 @@ services:
       DUO_MANIFESTS_DIR: /duo-manifests
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DISABLE_WP_CRON', true);
     volumes:
       - source_wp:/var/www/html
       - ${DUO3324_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/duo:ro

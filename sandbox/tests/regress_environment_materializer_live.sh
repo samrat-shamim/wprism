@@ -175,7 +175,7 @@ assert_receipt() { # assert_receipt <path> <format> <mode-or-disposition>
 
 source_dump_hash() {
   local dump="$TMP/source-dump-$1.sql"
-  docker exec "$DB_CONTAINER" mariadb-dump --single-transaction --skip-comments -uroot -proot "wp_${PAIR}1" >"$dump"
+  docker exec "$DB_CONTAINER" mariadb-dump --single-transaction --skip-comments --skip-dump-date -uroot -proot "wp_${PAIR}1" >"$dump"
   shasum -a 256 "$dump" | awk '{print $1}'
 }
 
