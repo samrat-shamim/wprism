@@ -21,6 +21,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-environment-driver \
 	regress-environment-lifecycle \
 	regress-environment-materializer \
+	regress-frozen-materialization-promotion \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions \
 	regress-post-field-classification regress-capability-registry regress-woocommerce-contract \
@@ -583,6 +584,9 @@ regress-environment-lifecycle:
 regress-environment-materializer:
 	php sandbox/tests/regress_environment_materializer.php
 
+regress-frozen-materialization-promotion:
+	php sandbox/tests/regress_frozen_materialization_promotion.php
+
 regress-dynamic-options-policy:
 	bash sandbox/tests/regress_dynamic_options_policy.sh
 
@@ -755,7 +759,7 @@ regress-offline-all: code-half-unit \
 	regress-adopt-rollback regress-capture-publish regress-adapter-contract regress-manifest-dispositions regress-capability-registry regress-certification-bundle regress-interpreter-policy \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan \
 	regress-order-preserving \
-	regress-block-refs regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-materializer \
+	regress-block-refs regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-materializer regress-frozen-materialization-promotion \
 	regress-dynamic-options-policy regress-env-options-policy regress-export-manifest-roundtrip \
 	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
@@ -767,7 +771,7 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-vocabulary-ownership
-	@echo "regress-offline-all: 75 offline suites green"
+	@echo "regress-offline-all: 78 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
