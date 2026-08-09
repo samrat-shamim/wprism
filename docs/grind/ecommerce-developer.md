@@ -158,6 +158,13 @@ scope is intentionally honest: it restores the database and v1 repository
 inputs captured at that boundary; it is not a claim of physical erasure or a
 rollback of unrelated external systems.
 
+The final comparator compiles both complete trees, then reparses post front
+matter with object insertion order intact and removes only top-level fields
+classified as `derived` by the pinned policy before directly encoding the
+projection. Nested authored metadata such as WooCommerce
+`_product_attributes` therefore remains order-sensitive; non-post state,
+deletion intents, identity-bearing paths, and post bodies remain strict.
+
 Every deploy receipt is selected as exactly one new `deploy-<run>.json` file
 relative to the pre-deploy inventory. Every promote receipt is derived from
 the command's printed `promote-<run>.sql` checkpoint, requires that non-empty
