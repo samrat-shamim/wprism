@@ -1047,7 +1047,9 @@ final class RepositoryCompiler {
             foreach ($data['terms'] as $taxonomy => $uuids) {
                 if (!is_string($taxonomy) || !is_array($uuids) || !array_is_list($uuids)) {
                     $this->add('schema_content_mismatch', $path, 'terms', 'each taxonomy relationship must be a UUID list');
+                    continue;
                 }
+                $this->validate_taxonomy_relationship_keyspace($path, "terms.$taxonomy", $taxonomy, 'post');
             }
             foreach ((array) ($data['term_orders'] ?? []) as $taxonomy => $orders) {
                 if (!is_string($taxonomy) || !is_array($orders) || array_is_list($orders)) {
@@ -1069,7 +1071,9 @@ final class RepositoryCompiler {
             foreach ((array) ($data['relationships'] ?? []) as $taxonomy => $uuids) {
                 if (!is_string($taxonomy) || !is_array($uuids) || !array_is_list($uuids)) {
                     $this->add('schema_content_mismatch', $path, 'relationships', 'each term-object relationship must be a UUID list');
+                    continue;
                 }
+                $this->validate_taxonomy_relationship_keyspace($path, "relationships.$taxonomy", $taxonomy, 'term');
             }
         }
         if ($kind === 'user-meta') {
@@ -1146,6 +1150,36 @@ final class RepositoryCompiler {
         }
         if ($kind === 'table' && (!isset($data['columns']) || !is_array($data['columns']) || !isset($data['meta']) || !is_array($data['meta']))) {
             $this->add('schema_content_mismatch', $path, 'columns/meta', 'table columns and meta must be object maps');
+        }
+    }
+
+    /**
+     * Canonical `posts.*.terms` and `terms.*.relationships` name the two
+     * different object_id keyspaces. This offline check keeps a hand-edited
+     * file from reaching Apply, where a shared numeric id could otherwise
+     * select another entity's relationship rows. Policy owns the one
+     * manifest resolver; a resolver refusal (for example overlapping
+     * pattern declarations) is a structured compilation failure too.
+     */
+    private function validate_taxonomy_relationship_keyspace(
+        string $path,
+        string $locator,
+        string $taxonomy,
+        string $expected
+    ): void {
+        try {
+            $actual = $this->policy->taxonomy_object_keyspace($taxonomy);
+        } catch (\Throwable $t) {
+            $this->add('taxonomy_object_keyspace_invalid', $path, $locator, $t->getMessage());
+            return;
+        }
+        if ($actual !== $expected) {
+            $this->add(
+                'taxonomy_object_keyspace_mismatch',
+                $path,
+                $locator,
+                "taxonomy '$taxonomy' resolves to object_keyspace='$actual'; this field requires '$expected'"
+            );
         }
     }
 
@@ -1387,7 +1421,9 @@ final class RepositoryCompiler {
                 $meta = (array) ($d['meta'] ?? []);
                 foreach ($meta as $key => $value) {
                     $rule = $this->policy->meta_rule_for_post((string) $key, $meta) ?? [];
-                    if (!empty($rule['ref'])) {
+                    if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                        $this->validate_structured_rule($value, $rule, $path, 'meta.' . $key);
+                    } elseif (!empty($rule['ref'])) {
                         $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'meta.' . $key);
                     }
                 }
@@ -1400,10 +1436,21 @@ final class RepositoryCompiler {
                     }
                 }
             } elseif ($entity['type'] === 'term') {
+                $descriptionRule = $this->policy->description_reference_rule((string) ($d['taxonomy'] ?? ''));
+                if ($descriptionRule !== null) {
+                    $this->validate_structured_rule(
+                        $d['description'] ?? null,
+                        $descriptionRule,
+                        $path,
+                        'description'
+                    );
+                }
                 $meta = (array) ($d['meta'] ?? []);
                 foreach ($meta as $key => $value) {
                     $rule = $this->policy->meta_rule_for_term((string) $key, $meta) ?? [];
-                    if (!empty($rule['ref'])) {
+                    if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                        $this->validate_structured_rule($value, $rule, $path, 'meta.' . $key);
+                    } elseif (!empty($rule['ref'])) {
                         $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'meta.' . $key);
                     }
                 }
@@ -1424,7 +1471,27 @@ final class RepositoryCompiler {
                         ? $this->policy->canonical_option_name_ref_details((string) $name)
                         : $this->policy->option_rule_details_for_option((string) $name, $allOptions);
                     $rule = $details['rule'] ?? [];
-                    if (!empty($rule['ref'])) {
+                    if (!empty($rule['sub_keys']) && is_array($value)) {
+                        foreach ($value as $subKey => $subValue) {
+                            $subRule = (array) ($rule['sub_keys'][$subKey] ?? []);
+                            if (($subRule['class'] ?? '') !== 'authored') {
+                                continue; // RepositoryAuthorization reports ownership violations.
+                            }
+                            $subLocator = 'options.' . $name . '.' . $subKey;
+                            if (!empty($subRule['json_refs']) || !empty($subRule['key_refs'])) {
+                                $this->validate_structured_rule($subValue, $subRule, $path, $subLocator);
+                            } elseif (!empty($subRule['ref'])) {
+                                $this->validate_declared_ref(
+                                    $subValue,
+                                    (string) $subRule['ref'],
+                                    $path,
+                                    $subLocator
+                                );
+                            }
+                        }
+                    } elseif (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                        $this->validate_structured_rule($value, $rule, $path, 'options.' . $name);
+                    } elseif (!empty($rule['ref'])) {
                         $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'options.' . $name);
                     }
                 }
@@ -1432,7 +1499,9 @@ final class RepositoryCompiler {
                 $meta = (array) ($d['meta'] ?? []);
                 foreach ($meta as $key => $value) {
                     $rule = $this->policy->meta_rule_for_user((string) $key, $meta) ?? [];
-                    if (!empty($rule['ref'])) {
+                    if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                        $this->validate_structured_rule($value, $rule, $path, 'meta.' . $key);
+                    } elseif (!empty($rule['ref'])) {
                         $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'meta.' . $key);
                     }
                 }
@@ -1467,8 +1536,15 @@ final class RepositoryCompiler {
                 }
                 foreach ($metaByOwner[$entity['type']] ?? [] as $metaName => $decl) {
                     foreach ((array) ($d['meta'] ?? []) as $key => $value) {
-                        $rule = $decl['keys'][$key] ?? ['class' => $decl['default_class'] ?? 'authored'];
-                        if (!empty($rule['ref'])) {
+                        $rule = ReferenceRules::attached_meta_key($decl, (string) $key);
+                        if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                            $this->validate_structured_rule(
+                                $value,
+                                $rule,
+                                $path,
+                                "meta:$metaName.$key"
+                            );
+                        } elseif (!empty($rule['ref'])) {
                             $this->validate_declared_ref(
                                 $value, (string) $rule['ref'], $path, "meta:$metaName.$key"
                             );
@@ -1477,6 +1553,67 @@ final class RepositoryCompiler {
                 }
             }
         }
+    }
+
+    /** Validate declared structural leaves and id-keyed maps before apply. */
+    private function validate_structured_rule($value, array $rule, string $path, string $locator): void {
+        foreach ((array) ($rule['json_refs'] ?? []) as $ref) {
+            $copy = $value;
+            JsonRefs::walk(
+                $copy,
+                JsonRefs::parse_path((string) $ref['path']),
+                function (&$container, $key, string $matchedLocator) use ($ref, $path, $locator): void {
+                    $leaf = $container[$key];
+                    if ($leaf === null || $leaf === '' || $leaf === 0 || $leaf === '0' || $leaf === false
+                        || is_array($leaf)) {
+                        return; // declared unset/container conventions
+                    }
+                    $this->validate_declared_ref(
+                        $leaf,
+                        (string) $ref['kind'],
+                        $path,
+                        $locator . $matchedLocator
+                    );
+                },
+                ''
+            );
+        }
+        $keyRefs = $rule['key_refs'] ?? null;
+        if (!is_array($keyRefs)) {
+            return;
+        }
+        $validateMap = function ($map, string $mapLocator) use ($keyRefs, $path, $locator): void {
+            if (!is_array($map) || ($map !== [] && array_is_list($map))) {
+                $this->add(
+                    'nonportable_reference',
+                    $path,
+                    $locator . $mapLocator,
+                    'key_refs path must resolve to an id-keyed map'
+                );
+                return;
+            }
+            foreach ($map as $key => $_value) {
+                $this->validate_declared_ref(
+                    $key,
+                    (string) $keyRefs['kind'],
+                    $path,
+                    $locator . $mapLocator . ' (key)'
+                );
+            }
+        };
+        if (isset($keyRefs['path'])) {
+            $copy = $value;
+            JsonRefs::walk(
+                $copy,
+                JsonRefs::parse_path((string) $keyRefs['path']),
+                function (&$container, $key, string $matchedLocator) use ($validateMap): void {
+                    $validateMap($container[$key], $matchedLocator);
+                },
+                ''
+            );
+            return;
+        }
+        $validateMap($value, '');
     }
 
     private function validate_declared_ref($value, string $ref, string $path, string $locator): void {

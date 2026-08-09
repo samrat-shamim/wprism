@@ -11,6 +11,7 @@ require_once __DIR__ . '/NativeActions.php';
 // any manifest reaches a policy consumer, so it is required here for the same
 // reason NativeActions is.
 require_once __DIR__ . '/AdapterSources.php';
+require_once __DIR__ . '/ReferenceRules.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -24,6 +25,8 @@ final class Policy {
     // launder an out-of-tree adapter into a shipped one on the verification
     // path, which is exactly the provenance guarantee this record exists for.
     private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v4';
+    /** Object keyspaces supported by the canonical taxonomy relationship contract. */
+    private const TAXONOMY_RELATIONSHIP_OBJECTS = ['post', 'term'];
 
     /**
      * The exact canonical-surface literal grammar. Apply derives these keys
@@ -127,6 +130,8 @@ final class Policy {
             self::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_user_meta_rules($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_tables($p->site['policy'] ?? [], 'site.duo.json');
+            self::validate_sub_keys($p->site['policy'] ?? [], 'site.duo.json');
+            self::validate_reference_shapes($p->site['policy'] ?? [], 'site.duo.json');
         }
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
         $pins = self::normalize_manifest_pins($rawPins);
@@ -166,14 +171,16 @@ self::validate_post_type_children($manifest);
             self::validate_env_options($manifest, "manifest '$name'");
             self::validate_user_meta_rules($manifest, "manifest '$name'");
             self::validate_scope_classes($manifest, "manifest '$name'", false);
-            self::validate_sub_keys($manifest);
+            self::validate_sub_keys($manifest, "manifest '$name'");
             self::validate_object_type_option_refs($manifest);
+            self::validate_taxonomy_object_keyspace_declarations($manifest);
             self::validate_dynamic_options($manifest);
             self::validate_option_name_refs($manifest);
             self::validate_option_storage($manifest, "manifest '$name'");
             self::validate_adapter_contract($manifest);
             self::validate_effect_contracts($manifest);
             self::validate_discovery_contract($manifest);
+            self::validate_reference_shapes($manifest, "manifest '$name'");
             $p->manifests[] = $manifest;
         }
         self::validate_no_conflicting_option_rules(
@@ -187,6 +194,9 @@ self::validate_post_type_children($manifest);
         self::validate_one_owner_per_declared_name($p->manifests);
         self::validate_ref_kinds($p->manifests, $p->site['policy'] ?? []);
         self::validate_unique_table_id_kinds($p->declared_tables());
+        self::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
+        self::validate_no_conflicting_description_reference_rules($p->manifests);
+        self::validate_reference_keyspaces_and_sidecars($p);
         self::validate_manifest_pins($pins, $p);
         if ($p->manifestDispositions !== null && class_exists(CapabilityRegistry::class)) {
             // Only the shipped subset is a registry claim. Handing an
@@ -248,6 +258,8 @@ self::validate_post_type_children($manifest);
         self::validate_env_options($p->site['policy'] ?? [], 'frozen site.duo.json');
         self::validate_user_meta_rules($p->site['policy'] ?? [], 'frozen site.duo.json');
         self::validate_tables($p->site['policy'] ?? [], 'frozen site.duo.json');
+        self::validate_sub_keys($p->site['policy'] ?? [], 'frozen site.duo.json');
+        self::validate_reference_shapes($p->site['policy'] ?? [], 'frozen site.duo.json');
 
         $pins = self::normalize_manifest_pins($p->site['manifests'] ?? ['core']);
         if (count($pins) !== count($snapshot['manifests'])) {
@@ -274,7 +286,7 @@ self::validate_post_type_children($manifest);
             self::validate_env_options($manifest, "frozen manifest '$name'");
             self::validate_user_meta_rules($manifest, "frozen manifest '$name'");
             self::validate_scope_classes($manifest, "frozen manifest '$name'", false);
-            self::validate_sub_keys($manifest);
+            self::validate_sub_keys($manifest, "frozen manifest '$name'");
             self::validate_object_type_option_refs($manifest);
             // DUO-3318: validate_dynamic_options() was missing here while
             // load() had called it since DUO-3264. A frozen snapshot is
@@ -284,11 +296,13 @@ self::validate_post_type_children($manifest);
             // ran, which is exactly the class of divergence this method
             // exists to rule out.
             self::validate_dynamic_options($manifest);
+            self::validate_taxonomy_object_keyspace_declarations($manifest);
             self::validate_option_name_refs($manifest);
             self::validate_option_storage($manifest, "frozen manifest '$name'");
             self::validate_adapter_contract($manifest);
             self::validate_effect_contracts($manifest);
             self::validate_discovery_contract($manifest);
+            self::validate_reference_shapes($manifest, "frozen manifest '$name'");
             $p->manifests[] = $manifest;
         }
         // Provenance is reconstructed before the reviewed registries so both of
@@ -328,6 +342,9 @@ self::validate_post_type_children($manifest);
         self::validate_one_owner_per_declared_name($p->manifests);
         self::validate_ref_kinds($p->manifests, $p->site['policy'] ?? []);
         self::validate_unique_table_id_kinds($p->declared_tables());
+        self::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
+        self::validate_no_conflicting_description_reference_rules($p->manifests);
+        self::validate_reference_keyspaces_and_sidecars($p);
         self::validate_manifest_pins($pins, $p);
         return $p;
     }
@@ -729,7 +746,7 @@ self::validate_post_type_children($manifest);
     }
 
     public function table_rule(string $unprefixedTable): ?array {
-        return $this->rule('tables', $unprefixedTable);
+        return $this->declared_table_details($unprefixedTable)['rule'];
     }
 
     /**
@@ -1047,12 +1064,9 @@ self::validate_post_type_children($manifest);
 
     /**
      * Every declared table rule, keyed by unprefixed table name, merged
-     * across manifests (last pinned manifest declaring a given table wins —
-     * same enumeration precedence as authored_options()/block_attr_rules(),
-     * a different precedence than the single-name lookup table_rule()/
-     * rule() use, which is an existing, pre-existing inconsistency in this
-     * class, not one this method introduces) with site policy overrides
-     * applied last. Snapshot.php filters this by `class` itself (row-shaped
+     * across manifests (last pinned manifest declaring a given table wins,
+     * matching table_rule()/declared_table_details()) with site policy
+     * overrides applied last. Snapshot.php filters this by `class` itself (row-shaped
      * "authored_snapshot" vs attached-meta "authored_snapshot_meta" vs the
      * honest-intent-only "authored_typed_snapshot_post_v1" markers that have
      * no engine effect) — this accessor just answers "what did every pinned
@@ -1533,6 +1547,17 @@ self::validate_post_type_children($manifest);
         }
     }
 
+    /** @return ?array{name:string,rule:array} effective EAV sidecar for one row table */
+    public function attached_meta_table_for_owner(string $ownerTable): ?array {
+        foreach ($this->declared_tables() as $name => $rule) {
+            if (($rule['class'] ?? '') === 'authored_snapshot_meta'
+                && (string) ($rule['attached_to']['table'] ?? '') === $ownerTable) {
+                return ['name' => (string) $name, 'rule' => $rule];
+            }
+        }
+        return null;
+    }
+
     /** Closed widget type registry. Last pinned manifest wins per type. */
     public function widget_types(): array {
         $out = [];
@@ -1592,10 +1617,9 @@ self::validate_post_type_children($manifest);
      * (Capture::term_description() / Apply::encode_description() own
      * deciding how to (un)serialize; this only returns the declared rule).
      *
-     * Manifest-only, first declaration in pin order wins — same precedence
-     * as block_attr_rules()/deletion_capability(): a structural fact
-     * about the taxonomy's OWN data shape (like block_attrs is a structural
-     * fact about a block type's shape), not a site-local policy choice, so
+     * Manifest-only structural fact about the taxonomy's OWN data shape
+     * (like block_attrs is a structural fact about a block type's shape),
+     * not a site-local policy choice, so
      * — unlike options/post_meta/term_meta — there is no site.duo.json
      * policy override. This also sidesteps a real naming collision:
      * site.duo.json's policy.taxonomies is already the flat taxonomy-scope
@@ -1603,15 +1627,117 @@ self::validate_post_type_children($manifest);
      * rule map would silently shadow it instead of erroring, since PHP's
      * array access on a list by an unknown string key just returns null.
      *
-     * @return ?array {"kind": "post"|"term"}
+     * Duplicate declarations must normalize identically; load() and
+     * from_snapshot() reject pin-order-dependent shapes before this accessor
+     * can run.
+     *
+     * @return ?array{json_refs:array,key_refs:?array,legacy_flat_map:bool}
      */
-    public function description_refs_for_taxonomy(string $tax): ?array {
+    public function description_reference_rule(string $tax): ?array {
         foreach ($this->manifests as $m) {
             if (isset($m['taxonomies'][$tax]['description_refs'])) {
-                return $m['taxonomies'][$tax]['description_refs'];
+                return ReferenceRules::description(
+                    $m['taxonomies'][$tax]['description_refs'],
+                    "manifest '" . ($m['name'] ?? '?') . "'.taxonomies.$tax.description_refs"
+                );
             }
         }
         return null;
+    }
+
+    /** @deprecated Use description_reference_rule(); retained for extensions. */
+    public function description_refs_for_taxonomy(string $tax): ?array {
+        return $this->description_reference_rule($tax);
+    }
+
+    /**
+     * The canonical keyspace for a taxonomy relationship's `object_id`.
+     *
+     * `wp_term_relationships.object_id` is deliberately ambiguous at the
+     * database level: WordPress posts and terms are minted from independent
+     * counters, so the same integer can name one of each. A taxonomy's
+     * runtime `object_type` is useful for choosing WHICH post types a
+     * post-keyspace taxonomy belongs to, but it is not a portable statement
+     * of whether the relationship rows themselves belong to posts or terms:
+     * plugins may use arbitrary object-type strings, and an engine sentinel
+     * such as literal `term` would make that plugin implementation detail a
+     * hidden part of Duo's wire contract.
+     *
+     * A manifest can therefore declare `object_keyspace: "post"|"term"`
+     * under an exact `taxonomies.<name>` rule or a matching
+     * `taxonomy_patterns` rule. All declarations that apply to a concrete
+     * taxonomy must agree. Omission preserves legacy post-only behavior for
+     * an ordinary runtime post taxonomy, so existing manifests and already-
+     * canonical state keep their exact bytes. A runtime taxonomy whose
+     * object_type contains `term` is NOT a legacy post taxonomy, however:
+     * term and mixed keyspaces must declare this field or the resolver
+     * refuses rather than reviving the old sentinel inference. Capture,
+     * lint, compile, apply, and fresh-process verification all ask this one
+     * resolver.
+     *
+     * @return "post"|"term"
+     */
+    public function taxonomy_object_keyspace(string $tax, ?array $runtimeObjectTypes = null): string {
+        /** @var array<string,string[]> $declared value => declaration locations */
+        $declared = [];
+        foreach ($this->manifests as $manifest) {
+            $name = (string) ($manifest['name'] ?? '?');
+            if (array_key_exists($tax, (array) ($manifest['taxonomies'] ?? []))) {
+                $rule = $manifest['taxonomies'][$tax];
+                if (is_array($rule)) {
+                    $value = array_key_exists('object_keyspace', $rule)
+                        ? (string) $rule['object_keyspace']
+                        : 'post';
+                    $source = "manifest '$name' taxonomies.$tax";
+                    $declared[$value][] = array_key_exists('object_keyspace', $rule)
+                        ? $source . '.object_keyspace'
+                        : $source . ' (legacy post default)';
+                }
+            }
+        }
+        $pattern = $this->matching_taxonomy_pattern_rule($tax);
+        if ($pattern !== null) {
+            $declared[$pattern['object_keyspace']][] = $pattern['source'] . '.object_keyspace';
+        }
+        if ($declared === []) {
+            if ($runtimeObjectTypes !== null && in_array('term', $runtimeObjectTypes, true)) {
+                throw new \RuntimeException(
+                    "duo: taxonomy '$tax' has runtime object_type containing 'term' but no manifest "
+                    . 'object_keyspace declaration — term or mixed relationship ownership must declare '
+                    . 'object_keyspace="term" or object_keyspace="post" explicitly'
+                );
+            }
+            return 'post'; // explicit compatibility default for pre-DUO-3316 manifests
+        }
+        if (count($declared) !== 1) {
+            $claims = [];
+            foreach ($declared as $value => $sources) {
+                $claims[] = "$value from " . implode(', ', $sources);
+            }
+            throw new \RuntimeException(
+                "duo: taxonomy '$tax' has ambiguous object_keyspace declarations ("
+                . implode('; ', $claims) . ') — every exact or matching pattern declaration must agree'
+            );
+        }
+        $resolved = (string) array_key_first($declared);
+        if ($runtimeObjectTypes !== null) {
+            $runtimeObjectTypes = array_values(array_unique(array_map('strval', $runtimeObjectTypes)));
+            $hasTermSentinel = in_array('term', $runtimeObjectTypes, true);
+            if ($hasTermSentinel && count($runtimeObjectTypes) > 1) {
+                throw new \RuntimeException(
+                    "duo: taxonomy '$tax' is registered with mixed runtime object_type values ("
+                    . implode(', ', $runtimeObjectTypes) . '); one object_keyspace declaration cannot safely '
+                    . 'describe both post- and term-owned relationship rows'
+                );
+            }
+            if ($hasTermSentinel && $resolved !== 'term') {
+                throw new \RuntimeException(
+                    "duo: taxonomy '$tax' declares object_keyspace='$resolved' but its runtime object_type "
+                    . "contains 'term' — declaration/runtime relationship ownership contradicts"
+                );
+            }
+        }
+        return $resolved;
     }
 
     /**
@@ -1797,18 +1923,27 @@ self::validate_post_type_children($manifest);
      * taxonomies() below, a structurally different shape by necessity, not
      * an inconsistency with the existing mechanism.
      *
-     * @return array<int, array{match:string, object_type:string[], update_count_callback:?string}>
+     * @return array<int, array{match:string, object_type:string[], update_count_callback:?string, object_keyspace:string, source:string}>
      */
     public function taxonomy_pattern_rules(): array {
         $out = [];
         foreach ($this->manifests as $m) {
-            foreach ($m['taxonomy_patterns'] ?? [] as $pat) {
+            foreach ($m['taxonomy_patterns'] ?? [] as $i => $pat) {
+                $objectTypes = array_values(array_unique(array_map(
+                    'strval',
+                    (array) ($pat['object_type'] ?? [])
+                )));
+                sort($objectTypes, SORT_STRING);
                 $out[] = [
                     'match' => (string) $pat['match'],
-                    'object_type' => array_values((array) ($pat['object_type'] ?? [])),
+                    'object_type' => $objectTypes,
                     'update_count_callback' => isset($pat['update_count_callback'])
                         ? (string) $pat['update_count_callback']
                         : null,
+                    'object_keyspace' => array_key_exists('object_keyspace', $pat)
+                        ? (string) $pat['object_keyspace']
+                        : 'post',
+                    'source' => "manifest '" . (string) ($m['name'] ?? '?') . "' taxonomy_patterns[$i]",
                 ];
             }
         }
@@ -1816,8 +1951,8 @@ self::validate_post_type_children($manifest);
     }
 
     /**
-     * The declared object_type for the first taxonomy_pattern matching
-     * $tax, or null. Consulted by Capture's/Apply's taxes_by_object_type()
+     * The unambiguous declared object_type for every taxonomy_pattern
+     * matching $tax, or null. Consulted by Capture's/Apply's taxes_by_object_type()
      * ONLY as a fallback when get_taxonomy() fails — WooCommerce registers
      * pa_* taxonomies from a DB table read on `init`, which already ran
      * before Snapshot's own phase-1 write of that table's row this same
@@ -1832,12 +1967,7 @@ self::validate_post_type_children($manifest);
      * general override.
      */
     public function pattern_object_type(string $tax): ?array {
-        foreach ($this->taxonomy_pattern_rules() as $pat) {
-            if (preg_match('/' . $pat['match'] . '/', $tax)) {
-                return $pat['object_type'];
-            }
-        }
-        return null;
+        return $this->matching_taxonomy_pattern_rule($tax)['object_type'] ?? null;
     }
 
     /**
@@ -1847,12 +1977,47 @@ self::validate_post_type_children($manifest);
      * contract during that one timing window instead of guessing a COUNT.
      */
     public function pattern_update_count_callback(string $tax): ?string {
-        foreach ($this->taxonomy_pattern_rules() as $pat) {
-            if (preg_match('/' . $pat['match'] . '/', $tax)) {
-                return $pat['update_count_callback'];
+        return $this->matching_taxonomy_pattern_rule($tax)['update_count_callback'] ?? null;
+    }
+
+    /**
+     * Resolve every pattern matching one concrete taxonomy as a single
+     * structural contract. Arbitrary PCRE intersection is not decidable at
+     * load time, so differently-spelled overlapping patterns are checked at
+     * the first concrete name; identical regex conflicts are also rejected
+     * eagerly by validate_no_conflicting_taxonomy_object_keyspaces().
+     *
+     * @return ?array{match:string,object_type:string[],update_count_callback:?string,object_keyspace:string,source:string}
+     */
+    private function matching_taxonomy_pattern_rule(string $tax): ?array {
+        $effective = null;
+        foreach ($this->taxonomy_pattern_rules() as $pattern) {
+            if (!self::taxonomy_pattern_matches($pattern['match'], $tax)) {
+                continue;
+            }
+            if ($effective === null) {
+                $effective = $pattern;
+                continue;
+            }
+            foreach (['object_type', 'update_count_callback', 'object_keyspace'] as $field) {
+                if ($effective[$field] != $pattern[$field]) {
+                    $ambiguity = $field === 'object_keyspace'
+                        ? 'ambiguous object_keyspace declarations'
+                        : 'ambiguous taxonomy_patterns contracts';
+                    throw new \RuntimeException(
+                        "duo: taxonomy '$tax' matches $ambiguity: "
+                        . "{$effective['source']} and {$pattern['source']} disagree on $field; "
+                        . 'pin order may not choose runtime relationship behavior'
+                    );
+                }
             }
         }
-        return null;
+        return $effective;
+    }
+
+    /** taxonomy_patterns stores an undelimited PCRE fragment by contract. */
+    private static function taxonomy_pattern_matches(string $match, string $tax): bool {
+        return @preg_match('/' . $match . '/', $tax) === 1;
     }
 
     /**
@@ -2880,6 +3045,190 @@ self::validate_post_type_children($manifest);
         return $this->rule_details('menu_fields', $field);
     }
 
+    /** Load-time validation for every surface using the shared ref grammar. */
+    private static function validate_reference_shapes(array $source, string $label): void {
+        foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $section) {
+            foreach (($source[$section] ?? []) as $name => $rule) {
+                if (!is_array($rule) || array_is_list($rule)) {
+                    continue; // the section's existing validator owns its base shape
+                }
+                self::validate_reference_value_rule(
+                    $rule,
+                    "$label.$section.$name",
+                    $section === 'options'
+                );
+            }
+        }
+        foreach (['option_patterns', 'meta_patterns', 'option_name_refs'] as $section) {
+            foreach (($source[$section] ?? []) as $i => $rule) {
+                if (is_array($rule) && !array_is_list($rule)) {
+                    self::validate_reference_value_rule($rule, "$label.{$section}[$i]");
+                }
+            }
+        }
+        foreach (($source['dynamic_options'] ?? []) as $name => $declaration) {
+            foreach (($declaration['sub_keys'] ?? []) as $key => $rule) {
+                if (is_array($rule) && !array_is_list($rule)) {
+                    self::validate_reference_value_rule(
+                        $rule,
+                        "$label.dynamic_options.$name.sub_keys.$key"
+                    );
+                }
+            }
+        }
+        foreach (($source['taxonomies'] ?? []) as $taxonomy => $declaration) {
+            if (isset($declaration['description_refs'])) {
+                ReferenceRules::description(
+                    $declaration['description_refs'],
+                    "$label.taxonomies.$taxonomy.description_refs"
+                );
+            }
+        }
+        foreach (($source['tables'] ?? []) as $table => $declaration) {
+            if (($declaration['class'] ?? '') !== 'authored_snapshot_meta') {
+                continue;
+            }
+            foreach (($declaration['keys'] ?? []) as $key => $rule) {
+                if (!is_array($rule) || array_is_list($rule)) {
+                    throw new \RuntimeException(
+                        "duo: $label.tables.$table.keys.$key must be an attached-meta rule object"
+                    );
+                }
+                self::validate_reference_value_rule($rule, "$label.tables.$table.keys.$key");
+            }
+        }
+    }
+
+    private static function validate_reference_value_rule(
+        array $rule,
+        string $where,
+        bool $allowSubKeys = false
+    ): void {
+        ReferenceRules::value_rule($rule, $where);
+        if (array_key_exists('sub_keys', $rule) && !$allowSubKeys) {
+            throw new \RuntimeException(
+                "duo: $where cannot declare sub_keys; the one-level sub_keys map belongs only on an exact or dynamic option declaration"
+            );
+        }
+        foreach (($rule['sub_keys'] ?? []) as $name => $subRule) {
+            if (is_array($subRule) && !array_is_list($subRule)) {
+                self::validate_reference_value_rule($subRule, "$where.sub_keys.$name", false);
+            }
+        }
+    }
+
+    /**
+     * Resolve keyspace names only after every pinned manifest is loaded, so
+     * one adapter may safely refer to an authored table declared by another
+     * without making pin order semantic. Also reject the pre-existing flat
+     * wire ambiguity where two EAV sidecars attach to one row table.
+     */
+    private static function validate_reference_keyspaces_and_sidecars(self $policy): void {
+        $allowed = ['post', 'term', 'tt'];
+        foreach ($policy->declared_tables() as $table => $declaration) {
+            if (($declaration['class'] ?? '') === 'authored_snapshot') {
+                $kind = (string) ($declaration['id_kind'] ?? '');
+                if ($kind !== '') {
+                    $allowed[] = $kind;
+                }
+            }
+        }
+        $allowed = array_values(array_unique($allowed));
+
+        $checkSource = static function (array $source, string $label) use ($allowed): void {
+            foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $section) {
+                foreach (($source[$section] ?? []) as $name => $rule) {
+                    if (is_array($rule) && !array_is_list($rule)) {
+                        self::assert_reference_rule_keyspaces($rule, $allowed, "$label.$section.$name");
+                    }
+                }
+            }
+            foreach (['option_patterns', 'meta_patterns', 'option_name_refs'] as $section) {
+                foreach (($source[$section] ?? []) as $i => $rule) {
+                    if (is_array($rule) && !array_is_list($rule)) {
+                        self::assert_reference_rule_keyspaces($rule, $allowed, "$label.{$section}[$i]");
+                    }
+                }
+            }
+            foreach (($source['dynamic_options'] ?? []) as $name => $declaration) {
+                foreach (($declaration['sub_keys'] ?? []) as $key => $rule) {
+                    if (is_array($rule) && !array_is_list($rule)) {
+                        self::assert_reference_rule_keyspaces(
+                            $rule,
+                            $allowed,
+                            "$label.dynamic_options.$name.sub_keys.$key"
+                        );
+                    }
+                }
+            }
+            foreach (($source['taxonomies'] ?? []) as $taxonomy => $declaration) {
+                if (isset($declaration['description_refs'])) {
+                    $normalized = ReferenceRules::description(
+                        $declaration['description_refs'],
+                        "$label.taxonomies.$taxonomy.description_refs"
+                    );
+                    ReferenceRules::assert_keyspaces(
+                        $normalized,
+                        $allowed,
+                        "$label.taxonomies.$taxonomy.description_refs"
+                    );
+                }
+            }
+            foreach (($source['tables'] ?? []) as $table => $declaration) {
+                if (($declaration['class'] ?? '') !== 'authored_snapshot_meta') {
+                    continue;
+                }
+                foreach (($declaration['keys'] ?? []) as $key => $rule) {
+                    if (is_array($rule) && !array_is_list($rule)) {
+                        self::assert_reference_rule_keyspaces(
+                            $rule,
+                            $allowed,
+                            "$label.tables.$table.keys.$key"
+                        );
+                    }
+                }
+            }
+        };
+
+        $checkSource($policy->site['policy'] ?? [], 'site.duo.json');
+        foreach ($policy->manifests as $manifest) {
+            $checkSource($manifest, "manifest '" . ($manifest['name'] ?? '?') . "'");
+        }
+
+        $owners = [];
+        foreach ($policy->declared_tables() as $table => $declaration) {
+            if (($declaration['class'] ?? '') !== 'authored_snapshot_meta') {
+                continue;
+            }
+            $attached = $declaration['attached_to'] ?? null;
+            if (!is_array($attached) || array_is_list($attached)
+                || !is_string($attached['table'] ?? null) || $attached['table'] === ''
+                || !is_string($attached['column'] ?? null) || $attached['column'] === '') {
+                throw new \RuntimeException(
+                    "duo: attached-meta table '$table' must declare attached_to {table, column}"
+                );
+            }
+            $owner = $attached['table'];
+            if (isset($owners[$owner])) {
+                throw new \RuntimeException(
+                    "duo: attached-meta tables '{$owners[$owner]}' and '$table' both attach to '$owner'; "
+                    . 'the canonical row has one flat meta map, so multiple sidecars are ambiguous'
+                );
+            }
+            $owners[$owner] = $table;
+        }
+    }
+
+    /** @param string[] $allowed */
+    private static function assert_reference_rule_keyspaces(array $rule, array $allowed, string $where): void {
+        ReferenceRules::assert_keyspaces($rule, $allowed, $where);
+        foreach (($rule['sub_keys'] ?? []) as $name => $subRule) {
+            if (is_array($subRule) && !array_is_list($subRule)) {
+                self::assert_reference_rule_keyspaces($subRule, $allowed, "$where.sub_keys.$name");
+            }
+        }
+    }
+
     /**
      * Loud, load-time guard for field_class()'s manifest input (mirrors
      * interpreters()'s "throw immediately, never degrade silently" posture
@@ -3794,38 +4143,72 @@ self::validate_post_type_children($manifest);
      *   - class=authored and sub_keys are mutually exclusive on the SAME
      *     option rule: class=authored already captures the WHOLE value
      *     (authored_options()), so a manifest declaring both is stating two
-     *     contradictory capture strategies for the same option name — the
-     *     kind of ambiguous manifest state this project's posture (DESIGN.md
-     *     3.1.5, "loud-and-blocking default") requires rejecting outright
-     *     rather than silently picking one.
+     *     contradictory capture strategies for the same option name;
+     *   - whole-value codec/safety fields are likewise mutually exclusive
+     *     with sub_keys. Every capture/apply/lint/compiler consumer delegates
+     *     value semantics to the named sub-key rules once sub_keys exists, so
+     *     accepting one of those fields on the parent would silently ignore a
+     *     declaration rather than establish a second ownership layer.
+     *
+     * These are the kind of ambiguous manifest states this project's posture
+     * (DESIGN.md 3.1.5, "loud-and-blocking default") requires rejecting
+     * outright rather than silently picking one.
      */
-    private static function validate_sub_keys(array $manifest): void {
-        $name = (string) ($manifest['name'] ?? '?');
-        foreach ($manifest['options'] ?? [] as $optName => $rule) {
+    private static function validate_sub_keys(array $source, string $label): void {
+        foreach ($source['options'] ?? [] as $optName => $rule) {
             $subKeys = $rule['sub_keys'] ?? null;
             if ($subKeys === null) {
                 continue;
             }
             if (!is_array($subKeys) || !$subKeys) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' declares options.$optName.sub_keys but it is not a non-empty object"
+                    "duo: $label declares options.$optName.sub_keys but it is not a non-empty object"
                 );
             }
             if (($rule['class'] ?? '') === 'authored') {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' declares options.$optName with BOTH class=authored and sub_keys — "
+                    "duo: $label declares options.$optName with BOTH class=authored and sub_keys — "
                     . 'these are mutually exclusive (class=authored already captures the WHOLE value; sub_keys '
                     . 'narrows independent capture to named keys of an otherwise-excluded blob). Pick one.'
                 );
             }
+            self::assert_sub_key_parent_has_no_value_fields(
+                $rule,
+                "$label options.$optName"
+            );
             foreach ($subKeys as $subKey => $subRule) {
                 if (!is_array($subRule) || !in_array($subRule['class'] ?? null, self::CLASSES, true)) {
                     throw new \RuntimeException(
-                        "duo: manifest '$name' declares options.$optName.sub_keys.$subKey with an invalid or "
+                        "duo: $label declares options.$optName.sub_keys.$subKey with an invalid or "
                         . 'missing class (expected one of ' . implode('|', self::CLASSES) . ')'
                     );
                 }
             }
+        }
+    }
+
+    private const SUB_KEY_PARENT_VALUE_FIELDS = [
+        'ref',
+        'json_refs',
+        'key_refs',
+        'json_encoded',
+        'cast',
+        'order_preserving',
+        'allow_secret',
+        'lint_ok',
+    ];
+
+    private static function assert_sub_key_parent_has_no_value_fields(array $rule, string $where): void {
+        $ambiguous = array_values(array_filter(
+            self::SUB_KEY_PARENT_VALUE_FIELDS,
+            static fn(string $field): bool => array_key_exists($field, $rule)
+        ));
+        if ($ambiguous) {
+            throw new \RuntimeException(
+                "duo: $where declares sub_keys together with whole-value field(s) "
+                . implode(', ', $ambiguous) . '; put value/reference/secret/lint behavior on each named '
+                . 'sub-key rule instead'
+            );
         }
     }
 
@@ -3894,6 +4277,61 @@ self::validate_post_type_children($manifest);
     }
 
     /**
+     * `object_keyspace` is a structural taxonomy claim, not a convenient
+     * runtime hint. Reject a malformed value while loading its manifest so
+     * no capture/lint/apply path can silently reinterpret a relationship
+     * row's shared numeric object_id later. Dynamic taxonomy patterns use
+     * the same declaration, and their regex must be usable before a future
+     * concrete taxonomy name reaches the resolver.
+     */
+    private static function validate_taxonomy_object_keyspace_declarations(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        foreach ((array) ($manifest['taxonomies'] ?? []) as $tax => $rule) {
+            if (!is_array($rule) || !array_key_exists('object_keyspace', $rule)) {
+                continue;
+            }
+            self::validate_taxonomy_object_keyspace_value(
+                $rule['object_keyspace'],
+                "manifest '$name' taxonomies.$tax.object_keyspace"
+            );
+        }
+
+        if (!array_key_exists('taxonomy_patterns', $manifest)) {
+            return;
+        }
+        $patterns = $manifest['taxonomy_patterns'];
+        if (!is_array($patterns) || !array_is_list($patterns)) {
+            throw new \RuntimeException("duo: manifest '$name' declares taxonomy_patterns that is not a list");
+        }
+        foreach ($patterns as $i => $pattern) {
+            if (!is_array($pattern) || array_is_list($pattern)) {
+                throw new \RuntimeException("duo: manifest '$name' declares taxonomy_patterns[$i] that is not an object");
+            }
+            $match = $pattern['match'] ?? null;
+            if (!is_string($match) || $match === '' || @preg_match('/' . $match . '/', '') === false) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares taxonomy_patterns[$i].match with an invalid or empty regex"
+                );
+            }
+            if (array_key_exists('object_keyspace', $pattern)) {
+                self::validate_taxonomy_object_keyspace_value(
+                    $pattern['object_keyspace'],
+                    "manifest '$name' taxonomy_patterns[$i].object_keyspace"
+                );
+            }
+        }
+    }
+
+    private static function validate_taxonomy_object_keyspace_value(mixed $value, string $where): void {
+        if (!is_string($value) || !in_array($value, self::TAXONOMY_RELATIONSHIP_OBJECTS, true)) {
+            throw new \RuntimeException(
+                "duo: $where must be one of " . implode('|', self::TAXONOMY_RELATIONSHIP_OBJECTS)
+                . '; no other relationship object keyspace is supported'
+            );
+        }
+    }
+
+    /**
      * v1-supported dynamic_options resolvers (DUO-3264, fork A) — a
      * manifest's `resolver` value must appear here, mirroring
      * MENU_DERIVABLE_FIELDS/DERIVABLE_FIELD_COLUMNS' own "start v1 scope tight"
@@ -3937,6 +4375,10 @@ self::validate_post_type_children($manifest);
             if (!is_array($subKeys) || !$subKeys) {
                 throw new \RuntimeException("duo: manifest '$name' declares dynamic_options.$key.sub_keys that is missing, empty, or not an object");
             }
+            self::assert_sub_key_parent_has_no_value_fields(
+                $decl,
+                "manifest '$name' dynamic_options.$key"
+            );
             foreach ($subKeys as $subKey => $subRule) {
                 if (!is_array($subRule) || !in_array($subRule['class'] ?? null, self::CLASSES, true)) {
                     throw new \RuntimeException(
@@ -4008,6 +4450,165 @@ self::validate_post_type_children($manifest);
             $rule['autoload'] = $source['option_autoload'];
         }
         return $rule;
+    }
+
+    /**
+     * A relationship keyspace decides which independent id counter owns a
+     * wp_term_relationships.object_id. Pin order cannot choose between two
+     * different answers. Exact declarations are checked eagerly; identical
+     * pattern regexes are checked eagerly too; and an exact taxonomy that
+     * already matches a declared pattern is checked before any WordPress
+     * read. Different, potentially-overlapping dynamic patterns are finally
+     * checked by taxonomy_object_keyspace() when a concrete name is used.
+     * Regex intersection is not safely decidable from arbitrary PCRE, while
+     * resolving a concrete name is exact and happens before a query/mutation.
+     *
+     * @param list<array> $manifests
+     */
+    private static function validate_no_conflicting_taxonomy_object_keyspaces(array $manifests): void {
+        /** @var array<string,array<string,string[]>> $exact taxonomy => keyspace => sources */
+        $exact = [];
+        /** @var list<array{match:string,value:string,object_type:string[],callback:?string,source:string}> $patterns */
+        $patterns = [];
+        foreach ($manifests as $manifest) {
+            $name = (string) ($manifest['name'] ?? '?');
+            foreach ((array) ($manifest['taxonomies'] ?? []) as $tax => $rule) {
+                if (!is_array($rule)) {
+                    continue;
+                }
+                $value = array_key_exists('object_keyspace', $rule)
+                    ? (string) $rule['object_keyspace']
+                    : 'post';
+                $source = array_key_exists('object_keyspace', $rule)
+                    ? "manifest '$name' taxonomies.$tax.object_keyspace"
+                    : "manifest '$name' taxonomies.$tax (legacy post default)";
+                $exact[(string) $tax][$value][] = $source;
+            }
+            foreach ((array) ($manifest['taxonomy_patterns'] ?? []) as $i => $pattern) {
+                if (!is_array($pattern)) {
+                    continue;
+                }
+                $objectTypes = array_values(array_unique(array_map(
+                    'strval',
+                    (array) ($pattern['object_type'] ?? [])
+                )));
+                sort($objectTypes, SORT_STRING);
+                $patterns[] = [
+                    'match' => (string) $pattern['match'],
+                    'value' => array_key_exists('object_keyspace', $pattern)
+                        ? (string) $pattern['object_keyspace']
+                        : 'post',
+                    'object_type' => $objectTypes,
+                    'callback' => isset($pattern['update_count_callback'])
+                        ? (string) $pattern['update_count_callback']
+                        : null,
+                    'source' => "manifest '$name' taxonomy_patterns[$i]",
+                ];
+            }
+        }
+
+        foreach ($exact as $tax => $claims) {
+            if (count($claims) > 1) {
+                self::throw_conflicting_taxonomy_object_keyspace($tax, $claims);
+            }
+        }
+
+        $patternClaims = [];
+        foreach ($patterns as $pattern) {
+            $patternClaims[$pattern['match']][$pattern['value']][] = $pattern['source'] . '.object_keyspace';
+        }
+
+        $contractsByRegex = [];
+        foreach ($patterns as $pattern) {
+            $contractsByRegex[$pattern['match']][] = $pattern;
+        }
+        foreach ($contractsByRegex as $match => $contracts) {
+            $first = $contracts[0];
+            foreach (array_slice($contracts, 1) as $candidate) {
+                foreach (['object_type', 'callback'] as $field) {
+                    if ($candidate[$field] != $first[$field]) {
+                        throw new \RuntimeException(
+                            "duo: taxonomy_patterns regex '$match' has conflicting $field declarations from "
+                            . "{$first['source']} and {$candidate['source']} — pin order may not choose "
+                            . 'dynamic taxonomy behavior'
+                        );
+                    }
+                }
+            }
+        }
+        foreach ($patternClaims as $match => $claims) {
+            if (count($claims) > 1) {
+                $rendered = [];
+                foreach ($claims as $value => $sources) {
+                    $rendered[] = "$value from " . implode(', ', $sources);
+                }
+                throw new \RuntimeException(
+                    "duo: taxonomy_patterns regex '$match' has conflicting object_keyspace declarations ("
+                    . implode('; ', $rendered) . ') — matching patterns must agree'
+                );
+            }
+        }
+
+        foreach ($exact as $tax => $claims) {
+            $value = (string) array_key_first($claims);
+            foreach ($patterns as $pattern) {
+                if (self::taxonomy_pattern_matches($pattern['match'], $tax) && $pattern['value'] !== $value) {
+                    throw new \RuntimeException(
+                        "duo: taxonomy '$tax' has conflicting object_keyspace declarations: "
+                        . implode(', ', $claims[$value]) . " says $value, but {$pattern['source']}.object_keyspace says "
+                        . "{$pattern['value']} — exact and matching pattern declarations must agree"
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * A taxonomy description has one physical carrier and therefore one
+     * structural-reference grammar. Pin order may not select between two
+     * adapters that describe that same carrier differently. Identical
+     * declarations remain shareable, including the legacy flat-map mode;
+     * normalized comparison deliberately retains legacy_flat_map because it
+     * controls the byte-compatible empty-map representation.
+     *
+     * @param list<array> $manifests
+     */
+    private static function validate_no_conflicting_description_reference_rules(array $manifests): void {
+        /** @var array<string,array{rule:array,source:string}> $claims */
+        $claims = [];
+        foreach ($manifests as $manifest) {
+            $name = (string) ($manifest['name'] ?? '?');
+            foreach ((array) ($manifest['taxonomies'] ?? []) as $taxonomy => $declaration) {
+                if (!is_array($declaration) || !array_key_exists('description_refs', $declaration)) {
+                    continue;
+                }
+                $source = "manifest '$name' taxonomies.$taxonomy.description_refs";
+                $rule = ReferenceRules::description($declaration['description_refs'], $source);
+                if (!isset($claims[$taxonomy])) {
+                    $claims[$taxonomy] = ['rule' => $rule, 'source' => $source];
+                    continue;
+                }
+                if ($claims[$taxonomy]['rule'] != $rule) {
+                    throw new \RuntimeException(
+                        "duo: taxonomy '$taxonomy' has conflicting description_refs declarations from "
+                        . "{$claims[$taxonomy]['source']} and $source — pin order may not choose a "
+                        . 'serialized-description reference grammar'
+                    );
+                }
+            }
+        }
+    }
+
+    /** @param array<string,string[]> $claims */
+    private static function throw_conflicting_taxonomy_object_keyspace(string $tax, array $claims): never {
+        $rendered = [];
+        foreach ($claims as $value => $sources) {
+            $rendered[] = "$value from " . implode(', ', $sources);
+        }
+        throw new \RuntimeException(
+            "duo: taxonomy '$tax' has conflicting object_keyspace declarations ("
+            . implode('; ', $rendered) . ') — pin order may not choose a relationship keyspace'
+        );
     }
 
     /**

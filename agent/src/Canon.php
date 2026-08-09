@@ -22,7 +22,7 @@ final class Canon {
      * nesting level inside it, while everything else in the SAME document
      * still gets the ordinary alphabetical treatment — the wrapper is a
      * scoped opt-in, not a global behavior change. Capture::build_post()'s
-     * post_meta loop is the only place that constructs one, gated on a
+     * post_meta and attached-meta capture paths construct one, gated on a
      * meta rule declaring "order_preserving": true (spec v0.15, sibling to
      * json_refs/cast). Unwrapped here, immediately, on first encounter —
      * nothing past this function (the JSON on disk, Apply's json_decode())

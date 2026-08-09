@@ -162,6 +162,19 @@ say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
+normalize_repo_permissions() {
+  local host_uid host_gid
+  host_uid=$(id -u)
+  host_gid=$(id -g)
+  mkdir -p "siterepo/${PAIR}1" "siterepo/${PAIR}2"
+  # Capture/apply publish as container uid 33. Normalize only this test's
+  # pair-owned bind roots before host-side cleanup so reruns cannot fail on
+  # otherwise valid canonical files merely because they are mode 0644. The
+  # chown also repairs a missing bind source that Docker recreated as root.
+  $COMPOSE run --rm -T -u root cli1 sh -c "chown -R ${host_uid}:${host_gid} /siterepo && chmod -R ugo+rwX /siterepo" >/dev/null 2>&1 || true
+  $COMPOSE run --rm -T -u root cli2 sh -c "chown -R ${host_uid}:${host_gid} /siterepo && chmod -R ugo+rwX /siterepo" >/dev/null 2>&1 || true
+}
+
 # DUO-3300's focused owning-layer regression. Polylang stores each language's
 # locale configuration as a PHP-serialized `language` term description. Read
 # the raw column (not WP_Term's cache) and refuse the empty/malformed state
@@ -220,6 +233,10 @@ assert_complete_html() { # assert_complete_html <body> <label>
 command -v jq >/dev/null || fail "jq required"
 command -v python3 >/dev/null || fail "python3 required"
 
+# A prior interrupted run may have been destroyed already. Compose can still
+# mount the pair-owned roots into a one-shot root CLI container, so normalize
+# stale uid-33 files before pair.sh's host-side reset tries to clear them.
+normalize_repo_permissions
 say "pair.sh reset + up: TRUE clean slate (DROP/CREATE database, not just wp-cli-level content wiping) -- plugin FILES persist in the webroot volume (pair.sh reset never touches it), so the installs below are fast re-activations, not re-downloads"
 bash bin/pair.sh reset "$PAIR"
 bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --http
@@ -306,6 +323,7 @@ update_option('wpseo', \$o);
 "
 
 say "init site repo (own origin, own clones)"
+normalize_repo_permissions
 rm -rf siterepo/origin-${PAIR}.git siterepo/${PAIR}1/.git siterepo/${PAIR}1/state siterepo/${PAIR}1/site.duo.json siterepo/${PAIR}2
 git init --bare -b main siterepo/origin-${PAIR}.git >/dev/null
 mkdir -p siterepo/${PAIR}1
@@ -353,6 +371,7 @@ wp1 duo lint --repo=/siterepo
 wp1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
 assert_language_descriptions 1 "after deterministic second source capture"
 diff -r siterepo/${PAIR}1/state siterepo/${PAIR}1/.tmp-state2 || fail "capture is not deterministic"
+normalize_repo_permissions
 rm -rf siterepo/${PAIR}1/.tmp-state2
 pass "lint clean, capture-twice diff empty"
 
@@ -361,8 +380,10 @@ git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test
 git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test push -q origin main
 
 say "(2)/(3) round-trip onto a GENUINELY FRESH target: side2 has Polylang+Yoast active, but ZERO manual language/Settings config"
+normalize_repo_permissions
 rm -rf siterepo/${PAIR}2
 git clone -q siterepo/origin-${PAIR}.git siterepo/${PAIR}2
+chmod -R a+rwX siterepo/${PAIR}2
 REV=$(git -C siterepo/${PAIR}2 rev-parse HEAD)
 POLYLANG_BEFORE=$(wp2 option get polylang --format=json | tail -1)
 echo "side2 polylang option BEFORE apply (fresh activation defaults): $POLYLANG_BEFORE"
@@ -523,6 +544,7 @@ pass "confirmed via real HTTP requests: EN shows Main Menu, DE shows Hauptmenu, 
 say "(8) negative: RepositoryAuthorization refuses an UNDECLARED sub-key smuggled into a captured polylang value"
 BAD_REPO=/siterepo/.tmp-duo3233-badsubkey
 HOST_BAD_REPO=siterepo/${PAIR}2/.tmp-duo3233-badsubkey
+normalize_repo_permissions
 rm -rf "$HOST_BAD_REPO"
 mkdir -p "$HOST_BAD_REPO"
 cp siterepo/${PAIR}2/site.duo.json "$HOST_BAD_REPO/site.duo.json"
@@ -589,6 +611,7 @@ set -e
 echo "$BAD_OUT"
 [ "$BAD_RC" -ne 0 ] || fail "expected apply to REFUSE an undeclared polylang sub-key ('sync'), got exit 0"
 grep -qE "polylang.sync|option_sub_key" <<<"$BAD_OUT" || fail "refusal doesn't name the undeclared sub-key (got: $BAD_OUT)"
+normalize_repo_permissions
 rm -rf "$HOST_BAD_REPO"
 pass "an undeclared sub-key ('sync') smuggled into a captured polylang value is refused loudly, naming the offending key"
 
@@ -600,6 +623,7 @@ say "(9) negative: wp duo lint flags a bare numeric id smuggled into a PLAIN (no
 # itself is a DIFFERENT, NOT-asserted case here).
 BAD_REPO2=/siterepo/.tmp-duo3233-badlint
 HOST_BAD_REPO2=siterepo/${PAIR}1/.tmp-duo3233-badlint
+normalize_repo_permissions
 rm -rf "$HOST_BAD_REPO2"
 mkdir -p "$HOST_BAD_REPO2/state/options"
 cp siterepo/${PAIR}1/site.duo.json "$HOST_BAD_REPO2/site.duo.json"
@@ -610,6 +634,7 @@ set -e
 echo "$LINT_OUT"
 grep -qi "bare_id" <<<"$LINT_OUT" || fail "expected lint to flag the bare numeric post_types entry as bare_id (got: $LINT_OUT)"
 grep -q "polylang.post_types" <<<"$LINT_OUT" || fail "lint finding doesn't locate the sub-key path (got: $LINT_OUT)"
+normalize_repo_permissions
 rm -rf "$HOST_BAD_REPO2"
 pass "lint correctly flags a bare id smuggled into a sub_keys-declared PLAIN value (scan_option_sub_keys()'s shallow branch)"
 echo "note (characterized, not asserted -- a genuine, PRE-EXISTING Lint.php limitation unrelated to sub_keys, filed separately): the DEEP branch (scan_structured_bare_ids(), used for json_refs-declared sub-keys like nav_menus) only flags an id-shaped VALUE sitting under an id-NAMED key (looks_like_id_key() -- e.g. wpseo_taxonomy_meta's 'wpseo-opengraph-image-id'). nav_menus' own shape keys its ids by LANGUAGE SLUG ('en'/'de'), which no id-naming heuristic could safely recognize (2-letter slugs are far too generic to add to that heuristic without mass false positives) -- so an unrewritten nav_menus id would currently pass lint silently. The rewrite itself is unaffected (Tokens::struct_capture()'s json_refs path rewrites by declared PATH, never by key-name matching) -- this is purely a lint-detection blind spot for the negative/audit case, the same species of gap task #11's original wave discovered and wave 2 partially closed."

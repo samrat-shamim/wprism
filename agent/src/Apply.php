@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/PlainData.php';
 require_once __DIR__ . '/Providers.php';
+require_once __DIR__ . '/StructuredValue.php';
 
 /**
  * Plan + apply: repo state tree -> environment DB.
@@ -2911,20 +2912,24 @@ final class Apply {
      * Every other taxonomy keeps the plain detokenize_text() treatment.
      */
     private function encode_description(string $taxonomy, $description): string {
-        $rule = $this->policy->description_refs_for_taxonomy($taxonomy);
+        $rule = $this->policy->description_reference_rule($taxonomy);
         if ($rule === null) {
             return $this->tokens->detokenize_text((string) $description);
         }
-        $decoded = $this->tokens->struct_apply((array) $description, [['path' => '$.*', 'kind' => $rule['kind']]], null);
+        $decoded = $this->tokens->struct_apply(
+            $description,
+            $rule['json_refs'],
+            $rule['key_refs']
+        );
         return serialize($decoded);
     }
 
     /**
-     * Term-object symmetry of reconcile_relationships(): a term's own
+     * Term-keyspace symmetry of reconcile_relationships(): a term's own
      * membership in OTHER taxonomies as object_id (docs/frontier/
      * polylang.md's "term-object relationship capture/apply" — Polylang's
      * term_language/term_translations). Scoped to term_object_taxes() — the
-     * same object_type collision guard reconcile_relationships() applies
+     * same manifest-keyspace collision guard reconcile_relationships() applies
      * for posts — so this never touches a colliding POST's own
      * relationship rows just because the numeric id matches. Two-phase-
      * safe for free: this only ever runs in phase 2 (finalize_term()),
@@ -2933,6 +2938,15 @@ final class Apply {
      */
     private function reconcile_term_relationships(int $termId, string $taxonomy, array $relField): void {
         global $wpdb;
+        foreach (array_keys($relField) as $tax) {
+            $keyspace = $this->policy->taxonomy_object_keyspace((string) $tax);
+            if ($keyspace !== 'term') {
+                throw new \RuntimeException(
+                    "duo: term $termId ($taxonomy) declares relationships.$tax, but manifest object_keyspace "
+                    . "is '$keyspace' — term relationships require object_keyspace=term"
+                );
+            }
+        }
         $taxes = $this->term_object_taxes();
         if (!$taxes) {
             return;
@@ -3076,6 +3090,15 @@ final class Apply {
         array $termOrders = []
     ): void {
         global $wpdb;
+        foreach (array_keys($termsField) as $tax) {
+            $keyspace = $this->policy->taxonomy_object_keyspace((string) $tax);
+            if ($keyspace !== 'post') {
+                throw new \RuntimeException(
+                    "duo: post $postId declares terms.$tax, but manifest object_keyspace is '$keyspace' "
+                    . '— post terms require object_keyspace=post'
+                );
+            }
+        }
         $taxes = $this->taxes_for_post_type($postType);
         if (!$taxes) {
             return;
@@ -3130,8 +3153,9 @@ final class Apply {
 
     /**
      * Same collision guard as Capture::taxes_by_object_type(): only
-     * taxonomies whose registered object_type actually includes this post
-     * type may own this post's relationship rows. Without it, the "current
+     * taxonomies whose resolved object_keyspace is `post` and whose
+     * registered object_type actually includes this post type may own this
+     * post's relationship rows. Without it, the "current
      * relationships" SELECT above can pick up a colliding term's own
      * term-to-term rows (object_id happens to equal this post's id) and,
      * since they're never in $desiredTt, DELETE them — destroying a
@@ -3187,12 +3211,17 @@ final class Apply {
                     $objectTypes,
                     $this->option_driven_object_type($tax)
                 )));
+                // Resolve the relationship keyspace before using runtime
+                // (or declared option-driven) object_type to determine
+                // post-type membership. An undeclared term/mixed taxonomy
+                // is a loud refusal, not an engine sentinel inference.
+                $keyspace = $this->policy->taxonomy_object_keyspace($tax, $objectTypes);
+                if ($keyspace === 'term') {
+                    $termObject[] = $tax;
+                    continue;
+                }
                 foreach ($objectTypes as $objectType) {
-                    if ($objectType === 'term') {
-                        $termObject[] = $tax;
-                    } else {
-                        $byPostType[$objectType][] = $tax;
-                    }
+                    $byPostType[$objectType][] = $tax;
                 }
             }
             $this->taxesByObjectType = ['by_post_type' => $byPostType, 'term_object' => $termObject];
@@ -3273,7 +3302,7 @@ final class Apply {
         return $this->taxes_by_object_type()['by_post_type'][$postType] ?? [];
     }
 
-    /** @return string[] policy-scoped taxonomies whose registered object_type includes 'term'. */
+    /** @return string[] policy-scoped taxonomies whose resolved object_keyspace is `term`. */
     private function term_object_taxes(): array {
         return $this->taxes_by_object_type()['term_object'];
     }
@@ -3638,7 +3667,7 @@ final class Apply {
     private function apply_value(string $ctx, $v, array $rule) {
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
             $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-            return $this->encode_structured($v, $rule);
+            return StructuredValue::encode($v, $rule, $ctx);
         }
         if (!empty($rule['ref'])) {
             return $this->tokens->tokens_to_value($v, $rule['ref']);
@@ -3779,36 +3808,6 @@ final class Apply {
         $this->upsert_option($name, $this->option_wire_value($live), $autoload);
     }
 
-    /**
-     * Mirror of Capture::decode_structured(): re-encode a json_refs/
-     * key_refs-rewritten native structure back to the shape the RAW
-     * meta/option value actually stores on the wire. `"json_encoded":
-     * true` (Elementor's _elementor_data — the plugin manually
-     * wp_json_encode()s before WordPress's own maybe_serialize()/
-     * maybe_unserialize() layer, a no-op passthrough on an already-string
-     * value, ever sees it) re-encodes to a compact JSON TEXT string —
-     * deliberately plain `json_encode($v)` with NO flags, matching
-     * Elementor's own convention byte-for-byte (escaped slashes, escaped
-     * unicode — confirmed via docs/frontier/elementor.md's xxd check),
-     * NOT Canon::encode() (which sorts keys / pretty-prints / unescapes —
-     * exactly right for the state/ tree's human-readable copy, exactly
-     * wrong for reconstructing what a plugin's own code expects to read
-     * back from postmeta). Absent the flag, the native array is returned
-     * as-is and the ordinary maybe_serialize() call at each call site
-     * PHP-serializes it — the ordinary WP option/meta convention (Yoast's
-     * wpseo_taxonomy_meta).
-     */
-    private function encode_structured($v, array $rule) {
-        if (empty($rule['json_encoded'])) {
-            return $v;
-        }
-        $encoded = json_encode($v);
-        if ($encoded === false) {
-            throw new \RuntimeException('duo: could not re-encode json_refs/key_refs structured value: ' . json_last_error_msg());
-        }
-        return $encoded;
-    }
-
     private function upsert_option(string $name, string $value, string $autoload): void {
         global $wpdb;
         $exists = $wpdb->get_var($wpdb->prepare(
@@ -3872,7 +3871,7 @@ final class Apply {
             $rule = $this->policy->meta_rule_for_post($key, $frontMeta) ?? [];
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                 $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-                $v = $this->encode_structured($v, $rule);
+                $v = StructuredValue::encode($v, $rule, "$ownerLabel meta $key");
             } elseif (!empty($rule['ref'])) {
                 $v = $this->tokens->meta_tokens_to_value($v, $rule);
             } elseif (is_string($v)) {
@@ -3911,7 +3910,7 @@ final class Apply {
             $rule = $this->policy->meta_rule_for_term((string) $key, $frontMeta) ?? [];
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                 $value = $this->tokens->struct_apply($value, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-                $value = $this->encode_structured($value, $rule);
+                $value = StructuredValue::encode($value, $rule, "term meta $key");
             } elseif (!empty($rule['ref'])) {
                 $value = $this->tokens->meta_tokens_to_value($value, $rule);
             } elseif (is_string($value)) {
@@ -3968,7 +3967,7 @@ final class Apply {
                     $rule['json_refs'] ?? [],
                     $rule['key_refs'] ?? null
                 );
-                $value = $this->encode_structured($value, $rule);
+                $value = StructuredValue::encode($value, $rule, "user '$login' meta $key");
             } elseif (!empty($rule['ref'])) {
                 // User refs need the meta decoder: unlike option refs it
                 // understands user:<login>, arrays, and storage casts.
@@ -4204,9 +4203,10 @@ final class Apply {
     /**
      * Delete a post's own term_relationships rows only — scoped to every
      * taxonomy REGISTERED on this runtime whose object_type includes this
-     * post's type (deliberately not policy-scoped: a full post delete must
-     * clean up every taxonomy that legitimately relates to it, same as
-     * wp_delete_post(), not just the ones Duo happens to manage).
+     * post's type and whose resolved object_keyspace is `post` (deliberately
+     * not policy-scoped: a full post delete must clean up every taxonomy
+     * that legitimately relates to it, same as wp_delete_post(), not just
+     * the ones Duo happens to manage).
      *
      * An unfiltered `DELETE ... WHERE object_id = $id` (the previous code)
      * hits every term_relationships row with that raw id regardless of
@@ -4220,7 +4220,10 @@ final class Apply {
         global $wpdb;
         $taxes = array_values(array_filter(get_taxonomies(), function (string $tax) use ($postType) {
             $taxObj = get_taxonomy($tax);
-            return $taxObj !== false && in_array($postType, (array) $taxObj->object_type, true);
+            if ($taxObj === false || !in_array($postType, (array) $taxObj->object_type, true)) {
+                return false;
+            }
+            return $this->policy->taxonomy_object_keyspace($tax, (array) $taxObj->object_type) === 'post';
         }));
         if (!$taxes) {
             return;
@@ -4245,11 +4248,10 @@ final class Apply {
      * Term-object symmetry of delete_post_relationships() immediately
      * above: a deleted term's OWN relationship rows as object_id (term-
      * object taxonomies, e.g. Polylang's term_language/term_translations),
-     * scoped to every taxonomy REGISTERED on this runtime whose object_type
-     * includes 'term' — deliberately not policy-scoped, same rationale as
-     * the post-side twin: a full term delete must clean up every taxonomy
-     * that legitimately relates to it as object_id, not just the ones Duo
-     * happens to manage. An unfiltered `DELETE ... WHERE object_id = $id`
+     * scoped to every taxonomy REGISTERED on this runtime whose manifest-
+     * resolved object_keyspace is `term`. An undeclared runtime term/mixed
+     * taxonomy refuses before mutation instead of making literal `term` an
+     * engine-owned plugin sentinel. An unfiltered `DELETE ... WHERE object_id = $id`
      * would hit every term_relationships row with that raw id regardless of
      * taxonomy — including a POST-object taxonomy's row for a completely
      * different POST that happens to share this term's id.
@@ -4258,7 +4260,8 @@ final class Apply {
         global $wpdb;
         $taxes = array_values(array_filter(get_taxonomies(), function (string $tax) {
             $taxObj = get_taxonomy($tax);
-            return $taxObj !== false && in_array('term', (array) $taxObj->object_type, true);
+            return $taxObj !== false
+                && $this->policy->taxonomy_object_keyspace($tax, (array) $taxObj->object_type) === 'term';
         }));
         if (!$taxes) {
             return;

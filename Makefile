@@ -3,7 +3,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-lifecycle-options-snapshot
 
 .PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half grind-code-half-ecosystem grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-reference-bundle certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-executor regress-checkpoint-bundle regress-code-release code-half-unit \
-	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy \
+	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy regress-taxonomy-object-keyspace \
 	regress-env-options-policy regress-export-manifest-roundtrip regress-manifest-reclassification-policy regress-ecommerce-developer-matrix \
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
 	regress-woocommerce-product-lookups regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
@@ -11,7 +11,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-term-meta regress-url-query-refs regress-acf-term-options-fields regress-collision \
 	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
-	regress-snapshot-meta regress-ssh-adopt regress-tec-regen regress-user-meta \
+	regress-snapshot-meta regress-generic-reference-shapes regress-ssh-adopt regress-tec-regen regress-user-meta \
 	regress-option-name-refs-wiring regress-offline-all regress-live-list regress-code-compatibility regress-upload-bundle \
 	regress-effect-bundle regress-woocommerce-effect-contract regress-ssh-rollback-certification \
 	regress-coverage-offline regress-coverage regress-classification-batch \
@@ -27,7 +27,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-frozen-materialization-promotion \
 	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions \
-	regress-post-field-classification regress-capability-registry regress-woocommerce-contract \
+	regress-post-field-classification regress-capability-registry regress-woocommerce-contract regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
 	capability-registry-generate release-gate
 
@@ -378,6 +378,13 @@ code-half-unit: regress-repository-compiler regress-code-revision-enforcement re
 regress-repository-compiler:
 	bash sandbox/tests/regress_repository_compiler.sh
 
+# DUO-3316: generalized taxonomy object keyspaces, full description
+# json_refs/key_refs, attached structured-meta sidecar variants/two-sidecar
+# refusal, load-time refusal matrices, frozen-policy parity, and compiler
+# raw-id portability gates.
+regress-duo3316-contract:
+	bash sandbox/tests/regress_duo3316_contract.sh
+
 regress-coverage-offline:
 	php sandbox/tests/regress_coverage_offline.php
 
@@ -621,6 +628,9 @@ regress-frozen-materialization-promotion:
 regress-dynamic-options-policy:
 	bash sandbox/tests/regress_dynamic_options_policy.sh
 
+regress-taxonomy-object-keyspace:
+	bash sandbox/tests/regress_taxonomy_object_keyspace.sh
+
 regress-env-options-policy:
 	bash sandbox/tests/regress_env_options_policy.sh
 
@@ -737,6 +747,9 @@ regress-scope-gate:
 regress-snapshot-meta:
 	bash sandbox/tests/regress_snapshot_meta.sh
 
+regress-generic-reference-shapes:
+	bash sandbox/tests/regress_generic_reference_shapes.sh
+
 regress-ssh-adopt:
 	bash sandbox/tests/regress_ssh_adopt.sh
 
@@ -791,7 +804,7 @@ regress-offline-all: code-half-unit \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan \
 	regress-order-preserving \
 	regress-block-refs regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-materializer regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion \
-	regress-dynamic-options-policy regress-env-options-policy regress-export-manifest-roundtrip \
+	regress-dynamic-options-policy regress-taxonomy-object-keyspace regress-env-options-policy regress-export-manifest-roundtrip \
 	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
 	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch regress-refresh-orchestration regress-refresh-compile-refs regress-refresh-rebase \
@@ -801,8 +814,8 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
-	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-vocabulary-ownership regress-close-gate-parent-count
-	@echo "regress-offline-all: 82 offline suites green"
+	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count
+	@echo "regress-offline-all: 84 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
@@ -843,6 +856,7 @@ regress-live-list:
 	@echo "  regress-repository-compiler-integration   pair conf 8806/8807"
 	@echo "  regress-scope-gate                        pair codexmac3229 8900/8901"
 	@echo "  regress-snapshot-meta                     pair w1a"
+	@echo "  regress-generic-reference-shapes         neutral taxonomy/sidecar fixture pair"
 	@echo "  regress-ssh-adopt                         standalone SSH host, own docker image (NOT pair.sh) -- DUO-3257/DUO-3281"
 	@echo "  certify-ssh-rollback                     four disposable containers: two SSH hosts + two MariaDB servers"
 	@echo "  regress-tec-regen                         pair asnaptec"

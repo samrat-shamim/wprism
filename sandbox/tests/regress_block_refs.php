@@ -245,6 +245,7 @@ $policy->manifests = [[
                 'nav_menus' => [
                     'class' => 'authored',
                     'json_refs' => [['kind' => 'term', 'path' => '$.*.*.*']],
+                    'key_refs' => ['kind' => 'term', 'path' => '$.by_term'],
                 ],
             ],
         ],
@@ -529,6 +530,7 @@ Canon::write_file($stateDir . '/options/core.json', Canon::encode(OptionState::d
                     'de' => 999,
                 ],
             ],
+            'by_term' => [999 => 'raw-key-survivor'],
         ],
     ], 'yes'),
 ])));
@@ -601,21 +603,26 @@ check(
 );
 
 $optionFindings = $byPath['options/core.json'] ?? [];
-check(count($optionFindings) === 1, 'S1: Polylang-shaped option -> exactly one numeric survivor finding (got ' . count($optionFindings) . ': ' . json_encode($optionFindings) . ')');
-if (count($optionFindings) === 1) {
-    check(
-        $optionFindings[0]['class'] === 'unrewritten_registered_ref',
-        'S2: declared json_refs survivor uses unrewritten_registered_ref (got: ' . $optionFindings[0]['class'] . ')'
-    );
-    check(
-        $optionFindings[0]['locator'] === 'options.polylang.nav_menus.twentytwentyone.primary.de',
-        'S3: locator reaches the non-id-shaped language slug exactly (got: ' . $optionFindings[0]['locator'] . ')'
-    );
-    check($optionFindings[0]['value'] === 999, 'S4: finding retains raw numeric survivor 999');
-    check(!isset($optionFindings[0]['matches']), 'S5: declared-path survivor fires even when the id does not resolve live');
+check(count($optionFindings) === 2, 'S1: Polylang-shaped option -> exactly two declared value/key survivors (got ' . count($optionFindings) . ': ' . json_encode($optionFindings) . ')');
+$optionByLocator = [];
+foreach ($optionFindings as $finding) {
+    $optionByLocator[$finding['locator']] = $finding;
 }
+$valueFinding = $optionByLocator['options.polylang.nav_menus.twentytwentyone.primary.de'] ?? null;
+check(
+    ($valueFinding['class'] ?? null) === 'unrewritten_registered_ref',
+    'S2: declared json_refs survivor uses unrewritten_registered_ref'
+);
+check(($valueFinding['value'] ?? null) === 999, 'S3: value-ref finding retains raw numeric survivor 999');
+check(!isset($valueFinding['matches']), 'S4: declared value-path survivor fires even when the id does not resolve live');
+$keyFinding = $optionByLocator['options.polylang.nav_menus.by_term KEY 999'] ?? null;
+check(
+    ($keyFinding['class'] ?? null) === 'unrewritten_registered_ref',
+    'S5: ordinary option sub-key key_refs survivor uses unrewritten_registered_ref'
+);
+check(($keyFinding['value'] ?? null) === 999, 'S6: key-ref finding retains the raw numeric map key');
 
-check(count($findings) === 8, 'sanity: exactly 8 findings total across block, menu, and option fixtures -- got ' . count($findings) . ': ' . json_encode(array_column($findings, 'class')));
+check(count($findings) === 9, 'sanity: exactly 9 findings total across block, menu, and option fixtures -- got ' . count($findings) . ': ' . json_encode(array_column($findings, 'class')));
 
 // ======================================================================
 echo "\n";

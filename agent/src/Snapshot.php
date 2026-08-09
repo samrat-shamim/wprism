@@ -1,6 +1,11 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/PlainData.php';
+require_once __DIR__ . '/OrderPreserved.php';
+require_once __DIR__ . '/StructuredValue.php';
+require_once __DIR__ . '/ReferenceRules.php';
+
 /**
  * Typed snapshot: capture/apply for authored custom tables (DESIGN.md §3.3's
  * "middle tier" the design review named but never built — finding #8: opaque
@@ -1697,10 +1702,6 @@ final class Snapshot {
      *
      * @param array<string,array> $keyRules decl['keys'] ?? []
      */
-    private static function meta_key_rule(array $keyRules, string $default, string $key): array {
-        return $keyRules[$key] ?? ['class' => $default];
-    }
-
     /**
      * One attached-meta table's rows for a single owner, as a flat
      * key=>value map. Throws on a genuine SQL-level duplicate key for the
@@ -1715,7 +1716,8 @@ final class Snapshot {
      * do), because nothing observed inside them is ever a numeric ref
      * (confirmed empirically — see the manifest's own notes) and byte-
      * verbatim passthrough is strictly safer than a decode/re-encode round
-     * trip this mechanism doesn't need to attempt.
+     * trip this mechanism doesn't need to attempt. Keys that explicitly
+     * declare json_refs/key_refs take the shared structured codec path.
      */
     private static function capture_meta_rows(string $metaTable, array $decl, int $ownerLocalId, Tokens $tokens): array {
         global $wpdb;
@@ -1734,7 +1736,6 @@ final class Snapshot {
             $byKey[(string) $r['k']][] = $r['v'];
         }
 
-        $keyRules = $decl['keys'] ?? [];
         $default = $decl['default_class'] ?? 'authored';
         $out = [];
         foreach ($byKey as $key => $values) {
@@ -1744,14 +1745,28 @@ final class Snapshot {
                     . '(found ' . count($values) . ' rows) — unsupported'
                 );
             }
-            $rule = self::meta_key_rule($keyRules, $default, $key);
+            $rule = ReferenceRules::attached_meta_key($decl, $key);
             $class = $rule['class'] ?? $default;
             if ($class !== 'authored') {
                 continue; // runtime/derived/env sidecar key — excluded, mirrors post_meta
             }
             $v = $values[0];
-            self::guard_secret($v, !empty($rule['allow_secret']), "table '$metaTable' key '$key' (parent $ownerLocalId)");
-            if (!empty($rule['ref'])) {
+            $context = "table '$metaTable' key '$key' (parent $ownerLocalId)";
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                $plain = PlainData::decode($v, $context);
+                PlainData::assert($plain, $context);
+                $decoded = StructuredValue::decode($plain, $rule, $context);
+                self::guard_secret($decoded, !empty($rule['allow_secret']), $context);
+                $captured = $tokens->struct_capture(
+                    $decoded,
+                    $rule['json_refs'] ?? [],
+                    $rule['key_refs'] ?? null
+                );
+                $out[$key] = !empty($rule['order_preserving'])
+                    ? new OrderPreserved($captured)
+                    : $captured;
+            } elseif (!empty($rule['ref'])) {
+                self::guard_secret($v, !empty($rule['allow_secret']), $context);
                 $n = (int) $v;
                 if ($n <= 0) {
                     $out[$key] = null;
@@ -1769,8 +1784,10 @@ final class Snapshot {
                 }
                 $out[$key] = $tok;
             } elseif (is_string($v)) {
+                self::guard_secret($v, !empty($rule['allow_secret']), $context);
                 $out[$key] = $tokens->tokenize_text($v);
             } else {
+                self::guard_secret($v, !empty($rule['allow_secret']), $context);
                 $out[$key] = $v;
             }
         }
@@ -2164,7 +2181,8 @@ final class Snapshot {
      * (Apply.php:806-811), and, since DUO-3204, the SAME ownership gate:
      * finalize_post() only deletes a live meta_id whose rule class ===
      * 'authored'; the delete loop below now does the exact same check,
-     * via meta_key_rule() — the identical lookup capture_meta_rows() uses,
+     * via ReferenceRules::attached_meta_key() — the identical lookup
+     * capture_meta_rows() uses,
      * so the two paths can never independently disagree about which keys
      * this mechanism owns.
      *
@@ -2197,7 +2215,6 @@ final class Snapshot {
         $idCol = $decl['id_column'] ?? 'id';
         $keyCol = $decl['key_column'] ?? 'meta_key';
         $valCol = $decl['value_column'] ?? 'meta_value';
-        $keyRules = $decl['keys'] ?? [];
         $default = $decl['default_class'] ?? 'authored';
 
         $existing = $wpdb->get_results($wpdb->prepare(
@@ -2215,8 +2232,20 @@ final class Snapshot {
                     "duo: repository asks apply to write table_meta:$metaTable:$key outside its declared keyspace"
                 );
             }
-            $rule = self::meta_key_rule($keyRules, $default, $key);
-            if (!empty($rule['ref'])) {
+            $rule = ReferenceRules::attached_meta_key($decl, $key);
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                $resolved = $tokens->struct_apply(
+                    $v,
+                    $rule['json_refs'] ?? [],
+                    $rule['key_refs'] ?? null
+                );
+                $encoded = StructuredValue::encode(
+                    $resolved,
+                    $rule,
+                    "table '$metaTable' key '$key'"
+                );
+                $desiredRaw[$key] = maybe_serialize($encoded);
+            } elseif (!empty($rule['ref'])) {
                 $desiredRaw[$key] = $v === null ? '0' : (string) $tokens->token_to_id((string) $v);
             } elseif (is_string($v)) {
                 $desiredRaw[$key] = $tokens->detokenize_text($v);
@@ -2232,7 +2261,7 @@ final class Snapshot {
             if (!self::meta_key_in_keyspace($decl, $key)) {
                 continue; // outside the adapter's declared ownership; discovery gate reports it, never delete it
             }
-            $rule = self::meta_key_rule($keyRules, $default, $key);
+            $rule = ReferenceRules::attached_meta_key($decl, $key);
             if (($rule['class'] ?? $default) !== 'authored') {
                 continue; // runtime/derived/env key — never owned by this mechanism, never deleted
             }

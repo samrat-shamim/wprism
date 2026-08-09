@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/PlainData.php';
+require_once __DIR__ . '/StructuredValue.php';
 require_once __DIR__ . '/Canon.php';
 
 /**
@@ -59,9 +60,8 @@ final class Capture {
     /** @var array<string, string[]> post_type -> taxonomy[], scoped by each
      *  taxonomy's own registered object_type — see taxes_by_object_type(). */
     private array $taxesForPostType = [];
-    /** @var string[] policy-scoped taxonomies whose registered object_type
-     *  includes 'term' (Polylang's term_language/term_translations shape)
-     *  — see taxes_by_object_type(). */
+    /** @var string[] policy-scoped taxonomies whose manifest-resolved
+     *  object_keyspace is `term` — see taxes_by_object_type(). */
     private array $termObjectTaxes = [];
 
     private function __construct(string $repo, Policy $policy) {
@@ -1636,11 +1636,11 @@ final class Capture {
      * Precompute, once per build, which of the policy's scoped taxonomies
      * actually apply to each in-scope post type — keyed on the taxonomy's
      * own registered object_type, never on raw numeric object_id — AND,
-     * symmetrically, which scoped taxonomies are TERM-object (object_type
-     * includes the literal string 'term': Polylang's term_language/
-     * term_translations, confirmed empirically — not a post_type name, WP
-     * lets a taxonomy's object_type be any string a plugin chooses to
-     * register). Both facts come from the exact same per-taxonomy
+     * symmetrically, which scoped taxonomies are TERM-keyspace (their
+     * manifest-resolved object_keyspace is `term`). A taxonomy's runtime
+     * object_type remains the source for its POST-type membership, but no
+     * literal plugin sentinel decides the term keyspace. Both facts come
+     * from the exact same per-taxonomy
      * get_taxonomy() walk, so this now does in one pass what used to be
      * (and still would need to be, done twice) doing it as two separate
      * post-side-only and term-side-only passes.
@@ -1649,9 +1649,9 @@ final class Capture {
      * that share one numeric space: a term_relationships row with
      * object_id = N can belong to a post OR — for a term-object taxonomy —
      * to a completely different term that happens to have term_id = N.
-     * Filtering the `IN (...)` taxonomy list per object kind, using
-     * WordPress's own object_type declaration, is what keeps a post's (or a
-     * term's) relationship query from ever matching another object's rows
+     * Filtering the `IN (...)` taxonomy list per object kind, using the
+     * manifest keyspace plus WordPress's post-type declaration, is what
+     * keeps a post's (or a term's) relationship query from ever matching another object's rows
      * just because the ids coincide — see build_post()'s relationship
      * query and term_relationships() below for the two call sites this
      * guards.
@@ -1705,6 +1705,15 @@ final class Capture {
                     . " belong to, so its relationships are skipped for every post and term";
                 continue;
             }
+            // Resolve the row's object_id keyspace before using runtime
+            // object_type to map a post relationship. The resolver rejects
+            // an undeclared runtime term/mixed taxonomy instead of treating
+            // literal `term` as an engine-owned plugin sentinel.
+            $keyspace = $this->policy->taxonomy_object_keyspace($tax, $objectTypes);
+            if ($keyspace === 'term') {
+                $termObject[] = $tax;
+                continue;
+            }
             // DUO-3280: deliberately NOT extended with Apply's own
             // object_type_from_option supplement (Policy::
             // object_type_option_ref()). That fix reads Apply's compiled
@@ -1727,9 +1736,7 @@ final class Capture {
             // real and would falsely suggest this method has the same
             // hazard Apply's does.
             foreach ($objectTypes as $objectType) {
-                if ($objectType === 'term') {
-                    $termObject[] = $tax;
-                } elseif (isset($byPostType[$objectType])) {
+                if (isset($byPostType[$objectType])) {
                     $byPostType[$objectType][] = $tax;
                 }
             }
@@ -1821,7 +1828,7 @@ final class Capture {
      * News's term_id as object_id, term_language's pll_en term as the
      * target — confirmed empirically, not the post that happens to share
      * News's numeric id). Filtered to $this->termObjectTaxes — taxonomies
-     * whose registered object_type includes 'term', computed once per
+     * whose manifest-resolved object_keyspace is `term`, computed once per
      * build() by taxes_by_object_type() — the exact same collision guard
      * build_post() already applies for post-object taxonomies: posts and
      * terms share one auto-increment id space, so an unfiltered `WHERE
@@ -1896,7 +1903,7 @@ final class Capture {
      *   or-not rule to decide which of its two checks applies).
      */
     private function term_description(object $t) {
-        $rule = $this->policy->description_refs_for_taxonomy($t->taxonomy);
+        $rule = $this->policy->description_reference_rule($t->taxonomy);
         if ($rule === null) {
             return $this->tokens->tokenize_text((string) $t->description);
         }
@@ -1911,7 +1918,16 @@ final class Capture {
                 . ' is not an array once unserialized'
             );
         }
-        return (object) $this->tokens->struct_capture($decoded, [['path' => '$.*', 'kind' => $rule['kind']]], null);
+        $captured = $this->tokens->struct_capture(
+            $decoded,
+            $rule['json_refs'],
+            $rule['key_refs']
+        );
+        // Existing `{kind}` manifests historically emitted an object for an
+        // empty flat map. Preserve those bytes; full-form declarations keep
+        // the decoded map/list root shape so independent plugins may declare
+        // list-bearing descriptions without coercion.
+        return $rule['legacy_flat_map'] ? (object) $captured : $captured;
     }
 
     /** @return array{0: array, 1: string, 2: ?array{0:string,1:string}} [front, body, mediaRef] */
@@ -1963,8 +1979,8 @@ final class Capture {
             $parent = $tok;
         }
 
-        // term relationships (owned taxonomies only, filtered to taxonomies
-        // whose registered object_type actually includes THIS post type —
+        // term relationships (owned post-keyspace taxonomies only, filtered
+        // to taxonomies whose registered object_type includes THIS post type —
         // see taxes_by_object_type() for why raw object_id equality alone
         // is unsafe: posts and terms share one auto-increment id space)
         $taxes = $this->taxesForPostType[$p->post_type] ?? [];
@@ -2403,7 +2419,7 @@ final class Capture {
         // now (see its own docblock).
         $this->guard_secret($termMeta ? 'term_meta' : 'post_meta', $key, $v, $rule, " on $ownerLabel");
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-            $decoded = $this->decode_structured($v, $rule, "$ownerLabel meta $key");
+            $decoded = StructuredValue::decode($v, $rule, "$ownerLabel meta $key");
             $v = $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
         } elseif (!empty($rule['ref'])) {
             $v = $this->tokens->meta_value_to_tokens($v, $rule);
@@ -2549,7 +2565,7 @@ final class Capture {
         $this->guard_secret('user_meta', $key, $value, $rule, " on exact login '$login'");
         $this->guard_personal_data($key, $value, $rule, $login);
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-            $decoded = $this->decode_structured($value, $rule, "user '$login' meta $key");
+            $decoded = StructuredValue::decode($value, $rule, "user '$login' meta $key");
             $value = $this->tokens->struct_capture(
                 $decoded,
                 $rule['json_refs'] ?? [],
@@ -2595,7 +2611,7 @@ final class Capture {
      */
     private function capture_value(string $ctx, $v, array $rule, bool $forceUnresolvedRefs): array {
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-            $decoded = $this->decode_structured($v, $rule, "option $ctx");
+            $decoded = StructuredValue::decode($v, $rule, "option $ctx");
             return ['included' => true, 'value' => $this->tokens->struct_capture(
                 $decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null
             )];
@@ -3366,44 +3382,6 @@ final class Capture {
             ? in_array($targetType, $policy->taxonomies(), true)
             : in_array($targetType, $policy->post_types(), true);
         return $inPolicyScope ? null : $targetType;
-    }
-
-    /**
-     * Decode a meta/option value for json_refs/key_refs rewriting (task #11
-     * wave 2): either a JSON-encoded TEXT string — rule declares
-     * `"json_encoded": true`, e.g. Elementor's `_elementor_data`, which
-     * Elementor's own code manually `wp_json_encode()`s into a postmeta
-     * TEXT column before WordPress's ordinary maybe_unserialize()/
-     * maybe_serialize() layer ever sees it (a no-op passthrough on an
-     * already-string value) — or an already-native PHP array, the ordinary
-     * case where maybe_unserialize() (already run by the caller) did all
-     * the decoding needed, e.g. Yoast's wpseo_taxonomy_meta.
-     *
-     * Throws loudly on a shape mismatch rather than silently falling back
-     * to opaque-string capture: a manifest declaring json_refs/key_refs for
-     * a key is asserting its shape, and silently degrading would silently
-     * reopen exactly the id-leak gap this mechanism exists to close —
-     * matching PlainData::assert()'s own "throw, never guess" posture below.
-     */
-    private function decode_structured($v, array $rule, string $ctx) {
-        if (!empty($rule['json_encoded'])) {
-            if (!is_string($v)) {
-                throw new \RuntimeException("duo: $ctx declares json_encoded but its (unserialized) value is not a string");
-            }
-            $decoded = json_decode($v, true);
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                throw new \RuntimeException(
-                    "duo: $ctx declares json_refs/key_refs (json_encoded) but its value is not valid JSON: " . json_last_error_msg()
-                );
-            }
-            return $decoded;
-        }
-        if (!is_array($v)) {
-            throw new \RuntimeException(
-                "duo: $ctx declares json_refs/key_refs but its value is neither a JSON-encoded string (declare \"json_encoded\": true) nor an already-structured array"
-            );
-        }
-        return $v;
     }
 
 }
