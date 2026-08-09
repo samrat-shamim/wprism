@@ -82,22 +82,31 @@ $needles = [
     // object-cache entry update_lookup_table() publishes is the only channel
     // through which Woo can state what it derived.
     "wp_cache_get('lookup_table'" => 'meta lookup verification reads the derivation WooCommerce itself published',
-    'woo_derived_lookup_row' => 'the published WooCommerce derivation has a single named boundary',
-    '<=>' => 'stored lookup values are compared under the lookup table\'s own column semantics',
+    'woo_republished_lookup_row' => 'the published WooCommerce derivation has a single named boundary',
+    // The exact SQL fragment, not a bare `<=>`: this adapter has an unrelated
+    // PHP spaceship in its attribute-row sort, so the operator alone would
+    // match with the predicate gone (proven: swapping the predicate to `=`
+    // still satisfied a bare-operator needle).
+    '` <=> %s' => "stored lookup values are compared by SQL under the column's own semantics",
+    '` IS NULL' => 'a derivation of SQL NULL is compared as NULL rather than coerced',
+    // Snapshot-before-refresh is the whole load-bearing ordering: the refresh
+    // runs with a cleared cache, so it always REPLACEs, and a row read only
+    // afterwards would be one this verification had just written.
+    'read_lookup_row($table, $id)' => 'the stored row is read independently of the refresh that rewrites it',
 ];
 foreach ($needles as $needle => $message) {
     check(is_string($source) && str_contains($source, $needle), $message);
 }
 // The retired rebuild of Woo's lookup columns, stated as absences so a future
 // change cannot quietly reintroduce a second, drifting copy of rules that live
-// in a protected WooCommerce method.
+// in a protected WooCommerce method. Deliberately narrow: wc_format_decimal()
+// is the RIGHT helper for any future price math here, so its absence is not a
+// property worth pinning.
 $retired = [
     'lookup_values_equal' => 'no Duo-authored per-column tolerance table for lookup values',
     "get_option('woocommerce_schema_version'" => 'no copied global_unique_id schema-version gate',
     'CostOfGoodsSoldController' => 'no copied Cost of Goods Sold lookup-column feature gate',
     '_cogs_total_value' => 'no Duo-side derivation of the COGS lookup column',
-    'wc_format_decimal' => 'no Duo-side reimplementation of Woo onsale decimal comparison',
-    '_stock_status' => 'no Duo-side rebuild of Woo lookup column values from postmeta',
 ];
 foreach ($retired as $needle => $message) {
     check(is_string($source) && !str_contains($source, $needle), $message);
