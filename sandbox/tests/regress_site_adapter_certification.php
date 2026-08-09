@@ -1743,13 +1743,27 @@ cert_expect_throw(
     'orphan certificates without adapters/<name>.json are fatal'
 );
 unlink($site . '/adapters/certifications/orphan.json');
-cert_write($site . '/adapters/certifications/site-demo.JSON', $certificateRaw);
+// The variant deliberately gets a basename with NO lowercase sibling: on a
+// case-insensitive filesystem (macOS default) writing `site-demo.JSON` next
+// to the existing `site-demo.json` OVERWRITES the valid pair instead of
+// creating a second entry — the directory then holds one well-named
+// certificate, nothing throws, and the unlink below deletes the pair the
+// rest of the suite relies on. The refusal under test is about the
+// EXTENSION's case, which a distinct basename exercises identically on
+// every host. Fixture manufacture asserted before the refusal (DUO-3381).
+cert_write($site . '/adapters/certifications/variant.JSON', $certificateRaw);
+cert_check(
+    is_file($site . '/adapters/certifications/variant.JSON')
+        && in_array('variant.JSON', scandir($site . '/adapters/certifications') ?: [], true)
+        && in_array('site-demo.json', scandir($site . '/adapters/certifications') ?: [], true),
+    'the case-variant fixture actually exists as its own directory entry beside the untouched valid pair'
+);
 cert_expect_throw(
     static fn() => AdapterCertification::verifyDirectory($agent, $site),
     'only direct',
     'case-variant certificate extensions are fatal rather than ignored'
 );
-unlink($site . '/adapters/certifications/site-demo.JSON');
+unlink($site . '/adapters/certifications/variant.JSON');
 cert_write($site . '/adapters/certifications/nested/other.json', $certificateRaw);
 cert_expect_throw(
     static fn() => AdapterCertification::verifyDirectory($agent, $site),
