@@ -18,8 +18,10 @@
 #   - Entry present, no cached file yet -> download inside the CALLING
 #     pair's own cli container (this host's own shell has no outbound
 #     network access, confirmed empirically while researching this issue —
-#     the containers do), verify sha256 against the lockfile's declared
-#     digest, refuse loudly and delete the partial file on any mismatch.
+#     the containers do), allocate a unique temp path on the shared mount,
+#     retry transient download-command failures at most three times, verify
+#     sha256 against the lockfile's declared digest, refuse loudly and delete
+#     only that fetch's temp file on any mismatch or exhausted retry sequence.
 #   - Entry present, cached file already exists -> re-verify sha256 every
 #     time (cheap, local, no network) rather than trusting a prior verified-
 #     ness a stale/tampered cache file might no longer deserve. A mismatch
@@ -71,8 +73,25 @@ fetch_artifact() {
       fi
       exit 0
     fi
-    TMP=\"$cache_path.tmp\"
-    curl -fsSL -o \"\$TMP\" '$url'
+    # Create the temp on the shared cache mount itself: mktemp's exclusive
+    # creation prevents concurrent pair fetches from sharing a partial path,
+    # while the final same-mount mv remains atomic.
+    TMP=\$(mktemp \"$cache_path.tmp.XXXXXX\")
+    trap 'rm -f \"\$TMP\"' EXIT
+    chmod 0644 \"\$TMP\"
+    for attempt in 1 2 3; do
+      : > \"\$TMP\"
+      if curl --connect-timeout 10 --max-time 120 -fsSL -o \"\$TMP\" '$url'; then
+        break
+      fi
+      if [ \"\$attempt\" -eq 3 ]; then
+        rm -f \"\$TMP\"
+        echo \"FAIL: fetch_artifact: download of $slug $version failed after 3 attempts — refusing and deleting only the partial file\" >&2
+        exit 1
+      fi
+      echo \"Warning: fetch_artifact: download of $slug $version failed on attempt \$attempt/3; retrying the pinned URL\" >&2
+      sleep \"\$attempt\"
+    done
     ACTUAL=\$(sha256sum \"\$TMP\" | cut -d' ' -f1)
     if [ \"\$ACTUAL\" != '$sha256' ]; then
       rm -f \"\$TMP\"
