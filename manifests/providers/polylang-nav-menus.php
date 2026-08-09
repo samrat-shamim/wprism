@@ -109,16 +109,27 @@ final class PolylangNavMenus {
         }
         set_theme_mod('nav_menu_locations', $map);
 
-        // Strict comparison against a fresh read: a theme mod filter or a
-        // failed option write would leave the previous map in place while
-        // set_theme_mod() itself reports nothing at all.
+        // Per-entry comparison against a fresh read, deliberately NOT a
+        // whole-map identity check: Polylang itself filters reads of this
+        // theme mod and augments the stored value with derived entries —
+        // observed live on a two-language pair, where a stored
+        // {"primary": 9} read back as {"primary": 9, "footer": 0,
+        // "primary___de": 10} (the language-virtual location plus the
+        // theme's other registered slots). Those additions are the plugin's
+        // own read semantics, not a failed write. What a failed write (or a
+        // clobbering filter) cannot fake is each COMPUTED location reading
+        // back with its computed menu id, so that is the value-level claim
+        // this receipt makes.
         $written = $this->observe_locations();
-        if ($written !== $map) {
-            throw new \RuntimeException(
-                'duo: Polylang nav_menu_locations readback does not match the computed map for theme '
-                . "'$stylesheet' (wrote " . json_encode($map, JSON_UNESCAPED_SLASHES)
-                . ', read back ' . json_encode($written, JSON_UNESCAPED_SLASHES) . ')'
-            );
+        foreach ($map as $location => $menuId) {
+            if (!array_key_exists($location, $written) || $written[$location] !== $menuId) {
+                throw new \RuntimeException(
+                    'duo: Polylang nav_menu_locations readback does not hold the computed value for '
+                    . "location '$location' on theme '$stylesheet' (wrote "
+                    . json_encode($map, JSON_UNESCAPED_SLASHES)
+                    . ', read back ' . json_encode($written, JSON_UNESCAPED_SLASHES) . ')'
+                );
+            }
         }
 
         return [

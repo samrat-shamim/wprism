@@ -87,7 +87,16 @@ ids_json_2() {
 # ============================================================ scaffold
 
 say "clean-room site repositories, with the fixture plugin authored before the code-bind containers are created"
-bash bin/pair.sh reset "$PAIR"
+# destroy-then-implicit-up rather than reset: a prior FAILED run leaves this
+# pair up with its codebind mount pinned (deliberately, for inspection), and
+# pair.sh reset refuses a codebind-pinned pair by design — its own message
+# prescribes exactly this destroy. A destroy of a nonexistent pair is a no-op,
+# so the clean first run is unaffected.
+bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
+# The destroy leaves site-repo trees on disk by design; this script owns this
+# pair's two trees and re-scaffolds them from scratch, so clear them the way
+# reset used to (a stale .git here breaks the git-init/remote-add below).
+rm -rf "siterepo/${PAIR}1" "siterepo/${PAIR}2"
 rm -rf "siterepo/origin-$PAIR.git"
 git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
 mkdir -p "siterepo/${PAIR}1/code/wp-content/plugins/$PLUGIN_DIR"
@@ -217,7 +226,10 @@ say "(3) the stale project cache transient is gone on conf2"
 CACHE_AFTER=$(wp2 eval 'var_export(get_transient("duo_agency_project_cache"));' | tr -d '\r' | tail -1)
 [ "$CACHE_AFTER" = "false" ] \
   || fail "the native transient.delete action did not clear duo_agency_project_cache on conf2 (got: $CACHE_AFTER)"
-ROWS=$(wp2 db query "SELECT COUNT(*) FROM wp_options WHERE option_name IN ('_transient_duo_agency_project_cache','_transient_timeout_duo_agency_project_cache')" --skip-column-names | tr -d '\r' | tail -1)
+# Last NON-empty line: `wp db query --skip-column-names` emits a trailing
+# blank line, so a bare `tail -1` reads the blank and a passing "0" would
+# false-fail with an empty count (caught live on this script's first run).
+ROWS=$(wp2 db query "SELECT COUNT(*) FROM wp_options WHERE option_name IN ('_transient_duo_agency_project_cache','_transient_timeout_duo_agency_project_cache')" --skip-column-names | tr -d '\r' | awk 'NF {last=$0} END {print last}')
 [ "$ROWS" = "0" ] || fail "transient option rows survived the native action on conf2 (count: $ROWS)"
 pass "both transient option rows are gone and the cache no longer answers"
 

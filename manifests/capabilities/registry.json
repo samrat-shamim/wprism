@@ -1116,7 +1116,7 @@
             ]
         },
         "polylang": {
-            "adapter_digest": "4871728f2b4221ecf3cfe5c9233109bec57def43669f31aeb2162d976d56bfd9",
+            "adapter_digest": "97dd39eec1d396759f894e2e8784bfbbf71b9191f50ddec688df6022ebceb3da",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
