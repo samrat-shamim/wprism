@@ -24,7 +24,10 @@ final class Policy {
     // every manifest default to "shipped", dropping one key would silently
     // launder an out-of-tree adapter into a shipped one on the verification
     // path, which is exactly the provenance guarantee this record exists for.
-    private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v4';
+    // v5 carries signed site-adapter certification envelopes. from_snapshot()
+    // retains v4 reads only for the prior uncertified adapter-sources/v1 form.
+    private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v5';
+    private const LEGACY_SNAPSHOT_FORMAT = 'duo-policy-snapshot/v4';
     /** Object keyspaces supported by the canonical taxonomy relationship contract. */
     private const TAXONOMY_RELATIONSHIP_OBJECTS = ['post', 'term'];
 
@@ -198,6 +201,7 @@ self::validate_post_type_children($manifest);
         self::validate_no_conflicting_description_reference_rules($p->manifests);
         self::validate_reference_keyspaces_and_sidecars($p);
         self::validate_manifest_pins($pins, $p);
+        $p->adapterSources->bind_explicit_pins($pins);
         if ($p->manifestDispositions !== null && class_exists(CapabilityRegistry::class)) {
             // Only the shipped subset is a registry claim. Handing an
             // out-of-tree manifest to registry validation would demand a claim
@@ -226,11 +230,14 @@ self::validate_post_type_children($manifest);
      * that exact policy without reopening mutable repository files.
      */
     public function export_snapshot(): array {
+        $adapterSources = $this->adapter_sources()->export();
         return [
-            'format' => self::SNAPSHOT_FORMAT,
+            'format' => ($adapterSources['format'] ?? null) === AdapterSources::LEGACY_FORMAT
+                ? self::LEGACY_SNAPSHOT_FORMAT
+                : self::SNAPSHOT_FORMAT,
             'site' => $this->site,
             'manifests' => $this->manifests,
-            'adapter_sources' => $this->adapter_sources()->export(),
+            'adapter_sources' => $adapterSources,
             'dispositions' => $this->manifestDispositions?->data(),
             'capabilities' => $this->capabilityRegistry?->data(),
         ];
@@ -241,13 +248,23 @@ self::validate_post_type_children($manifest);
         self::assert_single_site();
         $keys = array_keys($snapshot);
         sort($keys, SORT_STRING);
+        $snapshotFormat = $snapshot['format'] ?? null;
         if ($keys !== ['adapter_sources', 'capabilities', 'dispositions', 'format', 'manifests', 'site']
-            || ($snapshot['format'] ?? null) !== self::SNAPSHOT_FORMAT
+            || !in_array($snapshotFormat, [self::LEGACY_SNAPSHOT_FORMAT, self::SNAPSHOT_FORMAT], true)
             || !is_array($snapshot['adapter_sources'] ?? null)
             || !is_array($snapshot['site'] ?? null)
             || !is_array($snapshot['manifests'] ?? null)
             || !array_is_list($snapshot['manifests'])) {
             throw new \RuntimeException('duo: frozen policy snapshot has an unsupported or malformed shape');
+        }
+        $adapterSourceFormat = $snapshot['adapter_sources']['format'] ?? null;
+        if (($snapshotFormat === self::LEGACY_SNAPSHOT_FORMAT
+                && $adapterSourceFormat !== AdapterSources::LEGACY_FORMAT)
+            || ($snapshotFormat === self::SNAPSHOT_FORMAT
+                && $adapterSourceFormat !== AdapterSources::FORMAT)) {
+            throw new \RuntimeException(
+                'duo: frozen policy snapshot format disagrees with its adapter source record format'
+            );
         }
 
         $p = new self();
@@ -346,6 +363,7 @@ self::validate_post_type_children($manifest);
         self::validate_no_conflicting_description_reference_rules($p->manifests);
         self::validate_reference_keyspaces_and_sidecars($p);
         self::validate_manifest_pins($pins, $p);
+        $p->adapterSources->bind_explicit_pins($pins);
         return $p;
     }
 
@@ -373,7 +391,7 @@ self::validate_post_type_children($manifest);
 
     /** The generated evidence-bound claim for one pinned adapter. */
     public function capability_claim(string $name): ?array {
-        return $this->capabilityRegistry?->claim($name);
+        return $this->adapter_sources()->claim($name) ?? $this->capabilityRegistry?->claim($name);
     }
 
     /** Non-certified pinned adapters are a structured readiness blocker. */
@@ -393,7 +411,8 @@ self::validate_post_type_children($manifest);
             $this->manifests,
             ['operation' => 'promote'],
             CapabilityRegistry::probe_target(),
-            $this->adapter_sources()->diagnostics($this->manifests)
+            $this->adapter_sources()->diagnostics($this->manifests),
+            $this->adapter_sources()->certification_contexts()
         );
     }
 
@@ -417,7 +436,8 @@ self::validate_post_type_children($manifest);
             $this->manifests,
             $query,
             CapabilityRegistry::probe_target(),
-            $this->adapter_sources()->diagnostics($this->manifests)
+            $this->adapter_sources()->diagnostics($this->manifests),
+            $this->adapter_sources()->certification_contexts()
         );
     }
 

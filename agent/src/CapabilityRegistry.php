@@ -121,9 +121,10 @@ final class CapabilityRegistry {
         array $manifests,
         array $query = [],
         ?array $target = null,
-        array $sources = []
+        array $sources = [],
+        array $externalContexts = []
     ): array {
-        return $this->report($manifests, $query, $target, $sources)['blockers'];
+        return $this->report($manifests, $query, $target, $sources, $externalContexts)['blockers'];
     }
 
     /**
@@ -139,7 +140,8 @@ final class CapabilityRegistry {
         array $manifests,
         array $query = [],
         ?array $target = null,
-        array $sources = []
+        array $sources = [],
+        array $externalContexts = []
     ): array {
         $operation = (string) ($query['operation'] ?? 'promote');
         $surface = isset($query['surface']) ? (string) $query['surface'] : null;
@@ -157,7 +159,15 @@ final class CapabilityRegistry {
                 'trust_tier' => AdapterSources::trust_tier($manifest),
             ];
             $outOfTree = ($source['source'] ?? AdapterSources::SHIPPED) !== AdapterSources::SHIPPED;
-            $claim = $this->claim($name);
+            $external = is_array($externalContexts[$name] ?? null) ? $externalContexts[$name] : null;
+            $externalClaim = is_array($external['claim'] ?? null) ? $external['claim'] : null;
+            $explicitPin = ($external['explicit_pin'] ?? false) === true;
+            if ($externalClaim !== null && !$outOfTree) {
+                throw new \RuntimeException(
+                    "duo: external capability context for shipped adapter '$name' would replace its registry claim"
+                );
+            }
+            $claim = $externalClaim ?? $this->claim($name);
             $reasons = [];
             if ($claim === null) {
                 // An out-of-tree adapter has no registry entry BY CONSTRUCTION,
@@ -189,6 +199,14 @@ final class CapabilityRegistry {
                     'unsupported' => [],
                 ];
             } else {
+                if ($externalClaim !== null && !$explicitPin) {
+                    $reasons[] = self::reason(
+                        'adapter_certification_unpinned',
+                        "'$name' has valid signed third-party evidence, but its repository pin does not bind both "
+                        . 'source "site" and the final certificate-derived digest',
+                        (string) ($source['remediation'] ?? '')
+                    );
+                }
                 if (($claim['status'] ?? null) !== 'certified') {
                     $reasons[] = self::reason(
                         'authored_state_not_certified',
@@ -209,18 +227,30 @@ final class CapabilityRegistry {
                 }
             }
 
-            if (($this->data['evidence']['status'] ?? null) !== 'current') {
+            $selectedEvidence = $externalClaim !== null
+                ? (is_array($externalClaim['evidence'] ?? null) ? $externalClaim['evidence'] : [])
+                : $this->data['evidence'];
+            $selectedPlatform = $externalClaim !== null
+                ? (is_array($externalClaim['platform'] ?? null) ? $externalClaim['platform'] : [])
+                : $this->data['platform'];
+            // A site source never inherits the shipped registry's global
+            // evidence. Unsigned site adapters have exactly the explicit
+            // uncertified blocker above; signed ones are evaluated only
+            // against their own signed evidence/platform context.
+            if ((!$outOfTree || $externalClaim !== null)
+                && ($selectedEvidence['status'] ?? null) !== 'current') {
                 $reasons[] = self::reason('evidence_not_current', 'the bound certification evidence is not current');
             }
-            if ($revision !== null && $revision !== ''
-                && !hash_equals((string) ($this->data['evidence']['git_revision'] ?? ''), $revision)) {
+            if ((!$outOfTree || $externalClaim !== null)
+                && $revision !== null && $revision !== ''
+                && !hash_equals((string) ($selectedEvidence['git_revision'] ?? ''), $revision)) {
                 $reasons[] = self::reason(
                     'revision_not_certified',
                     "revision $revision is not the evidence-bound platform revision"
                 );
             }
-            if ($target !== null) {
-                $reasons = array_merge($reasons, $this->target_reasons($claim, $target));
+            if ($target !== null && (!$outOfTree || $externalClaim !== null)) {
+                $reasons = array_merge($reasons, $this->target_reasons($claim, $target, $selectedPlatform));
             }
 
             $verdict = $reasons === [] ? 'certified' : 'blocked';
@@ -294,9 +324,9 @@ final class CapabilityRegistry {
         ];
     }
 
-    private function target_reasons(array $claim, array $target): array {
+    private function target_reasons(array $claim, array $target, ?array $selectedPlatform = null): array {
         $reasons = [];
-        $platform = $this->data['platform'];
+        $platform = $selectedPlatform ?? $this->data['platform'];
         if (!empty($target['multisite'])) {
             $reasons[] = self::reason('multisite_unsupported', 'the certified v1 registry is single-site only');
         }

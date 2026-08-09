@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/AdapterCertification.php';
+
 /**
  * Where each pinned adapter came from, and what that origin is allowed to do.
  *
@@ -40,19 +42,20 @@ namespace Duo;
  *    explicitly and version-bounded, which is a trust decision the operator
  *    already made by installing that plugin.
  *
- * 3. **Out-of-tree is uncertified by construction.** A site adapter gets no
- *    disposition entry and no capability-registry claim; it carries the
- *    synthesized provenance record below instead, whose `status` is the fourth
- *    word `uncertified` — deliberately outside the reviewed
- *    certified/experimental/excluded vocabulary, so pasting one of these records
- *    into dispositions.json is refused by ManifestDispositions::validate_entry()
- *    rather than accepted as a self-certification. The record joins the adapter
- *    digest through the same `disposition` slot a reviewed entry uses
- *    (RepositoryCompiler::manifest_rows()), so an out-of-tree adapter's identity
- *    binds its origin, while every shipped row hashes byte-for-byte as before.
+ * 3. **Certification is external.** With no signed companion a site adapter
+ *    carries the synthesized `uncertified` record below — a fourth status word
+ *    which cannot be pasted into dispositions.json as self-certification. A
+ *    companion under adapters/certifications is accepted only when its
+ *    disposition and complete evidence are signed by a key in the agent-owned
+ *    authority registry. Either record joins the adapter digest through the
+ *    same `disposition` slot a shipped reviewed entry uses, so source/evidence
+ *    changes move only that site adapter's identity; shipped rows remain byte-
+ *    for-byte unchanged.
  */
 final class AdapterSources {
-    public const FORMAT = 'duo-adapter-sources/v1';
+    /** v2 adds externally signed certification envelopes for site adapters. */
+    public const FORMAT = 'duo-adapter-sources/v2';
+    public const LEGACY_FORMAT = 'duo-adapter-sources/v1';
 
     /** The agent's own manifest library — the historical single source. */
     public const SHIPPED = 'shipped';
@@ -60,6 +63,7 @@ final class AdapterSources {
     public const SITE = 'site';
 
     public const SITE_DIR = 'adapters';
+    public const CERTIFICATION_DIR = 'certifications';
 
     /**
      * Trust tiers named exactly as docs/proposals/engine-adapter-boundary.md
@@ -76,10 +80,27 @@ final class AdapterSources {
     private array $origins;
     /** @var array<string, array> synthesized disposition per out-of-tree name */
     private array $provenance;
+    /** @var array<string, array> verified signed envelope per certified site adapter */
+    private array $certificates;
+    /** @var array<string, array> capability claim derived from signed evidence */
+    private array $claims;
+    /** @var array<string, bool> whether the repository explicitly pins source + final digest */
+    private array $explicitPins = [];
+    /** Frozen wire generation retained when reconstructing a legacy snapshot. */
+    private string $wireFormat;
 
-    private function __construct(array $origins, array $provenance) {
+    private function __construct(
+        array $origins,
+        array $provenance,
+        array $certificates = [],
+        array $claims = [],
+        string $wireFormat = self::FORMAT
+    ) {
         $this->origins = $origins;
         $this->provenance = $provenance;
+        $this->certificates = $certificates;
+        $this->claims = $claims;
+        $this->wireFormat = $wireFormat;
     }
 
     /**
@@ -165,7 +186,10 @@ final class AdapterSources {
         $shippedNames = self::declared_names($origins);
         $siteFiles = glob($siteDir . '/*.json') ?: [];
         sort($siteFiles, SORT_STRING);
+        $certificateFiles = self::certification_files($siteDir, $siteFiles);
         $provenance = [];
+        $certificates = [];
+        $claims = [];
         foreach ($siteFiles as $file) {
             $name = basename($file, '.json');
             $relative = self::SITE_DIR . '/' . basename($file);
@@ -229,12 +253,33 @@ final class AdapterSources {
                     );
                 }
             }
+            // Prove the data-only boundary before spending any authority on a
+            // companion certificate. Policy repeats this after loading the
+            // pinned manifest as defense in depth and frozen reconstruction
+            // runs the same check.
+            self::assert_out_of_tree_contract($manifest, $name, $relative);
             $origins[$name] = ['source' => self::SITE, 'file' => $file, 'path' => $relative];
-            $provenance[$name] = self::provenance_record($name, $relative, $manifest);
+            $certificateFile = $certificateFiles[$name] ?? null;
+            if ($certificateFile === null) {
+                $provenance[$name] = self::provenance_record($name, $relative, $manifest);
+                continue;
+            }
+            $verified = AdapterCertification::verifyFile(
+                $manifestDir,
+                $repo,
+                $name,
+                $manifest,
+                $certificateFile
+            );
+            $provenance[$name] = $verified['disposition'];
+            $certificates[$name] = $verified['envelope'];
+            $claims[$name] = $verified['claim'];
         }
         ksort($origins, SORT_STRING);
         ksort($provenance, SORT_STRING);
-        return new self($origins, $provenance);
+        ksort($certificates, SORT_STRING);
+        ksort($claims, SORT_STRING);
+        return new self($origins, $provenance, $certificates, $claims);
     }
 
     /**
@@ -265,6 +310,10 @@ final class AdapterSources {
                 );
             }
             if (is_dir($full)) {
+                if ($entry === self::CERTIFICATION_DIR) {
+                    self::assert_certification_directory($siteDir, $full);
+                    continue;
+                }
                 $nested = self::first_nested_json($full);
                 if ($nested !== null) {
                     throw new \RuntimeException(
@@ -283,6 +332,89 @@ final class AdapterSources {
                 );
             }
         }
+    }
+
+    /**
+     * The one deliberately nested site source. A certificate is authority-
+     * bearing data, so unlike a README there are no ignored companions here:
+     * every entry must be one canonical, real `<name>.json` file.
+     */
+    private static function assert_certification_directory(string $siteDir, string $dir): void {
+        $resolvedSite = realpath($siteDir);
+        $resolved = realpath($dir);
+        if ($resolvedSite === false || $resolved === false
+            || $resolved !== $resolvedSite . '/' . self::CERTIFICATION_DIR) {
+            throw new \RuntimeException(
+                "duo: site adapter certification source $dir is not the repository's real "
+                . self::SITE_DIR . '/' . self::CERTIFICATION_DIR . ' directory'
+            );
+        }
+        foreach (scandir($dir) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $full = $dir . '/' . $entry;
+            if (is_link($full) || !is_file($full)) {
+                throw new \RuntimeException(
+                    "duo: site adapter certification source $dir contains '$entry', which is not a real regular "
+                    . 'file — certificates may not be symlinks, directories, or external paths'
+                );
+            }
+            if (preg_match('/^[^\\/]+\.json$/D', $entry) !== 1) {
+                throw new \RuntimeException(
+                    "duo: site adapter certification source $dir contains '$entry' — every entry must be an exact "
+                    . 'lowercase <adapter-name>.json certificate'
+                );
+            }
+        }
+    }
+
+    /**
+     * Return the exact companion certificate for each top-level adapter and
+     * reject orphan/case-confusable certificate identities before pins resolve.
+     *
+     * @param list<string> $siteFiles
+     * @return array<string,string>
+     */
+    private static function certification_files(string $siteDir, array $siteFiles): array {
+        $dir = $siteDir . '/' . self::CERTIFICATION_DIR;
+        if (!is_dir($dir)) {
+            return [];
+        }
+        $adapterNames = [];
+        foreach ($siteFiles as $file) {
+            $adapterNames[basename($file, '.json')] = true;
+        }
+        $out = [];
+        foreach (glob($dir . '/*.json') ?: [] as $file) {
+            $name = basename($file, '.json');
+            if (!isset($adapterNames[$name])) {
+                $folded = self::casefold($name);
+                $near = null;
+                foreach (array_keys($adapterNames) as $adapterName) {
+                    if (self::casefold((string) $adapterName) === $folded) {
+                        $near = (string) $adapterName;
+                        break;
+                    }
+                }
+                throw new \RuntimeException(
+                    "duo: site adapter certificate '" . self::SITE_DIR . '/' . self::CERTIFICATION_DIR . '/'
+                    . basename($file) . "' has no exact companion '" . self::SITE_DIR . "/$name.json'"
+                    . ($near === null ? '' : "; '$near' differs only by letter case")
+                );
+            }
+            $folded = self::casefold($name);
+            foreach (array_keys($out) as $other) {
+                if ($other !== $name && self::casefold((string) $other) === $folded) {
+                    throw new \RuntimeException(
+                        "duo: site adapter certificates '$other' and '$name' differ only by letter case"
+                    );
+                }
+            }
+            $out[$name] = $file;
+        }
+        ksort($out, SORT_STRING);
+        return $out;
     }
 
     /**
@@ -447,6 +579,15 @@ final class AdapterSources {
     public static function assert_out_of_tree_contract(array $manifest, string $name, string $relativePath): void {
         $remedy = "install the adapter into the agent's own manifest library (where its code ships, digest-binds, and "
             . 'is reviewed with it), or declare a plugin-owned provider whose code the installed plugin already owns';
+        foreach (['authority', 'certification', 'disposition', 'evidence', 'public_key', 'signature'] as $reserved) {
+            if (array_key_exists($reserved, $manifest)) {
+                throw new \RuntimeException(
+                    "duo: site adapter '$relativePath' declares reserved authority field '$reserved' — a data-only "
+                    . 'manifest cannot certify itself or carry a trust root. Put an externally signed companion at '
+                    . self::SITE_DIR . '/' . self::CERTIFICATION_DIR . "/$name.json instead"
+                );
+            }
+        }
         // Keyed on PRESENCE, not on the value being a well-formed string: an
         // out-of-tree manifest that declares this key at all is asking for a
         // privilege it cannot have, and the refusal must not depend on the
@@ -523,6 +664,67 @@ final class AdapterSources {
         return $this->provenance[$name] ?? null;
     }
 
+    public function is_certified(string $name): bool {
+        return isset($this->certificates[$name], $this->claims[$name]);
+    }
+
+    /**
+     * Certification is an elevation of authority, so a valid signature alone
+     * is not enough: the repository must explicitly review both the source and
+     * the final certificate-derived digest in its pin.
+     *
+     * @param list<array{name:string,source?:string,digest?:string}> $pins
+     */
+    public function bind_explicit_pins(array $pins): void {
+        $this->explicitPins = [];
+        foreach ($pins as $pin) {
+            $name = (string) ($pin['name'] ?? '');
+            if ($name !== '' && $this->is_certified($name)
+                && ($pin['source'] ?? null) === self::SITE
+                && is_string($pin['digest'] ?? null)
+                && preg_match('/^[0-9a-f]{64}$/D', (string) $pin['digest']) === 1) {
+                $this->explicitPins[$name] = true;
+            }
+        }
+    }
+
+    /**
+     * The host-bound claim preserves signed evidence visibility before the
+     * elevation pin, but cannot report certified until that pin is exact.
+     */
+    public function claim(string $name): ?array {
+        $claim = $this->claims[$name] ?? null;
+        if ($claim === null || !empty($this->explicitPins[$name])) {
+            return $claim;
+        }
+        $claim['status'] = 'uncertified';
+        $claim['reason'] = 'valid signed third-party evidence is present, but the repository pin does not bind '
+            . 'both source "site" and the final certificate-derived digest';
+        if (is_array($claim['authored_state'] ?? null)) {
+            $claim['authored_state']['status'] = 'uncertified';
+        }
+        return $claim;
+    }
+
+    /**
+     * Per-row signed evidence context for capability reporting. The raw claim
+     * is retained when the signature is valid but the pin is not yet explicit,
+     * so diagnostics can prescribe `manifest-pin` instead of misreporting the
+     * adapter as unsigned.
+     *
+     * @return array<string,array{claim:array,explicit_pin:bool}>
+     */
+    public function certification_contexts(): array {
+        $out = [];
+        foreach ($this->claims as $name => $claim) {
+            $out[$name] = [
+                'claim' => $claim,
+                'explicit_pin' => !empty($this->explicitPins[$name]),
+            ];
+        }
+        return $out;
+    }
+
     /**
      * Per-adapter diagnostic facts: source, trust tier, certification state, and
      * the remediation an operator would act on. Shipped rows carry no
@@ -537,14 +739,23 @@ final class AdapterSources {
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '?');
             $record = $this->provenance($name);
+            $signed = $this->is_certified($name);
+            $explicit = !empty($this->explicitPins[$name]);
             $rows[$name] = [
-                'certification' => $record === null ? 'registry' : 'uncertified',
+                'certification' => $record === null
+                    ? 'registry'
+                    : ($signed ? ($explicit ? 'third_party_signed' : 'signed_unpinned') : 'uncertified'),
                 'path' => $this->path($name),
                 'remediation' => $record === null
                     ? ''
-                    : ("ratify this adapter in the agent's own manifest library to certify it, or keep it as "
-                        . 'uncertified support — plan and apply remain available, while readiness and host '
-                        . 'promotion stay blocked for as long as it is pinned'),
+                    : ($signed
+                        ? ($explicit
+                            ? ''
+                            : ('review the signed evidence, then replace this name-only pin with the exact '
+                                . '{name,source:"site",digest} object emitted by `wp duo manifest-pin --repo=...`'))
+                        : ('obtain an externally signed certificate from an authority trusted by this agent, or '
+                            . 'keep it as uncertified support — plan and apply remain available, while readiness '
+                            . 'and host promotion stay blocked')),
                 'source' => $this->source($name),
                 'trust_tier' => self::trust_tier($manifest),
             ];
@@ -571,7 +782,18 @@ final class AdapterSources {
      * into looking shipped.
      */
     public function export(): array {
-        return ['format' => self::FORMAT, 'out_of_tree' => $this->provenance];
+        if ($this->wireFormat === self::LEGACY_FORMAT) {
+            return ['format' => self::LEGACY_FORMAT, 'out_of_tree' => $this->provenance];
+        }
+        return [
+            'certificates' => $this->certificates,
+            'format' => self::FORMAT,
+            'out_of_tree' => $this->provenance,
+        ];
+    }
+
+    public function wire_format(): string {
+        return $this->wireFormat;
     }
 
     /**
@@ -598,15 +820,23 @@ final class AdapterSources {
     public static function from_snapshot(array $data, array $manifests): self {
         $keys = array_keys($data);
         sort($keys, SORT_STRING);
-        if ($keys !== ['format', 'out_of_tree']
-            || ($data['format'] ?? null) !== self::FORMAT
+        $format = $data['format'] ?? null;
+        $legacy = $format === self::LEGACY_FORMAT;
+        $expectedKeys = $legacy ? ['format', 'out_of_tree'] : ['certificates', 'format', 'out_of_tree'];
+        if ($keys !== $expectedKeys
+            || !in_array($format, [self::LEGACY_FORMAT, self::FORMAT], true)
             || !is_array($data['out_of_tree'] ?? null)
-            || (array_is_list($data['out_of_tree']) && $data['out_of_tree'] !== [])) {
+            || (array_is_list($data['out_of_tree']) && $data['out_of_tree'] !== [])
+            || (!$legacy && (!is_array($data['certificates'] ?? null)
+                || (array_is_list($data['certificates']) && $data['certificates'] !== [])))) {
             throw new \RuntimeException('duo: frozen adapter source record is malformed');
         }
         $frozen = $data['out_of_tree'];
+        $frozenCertificates = $legacy ? [] : $data['certificates'];
         $origins = [];
         $provenance = [];
+        $certificates = [];
+        $claims = [];
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '');
             $record = $frozen[$name] ?? null;
@@ -615,9 +845,30 @@ final class AdapterSources {
                 $origins[$name] = ['source' => self::SHIPPED, 'file' => $file, 'path' => $file];
                 continue;
             }
-            self::validate_frozen_record($name, $record, $manifest);
-            self::assert_out_of_tree_contract($manifest, $name, (string) $record['provenance']['path']);
-            if ($record['trust_tier'] !== self::trust_tier($manifest)) {
+            $certificate = $frozenCertificates[$name] ?? null;
+            if ($certificate === null) {
+                self::validate_frozen_record($name, $record, $manifest, $legacy ? self::LEGACY_FORMAT : self::FORMAT);
+            } else {
+                if ($legacy) {
+                    throw new \RuntimeException("duo: legacy frozen adapter source '$name' cannot carry a certificate");
+                }
+                $verified = AdapterCertification::verifyFrozen(
+                    Policy::manifests_dir(),
+                    $name,
+                    $manifest,
+                    $certificate
+                );
+                if (Canon::encode($verified['disposition']) !== Canon::encode($record)) {
+                    throw new \RuntimeException(
+                        "duo: frozen adapter certification for '$name' disagrees with its derived disposition"
+                    );
+                }
+                $certificates[$name] = $verified['envelope'];
+                $claims[$name] = $verified['claim'];
+            }
+            $path = self::SITE_DIR . '/' . $name . '.json';
+            self::assert_out_of_tree_contract($manifest, $name, $path);
+            if (($record['trust_tier'] ?? null) !== self::trust_tier($manifest)) {
                 throw new \RuntimeException(
                     "duo: frozen adapter source record for '$name' claims trust tier '{$record['trust_tier']}' but "
                     . 'its manifest reaches ' . self::trust_tier($manifest)
@@ -637,9 +888,18 @@ final class AdapterSources {
                 . implode(',', $unmatched)
             );
         }
+        $unmatchedCertificates = array_diff(array_keys($frozenCertificates), array_keys($certificates));
+        if ($unmatchedCertificates !== []) {
+            throw new \RuntimeException(
+                'duo: frozen adapter source record names certificates absent from its manifests: '
+                . implode(',', $unmatchedCertificates)
+            );
+        }
         ksort($origins, SORT_STRING);
         ksort($provenance, SORT_STRING);
-        return new self($origins, $provenance);
+        ksort($certificates, SORT_STRING);
+        ksort($claims, SORT_STRING);
+        return new self($origins, $provenance, $certificates, $claims, (string) $format);
     }
 
     /**
@@ -656,7 +916,12 @@ final class AdapterSources {
      *   attached to, which is recomputable here precisely because
      *   provenance_record() hashes canonical content rather than file bytes.
      */
-    private static function validate_frozen_record(string $name, $record, array $manifest): void {
+    private static function validate_frozen_record(
+        string $name,
+        $record,
+        array $manifest,
+        string $recordFormat = self::FORMAT
+    ): void {
         $provenance = is_array($record) ? ($record['provenance'] ?? null) : null;
         $keys = is_array($record) ? array_keys($record) : [];
         $provenanceKeys = is_array($provenance) ? array_keys($provenance) : [];
@@ -672,7 +937,7 @@ final class AdapterSources {
                 self::TIER_PLUGIN_PROVIDER,
             ], true)
             || $provenanceKeys !== ['format', 'path', 'sha256', 'source']
-            || ($provenance['format'] ?? null) !== self::FORMAT
+            || ($provenance['format'] ?? null) !== $recordFormat
             || ($provenance['source'] ?? null) !== self::SITE
             || !is_string($provenance['path'] ?? null)
             || preg_match('/^[0-9a-f]{64}$/D', (string) ($provenance['sha256'] ?? '')) !== 1) {
