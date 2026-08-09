@@ -40,7 +40,7 @@ final class Secrets {
         '\bgho_[A-Za-z0-9]{20,}\b' => 'github token',
         '\bgithub_pat_[A-Za-z0-9_]{20,}\b' => 'github token',
         '\bxox[baprs]-[A-Za-z0-9-]{10,}\b' => 'slack token',
-        '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' => 'private key',
+        '-----BEGIN [A-Z0-9 ]{0,64}PRIVATE KEY-----' => 'private key',
         '\beyJ[A-Za-z0-9_-]{4,}\.eyJ[A-Za-z0-9_-]{4,}(?:\.[A-Za-z0-9_-]+)?\b' => 'jwt',
     ];
 

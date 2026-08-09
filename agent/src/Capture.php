@@ -100,6 +100,34 @@ final class Capture {
         bool $forceUnresolvedRefs = false,
         ?array $scopeRequest = null
     ): array {
+        return self::run_internal($repo, $outDir, $forceUnresolvedRefs, null, false, $scopeRequest);
+    }
+
+    /**
+     * Init-only capture path. The caller already holds Publish's state lock
+     * across its config/code publication and lends it here. Completing the
+     * initial code lifecycle inside the capture transaction prevents a late
+     * marker refusal from committing a ghost state/identity baseline.
+     *
+     * @param resource $publicationLock
+     * @return array summary
+     */
+    public static function run_initial_baseline(string $repo, $publicationLock): array {
+        if (!is_resource($publicationLock)) {
+            throw new \InvalidArgumentException('duo: init capture requires its held publication lock');
+        }
+        return self::run_internal($repo, null, false, $publicationLock, true);
+    }
+
+    /** @param null|resource $publicationLock @return array summary */
+    private static function run_internal(
+        string $repo,
+        ?string $outDir,
+        bool $forceUnresolvedRefs,
+        $publicationLock,
+        bool $initialBaseline,
+        ?array $scopeRequest = null
+    ): array {
         Canary::suppress_cron_spawn();
         // Policy's v1 single-site boundary must run before any destination
         // lock or Ledger work: an unsupported multisite request is a clean
@@ -122,8 +150,10 @@ final class Capture {
         // bookkeeping tail below: that's "publication," end to end, and two
         // publishers interleaving any part of it is exactly what the lock
         // exists to rule out.
-        $lock = Publish::lock($stateDir);
+        $ownsLock = $publicationLock === null;
+        $lock = $publicationLock ?? Publish::lock($stateDir);
         $testPhaseMarked = false;
+        $publicationPhase = [];
         try {
             // Scoped recovery first reconciles any prior durable publication,
             // then binds the new immutable evidence before this run's first
@@ -271,11 +301,10 @@ final class Capture {
             // collides with one of THIS build's own writes. In particular,
             // an unsupported deletion must roll back every row mutation made
             // while assembling the refused candidate.
-            $publicationPhase = [];
             $build = self::run_in_consistent_snapshot(function () use (
                 $c, $policy, $repo, $forceUnresolvedRefs, $previous, $previousOptions,
                 $previousUserLogins, $intoRepo, $stateDir, &$publicationPhase,
-                $scoped, $scopeContract, $scopeSourceTreeSha256, $repoPath
+                $initialBaseline, $scoped, $scopeContract, $scopeSourceTreeSha256, $repoPath
             ): array {
                 // All map/state mutations which can happen while deciding
                 // whether this candidate is publishable are transactionally
@@ -440,6 +469,9 @@ final class Capture {
                                 ? $source['bytes']
                                 : Canon::read_file($source['path']);
                             Canon::write_file($dst, $bytes);
+                            if ($initialBaseline) {
+                                $publicationPhase['new_media'][] = $dst;
+                            }
                         }
                     }
                 }
@@ -449,7 +481,14 @@ final class Capture {
                     // exist in repo/media, while a repository publication
                     // still validates the exact staged state after writing
                     // its content-addressed blobs.
-                    RepositoryCompiler::compile_staged($staging, $c->repo, $c->policy);
+                    $compiledCandidate = RepositoryCompiler::compile_staged($staging, $c->repo, $c->policy);
+                }
+                if ($initialBaseline) {
+                    $candidate['_initial_code_baseline'] = Code::complete_initial_baseline_in_active_transaction(
+                        $repo,
+                        $compiledCandidate
+                    );
+                    $candidate['_revision_hash'] = $compiledCandidate->revision_hash();
                 }
                 if ($scopeContract !== null) {
                     if (!is_string($scopeSourceTreeSha256)
@@ -486,6 +525,9 @@ final class Capture {
                 $publicationPhase['filesystem_swapped'] = true;
                 Publish::swap($stateDir, true);
                 $intent = Publish::mark_swapped($stateDir, $intent);
+                if ($initialBaseline) {
+                    Db::checkpoint('init capture after filesystem swap');
+                }
                 if ($intoRepo) {
                     $ledgerEntities = $scoped ? $selectedObserved : $candidate['entities'];
                     foreach ($ledgerEntities as $e) {
@@ -562,6 +604,49 @@ final class Capture {
                 }
                 unset($build['_publication_intent']);
             }
+        } catch (\Throwable $failure) {
+            // Init has no prior revision to recover. Before swap begins, all
+            // database effects have rolled back, so remove the unpublished
+            // candidate and only the content-addressed blobs this attempt
+            // created. Ordinary capture retains its historical recovery
+            // behavior unchanged.
+            $safeToCompensate = $initialBaseline && empty($publicationPhase['filesystem_swapped']);
+            if ($initialBaseline && !empty($publicationPhase['filesystem_swapped'])) {
+                try {
+                    Publish::recover(
+                        $stateDir,
+                        static function (array $intent) use ($stateDir): bool {
+                            return self::publication_commit_status($stateDir, $intent);
+                        }
+                    );
+                    // A rolled-back first publication has neither a state
+                    // tree nor a retained intent. A durable/ambiguous commit
+                    // keeps at least one and must be retained as one tuple.
+                    $safeToCompensate = !is_dir($stateDir)
+                        && !file_exists(Publish::intent_path($stateDir));
+                } catch (\Throwable $recoveryFailure) {
+                    // Preserve every artifact when recovery proof is missing.
+                    // Init will surface the retained-recovery diagnostic and
+                    // must not delete config/code around an ambiguous commit.
+                    $safeToCompensate = false;
+                }
+            }
+            if ($safeToCompensate) {
+                $staging = Publish::stage_dir($stateDir);
+                if (is_dir($staging)) {
+                    Publish::rrmdir($staging);
+                }
+                foreach ((array) ($publicationPhase['new_media'] ?? []) as $path) {
+                    if (is_string($path) && is_file($path)) {
+                        @unlink($path);
+                    }
+                }
+                $mediaDir = $repoPath . '/media';
+                if (is_dir($mediaDir) && iterator_count(new \FilesystemIterator($mediaDir)) === 0) {
+                    @rmdir($mediaDir);
+                }
+            }
+            throw $failure;
         } finally {
             if ($testPhaseMarked) {
                 try {
@@ -573,7 +658,9 @@ final class Capture {
                     // fail after the tree and authoritative ledger commit.
                 }
             }
-            Publish::unlock($lock);
+            if ($ownsLock) {
+                Publish::unlock($lock);
+            }
         }
 
         $counts = ['post' => 0, 'term' => 0, 'menu' => 0, 'sidebar' => 0, 'options' => 0, 'deletion' => 0];
@@ -592,6 +679,8 @@ final class Capture {
             'notes' => $build['notes'],
             'warnings' => array_merge($recoveryWarnings, $build['warnings']),
             'state_dir' => $stateDir,
+            'revision_hash' => $build['_revision_hash'] ?? null,
+            'initial_code_baseline' => $build['_initial_code_baseline'] ?? null,
         ];
         if (isset($build['_scope'])) {
             $summary['scope'] = $build['_scope'];

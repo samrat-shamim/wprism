@@ -4,14 +4,14 @@ namespace Duo\Orchestrator;
 /** Host wrapper for the target agent's digest-bound initialization protocol. */
 final class Init {
     /** @return array<string,mixed> */
-    public static function proposal(Transport $transport): array {
+    public static function proposal(EnvironmentDriver $transport): array {
         return self::request($transport, [
             'duo', 'init', '--repo=' . $transport->repoPath(), '--format=json',
         ], 'proposal');
     }
 
     /** @return array<string,mixed> */
-    public static function confirm(Transport $transport, string $digest): array {
+    public static function confirm(EnvironmentDriver $transport, string $digest): array {
         return self::request($transport, [
             'duo', 'init', '--repo=' . $transport->repoPath(),
             '--confirm=' . $digest, '--format=json',
@@ -41,6 +41,7 @@ final class Init {
         $theme = $code['active_theme'] ?? [];
         $lines[] = '    active theme: stylesheet=' . ($theme['stylesheet'] ?? '?') . ', template=' . ($theme['template'] ?? '?');
         $lines[] = '  state: ' . ($state['repository'] ?? '?') . ' (site.duo.json + canonical capture baseline)';
+        $lines[] = '  Git: ' . ($state['git']['mode'] ?? 'unknown') . ' (' . ($state['git']['version'] ?? 'unknown') . ')';
         $adapterNames = array_map(static fn(array $row): string => (string) ($row['name'] ?? '?'), $state['adapters'] ?? []);
         $lines[] = '  adapters: ' . ($adapterNames ? implode(', ', $adapterNames) : '(none)');
         $lines[] = '  media: ' . ($media['strategy'] ?? 'unknown') . ' (' . (int) ($media['attachments'] ?? 0)
@@ -57,6 +58,11 @@ final class Init {
                 . ($row['extension'] ?? '?') . ' [' . ($row['code'] ?? 'unsupported') . ']: '
                 . ($row['reason'] ?? 'unsupported') . '. ' . ($row['remediation'] ?? '');
         }
+        foreach (($proposal['advisories'] ?? []) as $row) {
+            $lines[] = '  ADVISORY ' . strtoupper((string) ($row['kind'] ?? 'coverage')) . ' '
+                . ($row['extension'] ?? '?') . ' [' . ($row['code'] ?? 'advisory') . ']: '
+                . ($row['reason'] ?? 'coverage is incomplete') . '. ' . ($row['remediation'] ?? '');
+        }
         $lines[] = !empty($proposal['ready'])
             ? '  result: ready for explicit confirmation'
             : '  result: blocked; no configuration, state, identity, or ledger mutation was made';
@@ -64,12 +70,14 @@ final class Init {
     }
 
     /** @return list<string> */
-    public static function nextSteps(string $env): array {
+    public static function nextSteps(string $env, string $repo): array {
+        $gitRepo = escapeshellarg($repo);
         return [
             'Managed state scope is clean. Coverage outside the selected adapters remains advisory, not a whole-site guarantee.',
+            "The Git worktree is ready at target path $repo; run the following Git commands inside that target environment.",
             'Next steps:',
-            '  1. git add site.duo.json code state media && git commit -m "duo: initial code and state baselines"',
-            '  2. git switch -c <branch>                         # branch',
+            "  1. git -C $gitRepo add .gitignore site.duo.json code state media && git -C $gitRepo commit -m \"duo: initial code and state baselines\"",
+            "  2. git -C $gitRepo switch -c <branch>             # branch",
             "  3. duo capture $env                              # capture authored state",
             "  4. duo plan $env                                 # preview",
             "  5. duo promote $env                              # promote with a DB checkpoint",
@@ -79,7 +87,7 @@ final class Init {
     }
 
     /** @return array<string,mixed> */
-    private static function request(Transport $transport, array $args, string $phase): array {
+    private static function request(EnvironmentDriver $transport, array $args, string $phase): array {
         $result = $transport->captureWp($args);
         if ($result['exit'] !== 0) {
             $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);

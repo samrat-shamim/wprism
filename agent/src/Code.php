@@ -501,16 +501,53 @@ final class Code {
      * @return array{enabled:bool,completed:bool,code_revision:?string,files:int}
      */
     public static function complete_initial_baseline(string $repo, CompiledRepository $compiled): array {
-        $descriptor = $compiled->code_descriptor();
+        $descriptor = self::validated_initial_baseline($repo, $compiled, true);
         if ($descriptor === null) {
             return ['enabled' => false, 'completed' => false, 'code_revision' => null, 'files' => 0];
+        }
+        self::publish_completed_descriptor($descriptor);
+        return self::initial_baseline_summary($descriptor);
+    }
+
+    /**
+     * Complete the same narrow first baseline inside Capture's already-open
+     * consistent-snapshot transaction. The caller owns commit/rollback, so
+     * this method must never start a nested transaction: descriptor markers,
+     * state hashes, identity minting, and the publication receipt either all
+     * commit together or all roll back together.
+     *
+     * @return array{enabled:bool,completed:bool,code_revision:?string,files:int}
+     */
+    public static function complete_initial_baseline_in_active_transaction(
+        string $repo,
+        CompiledRepository $compiled
+    ): array {
+        $descriptor = self::validated_initial_baseline($repo, $compiled, false);
+        if ($descriptor === null) {
+            return ['enabled' => false, 'completed' => false, 'code_revision' => null, 'files' => 0];
+        }
+        self::write_completed_descriptor($descriptor);
+        return self::initial_baseline_summary($descriptor);
+    }
+
+    /** @return ?array<string,mixed> */
+    private static function validated_initial_baseline(
+        string $repo,
+        CompiledRepository $compiled,
+        bool $ensureLedger
+    ): ?array {
+        $descriptor = $compiled->code_descriptor();
+        if ($descriptor === null) {
+            return null;
         }
         self::assert_descriptor($descriptor);
         self::assert_target_layout($descriptor);
         CodeStateContract::validate($compiled, $descriptor);
         self::assert_source_matches($repo, $descriptor);
         self::assert_source_compatibility($repo, $compiled, $descriptor);
-        Ledger::ensure();
+        if ($ensureLedger) {
+            Ledger::ensure();
+        }
 
         foreach ([
             self::CODE_REVISION_KEY,
@@ -536,8 +573,12 @@ final class Code {
                 . implode(', ', array_slice($extras, 0, 8))
             );
         }
-        self::publish_completed_descriptor($descriptor);
+        return $descriptor;
+    }
 
+    /** @param array<string,mixed> $descriptor
+     *  @return array{enabled:bool,completed:bool,code_revision:?string,files:int} */
+    private static function initial_baseline_summary(array $descriptor): array {
         return [
             'enabled' => true,
             'completed' => true,
@@ -778,13 +819,7 @@ final class Code {
         try {
             Db::start('code ledger transaction start');
             $transactionStarted = true;
-            Ledger::kv_set(self::CODE_DESCRIPTOR_KEY, Canon::encode($descriptor));
-            Ledger::kv_delete(self::CODE_STAGE_DESCRIPTOR_KEY);
-            Ledger::kv_delete(self::CODE_STAGE_ARTIFACT_KEY);
-            Ledger::kv_delete(self::CODE_STAGE_HISTORY_KEY);
-            Ledger::kv_delete(self::CODE_STAGE_CREATED_PATHS_KEY);
-            Ledger::kv_delete(self::CODE_STAGE_REVISION_KEY);
-            Ledger::kv_set(self::CODE_REVISION_KEY, $descriptor['code_revision']);
+            self::write_completed_descriptor($descriptor);
             Db::commit('code ledger transaction commit');
             $transactionStarted = false;
         } catch (\Throwable $t) {
@@ -802,6 +837,17 @@ final class Code {
             }
             throw $t;
         }
+    }
+
+    /** Write completed lifecycle rows inside the caller's transaction. */
+    private static function write_completed_descriptor(array $descriptor): void {
+        Ledger::kv_set(self::CODE_DESCRIPTOR_KEY, Canon::encode($descriptor));
+        Ledger::kv_delete(self::CODE_STAGE_DESCRIPTOR_KEY);
+        Ledger::kv_delete(self::CODE_STAGE_ARTIFACT_KEY);
+        Ledger::kv_delete(self::CODE_STAGE_HISTORY_KEY);
+        Ledger::kv_delete(self::CODE_STAGE_CREATED_PATHS_KEY);
+        Ledger::kv_delete(self::CODE_STAGE_REVISION_KEY);
+        Ledger::kv_set(self::CODE_REVISION_KEY, $descriptor['code_revision']);
     }
 
     /** @return ?array<string,mixed> */

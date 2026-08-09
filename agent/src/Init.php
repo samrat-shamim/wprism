@@ -23,6 +23,8 @@ final class Init {
         }
 
         $repo = rtrim($repo, '/');
+        $git = self::git_probe($repo);
+        $ledger = self::ledger_probe();
         $existing = self::existing_config($repo);
         $manifests = self::installed_manifests();
         $activePlugins = array_values(array_filter(
@@ -32,6 +34,7 @@ final class Init {
 
         $selected = ['core'];
         $unsupported = [];
+        $advisories = [];
         $byPlugin = [];
         $byTheme = [];
         foreach ($manifests as $name => $manifest) {
@@ -73,6 +76,14 @@ final class Init {
                 ];
             } elseif (count($owners) === 1) {
                 $selected[] = $owners[0];
+            } else {
+                $advisories[] = [
+                    'code' => 'active_theme_code_only',
+                    'extension' => $theme,
+                    'kind' => 'theme',
+                    'reason' => 'theme bytes will be inventoried as code, but no theme-owned authored-state adapter is selected',
+                    'remediation' => 'install a certified theme adapter if theme-specific authored state must be branchable',
+                ];
             }
         }
 
@@ -218,12 +229,39 @@ final class Init {
                 'remediation' => 'review or move the existing code payload before initialization',
             ];
         }
+        foreach (['state' => 'existing_state_payload', 'media' => 'existing_media_payload'] as $path => $codeName) {
+            if (file_exists($repo . '/' . $path)) {
+                $unsupported[] = [
+                    'code' => $codeName,
+                    'extension' => $path,
+                    'kind' => 'repository',
+                    'reason' => "the repository already contains a $path payload that init does not own",
+                    'remediation' => "review or move the existing $path payload before initialization",
+                ];
+            }
+        }
+        if ($ledger['rows'] > 0) {
+            $unsupported[] = [
+                'code' => 'existing_duo_ledger',
+                'extension' => 'wordpress-database',
+                'kind' => 'repository',
+                'reason' => 'Duo ledger rows already exist, so this is not an uninitialized environment',
+                'remediation' => 'use ordinary recovery/capture workflows or explicitly remove the abandoned baseline after review',
+            ];
+        }
+        foreach ($git['blockers'] as $blocker) {
+            $unsupported[] = $blocker;
+        }
 
         usort($unsupported, static function (array $a, array $b): int {
             return [$a['kind'], $a['extension'], $a['code']] <=> [$b['kind'], $b['extension'], $b['code']];
         });
+        usort($advisories, static function (array $a, array $b): int {
+            return [$a['kind'], $a['extension'], $a['code']] <=> [$b['kind'], $b['extension'], $b['code']];
+        });
         $proposal = [
             'format' => self::FORMAT,
+            'advisories' => $advisories,
             'environment' => [
                 'database' => ['access' => 'verified-read', 'server' => $dbVersion],
                 'home' => (string) get_option('home', ''),
@@ -238,6 +276,8 @@ final class Init {
                 'existing_config' => $existing['mode'],
                 'media' => $media,
                 'repository' => $repo,
+                'git' => ['mode' => $git['mode'], 'version' => $git['version']],
+                'ledger' => ['rows' => $ledger['rows'], 'tables' => $ledger['tables']],
                 'risk_surfaces' => $risks,
             ],
             'unsupported' => $unsupported,
@@ -250,25 +290,60 @@ final class Init {
     /** @return array<string,mixed> */
     public static function confirm(string $repo, string $expectedDigest): array {
         $proposal = self::proposal($repo);
-        if (!preg_match('/^[0-9a-f]{64}$/', $expectedDigest)
-            || !hash_equals((string) $proposal['digest'], $expectedDigest)) {
-            throw new \RuntimeException(
-                'duo: init proposal changed before confirmation; review the fresh proposal and confirm its new digest'
-            );
-        }
-        if (!$proposal['ready']) {
-            throw new \RuntimeException('duo: init proposal is not ready; resolve every reported unsupported capability first');
-        }
-
         $repo = rtrim($repo, '/');
-        if (!is_dir($repo) && !mkdir($repo, 0775, true) && !is_dir($repo)) {
-            throw new \RuntimeException("duo: could not create repository directory $repo");
-        }
+        self::assert_confirmed_proposal($proposal, $expectedDigest);
+
+        // A connection-scoped database advisory lease is non-durable and
+        // shared by every local/docker/SSH WP-CLI process using this target.
+        // It prevents two confirmations from both taking ownership of an
+        // absent config before the filesystem capture lock can exist.
+        $lease = self::acquire_init_lease($repo);
+        $publicationLock = null;
+        $lockPathExisted = false;
+        $lockOwnedAndCreated = false;
+        $succeeded = false;
+        $repoCreated = false;
+        $gitCreated = false;
+        $gitignoreWritten = false;
+        $previousGitignore = null;
         $siteFile = $repo . '/site.duo.json';
-        $previous = is_file($siteFile) ? Canon::read_file($siteFile) : null;
+        $previous = null;
         $publishedCode = false;
         $stagedCode = null;
         try {
+            if (getenv('DUO_TEST_MODE') === '1') {
+                $pauseMs = (int) (getenv('DUO_TEST_INIT_PAUSE_MS') ?: 0);
+                if ($pauseMs > 0 && $pauseMs <= 10000) {
+                    usleep($pauseMs * 1000);
+                }
+            }
+
+            if (!is_dir($repo)) {
+                if (!mkdir($repo, 0775, true) && !is_dir($repo)) {
+                    throw new \RuntimeException("duo: could not create repository directory $repo");
+                }
+                $repoCreated = true;
+            }
+            $stateDir = $repo . '/state';
+            $lockPath = Publish::lock_path($stateDir);
+            $lockPathExisted = file_exists($lockPath);
+            $publicationLock = Publish::lock($stateDir);
+            $lockOwnedAndCreated = !$lockPathExisted;
+
+            // Recompute while BOTH the init advisory lease and the shared
+            // state publication lock are held. The operator confirms facts,
+            // never a mutable config payload; neither a second init nor an
+            // ordinary capture can publish between this recheck and commit.
+            $proposal = self::proposal($repo);
+            self::assert_confirmed_proposal($proposal, $expectedDigest);
+
+            if (($proposal['state']['git']['mode'] ?? null) === 'initialize-on-confirm') {
+                self::initialize_git($repo);
+                $gitCreated = true;
+            }
+            [$previousGitignore, $gitignoreWritten] = self::ensure_gitignore($repo);
+
+            $previous = is_file($siteFile) ? Canon::read_file($siteFile) : null;
             [$descriptor, $stagedCode] = self::capture_code($repo, $proposal['code']);
             $codeTarget = $repo . '/' . Code::SOURCE;
             $codeParent = dirname($codeTarget);
@@ -281,16 +356,27 @@ final class Init {
             $stagedCode = null;
             $publishedCode = true;
             Canon::write_file($siteFile, Canon::encode($proposal['state']['config']));
-            $policy = Policy::load($repo);
-            $capture = Capture::run($repo);
-            $compiled = RepositoryCompiler::compile($repo, $policy);
-            $codeBaseline = Code::complete_initial_baseline($repo, $compiled);
+            Policy::load($repo);
+            $capture = Capture::run_initial_baseline($repo, $publicationLock);
+            $revisionHash = (string) ($capture['revision_hash'] ?? '');
+            $codeBaseline = $capture['initial_code_baseline'] ?? null;
+            if (!preg_match('/^[0-9a-f]{64}$/', $revisionHash)
+                || !is_array($codeBaseline)
+                || ($codeBaseline['enabled'] ?? null) !== true
+                || ($codeBaseline['completed'] ?? null) !== true
+                || !hash_equals(
+                    (string) ($descriptor['code_revision'] ?? ''),
+                    (string) ($codeBaseline['code_revision'] ?? '')
+                )) {
+                throw new \RuntimeException('duo: init capture returned no completed transaction-bound baseline receipt');
+            }
+            $succeeded = true;
             return [
                 'format' => 'duo-init-result/v1',
                 'proposal_digest' => $expectedDigest,
                 'baseline' => [
                     'kind' => 'state-capture',
-                    'revision_hash' => $compiled->revision_hash(),
+                    'revision_hash' => $revisionHash,
                     'rollback_note' => 'This is a state baseline, not a code-and-database rollback checkpoint.',
                 ],
                 'capture' => $capture,
@@ -301,10 +387,30 @@ final class Init {
                     'source' => Code::SOURCE,
                     'lifecycle' => $codeBaseline,
                 ],
-                'state' => ['repository' => $repo, 'site_config' => $siteFile],
+                'state' => [
+                    'git' => self::git_probe($repo)['mode'],
+                    'repository' => $repo,
+                    'site_config' => $siteFile,
+                ],
                 'unsupported' => [],
             ];
         } catch (\Throwable $error) {
+            // Once Capture has swapped state or written an intent, its
+            // transaction/receipt protocol is the authority. Never delete
+            // config/code around a possibly committed state tree; retain the
+            // complete set for deterministic recovery instead of creating a
+            // ghost baseline. All failures before that boundary are fully
+            // compensated below while both leases remain held.
+            $crossedPublication = is_dir($repo . '/state')
+                || file_exists(Publish::intent_path($repo . '/state'));
+            if ($crossedPublication) {
+                throw new \RuntimeException(
+                    'duo: init publication crossed its durable receipt boundary; retained config, code, state, and ledger together for recovery: '
+                    . $error->getMessage(),
+                    0,
+                    $error
+                );
+            }
             if (is_string($stagedCode) && file_exists($stagedCode)) {
                 self::remove_tree($stagedCode);
             }
@@ -328,7 +434,30 @@ final class Init {
                     );
                 }
             }
+            if ($gitignoreWritten) {
+                $gitignore = $repo . '/.gitignore';
+                if ($previousGitignore === null) {
+                    @unlink($gitignore);
+                } else {
+                    Canon::write_file($gitignore, $previousGitignore);
+                }
+            }
+            if ($gitCreated && is_dir($repo . '/.git')) {
+                self::remove_tree($repo . '/.git');
+            }
             throw $error;
+        } finally {
+            if (is_resource($publicationLock)) {
+                Publish::unlock($publicationLock);
+            }
+            if (!$succeeded && $lockOwnedAndCreated) {
+                @unlink(Publish::lock_path($repo . '/state'));
+            }
+            if (!$succeeded && $repoCreated && is_dir($repo)
+                && iterator_count(new \FilesystemIterator($repo)) === 0) {
+                @rmdir($repo);
+            }
+            self::release_init_lease($lease);
         }
     }
 
@@ -364,6 +493,207 @@ final class Init {
             'spec_version' => DUO_SPEC_VERSION,
         ];
         return ['mode' => Canon::encode($data) === Canon::encode($seed) ? 'adoption-seed' : 'owned'];
+    }
+
+    /** @param array<string,mixed> $proposal */
+    private static function assert_confirmed_proposal(array $proposal, string $expectedDigest): void {
+        if (!preg_match('/^[0-9a-f]{64}$/', $expectedDigest)
+            || !hash_equals((string) ($proposal['digest'] ?? ''), $expectedDigest)) {
+            throw new \RuntimeException(
+                'duo: init proposal changed before confirmation; review the fresh proposal and confirm its new digest'
+            );
+        }
+        if (empty($proposal['ready'])) {
+            throw new \RuntimeException('duo: init proposal is not ready; resolve every reported unsupported capability first');
+        }
+    }
+
+    /** Acquire one non-durable, connection-owned lease for this target/repo. */
+    private static function acquire_init_lease(string $repo): string {
+        global $wpdb;
+        $name = 'duo-init:' . substr(hash('sha256', (string) $wpdb->prefix . "\0" . $repo), 0, 48);
+        $result = $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 0)', $name));
+        if (!empty($wpdb->last_error)) {
+            throw new \RuntimeException('duo: init could not acquire its database advisory lease');
+        }
+        if ((string) $result !== '1') {
+            throw new \RuntimeException('duo: init refused — another initialization already holds the target lease');
+        }
+        return $name;
+    }
+
+    private static function release_init_lease(string $name): void {
+        global $wpdb;
+        // Connection shutdown releases this lock even if the explicit call
+        // fails. Cleanup must never hide the operation's authoritative error.
+        @$wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $name));
+    }
+
+    /** @return array{tables:int,rows:int} */
+    private static function ledger_probe(): array {
+        global $wpdb;
+        $pattern = $wpdb->esc_like((string) $wpdb->prefix . 'duo_') . '%';
+        $tables = (array) $wpdb->get_col($wpdb->prepare('SHOW TABLES LIKE %s', $pattern));
+        if (!empty($wpdb->last_error)) {
+            throw new \RuntimeException('duo: init could not inspect the existing Duo ledger boundary');
+        }
+        sort($tables, SORT_STRING);
+        $expected = [
+            (string) $wpdb->prefix . 'duo_journal',
+            (string) $wpdb->prefix . 'duo_kv',
+            (string) $wpdb->prefix . 'duo_map',
+            (string) $wpdb->prefix . 'duo_state',
+        ];
+        $rows = 0;
+        foreach ($tables as $table) {
+            if (!in_array($table, $expected, true)) {
+                // An unknown duo_* table is itself non-pristine evidence;
+                // never interpolate its target-controlled name into SQL.
+                $rows++;
+                continue;
+            }
+            $count = $wpdb->get_var('SELECT COUNT(*) FROM `' . str_replace('`', '``', $table) . '`');
+            if (!empty($wpdb->last_error) || !is_numeric($count)) {
+                throw new \RuntimeException('duo: init could not verify that the existing Duo ledger is pristine');
+            }
+            $rows += (int) $count;
+        }
+        return ['tables' => count($tables), 'rows' => $rows];
+    }
+
+    /** @return array{mode:string,version:string,blockers:list<array<string,string>>} */
+    private static function git_probe(string $repo): array {
+        $versionResult = self::run_process(['git', '--version']);
+        $version = $versionResult['exit'] === 0 ? trim($versionResult['stdout']) : 'unavailable';
+        $blockers = [];
+        if ($versionResult['exit'] !== 0) {
+            $blockers[] = [
+                'code' => 'git_unavailable', 'extension' => 'git', 'kind' => 'repository',
+                'reason' => 'Git is unavailable on the target that owns the site repository',
+                'remediation' => 'install Git on the target, then rerun duo init',
+            ];
+            return ['mode' => 'unavailable', 'version' => $version, 'blockers' => $blockers];
+        }
+        if (!file_exists($repo)) {
+            return ['mode' => 'initialize-on-confirm', 'version' => $version, 'blockers' => []];
+        }
+        if (is_link($repo) || !is_dir($repo)) {
+            $blockers[] = [
+                'code' => 'unsafe_repository_root', 'extension' => $repo, 'kind' => 'repository',
+                'reason' => 'the repository root is not an ordinary directory',
+                'remediation' => 'choose a non-symlinked directory owned by this site',
+            ];
+            return ['mode' => 'invalid', 'version' => $version, 'blockers' => $blockers];
+        }
+        if (is_link($repo . '/.gitignore')) {
+            $blockers[] = [
+                'code' => 'unsafe_gitignore', 'extension' => '.gitignore', 'kind' => 'repository',
+                'reason' => 'the repository ignore file is a symbolic link',
+                'remediation' => 'replace it with an ordinary repository-owned file',
+            ];
+        }
+
+        $allowed = array_fill_keys([
+            '.', '..', '.duo', '.duo-env-values.json', '.duo-envs.json', '.git', '.gitignore',
+            'code', 'media', 'site.duo.json', 'state', 'state.capture.lock',
+        ], true);
+        $unexpected = [];
+        foreach (scandir($repo) ?: [] as $entry) {
+            if (!isset($allowed[$entry])) {
+                $unexpected[] = $entry;
+            }
+        }
+        sort($unexpected, SORT_STRING);
+        if ($unexpected !== []) {
+            $blockers[] = [
+                'code' => 'repository_not_empty', 'extension' => implode(', ', array_slice($unexpected, 0, 8)),
+                'kind' => 'repository',
+                'reason' => 'the repository contains files that init does not own',
+                'remediation' => 'move the foreign files or choose an empty/adoption-seed site repository',
+            ];
+        }
+
+        $rootResult = self::run_process(['git', '-C', $repo, 'rev-parse', '--show-toplevel']);
+        if ($rootResult['exit'] !== 0) {
+            if (file_exists($repo . '/.git')) {
+                $blockers[] = [
+                    'code' => 'invalid_git_worktree', 'extension' => '.git', 'kind' => 'repository',
+                    'reason' => 'the repository contains Git metadata but is not a usable worktree',
+                    'remediation' => 'repair or remove the invalid Git metadata, then rerun duo init',
+                ];
+                return ['mode' => 'invalid', 'version' => $version, 'blockers' => $blockers];
+            }
+            return ['mode' => 'initialize-on-confirm', 'version' => $version, 'blockers' => $blockers];
+        }
+        $actual = realpath(trim($rootResult['stdout']));
+        $expectedRoot = realpath($repo);
+        if ($actual === false || $expectedRoot === false || $actual !== $expectedRoot) {
+            $blockers[] = [
+                'code' => 'repository_not_git_root', 'extension' => $repo, 'kind' => 'repository',
+                'reason' => 'the site repository resolves inside a different Git worktree',
+                'remediation' => 'use a dedicated Git worktree whose top level is the site repository',
+            ];
+            return ['mode' => 'invalid', 'version' => $version, 'blockers' => $blockers];
+        }
+        return ['mode' => 'existing-worktree', 'version' => $version, 'blockers' => $blockers];
+    }
+
+    private static function initialize_git(string $repo): void {
+        $result = self::run_process(['git', 'init', '--initial-branch=main', $repo]);
+        if ($result['exit'] !== 0 || self::git_probe($repo)['mode'] !== 'existing-worktree') {
+            throw new \RuntimeException('duo: init could not create and verify the target Git worktree');
+        }
+    }
+
+    /** @return array{0:?string,1:bool} previous bytes and whether a write occurred */
+    private static function ensure_gitignore(string $repo): array {
+        $path = $repo . '/.gitignore';
+        if (is_link($path) || (file_exists($path) && !is_file($path))) {
+            throw new \RuntimeException('duo: init refuses a non-file .gitignore boundary');
+        }
+        $previous = is_file($path) ? Canon::read_file($path) : null;
+        $required = [
+            '.tmp*', 'state.capture.lock', 'state.capture-staging/', 'state.capture-backup/',
+            'state.capture-intent', 'state.capture-receipt', 'state.capture-intent.tmp.*',
+            'state.capture-receipt.tmp.*', '.duo-env-values.json',
+        ];
+        $lines = $previous === null ? [] : preg_split('/\r?\n/', $previous);
+        $known = array_fill_keys(is_array($lines) ? $lines : [], true);
+        $missing = array_values(array_filter($required, static fn(string $line): bool => !isset($known[$line])));
+        if ($missing === []) {
+            return [$previous, false];
+        }
+        $next = $previous ?? '';
+        if ($next !== '' && !str_ends_with($next, "\n")) {
+            $next .= "\n";
+        }
+        if ($next !== '') {
+            $next .= "\n";
+        }
+        $next .= "# Duo local publication and environment artifacts\n" . implode("\n", $missing) . "\n";
+        Canon::write_file($path, $next);
+        return [$previous, true];
+    }
+
+    /** @return array{exit:int,stdout:string,stderr:string} */
+    private static function run_process(array $args): array {
+        if (!function_exists('proc_open')) {
+            return ['exit' => 127, 'stdout' => '', 'stderr' => ''];
+        }
+        $pipes = [];
+        $process = @proc_open($args, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        if (!is_resource($process)) {
+            return ['exit' => 127, 'stdout' => '', 'stderr' => ''];
+        }
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return [
+            'exit' => proc_close($process),
+            'stdout' => is_string($stdout) ? $stdout : '',
+            'stderr' => is_string($stderr) ? $stderr : '',
+        ];
     }
 
     /** @return list<array{basename:string,version:string}> */
@@ -531,17 +861,50 @@ final class Init {
             throw new \RuntimeException("code file could not be hashed: $relative");
         }
         $base = strtolower(basename($relative));
-        $head = $size <= 131072 ? file_get_contents($path) : file_get_contents($path, false, null, 0, 131072);
+        $secretLabel = self::code_secret_label($path);
         if ($base === '.env' || str_starts_with($base, '.env.') || $base === 'wp-config.php'
-            || (is_string($head) && preg_match('/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/', $head))) {
+            || $secretLabel !== null) {
             $blockers[] = [
                 'code' => 'credential_bearing_code_file', 'extension' => $relative, 'kind' => 'code',
-                'reason' => 'an obvious environment or private-key file is inside the proposed code payload',
+                'reason' => $secretLabel === null
+                    ? 'an environment-owned configuration file is inside the proposed code payload'
+                    : "a high-confidence $secretLabel is inside the proposed code payload; the value is redacted",
                 'remediation' => 'remove the credential from executable code and inject it as environment-owned configuration',
             ];
         }
         $files[] = ['path' => $relative, 'sha256' => $digest];
         $bytes += (int) $size;
+    }
+
+    /**
+     * Scan every byte through Secrets' high-confidence matcher without ever
+     * loading an unbounded file or putting the matched value in diagnostics.
+     * The overlap is wider than every shipped token/header pattern, so a
+     * credential split across read boundaries is still detected.
+     */
+    private static function code_secret_label(string $path): ?string {
+        $handle = @fopen($path, 'rb');
+        if ($handle === false) {
+            throw new \RuntimeException('code file could not be opened for credential scanning');
+        }
+        $tail = '';
+        try {
+            while (!feof($handle)) {
+                $chunk = fread($handle, 32768);
+                if ($chunk === false) {
+                    throw new \RuntimeException('code file could not be read for credential scanning');
+                }
+                $window = $tail . $chunk;
+                $label = Secrets::hard_match($window);
+                if ($label !== null) {
+                    return $label;
+                }
+                $tail = substr($window, -512);
+            }
+        } finally {
+            fclose($handle);
+        }
+        return null;
     }
 
     /** @return array{0:array<string,mixed>,1:string} verified descriptor and unpublished staging root */
@@ -570,6 +933,7 @@ final class Init {
                     );
                 }
             }
+            self::assert_staged_code_no_secrets($stage);
             $descriptor = Code::descriptor_from_source($stage);
             $copiedRevision = hash('sha256', Canon::encode($descriptor['files']));
             if (!hash_equals($revision, $copiedRevision)) {
@@ -626,6 +990,24 @@ final class Init {
         }
     }
 
+    /** The exact copied bytes get their own redacted credential gate. */
+    private static function assert_staged_code_no_secrets(string $stage): void {
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($stage, \FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($iterator as $item) {
+            if (!$item->isFile() || $item->isLink()) {
+                continue;
+            }
+            $label = self::code_secret_label($item->getPathname());
+            if ($label !== null) {
+                throw new \RuntimeException(
+                    "duo: captured code contains a high-confidence $label; the value is redacted and was not published"
+                );
+            }
+        }
+    }
+
     private static function safe_component(string $value): bool {
         return $value !== '' && $value !== '.' && $value !== '..'
             && preg_match('/^[A-Za-z0-9._-]+$/', $value) === 1;
@@ -676,16 +1058,29 @@ final class Init {
         $secretCounts = [];
         $piiCounts = [];
         $limit = 5000;
-        $options = $wpdb->get_results("SELECT option_name, option_value FROM {$wpdb->options} WHERE LENGTH(option_value) <= 65536 LIMIT $limit", ARRAY_A);
-        foreach ((array) $options as $row) {
+        // The extra row determines truncation. Stable primary-key ordering
+        // makes the same unchanged large database produce the same bounded
+        // subset, aggregate counts, proposal digest, and confirmation token.
+        $options = (array) $wpdb->get_results(
+            "SELECT option_id, option_name, option_value FROM {$wpdb->options} "
+            . "WHERE LENGTH(option_value) <= 65536 ORDER BY option_id ASC LIMIT " . ($limit + 1),
+            ARRAY_A
+        );
+        $optionsTruncated = count($options) > $limit;
+        foreach (array_slice($options, 0, $limit) as $row) {
             $value = (string) ($row['option_value'] ?? '');
             $label = Secrets::hard_match($value);
             if ($label === null && Secrets::suspicious((string) ($row['option_name'] ?? ''), $value)) $label = 'suspicious-name-and-shape';
             if ($label !== null) $secretCounts[$label] = ($secretCounts[$label] ?? 0) + 1;
         }
-        $userMeta = $wpdb->get_results("SELECT meta_key, meta_value FROM {$wpdb->usermeta} WHERE LENGTH(meta_value) <= 65536 LIMIT $limit", ARRAY_A);
-        foreach ((array) $userMeta as $row) {
-            $value = maybe_unserialize($row['meta_value'] ?? '');
+        $userMeta = (array) $wpdb->get_results(
+            "SELECT umeta_id, meta_key, meta_value FROM {$wpdb->usermeta} "
+            . "WHERE LENGTH(meta_value) <= 65536 ORDER BY umeta_id ASC LIMIT " . ($limit + 1),
+            ARRAY_A
+        );
+        $userMetaTruncated = count($userMeta) > $limit;
+        foreach (array_slice($userMeta, 0, $limit) as $row) {
+            $value = self::safe_risk_value((string) ($row['meta_value'] ?? ''));
             $label = PersonalData::match_deep((string) ($row['meta_key'] ?? ''), $value);
             if ($label !== null) $piiCounts[$label] = ($piiCounts[$label] ?? 0) + 1;
         }
@@ -693,7 +1088,19 @@ final class Init {
         return [
             'options' => $secretCounts,
             'user_meta' => $piiCounts,
-            'truncated' => count((array) $options) === $limit || count((array) $userMeta) === $limit,
+            'truncated' => $optionsTruncated || $userMetaTruncated,
         ];
+    }
+
+    /** Decode scalar/array metadata without ever instantiating stored PHP objects. */
+    private static function safe_risk_value(string $raw) {
+        if (!function_exists('is_serialized') || !is_serialized($raw)) {
+            return $raw;
+        }
+        $decoded = @unserialize(trim($raw), ['allowed_classes' => false]);
+        // A disallowed object becomes __PHP_Incomplete_Class. Keep the raw
+        // bytes opaque; the outer meta key can still produce a redacted PII
+        // label, while no wakeup/unserialize/destructor code can execute.
+        return is_object($decoded) ? $raw : $decoded;
     }
 }

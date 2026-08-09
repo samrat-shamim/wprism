@@ -103,7 +103,7 @@ services:
     cpus: "1.0"
 
   cli1:
-    image: wordpress:cli-php8.3
+    image: ${DUO_CLI_IMAGE:-wordpress:cli-php8.3}
     user: "33:33"
     networks: [duo-shared]
     environment:
@@ -129,7 +129,7 @@ services:
     cpus: "1.0"
 
   cli2:
-    image: wordpress:cli-php8.3
+    image: ${DUO_CLI_IMAGE:-wordpress:cli-php8.3}
     user: "33:33"
     networks: [duo-shared]
     environment:

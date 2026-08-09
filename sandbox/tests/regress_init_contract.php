@@ -95,11 +95,12 @@ check(str_contains($rendered, '1 secret-shaped option value(s), 2 PII-shaped use
 check(str_contains($rendered, 'redacted counts are incomplete'), 'rendering discloses a bounded risk scan instead of implying completeness');
 check(!str_contains($rendered, 'sk_live_') && !str_contains($rendered, '@example.'), 'rendering cannot expose secret or PII values from the count-only report');
 
-$next = implode("\n", Init::nextSteps('shop'));
+$next = implode("\n", Init::nextSteps('shop', '/srv/shop-state'));
 foreach (['branch', 'duo capture shop', 'duo plan shop', 'duo promote shop', 'rollback'] as $step) {
     check(str_contains($next, $step), "workflow guide includes $step");
 }
 check(str_contains($next, 'Coverage outside the selected adapters remains advisory'), 'guide does not turn a managed-scope proof into a whole-site guarantee');
+check(str_contains($next, "git -C '/srv/shop-state'"), 'guide runs Git in the target-owned worktree');
 
 $badJson = new InitTransport([['exit' => 0, 'stdout' => "not-json\n", 'stderr' => '']]);
 try {
@@ -122,15 +123,24 @@ check(is_string($agentSource), 'target init source is readable');
 check(!str_contains(strtolower($agentSource), 'woocommerce'), 'generic target init has no plugin-name branch');
 check(str_contains($agentSource, "(\$rule['class'] ?? null) === 'authored'"), 'post-type scope expands only from authored manifest rulings');
 check(substr_count($agentSource, "(\$rule['class'] ?? null) === 'authored'") >= 2, 'post-type and taxonomy scope expand only from explicit authored manifest rulings');
-check(strpos($agentSource, 'hash_equals') < strpos($agentSource, 'Canon::write_file'), 'digest recheck precedes the first site-config write');
+$lockedRecheck = strrpos($agentSource, 'self::assert_confirmed_proposal($proposal, $expectedDigest);');
+$siteWrite = strpos($agentSource, 'Canon::write_file($siteFile, Canon::encode($proposal[' . "'state'" . '][' . "'config'" . ']));');
+check($lockedRecheck !== false && $siteWrite !== false && $lockedRecheck < $siteWrite, 'under-lock digest recheck precedes the site-config write');
 check(str_contains($agentSource, "'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => Code::SOURCE]"), 'site config declares code independently from state policy');
 check(str_contains($agentSource, 'Code::descriptor_from_source($stage)'), 'captured code is validated by the existing descriptor contract before publication');
-check(str_contains($agentSource, 'RepositoryCompiler::compile($repo, $policy)'), 'confirmed baseline is compiled through the loaded policy contract');
-check(str_contains($agentSource, 'Code::complete_initial_baseline($repo, $compiled)'), 'confirmed source baseline completes the generic code lifecycle contract');
+check(str_contains($agentSource, 'Capture::run_initial_baseline($repo, $publicationLock)'), 'confirmed baseline uses the init-wide publication transaction');
+check(str_contains($agentSource, 'SELECT GET_LOCK(%s, 0)'), 'concurrent confirmations share a target advisory lease');
+check(str_contains($agentSource, "'existing_state_payload'") && str_contains($agentSource, "'existing_media_payload'") && str_contains($agentSource, "'existing_duo_ledger'"), 'stale state, media, and ledger ownership block initialization');
+check(str_contains($agentSource, 'Secrets::hard_match($window)'), 'every code byte crosses the high-confidence secret matcher');
+check(str_contains($agentSource, "['allowed_classes' => false]"), 'risk discovery cannot instantiate serialized user-meta objects');
+check(!str_contains($agentSource, 'maybe_unserialize('), 'read-only risk discovery never uses class-enabled WordPress unserialization');
+check(str_contains($agentSource, 'ORDER BY option_id ASC') && str_contains($agentSource, 'ORDER BY umeta_id ASC'), 'bounded risk discovery uses deterministic primary-key ordering');
+check(str_contains($agentSource, "git', 'init', '--initial-branch=main"), 'confirmation creates a verified Git worktree when absent');
 
 $codeSource = file_get_contents(__DIR__ . '/../../agent/src/Code.php');
 check(is_string($codeSource), 'code lifecycle source is readable');
 check(str_contains($codeSource, 'public static function complete_initial_baseline'), 'code lifecycle exposes a narrow initial-baseline primitive');
+check(str_contains($codeSource, 'complete_initial_baseline_in_active_transaction'), 'initial lifecycle can join capture transaction without a nested commit');
 check(str_contains($codeSource, 'lifecycle metadata') && str_contains($codeSource, 'already exists'), 'initial baseline refuses to overwrite existing lifecycle metadata');
 check(str_contains($codeSource, 'self::verify_payload($descriptor)') && str_contains($codeSource, 'self::owned_extra_files($descriptor)'), 'initial baseline verifies live bytes and rejects unrecorded managed files');
 
