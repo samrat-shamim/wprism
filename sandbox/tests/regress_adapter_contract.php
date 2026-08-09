@@ -174,20 +174,20 @@ echo "\n== spec_version: MANDATORY (DUO-3247) — absent hard-fails, present-and
 // declared-and-wrong are now the SAME failure (see validate_adapter_contract()'s
 // docblock), so both assertions below check for the same 'spec_version'
 // needle through the one throw site.
-fresh_manifests_dir(['noSpec' => ['name' => 'noSpec']]);
+fresh_manifests_dir(['no-spec' => ['name' => 'no-spec']]);
 expect_throw(
-    fn() => Policy::load(null, ['noSpec']),
+    fn() => Policy::load(null, ['no-spec']),
     'spec_version',
     'absent spec_version hard-fails (DUO-3247: mandatory now, not lenient — was the DUO-3222-era behavior before this issue)'
 );
 
-fresh_manifests_dir(['rightSpec' => ['name' => 'rightSpec', 'spec_version' => DUO_SPEC_VERSION]]);
-Policy::load(null, ['rightSpec']);
+fresh_manifests_dir(['right-spec' => ['name' => 'right-spec', 'spec_version' => DUO_SPEC_VERSION]]);
+Policy::load(null, ['right-spec']);
 check(true, 'declared-and-correct spec_version loads cleanly');
 
-fresh_manifests_dir(['wrongSpec' => ['name' => 'wrongSpec', 'spec_version' => DUO_SPEC_VERSION + 1]]);
+fresh_manifests_dir(['wrong-spec' => ['name' => 'wrong-spec', 'spec_version' => DUO_SPEC_VERSION + 1]]);
 expect_throw(
-    fn() => Policy::load(null, ['wrongSpec']),
+    fn() => Policy::load(null, ['wrong-spec']),
     'spec_version',
     'declared-and-WRONG spec_version hard-fails (same failure as absent now, per DUO-3247)'
 );
@@ -198,57 +198,57 @@ echo "\n== unbounded/malformed ranges are refused — 'no latest/wildcard/unboun
 // just to get PAST the (now mandatory) spec_version gate and actually reach
 // the version_range check each one exists to exercise — without it every
 // one of these would hard-fail on the spec_version needle instead.
-fresh_manifests_dir(['noRange' => ['name' => 'noRange', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php']]);
+fresh_manifests_dir(['no-range' => ['name' => 'no-range', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php']]);
 expect_throw(
-    fn() => Policy::load(null, ['noRange']),
+    fn() => Policy::load(null, ['no-range']),
     'unbounded',
     'plugin declared with NO version_range at all is refused (today\'s silent-skip is the failure mode DUO-3222 closes)'
 );
 
-fresh_manifests_dir(['missingMax' => ['name' => 'missingMax', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0']]]);
-expect_throw(fn() => Policy::load(null, ['missingMax']), 'malformed range', 'version_range missing max is refused');
+fresh_manifests_dir(['missing-max' => ['name' => 'missing-max', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0']]]);
+expect_throw(fn() => Policy::load(null, ['missing-max']), 'malformed range', 'version_range missing max is refused');
 
-fresh_manifests_dir(['missingMin' => ['name' => 'missingMin', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['max' => '2.0.0']]]);
-expect_throw(fn() => Policy::load(null, ['missingMin']), 'malformed range', 'version_range missing min is refused');
+fresh_manifests_dir(['missing-min' => ['name' => 'missing-min', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['max' => '2.0.0']]]);
+expect_throw(fn() => Policy::load(null, ['missing-min']), 'malformed range', 'version_range missing min is refused');
 
-fresh_manifests_dir(['minGteMax' => ['name' => 'minGteMax', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '2.0.0', 'max' => '2.0.0']]]);
-expect_throw(fn() => Policy::load(null, ['minGteMax']), 'malformed range', 'version_range with min == max (not strictly less) is refused');
+fresh_manifests_dir(['min-gte-max' => ['name' => 'min-gte-max', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '2.0.0', 'max' => '2.0.0']]]);
+expect_throw(fn() => Policy::load(null, ['min-gte-max']), 'malformed range', 'version_range with min == max (not strictly less) is refused');
 
-fresh_manifests_dir(['minGtMax' => ['name' => 'minGtMax', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '3.0.0', 'max' => '2.0.0']]]);
-expect_throw(fn() => Policy::load(null, ['minGtMax']), 'malformed range', 'version_range with min > max is refused');
+fresh_manifests_dir(['min-gt-max' => ['name' => 'min-gt-max', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '3.0.0', 'max' => '2.0.0']]]);
+expect_throw(fn() => Policy::load(null, ['min-gt-max']), 'malformed range', 'version_range with min > max is refused');
 
 fresh_manifests_dir(['wildcard' => ['name' => 'wildcard', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '*', 'max' => '*']]]);
 expect_throw(fn() => Policy::load(null, ['wildcard']), 'malformed range', 'wildcard "*" min/max is refused, not silently treated as unbounded');
 
-fresh_manifests_dir(['emptyPlugin' => ['name' => 'emptyPlugin', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => '']]);
-expect_throw(fn() => Policy::load(null, ['emptyPlugin']), "non-string or empty", 'empty-string plugin identity is refused');
+fresh_manifests_dir(['empty-plugin' => ['name' => 'empty-plugin', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => '']]);
+expect_throw(fn() => Policy::load(null, ['empty-plugin']), "non-string or empty", 'empty-string plugin identity is refused');
 
 echo "\n== theme mirrors every plugin malformation exactly (same validator, same code path) ==\n";
 
-fresh_manifests_dir(['themeNoRange' => ['name' => 'themeNoRange', 'spec_version' => DUO_SPEC_VERSION, 'theme' => 'acme-theme']]);
-expect_throw(fn() => Policy::load(null, ['themeNoRange']), 'unbounded', 'theme declared with NO theme_version_range is refused');
+fresh_manifests_dir(['theme-no-range' => ['name' => 'theme-no-range', 'spec_version' => DUO_SPEC_VERSION, 'theme' => 'acme-theme']]);
+expect_throw(fn() => Policy::load(null, ['theme-no-range']), 'unbounded', 'theme declared with NO theme_version_range is refused');
 
-fresh_manifests_dir(['themeBadRange' => ['name' => 'themeBadRange', 'spec_version' => DUO_SPEC_VERSION, 'theme' => 'acme-theme', 'theme_version_range' => ['min' => '5.0.0', 'max' => '1.0.0']]]);
-expect_throw(fn() => Policy::load(null, ['themeBadRange']), 'malformed range', 'theme_version_range with min > max is refused');
+fresh_manifests_dir(['theme-bad-range' => ['name' => 'theme-bad-range', 'spec_version' => DUO_SPEC_VERSION, 'theme' => 'acme-theme', 'theme_version_range' => ['min' => '5.0.0', 'max' => '1.0.0']]]);
+expect_throw(fn() => Policy::load(null, ['theme-bad-range']), 'malformed range', 'theme_version_range with min > max is refused');
 
 echo "\n== conflicting ownership: same plugin/theme, different ranges, no v1 composition escape hatch ==\n";
 
 fresh_manifests_dir([
-    'confA' => ['name' => 'confA', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
-    'confB' => ['name' => 'confB', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '2.0.0', 'max' => '3.0.0']],
+    'conf-a' => ['name' => 'conf-a', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
+    'conf-b' => ['name' => 'conf-b', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '2.0.0', 'max' => '3.0.0']],
 ]);
 expect_throw(
-    fn() => Policy::load(null, ['confA', 'confB']),
+    fn() => Policy::load(null, ['conf-a', 'conf-b']),
     'conflicting ownership',
     'two pinned manifests naming the SAME plugin with DIFFERENT ranges is refused (load-order-independent — this is the guard against it)'
 );
 
 fresh_manifests_dir([
-    'confThemeA' => ['name' => 'confThemeA', 'spec_version' => DUO_SPEC_VERSION, 'theme' => 'acme-theme', 'theme_version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
-    'confThemeB' => ['name' => 'confThemeB', 'spec_version' => DUO_SPEC_VERSION, 'theme' => 'acme-theme', 'theme_version_range' => ['min' => '9.0.0', 'max' => '10.0.0']],
+    'conf-theme-a' => ['name' => 'conf-theme-a', 'spec_version' => DUO_SPEC_VERSION, 'theme' => 'acme-theme', 'theme_version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
+    'conf-theme-b' => ['name' => 'conf-theme-b', 'spec_version' => DUO_SPEC_VERSION, 'theme' => 'acme-theme', 'theme_version_range' => ['min' => '9.0.0', 'max' => '10.0.0']],
 ]);
 expect_throw(
-    fn() => Policy::load(null, ['confThemeA', 'confThemeB']),
+    fn() => Policy::load(null, ['conf-theme-a', 'conf-theme-b']),
     'conflicting ownership',
     'two pinned manifests naming the SAME theme with DIFFERENT ranges is refused'
 );
@@ -256,10 +256,10 @@ expect_throw(
 // Identical ranges: redundant, not ambiguous — deliberately ALLOWED (see
 // validate_no_conflicting_adapter_claims()'s own docblock for why).
 fresh_manifests_dir([
-    'dupA' => ['name' => 'dupA', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
-    'dupB' => ['name' => 'dupB', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
+    'dup-a' => ['name' => 'dup-a', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
+    'dup-b' => ['name' => 'dup-b', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
 ]);
-Policy::load(null, ['dupA', 'dupB']);
+Policy::load(null, ['dup-a', 'dup-b']);
 check(true, 'two pinned manifests naming the SAME plugin with the IDENTICAL range load cleanly (redundant, not conflicting)');
 
 echo "\n== resolved_adapters(): digest determinism + \"schema change without version change\" detection ==\n";
