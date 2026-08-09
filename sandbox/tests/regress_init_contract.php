@@ -152,6 +152,19 @@ check(
 );
 check(str_contains($agentSource, "git', 'init', '--initial-branch=main"), 'confirmation creates a verified Git worktree when absent');
 check(str_contains($agentSource, "\$finalGit['mode'] !== 'existing-worktree'"), 'success re-verifies Git readiness after the baseline transaction');
+$gitAttempt = strpos($agentSource, '$gitCreated = true;');
+$gitInitialize = strpos($agentSource, 'self::initialize_git($repo);');
+check(
+    $gitAttempt !== false && $gitInitialize !== false && $gitAttempt < $gitInitialize
+        && str_contains($agentSource, "file_exists(\$repo . '/.git') || is_link(\$repo . '/.git')"),
+    'partial first Git initialization is marked before invocation and fully compensated'
+);
+$rootLinkCheck = strpos($agentSource, 'if (is_link($repo))');
+$rootAbsentCheck = strpos($agentSource, 'if (!file_exists($repo))');
+check(
+    $rootLinkCheck !== false && $rootAbsentCheck !== false && $rootLinkCheck < $rootAbsentCheck,
+    'dangling repository-root links refuse before the absent-root path'
+);
 check(
     str_contains($agentSource, "'unsafe_site_config'")
         && str_contains($agentSource, 'write_owned_file($siteFile')
@@ -288,6 +301,13 @@ if (!is_string($secretFixture)) fail('could not create long-secret scanner fixtu
 file_put_contents($secretFixture, "\n" . 'sk_live_' . str_repeat('A', 40000));
 check($codeSecretProbe->invoke(null, $secretFixture) === 'stripe key', 'overlong boundary-less token is refused during streaming scan');
 unlink($secretFixture);
+$jwtFixture = tempnam(sys_get_temp_dir(), 'duo-init-jwt-shape-');
+if (!is_string($jwtFixture)) fail('could not create JWT scanner fixture');
+file_put_contents($jwtFixture, "\n" . 'eyJ' . str_repeat('A', 9000));
+check($codeSecretProbe->invoke(null, $jwtFixture) === null, 'bare bundled base64url payload is not mislabeled as a JWT');
+file_put_contents($jwtFixture, "\n" . 'eyJ' . str_repeat('A', 700) . '.eyJ' . str_repeat('B', 24) . '.signature');
+check($codeSecretProbe->invoke(null, $jwtFixture) === 'jwt', 'complete long JWT remains blocked');
+unlink($jwtFixture);
 $originalWpdb = $GLOBALS['wpdb'] ?? null;
 $fakeWpdb = new InitRiskWpdb();
 $fakeWpdb->oversizedOptions = 2;

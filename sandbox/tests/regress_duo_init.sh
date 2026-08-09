@@ -121,6 +121,18 @@ cat > "$ENVS_FILE" <<EOF
       "compose_file": "$COMPOSE_FILE",
       "service": "cli2",
       "repo_path": "/siterepo"
+    },
+    "${PAIR}root": {
+      "transport": "docker",
+      "compose_file": "$COMPOSE_FILE",
+      "service": "cli1",
+      "repo_path": "/siterepo/linked-root"
+    },
+    "${PAIR}dangling": {
+      "transport": "docker",
+      "compose_file": "$COMPOSE_FILE",
+      "service": "cli1",
+      "repo_path": "/siterepo/dangling-root"
     }
   }
 }
@@ -143,6 +155,49 @@ export DUO_CLI_IMAGE
 [ "$(wp1 eval 'echo trim((string) shell_exec("git --version"));')" != "" ] \
   || fail "Git-enabled evidence target did not expose Git to the agent"
 pass "Git-enabled target fixture is ready"
+
+say "repository-root links refuse before any child path can escape"
+wp1 eval '
+$dir = ABSPATH . "duo-init-external-root";
+wp_mkdir_p($dir);
+file_put_contents($dir . "/sentinel", "external root sentinel\n");
+' >/dev/null
+EXTERNAL_ROOT_SHA=$(wp1 eval 'echo hash_file("sha256", ABSPATH . "duo-init-external-root/sentinel");')
+ln -s /var/www/html/duo-init-external-root "$HOST_REPO/linked-root"
+assert_exit 2 "symlinked repository root blocks init" "${DUO[@]}" init "${PAIR}root" --yes
+grep -q 'unsafe_repository_root' <<<"$OUT" || fail "repository root link omitted its ownership reason code"
+[ "$EXTERNAL_ROOT_SHA" = "$(wp1 eval 'echo hash_file("sha256", ABSPATH . "duo-init-external-root/sentinel");')" ] \
+  || fail "repository root refusal changed the external sentinel"
+rm -f "$HOST_REPO/linked-root"
+wp1 eval 'unlink(ABSPATH . "duo-init-external-root/sentinel"); rmdir(ABSPATH . "duo-init-external-root");' >/dev/null
+
+wp1 eval '@rmdir(ABSPATH . "duo-init-missing-root");' >/dev/null
+ln -s /var/www/html/duo-init-missing-root "$HOST_REPO/dangling-root"
+assert_exit 2 "dangling repository root blocks init" "${DUO[@]}" init "${PAIR}dangling" --yes
+grep -q 'unsafe_repository_root' <<<"$OUT" || fail "dangling repository root omitted its ownership reason code"
+[ -L "$HOST_REPO/dangling-root" ] && [ ! -e "$HOST_REPO/dangling-root" ] \
+  || fail "dangling repository root refusal materialized its external target"
+rm -f "$HOST_REPO/dangling-root"
+pass "valid and dangling repository-root links remain outside init ownership"
+
+say "a partial first Git initialization is fully compensated"
+GIT_FAIL_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
+GIT_FAIL_DIGEST=$(jq -r .digest <<<"$GIT_FAIL_PLAN")
+set +e
+OUT=$("${COMPOSE[@]}" run --rm -T \
+  -e DUO_TEST_MODE=1 -e DUO_TEST_INIT_FAIL_AFTER_GIT_CREATE=1 \
+  cli1 wp duo init --repo=/siterepo --confirm="$GIT_FAIL_DIGEST" --format=json 2>&1)
+CODE=$?
+set -e
+printf '%s\n' "$OUT"
+[ "$CODE" -ne 0 ] || fail "post-Git-create injected failure unexpectedly succeeded"
+grep -q 'injected init failure after Git metadata creation' <<<"$OUT" \
+  || fail "Git compensation regression never reached its post-create fault"
+[ -z "$(find "$HOST_REPO" -mindepth 1 -maxdepth 1 -print -quit)" ] \
+  || fail "post-Git-create failure left repository artifacts"
+[ "$(wp1 db query "SHOW TABLES LIKE 'wp_duo_%'" --skip-column-names | wc -l | tr -d ' ')" = "0" ] \
+  || fail "post-Git-create failure created ledger tables"
+pass "failed first Git initialization leaves the repository retryable"
 
 say "repository-owned config and code roots never traverse external links"
 wp1 eval '
@@ -212,11 +267,11 @@ mkdir -p "$HOST_REPO/adapters"
 wp1 eval '
 $dir = WP_PLUGIN_DIR . "/duo-init-site";
 wp_mkdir_p($dir);
-file_put_contents($dir . "/duo-init-site.php", "<?php\n/* Plugin Name: Duo Init Site Adapter */\n");
+file_put_contents($dir . "/duo-init-site.php", "<?php\n/* Plugin Name: Duo Init Site Adapter\nVersion: 1.0.0 */\n");
 ' >/dev/null
 wp1 plugin activate duo-init-site >/dev/null
 cat > "$HOST_REPO/adapters/duo-init-site.json" <<'JSON'
-{"name":"duo-init-site","option_autoload":"preserve","options":{"duo_init_site_option":{"class":"authored"}},"plugin":"duo-init-site/duo-init-site.php","spec_version":2}
+{"name":"duo-init-site","option_autoload":"preserve","options":{"duo_init_site_option":{"class":"authored"}},"plugin":"duo-init-site/duo-init-site.php","spec_version":2,"version_range":{"min":"1.0.0","max":"1.0.0"}}
 JSON
 SITE_ADAPTER_BEFORE=$(sha256sum "$HOST_REPO/adapters/duo-init-site.json" | awk '{print $1}')
 assert_exit 2 "uncertified site adapter blocks init" "${DUO[@]}" init "${PAIR}1" --yes

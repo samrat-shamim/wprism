@@ -367,8 +367,8 @@ final class Init {
             self::assert_confirmed_proposal($proposal, $expectedDigest);
 
             if (($proposal['state']['git']['mode'] ?? null) === 'initialize-on-confirm') {
-                self::initialize_git($repo);
                 $gitCreated = true;
+                self::initialize_git($repo);
             }
             [$previousGitignore, $gitignoreWritten] = self::ensure_gitignore($repo);
 
@@ -495,7 +495,7 @@ final class Init {
                     self::write_owned_file($gitignore, $previousGitignore, '.gitignore');
                 }
             }
-            if ($gitCreated && is_dir($repo . '/.git')) {
+            if ($gitCreated && (file_exists($repo . '/.git') || is_link($repo . '/.git'))) {
                 self::remove_tree($repo . '/.git');
             }
             throw $error;
@@ -632,10 +632,18 @@ final class Init {
             ];
             return ['mode' => 'unavailable', 'version' => $version, 'blockers' => $blockers];
         }
+        if (is_link($repo)) {
+            $blockers[] = [
+                'code' => 'unsafe_repository_root', 'extension' => $repo, 'kind' => 'repository',
+                'reason' => 'the repository root is not an ordinary directory',
+                'remediation' => 'choose a non-symlinked directory owned by this site',
+            ];
+            return ['mode' => 'invalid', 'version' => $version, 'blockers' => $blockers];
+        }
         if (!file_exists($repo)) {
             return ['mode' => 'initialize-on-confirm', 'version' => $version, 'blockers' => []];
         }
-        if (is_link($repo) || !is_dir($repo)) {
+        if (!is_dir($repo)) {
             $blockers[] = [
                 'code' => 'unsafe_repository_root', 'extension' => $repo, 'kind' => 'repository',
                 'reason' => 'the repository root is not an ordinary directory',
@@ -722,6 +730,11 @@ final class Init {
 
     private static function initialize_git(string $repo): void {
         $result = self::run_process(['git', 'init', '--initial-branch=main', $repo]);
+        if (getenv('DUO_TEST_MODE') === '1'
+            && getenv('DUO_TEST_INIT_FAIL_AFTER_GIT_CREATE') === '1'
+            && (file_exists($repo . '/.git') || is_link($repo . '/.git'))) {
+            throw new \RuntimeException('duo: injected init failure after Git metadata creation');
+        }
         if ($result['exit'] !== 0 || self::git_probe($repo)['mode'] !== 'existing-worktree') {
             throw new \RuntimeException('duo: init could not create and verify the target Git worktree');
         }

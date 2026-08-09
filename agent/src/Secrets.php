@@ -47,14 +47,12 @@ final class Secrets {
         '\bxox[baprs]-[A-Za-z0-9-]{4097}' => 'slack token',
         '\bxox[baprs]-[A-Za-z0-9-]{10,4096}\b' => 'slack token',
         '-----BEGIN [A-Z0-9 ]{0,64}PRIVATE KEY-----' => 'private key',
-        // Keep every accepted shape bounded so streaming callers can prove a
-        // finite overlap. An overlong segment is itself secret-shaped and is
-        // refused by a fixed-width prefix rule rather than silently evading a
-        // complete-token matcher that waits for a trailing word boundary.
-        '\beyJ[A-Za-z0-9_-]{8193}' => 'jwt',
-        '\beyJ[A-Za-z0-9_-]{4,8192}\.eyJ[A-Za-z0-9_-]{8193}' => 'jwt',
-        '\beyJ[A-Za-z0-9_-]{4,8192}\.eyJ[A-Za-z0-9_-]{4,8192}\.[A-Za-z0-9_-]{8193}' => 'jwt',
-        '\beyJ[A-Za-z0-9_-]{4,8192}\.eyJ[A-Za-z0-9_-]{4,8192}(?:\.[A-Za-z0-9_-]{1,8192})?\b' => 'jwt',
+        // A JWT is the complete three-segment compact form. A bare overlong
+        // base64url blob beginning `eyJ` is common in bundled JavaScript and
+        // is not a credential fact; blocking it would reject certified plugin
+        // bytes without ever observing the JWT separators. Keep each segment
+        // bounded so streaming callers can prove a finite overlap.
+        '\beyJ[A-Za-z0-9_-]{4,8192}\.eyJ[A-Za-z0-9_-]{4,8192}\.[A-Za-z0-9_-]{1,8192}\b' => 'jwt',
     ];
 
     /** Key-name signal for the heuristic tier (never sufficient alone). */
