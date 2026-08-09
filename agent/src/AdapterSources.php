@@ -117,6 +117,7 @@ final class AdapterSources {
             if ($name === 'dispositions') {
                 continue;
             }
+            self::assert_name($name, "shipped adapter '$file'");
             $origins[$name] = ['source' => self::SHIPPED, 'file' => $file, 'path' => $file];
         }
         ksort($origins, SORT_STRING);
@@ -489,19 +490,54 @@ final class AdapterSources {
 
     /**
      * One canonical identity grammar is shared by file names, repository pins,
-     * and frozen records. Keeping it ASCII and lowercase makes the same bytes
-     * resolve on case-folding and Unicode-normalizing filesystems; allowing
-     * dots, underscores, and hyphens internally preserves ordinary slug-like
-     * names without admitting hidden files or traversal components.
+     * authority key ids, ratification maps, and frozen records. Keeping it
+     * ASCII and lowercase makes the same bytes resolve on case-folding and
+     * Unicode-normalizing filesystems; allowing dots, underscores, and
+     * hyphens internally preserves ordinary slug-like names without admitting
+     * hidden files or traversal components. Every identity must contain a
+     * letter: PHP turns an all-digit JSON object key into an integer array key,
+     * which would make an authority, ratification, or frozen-map lookup depend
+     * on a lossy decoder representation.
      */
     public static function assert_name(string $name, string $label = 'adapter name'): void {
-        if (preg_match('/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/D', $name) !== 1) {
+        if (preg_match('/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/D', $name) !== 1
+            || preg_match('/[a-z]/D', $name) !== 1) {
             throw new \RuntimeException(
                 "duo: $label uses " . self::render($name)
-                . ' — adapter names must be canonical lowercase ASCII slugs, beginning and ending with a letter '
-                . 'or digit and containing only letters, digits, dots, underscores, or hyphens'
+                . ' — canonical lowercase ASCII slugs for adapter/key identities must begin and end with a '
+                . 'letter or digit, containing only letters, digits, dots, underscores, or hyphens, and containing '
+                . 'at least one lowercase letter (numeric-only identities are not safe JSON object-map keys)'
             );
         }
+    }
+
+    /**
+     * The exact safe plugin-basename grammar shared by a manifest's own
+     * compatibility claim and every plugin-owned provider declaration. A
+     * provider without a top-level `plugin` claim still reaches WordPress's
+     * plugin-path APIs during negotiation, so it cannot be held to a weaker
+     * shape merely because there is no version-range claim to compare it to.
+     *
+     * @return string the validated, unmodified basename
+     */
+    public static function assert_plugin_basename(mixed $plugin, string $label = 'plugin basename'): string {
+        if (!is_string($plugin) || $plugin === '' || strlen($plugin) > 255) {
+            throw new \RuntimeException("duo: $label must be a non-empty plugin basename");
+        }
+        $segments = explode('/', $plugin);
+        $depthOk = count($segments) <= 2;
+        $file = $segments[count($segments) - 1] ?? '';
+        if (!$depthOk || $plugin[0] === '/' || str_contains($plugin, '\\')
+            || in_array('..', $segments, true) || in_array('.', $segments, true)
+            || in_array('', $segments, true) || !str_ends_with($file, '.php')) {
+            throw new \RuntimeException(
+                "duo: $label " . self::render($plugin)
+                . " — a plugin basename is '<directory>/<file>.php' or '<file>.php', never an absolute path and "
+                . 'never one containing a ".." segment; it is concatenated into filesystem paths by the code-half '
+                . 'version checks and provider negotiation'
+            );
+        }
+        return $plugin;
     }
 
     /**
@@ -518,6 +554,7 @@ final class AdapterSources {
             $manifest = Canon::decode(Canon::read_file($origin['file']));
             $declared = $manifest['name'] ?? null;
             if (is_string($declared) && $declared !== '') {
+                self::assert_name($declared, "shipped adapter '$file' declared name");
                 $names[$declared] = $file;
             }
         }
@@ -645,6 +682,12 @@ final class AdapterSources {
             }
         }
         foreach ((array) ($manifest['providers'] ?? []) as $i => $declaration) {
+            if (is_array($declaration) && ($declaration['source'] ?? null) === 'plugin') {
+                self::assert_plugin_basename(
+                    $declaration['plugin'] ?? null,
+                    "site adapter '$relativePath' providers[$i].plugin"
+                );
+            }
             if (is_array($declaration) && ($declaration['source'] ?? null) === 'manifest') {
                 throw new \RuntimeException(
                     "duo: site adapter '$relativePath' providers[$i] declares source \"manifest\", which resolves to "
@@ -864,6 +907,10 @@ final class AdapterSources {
         }
         $frozen = $data['out_of_tree'];
         $frozenCertificates = $legacy ? [] : $data['certificates'];
+        self::assert_identity_map_keys($frozen, 'frozen adapter source out_of_tree');
+        if (!$legacy) {
+            self::assert_identity_map_keys($frozenCertificates, 'frozen adapter source certificates');
+        }
         $origins = [];
         $provenance = [];
         $certificates = [];
@@ -963,6 +1010,24 @@ final class AdapterSources {
         ksort($certificates, SORT_STRING);
         ksort($claims, SORT_STRING);
         return new self($origins, $provenance, $certificates, $claims, (string) $format);
+    }
+
+    /**
+     * JSON object keys are identity-bearing here. json_decode(..., true)
+     * silently turns an all-digit key into an integer, so reject it before a
+     * lookup/diff can make the wire representation and the PHP map disagree.
+     */
+    private static function assert_identity_map_keys(array $map, string $label): void {
+        foreach (array_keys($map) as $name) {
+            if (!is_string($name)) {
+                throw new \RuntimeException(
+                    'duo: ' . $label . ' key ' . self::render($name)
+                    . ' is not a string canonical identity — numeric-only identities are forbidden because PHP '
+                    . 'coerces JSON object-map keys to integers'
+                );
+            }
+            self::assert_name($name, $label . ' key');
+        }
     }
 
     /**

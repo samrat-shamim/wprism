@@ -869,6 +869,11 @@ expect_throw(
     'canonical lowercase ASCII slugs',
     'a Unicode site adapter identity is refused rather than depending on filesystem normalization'
 );
+expect_throw(
+    fn() => Policy::load(fresh_site(['core'], ['123' => site_adapter('123')])),
+    'numeric-only identities',
+    'a numeric-only site adapter name is refused before PHP can coerce its source-map key'
+);
 $nfd = "caf\u{65}\u{301}"; // 'cafe' + combining acute — renders as 'café'
 expect_throw(
     fn() => Policy::load(fresh_site(['core'], ['cafe-widget' => site_adapter($nfd)])),
@@ -1032,7 +1037,7 @@ expect_throw(
     'unknown pin key',
     'an unknown pin key is refused rather than silently ignored'
 );
-foreach (['../core', 'foo/../core', 'foo\\core', '.', '..', '.core', 'core.', 'CORE'] as $unsafePin) {
+foreach (['../core', 'foo/../core', 'foo\\core', '.', '..', '.core', 'core.', 'CORE', '123'] as $unsafePin) {
     expect_throw(
         fn() => Policy::load(fresh_site([$unsafePin])),
         'canonical lowercase ASCII slugs',
@@ -1063,6 +1068,23 @@ $frozen = Policy::from_snapshot($snapshot);
 check(
     RepositoryCompiler::resolved_adapters($frozen) === RepositoryCompiler::resolved_adapters($overlay),
     'a frozen policy reconstructs identical adapter identity, source, and digests'
+);
+
+$numericFrozenPin = $snapshot;
+$numericFrozenPin['site']['manifests'][1] = '123';
+expect_throw(
+    fn() => Policy::from_snapshot($numericFrozenPin),
+    'numeric-only identities',
+    'a frozen policy revalidates and rejects a numeric-only adapter pin before map lookup'
+);
+$numericFrozenRecord = $snapshot;
+$numericRecord = $numericFrozenRecord['adapter_sources']['out_of_tree']['acme-widget'];
+unset($numericFrozenRecord['adapter_sources']['out_of_tree']['acme-widget']);
+$numericFrozenRecord['adapter_sources']['out_of_tree']['123'] = $numericRecord;
+expect_throw(
+    fn() => Policy::from_snapshot($numericFrozenRecord),
+    'numeric-only identities',
+    'a frozen adapter-source map rejects a numeric-only key instead of accepting PHP\'s coerced integer key'
 );
 
 $legacySnapshot = $snapshot;

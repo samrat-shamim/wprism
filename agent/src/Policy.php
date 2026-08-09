@@ -5247,6 +5247,9 @@ self::validate_post_type_children($manifest);
             if (!is_string($id) || $id === '') {
                 throw new \RuntimeException("duo: manifest '$name' declares a non-string or empty '$idKey'");
             }
+            if ($idKey === 'plugin') {
+                AdapterSources::assert_plugin_basename($id, "manifest '$name' declares 'plugin'");
+            }
             // DUO-3314: this field became site-controlled the moment adapters
             // could be installed out-of-tree, and three call sites concatenate
             // it into a filesystem path (CapabilityRegistry::
@@ -5260,9 +5263,9 @@ self::validate_post_type_children($manifest);
             // or a backslash is refused at load, before any consumer.
             $segments = explode('/', $id);
             $depthOk = $idKey === 'plugin' ? count($segments) <= 2 : count($segments) === 1;
-            if (!$depthOk || $id[0] === '/' || str_contains($id, '\\')
+            if ($idKey !== 'plugin' && (!$depthOk || $id[0] === '/' || str_contains($id, '\\')
                 || in_array('..', $segments, true) || in_array('.', $segments, true)
-                || in_array('', $segments, true)) {
+                || in_array('', $segments, true))) {
                 throw new \RuntimeException(
                     "duo: manifest '$name' declares '$idKey' " . var_export($id, true)
                     . ' — a ' . $idKey . ' identifier is '
@@ -5875,10 +5878,7 @@ self::validate_post_type_children($manifest);
             if (!in_array($declaration['source'], self::PROVIDER_SOURCES, true)) {
                 throw new \RuntimeException("duo: $where.source must be \"manifest\" or \"plugin\"");
             }
-            $plugin = $declaration['plugin'];
-            if (!is_string($plugin) || $plugin === '' || strlen($plugin) > 255) {
-                throw new \RuntimeException("duo: $where.plugin must be a non-empty plugin basename");
-            }
+            $plugin = AdapterSources::assert_plugin_basename($declaration['plugin'], "$where.plugin");
             $manifestPlugin = $manifest['plugin'] ?? null;
             if (is_string($manifestPlugin) && $manifestPlugin !== '' && $manifestPlugin !== $plugin) {
                 throw new \RuntimeException(

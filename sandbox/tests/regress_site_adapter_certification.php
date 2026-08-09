@@ -358,6 +358,19 @@ cert_write($root . '/review-secret.key', base64_encode($secret) . "\n");
 chmod($root . '/review-secret.key', 0644);
 
 echo "\n== signing/import tool and live verifier ==\n";
+$numericName = cert_run([
+    PHP_BINARY,
+    __DIR__ . '/../../scripts/adapter-certification.php',
+    'verify',
+    '--manifest-dir=' . $agent,
+    '--repo=' . $site,
+    '--name=123',
+]);
+cert_check(
+    $numericName['exit'] !== 0 && str_contains($numericName['stderr'], 'numeric-only identities')
+        && !str_contains($numericName['stderr'], 'cannot read manifest'),
+    'CLI refuses a numeric-only adapter identity before any path or map lookup'
+);
 $badName = cert_run([
     PHP_BINARY,
     __DIR__ . '/../../scripts/adapter-certification.php',
@@ -633,7 +646,72 @@ cert_check(
     && !str_starts_with((string) realpath($providerCodeFile), rtrim((string) realpath($providerSite), '/') . '/adapters/'),
     'the negotiated provider class is physically plugin-owned rather than copied into the site adapter'
 );
+echo "\n== plugin-owned provider identity boundary ==\n";
+$providerManifest = $manifest;
+$providerManifest['providers'] = [[
+    'capabilities' => ['refresh'],
+    'id' => 'fixture-refresh',
+    'plugin' => 'fixture-provider/fixture-provider.php',
+    'source' => 'plugin',
+    'version' => '1.0.0',
+]];
+$badProviderManifest = $providerManifest;
+$badProviderManifest['providers'][0]['plugin'] = '../outside.php';
+cert_write_canon($site . '/adapters/site-demo.json', $badProviderManifest);
+cert_expect_throw(
+    static fn() => AdapterCertification::sign(
+        $agent, $site, 'site-demo', $bundle, $site, 'review-key', base64_encode($secret)
+    ),
+    'plugin basename',
+    'signing rejects a path-like plugin-owned provider identity even with no top-level plugin claim'
+);
 
+$declarativeCertificateRaw = (string) file_get_contents($certPath);
+$declarativeTiers = $keys->{'review-key'}['trust_tiers'];
+cert_write_canon($site . '/adapters/site-demo.json', $providerManifest);
+$keys->{'review-key'}['trust_tiers'] = ['declarative_manifest', 'plugin_provider'];
+cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities);
+$providerBundle = $root . '/provider-bundle';
+cert_write_bundle($providerBundle, $site, $ratification);
+$providerCertificate = AdapterCertification::sign(
+    $agent, $site, 'site-demo', $providerBundle, $site, 'review-key', base64_encode($secret)
+);
+cert_write($certPath, $providerCertificate);
+$providerVerified = AdapterCertification::verifyFile($agent, $site, 'site-demo', $providerManifest, $certPath);
+cert_check(
+    ($providerVerified['disposition']['trust_tier'] ?? null) === 'plugin_provider',
+    'a valid plugin-owned provider without a top-level plugin claim signs and verifies at the derived plugin_provider tier'
+);
+
+$providerPolicyManifests = $root . '/provider-policy-manifests';
+cert_write_canon($providerPolicyManifests . '/capabilities/adapter-authorities.json', $authorities);
+cert_write_canon($providerPolicyManifests . '/capabilities/registry.json', [
+    'format' => 'duo-capability-registry/v1',
+    'platform' => $platform,
+]);
+cert_write_canon($site . '/site.duo.json', [
+    'manifests' => [['name' => 'site-demo', 'source' => 'site']],
+    'policy' => new stdClass(),
+    'spec_version' => DUO_SPEC_VERSION,
+]);
+putenv('DUO_MANIFESTS_DIR=' . $providerPolicyManifests);
+try {
+    $providerPolicy = Policy::load($site);
+    cert_check(
+        $providerPolicy->adapter_sources()->source('site-demo') === 'site'
+        && $providerPolicy->adapter_sources()->provenance('site-demo')['trust_tier'] === 'plugin_provider',
+        'a site pin validates the same safe provider plugin basename before runtime provider negotiation'
+    );
+} catch (Throwable $e) {
+    cert_check(false, 'a site pin validates the same safe provider plugin basename before runtime provider negotiation (' . $e->getMessage() . ')');
+} finally {
+    putenv('DUO_MANIFESTS_DIR');
+    unlink($site . '/site.duo.json');
+}
+cert_write($certPath, $declarativeCertificateRaw);
+cert_write_canon($site . '/adapters/site-demo.json', $manifest);
+$keys->{'review-key'}['trust_tiers'] = $declarativeTiers;
+cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities);
 echo "\n== Policy, digest pin, reporting, and host-promotion integration ==\n";
 $integrationManifests = $root . '/integration-manifests';
 cert_copy_tree(dirname(__DIR__, 2) . '/manifests', $integrationManifests);
@@ -978,6 +1056,35 @@ cert_expect_throw(
     'noncanonical base64 certificate envelope data is refused'
 );
 
+$numericFrozenCertificate = $policySnapshot;
+$numericCertificateEnvelope = $numericFrozenCertificate['adapter_sources']['certificates']['site-demo'];
+unset($numericFrozenCertificate['adapter_sources']['certificates']['site-demo']);
+$numericFrozenCertificate['adapter_sources']['certificates']['123'] = $numericCertificateEnvelope;
+cert_expect_throw(
+    static fn() => Policy::from_snapshot($numericFrozenCertificate),
+    'numeric-only identities',
+    'a frozen certified source record rejects a numeric-only certificate-map key before PHP map coercion can relabel it'
+);
+
+cert_expect_throw(
+    static fn() => AdapterCertification::sign(
+        $agent, $site, 'site-demo', $bundle, $site, '123', base64_encode($secret)
+    ),
+    'numeric-only identities',
+    'signing rejects a numeric-only authority selector before authority-map lookup'
+);
+$numericKeys = clone $keys;
+$numericKeys->{'123'} = $keys->{'review-key'};
+$numericAuthorities = $authorities;
+$numericAuthorities['keys'] = $numericKeys;
+cert_write_canon($agent . '/capabilities/adapter-authorities.json', $numericAuthorities);
+cert_expect_throw(
+    static fn() => AdapterCertification::verifyFrozen($agent, 'site-demo', $manifest, $envelope),
+    'numeric-only identities',
+    'frozen verification rejects a numeric authority-record map key rather than depending on an integer PHP key'
+);
+cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities);
+
 $keys->{'review-key'}['status'] = 'revoked';
 cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities);
 cert_expect_throw(
@@ -1095,6 +1202,18 @@ cert_expect_throw(
     ),
     'must bind exactly current raw adapters/site-demo.json',
     'signing refuses a passing bundle that never bound the subject adapter raw bytes'
+);
+
+$numericRatification = $ratification;
+$numericRatification['manifests'] = ['123' => $ratification['manifests']['site-demo']];
+$numericRatificationBundle = $root . '/numeric-ratification-bundle';
+cert_write_bundle($numericRatificationBundle, $site, $numericRatification);
+cert_expect_throw(
+    static fn() => AdapterCertification::sign(
+        $agent, $site, 'site-demo', $numericRatificationBundle, $site, 'review-key', base64_encode($secret)
+    ),
+    'numeric-only identities',
+    'signing rejects a numeric-only ratification manifest-map key before it can be coerced in PHP'
 );
 
 echo "\n== certificate directory pairing and structural refusals ==\n";

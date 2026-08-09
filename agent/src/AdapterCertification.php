@@ -401,19 +401,12 @@ final class AdapterCertification {
     }
 
     private static function adapterName(string $name): string {
-        if (preg_match('/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/D', $name) !== 1) {
-            throw new \RuntimeException(
-                "duo: site adapter certification name " . var_export($name, true)
-                . ' must be one lowercase path-free adapter basename'
-            );
-        }
+        AdapterSources::assert_name($name, 'site adapter certification name');
         return $name;
     }
 
     private static function keyId(string $id): string {
-        if (preg_match('/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/D', $id) !== 1) {
-            throw new \RuntimeException("duo: authority key id " . var_export($id, true) . ' is malformed');
-        }
+        AdapterSources::assert_name($id, 'authority key id');
         return $id;
     }
 
@@ -624,11 +617,17 @@ final class AdapterCertification {
         }
         $found = null;
         foreach ($data['keys'] as $keyId => $record) {
-            self::keyId((string) $keyId);
+            if (!is_string($keyId)) {
+                throw new \RuntimeException(
+                    'duo: adapter certification authority key map contains non-string key ' . var_export($keyId, true)
+                    . ' — numeric-only identities are forbidden because PHP coerces JSON object-map keys to integers'
+                );
+            }
+            self::keyId($keyId);
             if (!is_array($record) || array_is_list($record)) {
                 throw new \RuntimeException("duo: adapter certification key '$keyId' must be an object");
             }
-            if (!isset($typed->keys->$keyId) || !is_object($typed->keys->$keyId)) {
+            if (!isset($typed->keys->{$keyId}) || !is_object($typed->keys->{$keyId})) {
                 throw new \RuntimeException("duo: adapter certification key '$keyId' must be a JSON object");
             }
             self::validateAuthorityRecord($record, "adapter certification key '$keyId'");
@@ -1187,7 +1186,17 @@ final class AdapterCertification {
                 'duo: site adapter ratification must be a canonical one-manifest duo-manifest-dispositions/v1 document with profiles []'
             );
         }
-        if (array_keys($ratification['manifests']) !== [$name]
+        $ratifiedNames = array_keys($ratification['manifests']);
+        foreach ($ratifiedNames as $ratifiedName) {
+            if (!is_string($ratifiedName)) {
+                throw new \RuntimeException(
+                    'duo: site adapter ratification manifests map contains non-string key ' . var_export($ratifiedName, true)
+                    . ' — numeric-only identities are forbidden because PHP coerces JSON object-map keys to integers'
+                );
+            }
+            self::adapterName($ratifiedName);
+        }
+        if ($ratifiedNames !== [$name]
             || !isset($ratificationTyped->manifests->$name) || !is_object($ratificationTyped->manifests->$name)
             || !is_array($ratification['manifests'][$name]) || array_is_list($ratification['manifests'][$name])) {
             throw new \RuntimeException(
