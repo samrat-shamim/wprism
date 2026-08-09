@@ -187,7 +187,7 @@ pass "risk digest and no-object-execution boundary are deterministic"
 say "high-confidence credentials in captured code block with redacted output"
 wp1 eval '
 $token = "sk_" . "live_" . str_repeat("A", 24);
-$payload = str_repeat("x", 32764) . $token;
+$payload = str_repeat("x", 32763) . "\n" . $token;
 file_put_contents(WP_PLUGIN_DIR . "/woocommerce/duo-init-secret.php", $payload);
 ' >/dev/null
 assert_exit 2 "credential-bearing active code blocks init" "${DUO[@]}" init "${PAIR}1" --yes
