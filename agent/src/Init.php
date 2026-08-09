@@ -7,9 +7,10 @@ namespace Duo;
  * Discovery is deliberately read-only and produces a content-addressed plan.
  * The confirmed path recomputes that plan before writing, so an activation,
  * version, scope, or capability change between review and confirmation cannot
- * smuggle different authority into site.duo.json. Code roots are observations
- * only: the state baseline never vendors executable bytes or invents a code
- * revision. Opting into the independent code half remains an explicit review.
+ * smuggle different authority into site.duo.json. The reviewed confirmation
+ * publishes state and executable code as separate canonical contracts: code
+ * receives its own content-addressed descriptor and completed baseline marker,
+ * while state keeps its independent capture revision and ledger semantics.
  */
 final class Init {
     public const FORMAT = 'duo-init-plan/v1';
