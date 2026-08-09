@@ -115,13 +115,16 @@ $GLOBALS['duo_native_cache'] = [];
 $GLOBALS['duo_native_cache_reads'] = [];
 $GLOBALS['duo_native_delete_calls'] = [];
 $GLOBALS['duo_native_delete_mode'] = 'delete';
+$GLOBALS['duo_native_cache_sets_found'] = true;
 
 function wp_cache_get($key, $group = '', $force = false, &$found = null): mixed {
     $group = (string) $group;
     $key = (string) $key;
     $entries = $GLOBALS['duo_native_cache'][$group] ?? [];
     $present = array_key_exists($key, $entries);
-    $found = $present;
+    if ($GLOBALS['duo_native_cache_sets_found']) {
+        $found = $present;
+    }
     $value = $present ? $entries[$key] : false;
     $GLOBALS['duo_native_cache_reads'][] = [
         'key' => $key,
@@ -381,6 +384,7 @@ $resetNativeActionRuntime = static function (): void {
     $GLOBALS['duo_native_cache_reads'] = [];
     $GLOBALS['duo_native_delete_calls'] = [];
     $GLOBALS['duo_native_delete_mode'] = 'delete';
+    $GLOBALS['duo_native_cache_sets_found'] = true;
 };
 $deleteNativeTransient = static fn(string $name): array => \Duo\NativeActions::execute(
     'transient.delete',
@@ -415,6 +419,21 @@ try {
 }
 $check($GLOBALS['duo_native_delete_calls'] === [],
     'a checked option-row read failure refuses before delete_transient() is called');
+
+// The public cache API owes callers a boolean presence flag. A legacy or
+// nonconforming wrapper that leaves it unset cannot prove absence, so the
+// action must stop before delete_transient() rather than publish a guess.
+$resetNativeActionRuntime();
+$GLOBALS['duo_native_cache_sets_found'] = false;
+try {
+    $deleteNativeTransient('native_missing_found_flag');
+    $check(false, 'a cache wrapper that omits the found flag is refused');
+} catch (\Throwable $t) {
+    $check(str_contains($t->getMessage(), 'did not provide its required found flag'),
+        'a cache wrapper that omits the found flag is refused');
+}
+$check($GLOBALS['duo_native_delete_calls'] === [],
+    'an unverifiable cache read refuses before delete_transient() is called');
 
 // A conventional non-false cache value and both option rows must be observed
 // in the receipt, then removed by the real NativeActions execution path.
