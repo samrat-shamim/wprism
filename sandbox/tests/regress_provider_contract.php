@@ -118,6 +118,47 @@ final class ProbeCache {
     }
 }
 PHP);
+// The plugin-sourced anchor check (Providers::plugin_anchor_problem())
+// resolves the provider class's file against WP_PLUGIN_DIR/<plugin-dir>, so
+// the harness models a real plugins tree: ProbeSupplied lives under
+// wp-plugins/probe/ (anchored, negotiates clean), while ProbeCache's own
+// file lives in the manifests providers/ dir (posing it as plugin-sourced
+// must therefore refuse).
+define('WP_PLUGIN_DIR', $dir . '/wp-plugins');
+@mkdir($dir . '/wp-plugins/probe', 0700, true);
+register_shutdown_function(static function () use ($dir): void {
+    array_map('unlink', glob($dir . '/wp-plugins/probe/*.php') ?: []);
+    @rmdir($dir . '/wp-plugins/probe');
+    @rmdir($dir . '/wp-plugins');
+});
+file_put_contents($dir . '/wp-plugins/probe/duo-provider.php', <<<'PHP'
+<?php
+namespace Duo\Providers;
+
+final class ProbeSupplied {
+    public function identity(): array {
+        return ['id' => 'probe-cache', 'plugin' => 'probe/probe.php', 'version' => '1.0.0'];
+    }
+
+    public function capabilities(): array {
+        return [
+            'flush' => [
+                'args' => ['groups' => ['type' => 'list<string>', 'required' => true]],
+                'reads' => ['option:probe_setting'],
+                'writes' => ['entity:probe-cache-groups'],
+                'scope' => 'site',
+                'idempotent' => true,
+                'timeout_seconds' => 30,
+            ],
+        ];
+    }
+
+    public function invoke(string $capability, array $args): array {
+        return ['before' => [], 'after' => ['groups' => $args['groups'] ?? []], 'verified' => true];
+    }
+}
+PHP);
+require_once $dir . '/wp-plugins/probe/duo-provider.php';
 putenv('DUO_MANIFESTS_DIR=' . $dir);
 // Loaded up front so the per-case reset below can address the fixture's static
 // override slots; Providers::negotiate() require_once's the same file itself.
@@ -288,10 +329,48 @@ $check(($p['code'] ?? '') === 'missing_plugin_provider' && str_contains($p['expe
     'a plugin-sourced provider nobody registered is a negotiation problem, not a load crash');
 
 $reset();
-$GLOBALS['duo_test_providers'] = [new \Duo\Providers\ProbeCache($policy)];
+$GLOBALS['duo_test_providers'] = [new \Duo\Providers\ProbeSupplied()];
 $negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
 $check($negotiation['problems'] === [] && isset($negotiation['providers']['probe-cache']),
     'a provider advertised on the duo_providers filter is discovered and negotiated by its own identity()');
+
+$reset();
+$GLOBALS['duo_test_providers'] = [new \Duo\Providers\ProbeCache($policy)];
+$p = $one(\Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']))['problems']);
+$check(($p['code'] ?? '') === 'provider_outside_owning_plugin'
+    && str_contains($p['remediation'] ?? '', 'source: manifest'),
+    'a plugin-sourced registration whose class file lives outside the owning plugin directory is refused (identity stays falsifiable)');
+
+$reset();
+$GLOBALS['duo_test_providers'] = [new class {
+    public function identity(): array {
+        throw new \RuntimeException('third-party provider exploding on discovery');
+    }
+}, new \Duo\Providers\ProbeSupplied()];
+$negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
+$check($negotiation['problems'] === [] && isset($negotiation['providers']['probe-cache']),
+    "an unrelated registration whose identity() throws is skipped, not a fatal for the provider actually wanted");
+
+echo "\n== entity scope negotiates its batch preconditions before any mutation ==\n";
+$reset();
+\Duo\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity'];
+$policy = $policyFor($manifest);
+$p = $one(\Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']))['problems']);
+$check(($p['code'] ?? '') === 'entity_scope_unscoped_action'
+    && str_contains($p['remediation'] ?? '', 'scope: site'),
+    'an entity-scoped capability on an unscoped action refuses at negotiation (its batch would always be empty)');
+
+$reset();
+\Duo\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity'];
+$entityManifest = $manifest;
+$entityManifest['actions'][0]['triggers'] = ['option:probe_setting'];
+$policy = $policyFor($entityManifest);
+$p = $one(\Duo\Providers::negotiate($policy, $policy->actions_for(['option:probe_setting']))['problems']);
+$check(($p['code'] ?? '') === 'entity_scope_unresolvable_trigger'
+    && str_contains($p['found'] ?? '', 'option:probe_setting'),
+    'an entity-scoped capability triggered on a surface with no per-entity id refuses at negotiation, not post-commit');
+$reset();
+$policy = $policyFor($manifest);
 
 echo "\n== invocation: receipts, value-level verification, and the timeout budget ==\n";
 $reset();

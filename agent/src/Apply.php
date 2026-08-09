@@ -4754,6 +4754,24 @@ final class Apply {
         // negotiated in run() BEFORE the first target mutation, so nothing
         // here can discover a missing or incompatible capability after the
         // authored transaction has already committed.
+        // Flush the object cache BEFORE dispatching actions, not only after
+        // (the post-loop flush below remains the pre-existing invariant).
+        // The retired channel ran every payload in a freshly launched WP-CLI
+        // process whose runtime caches started cold; providers run in THIS
+        // process, which has been reading and writing through WordPress
+        // caches for the whole apply and can hold stale plugin in-memory
+        // models after the authored commit (verify_convergence()'s docblock
+        // records the reproduced Polylang 3.8.6 case of exactly that). A
+        // cold cache is the closest in-process equivalent of the retired
+        // fresh-process start, so a provider's decision reads see committed
+        // rows rather than this process's memoized pre-commit views.
+        if ($this->selectedActions !== []) {
+            Db::checkpoint('rebuild object cache (pre-action)');
+            if (wp_cache_flush() === false) {
+                throw new \RuntimeException('duo: required pre-action object-cache flush failed');
+            }
+        }
+
         $declarations = $this->selectedActions === [] ? [] : $this->policy->provider_declarations();
         foreach ($this->selectedActions as $action) {
             $source = Policy::action_source($action, (int) ($action['index'] ?? 0));
@@ -4794,13 +4812,32 @@ final class Apply {
                         "duo: required manifest action '$source' was never negotiated before mutation"
                     );
                 }
+                $entities = $declaration['scope'] === 'entity'
+                    ? $this->action_entities($action, $work, $tree)
+                    : [];
+                if ($declaration['scope'] === 'entity' && $entities === []) {
+                    // A trigger can select this action off deletion or retry-
+                    // tombstone surfaces alone (rebuild_surfaces() includes
+                    // both), and a deleted entity has no generated data left
+                    // to regenerate. Invoking with an empty batch would let
+                    // the provider verify the nothing it received and record
+                    // a repair as done — so the skip is explicit, in both the
+                    // human line and the machine receipt, never silent.
+                    $this->warnings[] = "provider capability skipped: $id $capability "
+                        . '(entity-scoped; no created/updated entity matched its triggers this run)';
+                    $this->actionReceipts[] = [
+                        'manifest' => (string) $action['manifest'],
+                        'source' => $source,
+                        'kind' => 'provider',
+                        'skipped' => 'empty entity batch (deletion/tombstone-only trigger match)',
+                    ];
+                    continue;
+                }
                 $receipt = Providers::invoke(
                     $this->negotiatedProviders['providers'][$id],
                     $action,
                     $declaration,
-                    $declaration['scope'] === 'entity'
-                        ? $this->action_entities($action, $work, $tree)
-                        : []
+                    $entities
                 );
                 $version = (string) ($declarations[$id]['version'] ?? '?');
                 $this->warnings[] = "provider capability fired: $id@$version $capability ("
@@ -4822,7 +4859,19 @@ final class Apply {
                 if (str_starts_with($t->getMessage(), 'duo: required manifest action')) {
                     throw $t;
                 }
-                throw new \RuntimeException("duo: required manifest action '$source' failed", 0, $t);
+                // The inner message rides in the wrapper because nothing in
+                // the product path renders getPrevious() — Cli's handlers all
+                // print getMessage() alone. Providers assemble exit codes and
+                // stdout/stderr tails precisely so an operator sees the real
+                // error (DUO-3282); swallowing them here would recreate the
+                // "exited 255, go reproduce it by hand" experience that issue
+                // closed (independent review of this change caught exactly
+                // that regression before it shipped).
+                throw new \RuntimeException(
+                    "duo: required manifest action '$source' failed — " . $t->getMessage(),
+                    0,
+                    $t
+                );
             }
         }
 

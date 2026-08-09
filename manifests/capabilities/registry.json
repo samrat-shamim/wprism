@@ -765,7 +765,7 @@
             ]
         },
         "elementor": {
-            "adapter_digest": "0344a95386978e678966d06d0e40bee7ea500ff5a5122f219849a92410ea105f",
+            "adapter_digest": "9de5f5d28ce3caef17146dbc6ee2b8954755f611285969a6d9e8880fca71b7d9",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"

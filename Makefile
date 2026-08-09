@@ -768,7 +768,7 @@ regress-live-list:
 	@echo "  regress-fatal-mutations                   pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"
 	@echo "  regress-adapter-theme-range               pair asub3222tr 8918/8919"
-	@echo "  regress-provider-contract-live            pair claudemacb3338 8920/8921"
+	@echo "  regress-provider-contract-live            pair claudemacb3338 8930/8931"
 	@echo "  regress-menu-item-meta-gate               pair asub3275 8954/8955"
 	@echo "  regress-widgets                           pair awid3278 8960/..."
 	@echo "  regress-promotion                         pair codexmaca3216 8920/... (also runs in CI as code-half-grind's sibling)"

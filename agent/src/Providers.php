@@ -145,6 +145,14 @@ final class Providers {
                 }
             }
 
+            if ($declaration['source'] === 'plugin') {
+                $anchorProblem = self::plugin_anchor_problem($provider, $declaration);
+                if ($anchorProblem !== null) {
+                    $problems[] = $anchorProblem;
+                    continue;
+                }
+            }
+
             $contractProblem = self::contract_problem($provider, $declaration);
             if ($contractProblem !== null) {
                 $problems[] = $contractProblem;
@@ -317,7 +325,18 @@ final class Providers {
             if (!is_object($entry) || !is_callable([$entry, 'identity'])) {
                 continue;
             }
-            $identity = $entry->identity();
+            // Guarded: this loop touches EVERY registration on the filter,
+            // including providers for manifests this site never pinned. One
+            // third-party provider whose identity() throws must not turn an
+            // unrelated apply's negotiation into an uncaught fatal with no
+            // remediation — a registration that cannot even say its own id is
+            // simply not discoverable, and the wanted-provider path then
+            // reports the accurate missing_plugin_provider problem.
+            try {
+                $identity = $entry->identity();
+            } catch (\Throwable $t) {
+                continue;
+            }
             $id = is_array($identity) ? (string) ($identity['id'] ?? '') : '';
             if ($id === '' || preg_match(self::ID_PATTERN, $id) !== 1 || isset($out[$id])) {
                 continue;
@@ -325,6 +344,54 @@ final class Providers {
             $out[$id] = $entry;
         }
         return $out;
+    }
+
+    /**
+     * A plugin-sourced provider's code must actually live inside the plugin
+     * it claims. The filter registry is open (any active plugin can register
+     * anything, first id wins), and identity() is self-reported — without
+     * this anchor, plugin B could answer for plugin A's declared id and
+     * negotiation would truthfully report "A installed, active, in range,
+     * identity matched" while B's code runs. Not an execution-privilege
+     * boundary (every active plugin already runs arbitrary code); it is what
+     * keeps the negotiation's identity claim falsifiable, per the doctrine's
+     * "trusted as part of the installed plugin". Single-file plugins anchor
+     * to the plugins directory itself — the strongest true statement
+     * available for a plugin with no directory of its own.
+     *
+     * @param array<string,mixed> $declaration
+     */
+    private static function plugin_anchor_problem(object $provider, array $declaration): ?array {
+        $id = (string) $declaration['id'];
+        $manifest = (string) $declaration['manifest'];
+        $plugin = (string) $declaration['plugin'];
+        $pluginsDir = defined('WP_PLUGIN_DIR')
+            ? (string) WP_PLUGIN_DIR
+            : (defined('WP_CONTENT_DIR') ? WP_CONTENT_DIR . '/plugins' : '');
+        if ($pluginsDir === '') {
+            return self::problem(
+                $id, $manifest, $plugin, 'unresolvable_plugin_dir',
+                'a resolvable WP_PLUGIN_DIR to anchor the provider class against',
+                'neither WP_PLUGIN_DIR nor WP_CONTENT_DIR is defined',
+                'run negotiation through the ordinary WordPress apply path'
+            );
+        }
+        $pluginSubdir = dirname($plugin);
+        $anchor = realpath(
+            $pluginSubdir === '.' ? $pluginsDir : $pluginsDir . '/' . $pluginSubdir
+        );
+        $file = (new \ReflectionClass($provider))->getFileName();
+        $real = is_string($file) ? realpath($file) : false;
+        if ($anchor === false || $real === false
+            || !str_starts_with($real . '', rtrim($anchor, '/') . '/')) {
+            return self::problem(
+                $id, $manifest, $plugin, 'provider_outside_owning_plugin',
+                "the provider class defined under $anchor",
+                $real === false ? 'an unresolvable class file' : "class file $real",
+                "register the '$id' provider from $plugin itself, or declare it source: manifest"
+            );
+        }
+        return null;
     }
 
     /**
@@ -351,7 +418,16 @@ final class Providers {
             }
         }
         $expected = ['id' => $id, 'plugin' => $plugin, 'version' => (string) $declaration['version']];
-        $found = $provider->identity();
+        try {
+            $found = $provider->identity();
+        } catch (\Throwable $t) {
+            return self::problem(
+                $id, $manifest, $plugin, 'contract_shape',
+                'identity() returning an array',
+                'identity() threw: ' . $t->getMessage(),
+                'upgrade the provider to the current adapter contract'
+            );
+        }
         $found = is_array($found) ? $found : [];
         ksort($expected, SORT_STRING);
         ksort($found, SORT_STRING);
@@ -418,6 +494,38 @@ final class Providers {
                 "apply re-runs the rebuild pass on retry, so '$capability' must be safe to re-fire; "
                     . 'make it idempotent or stop declaring it from an action'
             );
+        }
+        if (($decl['scope'] ?? null) === 'entity') {
+            // Entity scope is only meaningful when the engine can actually
+            // assemble a batch: the batch rows come from applied work whose
+            // canonical surface matches the action's own triggers, and only
+            // post/term/table surfaces resolve to a ledger-minted local id.
+            // An unscoped declaration would batch [] on every apply, and an
+            // option:/entity: trigger would fail id resolution in the rebuild
+            // pass — after the authored commit. Both are knowable here, so
+            // both refuse before any mutation instead (independent review
+            // caught the fail-open/fail-late pair this check closes).
+            $triggers = $action['triggers'] ?? null;
+            if (!is_array($triggers) || $triggers === []) {
+                return self::problem(
+                    $id, $manifest, $plugin, 'entity_scope_unscoped_action',
+                    "explicit triggers on the action declaring '$capability' (scope: entity)",
+                    'no triggers (unscoped declaration)',
+                    'declare exact post:/term:/table: triggers so the engine can assemble the entity batch, '
+                        . 'or make the capability scope: site'
+                );
+            }
+            foreach ($triggers as $trigger) {
+                $trigger = (string) $trigger;
+                if (preg_match('/^(post|term|table):/', $trigger) !== 1) {
+                    return self::problem(
+                        $id, $manifest, $plugin, 'entity_scope_unresolvable_trigger',
+                        "only post:/term:/table: triggers on the action declaring '$capability' (scope: entity)",
+                        "trigger '$trigger' has no ledger-resolvable per-entity id",
+                        'narrow the trigger to an id-bearing surface, or make the capability scope: site'
+                    );
+                }
+            }
         }
         try {
             self::validate_args((array) ($action['args'] ?? []), $decl['args'], "manifest '$manifest' action args");

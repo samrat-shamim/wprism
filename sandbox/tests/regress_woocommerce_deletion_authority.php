@@ -523,6 +523,22 @@ check(($policy->manifests[0]['version_range']['min'] ?? '') === '11.0.0'
 check(str_contains((string) file_get_contents($root . '/agent/src/Providers.php'),
     "\$provider->invoke(\$capability, \$args)"),
     'provider capabilities are invoked through the engine contract, never as an engine-executed string');
+// The retired channel ran every payload in a freshly launched WP-CLI process
+// (cold runtime caches by construction). Providers run IN-PROCESS, so the
+// engine's compensating invariant is the pre-action object-cache flush in
+// Apply::rebuild() — without it, a provider's decision reads can hit this
+// process's memoized pre-commit plugin models (the reproduced Polylang 3.8.6
+// class verify_convergence()'s docblock records). This pin replaces the
+// deleted fresh-process assertion with the invariant that now carries its
+// job: if the flush disappears, this fails, and whoever removes it must
+// re-argue the execution-context question on purpose.
+$applySource = (string) file_get_contents($root . '/agent/src/Apply.php');
+check(str_contains($applySource, "Db::checkpoint('rebuild object cache (pre-action)')")
+    && preg_match(
+        "/rebuild object cache \\(pre-action\\)'.{0,200}wp_cache_flush\\(\\)/s",
+        $applySource
+    ) === 1,
+    'the in-process action loop is preceded by the compensating object-cache flush (fresh-process successor invariant)');
 
 // Execute the REAL provider against a tiny fake public Woo boundary. This
 // proves the shipped adapter code invokes the exact namespaces and refresh
