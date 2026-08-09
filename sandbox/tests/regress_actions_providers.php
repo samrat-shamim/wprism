@@ -364,8 +364,17 @@ refuse_probe($m, 'must be a scalar or a list of scalars', 'a list-of-lists provi
 // regress_provider_contract.php owns that half.
 $m = probe_manifest();
 $m['actions'][1]['args'] = ['groups' => [['kind' => 'post:probe', 'id' => 7, 'purged' => true]]];
-load_probe($m);
-check(true, 'a list of FLAT objects is a legal provider argument shape at load (DUO-3369 list<object> values)');
+// try/catch rather than a bare check(true) after the call: a load that throws
+// here is exactly the regression this asserts against, and letting it escape
+// would end the run at this line with exit 255 and no FAIL line naming what
+// broke.
+try {
+    load_probe($m);
+    check(true, 'a list of FLAT objects is a legal provider argument shape at load (DUO-3369 list<object> values)');
+} catch (\Throwable $t) {
+    check(false, 'a list of FLAT objects is a legal provider argument shape at load (DUO-3369 list<object> values)'
+        . ' (refused with: ' . $t->getMessage() . ')');
+}
 $m = probe_manifest();
 $m['actions'][1]['args'] = ['groups' => [['kind' => 'post:probe', 'children' => [['id' => 8]]]]];
 refuse_probe($m, "row 0 field 'children' must be a scalar", 'an object row carrying its own nested payload is still refused — one level, not arbitrary depth');

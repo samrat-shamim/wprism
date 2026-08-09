@@ -39,7 +39,8 @@ final class Providers {
      *     channel-less capability receives, captured from the pre-change
      *     engine, so "byte-compatible" is a failing check rather than a claim.
      *   - one or more declared channels — an envelope
-     *     `{entities: [...], deletions?: [...], reparents?: [...], retry?: bool}`
+     *     `{entities: [...], always_on_write?: bool, deletions?: [...],
+     *     reparents?: [...], retry?: bool}`
      *     carrying ONLY the declared channels, always in that key order. An
      *     undeclared channel is ABSENT rather than empty, so a capability can
      *     tell "declared, and nothing happened this run" from "never asked
@@ -58,32 +59,52 @@ final class Providers {
      * but may never mint one — a name the engine does not assemble would be a
      * claim nothing ever satisfies.
      *
-     *   - `deletions`        tombstone rows from the deletion work this run's
-     *                        action selection already projected surfaces from,
-     *                        narrowed to the action's own triggers.
+     *   - `deletions`        tombstone rows for the deletions this run actually
+     *                        APPLIED (`--with-deletes`), plus the ones a
+     *                        previous incomplete apply had already made absent,
+     *                        narrowed to the action's own triggers. Never a
+     *                        tombstone that was only PLANNED: the selection
+     *                        projects surfaces from planned tombstones so a
+     *                        capability can be selected before the delete gate,
+     *                        but a run without `--with-deletes` never executes
+     *                        them and the entities are all still there
+     *                        (Apply::action_deletions()).
      *   - `reparents`        the reparent receipts this apply captured before
-     *                        moving a post_parent, narrowed the same way.
+     *                        moving a post_parent, unioned with the durable
+     *                        `regen_reparent_context:<uuid>` markers an earlier
+     *                        incomplete apply left outstanding, narrowed the
+     *                        same way.
      *   - `retry`            whether this apply is retrying an incomplete one
      *                        (the `apply_in_progress` marker the selection
      *                        already consults for its tombstone surfaces).
-     *   - `always_on_write`  behavioral, and deliberately carries NO payload
-     *                        key: it mirrors regen_dependency's flag of the
-     *                        same name (Apply::regen_batch_dependencies() —
-     *                        fire even when the engine's own cheap check says
-     *                        there is nothing to do), which for this channel
-     *                        means the empty-batch skip receipt is suppressed
-     *                        and the capability fires anyway.
+     *   - `always_on_write`  a boolean FLAG about this invocation rather than
+     *                        evidence about the revision: true whenever
+     *                        declared, stating that the declaring action fired
+     *                        on an always-on basis. It mirrors regen_dependency's
+     *                        flag of the same name precisely — there
+     *                        (Apply::regen_batch_dependencies()) the flag
+     *                        SUPPRESSES a per-candidate verify check on a write
+     *                        candidate the engine already had; IT NEVER CREATES
+     *                        JOBS, since candidates still come only from this
+     *                        run's work, pending markers, and deletion
+     *                        receipts. So it manufactures no work here either:
+     *                        a capability fires when its entity batch or one of
+     *                        its evidence channels is non-empty, and this flag
+     *                        only tells it which basis it fired on.
      */
     public const CONTEXT_CHANNELS = ['always_on_write', 'deletions', 'reparents', 'retry'];
 
     /**
-     * The channels that actually carry a payload key, in injection order. The
-     * order is the engine's, not the declaration's: two capabilities declaring
-     * the same channels in different orders must receive byte-identical
-     * envelopes, or a provider comparing receipts across runs would see a
-     * difference that means nothing.
+     * The channels whose assembled value is a boolean flag rather than a list
+     * of engine-assembled rows.
+     *
+     * Every declared channel carries a payload key, so the injection order is
+     * CONTEXT_CHANNELS itself. That order is the engine's, not the
+     * declaration's: two capabilities declaring the same channels in different
+     * orders must receive byte-identical envelopes, or a provider comparing
+     * receipts across runs would see a difference that means nothing.
      */
-    public const BATCH_CHANNELS = ['deletions', 'reparents', 'retry'];
+    public const FLAG_CHANNELS = ['always_on_write', 'retry'];
 
     private const ID_PATTERN = '/^[a-z][a-z0-9-]{0,63}$/D';
     private const CAPABILITY_PATTERN = '/^[a-z0-9_]{1,64}$/D';
@@ -281,8 +302,8 @@ final class Providers {
      * @param array<string,mixed> $capabilityDecl the negotiated declaration
      * @param list<array{kind:string,id:int}> $entities batch for scope=entity
      * @param array<string,mixed> $context engine batch channels the caller
-     *   assembled, keyed by channel name — exactly the declared BATCH_CHANNELS,
-     *   no more and no fewer (see batch_payload()).
+     *   assembled, keyed by channel name — exactly the declared
+     *   CONTEXT_CHANNELS, no more and no fewer (see batch_payload()).
      * @return array{before:mixed, after:mixed, verified:true, duration_seconds:float}
      */
     public static function invoke(
@@ -403,16 +424,16 @@ final class Providers {
             }
             return $entities;
         }
-        $unknown = array_diff(array_keys($context), self::BATCH_CHANNELS);
+        $unknown = array_diff(array_keys($context), self::CONTEXT_CHANNELS);
         if ($unknown !== []) {
             throw new \RuntimeException(
                 "duo: provider '$id' capability '$capability' received engine batch context under name(s) the "
                 . 'engine does not assemble: ' . implode(', ', $unknown) . ' — the closed set is '
-                . implode(', ', self::BATCH_CHANNELS)
+                . implode(', ', self::CONTEXT_CHANNELS)
             );
         }
         $payload = [self::ENTITIES_ARG => $entities];
-        foreach (self::BATCH_CHANNELS as $channel) {
+        foreach (self::CONTEXT_CHANNELS as $channel) {
             $declared = in_array($channel, $channels, true);
             if (!$declared) {
                 if (array_key_exists($channel, $context)) {
@@ -431,13 +452,14 @@ final class Providers {
                 );
             }
             $value = $context[$channel];
-            $wellFormed = $channel === 'retry'
+            $flag = in_array($channel, self::FLAG_CHANNELS, true);
+            $wellFormed = $flag
                 ? is_bool($value)
                 : is_array($value) && array_is_list($value);
             if (!$wellFormed) {
                 throw new \RuntimeException(
                     "duo: provider '$id' capability '$capability' batch channel '$channel' was assembled as "
-                    . get_debug_type($value) . ' — ' . ($channel === 'retry' ? 'that channel is a boolean flag'
+                    . get_debug_type($value) . ' — ' . ($flag ? 'that channel is a boolean flag'
                         : 'that channel is a list of engine-assembled rows')
                 );
             }

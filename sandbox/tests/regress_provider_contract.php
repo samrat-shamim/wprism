@@ -27,6 +27,8 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
 define('DUO_SPEC_VERSION', 2);
+// wpdb::get_results()'s output mode, which Ledger's own checked reads pass.
+define('ARRAY_A', 'ARRAY_A');
 
 // ---- WordPress lifecycle primitives Deploy::plugin_runtime_state() reads ----
 // Defining validate_plugin() also short-circuits Deploy's wp-admin include.
@@ -50,6 +52,14 @@ function is_wp_error(mixed $thing): bool {
 }
 function apply_filters(string $hook, mixed $value): mixed {
     return $hook === 'duo_providers' ? $GLOBALS['duo_test_providers'] : $value;
+}
+// Apply::rebuild() flushes the object cache before and after the action loop
+// and hard-fails on a false return; the count is asserted by the drive below,
+// so the stub is evidence rather than a silencer.
+$GLOBALS['duo_test_cache_flushes'] = 0;
+function wp_cache_flush(): bool {
+    $GLOBALS['duo_test_cache_flushes']++;
+    return true;
 }
 class WP_Error {
     public function __construct(public string $message = '') {}
@@ -726,9 +736,15 @@ $check($args['entities']['entities'] === $batch
 $args = $invokeWith(['deletions' => [], 'retry' => false]);
 $check($args['entities'] === ['entities' => $batch, 'deletions' => [], 'retry' => false],
     'a declared-but-empty channel is present and empty — "nothing happened" is distinguishable from "never asked for"');
-$args = $invokeWith([], ['always_on_write']);
-$check($args['entities'] === ['entities' => $batch],
-    'always_on_write is behavioral: it declares the envelope but adds no payload key of its own');
+$args = $invokeWith(['always_on_write' => true], ['always_on_write']);
+$check($args['entities'] === ['entities' => $batch, 'always_on_write' => true],
+    'always_on_write rides as a boolean flag of its own — a passed fact, not a silent change of whether the capability ran');
+$args = $invokeWith(
+    ['always_on_write' => true, 'deletions' => $deletionRows, 'retry' => false],
+    ['retry', 'deletions', 'always_on_write']
+);
+$check(array_keys($args['entities']) === ['entities', 'always_on_write', 'deletions', 'retry'],
+    "the key order is the engine's, not the declaration's — a differently-ordered declaration receives the identical envelope");
 
 $expectPayloadRefusal = static function (array $context, array $channels, string $needle, string $label) use (
     $check, $invokeWith
@@ -769,18 +785,26 @@ echo "\n== the engine half: what Apply assembles for each declared channel ==\n"
 // The assembly is reachable offline, so it is proven here rather than deferred
 // to the live leg: same idiom as regress_woocommerce_regen_engine.php, which
 // drives Apply's private regeneration dispatch against a fake wpdb. Real,
-// unmodified Apply.php; the only fake is the two-query wpdb Ledger::id_for()
-// needs. What stays live-only is the surrounding rebuild() pass (object-cache
-// flush, term recounts, receipt emission), not these projections.
+// unmodified Apply.php; the only fake is the wpdb the ledger's identity and
+// marker reads go through. The section after this one drives the whole
+// rebuild() pass through the same fake, so the edges BETWEEN these projections
+// and Providers::invoke() are covered too; what stays live-only is the rest of
+// that pass (term recounts, attachment metadata, cron rescheduling).
 require $root . '/agent/src/Db.php';
 require $root . '/agent/src/Ledger.php';
 require $root . '/agent/src/Apply.php';
 
 final class ProbeBatchWpdb {
     public string $prefix = 'wp_';
+    public string $posts = 'wp_posts';
+    public string $term_taxonomy = 'wp_term_taxonomy';
     public string $last_error = '';
     /** @var array<string,int> "<uuid>\0<id_kind>" => local id */
     public array $map = [];
+    /** @var array<int,array{post_type:string,post_parent:int}> */
+    public array $postsRows = [];
+    /** @var array<string,string> the duo_kv keyspace (markers) */
+    public array $kv = [];
 
     public function prepare(string $query, ...$args): string {
         foreach ($args as $arg) {
@@ -790,9 +814,56 @@ final class ProbeBatchWpdb {
         return $query;
     }
 
+    public function query(string $query): int {
+        if (preg_match("/INSERT INTO wp_duo_kv .*VALUES \\('((?:[^'\\\\]|\\\\.)*)', '((?:[^'\\\\]|\\\\.)*)'\\)/", $query, $m)) {
+            $this->kv[stripslashes($m[1])] = stripslashes($m[2]);
+            return 1;
+        }
+        if (preg_match("/DELETE FROM wp_duo_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
+            unset($this->kv[stripslashes($m[1])]);
+            return 1;
+        }
+        return 1;
+    }
+
+    public function get_results(string $query, $output = null): array {
+        if (!str_contains($query, 'SELECT k, v FROM wp_duo_kv')) {
+            return [];
+        }
+        return array_map(
+            static fn(string $k, string $v): array => ['k' => $k, 'v' => $v],
+            array_keys($this->kv),
+            array_values($this->kv)
+        );
+    }
+
+    public function get_row(string $query, $output = null): ?array {
+        if (preg_match('/FROM wp_posts WHERE ID = (\d+)/', $query, $m)) {
+            return $this->postsRows[(int) $m[1]] ?? null;
+        }
+        return null;
+    }
+
+    /** Term recounts find no term_taxonomy rows, so the rebuild pass walks past them. */
+    public function get_col(string $query): array {
+        return [];
+    }
+
     public function get_var(string $query): mixed {
         if (preg_match("/SELECT local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $query, $m)) {
             return $this->map[$m[1] . "\0" . $m[2]] ?? null;
+        }
+        if (preg_match("/SELECT uuid FROM wp_duo_map WHERE id_kind = '([^']+)' AND local_id = (\\d+)/", $query, $m)) {
+            foreach ($this->map as $key => $id) {
+                [$uuid, $kind] = explode("\0", $key, 2);
+                if ($kind === $m[1] && (int) $id === (int) $m[2]) {
+                    return $uuid;
+                }
+            }
+            return null;
+        }
+        if (preg_match("/SELECT v FROM wp_duo_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
+            return $this->kv[stripslashes($m[1])] ?? null;
         }
         return null;
     }
@@ -804,6 +875,8 @@ $liveTerm = '22222222-2222-4222-8222-222222222222';
 $forgottenDeleted = '33333333-3333-4333-8333-333333333333';
 $otherAdapters = '44444444-4444-4444-8444-444444444444';
 $moved = '55555555-5555-4555-8555-555555555555';
+$oldParent = '66666666-6666-4666-8666-666666666666';
+$newParent = '77777777-7777-4777-8777-777777777777';
 // A tombstone applied by THIS run still resolves (Ledger::forget() runs in the
 // ledger transaction after the rebuild pass); one already applied by a prior
 // incomplete run may not.
@@ -812,7 +885,12 @@ $wpdb->map = [
     $liveTerm . "\0term" => 9,
     $otherAdapters . "\0post" => 77,
     $moved . "\0post" => 204,
+    $oldParent . "\0post" => 202,
+    $newParent . "\0post" => 203,
 ];
+// The moved post as the target still holds it: capture reads the CURRENT
+// post_parent before phase 1 rewrites it.
+$wpdb->postsRows = [204 => ['post_type' => 'probe', 'post_parent' => 202]];
 
 $applyClass = new \ReflectionClass(\Duo\Apply::class);
 $apply = $applyClass->newInstanceWithoutConstructor();
@@ -898,11 +976,19 @@ $applyRetry->setValue($apply, true);
 $check($applyPrivate('action_context', [$batchAction, ['scope' => 'entity', 'context' => ['retry']], [], []])
     === ['retry' => true],
     "the retry channel reports the apply_in_progress marker this run's selection already consulted");
+$check($applyPrivate('action_context', [
+        $batchAction,
+        ['scope' => 'entity', 'context' => ['always_on_write']],
+        [],
+        [],
+    ]) === ['always_on_write' => true],
+    'always_on_write is assembled as the flag it is — true because it was declared, not because anything happened');
 
 echo "\n== the empty-batch skip: narrowed, not loosened ==\n";
 $noChannels = ['scope' => 'entity'];
 $withDeletions = ['scope' => 'entity', 'context' => ['deletions']];
 $alwaysOn = ['scope' => 'entity', 'context' => ['deletions', 'always_on_write']];
+$alwaysOnAlone = ['scope' => 'entity', 'context' => ['always_on_write']];
 $hasWork = static fn(array $declaration, array $entities, array $channels): bool =>
     (bool) $applyPrivate('action_batch_has_work', [$declaration, $entities, $channels]);
 $check($hasWork($noChannels, [], []) === false,
@@ -913,11 +999,213 @@ $check($hasWork($withDeletions, [], ['deletions' => $deletions]) === true,
     'a deletion-only selection is NO LONGER skipped once the capability declared the deletions channel');
 $check($hasWork($withDeletions, [], ['deletions' => []]) === false,
     'the skip receipt still stands when every declared channel came back empty and nothing was written');
-$check($hasWork($alwaysOn, [], ['deletions' => []]) === true,
-    "always_on_write fires anyway — the same semantics regen_dependency's flag has for its own cheap check");
+$check($hasWork($alwaysOn, [], ['always_on_write' => true, 'deletions' => []]) === false,
+    'always_on_write does NOT manufacture work: with nothing written and its other channel empty, the skip still stands');
+$check($hasWork($alwaysOnAlone, [], ['always_on_write' => true]) === false,
+    'a capability declaring ONLY always_on_write is skipped on an empty run — the flag it mirrors suppresses a '
+    . 'per-candidate check, it never creates a candidate');
+$check($hasWork($alwaysOn, [], ['always_on_write' => true, 'deletions' => $deletions]) === true,
+    'the same capability fires the moment a real channel carries something');
 $check($hasWork(['scope' => 'entity', 'context' => ['retry']], [], ['retry' => true]) === true
     && $hasWork(['scope' => 'entity', 'context' => ['retry']], [], ['retry' => false]) === false,
     'a retry is work in its own right; an ordinary run with nothing else is not');
+
+echo "\n== the rebuild pass: the edges between those projections and invoke() ==\n";
+// Everything above proves what each helper RETURNS. Three edges live one frame
+// out and are invisible to those checks: which tombstone set the deletions
+// channel is composed from, whether the retry state reaches the envelope, and
+// whether the assembled context reaches Providers::invoke() at all. rebuild()
+// is drivable offline with the same fake wpdb (its other steps — regen
+// dispatch, cron rescheduling, term recounts, attachment metadata — all walk
+// past an empty work set and an empty term_taxonomy), so the edges are proven
+// here rather than asserted.
+$applyWarnings = $applyClass->getProperty('warnings');
+$applyReceipts = $applyClass->getProperty('actionReceipts');
+$applySelected = $applyClass->getProperty('selectedActions');
+$applyNegotiated = $applyClass->getProperty('negotiatedProviders');
+$rebuildMethod = $applyClass->getMethod('rebuild');
+
+$drivePolicy = $policyFor($manifest);
+$driveAction = $drivePolicy->actions_for(['post:probe'])[0];
+$driveAction['triggers'] = ['post:probe'];
+
+/**
+ * One rebuild() pass with a scratch provider in the negotiated slot, returning
+ * what the capability received plus the pass's own warnings and receipts. A
+ * throw comes back as a value rather than a fatal, so a broken edge reads as a
+ * FAIL line instead of exit 255.
+ *
+ * $rebuildArgs is rebuild()'s own parameter list:
+ * [attachmentIds, work, tree, regenContext, deleteWork, withDeletes, absentTombstones].
+ */
+$driveRebuild = static function (array $channels, array $rebuildArgs, bool $retrying = false) use (
+    $applyClass, $applyPolicy, $applyRetry, $applyWarnings, $applyReceipts, $applySelected,
+    $applyNegotiated, $rebuildMethod, $drivePolicy, $driveAction, $reset
+): array {
+    $reset();
+    \Duo\Providers\ProbeCache::$capabilityOverrides = $channels === []
+        ? ['scope' => 'entity']
+        : ['scope' => 'entity', 'context' => $channels];
+    $provider = new \Duo\Providers\ProbeCache($drivePolicy);
+    $apply = $applyClass->newInstanceWithoutConstructor();
+    $applyPolicy->setValue($apply, $drivePolicy);
+    $applyRetry->setValue($apply, $retrying);
+    $applySelected->setValue($apply, [$driveAction]);
+    $applyNegotiated->setValue($apply, [
+        'providers' => ['probe-cache' => $provider],
+        'capabilities' => ['probe-cache' => ['flush' => $provider->capabilities()['flush']]],
+    ]);
+    $error = '';
+    try {
+        $rebuildMethod->invokeArgs($apply, $rebuildArgs);
+    } catch (\Throwable $t) {
+        $error = $t->getMessage();
+    }
+    return [
+        'args' => $provider->calls[0][1] ?? null,
+        'calls' => count($provider->calls),
+        'warnings' => implode("\n", (array) $applyWarnings->getValue($apply)),
+        'receipts' => (array) $applyReceipts->getValue($apply),
+        'error' => $error,
+    ];
+};
+
+$driveTombstones = [
+    ['uuid' => $liveDeleted, 'type' => 'post', 'deletion_kind' => 'post', 'deletion_type' => 'probe'],
+];
+$driveAbsent = [
+    ['uuid' => $forgottenDeleted, 'type' => 'post', 'deletion_kind' => 'post', 'deletion_type' => 'probe'],
+];
+
+$wpdb->kv = [];
+$flushesBefore = $GLOBALS['duo_test_cache_flushes'];
+$run = $driveRebuild(['deletions'], [[], [], [], [], $driveTombstones, true, []]);
+$check($run['error'] === '' && $run['calls'] === 1
+    && ($run['args']['entities']['deletions'] ?? null)
+        === [['kind' => 'post:probe', 'uuid' => $liveDeleted, 'id' => 41]],
+    'the tombstones a --with-deletes run APPLIED reach the capability through the whole pass, not just the projection');
+$check(array_keys((array) ($run['args']['entities'] ?? [])) === ['entities', 'deletions']
+    && ($run['args']['entities']['entities'] ?? null) === [],
+    'the assembled context reaches invoke() as the envelope — a bare batch here would mean the pass dropped it');
+$check($GLOBALS['duo_test_cache_flushes'] === $flushesBefore + 2,
+    'the pass still flushes the object cache either side of the action loop (the drive is the real rebuild(), not a stub)');
+
+$run = $driveRebuild(['deletions'], [[], [], [], [], $driveTombstones, false, []]);
+$check($run['error'] === '' && $run['calls'] === 0,
+    'THE FAIL-OPEN CASE: the identical tombstone selection without --with-deletes invokes nothing — those entities '
+    . 'were planned for deletion and are all still present');
+$check(($run['receipts'][0]['skipped'] ?? '')
+    === 'empty entity batch and no declared batch channel carried work (deletions empty)'
+    && str_contains($run['warnings'], 'no declared batch channel carried work: deletions empty'),
+    'and the skip is explicit in both the receipt and the human line, naming the channel that came back empty');
+
+$run = $driveRebuild(['deletions', 'retry'], [[], [], [], [], [], false, $driveAbsent], true);
+$check($run['error'] === '' && $run['calls'] === 1
+    && ($run['args']['entities']['retry'] ?? null) === true
+    && ($run['args']['entities']['deletions'] ?? null)
+        === [['kind' => 'post:probe', 'uuid' => $forgottenDeleted, 'id' => 0]],
+    "while retrying an incomplete apply, the run's retry state and its already-absent tombstones both reach invoke()");
+$run = $driveRebuild(['deletions', 'retry'], [[], [], [], [], [], false, $driveAbsent], false);
+$check($run['error'] === '' && $run['calls'] === 0,
+    'the same already-absent rows on an ordinary run are not evidence about this run: nothing is delivered, nothing fires');
+$check(str_contains($run['warnings'], 'deletions empty, retry false'),
+    'the skip line renders a declared boolean channel as false rather than as "empty" (an empty list it is not)');
+
+$run = $driveRebuild(['always_on_write'], [[], [], [], [], $driveTombstones, true, []]);
+$check($run['error'] === '' && $run['calls'] === 0,
+    'a capability declaring ONLY always_on_write is skipped on a run whose declared channels carry nothing');
+$check(str_contains(
+    (string) ($run['receipts'][0]['skipped'] ?? ''),
+    'always_on_write (a flag; never work of its own)'
+), 'and the receipt names the flag for what it is instead of calling a boolean empty');
+
+$reparentMarker = json_encode([
+    'kind' => 'reparent', 'uuid' => $moved, 'id' => 204, 'post_type' => 'probe',
+    'parent_id' => 202, 'old_parent_id' => 202, 'new_parent_id' => 203,
+    'root_ids' => [201, 202, 203], 'child_ids' => [],
+]);
+$wpdb->kv = ['regen_reparent_context:' . $moved => (string) $reparentMarker];
+$run = $driveRebuild(['reparents'], [[], [], [], [], [], false, []]);
+$check($run['error'] === '' && $run['calls'] === 1
+    && array_column((array) ($run['args']['entities']['reparents'] ?? []), 'root_id') === [201, 202, 203],
+    'an outstanding reparent marker with NO fresh capture this run still reaches a reparents-declaring capability');
+$check(!isset($wpdb->kv['regen_reparent_context:' . $moved]),
+    'and it had to be read before the regen pass, which sweeps a marker no batch regenerator can consume — the '
+    . 'ordering is load-bearing, not incidental');
+
+$wpdb->kv = ['regen_reparent_context:' . $moved => (string) $reparentMarker];
+$run = $driveRebuild(['reparents'], [[], [], [], [
+    ['kind' => 'reparent', 'uuid' => $moved, 'id' => 204, 'post_type' => 'probe',
+     'old_parent_id' => 203, 'new_parent_id' => 205, 'root_ids' => [203, 205]],
+], [], false, []]);
+$unionRows = (array) ($run['args']['entities']['reparents'] ?? []);
+$check(array_column($unionRows, 'root_id') === [201, 202, 203, 205],
+    'marker and fresh capture union without duplicating a root: the dedupe key is (kind, uuid, root_id)');
+$check(($unionRows[2]['new_parent_id'] ?? null) === 205,
+    'a root both sources name takes the fresh receipt, which already merged the marker rather than replacing it');
+$wpdb->kv = [];
+
+// run() itself is not drivable offline (promotion lease, plan, authored
+// transaction, convergence recapture), so its two threading edges into this
+// pass are asserted against its own source — the idiom
+// regress_woocommerce_regen_engine.php uses for the same class of claim.
+// Reverting either line in Apply.php fails exactly one of these two checks.
+$runMethod = $applyClass->getMethod('run');
+$runSource = implode("\n", array_slice(
+    (array) file((string) $runMethod->getFileName(), FILE_IGNORE_NEW_LINES),
+    $runMethod->getStartLine() - 1,
+    $runMethod->getEndLine() - $runMethod->getStartLine() + 1
+));
+$check((bool) preg_match(
+    '/\$this->rebuild\(\s*\$attachmentIds,\s*\$work,\s*\$tree,\s*\$regenContext,\s*\$deleteWork,'
+    . '\s*!empty\(\$opts\[\'with_deletes\'\]\),\s*\$plan\[\'deleted\'\]\s*\);/',
+    $runSource
+), "run() hands the rebuild pass this run's tombstones, the with_deletes gate, and the already-absent set — never "
+    . 'the wider set the pre-mutation selection projected surfaces from');
+$check((bool) preg_match('/\$this->retryingIncompleteApply\s*=\s*\$retryingIncompleteApply;/', $runSource),
+    'run() records its apply_in_progress read on the instance, which is the only path by which the retry channel '
+    . 'can ever be true');
+
+echo "\n== the capture behind the reparents channel: scoped to DECLARED consumers ==\n";
+// DUO-3369 review, F2(a): scoping the capture to batch regen_dependency post
+// types alone made the channel structurally empty for a provider-only
+// manifest — a capability could declare `reparents`, negotiate clean, and
+// never receive a row no matter what the revision moved.
+$captureMethod = $applyClass->getMethod('capture_regen_reparent_context');
+$captureWork = [['uuid' => $moved]];
+$captureTree = [$moved => ['type' => 'post', 'data' => ['type' => 'probe', 'parent' => '{{post:' . $newParent . '}}']]];
+$captureWith = static function (array $channels, array $triggers = ['post:probe']) use (
+    $applyClass, $applyPolicy, $applySelected, $applyNegotiated, $captureMethod,
+    $drivePolicy, $driveAction, $captureWork, $captureTree, &$wpdb
+): array {
+    $wpdb->kv = [];
+    $apply = $applyClass->newInstanceWithoutConstructor();
+    $applyPolicy->setValue($apply, $drivePolicy);
+    $applySelected->setValue($apply, [['triggers' => $triggers] + $driveAction]);
+    $declaration = $channels === []
+        ? ['scope' => 'entity']
+        : ['scope' => 'entity', 'context' => $channels];
+    $applyNegotiated->setValue($apply, [
+        'providers' => [],
+        'capabilities' => ['probe-cache' => ['flush' => $declaration]],
+    ]);
+    return (array) $captureMethod->invokeArgs($apply, [$captureWork, $captureTree]);
+};
+$captured = $captureWith(['reparents']);
+$check(count($captured) === 1
+    && ($captured[0]['post_type'] ?? null) === 'probe'
+    && ($captured[0]['old_parent_id'] ?? null) === 202
+    && ($captured[0]['new_parent_id'] ?? null) === 203,
+    'a provider-only manifest (no regen_batch anywhere) whose capability declares reparents DOES get the capture');
+$check(isset($wpdb->kv['regen_reparent_context:' . $moved]),
+    'and the durable marker is written exactly as the batch path writes it, so the retry above has something to find');
+$check($captureWith([]) === [] && $wpdb->kv === [],
+    'a post type no declared consumer names is still not captured — the gate widened to declared consumers, not to everything');
+$check($captureWith(['deletions']) === [],
+    'declaring some OTHER channel does not open the reparent capture either');
+$check($captureWith(['reparents'], ['post:somebody_else']) === [],
+    "a reparents-declaring capability triggered on another adapter's surface captures nothing here");
+$wpdb->kv = [];
 
 echo "\n== byte-compatibility with the pre-DUO-3369 contract, in frozen bytes ==\n";
 // Both literals below were captured by running THIS harness's fixtures through

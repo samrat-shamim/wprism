@@ -202,11 +202,35 @@ declaring its own closed `fields` vocabulary of `bool`/`int`/`string`, exactly
 one level deep, so a row is structured without becoming a free-form payload. An
 entity-scoped capability may additionally declare
 `"context": ["deletions", "reparents", "retry", "always_on_write"]` (any subset,
-no duplicates, refused on `scope: "site"`), which is how a capability receives
-what the batch regenerator channel receives: tombstones, reparent roots, the
-incomplete-retry flag, and fire-anyway semantics. Declared channels arrive
-alongside the entity batch under the reserved `entities` argument; declare none
-and the argument stays exactly the bare row list it has always been.
+no duplicates, refused on `scope: "site"`). Declared channels arrive alongside
+the entity batch under the reserved `entities` argument; declare none and the
+argument stays exactly the bare row list it has always been.
+
+What each channel delivers — and, where it is narrower than the batch
+regenerator channel an adapter may be migrating from, what it does *not*:
+
+- `deletions` — `{kind, uuid, id}` per tombstone on your own triggering
+  surfaces, for deletes this apply actually executed (`--with-deletes`) or that
+  a previous incomplete apply had already made absent. A tombstone this run only
+  planned is not delivered. `id` is `0` when the ledger mapping is already gone.
+  **Not delivered**: the regenerator deletion context's `parent_id` and
+  `child_ids`. Those come from a pre-delete inventory the engine writes only for
+  post types with a batch `regen_dependency`, and `child_ids` is a list the
+  one-level scalar row grammar cannot carry as-is; closing that gap is DUO-3342.
+- `reparents` — `{kind, uuid, id, root_id, old_parent_id, new_parent_id}`, one
+  row per derived root, unioned with any durable reparent marker an earlier
+  incomplete apply left outstanding. **Bounded by capture**: the engine records a
+  reparent receipt for post types with a batch `regen_dependency`, or whose
+  surface a `reparents`-declaring capability in the same run triggers on — a
+  move on any other post type produces no row. On a provider-only manifest the
+  durable marker is swept by the batch pass in the same run that reads it, so
+  treat the channel as this run's evidence, not a queue.
+- `retry` — whether this apply is retrying an incomplete one.
+- `always_on_write` — a flag stating you fired on an always-on basis. It mirrors
+  `regen_dependency`'s flag, which suppresses a per-candidate existence check
+  and never creates candidates: **it does not make your capability fire on an
+  empty run.** A capability fires when its entity batch or an evidence channel
+  carries something; otherwise apply records an explicit skip receipt.
 
 An adapter needing no executable semantics declares neither key and stays purely
 declarative. Most should. For worked examples,
