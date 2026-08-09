@@ -571,6 +571,11 @@ final class Providers {
                 }
                 ksort($claimants, SORT_STRING);
                 $names = array_keys($claimants);
+                // The row is attributed to the alphabetically-first claimant
+                // (provider/manifest/plugin are its), so in a readiness view
+                // it appears under ONE adapter's name — `found` names every
+                // claimant pair, which is where an operator reading that
+                // adapter's row finds the other. All claimants unbind.
                 $first = $claimants[$names[0]];
                 $problem = self::problem(
                     (string) $first['provider'],
