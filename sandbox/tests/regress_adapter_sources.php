@@ -448,10 +448,36 @@ expect_throw(
     'a symlinked DIRECTORY inside the adapter source is refused too, and is never followed'
 );
 unlink("$linkRepo/adapters/linked-dir");
+// A symlinked *.json one level down is judged by name and never followed, so
+// it is refused as a nested adapter instead of being silently ignored —
+// neither refused nor loaded is the one outcome this scan exists to prevent.
+mkdir("$linkRepo/adapters/docs");
+symlink("$outside/escape.json", "$linkRepo/adapters/docs/nested.json");
+expect_throw(
+    fn() => Policy::load($linkRepo),
+    'nested adapter',
+    'a SYMLINKED *.json nested one level down is refused as a nested adapter, not silently skipped as a link'
+);
+rm_rf("$linkRepo/adapters/docs");
 check(
     count(Policy::load($linkRepo)->manifests) === 1,
     'removing the links leaves the real out-of-tree adapter loading normally'
 );
+
+// The blocker case the two entry-level tests above do NOT reach: `adapters`
+// ITSELF checked in as a symlink. is_dir() follows it, so without resolving
+// the directory every adapter would come from outside the repository while
+// each provenance record still read `adapters/<name>.json`.
+$linkedSourceRepo = fresh_site(['core']);
+$externalSource = scratch('external-source');
+Canon::write_file("$externalSource/smuggled.json", Canon::encode(site_adapter('smuggled')));
+symlink($externalSource, "$linkedSourceRepo/adapters");
+expect_throw(
+    fn() => Policy::load($linkedSourceRepo),
+    'must be a real directory inside the site repository',
+    'the adapters DIRECTORY itself checked in as a symlink is refused — the source is resolved before anything inside it is trusted'
+);
+unlink("$linkedSourceRepo/adapters");
 
 // Case-only and normalization-only differences are ambiguous identity by
 // another route: the same repository would resolve differently depending on
@@ -461,6 +487,33 @@ expect_throw(
     'only by letter case',
     'a site adapter whose name differs from a shipped one only by case is refused'
 );
+// The refusal must name the source it ACTUALLY collides with, since the
+// collision index holds site adapters accepted earlier in the same scan as
+// well as shipped ones. Two site adapters differing only by case cannot
+// coexist on a case-insensitive filesystem (the second file would simply
+// overwrite the first), so that exact fixture is only constructible where the
+// host allows it; where it is not, the same message-construction path is
+// asserted through its shipped-side branch.
+$caseProbe = scratch('case-probe');
+touch("$caseProbe/casetest");
+$caseSensitiveFs = !file_exists("$caseProbe/CASETEST");
+if ($caseSensitiveFs) {
+    expect_throw(
+        fn() => Policy::load(fresh_site(
+            ['core'],
+            ['acme-widget' => site_adapter('acme-widget'), 'Acme-Widget' => site_adapter('Acme-Widget')]
+        )),
+        'from the site adapter',
+        'a site-vs-site case collision names the SITE source it actually collides with, not a shipped adapter'
+    );
+} else {
+    expect_throw(
+        fn() => Policy::load(fresh_site(['core'], ['CORE' => site_adapter('CORE')])),
+        'from the shipped adapter',
+        'the case-collision refusal names the colliding source from its own origin row, not a hardcoded word '
+        . '(the site-vs-site fixture needs a case-sensitive filesystem, which this host is not)'
+    );
+}
 $nfd = "caf\u{65}\u{301}"; // 'cafe' + combining acute — renders as 'café'
 expect_throw(
     fn() => Policy::load(fresh_site(['core'], ['cafe-widget' => site_adapter($nfd)])),

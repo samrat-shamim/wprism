@@ -108,6 +108,29 @@ final class AdapterSources {
         if (!is_dir($siteDir)) {
             return new self($origins, []);
         }
+        // is_dir() FOLLOWS symlinks, so the source directory itself has to be
+        // proved before anything inside it is trusted: `adapters` checked in as
+        // a symlink is ordinary repository content (git stores symlinks), and
+        // it would source every adapter from outside the repository while every
+        // provenance record still read `adapters/<name>.json`. Resolving both
+        // sides and requiring the exact expected location covers the symlinked
+        // directory and a symlinked ancestor in one check — a repo path that is
+        // itself reached through a link resolves the same way on both sides, so
+        // naming the repo through a link stays supported.
+        $resolvedRepo = realpath(rtrim($repo, '/'));
+        $resolvedSite = realpath($siteDir);
+        $expectedSite = $resolvedRepo === false ? '' : $resolvedRepo . '/' . self::SITE_DIR;
+        if ($resolvedRepo === false || $resolvedSite === false || $resolvedSite !== $expectedSite) {
+            throw new \RuntimeException(
+                "duo: site adapter source $siteDir resolves to "
+                . ($resolvedSite === false ? '(unresolvable)' : $resolvedSite)
+                . ', which is not ' . ($expectedSite !== '' ? $expectedSite : "this repository's own "
+                    . self::SITE_DIR . ' directory')
+                . ' — an out-of-tree adapter source must be a real directory inside the site repository, because '
+                . 'every adapter it installs records a repo-relative provenance that travels with the repository. '
+                . 'Replace the link with the directory itself'
+            );
+        }
 
         // A site-local source that ships ratification data is asserting an
         // authority it does not have. These files/directories are inert (only
@@ -179,17 +202,31 @@ final class AdapterSources {
             // case-sensitive one, so the SAME repository would resolve
             // differently per host. That is ambiguous identity by any other
             // route, and it is refused by the same rule.
+            // $origins already holds the site adapters accepted earlier in this
+            // loop, so the colliding side is named from its own origin row
+            // rather than assumed shipped — a site-vs-site collision reported
+            // as a shipped one would send the operator to the wrong directory.
             $folded = self::casefold($name);
-            foreach ([$origins, $shippedNames] as $shippedIndex) {
-                foreach (array_keys($shippedIndex) as $shippedName) {
-                    if ($shippedName !== $name && self::casefold((string) $shippedName) === $folded) {
-                        throw new \RuntimeException(
-                            "duo: site adapter '$relative' claims the name " . self::render($name)
-                            . ', which differs from the shipped adapter ' . self::render((string) $shippedName)
-                            . ' only by letter case — one name on a case-insensitive filesystem, two on a '
-                            . 'case-sensitive one. Choose a name that is distinct without relying on case'
-                        );
-                    }
+            foreach ($origins as $otherName => $otherOrigin) {
+                if ((string) $otherName !== $name && self::casefold((string) $otherName) === $folded) {
+                    throw new \RuntimeException(
+                        "duo: site adapter '$relative' claims the name " . self::render($name)
+                        . ', which differs only by letter case from the ' . $otherOrigin['source'] . ' adapter '
+                        . self::render((string) $otherName) . " ({$otherOrigin['path']}) — one name on a "
+                        . 'case-insensitive filesystem, two on a case-sensitive one. Choose a name that is '
+                        . 'distinct without relying on case'
+                    );
+                }
+            }
+            foreach ($shippedNames as $declaredName => $declaringFile) {
+                if ((string) $declaredName !== $name && self::casefold((string) $declaredName) === $folded) {
+                    throw new \RuntimeException(
+                        "duo: site adapter '$relative' claims the name " . self::render($name)
+                        . ', which differs only by letter case from the name ' . self::render((string) $declaredName)
+                        . " declared by the shipped manifest '$declaringFile' — one name on a case-insensitive "
+                        . 'filesystem, two on a case-sensitive one. Choose a name that is distinct without '
+                        . 'relying on case'
+                    );
                 }
             }
             $origins[$name] = ['source' => self::SITE, 'file' => $file, 'path' => $relative];
@@ -248,25 +285,35 @@ final class AdapterSources {
         }
     }
 
-    /** @return ?string the first JSON-ish file found under $dir, relative to it */
+    /**
+     * The first JSON-ish entry found under $dir, relative to it.
+     *
+     * A symlink is judged by its NAME and never followed: the caller only sees
+     * the top level, so skipping a link here would let a symlinked
+     * `docs/nested.json` be silently ignored — neither refused nor loaded,
+     * which is the outcome this whole scan exists to prevent. Judging by name
+     * also keeps the refusal message truthful for a symlinked non-JSON
+     * companion, which is passed over rather than reported as a nested adapter.
+     *
+     * @return ?string
+     */
     private static function first_nested_json(string $dir): ?string {
         foreach (scandir($dir) ?: [] as $entry) {
             if ($entry === '.' || $entry === '..') {
                 continue;
             }
             $full = $dir . '/' . $entry;
+            if (preg_match('/\.json$/iD', $entry) === 1) {
+                return $entry;
+            }
             if (is_link($full)) {
-                continue; // never followed; the caller already refuses links it can see
+                continue;
             }
             if (is_dir($full)) {
                 $deeper = self::first_nested_json($full);
                 if ($deeper !== null) {
                     return $entry . '/' . $deeper;
                 }
-                continue;
-            }
-            if (preg_match('/\.json$/iD', $entry) === 1) {
-                return $entry;
             }
         }
         return null;
