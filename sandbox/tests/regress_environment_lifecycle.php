@@ -117,7 +117,7 @@ $result = match ($action) {
         'semantic_snapshot_sha256' => $h('semantic'),
         'snapshot_session_id' => 'snapshot-session-0001',
         'snapshot_set_id' => 'snapshot-set-0001',
-        'snapshot_receipt_sha256' => $h('snapshot-receipt'),
+        'snapshot_set_receipt_sha256' => $h('snapshot-receipt'),
         'source_identity' => 'environment-identity-0001',
     ],
     'snapshot-read' => [
@@ -131,7 +131,7 @@ $result = match ($action) {
         'semantic_snapshot_sha256' => $h('semantic'),
         'snapshot_session_id' => 'snapshot-session-0001',
         'snapshot_set_id' => 'snapshot-set-0001',
-        'snapshot_receipt_sha256' => $h('snapshot-receipt'),
+        'snapshot_set_receipt_sha256' => $h('snapshot-receipt'),
         'source_identity' => 'environment-identity-0001',
     ],
     'snapshot-abort' => [
