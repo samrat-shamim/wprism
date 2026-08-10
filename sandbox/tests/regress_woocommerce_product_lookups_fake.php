@@ -1133,6 +1133,7 @@ namespace {
     require dirname(__DIR__, 2) . '/agent/src/Canon.php';
     require dirname(__DIR__, 2) . '/agent/src/OptionState.php';
     require dirname(__DIR__, 2) . '/agent/src/Policy.php';
+    require dirname(__DIR__, 2) . '/agent/src/ProviderSdk.php';
     // invoke() reads the engine's reserved batch-argument name from the
     // contract itself rather than restating the literal.
     require dirname(__DIR__, 2) . '/agent/src/Providers.php';
@@ -1194,7 +1195,11 @@ namespace {
     try {
         $groupedDiscovery->invoke($adapter, 11);
     } catch (\Throwable $failure) {
-        $groupedReadFailedClosed = str_contains($failure->getMessage(), 'grouped parent discovery query failed');
+        $message = $failure->getMessage();
+        $groupedReadFailedClosed = str_contains($message, 'duo: provider checked read failed: grouped parent discovery')
+            && !str_contains($message, 'meta_key =')
+            && !str_contains($message, 'simulated read failure')
+            && !str_contains($message, 'WooCommerce');
     }
     $wpdb->failReadContaining = null;
     $check($groupedReadFailedClosed,
@@ -1208,10 +1213,14 @@ namespace {
     try {
         $verifyExactState->invokeArgs($adapter, $verifyExactStateArgs);
     } catch (\Throwable $failure) {
+        $message = $failure->getMessage();
         $deletionReadFailedClosed = str_contains(
-            $failure->getMessage(),
-            'product lookup deletion verification for product 999 query failed'
-        );
+            $message,
+            'duo: provider checked read failed: product lookup deletion verification for product 999'
+        )
+            && !str_contains($message, 'wc_product_meta_lookup')
+            && !str_contains($message, 'simulated read failure')
+            && !str_contains($message, 'WooCommerce');
     }
     $wpdb->failReadContaining = null;
     $check($deletionReadFailedClosed,

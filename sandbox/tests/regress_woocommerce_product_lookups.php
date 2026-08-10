@@ -56,6 +56,28 @@ check(is_array($declaration)
     && $declaration['plugin'] === 'woocommerce/woocommerce.php'
     && $declaration['capabilities'] === ['rebuild_product_lookups'],
     'the lookup repair is declared as a manifest-sourced provider pinned to the same plugin the manifest claims');
+$expectedRequires = [
+    'functions' => [
+        'wc_get_product',
+        'wc_get_container',
+        'add_filter',
+        'remove_filter',
+        'wc_maybe_schedule_product_sale_events',
+        'as_unschedule_all_actions',
+        'as_next_scheduled_action',
+        'wp_cache_get',
+        'wp_cache_delete',
+    ],
+    'classes' => [
+        'WC_Data_Store',
+        'WC_Product_Variable',
+        'WC_Product_Grouped',
+    ],
+];
+check(is_array($declaration)
+    && ($declaration['requires'] ?? null) === $expectedRequires
+    && !array_key_exists('plugin_version', (array) ($declaration['requires'] ?? [])),
+    'the Woo lookup provider declares exactly its required functions/classes and does not duplicate the manifest plugin_version range');
 
 $providerFile = $root . '/manifests/providers/woocommerce-product-lookups.php';
 check(is_file($providerFile), 'provider code ships beside its manifest, under providers/');
@@ -99,6 +121,27 @@ check(is_object($adapter) && !method_exists($adapter, 'regenerate'),
 
 $source = file_get_contents($providerFile);
 check(is_string($source), 'Woo adapter source is readable');
+$code = '';
+if (is_string($source)) {
+    foreach (token_get_all($source) as $token) {
+        if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+            continue;
+        }
+        $code .= is_array($token) ? $token[1] : $token;
+    }
+}
+preg_match_all('/checked_get_(?:var|col|row|results)\\s*\\(/', $code, $allCheckedReads);
+preg_match_all('/\\\\Duo\\\\ProviderSdk::checked_get_(?:var|col|row|results)\\s*\\(/', $code, $sdkCheckedReads);
+check(!preg_match('/\\bfunction\\s+checked_get_(?:var|col|row|results)\\s*\\(/', $code),
+    'Woo provider owns no private checked_get_* helper');
+check(!str_contains($code, 'assert_runtime_contract'),
+    'Woo provider owns no adapter-specific assert_runtime_contract gate');
+check(count($allCheckedReads[0] ?? []) > 0
+    && count($allCheckedReads[0] ?? []) === count($sdkCheckedReads[0] ?? []),
+    'every provider checked read call site uses the generic \\Duo\\ProviderSdk boundary');
+check(!preg_match('/\\$this\\s*->\\s*checked_get_(?:var|col|row|results)\\s*\\(/', $code)
+    && !preg_match('/\\$wpdb\\s*->\\s*get_(?:var|col|row|results)\\s*\\(/', $code),
+    'Woo provider has no private or direct wpdb checked-read call sites left');
 $needles = [
     'refresh_product_lookup_table' => 'public product meta lookup refresh API is used',
     'sync_price' => 'variable roots use Woo variable data-store price sync',
