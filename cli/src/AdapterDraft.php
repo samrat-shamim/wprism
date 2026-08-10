@@ -460,6 +460,15 @@ final class AdapterDraft {
                     . 'deferred; confidence is bounded offline';
             }
 
+            // Each observed value carried under its REAL column name, so the
+            // heuristic screen (Secrets::suspicious, which keys on the NAME) can
+            // fire on a credential-named column, not just hard_match.
+            $screen = [];
+            foreach ($columnValues as $col => $vals) {
+                foreach ($vals as $v) {
+                    $screen[] = [(string) $col, $v];
+                }
+            }
             $out[] = [
                 'target' => 'tables.' . $table,
                 'candidate' => $fragment,
@@ -467,7 +476,7 @@ final class AdapterDraft {
                 'confidence' => $naturalKey !== null ? 0.4 : 0.3,
                 'evidence' => $evidence,
                 'questions' => $questions,
-                '_screen' => array_merge([], ...array_values($columnValues)),
+                '_screen' => $screen,
             ];
         }
         return $out;
@@ -529,7 +538,7 @@ final class AdapterDraft {
                                 "ref kind for block '$block' attribute '$attr' (defaulted to post; may be term/tt/user) "
                                     . 'and whether the id resolves to a live entity are live facts — deferred',
                             ],
-                            '_screen' => [$value],
+                            '_screen' => [[(string) $attr, $value]],
                         ];
                     }
                 }
@@ -565,7 +574,7 @@ final class AdapterDraft {
                                     "ref kind for shortcode '$tag' attribute '$attrName' (defaulted to post) and live "
                                         . 'id resolution are deferred',
                                 ],
-                                '_screen' => [$attrVal],
+                                '_screen' => [[$attrName, $attrVal]],
                             ];
                         }
                     }
@@ -617,7 +626,7 @@ final class AdapterDraft {
                         "does meta key '$metaKey' hold a post id (vs term/tt/user, or an unrelated count)? live id "
                             . 'resolution is deferred; kind defaulted to post',
                     ],
-                    '_screen' => [$value],
+                    '_screen' => [[(string) $metaKey, $value]],
                 ];
             }
         }
@@ -719,6 +728,10 @@ final class AdapterDraft {
             if (!self::looks_generated($value)) {
                 return;
             }
+            // The name is the observed KEY (meta key / column name), never the
+            // value — a generated payload may EMBED a secret, so its bytes never
+            // reach evidence (see shape_descriptor()); only its shape is described.
+            $name = str_contains($locator, '.') ? substr($locator, strrpos($locator, '.') + 1) : $locator;
             $slug = self::slug(basename($rel) . '_' . $locator);
             $out[] = [
                 'target' => 'unsupported.' . $index,
@@ -736,14 +749,16 @@ final class AdapterDraft {
                 'evidence' => [[
                     'source' => $rel,
                     'locator' => $locator,
-                    'observation' => 'serialized/derived-looking payload ' . self::short_value($value) . ' — likely plugin-generated',
+                    // SHAPE only — never the observed bytes (a generated blob can
+                    // embed a credential no hard_match pattern would catch).
+                    'observation' => self::shape_descriptor($value) . ' — looks plugin-generated (bytes withheld)',
                 ]],
                 'questions' => [
                     'is this actually plugin-generated? the LIVE journal WHY-signal is needed to confirm — deferred',
                     'executable regeneration is a plugin capability declaration or a native action from the closed '
                         . 'vocabulary (' . implode(', ', NativeActions::vocabulary()) . '), NEVER engine code',
                 ],
-                '_screen' => [$value],
+                '_screen' => [[$name, $value]],
             ];
             $index++;
         };
@@ -771,23 +786,40 @@ final class AdapterDraft {
     // -------------------------------------------------------- secret screen
 
     /**
-     * Secrets::hard_match()/suspicious() over every string in a candidate fragment
-     * (the same discipline Pending applies to a pending item). On a hit the fragment
-     * is DROPPED — replaced by an empty candidate and a question naming the label
-     * only. The screen never authors the offending value into the draft.
+     * Secrets::hard_match_deep()/suspicious_deep() over every observed candidate
+     * value (the same discipline Pending applies to a pending item). On a hit the
+     * candidate is DROPPED — replaced by an empty fragment and a question naming the
+     * label only. The screen never authors the offending value into the draft.
+     *
+     * `_screen` carries the RAW observed values as [name, value] pairs (a fragment
+     * holds only names/structure, so a secret in a captured VALUE would otherwise
+     * slip the screen). The REAL name is passed to Secrets::suspicious_deep(), which
+     * keys on the name — passing a positional index there (the earlier bug) made the
+     * whole heuristic tier inert, so a suspicious-but-not-hard_match credential under
+     * a credential-named column/meta key leaked. `_screen` is stripped here so it
+     * never reaches the output.
      *
      * @param array<string,mixed> $candidate
      * @return array<string,mixed>
      */
     private static function screen_secrets(array $candidate): array {
-        // `_screen` carries the RAW observed source values (a fragment holds only
-        // names/structure, so a secret in a captured VALUE would otherwise slip the
-        // screen). Scanned here against both the fragment and the raw values, then
-        // stripped so it never reaches the output.
         $screen = $candidate['_screen'] ?? [];
         unset($candidate['_screen']);
-        $label = self::scan_secret('', $candidate['candidate'] ?? null)
-            ?? self::scan_secret('', $screen);
+        // A fragment holds only structure, but hard_match it as defense in depth.
+        $label = Secrets::hard_match_deep($candidate['candidate'] ?? null);
+        if ($label === null) {
+            foreach ($screen as $pair) {
+                $name = (string) ($pair[0] ?? '');
+                $value = $pair[1] ?? null;
+                $label = Secrets::hard_match_deep($value);
+                if ($label === null && Secrets::suspicious_deep($name, $value)) {
+                    $label = 'suspicious credential-shaped value';
+                }
+                if ($label !== null) {
+                    break;
+                }
+            }
+        }
         if ($label === null) {
             return $candidate;
         }
@@ -800,26 +832,6 @@ final class AdapterDraft {
                 . 'into a draft; re-derive this candidate by hand from a redacted source if it is genuinely a reference',
         ]);
         return $candidate;
-    }
-
-    /** Recursively hard_match()/suspicious() the string leaves of a value. */
-    private static function scan_secret(string $key, $value): ?string {
-        if (is_string($value)) {
-            $hard = Secrets::hard_match($value);
-            if ($hard !== null) {
-                return $hard;
-            }
-            return Secrets::suspicious($key, $value) ? 'suspicious credential-shaped value' : null;
-        }
-        if (is_array($value)) {
-            foreach ($value as $k => $v) {
-                $label = self::scan_secret((string) $k, $v);
-                if ($label !== null) {
-                    return $label;
-                }
-            }
-        }
-        return null;
     }
 
     // ----------------------------------------------- trigger-key rename (Constraint B)
@@ -1221,6 +1233,23 @@ final class AdapterDraft {
         $s = is_string($value) ? $value : json_encode($value);
         $s = (string) $s;
         return strlen($s) > 80 ? substr($s, 0, 77) . '...' : $s;
+    }
+
+    /**
+     * A byte-free description of a generated/derived value's SHAPE — its size and
+     * encoding family, never its content. A generated payload may embed a
+     * credential no hard_match pattern catches, so its bytes must never be pasted
+     * into an artifact (evidence, questions, or otherwise).
+     */
+    private static function shape_descriptor(mixed $value): string {
+        if (is_string($value)) {
+            $len = strlen($value);
+            if (preg_match('/^(a:\d+:\{|O:\d+:"|s:\d+:")/', $value) === 1) {
+                return "opaque ~{$len}-char PHP-serialized blob";
+            }
+            return "opaque ~{$len}-char JSON/serialized-looking blob";
+        }
+        return 'derived-looking ' . gettype($value) . ' value';
     }
 
     private static function slug(string $s): string {
