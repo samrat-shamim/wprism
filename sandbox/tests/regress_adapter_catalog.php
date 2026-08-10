@@ -1026,12 +1026,26 @@ check(
     . 'from an unguarded assertion while the same library listed clean without --repo, so one library gave two '
     . "answers and one of them was a crash (without --repo: {$withoutRepo['exit']}, with --repo: {$withRepo['exit']})"
 );
+// DUO-3371 closed the last of that asymmetry from the other end. This library's
+// declared name is not the file's name either, and the per-adapter grammar
+// verdict — an isolated Policy::load(), which BOTH runs perform — now refuses
+// exactly that. So the two runs no longer disagree about whether this library
+// has a problem; they differ only in how much of it each one is in a position
+// to have read.
 check(
-    $withoutRepo['exit'] === 0 && $withRepo['exit'] === 1,
-    'the remaining difference is scope, not behavior, and it is DUO-3314\'s: declared names are only read when a '
-    . 'site source exists (the shipped set is decoded for that one collision check and no other), so the run that '
-    . 'never opens them cannot report what it never read — it reports the adapter, and the --repo run reports the '
-    . 'refusal'
+    $withoutRepo['exit'] === 1 && $withRepo['exit'] === 1,
+    'both runs report the same library as broken (without --repo: ' . $withoutRepo['exit']
+    . ", with --repo: {$withRepo['exit']})"
+);
+$withoutRepoParsed = report($withoutRepo);
+check(
+    str_contains(
+        (string) ($withoutRepoParsed['adapters'][0]['grammar']['message'] ?? ''),
+        'ambiguous identity'
+    ) && refusals_of($withoutRepoParsed) === [],
+    'the run with no site source reports it where it actually read it — the adapter\'s own grammar verdict — and '
+    . 'still raises no source refusal, because the scan really did not open the declared names (grammar: '
+    . ($withoutRepoParsed['adapters'][0]['grammar']['status'] ?? '(none)') . ')'
 );
 $withRepoParsed = report($withRepo);
 check(
