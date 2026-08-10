@@ -491,6 +491,17 @@ regress-close-gate-parent-count:
 regress-manifest-validate:
 	bash sandbox/tests/regress_manifest_validate.sh
 
+# DUO-3325: `duo adapter-draft`, the safe adapter-DRAFT generator (offline slice).
+# Reuses policy-to-manifest's facts core (Policy::export_manifest) and adds OFFLINE
+# proposers over a site repo's captured state/**, emitting inert `_draft` candidates
+# a human ratifies by hand. Drives the real host CLI as a subprocess against scratch
+# site-repos, feeds the draft to the REAL manifest-validate, and proves the
+# load-bearing INERTNESS property (an undeclared id_kind under _draft stays ok; the
+# same fragment with one trigger key un-renamed FAILS the closed-vocabulary refusal).
+# Offline: pure PHP/file-I/O, no docker, no WordPress.
+regress-adapter-draft:
+	bash sandbox/tests/regress_adapter_draft.sh
+
 # DUO-3382: the certification bundle's own per-host flock(2) — real racing
 # processes against a private rendezvous, so the mutual exclusion, the named
 # refusal, bounded waiting, and kernel reclaim of a killed holder are proven
@@ -959,9 +970,9 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
-	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract regress-conformance-asserts \
+	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract regress-conformance-asserts \
 	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise
-	@echo "regress-offline-all: 103 offline suites green"
+	@echo "regress-offline-all: 104 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

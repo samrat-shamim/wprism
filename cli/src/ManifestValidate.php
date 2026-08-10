@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+use Duo\Canon;
 use Duo\NativeActions;
 use Duo\Policy;
 
@@ -391,6 +392,16 @@ final class ManifestValidate {
                 $row['status'] = 'error';
                 $row['message'] = $t->getMessage();
             }
+            // DUO-3325: a manifest carrying a `duo adapter-draft` `_draft` sidecar
+            // has facts validated by the loop above and proposals/unsupported that
+            // are INERT here by construction (trigger keys renamed so the blind
+            // ref-kind walk cannot collect them, no live section mirrors them). Say
+            // so, per the acceptance's "visibly distinguishes facts / proposals /
+            // unsupported" — read from the file's own bytes, never re-validated.
+            $draft = self::draft_summary($available[$name]);
+            if ($draft !== null) {
+                $row['draft'] = $draft;
+            }
             $rows[] = $row;
         }
 
@@ -507,6 +518,38 @@ final class ManifestValidate {
     }
 
     /**
+     * The facts/proposals/unsupported counts of a `duo adapter-draft` `_draft`
+     * sidecar, or null when the manifest carries none. Read from the file's own
+     * bytes (decoded, not re-validated): the facts are the real classification
+     * sections this command already validated above; the `_draft` proposals and
+     * unsupported are inert and unvalidated here. Any read/decode problem returns
+     * null rather than speaking — a malformed file is the loader's verdict to give,
+     * not this annotation's.
+     *
+     * @return array{facts:int, proposals:int, unsupported:int}|null
+     */
+    private static function draft_summary(string $file): ?array {
+        try {
+            $manifest = Canon::decode(Canon::read_file($file));
+        } catch (\Throwable) {
+            return null;
+        }
+        if (!is_array($manifest) || !isset($manifest['_draft']) || !is_array($manifest['_draft'])) {
+            return null;
+        }
+        $facts = 0;
+        foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $section) {
+            $facts += count((array) ($manifest[$section] ?? []));
+        }
+        $proposals = 0;
+        foreach ((array) ($manifest['_draft']['proposals'] ?? []) as $bucket) {
+            $proposals += count((array) $bucket);
+        }
+        $unsupported = count((array) ($manifest['_draft']['unsupported'] ?? []));
+        return ['facts' => $facts, 'proposals' => $proposals, 'unsupported' => $unsupported];
+    }
+
+    /**
      * Whether a failure may be an artifact of loading with no site policy.
      * Substring-matched against the engine's own message on purpose — the
      * alternative is a second copy of the two guards' conditions here, which
@@ -610,6 +653,12 @@ final class ManifestValidate {
             }
             if (isset($row['site_policy_note'])) {
                 echo '          ' . $row['site_policy_note'] . "\n";
+            }
+            if (isset($row['draft'])) {
+                $d = $row['draft'];
+                echo "          draft: {$d['facts']} facts validated, {$d['proposals']} proposals + "
+                    . "{$d['unsupported']} unsupported are INERT and unvalidated here — run "
+                    . "'duo adapter-draft --check-proposals'\n";
             }
         }
 
