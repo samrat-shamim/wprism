@@ -18,8 +18,8 @@ FRAGMENT=conformance/asserts.sh
 
 # Every require_* invoked anywhere in the hooks both harnesses source...
 # (require_once is PHP inside the hooks' heredocs, not a bash helper.)
-CALLED=$(grep -rhoE '\brequire_[a-z_]+' conformance/seeds/ conformance/postdeploy/ | grep -v '^require_once$' | sort -u)
-[ -n "$CALLED" ] || fail "no require_* calls found under conformance/seeds/ + postdeploy/ — the grep itself regressed"
+CALLED=$(grep -rhoE '\brequire_[a-z_]+' conformance/seeds/ conformance/postdeploy/ conformance/checks/ | grep -v '^require_once$' | sort -u)
+[ -n "$CALLED" ] || fail "no require_* calls found under conformance/seeds/ + postdeploy/ + checks/ — the grep itself regressed"
 
 # ...must be defined in the fragment (definition = `name() {`).
 MISSING=""
@@ -38,7 +38,7 @@ pass "both hook-sourcing harnesses source the fragment"
 
 # And the fragment must not silently grow a second definition home: the
 # helpers may be defined nowhere else.
-DUPES=$(grep -rlE '^require_(fixture_(ids|values|state)|duo_answered)\(\) \{' conformance/ tests/ | grep -v "^$FRAGMENT\$" || true)
+DUPES=$(grep -rlE '^require_[a-z_]+\(\) \{' conformance/ tests/ | grep -v "^$FRAGMENT\$" | grep -v '^tests/regress_conformance_asserts.sh$' || true)
 [ -z "$DUPES" ] || fail "helper definitions exist outside the fragment (one owner per grammar):$DUPES"
 pass "the fragment is the single definition home"
 

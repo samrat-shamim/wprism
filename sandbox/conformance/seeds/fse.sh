@@ -28,7 +28,7 @@ CONTACT_ID=$(wp_conf1 post create --post_type=page --post_title='Duo FSE Contact
 # DUO-3381: assert the premise before anything consumes it. These ids are
 # interpolated straight into block attributes below ({"id":$ABOUT_ID},
 # {"ref":$NAV_ID}) — an empty capture from a load-starved `docker compose
-# run` (see run.sh's require_fixture_ids) produces syntactically invalid
+# run` (see the shared conformance/asserts.sh's require_fixture_ids) produces syntactically invalid
 # block JSON that renders as nothing, and checks/fse.sh then reports conf2's
 # navigation/reusable-block render as an engine failure.
 require_fixture_ids ABOUT_ID CONTACT_ID

@@ -5,7 +5,15 @@
 # the helpers lived only in the first, so bundle leg 12 died at the first
 # premise assertion with `command not found` (exit 127) on pristine main. One
 # implementation, sourced by both; run.sh additionally `export -f`s them for
-# its compose children. Callers must define fail() before sourcing.
+# the hook scripts it runs as child bash processes (docker containers do not
+# inherit bash functions — the export is for the host-side children that then
+# invoke compose). Callers must define fail() before sourcing, and that is
+# enforced, not requested: a third harness sourcing this without fail() would
+# otherwise run with a silent no-op safety net that dies `command not found`
+# exit 127 on the day a fixture actually fails — the signature this fragment
+# exists to eliminate.
+command -v fail >/dev/null \
+  || { printf 'conformance/asserts.sh: caller must define fail() before sourcing\n' >&2; exit 1; }
 
 # DUO-3381: assert the premise before the behavior. A seed/postdeploy hook
 # manufactures its fixture through `docker compose run` (the sourcing harness's wp_env), and

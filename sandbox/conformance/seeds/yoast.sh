@@ -19,7 +19,7 @@ POST_ID=$(wp_conf1 post create --post_type=post --post_title='Conformance Yoast 
 # DUO-3381: assert the premise before anything consumes it. CAT_A is written
 # straight into _yoast_wpseo_primary_category below, and `post meta update
 # ... ""` succeeds silently — an empty capture from a load-starved `docker
-# compose run` (see run.sh's require_fixture_ids) would leave checks/yoast.sh
+# compose run` (see the shared conformance/asserts.sh's require_fixture_ids) would leave checks/yoast.sh
 # reporting "ref not rebound to conf2's own term id" for a ref this seed
 # never authored.
 require_fixture_ids CAT_A CAT_B POST_ID

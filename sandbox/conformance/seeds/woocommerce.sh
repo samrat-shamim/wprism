@@ -57,7 +57,7 @@ THUMB_ID=$($COMPOSE run --rm -T cli1 bash -c \
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-make-woo-category-image.php
 # DUO-3381: assert the premise before anything consumes it. `term meta update
 # <id> thumbnail_id ""` succeeds silently, so an empty capture from a
-# load-starved `docker compose run` (see run.sh's require_fixture_ids) would
+# load-starved `docker compose run` (see the shared conformance/asserts.sh's require_fixture_ids) would
 # author a termmeta ref that points nowhere — and checks/woocommerce.sh would
 # then report "thumbnail_id did not resolve to a local attachment" as an
 # engine failure.

@@ -453,10 +453,14 @@ debugging time. Follow them; extend this list when you pay for a new one.
   identical sweep standalone passed). Same family as DUO-3267: the harness
   lying about the system. Fix: read the manufactured state back and assert
   its exact shape BEFORE the behavior assertion, and say which domain
-  failed — `conformance/run.sh` exports `require_fixture_ids` /
-  `require_fixture_values` / `require_fixture_state` to every seed/
-  postdeploy/check hook, and every message they emit carries the grep-able
-  `fixture manufacture failed:` prefix (DUO-3381).
+  failed — the helpers `require_fixture_ids` / `require_fixture_values` /
+  `require_fixture_state` live in `sandbox/conformance/asserts.sh`, the
+  shared fragment BOTH hook-sourcing harnesses load (`conformance/run.sh`,
+  which also `export -f`s them to its child hook processes, and
+  `certify_version_matrix.sh` — a helper added to only one harness kills
+  the other at bundle leg 12 with `command not found`, DUO-3408), and every
+  message they emit carries the grep-able `fixture manufacture failed:`
+  prefix (DUO-3381).
 - **An assertion about an answer must first assert there WAS one.** The
   sibling half of the bullet above, and the residual path it left open: a
   refusal check neutralizes its own invocation's exit status on purpose —
