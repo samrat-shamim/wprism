@@ -294,7 +294,10 @@ final class Providers {
      * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>, scoped_capabilities:array<string,array<string,array{operation_envelope:string,receipt_format:string,capability_digest:string}>>}
      */
     public static function negotiate_scoped(Policy $policy, array $selectedActions): array {
-        $negotiated = self::negotiate($policy, $selectedActions);
+        // Keep the scoped declaration internal to this opt-in path. Ordinary
+        // negotiate()/diagnose() return the pre-existing capability shape so
+        // an unscoped caller cannot observe a new declaration key.
+        $negotiated = self::diagnose_internal($policy, $selectedActions, true);
         $scopedCapabilities = [];
         foreach ($selectedActions as $action) {
             if (($action['kind'] ?? '') !== 'provider') {
@@ -385,6 +388,14 @@ final class Providers {
      * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>}
      */
     public static function diagnose(Policy $policy, array $selectedActions): array {
+        return self::diagnose_internal($policy, $selectedActions, false);
+    }
+
+    /**
+     * @param list<array<string,mixed>> $selectedActions Policy::actions_for()
+     * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>}
+     */
+    private static function diagnose_internal(Policy $policy, array $selectedActions, bool $includeScoped): array {
         $declarations = $policy->provider_declarations();
         $wanted = [];
         foreach ($selectedActions as $action) {
@@ -564,7 +575,9 @@ final class Providers {
                     $failed = true;
                     continue;
                 }
-                $bound[$capability] = $advertised[$capability];
+                $bound[$capability] = $includeScoped
+                    ? $advertised[$capability]
+                    : self::ordinary_capability_declaration($advertised[$capability]);
                 // Accumulated across providers, resolved after the loop: a
                 // channel collision is a fact about two DIFFERENT capabilities,
                 // which may live in two different providers, so it cannot be
@@ -608,6 +621,20 @@ final class Providers {
             unset($instances[$claimantProvider], $capabilities[$claimantProvider]);
         }
         return ['problems' => $problems, 'providers' => $instances, 'capabilities' => $capabilities];
+    }
+
+    /**
+     * Ordinary negotiation intentionally projects the declaration shape that
+     * existed before scoped effects. The scoped capability opt-in is not an
+     * unscoped behavior change and is recovered from the same advertised row
+     * only by diagnose_internal(..., true).
+     *
+     * @param array<string,mixed> $declaration
+     * @return array<string,mixed>
+     */
+    private static function ordinary_capability_declaration(array $declaration): array {
+        unset($declaration['scoped']);
+        return $declaration;
     }
 
     /**
