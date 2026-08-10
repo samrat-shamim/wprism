@@ -439,6 +439,15 @@ regress-actions-providers:
 regress-provider-contract-live:
 	bash sandbox/tests/regress_provider_contract_live.sh
 
+# DUO-3317 live counterpart: a provider whose declared `requires` names an
+# environment this target does not have refuses before the first mutation, then
+# the identical apply against the shipped adapter (which declares no such
+# requirement) converges. Bundle-free — the requirement is supplied through a
+# test-manifests overlay, the shipped manifest bytes stay byte-identical. Own
+# pair, so it is live-list material, never offline-all.
+regress-provider-requirements-live:
+	bash sandbox/tests/regress_provider_requirements_live.sh
+
 # DUO-3318: ownership of the engine's closed manifest vocabularies, the safe
 # extension points around them, and the parent-scoped multi-column natural key
 # they were written down for. A second adapter is the fixture: every negative
@@ -939,6 +948,7 @@ regress-live-list:
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"
 	@echo "  regress-adapter-theme-range               pair asub3222tr 8918/8919"
 	@echo "  regress-provider-contract-live            pair claudemacb3338 8930/8931"
+	@echo "  regress-provider-requirements-live        pair claudemacb3317 8930/8931 (parameterized: PROVIDER_REQUIREMENTS_PAIR/PROVIDER_REQUIREMENTS_PORT1/PROVIDER_REQUIREMENTS_PORT2)"
 	@echo "  regress-parent-scoped-natural-key         pair claudemacb3318 8930/8931 (parameterized: PARENT_KEY_PAIR/PARENT_KEY_PORT1/PARENT_KEY_PORT2)"
 	@echo "  regress-menu-item-meta-gate               pair asub3275 8954/8955"
 	@echo "  regress-widgets                           pair awid3278 8960/..."

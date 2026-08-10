@@ -45,6 +45,7 @@ php -l regress_actions_providers.php >/dev/null || fail "regress_actions_provide
 php -l regress_provider_contract.php >/dev/null || fail "regress_provider_contract.php has a syntax error"
 php -l ../../agent/src/Policy.php >/dev/null || fail "agent/src/Policy.php has a syntax error"
 php -l ../../agent/src/NativeActions.php >/dev/null || fail "agent/src/NativeActions.php has a syntax error"
+php -l ../../agent/src/ProviderSdk.php >/dev/null || fail "agent/src/ProviderSdk.php has a syntax error"
 php -l ../../agent/src/Providers.php >/dev/null || fail "agent/src/Providers.php has a syntax error"
 php -l ../../agent/src/Apply.php >/dev/null || fail "agent/src/Apply.php has a syntax error"
 php -l ../../agent/src/RepositoryCompiler.php >/dev/null || fail "agent/src/RepositoryCompiler.php has a syntax error"

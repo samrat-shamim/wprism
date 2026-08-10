@@ -193,9 +193,34 @@ through the `duo_providers` filter and trusted as part of it; that file is
 deliberately *not* digest-bound, because the installed plugin — checked against
 `version_range` — is its identity anchor.
 
+A provider may additionally declare `"requires"`, a closed object naming the
+environment its executable half needs before the engine will load it:
+
+- `functions` / `classes` — non-empty lists of PHP symbol names (a leading
+  backslash and namespace separators are allowed), checked with
+  `function_exists()` / `class_exists()`.
+- `plugin_version` / `wordpress_version` / `php_version` — each a `{min, max}`
+  window, min inclusive and max exclusive, the same arithmetic `version_range`
+  uses. `plugin_version` bounds the owning plugin *independently* of the
+  manifest's own `version_range`, so a provider may require a tighter window
+  than its adapter is certified across; `wordpress_version` reads
+  `get_bloginfo('version')`; `php_version` reads `PHP_VERSION`.
+
+The object must be non-empty and every key comes from that closed set — an
+unknown key or an empty `{}` is refused at load. `requires` is manifest bytes,
+so it folds into the certified adapter identity: adding it to a shipped manifest
+is a bundle event, not a free edit. When any declared requirement is unmet,
+negotiation refuses **before the provider file is loaded or its plugin registry
+is consulted** — strictly earlier than any check the provider code could run
+itself — with a single `provider_requirement_unmet` problem naming the provider,
+its owning plugin, the declaring manifest, every unmet requirement at once, and
+a remediation. Nothing provider- or value-controlled reaches that message: only
+load-validated symbol names and version strings.
+
 Before the first target mutation, apply **negotiates** every provider its
 selected actions reach: contract shape, exact identity match, owning plugin
-installed and active and in range, a well-formed capability declaration
+installed and active and in range, every declared `requires` satisfied, a
+well-formed capability declaration
 (argument schema, read/write surface summary, site or entity scope,
 `idempotent` — required `true`, since apply's retry machinery re-fires the
 rebuild pass — and a `timeout_seconds` budget), and the manifest's arguments
@@ -310,6 +335,21 @@ the meantime. What a long call really costs is that window in which the lock is
 acquirable by someone else, so declare `timeout_seconds` at the lease TTL and an
 overrun is reported once, with its measured duration, instead of later as a lock
 loss nobody can attribute.
+
+A capability's own database reads are the read twin of the engine's mutation
+path (`\Duo\Db`), and share its discipline. WordPress's `wpdb` read methods
+return an empty-looking value on a failed query rather than throwing —
+`get_var()` returns `false`, and the `get_col`/`get_row`/`get_results` shape
+collapses to a non-array — so a capability that trusted the bare return could
+clear a `verified: true` receipt on a query that never ran. Route every
+decision-making read through
+`\Duo\ProviderSdk::checked_get_var|checked_get_col|checked_get_row|checked_get_results($sql, $context)`,
+which clears `last_error`, runs the read, and fails on both the read's own
+failure shape *and* any driver error — never trust an empty result as
+convergence. Like `Db`, the `$context` is operation-level, never value-level:
+`last_error` and the rendered SQL can echo option/meta payloads, so the SDK
+keeps the SQL and the driver text out of its failure and names only your
+context. Keep values out of your own messages the same way.
 
 An adapter needing no executable semantics declares neither key and stays purely
 declarative. Most should. For worked examples,

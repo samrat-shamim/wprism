@@ -18,6 +18,7 @@ require_once __DIR__ . '/src/Canon.php';
 require_once __DIR__ . '/src/OptionState.php';
 require_once __DIR__ . '/src/UserMetaState.php';
 require_once __DIR__ . '/src/Db.php';
+require_once __DIR__ . '/src/ProviderSdk.php';
 require_once __DIR__ . '/src/Secrets.php';
 require_once __DIR__ . '/src/CommandRefusal.php';
 require_once __DIR__ . '/src/PersonalData.php';

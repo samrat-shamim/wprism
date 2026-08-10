@@ -81,6 +81,17 @@ function wp_next_scheduled(string $hook, array $args = []): int|false {
 class WP_Error {
     public function __construct(public string $message = '') {}
 }
+// DUO-3317: the WordPress version read a provider `requires.wordpress_version`
+// negotiation makes — CapabilityRegistry::probe_target() reads
+// get_bloginfo('version') the same way. Controlled by a global so the requires
+// cases below can place the site's version inside or outside a declared
+// window. Every other check leaves the requirement path untouched (a
+// declaration with no `requires` never consults it), so defining it here
+// changes nothing they observe.
+$GLOBALS['duo_test_wp_version'] = '';
+function get_bloginfo(string $show = 'version'): string {
+    return (string) ($GLOBALS['duo_test_wp_version'] ?? '');
+}
 
 // ---- WordPress transient primitives NativeActions::execute() reads ----
 //
@@ -121,6 +132,51 @@ final class NativeActionFakeWpdb {
             return false;
         }
         return array_key_exists($name, $this->optionRows) ? $name : null;
+    }
+}
+
+// DUO-3317: a wpdb whose four read methods return exactly what a test tells
+// them to, plus a settable last_error and a record of the SQL it was handed —
+// the fixture \Duo\ProviderSdk's checked reads run against. Deliberately does
+// NOT model any query grammar: the SDK's whole contract is that it never reads
+// the SQL or the driver text into its failure, so the fake need only prove the
+// SDK distinguishes a real value from every failure shape.
+final class CheckedReadFakeWpdb {
+    public string $last_error = '';
+    public mixed $varReturn = null;
+    public mixed $colReturn = null;
+    public mixed $rowReturn = null;
+    public mixed $resultsReturn = null;
+    /** A driver error to raise DURING the read (after the SDK clears it). */
+    public string $errorOnRead = '';
+    /** @var list<string> */
+    public array $sqlSeen = [];
+
+    private function ran(string $sql): void {
+        $this->sqlSeen[] = $sql;
+        if ($this->errorOnRead !== '') {
+            $this->last_error = $this->errorOnRead;
+        }
+    }
+
+    public function get_var(string $sql): mixed {
+        $this->ran($sql);
+        return $this->varReturn;
+    }
+
+    public function get_col(string $sql): mixed {
+        $this->ran($sql);
+        return $this->colReturn;
+    }
+
+    public function get_row(string $sql, mixed $output = null): mixed {
+        $this->ran($sql);
+        return $this->rowReturn;
+    }
+
+    public function get_results(string $sql, mixed $output = null): mixed {
+        $this->ran($sql);
+        return $this->resultsReturn;
     }
 }
 
@@ -170,6 +226,7 @@ require $root . '/agent/src/OptionState.php';
 require $root . '/agent/src/Policy.php';
 require $root . '/agent/src/CodeCompatibility.php';
 require $root . '/agent/src/Deploy.php';
+require $root . '/agent/src/ProviderSdk.php';
 require $root . '/agent/src/Providers.php';
 // DUO-3339: `duo status`'s renderer is pure and is one half of the documented
 // two-renderer lockstep for plan rows, so it is driven directly below.
@@ -552,6 +609,83 @@ $check(array_key_exists($failedFalseName, $GLOBALS['duo_native_cache']['transien
     && $GLOBALS['duo_native_cache']['transient'][$failedFalseName] === false,
     'the failed-delete fixture genuinely leaves the boolean-false cache entry present for readback');
 
+echo "\n== provider checked reads: the read twin of Db, same message hygiene (DUO-3317) ==\n";
+// The SQL a provider hands the SDK can carry option/meta payloads (the value
+// kind Duo keeps out of diagnostics), so this string embeds a secret the
+// message must never echo — the read twin of Db's operation-level context rule.
+$secretSql = "SELECT option_value FROM wp_options WHERE option_name='duo_secret_CHECKED_READ_SECRET'";
+$readContext = 'probe cache group lookup';
+$readFake = new CheckedReadFakeWpdb();
+
+$readFake->varReturn = '42';
+$check(\Duo\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake) === '42',
+    'checked_get_var returns a real scalar value untouched');
+$readFake->colReturn = ['a', 'b'];
+$check(\Duo\ProviderSdk::checked_get_col($secretSql, $readContext, $readFake) === ['a', 'b'],
+    'checked_get_col returns the column array');
+$readFake->colReturn = [];
+$check(\Duo\ProviderSdk::checked_get_col($secretSql, $readContext, $readFake) === [],
+    'checked_get_col passes a genuinely empty column through — an empty result is not a failure');
+$readFake->rowReturn = ['id' => '7', 'slug' => 'x'];
+$check(\Duo\ProviderSdk::checked_get_row($secretSql, $readContext, $readFake) === ['id' => '7', 'slug' => 'x'],
+    'checked_get_row returns an ARRAY_A row');
+$readFake->rowReturn = null;
+$check(\Duo\ProviderSdk::checked_get_row($secretSql, $readContext, $readFake) === null,
+    'checked_get_row passes a genuine null (no matching row) through');
+$readFake->resultsReturn = [['id' => '1'], ['id' => '2']];
+$check(\Duo\ProviderSdk::checked_get_results($secretSql, $readContext, $readFake) === [['id' => '1'], ['id' => '2']],
+    'checked_get_results returns the ARRAY_A rows');
+
+// last_error is cleared before the read: a stale error from a prior query does
+// not doom a clean one (the same posture Db's mutations take).
+$readFake = new CheckedReadFakeWpdb();
+$readFake->last_error = 'stale DRIVER_SECRET from an earlier query';
+$readFake->varReturn = 'ok';
+$check(\Duo\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake) === 'ok',
+    'a stale last_error from a previous query is cleared before the read and does not fail a clean one');
+
+$checkedReadThrows = static function (callable $body, string $label) use ($check, $readContext): void {
+    try {
+        $body();
+        $check(false, "$label (expected a RuntimeException, none thrown)");
+    } catch (\RuntimeException $e) {
+        $msg = $e->getMessage();
+        $check(
+            str_contains($msg, "provider checked read failed: $readContext")
+                && !str_contains($msg, 'CHECKED_READ_SECRET')  // no SQL text
+                && !str_contains($msg, 'DRIVER_SECRET')        // no last_error text
+                && !str_contains($msg, 'WooCommerce'),         // no plugin literal
+            "$label (message: $msg)"
+        );
+    }
+};
+
+// A driver error is a failure even when the value itself looks fine — and
+// neither the SQL nor the driver text may appear in the message.
+$readFake = new CheckedReadFakeWpdb();
+$readFake->varReturn = '42';
+$readFake->errorOnRead = 'MySQL error near DRIVER_SECRET';
+$checkedReadThrows(fn() => \Duo\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake),
+    'a non-empty last_error throws even behind a plausible value, and the message carries neither the SQL nor the driver text');
+
+// Each read's own failure shape throws, and each redacts identically.
+$readFake = new CheckedReadFakeWpdb();
+$readFake->varReturn = false;
+$checkedReadThrows(fn() => \Duo\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake),
+    'checked_get_var throws on a false return (the wpdb failure sentinel), naming only the context');
+$readFake = new CheckedReadFakeWpdb();
+$readFake->colReturn = false;
+$checkedReadThrows(fn() => \Duo\ProviderSdk::checked_get_col($secretSql, $readContext, $readFake),
+    'checked_get_col throws on a non-array return');
+$readFake = new CheckedReadFakeWpdb();
+$readFake->rowReturn = 'not-an-array';
+$checkedReadThrows(fn() => \Duo\ProviderSdk::checked_get_row($secretSql, $readContext, $readFake),
+    'checked_get_row throws on a non-array, non-null return');
+$readFake = new CheckedReadFakeWpdb();
+$readFake->resultsReturn = null;
+$checkedReadThrows(fn() => \Duo\ProviderSdk::checked_get_results($secretSql, $readContext, $readFake),
+    'checked_get_results throws on a non-array return');
+
 echo "\n== negotiation: the supported path ==\n";
 $reset();
 $policy = $policyFor($manifest);
@@ -674,6 +808,93 @@ $check(($p['code'] ?? '') === 'contract_shape'
     && ($p['found'] ?? '') === 'identity() threw'
     && $opaqueProviderProblem($p),
     'a provider whose identity() throws becomes a structured, redacted contract problem');
+
+echo "\n== negotiation: the declared `requires` contract, enforced before the provider loads (DUO-3317) ==\n";
+
+// A required function absent in this environment: one aggregated
+// provider_requirement_unmet naming the function, before the provider file is
+// ever loaded (this manifest source would otherwise construct it below).
+$p = $one($problemFor(['providers' => [['requires' => ['functions' => ['duo_absent_probe_function']]]]]));
+$check(($p['code'] ?? '') === 'provider_requirement_unmet'
+    && str_contains($p['expected'] ?? '', 'functions duo_absent_probe_function')
+    && str_contains($p['found'] ?? '', 'missing functions: duo_absent_probe_function')
+    && trim($p['remediation'] ?? '') !== ''
+    && $opaqueProviderProblem($p),
+    'a required function absent here refuses with provider_requirement_unmet, naming the function and a remediation');
+
+$p = $one($problemFor(['providers' => [['requires' => ['classes' => ['DuoAbsentProbeClass']]]]]));
+$check(($p['code'] ?? '') === 'provider_requirement_unmet'
+    && str_contains($p['found'] ?? '', 'missing classes: DuoAbsentProbeClass'),
+    'a required class absent here refuses the same way, naming the class');
+
+// plugin_version bounds INDEPENDENTLY of the manifest version_range: installed
+// 1.5.0 satisfies the manifest 1.0.0–2.0.0 window (no outside_version_range
+// row), yet fails the tighter requires window — so the code proves it is the
+// requirement gate, not the range gate, that refused.
+$p = $one($problemFor(['providers' => [['requires' => ['plugin_version' => ['min' => '1.6.0', 'max' => '2.0.0']]]]]));
+$check(($p['code'] ?? '') === 'provider_requirement_unmet'
+    && str_contains($p['expected'] ?? '', 'plugin_version >=1.6.0 <2.0.0')
+    && str_contains($p['found'] ?? '', 'plugin 1.5.0'),
+    'a plugin_version requirement bounds independently of the manifest version_range — 1.5.0 passes the manifest window, fails the tighter requires window, and refuses as provider_requirement_unmet not outside_version_range');
+
+// wordpress_version reads get_bloginfo('version') the way probe_target does.
+$p = $one($problemFor(
+    ['providers' => [['requires' => ['wordpress_version' => ['min' => '6.0', 'max' => '7.0']]]]],
+    static function (): void { $GLOBALS['duo_test_wp_version'] = '5.0'; }
+));
+$check(($p['code'] ?? '') === 'provider_requirement_unmet'
+    && str_contains($p['expected'] ?? '', 'wordpress_version >=6.0 <7.0')
+    && str_contains($p['found'] ?? '', 'wordpress 5.0'),
+    'a WordPress version below the declared window refuses, distinct from the plugin version_range gate');
+
+// php_version reads PHP_VERSION directly; an impossible-high window is unmet on
+// any runner.
+$p = $one($problemFor(['providers' => [['requires' => ['php_version' => ['min' => '99.0', 'max' => '99.1']]]]]));
+$check(($p['code'] ?? '') === 'provider_requirement_unmet'
+    && str_contains($p['expected'] ?? '', 'php_version >=99.0 <99.1')
+    && str_contains($p['found'] ?? '', 'php ' . PHP_VERSION),
+    'a PHP version outside the declared window refuses, reading PHP_VERSION directly');
+
+// Every unmet requirement in ONE row (negotiate names the whole gap at once).
+$p = $one($problemFor(['providers' => [['requires' => [
+    'functions' => ['duo_absent_probe_function'],
+    'php_version' => ['min' => '99.0', 'max' => '99.1'],
+]]]]));
+$check(($p['code'] ?? '') === 'provider_requirement_unmet'
+    && str_contains($p['found'] ?? '', 'missing functions: duo_absent_probe_function')
+    && str_contains($p['found'] ?? '', 'php ' . PHP_VERSION),
+    'multiple unmet requirements aggregate into one problem row, so an operator sees the whole environment gap at once');
+
+// The ordering proof: identity() is rigged to throw, yet the refusal is the
+// requirement row, not contract_shape — the requirement gate ran BEFORE the
+// provider was constructed and asked for identity().
+$p = $one($problemFor(
+    ['providers' => [['requires' => ['functions' => ['duo_absent_probe_function']]]]],
+    static function () use ($providerSecret): void {
+        \Duo\Providers\ProbeCache::$identityThrows = $providerSecret;
+    }
+));
+$check(($p['code'] ?? '') === 'provider_requirement_unmet' && $opaqueProviderProblem($p),
+    'the requirement gate fires before the provider is loaded: identity() is rigged to throw, yet the row is '
+    . 'provider_requirement_unmet — a contract_shape "identity() threw" here would mean the object had already been built');
+
+// Every declared requirement satisfied negotiates byte-for-byte like a
+// declaration with no requires: the provider loads and binds.
+$reset();
+$GLOBALS['duo_test_wp_version'] = '6.5';
+$satisfied = array_replace_recursive($manifest, ['providers' => [['requires' => [
+    'functions' => ['strlen'],
+    'classes' => ['stdClass'],
+    'plugin_version' => ['min' => '1.0.0', 'max' => '2.0.0'],
+    'wordpress_version' => ['min' => '6.0', 'max' => '7.0'],
+    'php_version' => ['min' => '8.0', 'max' => '99.0'],
+]]]]);
+$negotiation = \Duo\Providers::negotiate($policyFor($satisfied), $policyFor($satisfied)->actions_for(['post:probe']));
+$check($negotiation['problems'] === [],
+    'a provider whose every declared requirement is satisfied negotiates clean, exactly as one with no requires block');
+$check(($negotiation['providers']['probe-cache'] ?? null) instanceof \Duo\Providers\ProbeCache,
+    'and the provider is loaded and bound once the requirement gate passes');
+$GLOBALS['duo_test_wp_version'] = '';
 
 echo "\n== the same detection, reported at plan (DUO-3339) ==\n";
 // spec/repo-format.md's bound (4) was that negotiation ran at APPLY only, so a

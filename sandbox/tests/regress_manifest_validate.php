@@ -353,8 +353,26 @@ refuses(
         'id' => 'acme-b-cache', 'version' => '1.0.0', 'source' => 'manifest',
         'plugin' => 'acme-b/acme-b.php', 'capabilities' => ['flush'], 'timeout' => 30,
     ]]]),
-    'providers[0] requires exactly capabilities, id, plugin, source, and version',
+    'providers[0] must declare exactly capabilities, id, plugin, source, version',
     'an extra provider key is refused, naming the exact declaration index'
+);
+// DUO-3317: the optional `requires` grammar, refused at the same coordinate.
+refuses(
+    solo_b(['providers' => [[
+        'id' => 'acme-b-cache', 'version' => '1.0.0', 'source' => 'manifest',
+        'plugin' => 'acme-b/acme-b.php', 'capabilities' => ['flush'], 'requires' => [],
+    ]]]),
+    'providers[0].requires must be a non-empty object',
+    'an empty requires object is refused, naming the declaration index'
+);
+refuses(
+    solo_b(['providers' => [[
+        'id' => 'acme-b-cache', 'version' => '1.0.0', 'source' => 'manifest',
+        'plugin' => 'acme-b/acme-b.php', 'capabilities' => ['flush'],
+        'requires' => ['php_version' => ['min' => '9.0', 'max' => '8.0']],
+    ]]]),
+    'providers[0].requires.php_version has a malformed range',
+    'a requires version window with min >= max is refused through the shared {min,max} predicate'
 );
 
 // --- invalid SHAPES
