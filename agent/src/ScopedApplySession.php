@@ -342,6 +342,65 @@ final class ScopedApplySession {
         return $session;
     }
 
+    /**
+     * Fresh-process verifier gate for the exact active session evidence.
+     * Caller-supplied hashes are comparisons, never facts to echo.
+     */
+    public static function require_verifying_evidence(
+        ScopedApplySessionStorage $storage,
+        string $authorityHash,
+        string $effectsRoot,
+        string $scopeHash,
+        string $artifactHash
+    ): self {
+        foreach ([
+            'authority_hash' => $authorityHash,
+            'effects_root' => $effectsRoot,
+            'scope_hash' => $scopeHash,
+            'artifact_hash' => $artifactHash,
+        ] as $label => $hash) {
+            self::assert_hash($hash, "verifier $label");
+        }
+        $session = self::open($storage);
+        if ($session === null || $session->phase() !== self::PHASE_VERIFYING) {
+            throw new \RuntimeException('duo: scoped verifier found no exact active verifying session');
+        }
+        $authority = $session->authority();
+        if (!hash_equals($authorityHash, $session->authority_hash_value())
+            || !hash_equals($effectsRoot, self::hash_value($session->receipts()))
+            || !hash_equals($scopeHash, (string) ($authority['scope_hash'] ?? ''))
+            || !hash_equals($artifactHash, (string) ($authority['source']['artifact_hash'] ?? ''))) {
+            throw new \RuntimeException('duo: scoped verifier session authority/effect evidence mismatch');
+        }
+        return $session;
+    }
+
+    /** Require an exact fresh hash-only readback for one durable effect receipt. */
+    public static function require_effect_receipt_hash(?array $outerReceipt, string $readbackHash): void {
+        self::assert_hash($readbackHash, 'effect readback');
+        if ($outerReceipt === null
+            || !hash_equals($readbackHash, (string) ($outerReceipt['after_hash'] ?? ''))) {
+            throw new \RuntimeException(
+                'duo: scoped effect postcondition no longer matches its durable outer receipt; recovery_required'
+            );
+        }
+    }
+
+    /**
+     * Reconcile a completed opaque effect against its durable outer receipt.
+     * The outer row is historical evidence, so the caller must first obtain
+     * this fresh, reviewed hash-only result rather than trusting the row alone.
+     *
+     * @param array<string,mixed>|null $outerReceipt
+     * @param array<string,mixed> $reviewed
+     */
+    public static function require_reviewed_effect_receipt(?array $outerReceipt, array $reviewed): void {
+        self::require_effect_receipt_hash(
+            $outerReceipt,
+            hash('sha256', Canon::encode($reviewed))
+        );
+    }
+
     /** Alias for storage-oriented callers. */
     public static function load(ScopedApplySessionStorage $storage): ?self {
         return self::open($storage);

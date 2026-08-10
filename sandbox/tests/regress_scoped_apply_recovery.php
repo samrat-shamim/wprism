@@ -519,6 +519,19 @@ $expectThrow(
 );
 $check($provider->invocations === 1, 'provider mismatch recovery never invokes the effect twice');
 
+$outerProviderReceipt = [
+    'after_hash' => hash('sha256', Canon::encode($providerReceipt)),
+];
+ScopedApplySession::require_reviewed_effect_receipt($outerProviderReceipt, $providerReceipt);
+$expectThrow(
+    static fn() => ScopedApplySession::require_reviewed_effect_receipt(
+        $outerProviderReceipt,
+        array_replace($providerReceipt, ['after_hash' => $hash('changed-reviewed-provider-readback')])
+    ),
+    'postcondition no longer matches',
+    'an existing outer receipt is accepted only after a fresh reviewed effect readback still matches it'
+);
+
 // Native transient delete uses the same operation receipt channel and must
 // not infer execution merely from an absent transient.
 $nativeName = 'scoped_recovery_native';
@@ -541,11 +554,66 @@ $check(
         && $GLOBALS['scoped_recovery_delete_calls'] === 1,
     'lost native-action response reconciles the exact receipt without a second delete'
 );
+$outerNativeReceipt = [
+    'after_hash' => hash('sha256', Canon::encode($nativeReceipt)),
+];
+ScopedApplySession::require_reviewed_effect_receipt($outerNativeReceipt, $nativeRecovered);
+$check(
+    $GLOBALS['scoped_recovery_delete_calls'] === 1,
+    'an existing native outer receipt is checked against reconciliation evidence without invoking twice'
+);
+$coreReadbackHash = $hash('scoped-core-readback');
+ScopedApplySession::require_effect_receipt_hash(
+    ['after_hash' => $coreReadbackHash],
+    $coreReadbackHash
+);
+$expectThrow(
+    static fn() => ScopedApplySession::require_effect_receipt_hash(
+        ['after_hash' => $coreReadbackHash],
+        $hash('changed-scoped-core-readback')
+    ),
+    'postcondition no longer matches',
+    'an existing engine-owned effect receipt also requires its fresh schedule/count readback hash'
+);
 
 // Complete the original authored session after its effect phase and prove the
 // terminal receipt is the exact replay payload a lost CLI response can return.
 $reopenedAfterCommit->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
 $reopenedAfterCommit->transition(ScopedApplySession::PHASE_VERIFYING);
+$verifierEffectsRoot = ScopedApplySession::hash_value($reopenedAfterCommit->receipts());
+$verifiedSession = ScopedApplySession::require_verifying_evidence(
+    $sessionStore,
+    $reopenedAfterCommit->authority_hash_value(),
+    $verifierEffectsRoot,
+    $contract['scope_hash'],
+    $artifactHash
+);
+$check(
+    $verifiedSession->canonical() === $reopenedAfterCommit->canonical(),
+    'fresh verifier opens and binds the exact active authority/effect receipt roots rather than echoing argv'
+);
+$expectThrow(
+    static fn() => ScopedApplySession::require_verifying_evidence(
+        $sessionStore,
+        $hash('wrong-verifier-authority'),
+        $verifierEffectsRoot,
+        $contract['scope_hash'],
+        $artifactHash
+    ),
+    'authority/effect evidence mismatch',
+    'fresh verifier refuses a caller-supplied authority hash that differs from the active session'
+);
+$expectThrow(
+    static fn() => ScopedApplySession::require_verifying_evidence(
+        $sessionStore,
+        $reopenedAfterCommit->authority_hash_value(),
+        $hash('wrong-verifier-effects'),
+        $contract['scope_hash'],
+        $artifactHash
+    ),
+    'authority/effect evidence mismatch',
+    'fresh verifier refuses a caller-supplied effects root that differs from active receipts'
+);
 $terminalTarget = [
     'protected_ledger_map_hash' => $hash('protected-map-before'),
     // A create/adopt/delete may legitimately change only the selected map.
@@ -690,6 +758,36 @@ $expectThrow(
 $check(
     $GLOBALS['wpdb']->kvRows[ScopedApplySession::STORAGE_KEY] === $interlockSession->canonical(),
     'public full-plan interlock leaves the exact scoped session bytes untouched'
+);
+
+// The full public Apply path needs WordPress and a promotion lease, so pin the
+// four recovery/isolation threading edges in its bounded run()/rebuild()
+// source. The protocol seams they call are exercised dynamically above.
+$applySource = (string) file_get_contents($root . '/agent/src/Apply.php');
+$deleteGateAt = strpos($applySource, 'scoped apply selected live tombstones but --with-deletes was not supplied');
+$sessionBeginAt = strpos($applySource, 'ScopedApplySession::begin(');
+$check(
+    $deleteGateAt !== false && $sessionBeginAt !== false && $deleteGateAt < $sessionBeginAt,
+    'scoped tombstones without --with-deletes refuse before a session can authorize target mutation'
+);
+$check(
+    substr_count($applySource, 'NativeActions::reconcile_scoped(') === 2
+        && substr_count($applySource, 'Providers::reconcile_scoped(') === 2
+        && substr_count($applySource, 'ScopedApplySession::require_reviewed_effect_receipt(') === 2,
+    'both no-receipt and existing-receipt native/provider paths reconcile before trusting completion'
+);
+$check(
+    str_contains($applySource, '$durableReparents = $scoped ? []')
+        && str_contains($applySource, '$durableDeletions = $scoped ? []')
+        && str_contains($applySource, 'if (!$scoped) {' . "\n" . '            $this->regen_dependencies(')
+        && str_contains($applySource, 'Ledger::kv_prefix(self::REGEN_PENDING_PREFIX) : []'),
+    'scoped rebuild neither consumes nor sweeps the generic regen retry/context keyspaces'
+);
+$check(
+    str_contains($applySource, "foreach (['deletions', 'reparents'] as \$channel)")
+        && str_contains($applySource, "provider channel '\$channel'")
+        && str_contains($applySource, 'durable environment-local recovery input'),
+    'scoped preflight refuses provider context channels whose local-id payload cannot be reconstructed after a crash'
 );
 
 if ($failures !== 0) {

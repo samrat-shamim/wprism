@@ -450,12 +450,14 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   selected provider's identity/capabilities but invokes no effect. Scoped apply creates
   a separate target/lease-bound `duo-scoped-mutation-authority/v1`, journals
   authored and native/provider effects under `duo-scoped-apply-session/v1`,
-  reconciles lost effect responses by exact operation ID/input hash, and runs
-  a fresh bounded verifier. It advances selected ledger rows plus its terminal
+  reconciles lost and already-journaled effects by exact operation ID/input
+  hash, and runs a fresh bounded verifier which opens and compares the exact
+  active session rather than trusting caller-supplied roots. It advances selected ledger rows plus its terminal
   receipt only; the receipt binds their post-finalization identity-map root,
   while global `applied_revision` and unrelated recovery debt are untouched.
   Full plan/apply refuse while that session is nonterminal.
-  Triggerless actions, legacy regenerators, attachment metadata generation,
+  Triggerless actions, legacy regenerators, environment-local provider
+  deletion/reparent context channels, attachment metadata generation,
   code/lifecycle work, promote, and rollback are not silently widened into
   this slice; they refuse or remain whole-revision operations.
 

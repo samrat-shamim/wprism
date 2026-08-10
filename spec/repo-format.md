@@ -805,12 +805,20 @@ while intent-only, mismatched, malformed, or changed postcondition evidence is
 `recovery_required` and is never reinvoked. Provider `before`/`after` values
 are bounded, secret-screened, and retained only as hashes. Empty entity
 batches receive an explicit bounded-skip receipt. Ordinary unscoped provider
-negotiation/invocation bytes remain unchanged.
+negotiation/invocation bytes remain unchanged. Recovery reconciles every
+already-journaled native/provider effect again before trusting its outer
+receipt, and re-reads the engine-owned schedule/count witness before trusting
+that receipt too. The environment-local `deletions` and `reparents` provider
+context channels remain outside scoped v1: their target-local IDs cannot be
+reconstructed from the immutable authority after a crash, so selecting either
+channel refuses before the scoped session or any target mutation instead of
+writing or consuming the ordinary `regen_*` recovery keyspaces.
 
-The verifier launches a fresh frozen artifact/policy process, proves selected
-live rows and tombstones, and requires exact equality of every protected
-out-of-scope authored and ledger-map root plus the authority/effect-receipt
-roots. Its terminal transaction advances only selected ledger base rows and
+The verifier launches a fresh frozen artifact/policy process, opens the exact
+active `verifying` session from the target ledger, compares the caller's
+authority/effect roots to that live session, proves selected live rows and
+tombstones, and requires exact equality of every protected out-of-scope
+authored and ledger-map root. Its terminal transaction advances only selected ledger base rows and
 the scoped terminal receipt; that receipt binds the post-finalization selected
 identity-map root while the authority continues to bind the protected map.
 It never clears global recovery debt and never writes `applied_revision`.

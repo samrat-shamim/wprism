@@ -2944,6 +2944,13 @@ final class Apply {
             || ($recoveringScoped
                 && (array) ($this->scopedSession->authority()['selection']['deletion_items'] ?? []) !== []);
 
+        if ($scoped && !$executeDeletes && $deleteWork !== []) {
+            throw new \RuntimeException(
+                'duo: scoped apply selected live tombstones but --with-deletes was not supplied; '
+                . 'no scoped session or authored target mutation was created'
+            );
+        }
+
         if ($executeDeletes) {
             $blocked = array_filter($deleteWork, fn($r) => isset($r['blocked']));
             if ($blocked && empty($opts['force_delete_referenced'])) {
@@ -3026,6 +3033,17 @@ final class Apply {
                     );
                 }
             }
+            foreach ($deleteWork as $entry) {
+                $postType = ($entry['type'] ?? '') === 'post'
+                    ? (string) ($entry['deletion_type'] ?? '')
+                    : '';
+                if ($postType !== '' && $this->policy->regen_dependency($postType) !== null) {
+                    throw new \RuntimeException(
+                        "duo: scoped apply refused before target mutation — deleted post type '$postType' "
+                        . 'selects a legacy regenerator without operation-bound reconciliation'
+                    );
+                }
+            }
         }
         $negotiation = $scoped && method_exists(Providers::class, 'negotiate_scoped')
             ? Providers::negotiate_scoped($this->policy, $this->selectedActions)
@@ -3036,6 +3054,27 @@ final class Apply {
                 . "or incompatible in this environment:\n  - "
                 . implode("\n  - ", array_column($negotiation['problems'], 'message'))
             );
+        }
+        if ($scoped) {
+            foreach ($this->selectedActions as $action) {
+                if (($action['kind'] ?? '') !== 'provider') {
+                    continue;
+                }
+                $providerId = (string) ($action['provider'] ?? '');
+                $capability = (string) ($action['capability'] ?? '');
+                $declaration = $negotiation['capabilities'][$providerId][$capability] ?? null;
+                if (!is_array($declaration)) {
+                    continue; // negotiation problems above already own this refusal.
+                }
+                foreach (['deletions', 'reparents'] as $channel) {
+                    if (Providers::declares_channel($declaration, $channel)) {
+                        throw new \RuntimeException(
+                            "duo: scoped apply refused before target mutation — provider channel '$channel' "
+                            . 'requires durable environment-local recovery input not carried by this scoped protocol version'
+                        );
+                    }
+                }
+            }
         }
         $this->negotiatedProviders = [
             'providers' => $negotiation['providers'],
@@ -3273,7 +3312,7 @@ final class Apply {
             // phase 1/finalize can move its post_parent. The receipt is in the
             // authored transaction, so a later rebuild failure can replay the
             // old-root cleanup without guessing from the new parent only.
-            $regenContext = $this->capture_regen_reparent_context($work, $tree);
+            $regenContext = $this->capture_regen_reparent_context($work, $tree, !$scoped);
 
             // ---- adopt: claim unmanaged env rows by writing identity ----
             foreach ($plan['adopt'] as $r) {
@@ -3377,7 +3416,8 @@ final class Apply {
                 // immediately before the delete writes, and inside the
                 // authored transaction.
                 $regenContext = array_merge($regenContext, $this->capture_regen_delete_context(
-                    array_merge($deleteWork, $plan['deleted'])
+                    array_merge($deleteWork, $plan['deleted']),
+                    !$scoped
                 ));
                 foreach ($deleteWork as $r) {
                     $this->renew_promotion_lock('apply-delete');
@@ -3480,6 +3520,15 @@ final class Apply {
                     $coreIntent,
                     hash('sha256', 'duo:scoped-engine-effects-bounded-noop')
                 ));
+            }
+            if ($this->scoped_receipt_at(2) !== null) {
+                $coreReadbackHash = $hasCoreWork
+                    ? $this->scoped_core_readback_hash($work, $tree)
+                    : hash('sha256', 'duo:scoped-engine-effects-bounded-noop');
+                ScopedApplySession::require_effect_receipt_hash(
+                    $this->scoped_receipt_at(2),
+                    $coreReadbackHash
+                );
             }
             $skipScopedCore = !$hasCoreWork || $this->scoped_receipt_at(2) !== null;
             $scopedCoreComplete = function () use ($coreIntent, $work, $tree): void {
@@ -4559,6 +4608,15 @@ final class Apply {
                 throw new \RuntimeException('duo: scoped verification requires complete lowercase SHA-256 witnesses');
             }
         }
+        $verifyingSession = ScopedApplySession::require_verifying_evidence(
+            new LedgerScopedApplySessionStorage(),
+            $authorityHash,
+            $effectsRoot,
+            (string) $this->scopeContract['scope_hash'],
+            $compiled->artifact_hash()
+        );
+        $authorityHash = $verifyingSession->authority_hash_value();
+        $effectsRoot = ScopedApplySession::hash_value($verifyingSession->receipts());
         $actual = Capture::snapshot_read_only(
             $this->repo,
             $forceUnresolvedRefs,
@@ -6053,7 +6111,9 @@ final class Apply {
             // DUO-3234: a deleted post can never usefully retry regeneration
             // again — clear any outstanding marker so it doesn't linger
             // forever for a uuid that no longer resolves to anything.
-            Ledger::kv_delete(self::REGEN_PENDING_PREFIX . $uuid);
+            if ($this->scopeContract === null) {
+                Ledger::kv_delete(self::REGEN_PENDING_PREFIX . $uuid);
+            }
         } elseif ($type === 'term' || $type === 'menu') {
             $termId = Ledger::id_for($uuid, Ledger::KIND_TERM);
             $tt = Ledger::id_for($uuid, Ledger::KIND_TT);
@@ -6304,7 +6364,11 @@ final class Apply {
      *
      * @return array<int,array<string,mixed>>
      */
-    private function capture_regen_reparent_context(array $work, array $tree): array {
+    private function capture_regen_reparent_context(
+        array $work,
+        array $tree,
+        bool $persistGenericDebt = true
+    ): array {
         global $wpdb;
         $out = [];
         foreach ($work as $entry) {
@@ -6393,7 +6457,9 @@ final class Apply {
             // that chain; replacing the marker with only B/C would make A's
             // lookup and attributes stale forever. The receipt and the raw
             // mutation remain in this same transaction.
-            $stored = Ledger::kv_get(self::REGEN_REPARENT_CONTEXT_PREFIX . $uuid);
+            $stored = $persistGenericDebt
+                ? Ledger::kv_get(self::REGEN_REPARENT_CONTEXT_PREFIX . $uuid)
+                : null;
             $previous = is_string($stored) ? json_decode($stored, true) : null;
             if (is_array($previous)
                 && ($previous['kind'] ?? '') === 'reparent'
@@ -6403,10 +6469,12 @@ final class Apply {
                 $context['root_ids'] = array_values($this->regen_context_root_ids($context));
                 sort($context['root_ids'], SORT_NUMERIC);
             }
-            Ledger::kv_set(
-                self::REGEN_REPARENT_CONTEXT_PREFIX . $uuid,
-                json_encode($context)
-            );
+            if ($persistGenericDebt) {
+                Ledger::kv_set(
+                    self::REGEN_REPARENT_CONTEXT_PREFIX . $uuid,
+                    json_encode($context)
+                );
+            }
             $out[] = $context;
         }
         return $out;
@@ -6710,7 +6778,10 @@ final class Apply {
      *
      * @return array<int,array{uuid:string,id:int,post_type:string,parent_id:int,child_ids:array<int,int>}>
      */
-    private function capture_regen_delete_context(array $deleteWork): array {
+    private function capture_regen_delete_context(
+        array $deleteWork,
+        bool $persistGenericDebt = true
+    ): array {
         global $wpdb;
         $out = [];
         $explicitIds = [];
@@ -6733,6 +6804,9 @@ final class Apply {
             }
             $id = Ledger::id_for($uuid, Ledger::KIND_POST);
             if ($id === null) {
+                if (!$persistGenericDebt) {
+                    continue;
+                }
                 $stored = Ledger::kv_get(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid);
                 $decoded = is_string($stored) ? json_decode($stored, true) : null;
                 $storedType = is_array($decoded) ? (string) ($decoded['post_type'] ?? '') : '';
@@ -6759,6 +6833,9 @@ final class Apply {
                 $id
             ), "delete source post $id");
             if ($row === null) {
+                if (!$persistGenericDebt) {
+                    continue;
+                }
                 // A previous apply may have committed the post delete and
                 // then failed during rebuild.  Reuse the durable pre-delete
                 // receipt rather than losing the deleted child's parent id on
@@ -6785,7 +6862,9 @@ final class Apply {
             if ($postType === '' || !$this->delete_context_consumer($postType)) {
                 // This delete has no enabled batch consumer.  Remove only a
                 // stale receipt for the same uuid, and never create one.
-                Ledger::kv_delete(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid);
+                if ($persistGenericDebt) {
+                    Ledger::kv_delete(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid);
+                }
                 continue;
             }
             $parentId = (int) ($row['post_parent'] ?? 0);
@@ -6822,7 +6901,9 @@ final class Apply {
                 'parent_id' => $parentId,
                 'child_ids' => $childIds,
             ];
-            Ledger::kv_set(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid, json_encode($context));
+            if ($persistGenericDebt) {
+                Ledger::kv_set(self::REGEN_DELETE_CONTEXT_PREFIX . $uuid, json_encode($context));
+            }
             $out[] = $context;
         }
         return $out;
@@ -7166,7 +7247,23 @@ final class Apply {
                                 hash('sha256', Canon::encode($reviewed))
                             ));
                             $receipt = $this->scoped_receipt_at($actionOrdinal);
+                        } else {
+                            // The outer receipt proves what the previous
+                            // process observed, not that the postcondition is
+                            // still true. Recovery always re-reads it before
+                            // trusting completion and never invokes again.
+                            $reviewed = NativeActions::reconcile_scoped(
+                                $nativeAction,
+                                $nativeArgs,
+                                $operation
+                            );
+                            $this->assert_scoped_effect_result(
+                                $reviewed,
+                                $operation,
+                                $capabilityDigest
+                            );
                         }
+                        ScopedApplySession::require_reviewed_effect_receipt($receipt, $reviewed);
                         $this->warnings[] = "native action fired: $nativeAction (scoped, verified)";
                         $this->actionReceipts[] = $this->scoped_public_action_receipt(
                             $source,
@@ -7237,7 +7334,13 @@ final class Apply {
                     // a second delivery path.
                     $deletionRows = $context['deletions']
                         ?? $this->action_deletions($action, $appliedDeletions, $durableDeletions);
-                    $batch = $this->action_entities($action, $work, $tree, $deletionRows);
+                    $batch = $this->action_entities(
+                        $action,
+                        $work,
+                        $tree,
+                        $deletionRows,
+                        !$scoped
+                    );
                     $entities = $batch['entities'];
                     $pendingMarkers = $batch['markers'];
                     if (Providers::declares_channel($declaration, 'deletions')) {
@@ -7371,7 +7474,24 @@ final class Apply {
                             hash('sha256', Canon::encode($reviewed))
                         ));
                         $outerReceipt = $this->scoped_receipt_at($actionOrdinal);
+                    } else {
+                        $this->renew_provider_lease();
+                        $reviewed = Providers::reconcile_scoped(
+                            $this->negotiatedProviders['providers'][$id],
+                            $action,
+                            $declaration,
+                            $operation,
+                            $entities,
+                            $context
+                        );
+                        $this->renew_provider_lease();
+                        $this->assert_scoped_effect_result(
+                            $reviewed,
+                            $operation,
+                            $capabilityDigest
+                        );
                     }
+                    ScopedApplySession::require_reviewed_effect_receipt($outerReceipt, $reviewed);
                     $version = (string) ($declarations[$id]['version'] ?? '?');
                     $this->warnings[] = "provider capability fired: $id@$version $capability (scoped, verified)";
                     $this->actionReceipts[] = $this->scoped_public_action_receipt(
@@ -7525,9 +7645,17 @@ final class Apply {
      * @param list<array<string,mixed>> $deletionRows this action's assembled
      *   deletions projection (see rebuild(): assembled whether or not the
      *   capability declared the channel, because this filter is not waivable)
+     * @param bool $includeGenericPending full apply may consume its global
+     *   retry queue; scoped apply must never scan or mutate that namespace
      * @return array{entities:list<array{kind:string, id:int}>, markers:array<string,string>}
      */
-    private function action_entities(array $action, array $work, array $tree, array $deletionRows = []): array {
+    private function action_entities(
+        array $action,
+        array $work,
+        array $tree,
+        array $deletionRows = [],
+        bool $includeGenericPending = true
+    ): array {
         $triggers = array_fill_keys((array) ($action['triggers'] ?? []), true);
         $deletedIds = [];
         foreach ($deletionRows as $row) {
@@ -7571,7 +7699,7 @@ final class Apply {
                 }
             }
         }
-        foreach (Ledger::kv_prefix(self::REGEN_PENDING_PREFIX) as $key => $postType) {
+        foreach ($includeGenericPending ? Ledger::kv_prefix(self::REGEN_PENDING_PREFIX) : [] as $key => $postType) {
             $postType = (string) $postType;
             $surface = 'post:' . $postType;
             if ($postType === '' || !isset($triggers[$surface])
