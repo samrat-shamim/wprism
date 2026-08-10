@@ -310,8 +310,10 @@ probe on a read-only descriptor, dropped the instant it is taken) and any doubt
 at all — no record, an unreadable one, a different name, a lock nobody holds,
 no way to probe — falls through to the ordinary refusal. This side only READS
 that rendezvous; it never creates, writes, or removes anything in it.
-`DUO_PAIR_BUDGET_OVERRIDE=1` is deliberately not the mechanism: a certification
-records a forced hatch as one.
+`DUO_PAIR_BUDGET_OVERRIDE=1` is deliberately not the mechanism: the bundle does
+not detect the override today, so its manifest would affirmatively claim
+`force_hatches:[]` for a run whose budget was forced — silently wrong evidence
+(DUO-3406 tracks detecting and recording it).
 
 ## The destroy-when-green convention
 

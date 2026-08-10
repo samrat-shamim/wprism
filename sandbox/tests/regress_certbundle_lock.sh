@@ -808,9 +808,10 @@ pass "every helper this suite started cleaned up its own control directory"
 # On 2026-08-09 five legs ran green, other agents filled the host's 4-pair
 # budget in between, leg 6's `up` refused over budget ("5 > 4"), and the bundle
 # recorded an immutable FAIL after ~25 minutes of earned evidence.
-# DUO_PAIR_BUDGET_OVERRIDE=1 is not available to a certification: the run
-# records it as a forced hatch, so the evidence would say the host budget was
-# overridden rather than reserved.
+# DUO_PAIR_BUDGET_OVERRIDE=1 is not available to a certification: nothing in
+# the bundle detects the override today, so its manifest would affirmatively
+# claim force_hatches:[] for a run whose budget WAS forced -- silently wrong
+# evidence (DUO-3404 tracks making the bundle detect and record it).
 #
 # So while this lock is HELD, pair.sh treats the exact pair name its record
 # carries as already budgeted. The cases below drive the SHIPPED pair.sh
@@ -819,6 +820,9 @@ pass "every helper this suite started cleaned up its own control directory"
 # is ever started, and nothing outside this run's own $SCRATCH is touched.
 PAIR_SH="$(cd .. && pwd)/bin/pair.sh"
 [ -f "$PAIR_SH" ] || fail "cannot find the pair tool under test: $PAIR_SH"
+# Empty on a host with no util-linux flock(1) (an ordinary macOS/BSD box):
+# the probe cases that need a REAL flock to shim say so and skip.
+REAL_FLOCK="$(command -v flock 2>/dev/null || true)"
 
 write_pair_fakes() { # write_pair_fakes <bin-dir>
   mkdir -p "$1"
@@ -866,29 +870,76 @@ link_host_utilities() { # link_host_utilities <bin-dir>; 1 = this host cannot
   return 0
 }
 
+write_broken_shared_flock() { # write_broken_shared_flock <bin-dir>
+  # An flock(1) that implements everything EXCEPT shared locks: `-s` exits 64
+  # (the usage-error shape), anything else is the real tool, so pair.sh's own
+  # exclusive budget lock still works and only the read-side probe is broken.
+  # Review reproduced admission-over-budget through exactly this: a probe that
+  # reads EVERY non-zero flock status as "a holder has it" turns a tool failure
+  # into a reservation, with a stale record and nobody holding anything.
+  cat > "$1/flock" <<SHIM
+#!/usr/bin/env bash
+set -euo pipefail
+for a in "\$@"; do
+  case "\$a" in
+    -s|--shared) printf 'flock: unrecognized option -- s\n' >&2; exit 64 ;;
+  esac
+done
+exec $REAL_FLOCK "\$@"
+SHIM
+  chmod +x "$1/flock"
+}
+
 PAIR_UP_STATUS=0
-pair_up() { # pair_up <label> <pair> <rendezvous> [probe: auto|python]
+PAIR_UP_SKIPPED=
+pair_up() { # pair_up <label> <pair> <rendezvous> [probe: auto|python|brokenshared] [override: 0|1]
   # One private copy of the shipped pair.sh per case, under this run's scratch:
   # pair.sh writes sandbox/.env and sandbox/siterepo/ relative to its own
   # location, and no regression may write those into the checkout it is testing.
-  local label="$1" pair="$2" rendezvous="$3" probe="${4:-auto}"
+  #
+  # A variant this host cannot stage sets PAIR_UP_SKIPPED and runs nothing, and
+  # every caller must look at it before asserting: signalling a skip through a
+  # RETURN value would leave PAIR_UP_STATUS and the log file holding the
+  # PREVIOUS case's answer, so a host missing a tool would assert against stale
+  # evidence and call it a pass. PAIR_UP_STATUS is reset here either way, so a
+  # caller that forgets fails loudly instead of inheriting one.
+  local label="$1" pair="$2" rendezvous="$3" probe="${4:-auto}" override="${5:-0}"
   local root="$SCRATCH/pair.$label" path_value
+  PAIR_UP_STATUS=0
+  PAIR_UP_SKIPPED=
   mkdir -p "$root/sandbox/bin" "$root/bin"
   cp "$PAIR_SH" "$root/sandbox/bin/pair.sh"
   chmod +x "$root/sandbox/bin/pair.sh"
   write_pair_fakes "$root/bin"
   path_value="$root/bin:$PATH"
-  if [ "$probe" = python ]; then
-    # A PATH with no flock(1) on it at all: the read-side probe must fall back
-    # to the documented python3 fcntl.flock backend, the same fallback pair.sh's
-    # own budget lock and the lock above already offer a macOS/BSD host.
-    link_host_utilities "$root/bin" || return 2
-    path_value="$root/bin"
-  fi
-  PAIR_UP_STATUS=0
+  case "$probe" in
+    python)
+      # A PATH with no flock(1) on it at all: the read-side probe must fall back
+      # to the documented python3 fcntl.flock backend, the same fallback pair.sh's
+      # own budget lock and the lock above already offer a macOS/BSD host.
+      if ! link_host_utilities "$root/bin"; then
+        PAIR_UP_SKIPPED="this host lacks one of the documented pair.sh utilities"
+        return 0
+      fi
+      path_value="$root/bin"
+      ;;
+    brokenshared)
+      # Nothing to break on a host with no flock(1): pair.sh would take the
+      # python branch, and a shim there would only misroute its budget lock.
+      if [ -z "$REAL_FLOCK" ]; then
+        PAIR_UP_SKIPPED="this host has no flock(1) to shim"
+        return 0
+      fi
+      write_broken_shared_flock "$root/bin"
+      ;;
+  esac
   # Three cores / 5GiB is exactly one budget unit (see pair_budget()), and one
   # foreign pair is already live: the host is AT its cap for every case below.
-  env -u DUO_PAIR_BUDGET_OVERRIDE PATH="$path_value" \
+  # DUO_PAIR_BUDGET_OVERRIDE is always passed EXPLICITLY, 0 unless a case is
+  # about it: a value inherited from whoever launched this suite would decide
+  # cases that are supposed to be deciding on the reservation.
+  env PATH="$path_value" \
+    DUO_PAIR_BUDGET_OVERRIDE="$override" \
     CERT_BUNDLE_LOCK_DIR="$rendezvous" \
     DUO_PAIR_TEST_CPU=3 DUO_PAIR_TEST_MEM=5368709120 \
     DUO_PAIR_TEST_LIVE_PAIRS='[{"ConfigFiles":"/fake/pair.yml","Name":"duo-existing"}]' \
@@ -911,7 +962,7 @@ assert_pair_admitted() { # assert_pair_admitted <label> <pair> <why>
   assert_not_in "$log" "refusing to bring up new pair '$2' over budget" "$3"
   assert_in "$log" "is the pair recorded by the HELD host certification lock" "$3: the reservation was not announced"
   assert_in "$log" "already budgeted for that run" "$3: the reservation did not say what it rests on"
-  assert_not_in "$log" "DUO_PAIR_BUDGET_OVERRIDE=1 set" "$3: the reservation was really the forced hatch, which certification records as one"
+  assert_not_in "$log" "DUO_PAIR_BUDGET_OVERRIDE=1 set" "$3: the admission leaned on the override hatch instead of the reservation"
   # Past the gate, the next thing `up` does is bring the shared DB up.
   assert_in "$log" "FAKE-DOCKER-SENTINEL" "$3: nothing beyond the budget gate was reached"
   [ "$PAIR_UP_STATUS" = "42" ] \
@@ -968,14 +1019,28 @@ else
   printf 'note: this host has no flock(1); the default probe above used the python3 fcntl fallback\n'
 fi
 pair_up recordedpy certbundle "$LOCK_DIR" python
-case "$PAIR_UP_STATUS" in
-  2) printf 'note: this host lacks one of the documented pair.sh utilities; python-probe variant skipped\n' ;;
-  *) assert_pair_admitted recordedpy certbundle "the python3 fcntl read-side probe did not see the held lock"
-     pass "admitted through both the default probe and the python3 fcntl fallback" ;;
-esac
-pass "the recorded pair is admitted at ${LOCK_DIR}'s cap while its lock is held, without the forced hatch"
+if [ -n "$PAIR_UP_SKIPPED" ]; then
+  printf 'note: %s; python-probe variant skipped\n' "$PAIR_UP_SKIPPED"
+else
+  assert_pair_admitted recordedpy certbundle "the python3 fcntl read-side probe did not see the held lock"
+  pass "admitted through both the default probe and the python3 fcntl fallback"
+fi
+pass "the recorded pair is admitted at ${LOCK_DIR}'s cap while its lock is held, without the override hatch"
 
-say "case 24 — the reservation dies with its holder: a SIGKILLed bundle's surviving record grants nothing"
+say "case 24 — a reservation is answered as a reservation even when the override is also set"
+# The two admitting branches are not interchangeable, and a swap between them
+# is invisible to every case above: with the hatch unset they behave
+# identically. Review mutated the order and the suite stayed green. Here both
+# apply at once, so only the ordering can produce this log -- the reservation
+# must be the reason, and the run must not report itself as forced. It matters
+# beyond wording: DUO_PAIR_BUDGET_OVERRIDE is what an operator sets for a
+# reason of their own, and a bundle whose slot was RESERVED must not have its
+# evidence say the host budget was overridden to get it.
+pair_up recordedoverride certbundle "$LOCK_DIR" auto 1
+assert_pair_admitted recordedoverride certbundle "the reservation did not answer first while DUO_PAIR_BUDGET_OVERRIDE=1 was also set"
+pass "with both the reservation and DUO_PAIR_BUDGET_OVERRIDE=1 in play, the reservation answers and the hatch is never mentioned"
+
+say "case 25 — the reservation dies with its holder: a SIGKILLed bundle's surviving record grants nothing"
 CERTBUNDLE_PID=$(cat "$SCRATCH/ready.certbundle")
 kill -9 "$CERTBUNDLE_PID"
 rc=0; wait "$CERTBUNDLE_JOB" || rc=$?
@@ -999,7 +1064,7 @@ assert_pair_refused phantom certbundle "a crashed bundle left a phantom reservat
   || fail "the record vanished during this case; the refusal must be the flock's answer WITH the record still in place"
 pass "the record outlived its holder and reserved nothing: refused $(( $(date +%s) - REFUSE_START ))s after the kill, record still on disk"
 
-say "case 25 — no lock at all is the ordinary budget, and the read side creates nothing"
+say "case 26 — no lock at all is the ordinary budget, and the read side creates nothing"
 EMPTY_RENDEZVOUS="$SCRATCH/never-created.lock"
 [ ! -e "$EMPTY_RENDEZVOUS" ] || fail "fixture: $EMPTY_RENDEZVOUS already exists"
 pair_up nolock certbundle "$EMPTY_RENDEZVOUS"
@@ -1011,5 +1076,31 @@ pair_up norecord certbundle "$LOCK_DIR"
 assert_pair_refused norecord certbundle "a pair was admitted from a rendezvous with no naming record"
 [ -f "$LOCK_FILE" ] || fail "the read side removed the lock file"
 pass "no rendezvous and a record-less rendezvous both fall through to the ordinary budget, with nothing created or removed"
+
+say "case 27 — a probe that cannot ask the kernel is doubt, not a holder"
+# Review reproduced admission-over-budget here: the first revision of the
+# read-side probe mapped EVERY non-zero flock status to "held", so a shared
+# lock the tool could not take -- a usage error, an unsupported filesystem, an
+# flock that is not util-linux's -- read exactly like a live bundle, and a
+# stale record with NOBODY holding anything was enough to admit a pair over
+# the cap. Only flock(1)'s documented could-not-acquire status is a holder;
+# every other outcome falls through to the ordinary refusal, which is the same
+# shape the python backend has always had (only BlockingIOError is a holder).
+if [ -z "$REAL_FLOCK" ]; then
+  printf 'note: this host has no flock(1) to shim; broken-probe case skipped\n'
+else
+  CORPSE=$(dead_pid)
+  forge_record "$CORPSE" certbundle "$(( $(date +%s) - 60 ))"   # a crashed run's record
+  [ "$(jq -r '.pair' "$HOLDER_FILE")" = certbundle ] || fail "the forged record does not name the pair under test"
+  # Nobody holds the lock: the case above released it, and this record is a
+  # corpse's. A working probe answers "free" here, so anything admitted is the
+  # BROKEN probe being believed.
+  pair_up brokenprobe certbundle "$LOCK_DIR" brokenshared
+  [ -z "$PAIR_UP_SKIPPED" ] || fail "the broken-probe fixture did not install ($PAIR_UP_SKIPPED); REAL_FLOCK was lost mid-run"
+  assert_pair_refused brokenprobe certbundle "a probe that could not take a shared lock was read as a live holder, admitting a pair over the cap on a dead run's record"
+  assert_in "$SCRATCH/brokenprobe.log" "1 running pairs" "the refusal is not the ordinary budget refusal"
+  [ -f "$HOLDER_FILE" ] || fail "the read side removed the record it could not act on"
+  pass "a shared-lock probe the tool could not perform refuses, with the record still naming this exact pair"
+fi
 
 printf '\n\033[1;32m✔ REGRESS_CERTBUNDLE_LOCK PASSED\033[0m\n'

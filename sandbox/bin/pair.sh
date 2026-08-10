@@ -815,9 +815,11 @@ disarm_budget_up_cleanup() {
 # budget in between is refused ("refusing to bring up new pair ... over
 # budget"), which ends the bundle in an immutable FAIL verdict after the legs
 # it had already earned (observed live: leg 6, ~25 minutes of green burned).
-# DUO_PAIR_BUDGET_OVERRIDE=1 is not the answer for a certification: the run
-# records it as a forced hatch, so the evidence would say the budget was
-# overridden rather than reserved.
+# DUO_PAIR_BUDGET_OVERRIDE=1 is not the answer for a certification: nothing in
+# the bundle detects the override today, so its manifest would affirmatively
+# claim force_hatches:[] for a run whose budget WAS forced -- silently wrong
+# evidence, which is worse than recorded-as-forced (DUO-3406 tracks making the
+# bundle detect and record it).
 #
 # The slot was committed when the bundle started and the lock is the thing that
 # says it still is, so while that lock is held the recorded pair counts as
@@ -857,13 +859,19 @@ certbundle_lock_held() { # certbundle_lock_held <lock-file>; 0 = somebody holds 
   #
   # The descriptor is read-only: this side must not create or truncate anything
   # in a rendezvous it does not own (flock(2) is indifferent to the open mode;
-  # `9>` would truncate the very file the bundle's helper is holding). A
-  # missing lock file, a failed redirection, or an flock that cannot run all
-  # exit non-zero too, so "could not take it" is signalled as 3 rather than
-  # flock's own 1 -- every other non-zero status is doubt, not a holder.
+  # `9>` would truncate the very file the bundle's helper is holding). Only
+  # flock's documented could-not-acquire status (1) is remapped to the "held"
+  # signal 3; a usage error, a missing fd, an unsupported filesystem, a failed
+  # redirection, or an flock that cannot run at all lands on any OTHER status
+  # -- and every other status is doubt, not a holder (the python backend below
+  # has the same shape: only BlockingIOError is a holder).
   local lock_file="$1" rc=0
   if command -v flock >/dev/null 2>&1; then
-    ( flock -s -n 9 || exit 3 ) 9<"$lock_file" 2>/dev/null || rc=$?
+    ( s=0; flock -s -n 9 || s=$?   # `|| s=` keeps errexit from eating the status
+      [ "$s" -eq 0 ] && exit 0     # we took it -- nobody held it
+      [ "$s" -eq 1 ] && exit 3     # flock(1)'s could-not-acquire -- a holder has it
+      exit 4                       # anything else is a tool failure, not a holder
+    ) 9<"$lock_file" 2>/dev/null || rc=$?
   elif command -v python3 >/dev/null 2>&1; then
     # The same fcntl.flock fallback pair.sh's own budget lock and the bundle
     # both document for macOS/BSD hosts with no util-linux flock(1). Both
@@ -938,9 +946,11 @@ reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
       # Asked only here, in the branch that would otherwise refuse: an
       # in-budget `up` never reads the rendezvous at all, and the exemption
       # can only ever turn a refusal into the bring-up the certification lock
-      # already reserved. Ahead of the override so a certification never has
-      # to set one — DUO_PAIR_BUDGET_OVERRIDE=1 would be recorded as a forced
-      # hatch in the bundle's own evidence.
+      # already reserved. Ahead of the override, and not interchangeable with
+      # it: a slot that was RESERVED must be reported as reserved even when an
+      # operator also happens to have the hatch set, or the run's own log says
+      # its budget was forced when it was not (see this section's header on
+      # what the bundle does and does not record today).
       if certbundle_reserved_pair "$candidate"; then
         warn "!! '$candidate' is the pair recorded by the HELD host certification lock ($CERT_BUNDLE_LOCK_DIR) — already budgeted for that run (DUO-3396), bringing it up at ${total}/${budget}"
       elif [ "${DUO_PAIR_BUDGET_OVERRIDE:-0}" = "1" ]; then
