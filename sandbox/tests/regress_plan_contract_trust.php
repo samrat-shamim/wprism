@@ -244,6 +244,13 @@ $incomplete = [
     'an empty plan object' => '{}',
     'a plan missing one required bucket' => pct_json(pct_plan_without('conflict')),
     'a plan whose required bucket is not a list' => pct_json(pct_plan(['conflict' => ['blocked' => true]])),
+    // DUO-3388: a COMPLETE envelope (every required bucket present and a list)
+    // whose one populated bucket carries a NON-ARRAY row. requireComplete()'s
+    // predecessor stopped at "exists and is a list", so this reached
+    // PlanSummary::label(array $r) and raised an uncaught TypeError at every
+    // trust boundary. The row-shape floor turns it into the same house-style
+    // refusal — proven end to end, and named by bucket/index, further below.
+    'a plan whose populated bucket carries a non-array row' => pct_json(pct_plan(['conflict' => [true]])),
 ];
 
 // ------------------------------------------- boundary: frozen reconciliation
@@ -273,6 +280,22 @@ foreach ($incomplete as $label => $planJson) {
     pct_ok(!in_array('promotion-begin', $verbs, true) && !in_array('apply', $verbs, true),
         "$label refuses before any target mutation");
 }
+
+// DUO-3388: the row-shape refusal is house-style AND names the bucket and the
+// offending index, not a bare TypeError. pct_refuses catches Throwable, so a
+// reverted floor would let render()'s "must be of type array, bool given"
+// TypeError through here — but its message does NOT contain this needle, so
+// this assertion is exactly what the floor's mutation test trips on.
+$rowFloorDriver = new PlanContractPromotionDriver($repoPath, $artifactHash, pct_json(pct_plan(['conflict' => [true]])));
+$rowFloorDriver->files[$context['checkpoint_path']] = "-- frozen checkpoint\n";
+$rowFloorContext = $context;
+pct_refuses(
+    static function () use ($rowFloorDriver, $repoPath, &$rowFloorContext): void {
+        frozen_promotion_reconcile($rowFloorDriver, $repoPath, $rowFloorContext);
+    },
+    'frozen promotion reconciliation: incomplete agent plan envelope (conflict row 0 is not a JSON object)',
+    'a complete envelope with a non-array row refuses house-style, naming the bucket and offending index'
+);
 
 $cleanDriver = new PlanContractPromotionDriver($repoPath, $artifactHash, pct_json(pct_plan()));
 $cleanDriver->files[$context['checkpoint_path']] = "-- frozen checkpoint\n";
@@ -506,6 +529,28 @@ pct_ok($contract::violations(pct_plan(['drift' => ['state/options/core.json' => 
     'a bucket that is an object rather than a list fails closed');
 pct_ok($contract::violations(pct_plan(['create' => 'none'])) === ['create is not a list'],
     'a bucket that is a scalar fails closed');
+// DUO-3388 row-shape floor. A complete envelope whose bucket IS a list but
+// carries a non-array row is named by bucket and offending index — the cheap
+// floor beneath the deliberately-unvalidated row field shapes.
+pct_ok($contract::violations(pct_plan(['conflict' => [true]])) === ['conflict row 0 is not a JSON object'],
+    'a non-array row in a required object bucket is named by bucket and index');
+pct_ok($contract::violations(pct_plan([
+        'conflict' => [['path' => 'state/posts/a.json', 'type' => 'post', 'uuid' => 'a'], false],
+    ])) === ['conflict row 1 is not a JSON object'],
+    'the floor names the FIRST offending index and stays bounded to one violation per bucket');
+pct_ok($contract::violations(pct_plan([
+        'conflict' => [['path' => 'state/posts/a.json', 'type' => 'post', 'uuid' => 'a']],
+    ])) === [],
+    'a well-formed object row clears the floor, so no valid envelope regresses');
+// `warnings` is the one required bucket whose rows are legitimately not
+// objects (a plain list<string>); the object-row floor must exempt it or it
+// would refuse every real plan that carries a warning line.
+pct_ok($contract::violations(pct_plan(['warnings' => ['previous apply did not complete required rebuilds']])) === [],
+    'the object-row floor exempts warnings, the sole list<string> bucket');
+// The floor is beneath is-a-list, not a replacement: a non-list bucket is
+// still named "is not a list" and the floor never runs on it.
+pct_ok($contract::violations(pct_plan(['conflict' => ['blocked' => true]])) === ['conflict is not a list'],
+    'a bucket that is a map is refused as a non-list before the row floor is reached');
 pct_ok($contract::violations(null) === ['plan is not a JSON object']
     && $contract::violations([['uuid' => 'a']]) === ['plan is not a JSON object'],
     'a non-object document fails closed before bucket inspection');
