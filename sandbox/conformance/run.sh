@@ -197,7 +197,7 @@ export DUO_PAIR="$CONF_PAIR" DUO_PORT1="$CONF1_PORT" DUO_PORT2="$CONF2_PORT"
 export COMPOSE CONF1_PORT CONF2_PORT
 export -f wp_env wp_conf1 wp_conf2 say pass fail \
   require_fixture_ids require_fixture_values require_fixture_state \
-  require_duo_answered
+  require_duo_answered require_observed_nonempty
 
 # DUO-3377: a sweep IS evidence, so it must be able to state which
 # agent/manifests bytes produced it. CONF_EXPECTED_SOURCE_SHA=$(git rev-parse
