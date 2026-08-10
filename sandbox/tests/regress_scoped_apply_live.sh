@@ -22,9 +22,10 @@
 #   * provider/native actions are real changed-surface effects with public
 #     hash-only receipts, while an unrelated target project stays untouched;
 #   * scoped work never advances generic applied_revision/debt;
-#   * terminal replay returns byte-stable receipt evidence, stale terminal and
-#     stale source authority refuse without a follow-on mutation, and a
-#     tampered local contract is rejected by the host before target work.
+#   * active and archived terminal replay return byte-stable receipt evidence,
+#     stale terminal and stale source authority refuse without a follow-on
+#     mutation, and a tampered local contract is rejected by the host before
+#     target work.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -235,6 +236,21 @@ target_boundary_digest() {
     SELECT 'map', uuid, entity_type, id_kind, local_id FROM wp_duo_map ORDER BY uuid, id_kind;
     SELECT 'state', uuid, entity_type, content_hash FROM wp_duo_state ORDER BY uuid;
     SELECT 'kv', k, v FROM wp_duo_kv WHERE k IN ('applied_revision','apply_in_progress','promotion_lock','scoped_apply_session') OR k LIKE 'regen_pending:%' ORDER BY k;
+  " --skip-column-names >"$file"
+  shasum -a 256 "$file" | awk '{print $1}'
+}
+
+# A terminal rotation is allowed to replace the active session and retain the
+# old one under its immutable archive key.  Everything else in this digest
+# must remain byte-stable across a clean rotation/replay.
+target_non_terminal_digest() {
+  local file="$TMP/non-terminal-$RANDOM.txt"
+  target_wp db query "
+    SELECT 'post', ID, post_type, post_status, post_title FROM wp_posts WHERE post_type IN ('post','project') ORDER BY ID;
+    SELECT 'option', option_name, option_value FROM wp_options WHERE option_name IN ('duo_agency_project_index','_transient_duo_agency_project_cache','_transient_timeout_duo_agency_project_cache') ORDER BY option_name;
+    SELECT 'map', uuid, entity_type, id_kind, local_id FROM wp_duo_map ORDER BY uuid, id_kind;
+    SELECT 'state', uuid, entity_type, content_hash FROM wp_duo_state ORDER BY uuid;
+    SELECT 'kv', k, v FROM wp_duo_kv WHERE k <> 'scoped_apply_session' AND k NOT LIKE 'scoped_apply_terminal:%' ORDER BY k;
   " --skip-column-names >"$file"
   shasum -a 256 "$file" | awk '{print $1}'
 }
@@ -452,6 +468,65 @@ NOOP_TERMINAL_SESSION="$(target_kv scoped_apply_session)"
 [ "$NOOP_TERMINAL_SESSION" != '__DUO_NULL__' ] \
   || fail "clean scoped no-op did not persist its terminal lost-response receipt"
 pass "clean scoped no-op terminalized without authored/provider/native work or global revision debt"
+
+say "rotate the UPDATE terminal through a second clean baseline scope, then publicly replay its archive"
+extract_receipt_bytes "$TMP/noop-apply.json" "$TMP/noop-terminal-first.bytes"
+NOOP_AUTHORITY_HASH="$(jq -r '.scoped_receipt.authority_hash' "$TMP/noop-apply.json")"
+[[ "$NOOP_AUTHORITY_HASH" =~ ^[a-f0-9]{64}$ ]] \
+  || fail "first clean no-op did not publish an authority hash"
+[ "$OUTSIDE_UUID" != "$UPDATE_UUID" ] \
+  || fail "archive replay fixture did not select a distinct second baseline project"
+ARCHIVE_NOOP_CONTRACT="$TMP/archive-noop.scope.json"
+ARCHIVE_ROTATION_NON_TERMINAL_BEFORE="$(target_non_terminal_digest)"
+run_duo_json archive-noop-scope "$ARCHIVE_NOOP_CONTRACT" scope source "--roots=post:${OUTSIDE_UUID}" --contract --format=json
+jq -e --arg uuid "$OUTSIDE_UUID" '
+  .format == "duo-scope-contract/v1"
+  and .selectors == ["post:" + $uuid]
+  and (.live.roots | length == 1 and .[0].entity == $uuid)
+  and (.tombstones | length == 0)
+' "$ARCHIVE_NOOP_CONTRACT" >/dev/null || fail "second clean no-op did not bind its distinct baseline project"
+run_duo_json archive-noop-apply "$TMP/archive-noop-apply.json" apply target "--scope-contract=$ARCHIVE_NOOP_CONTRACT" --format=json
+jq -e '
+  .format == "duo-scoped-apply-result/v1"
+  and .applied == 0
+  and (.actions | length == 0)
+  and .verification.format == "duo-scoped-convergence/v1"
+  and .verification.result == "pass"
+  and .scoped_receipt.phase == "complete"
+' "$TMP/archive-noop-apply.json" >/dev/null || fail "second baseline scope did not terminalize as a clean no-op"
+[ "$(target_non_terminal_digest)" = "$ARCHIVE_ROTATION_NON_TERMINAL_BEFORE" ] \
+  || fail "second clean no-op changed target bytes beyond its terminal-session rotation"
+assert_generic_scoped_boundary "second clean no-op terminal rotation"
+SECOND_NOOP_TERMINAL_SESSION="$(target_kv scoped_apply_session)"
+[ "$SECOND_NOOP_TERMINAL_SESSION" != '__DUO_NULL__' ] \
+  || fail "second clean no-op did not leave an active terminal slot"
+[ "$SECOND_NOOP_TERMINAL_SESSION" != "$NOOP_TERMINAL_SESSION" ] \
+  || fail "different clean scope did not rotate the first terminal session"
+NOOP_ARCHIVED_SESSION="$(target_kv "scoped_apply_terminal:${NOOP_AUTHORITY_HASH}")"
+[ "$NOOP_ARCHIVED_SESSION" = "$NOOP_TERMINAL_SESSION" ] \
+  || fail "terminal rotation did not retain the first terminal's exact canonical session bytes"
+
+ARCHIVED_REPLAY_BOUNDARY_BEFORE="$(target_boundary_digest)"
+ARCHIVED_REPLAY_NON_TERMINAL_BEFORE="$(target_non_terminal_digest)"
+run_duo_json archived-noop-replay "$TMP/archived-noop-replay.json" apply target "--scope-contract=$NOOP_CONTRACT" --format=json
+jq -e '.format == "duo-scoped-apply-result/v1" and .replayed == true and .applied == 0 and (.actions | length == 0) and .verification == null' \
+  "$TMP/archived-noop-replay.json" >/dev/null || fail "archived UPDATE terminal did not take the public no-mutation replay path"
+extract_receipt_bytes "$TMP/archived-noop-replay.json" "$TMP/noop-terminal-archived-replay.bytes"
+cmp -s "$TMP/noop-terminal-first.bytes" "$TMP/noop-terminal-archived-replay.bytes" \
+  || fail "archived UPDATE replay changed the original terminal receipt bytes"
+[ "$(target_boundary_digest)" = "$ARCHIVED_REPLAY_BOUNDARY_BEFORE" ] \
+  || fail "archived UPDATE replay mutated target/session evidence"
+[ "$(target_non_terminal_digest)" = "$ARCHIVED_REPLAY_NON_TERMINAL_BEFORE" ] \
+  || fail "archived UPDATE replay mutated non-terminal target bytes"
+[ "$(target_kv "scoped_apply_terminal:${NOOP_AUTHORITY_HASH}")" = "$NOOP_ARCHIVED_SESSION" ] \
+  || fail "archived UPDATE replay changed its retained terminal bytes"
+[ "$(target_kv scoped_apply_session)" = "$SECOND_NOOP_TERMINAL_SESSION" ] \
+  || fail "archived UPDATE replay changed the second active terminal slot"
+assert_generic_scoped_boundary "archived clean no-op replay"
+# Later plan/refusal checks protect whichever terminal is currently active;
+# the UPDATE terminal above is intentionally archived by this point.
+NOOP_TERMINAL_SESSION="$SECOND_NOOP_TERMINAL_SESSION"
+pass "public archived UPDATE replay is byte-stable and preserves the rotated active terminal without target/debt mutation"
 
 say "publish one update plus one tombstone, then preserve a target-only out-of-scope edit"
 source_wp post update "$UPDATE_SOURCE_ID" --post_title="$UPDATE_TITLE_AFTER" >/dev/null
