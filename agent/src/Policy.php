@@ -3945,14 +3945,10 @@ self::validate_post_type_children($manifest);
             }
             $keyspace = $decl['keyspace'];
             $range = is_array($keyspace) ? ($keyspace['version_range'] ?? null) : null;
-            $min = is_array($range) ? ($range['min'] ?? null) : null;
-            $max = is_array($range) ? ($range['max'] ?? null) : null;
-            if (!is_string($min) || $min === '' || !is_string($max) || $max === ''
-                || version_compare($min, $max, '>=')) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' table '$table' keyspace needs version_range {min,max} with min < max"
-                );
-            }
+            self::assert_min_max_range(
+                is_array($range) ? $range : [],
+                "manifest '$name' table '$table' keyspace version_range"
+            );
             $keys = $keyspace['keys'] ?? [];
             $patterns = $keyspace['patterns'] ?? [];
             if (!is_array($keys) || !is_array($patterns)) {
@@ -5491,18 +5487,7 @@ self::validate_post_type_children($manifest);
                     . 'forbids (DUO-3222). Declare {"min":..,"max":..} or drop the ' . "$idKey claim."
                 );
             }
-            $min = $range['min'] ?? null;
-            $max = $range['max'] ?? null;
-            if (!is_string($min) || $min === '' || !is_string($max) || $max === ''
-                || version_compare($min, $max, '>=')
-            ) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' declares '$rangeKey' with a malformed range (min="
-                    . var_export($min, true) . ', max=' . var_export($max, true) . ') — both must be non-empty '
-                    . 'version strings with min strictly less than max; wildcards/empty/unbounded are not '
-                    . 'certifiable'
-                );
-            }
+            self::assert_min_max_range($range, "manifest '$name' declares '$rangeKey'");
         }
     }
 
@@ -6048,6 +6033,94 @@ self::validate_post_type_children($manifest);
     }
 
     /**
+     * The one {min,max} version-range predicate, shared by every site that
+     * bounds something by an exact, certifiable window: min and max are both
+     * non-empty version strings and min is strictly less than max (min
+     * inclusive, max exclusive — the same version_compare() arithmetic
+     * CapabilityRegistry::in_range() applies at negotiation). Wildcards,
+     * empty, and unbounded forms are not certifiable and are refused. $where
+     * names the coordinate so one message serves every caller — extracted
+     * rather than copied again for DUO-3317's `requires` grammar, which needs
+     * the identical check on three separate bounds.
+     *
+     * @param array<string,mixed> $range
+     */
+    private static function assert_min_max_range(array $range, string $where): void {
+        $min = $range['min'] ?? null;
+        $max = $range['max'] ?? null;
+        if (!is_string($min) || $min === '' || !is_string($max) || $max === ''
+            || version_compare($min, $max, '>=')) {
+            throw new \RuntimeException(
+                "duo: $where has a malformed range (min=" . var_export($min, true)
+                . ', max=' . var_export($max, true) . ') — both must be non-empty version strings '
+                . 'with min strictly less than max; wildcards/empty/unbounded are not certifiable'
+            );
+        }
+    }
+
+    /**
+     * DUO-3317: the closed `requires` grammar a provider declaration may add,
+     * naming the environment its executable half needs before negotiation will
+     * load it. Plugin-agnostic and checked entirely offline: `functions` and
+     * `classes` are non-empty lists of PHP symbol names (a leading backslash
+     * and namespace separators allowed, because the names land verbatim in the
+     * operator-facing found/expected strings and must stay a bounded charset);
+     * `php_version`, `plugin_version`, and `wordpress_version` are {min,max}
+     * windows sharing the one predicate above. An empty object is refused for
+     * the same reason validate_capability_declaration() refuses an empty
+     * `context`: it would declare the envelope while carrying nothing, so an
+     * author reading their own declaration and the negotiation it drives would
+     * disagree about whether the engine honored the key at all.
+     *
+     * @param mixed $requires
+     */
+    private static function validate_provider_requires(mixed $requires, string $where): void {
+        if (!is_array($requires) || array_is_list($requires) || $requires === []) {
+            throw new \RuntimeException(
+                "duo: $where must be a non-empty object naming the environment the provider needs "
+                . '(one or more of classes, functions, php_version, plugin_version, wordpress_version)'
+            );
+        }
+        $closed = ['classes', 'functions', 'php_version', 'plugin_version', 'wordpress_version'];
+        $unknown = array_diff(array_keys($requires), $closed);
+        if ($unknown !== []) {
+            throw new \RuntimeException(
+                "duo: $where names unknown requirement(s) " . implode(', ', $unknown)
+                . ' — the closed set is ' . implode(', ', $closed)
+            );
+        }
+        foreach (['functions', 'classes'] as $key) {
+            if (!array_key_exists($key, $requires)) {
+                continue;
+            }
+            $names = $requires[$key];
+            if (!is_array($names) || !array_is_list($names) || $names === []) {
+                throw new \RuntimeException("duo: $where.$key must be a non-empty list of PHP symbol names");
+            }
+            $seen = [];
+            foreach ($names as $symbol) {
+                if (!is_string($symbol) || preg_match('/^\\\\?[A-Za-z_][A-Za-z0-9_\\\\]*$/', $symbol) !== 1) {
+                    throw new \RuntimeException(
+                        "duo: $where.$key must contain only PHP symbol names "
+                        . 'matching ^\?[A-Za-z_][A-Za-z0-9_\\\\]*$ (a leading backslash and namespace separators allowed)'
+                    );
+                }
+                if (isset($seen[$symbol])) {
+                    throw new \RuntimeException("duo: $where.$key repeats '$symbol'");
+                }
+                $seen[$symbol] = true;
+            }
+        }
+        foreach (['php_version', 'plugin_version', 'wordpress_version'] as $key) {
+            if (!array_key_exists($key, $requires)) {
+                continue;
+            }
+            $range = $requires[$key];
+            self::assert_min_max_range(is_array($range) ? $range : [], "$where.$key");
+        }
+    }
+
+    /**
      * Validate one manifest's `providers` declarations.
      *
      * A declaration is an identity assertion about executable code the engine
@@ -6082,9 +6155,19 @@ self::validate_post_type_children($manifest);
             }
             $keys = array_keys($declaration);
             sort($keys, SORT_STRING);
-            if ($keys !== ['capabilities', 'id', 'plugin', 'source', 'version']) {
+            // Required/optional split (the validate_capability_declaration()
+            // idiom) rather than an exact match, so DUO-3317's `requires` can
+            // join as the one OPTIONAL key without every other declaration
+            // having to carry it.
+            $required = ['capabilities', 'id', 'plugin', 'source', 'version'];
+            $optional = ['requires'];
+            $missing = array_diff($required, $keys);
+            $unknown = array_diff($keys, $required, $optional);
+            if ($missing !== [] || $unknown !== []) {
                 throw new \RuntimeException(
-                    "duo: $where requires exactly capabilities, id, plugin, source, and version"
+                    "duo: $where must declare exactly " . implode(', ', $required)
+                    . ' (optional: ' . implode(', ', $optional) . ')'
+                    . ' (found: ' . ($keys === [] ? 'nothing' : implode(', ', $keys)) . ')'
                 );
             }
             $id = $declaration['id'];
@@ -6125,6 +6208,9 @@ self::validate_post_type_children($manifest);
                     throw new \RuntimeException("duo: $where.capabilities repeats '$capability'");
                 }
                 $seenCapabilities[$capability] = true;
+            }
+            if (array_key_exists('requires', $declaration)) {
+                self::validate_provider_requires($declaration['requires'], "$where.requires");
             }
         }
     }

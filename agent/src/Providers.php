@@ -364,6 +364,19 @@ final class Providers {
                 continue;
             }
 
+            // DUO-3317: the declared `requires` contract is enforced here,
+            // BEFORE the provider file is loaded or its `duo_providers`
+            // registry is consulted — strictly earlier than the retired
+            // per-adapter assert_runtime_contract(), which only guarded
+            // invoke()/regenerate_batch() after the object already existed. An
+            // environment that cannot satisfy the contract refuses without the
+            // engine ever constructing the adapter.
+            $requirementProblem = self::requirement_problem($declaration, $live);
+            if ($requirementProblem !== null) {
+                $problems[] = $requirementProblem;
+                continue;
+            }
+
             if ($declaration['source'] === 'manifest') {
                 $provider = self::manifest_provider($policy, $declaration);
             } else {
@@ -1727,6 +1740,97 @@ final class Providers {
     }
 
     /** @return array<string,mixed> */
+    /**
+     * DUO-3317: the closed `requires` grammar, enforced at negotiation before
+     * the provider file is loaded or its plugin registry is consulted. Returns
+     * ONE aggregated problem naming every unmet requirement at once — the same
+     * posture diagnose()'s docblock states for capabilities: an operator
+     * repairing an environment needs the whole list (define this, upgrade
+     * that), not the first miss followed by another round trip. The single
+     * `provider_requirement_unmet` code carries one fact — "the declared
+     * contract is not met here" — and lets remediation branch on kind within
+     * the row.
+     *
+     * Null in two cases that must negotiate byte-for-byte as before: a
+     * declaration with no `requires` (every provider that predates this
+     * grammar), and one whose every declared requirement is satisfied.
+     *
+     * Every token placed in expected/found is bounded and non-secret: a
+     * load-validated symbol name, a declared version window, an installed
+     * plugin/WordPress version, or the system PHP_VERSION — the same value
+     * kind (and source) outside_version_range already prints. No SQL, no
+     * last_error, and no plugin literal beyond the basename problem() already
+     * carries.
+     *
+     * @param array<string,mixed> $declaration
+     * @param array{installed:bool,active:bool,version:string} $live
+     */
+    private static function requirement_problem(array $declaration, array $live): ?array {
+        $req = $declaration['requires'] ?? null;
+        if (!is_array($req) || $req === []) {
+            return null;
+        }
+        $expected = [];
+        $found = [];
+
+        if (isset($req['functions'])) {
+            $names = array_map('strval', (array) $req['functions']);
+            $expected[] = 'functions ' . implode(', ', $names);
+            $missing = array_values(array_filter($names, static fn(string $fn): bool => !function_exists($fn)));
+            if ($missing !== []) {
+                $found[] = 'missing functions: ' . implode(', ', $missing);
+            }
+        }
+        if (isset($req['classes'])) {
+            $names = array_map('strval', (array) $req['classes']);
+            $expected[] = 'classes ' . implode(', ', $names);
+            $missing = array_values(array_filter($names, static fn(string $cls): bool => !class_exists($cls)));
+            if ($missing !== []) {
+                $found[] = 'missing classes: ' . implode(', ', $missing);
+            }
+        }
+        if (isset($req['plugin_version'])) {
+            $min = (string) $req['plugin_version']['min'];
+            $max = (string) $req['plugin_version']['max'];
+            $expected[] = "plugin_version >=$min <$max";
+            $installed = (string) $live['version'];
+            if ($installed === '' || !Deploy::in_range($installed, $min, $max)) {
+                $found[] = 'plugin ' . ($installed !== '' ? $installed : '(unknown version)');
+            }
+        }
+        if (isset($req['wordpress_version'])) {
+            $min = (string) $req['wordpress_version']['min'];
+            $max = (string) $req['wordpress_version']['max'];
+            $expected[] = "wordpress_version >=$min <$max";
+            $wp = function_exists('get_bloginfo') ? (string) get_bloginfo('version') : '';
+            if ($wp === '' || !Deploy::in_range($wp, $min, $max)) {
+                $found[] = 'wordpress ' . ($wp !== '' ? $wp : '(unknown version)');
+            }
+        }
+        if (isset($req['php_version'])) {
+            $min = (string) $req['php_version']['min'];
+            $max = (string) $req['php_version']['max'];
+            $expected[] = "php_version >=$min <$max";
+            if (!Deploy::in_range(PHP_VERSION, $min, $max)) {
+                $found[] = 'php ' . PHP_VERSION;
+            }
+        }
+
+        if ($found === []) {
+            return null;
+        }
+        return self::problem(
+            (string) $declaration['id'],
+            (string) $declaration['manifest'],
+            (string) $declaration['plugin'],
+            'provider_requirement_unmet',
+            implode('; ', $expected),
+            implode('; ', $found),
+            'install, activate, or upgrade the owning plugin and platform until this environment satisfies the '
+                . "provider's declared requirements, or unpin the manifest that declares them"
+        );
+    }
+
     private static function problem(
         string $id,
         string $manifest,

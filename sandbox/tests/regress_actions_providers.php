@@ -454,10 +454,10 @@ refuse_probe(probe_manifest(['providers' => 'nope']), 'providers must be a list'
 refuse_probe(probe_manifest(['providers' => ['nope']]), 'must be an object', 'a non-object provider declaration is refused');
 $m = probe_manifest();
 unset($m['providers'][0]['version']);
-refuse_probe($m, 'requires exactly capabilities, id, plugin, source, and version', 'a provider declaration missing a required key is refused');
+refuse_probe($m, 'must declare exactly capabilities, id, plugin, source, version', 'a provider declaration missing a required key is refused');
 $m = probe_manifest();
 $m['providers'][0]['timeout_seconds'] = 30;
-refuse_probe($m, 'requires exactly capabilities, id, plugin, source, and version', 'an unknown provider declaration key is refused — a claim the engine would silently ignore');
+refuse_probe($m, 'must declare exactly capabilities, id, plugin, source, version', 'an unknown provider declaration key is refused — a claim the engine would silently ignore');
 foreach ([
     ['Probe-Cache', 'an uppercase provider id'],
     ['1probe', 'a digit-leading provider id'],
@@ -497,6 +497,64 @@ refuse_probe($m, '.capabilities[0] must match', 'a capability name outside the b
 $m = probe_manifest();
 $m['providers'][] = $m['providers'][0];
 refuse_probe($m, "declares provider id 'probe-cache-offline' more than once", 'one manifest declaring the same provider id twice is refused');
+
+// ======================================================================
+echo "\n== providers: the optional `requires` contract, closed on every axis (DUO-3317) ==\n";
+
+// A well-formed requires block loads and travels to negotiation intact.
+$m = probe_manifest();
+$requires = [
+    'functions' => ['wc_get_container', '\\WC\\Package\\Container'],
+    'classes' => ['WC_Data_Store'],
+    'plugin_version' => ['min' => '8.1.0', 'max' => '9.0.0'],
+    'wordpress_version' => ['min' => '6.0', 'max' => '7.0'],
+    'php_version' => ['min' => '8.1', 'max' => '9.0'],
+];
+$m['providers'][0]['requires'] = $requires;
+$policy = load_probe($m);
+check(
+    ($policy->provider_declarations()['probe-cache-offline']['requires'] ?? null) === $requires,
+    'a well-formed requires block loads and reaches provider_declarations() intact, so negotiation sees the same bytes'
+);
+
+// requires is an OBJECT, and a non-empty one — the envelope-without-payload
+// refusal, the same posture an empty capability `context` gets.
+$m = probe_manifest();
+$m['providers'][0]['requires'] = [];
+refuse_probe($m, 'must be a non-empty object', 'an empty requires object is refused rather than meaning "no requirements"');
+$m = probe_manifest();
+$m['providers'][0]['requires'] = ['functions'];
+refuse_probe($m, 'must be a non-empty object', 'a list where a requires object belongs is refused');
+
+// Closed key set.
+$m = probe_manifest();
+$m['providers'][0]['requires'] = ['plugins' => ['x']];
+refuse_probe($m, 'names unknown requirement(s) plugins', 'an unknown requirement key is refused, naming it — a claim the engine would silently ignore');
+
+// functions/classes: non-empty list of bounded symbol names, no dupes.
+$m = probe_manifest();
+$m['providers'][0]['requires'] = ['functions' => 'wc_get_container'];
+refuse_probe($m, '.functions must be a non-empty list', 'a scalar functions requirement is refused');
+$m = probe_manifest();
+$m['providers'][0]['requires'] = ['classes' => []];
+refuse_probe($m, '.classes must be a non-empty list', 'an empty classes list is refused');
+$m = probe_manifest();
+$m['providers'][0]['requires'] = ['functions' => ['wc get container']];
+refuse_probe($m, '.functions must contain only PHP symbol names', 'a function name outside the bounded charset is refused before it can land in an operator-facing string');
+$m = probe_manifest();
+$m['providers'][0]['requires'] = ['classes' => ['WC_Data_Store', 'WC_Data_Store']];
+refuse_probe($m, ".classes repeats 'WC_Data_Store'", 'a repeated symbol name is refused');
+
+// version bounds: the shared {min,max} predicate, min inclusive, max exclusive.
+$m = probe_manifest();
+$m['providers'][0]['requires'] = ['php_version' => ['min' => '9.0', 'max' => '8.0']];
+refuse_probe($m, 'malformed range', 'a php_version window with min >= max is refused through the shared range predicate');
+$m = probe_manifest();
+$m['providers'][0]['requires'] = ['plugin_version' => ['min' => '1.0.0']];
+refuse_probe($m, 'malformed range', 'a plugin_version window missing its max is refused');
+$m = probe_manifest();
+$m['providers'][0]['requires'] = ['wordpress_version' => ['min' => '', 'max' => '7.0']];
+refuse_probe($m, 'malformed range', 'a wordpress_version window with an empty bound is refused, not read as unbounded');
 
 // Two PINNED manifests claiming one id is the load-order hazard: a provider id
 // resolves to concrete executable code, so which code runs may not depend on
