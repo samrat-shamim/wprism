@@ -57,6 +57,24 @@ final class Cli {
             $message = $t->publicMessage;
             $remediation = $t->remediation;
             $redacted = false;
+        } elseif (in_array(get_class($t), self::PUBLIC_REFUSAL_CLASSES, true)
+            && !CommandRefusalException::containsSensitivePublicDetail($t->getMessage())
+            // The class audit's premise is that no sentence carries a path;
+            // the one edge is the bound helper's reason being subprocess
+            // stderr. Any absolute-path shape means the premise broke, so it
+            // falls through to the redacted catch-all rather than publishing.
+            && preg_match('~(?:^|[\s:(\'"])/[^\s\'")]+~', $t->getMessage()) !== 1) {
+            // DUO-3421: a refusal CLASS with a closed, audited message
+            // vocabulary (see PUBLIC_REFUSAL_CLASSES below) is itself the
+            // typed contract this function's doctrine demands — its sentence
+            // IS the public answer. The shared sensitivity screen still gates
+            // every message (the bound helper's reason is subprocess stderr,
+            // so a diagnostic could in principle carry a path); a screened
+            // message falls through to the redacted catch-all below.
+            $specific = ['error' => 'initial_state_boundary'];
+            $message = $t->getMessage();
+            $remediation = self::refusal_remediation($command);
+            $redacted = false;
         } else {
             $reasonCode = str_replace('-', '_', $command) . '_failed';
             $message = "$command refused at an unclassified safety gate";
@@ -130,6 +148,66 @@ final class Cli {
         WP_CLI::halt(1);
     }
 
+    /**
+     * May this Throwable's message be published verbatim in the JSON
+     * refusal envelope?
+     *
+     * The `duo: ` prefix marks a refusal deliberately authored for the
+     * operator — but the prefix alone is not proof of authorship: three
+     * wrapper families re-prefix text the engine does NOT write (a
+     * provider/regenerator's own exit tail per DUO-3282, and wpdb's
+     * last_error on the deletion-guard paths — which Db.php's own header
+     * warns "can echo option/meta payloads"). Those stay redacted here even
+     * though their non-JSON rendering is unchanged. Beyond the shared
+     * sensitivity screen, two extra shapes are excluded from this branch
+     * only (scoped here, not in containsSensitivePublicDetail, so typed
+     * refusal payloads keep their existing semantics): user logins
+     * (`exact login '…'` — cli/README's redaction contract names logins
+     * explicitly, and guard_personal_data() deliberately keeps them
+     * operator-only) and absolute filesystem paths (the shared screen only
+     * catches home-dir shapes). A refusal excluded here falls back to the
+     * fully-redacted envelope — exactly the pre-DUO-3398 behavior, so
+     * fail-closed is never a regression. A multi-line refusal also stays
+     * redacted (the control-byte screen): the loud multi-line gates keep
+     * their non-JSON rendering and are a candidate for typed refusals, not
+     * for this branch.
+     */
+    /**
+     * Refusal CLASSES whose message vocabulary is closed and reviewed, so their
+     * public answer does not depend on any per-command grant. The #180
+     * audit rule, one axis over: a class is admitted only after
+     * someone audits every one of its throw sites and adds it here WITH its
+     * suite pins; a class is never admitted to spare a command the audit, and
+     * admitting one grants that command nothing else.
+     *
+     * DUO-3421 admits InitialStateBoundaryException. Audited: every throw site
+     * in Publish and Capture is a fixed engine sentence; the only
+     * interpolations are $label, drawn from a closed set of engine-authored
+     * artifact names (`site.duo.json`, `Git metadata root`, `code staging
+     * file`, `initial state reservation`, `intent`, `receipt`, …), the bound
+     * helper's own fixed reason vocabulary (`copy source digest changed`,
+     * `parent identity changed`, …), and — once — a nested message from this
+     * same class, which is closed by the same audit. Nothing carries a
+     * repository path, an entity selector, an option value, or any other
+     * operator byte.
+     *
+     * The helper's reason is the one edge worth naming: it is that process's
+     * STDERR, so a PHP diagnostic from inside the helper could in principle
+     * arrive carrying a path. That is exactly why admission is by class and
+     * not by trust — every screen below still runs on the message, and the
+     * refusals suite plants an absolute path in a boundary refusal to prove
+     * the screen still sends it back to the redacted envelope.
+     *
+     * Why this class specifically: `init`'s bound-copy digest boundary
+     * ("copy source digest changed") is the operator's whole answer when the
+     * code changed underneath a confirmed baseline — rerun init — and it was
+     * arriving as "init refused at an unclassified safety gate". `init` gains
+     * nothing else: its injected-fault and ownership internals
+     * must keep redacting, and they do, because they are ordinary Throwables.
+     */
+    private const PUBLIC_REFUSAL_CLASSES = [
+        InitialStateBoundaryException::class,
+    ];
     private static function refusal_remediation(string $command): string {
         return match ($command) {
             'capture' => 'inspect private operator evidence and capture recovery state; classify, correct, or recover the blocker before another attempt',

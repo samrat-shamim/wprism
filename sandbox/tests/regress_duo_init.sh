@@ -45,6 +45,18 @@ HOST_REPO="$REPO_ROOT/sandbox/siterepo/${PAIR}1"
 HOST_REPO2="$REPO_ROOT/sandbox/siterepo/${PAIR}2"
 ENVS_FILE="$REPO_ROOT/sandbox/siterepo/${PAIR}-envs.json"
 COMPOSE_FILE="$REPO_ROOT/sandbox/pair.yml"
+# DUO-3421: the hermetic certification fixture this suite mounts instead of the
+# live library (see its manufacture below) and the confirmation logs that are
+# this suite's primary evidence when a paused confirmation misbehaves. Both are
+# derived from the validated $PAIR, so the EXIT trap's removals stay bounded to
+# paths this run owns.
+HERMETIC_ROOT="/tmp/${PAIR}-init-manifests"
+INIT_LOGS=(
+  "/tmp/${PAIR}-init-concurrent-1.log"
+  "/tmp/${PAIR}-init-concurrent-2.log"
+  "/tmp/${PAIR}-init-root-symlink.log"
+  "/tmp/${PAIR}-init-root-directory.log"
+)
 STARTED_AT=$SECONDS
 
 export DUO_PAIR="$PAIR"
@@ -53,8 +65,27 @@ say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
+# cleanup [preserve_evidence]
+#
+# DUO-3421: a failed run's confirmation logs ARE the diagnosis. The paused
+# confirmations below write their whole answer — refusal envelope included — to
+# /tmp/${PAIR}-init-*.log and nowhere else, so deleting them unconditionally
+# left the one interesting failure in this suite (a confirmation that refuses
+# before it can take the init lease) with no surviving evidence at all; the
+# defect this argument closes cost four instrumentation rounds to see. On
+# failure the logs and the hermetic fixture are kept and their paths printed;
+# on success everything is removed exactly as before. The pair itself is
+# destroyed either way — an owned pair is never leaked for evidence.
 cleanup() {
-  local destroy_status=0 remaining=""
+  local preserve="${1:-0}" destroy_status=0 remaining="" evidence=""
+  if [ "$preserve" = 1 ]; then
+    printf 'preserved init evidence for %s (this run failed; nothing below was deleted):\n' "$PAIR" >&2
+    for evidence in "${INIT_LOGS[@]}" "$HERMETIC_ROOT"; do
+      if [ -e "$evidence" ]; then
+        printf '  %s\n' "$evidence" >&2
+      fi
+    done
+  fi
   if bash sandbox/bin/pair.sh destroy "$PAIR" >/dev/null 2>&1; then
     destroy_status=0
   else
@@ -74,14 +105,23 @@ cleanup() {
     return 1
   fi
   rm -f "$ENVS_FILE"
-  rm -f "/tmp/${PAIR}-init-concurrent-1.log" "/tmp/${PAIR}-init-concurrent-2.log" \
-    "/tmp/${PAIR}-init-root-symlink.log" "/tmp/${PAIR}-init-root-directory.log" \
-    "/tmp/${PAIR}-committed-site.duo.json"
+  if [ "$preserve" != 1 ]; then
+    rm -f "${INIT_LOGS[@]}" "/tmp/${PAIR}-committed-site.duo.json"
+    rm -rf "$HERMETIC_ROOT"
+  fi
   rm -rf "$HOST_REPO" \
     "$REPO_ROOT/sandbox/siterepo/${PAIR}2" \
     "$REPO_ROOT/sandbox/siterepo/origin-${PAIR}.git"
 }
-trap cleanup EXIT
+cleanup_on_exit() {
+  local status=$?
+  if [ "$status" -ne 0 ]; then
+    cleanup 1
+  else
+    cleanup
+  fi
+}
+trap cleanup_on_exit EXIT
 
 # The evidence pair is deliberately reusable. Start from the same verified
 # clean-room boundary that the EXIT trap establishes so a prior interrupted
@@ -99,21 +139,134 @@ assert_exit() {
   pass "$description (exit $CODE)"
 }
 
+library_digest() { # library_digest <dir>
+  find "$1" -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}'
+}
+
+# assert_init_plan <wp1|wp2> <container-repo> <label>  ->  $INIT_PLAN_DIGEST
+#
+# Named assert_*, not require_*: DUO-3408 reserves the `require_<name>() {`
+# grammar to sandbox/conformance/asserts.sh, the single owner of the hook
+# premise helpers, and regress_conformance_asserts.sh fails any second
+# definition home. Only the name is reserved -- the "fixture manufacture
+# failed:" message prefix below IS the cross-suite convention, and this keeps
+# it.
+#
+# DUO-3421, DUO-3381's premise-before-behavior family. Nearly every case below
+# manufactures its fixture the same way: take a fresh `duo init --format=json`
+# proposal, then feed its digest to a confirmation that is expected to fail in
+# some exact injected way, then assert on what the repository retained. That
+# manufacture was never asserted. A `docker compose run` under multi-agent host
+# load can answer EMPTY (or noise-polluted) with exit status 0 — nothing for
+# `set -e` to catch — and an empty digest makes the confirmation refuse BEFORE
+# its first mutation, which every one of those cases then reports as the ENGINE
+# losing a journal, a lock, or a payload. Observed live: "state-reservation
+# failure lost its unmanifested root or sealed journal" on a run whose identical
+# sequence passed standalone twice.
+#
+# Assert it once, here, with the grep-able "fixture manufacture failed:" prefix
+# that marks an infrastructure signal rather than an accusation against Duo. A
+# digest is only usable if the proposal is a JSON object, is READY (a confirmed
+# proposal must be), and carries the exact 64-hex identity the protocol binds.
+# Sets a global instead of echoing: `fail` inside a command substitution would
+# only kill the subshell and hand the caller an empty digest — the very failure
+# this helper exists to make impossible.
+INIT_PLAN_DIGEST=""
+assert_init_plan() {
+  local runner="$1" repo="$2" label="$3" plan ready digest rc=0
+  INIT_PLAN_DIGEST=""
+  set +e
+  plan=$("$runner" duo init --repo="$repo" --format=json)
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] \
+    || fail "fixture manufacture failed: $label proposal exited $rc for $repo: $plan"
+  ready=$(jq -r 'if type == "object" then (.ready | tostring) else "not-an-object" end' <<<"$plan" 2>/dev/null) \
+    || fail "fixture manufacture failed: $label proposal was not JSON for $repo: $plan"
+  [ "$ready" = "true" ] \
+    || fail "fixture manufacture failed: $label proposal is not ready (ready=$ready) for $repo: $plan"
+  digest=$(jq -r '.digest // ""' <<<"$plan")
+  [[ "$digest" =~ ^[a-f0-9]{64}$ ]] \
+    || fail "fixture manufacture failed: $label proposal carried no 64-hex digest for $repo: $plan"
+  INIT_PLAN_DIGEST="$digest"
+}
+
+# DUO-3421: every `duo init` proposal below is evidence-gated. Init refuses to
+# advertise confirmation while any selected adapter reports an unsupported
+# capability row, and CapabilityRegistry attaches evidence_not_current to EVERY
+# certified claim the moment the registry's bound attestation is not current.
+# The checked-in attestation binds the exact bytes of every certification-bound
+# input, so it is EXPIRED by construction on every branch that owes a reference
+# bundle — including the branch whose bundle runs this very suite (legs 13-14).
+# The suite therefore self-blocked on the evidence it exists to mint: the paused
+# swap-link/swap-directory confirmations refused instantly with the redacted
+# not-ready envelope, never took the init lease, and the TOCTOU cases failed
+# with a lease timeout that named none of that.
+#
+# So the pair mounts a hermetic library instead: the shipped manifests byte for
+# byte, with ONLY the attestation re-sealed against this working tree, exactly
+# as re-certifying it would derive it (sandbox/tests/certification_fixture.php,
+# shared with regress_adapter_sources.php's DUO-3379 fixture). Every proposal
+# then sees current evidence regardless of where the live tree sits in its
+# certification cycle, and the product's own expired-evidence refusal is left
+# entirely intact — it is asserted, unmounted, by the offline capability suites.
+#
+# Manufactured and asserted BEFORE the first Docker mutation, and never on the
+# shipped library: a fixture whose manufacture silently failed would report the
+# ENGINE as broken (DUO-3381's premise-before-behavior family).
+say "manufacture the hermetic certification fixture this pair will mount"
+set +e
+LIVE_ATTESTATION=$(php scripts/capability-registry.php check 2>&1)
+LIVE_ATTESTATION_CODE=$?
+set -e
+printf 'live tree attestation (php scripts/capability-registry.php check, exit %s):\n%s\n' \
+  "$LIVE_ATTESTATION_CODE" "$LIVE_ATTESTATION"
+SHIPPED_LIBRARY_BEFORE=$(library_digest "$REPO_ROOT/manifests")
+rm -rf "$HERMETIC_ROOT"
+HERMETIC_MANIFESTS=$(php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT") \
+  || fail "fixture manufacture failed: could not seal a hermetic certification library under $HERMETIC_ROOT"
+[ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
+  || fail "fixture manufacture failed: sealed library landed at $HERMETIC_MANIFESTS, not under this run's owned scratch"
+jq -e '.evidence.status == "current"
+  and ([.manifests[].evidence.status] | unique) == ["current"]
+  and ([.profiles[].evidence.status] | unique) == ["current"]' \
+  "$HERMETIC_MANIFESTS/capabilities/registry.json" >/dev/null \
+  || fail "fixture manufacture failed: the sealed registry does not read current evidence"
+diff -r -x capabilities "$REPO_ROOT/manifests" "$HERMETIC_MANIFESTS" >/dev/null \
+  || fail "fixture manufacture failed: the sealed library is not the shipped library outside capabilities/"
+[ "$SHIPPED_LIBRARY_BEFORE" = "$(library_digest "$REPO_ROOT/manifests")" ] \
+  || fail "fixture manufacture failed: sealing the fixture modified the shipped manifest library"
+pass "hermetic certified library sealed at $HERMETIC_MANIFESTS (shipped bytes unchanged)"
+
+# pair.sh deliberately binds durable pairs to the primary checkout, and
+# pair_compose() re-resolves DUO_AGENT_SRC/DUO_MANIFESTS_SRC from the canonical
+# root inside its own process for exactly that reason — so the long-lived wp1/
+# wp2 web containers it creates below mount the canonical agent and library no
+# matter what this suite exports, and nothing here tries to change that. This
+# pair is disposable evidence for the current issue worktree, so every CLI
+# invocation the suite actually drives is an ephemeral `run --rm` container,
+# which resolves these two from the environment: this checkout's agent, and the
+# hermetic library sealed above. Exported before bring-up so the mount source
+# is fixed and asserted before the first container exists.
+export DUO_AGENT_SRC="$REPO_ROOT/agent"
+export DUO_MANIFESTS_SRC="$HERMETIC_MANIFESTS"
+
 say "boot disposable authenticated Docker target on owned ports $PORT1/$PORT2"
 unset DUO_CLI_IMAGE || true
 bash sandbox/bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless
-
-# pair.sh deliberately binds durable pairs to the primary checkout. This pair
-# is disposable evidence for the current issue worktree, so every subsequent
-# ephemeral CLI invocation explicitly mounts the bytes under test.
-export DUO_AGENT_SRC="$REPO_ROOT/agent"
-export DUO_MANIFESTS_SRC="$REPO_ROOT/manifests"
 COMPOSE=(docker compose -p "duo-$PAIR" -f "$COMPOSE_FILE")
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 git1() { "${COMPOSE[@]}" run --rm -T --entrypoint git cli1 -C /siterepo "$@"; }
+# wait_for_init_lease <repo> <confirmation-log>
+#
+# DUO-3421: a confirmation that never takes the lease has ALREADY answered, in
+# its own log, and that answer is the entire diagnosis — a not-ready proposal
+# refuses before the paused phase is ever reached, which reads here as nothing
+# but a timeout. Paste the log into the failure instead of making the next
+# reader re-instrument the suite to see it (the DUO-3413 evidence discipline).
 wait_for_init_lease() {
-  local repo="$1" name holder
+  local repo="$1" log="$2" name holder
   name="duo-init:$(php -r 'echo substr(hash("sha256", "wp_" . chr(0) . $argv[1]), 0, 48);' "$repo")"
   for _ in $(seq 1 100); do
     holder=$(docker exec -e MYSQL_PWD=root duo-shared-db \
@@ -123,7 +276,10 @@ wait_for_init_lease() {
     fi
     sleep 0.1
   done
-  fail "confirmation never acquired the init lease for $repo"
+  fail "confirmation never acquired the init lease for $repo; its own answer, from $log:
+$(cat -- "$log" 2>&1)
+(a not-ready proposal refuses before the paused phase — check the capability
+rows above and the hermetic fixture at $HERMETIC_ROOT)"
 }
 
 say "install the exact certified WooCommerce boundary and representative authored entities"
@@ -269,8 +425,8 @@ pass "missing, terminal-link, dangling-link, and ancestor-link roots remain outs
 
 say "post-proposal repository replacement refuses before the first repository write"
 mkdir -p "$HOST_REPO/swap-link"
-SWAP_LINK_PLAN=$(wp1 duo init --repo=/siterepo/swap-link --format=json)
-SWAP_LINK_DIGEST=$(jq -r .digest <<<"$SWAP_LINK_PLAN")
+assert_init_plan wp1 /siterepo/swap-link "post-proposal symlink swap"
+SWAP_LINK_DIGEST="$INIT_PLAN_DIGEST"
 wp1 eval '
 $dir = ABSPATH . "duo-init-swap-external";
 wp_mkdir_p($dir . "/adapters");
@@ -286,7 +442,7 @@ set +e
   >"/tmp/${PAIR}-init-root-symlink.log" 2>&1 &
 SWAP_LINK_PID=$!
 set -e
-wait_for_init_lease /siterepo/swap-link
+wait_for_init_lease /siterepo/swap-link "/tmp/${PAIR}-init-root-symlink.log"
 mv "$HOST_REPO/swap-link" "$HOST_REPO/swap-link-reviewed"
 ln -s /var/www/html/duo-init-swap-external "$HOST_REPO/swap-link"
 set +e
@@ -311,8 +467,8 @@ unlink($dir . "/adapters/poison.json"); rmdir($dir . "/adapters"); rmdir($dir);
 ' >/dev/null
 
 mkdir -p "$HOST_REPO/swap-directory" "$HOST_REPO/swap-directory-replacement"
-SWAP_DIR_PLAN=$(wp1 duo init --repo=/siterepo/swap-directory --format=json)
-SWAP_DIR_DIGEST=$(jq -r .digest <<<"$SWAP_DIR_PLAN")
+assert_init_plan wp1 /siterepo/swap-directory "post-proposal directory swap"
+SWAP_DIR_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 "${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 -e DUO_TEST_INIT_PAUSE_MS=10000 \
@@ -320,7 +476,7 @@ set +e
   >"/tmp/${PAIR}-init-root-directory.log" 2>&1 &
 SWAP_DIR_PID=$!
 set -e
-wait_for_init_lease /siterepo/swap-directory
+wait_for_init_lease /siterepo/swap-directory "/tmp/${PAIR}-init-root-directory.log"
 mv "$HOST_REPO/swap-directory" "$HOST_REPO/swap-directory-reviewed"
 mv "$HOST_REPO/swap-directory-replacement" "$HOST_REPO/swap-directory"
 set +e
@@ -337,8 +493,8 @@ rmdir "$HOST_REPO/swap-directory" "$HOST_REPO/swap-directory-reviewed"
 pass "symlink and ordinary-directory replacement both refuse before repository or ledger mutation"
 
 say "a partial first Git initialization is fully compensated"
-GIT_FAIL_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-GIT_FAIL_DIGEST=$(jq -r .digest <<<"$GIT_FAIL_PLAN")
+assert_init_plan wp1 /siterepo "post-Git-create injected failure"
+GIT_FAIL_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 -e DUO_TEST_INIT_FAIL_AFTER_GIT_CREATE=1 \
@@ -429,8 +585,18 @@ wp_mkdir_p($dir);
 file_put_contents($dir . "/duo-init-site.php", "<?php\n/* Plugin Name: Duo Init Site Adapter\nVersion: 1.0.0 */\n");
 ' >/dev/null
 wp1 plugin activate duo-init-site >/dev/null
+# DUO-3421: [1.0.0, 2.0.0), not [1.0.0, 1.0.0). Policy's assert_min_max_range()
+# has required min STRICTLY less than max since DUO-3222 ("wildcards, empty,
+# and unbounded forms are not certifiable"), so the original min == max fixture
+# made Policy::load() throw before the site adapter could be reported at all:
+# init answered with the redacted unclassified envelope (exit 1) instead of the
+# uncertified-source blocker this case exists to assert (exit 2). Nothing ever
+# saw it, because the evidence-coupled lease timeout above aborted every run
+# before this line. Verified live both ways: with the range repaired the
+# proposal reports adapter_source_uncertified for duo-init-site (and, on an
+# unsealed library, evidence_not_current beside it).
 cat > "$HOST_REPO/adapters/duo-init-site.json" <<'JSON'
-{"name":"duo-init-site","option_autoload":"preserve","options":{"duo_init_site_option":{"class":"authored"}},"plugin":"duo-init-site/duo-init-site.php","spec_version":2,"version_range":{"min":"1.0.0","max":"1.0.0"}}
+{"name":"duo-init-site","option_autoload":"preserve","options":{"duo_init_site_option":{"class":"authored"}},"plugin":"duo-init-site/duo-init-site.php","spec_version":2,"version_range":{"min":"1.0.0","max":"2.0.0"}}
 JSON
 SITE_ADAPTER_BEFORE=$(sha256sum "$HOST_REPO/adapters/duo-init-site.json" | awk '{print $1}')
 assert_exit 2 "uncertified site adapter blocks init" "${DUO[@]}" init "${PAIR}1" --yes
@@ -449,20 +615,31 @@ rm -rf "$HOST_REPO/adapters"
 pass "site adapter source remains distinct from a missing shipped adapter"
 
 say "the adapters allowlist never launders a foreign file or symlink"
+# DUO-3421: these two go through the PUBLIC HOST CLI, whose contract for a
+# refusal is the rendered envelope (render_command_refusal_human), not the
+# machine JSON — `duo init` is a human surface, and cmd_status()/fetch_pending()
+# established that shape in DUO-3399. The stable reason code, the remediation,
+# and the redaction witness must all survive the transport; the raw
+# duo-command-refusal/v1 document is asserted where it belongs, on the direct
+# --format=json invocation above. Until DUO-3421 the host preferred stderr,
+# which for a docker transport is never empty (compose writes "Container ...
+# Creating" there on every run), so all three were replaced by that noise.
 printf 'foreign repository payload\n' > "$HOST_REPO/adapters"
 assert_exit 1 "regular-file adapter boundary blocks init" "${DUO[@]}" init "${PAIR}1" --yes
-grep -q 'duo-command-refusal/v1' <<<"$OUT" || fail "regular-file adapter refusal omitted its stable JSON envelope"
-grep -q 'init_failed' <<<"$OUT" || fail "regular-file adapter refusal omitted its stable reason code"
-grep -q 'details_redacted' <<<"$OUT" || fail "regular-file adapter refusal exposed private exception detail"
+grep -qF '[init_failed]' <<<"$OUT" || fail "regular-file adapter refusal omitted its stable rendered envelope and reason code"
+grep -q 'details: redacted from machine output' <<<"$OUT" || fail "regular-file adapter refusal omitted its redaction witness"
+grep -q 'correct the named init blocker' <<<"$OUT" || fail "regular-file adapter refusal omitted its remediation"
+! grep -q 'Container duo-' <<<"$OUT" || fail "regular-file adapter refusal surfaced transport noise instead of the target's answer"
 ! grep -q 'exists but is not a real directory' <<<"$OUT" || fail "regular-file adapter refusal leaked private ownership detail"
 [ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
   || fail "regular-file adapter boundary mutated the repository"
 rm -f "$HOST_REPO/adapters"
 ln -s /tmp/duo-init-missing-adapters "$HOST_REPO/adapters"
 assert_exit 1 "dangling adapter symlink blocks init" "${DUO[@]}" init "${PAIR}1" --yes
-grep -q 'duo-command-refusal/v1' <<<"$OUT" || fail "adapter symlink refusal omitted its stable JSON envelope"
-grep -q 'init_failed' <<<"$OUT" || fail "adapter symlink refusal omitted its stable reason code"
-grep -q 'details_redacted' <<<"$OUT" || fail "adapter symlink refusal exposed private exception detail"
+grep -qF '[init_failed]' <<<"$OUT" || fail "adapter symlink refusal omitted its stable rendered envelope and reason code"
+grep -q 'details: redacted from machine output' <<<"$OUT" || fail "adapter symlink refusal omitted its redaction witness"
+grep -q 'correct the named init blocker' <<<"$OUT" || fail "adapter symlink refusal omitted its remediation"
+! grep -q 'Container duo-' <<<"$OUT" || fail "adapter symlink refusal surfaced transport noise instead of the target's answer"
 ! grep -q 'exists but is not a real directory' <<<"$OUT" || fail "adapter symlink refusal leaked private ownership detail"
 [ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
   || fail "adapter symlink boundary mutated the repository"
@@ -628,8 +805,8 @@ rm -f "$HOST_REPO/.duo-init-attempt.next"
 pass "orphan init next-record is preserved and pre-write refused"
 
 say "first-lock acquisition refusal cannot strand an unjournaled lock"
-LOCK_FAILURE_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-LOCK_FAILURE_DIGEST=$(jq -r .digest <<<"$LOCK_FAILURE_PLAN")
+assert_init_plan wp1 /siterepo "first-lock acquisition failure"
+LOCK_FAILURE_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 \
@@ -643,8 +820,8 @@ set -e
 pass "failed first-lock acquisition compensates its exact new inode before journal cleanup"
 
 say "Git initialization failure never loses its sealed recovery authority"
-PARTIAL_GIT_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-PARTIAL_GIT_DIGEST=$(jq -r .digest <<<"$PARTIAL_GIT_PLAN")
+assert_init_plan wp1 /siterepo "unmanifested Git initialization"
+PARTIAL_GIT_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 \
@@ -668,8 +845,8 @@ find "$HOST_REPO" -mindepth 1 -delete
 pass "planned-to-mutated Git gaps retain a sealed journal until explicit cleanup"
 
 say "unmanifested state reservation is preserved with its sealed journal"
-UNBOUND_STATE_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-UNBOUND_STATE_DIGEST=$(jq -r .digest <<<"$UNBOUND_STATE_PLAN")
+assert_init_plan wp1 /siterepo "unmanifested state reservation"
+UNBOUND_STATE_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 \
@@ -692,8 +869,8 @@ find "$HOST_REPO" -mindepth 1 -delete
 pass "state planned-to-mutated gap cannot manufacture deletion authority"
 
 say "code source change after the bound copy leaves no unjournaled stage"
-COPY_CHANGE_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-COPY_CHANGE_DIGEST=$(jq -r .digest <<<"$COPY_CHANGE_PLAN")
+assert_init_plan wp1 /siterepo "changed code source"
+COPY_CHANGE_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 \
@@ -719,8 +896,8 @@ git1 config user.email 'duo-init@example.invalid'
 git1 add .gitignore
 git1 commit -m 'test: pre-existing init worktree' >/dev/null
 for INIT_KILL_PHASE in lock-created attempt-transition-pre-rename; do
-  INIT_KILL_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-  INIT_KILL_DIGEST=$(jq -r .digest <<<"$INIT_KILL_PLAN")
+  assert_init_plan wp1 /siterepo "$INIT_KILL_PHASE SIGKILL"
+  INIT_KILL_DIGEST="$INIT_PLAN_DIGEST"
   set +e
   OUT=$("${COMPOSE[@]}" run --rm -T \
     -e DUO_TEST_MODE=1 \
@@ -766,8 +943,8 @@ rm -f "$HOST_REPO/.gitignore"
 pass "prepublication crash recovery is fresh-process, sealed, and Git-invisible"
 
 say "partial code staging is retained without manufacturing deletion authority"
-PARTIAL_CODE_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-PARTIAL_CODE_DIGEST=$(jq -r .digest <<<"$PARTIAL_CODE_PLAN")
+assert_init_plan wp1 /siterepo "partial code staging"
+PARTIAL_CODE_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 \
@@ -789,8 +966,8 @@ find "$HOST_REPO" -mindepth 1 -delete
 pass "partial code-stage evidence is retained fail-closed for explicit manual cleanup"
 
 say "partial initial state staging is retained without a completed manifest"
-PARTIAL_STATE_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-PARTIAL_STATE_DIGEST=$(jq -r .digest <<<"$PARTIAL_STATE_PLAN")
+assert_init_plan wp1 /siterepo "partial initial-state staging"
+PARTIAL_STATE_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 \
@@ -815,8 +992,8 @@ wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_st
 pass "partial state payload is retained fail-closed until explicit manual cleanup"
 
 say "record-temp SIGKILL is a non-confirmable recovery shape"
-TEMP_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-TEMP_DIGEST=$(jq -r .digest <<<"$TEMP_PLAN")
+assert_init_plan wp1 /siterepo "record-temp SIGKILL"
+TEMP_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 \
@@ -840,8 +1017,8 @@ wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_st
 pass "record-temp recovery retains the exact unbound artifact and journal"
 
 say "Init-owned temp SIGKILL is a non-confirmable recovery shape"
-INIT_TEMP_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-INIT_TEMP_DIGEST=$(jq -r .digest <<<"$INIT_TEMP_PLAN")
+assert_init_plan wp1 /siterepo "Init-owned temp SIGKILL"
+INIT_TEMP_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 \
@@ -877,8 +1054,8 @@ $id = wp_insert_attachment([
 update_attached_file($id, $path);
 ' >/dev/null
 
-FAIL_NEXT_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-FAIL_NEXT_DIGEST=$(jq -r .digest <<<"$FAIL_NEXT_PLAN")
+assert_init_plan wp1 /siterepo "post-next-link publication failure"
+FAIL_NEXT_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 \
@@ -899,8 +1076,8 @@ grep -q 'safely rolled back' <<<"$OUT" \
 wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
 pass "normal failure after the fresh intent next-link recovers without legacy cleanup"
 
-POST_SWAP_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-POST_SWAP_DIGEST=$(jq -r .digest <<<"$POST_SWAP_PLAN")
+assert_init_plan wp1 /siterepo "post-swap unmanifested directory"
+POST_SWAP_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 \
@@ -925,8 +1102,8 @@ pass "live initial success requires the exact candidate manifest through receipt
 
 say "strict initial recovery preserves stable payload additions absent from sealed manifests"
 for STRICT_PHASE in record-create-next after-backup-rename after-state-rename; do
-  STRICT_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-  STRICT_DIGEST=$(jq -r .digest <<<"$STRICT_PLAN")
+  assert_init_plan wp1 /siterepo "$STRICT_PHASE strict recovery"
+  STRICT_DIGEST="$INIT_PLAN_DIGEST"
   set +e
   OUT=$("${COMPOSE[@]}" run --rm -T \
     -e DUO_TEST_MODE=1 \
@@ -953,8 +1130,8 @@ done
 pass "staging, retained reservation, and published candidate cleanup all require exact manifests"
 
 say "strict recovery proposal refuses a partially removed manifest-bound tree"
-PARTIAL_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-PARTIAL_DIGEST=$(jq -r .digest <<<"$PARTIAL_PLAN")
+assert_init_plan wp1 /siterepo "partial manifest-bound tree"
+PARTIAL_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 \
@@ -981,8 +1158,8 @@ wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_st
 pass "strict recovery proposal refuses partial manifest-bound trees before mutation"
 
 for PUBLISH_KILL_PHASE in record-create-next intent-written after-state-rename; do
-  KILL_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-  KILL_DIGEST=$(jq -r .digest <<<"$KILL_PLAN")
+  assert_init_plan wp1 /siterepo "$PUBLISH_KILL_PHASE SIGKILL"
+  KILL_DIGEST="$INIT_PLAN_DIGEST"
   set +e
   OUT=$("${COMPOSE[@]}" run --rm -T \
     -e DUO_TEST_MODE=1 \
@@ -1028,8 +1205,8 @@ grep -q 'Initialization cancelled' <<<"$OUT" || fail "cancelled init did not say
 pass "confirmation boundary is real"
 
 say "two concurrent confirmations produce exactly one complete winner"
-CONCURRENT_PLAN=$(wp2 duo init --repo=/siterepo --format=json)
-CONCURRENT_DIGEST=$(jq -r .digest <<<"$CONCURRENT_PLAN")
+assert_init_plan wp2 /siterepo "concurrent confirmation"
+CONCURRENT_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 "${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 -e DUO_TEST_INIT_PUBLICATION_PAUSE_MS=5000 \
@@ -1132,8 +1309,8 @@ grep -q '0 drift' <<<"$OUT" || fail "clean status did not report zero drift"
 say "post-COMMIT SIGKILL finalizes the verified tuple instead of stranding its journal"
 find "$HOST_REPO2" -mindepth 1 -delete
 wp2 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
-COMMITTED_PLAN=$(wp2 duo init --repo=/siterepo --format=json)
-COMMITTED_DIGEST=$(jq -r .digest <<<"$COMMITTED_PLAN")
+assert_init_plan wp2 /siterepo "pre-unlink journal SIGKILL"
+COMMITTED_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 \
@@ -1169,8 +1346,8 @@ pass "committed initialization survives a crash immediately before atomic journa
 say "a crash immediately after atomic journal removal leaves a complete usable baseline"
 find "$HOST_REPO2" -mindepth 1 -delete
 wp2 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
-POST_UNLINK_PLAN=$(wp2 duo init --repo=/siterepo --format=json)
-POST_UNLINK_DIGEST=$(jq -r .digest <<<"$POST_UNLINK_PLAN")
+assert_init_plan wp2 /siterepo "post-unlink journal SIGKILL"
+POST_UNLINK_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 \
@@ -1196,8 +1373,8 @@ pass "atomic journal removal has no absent-canonical hidden-claim crash state"
 say "retained post-commit cleanup cannot masquerade as successful init"
 find "$HOST_REPO2" -mindepth 1 -delete
 wp2 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
-RETAINED_PLAN=$(wp2 duo init --repo=/siterepo --format=json)
-RETAINED_DIGEST=$(jq -r .digest <<<"$RETAINED_PLAN")
+assert_init_plan wp2 /siterepo "retained post-commit cleanup"
+RETAINED_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 \

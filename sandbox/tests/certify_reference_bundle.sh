@@ -18,6 +18,39 @@ PORT1="${CERT_BUNDLE_PORT1:-8880}"
 PORT2="${CERT_BUNDLE_PORT2:-8881}"
 OUT_ROOT="${CERT_BUNDLE_OUT:-$PWD/certification-bundles}"
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail "invalid CERT_BUNDLE_PAIR '$PAIR'"
+
+# DUO-3421: the two init legs -- the platform init contract and the public
+# existing-site `duo init` golden path -- are DESCOPED from the certified set
+# by default, and run only under CERT_BUNDLE_INCLUDE_INIT_LEGS=1.
+#
+# #151 added both to the certified set before either had ever passed end to
+# end. They could not have: the golden path was evidence-coupled (its own
+# proposals refused on the expired attestation every bundle-owing branch
+# carries by construction, so it self-blocked on the evidence the bundle
+# exists to mint), and behind that coupling sat thirteen independent defects
+# -- an uncertifiable fixture range, unasserted fixture manufacture, a code
+# staging charset that refused ordinary shipped bytes, an O(n^2) staging walk,
+# a refusal surface that published transport noise instead of the target's
+# answer, a proposal that invited a confirmation it would then refuse, a
+# rollback proof that refused the rollback it had just performed, a recovery
+# that demanded manual intervention over a file it had never opened, two
+# proven outcomes reported as unclassified gates, and two blockers that named
+# themselves in words nothing else used. DUO-3421 fixed ten of them; the
+# remainder is DUO-3427 (init interrupted-recovery subsystem), plus the
+# separately filed golden-path clock defect: `completed_within_fifteen_minutes`
+# is certified as a per-init claim but implemented as a whole-suite stopwatch
+# (STARTED_AT is set at script start), and the suite runs eighteen full
+# code stagings, so it cannot hold whatever the engine does.
+#
+# A certified set may only contain legs that have passed. Until those land,
+# these two are skipped LOUDLY -- never silently -- and the bundle carries no
+# test fragment, no assertion, and no exclusion claiming them.
+INCLUDE_INIT_LEGS=0
+case "${CERT_BUNDLE_INCLUDE_INIT_LEGS:-}" in
+  1|true|yes) INCLUDE_INIT_LEGS=1 ;;
+  ''|0|false|no) INCLUDE_INIT_LEGS=0 ;;
+  *) fail "CERT_BUNDLE_INCLUDE_INIT_LEGS must be 1/true/yes or 0/false/no (got '${CERT_BUNDLE_INCLUDE_INIT_LEGS}')" ;;
+esac
 command -v jq >/dev/null || fail "jq required"
 command -v php >/dev/null || fail "php required"
 command -v git >/dev/null || fail "git required"
@@ -604,7 +637,7 @@ pass "bundle builder and all invoked harnesses parse; pair load inspected"
 
 overall=0
 leg=0
-total_legs=$((${#CONFORMANCE_MANIFESTS[@]} + 4))
+total_legs=$((${#CONFORMANCE_MANIFESTS[@]} + 2 + INCLUDE_INIT_LEGS * 2))
 for manifest in "${CONFORMANCE_MANIFESTS[@]}"; do
   leg=$((leg + 1))
   id="conformance-$manifest"
@@ -771,103 +804,113 @@ write_fragment exact-artifact-version-matrix version-matrix \
   "$WORK_ROOT/exact-artifact-version-matrix.fragment.json"
 append_fragment "$WORK_ROOT/exact-artifact-version-matrix.fragment.json" "$MATRIX_LOG"
 
-leg=$((leg + 1))
-init_contract_assertions='["authenticated_target_proposal","digest_bound_confirmation","separate_code_and_state_declarations","redacted_risk_rendering","fail_closed_transport","generic_authored_only_scope","initial_baseline_lifecycle"]'
-init_contract_exclusions='["live_wordpress_runtime","plugin_semantic_conformance","agent_installation_or_adoption"]'
-if [ "$overall" -eq 0 ]; then
-  say "reference leg $leg/$total_legs: existing-site init platform contract"
-  set +e
-  php tests/regress_init_contract.php > "$INIT_CONTRACT_LOG" 2>&1
-  init_contract_rc=$?
-  set -e
-  tail -30 "$INIT_CONTRACT_LOG"
-  init_contract_reason=passed
-  if [ "$init_contract_rc" -eq 0 ] && ! grep -qF 'REGRESS_INIT_CONTRACT PASSED' "$INIT_CONTRACT_LOG"; then
-    init_contract_rc=70
-    init_contract_reason=invalid_checker_output
-  fi
-  if [ "$init_contract_rc" -ne 0 ]; then
-    overall=1
-    [ "$init_contract_reason" = passed ] && init_contract_reason=command_failed
-    init_contract_result_assertions='[]'
-    init_contract_status=unknown
+if [ "$INCLUDE_INIT_LEGS" = 1 ]; then
+  # Opt-in only (see CERT_BUNDLE_INCLUDE_INIT_LEGS at the top of this file).
+  leg=$((leg + 1))
+  init_contract_assertions='["authenticated_target_proposal","digest_bound_confirmation","separate_code_and_state_declarations","redacted_risk_rendering","fail_closed_transport","generic_authored_only_scope","initial_baseline_lifecycle"]'
+  init_contract_exclusions='["live_wordpress_runtime","plugin_semantic_conformance","agent_installation_or_adoption"]'
+  if [ "$overall" -eq 0 ]; then
+    say "reference leg $leg/$total_legs: existing-site init platform contract"
+    set +e
+    php tests/regress_init_contract.php > "$INIT_CONTRACT_LOG" 2>&1
+    init_contract_rc=$?
+    set -e
+    tail -30 "$INIT_CONTRACT_LOG"
+    init_contract_reason=passed
+    if [ "$init_contract_rc" -eq 0 ] && ! grep -qF 'REGRESS_INIT_CONTRACT PASSED' "$INIT_CONTRACT_LOG"; then
+      init_contract_rc=70
+      init_contract_reason=invalid_checker_output
+    fi
+    if [ "$init_contract_rc" -ne 0 ]; then
+      overall=1
+      [ "$init_contract_reason" = passed ] && init_contract_reason=command_failed
+      init_contract_result_assertions='[]'
+      init_contract_status=unknown
+    else
+      init_contract_result_assertions="$init_contract_assertions"
+      init_contract_status=clean
+    fi
+    write_scoped_result init-contract "$init_contract_rc" "$init_contract_reason" \
+      "$init_contract_result_assertions" platform-init-contract "$init_contract_exclusions" \
+      "$WORK_ROOT/init-contract.result.json"
+    jq -n --arg status "$init_contract_status" --arg scope platform-init-contract \
+      --argjson assertions "$init_contract_result_assertions" --argjson exclusions "$init_contract_exclusions" \
+      '{status:$status,scope:$scope,assertions:$assertions,exclusions:$exclusions}' \
+      > "$WORK_ROOT/init-contract.diff.json"
   else
-    init_contract_result_assertions="$init_contract_assertions"
-    init_contract_status=clean
+    printf 'SKIPPED: blocked by an earlier failed reference-certification leg\n' > "$INIT_CONTRACT_LOG"
+    write_scoped_result init-contract 99 blocked_by_prior_failure '[]' \
+      platform-init-contract "$init_contract_exclusions" "$WORK_ROOT/init-contract.result.json"
+    jq -n --arg scope platform-init-contract --argjson exclusions "$init_contract_exclusions" \
+      '{status:"unknown",scope:$scope,reason:"blocked_by_prior_failure",assertions:[],exclusions:$exclusions}' \
+      > "$WORK_ROOT/init-contract.diff.json"
   fi
-  write_scoped_result init-contract "$init_contract_rc" "$init_contract_reason" \
-    "$init_contract_result_assertions" platform-init-contract "$init_contract_exclusions" \
-    "$WORK_ROOT/init-contract.result.json"
-  jq -n --arg status "$init_contract_status" --arg scope platform-init-contract \
-    --argjson assertions "$init_contract_result_assertions" --argjson exclusions "$init_contract_exclusions" \
-    '{status:$status,scope:$scope,assertions:$assertions,exclusions:$exclusions}' \
-    > "$WORK_ROOT/init-contract.diff.json"
-else
-  printf 'SKIPPED: blocked by an earlier failed reference-certification leg\n' > "$INIT_CONTRACT_LOG"
-  write_scoped_result init-contract 99 blocked_by_prior_failure '[]' \
-    platform-init-contract "$init_contract_exclusions" "$WORK_ROOT/init-contract.result.json"
-  jq -n --arg scope platform-init-contract --argjson exclusions "$init_contract_exclusions" \
-    '{status:"unknown",scope:$scope,reason:"blocked_by_prior_failure",assertions:[],exclusions:$exclusions}' \
-    > "$WORK_ROOT/init-contract.diff.json"
-fi
-write_fragment init-contract platform-init-contract \
-  "$WORK_ROOT/init-contract.result.json" "$WORK_ROOT/init-contract.diff.json" \
-  "$WORK_ROOT/init-contract.fragment.json"
-append_fragment "$WORK_ROOT/init-contract.fragment.json" "$INIT_CONTRACT_LOG"
+  write_fragment init-contract platform-init-contract \
+    "$WORK_ROOT/init-contract.result.json" "$WORK_ROOT/init-contract.diff.json" \
+    "$WORK_ROOT/init-contract.fragment.json"
+  append_fragment "$WORK_ROOT/init-contract.fragment.json" "$INIT_CONTRACT_LOG"
 
-leg=$((leg + 1))
-init_golden_assertions='["no_write_blockers_and_cancel","public_digest_confirmation","separate_code_and_state_baselines","selected_authored_product_and_taxonomy_scope","runtime_order_exclusion","clean_public_status","completed_within_fifteen_minutes"]'
-init_golden_exclusions='["woocommerce_semantic_conformance","full_site_coverage","code_and_database_rollback","agent_installation_or_adoption"]'
-if [ "$overall" -eq 0 ]; then
-  say "reference leg $leg/$total_legs: public existing-site duo init golden path"
-  set +e
-  DUO_INIT_PAIR="$PAIR" DUO_INIT_PORT1="$PORT1" DUO_INIT_PORT2="$PORT2" \
-    bash tests/regress_duo_init.sh > "$INIT_GOLDEN_LOG" 2>&1
-  init_golden_rc=$?
-  set -e
-  tail -40 "$INIT_GOLDEN_LOG"
-  init_golden_reason=passed
-  if [ "$init_golden_rc" -eq 0 ] && ! grep -qF '✔ REGRESS_DUO_INIT PASSED' "$INIT_GOLDEN_LOG"; then
-    init_golden_rc=70
-    init_golden_reason=invalid_checker_output
-  fi
-  if ! destroy_own_pair; then
-    init_golden_rc=72
-    init_golden_reason=cleanup_failed
-  fi
-  if [ "$init_golden_rc" -ne 0 ]; then
-    overall=1
-    [ "$init_golden_reason" = passed ] && init_golden_reason=command_failed
-    init_golden_result_assertions='[]'
-    init_golden_status=unknown
+  leg=$((leg + 1))
+  init_golden_assertions='["no_write_blockers_and_cancel","public_digest_confirmation","separate_code_and_state_baselines","selected_authored_product_and_taxonomy_scope","runtime_order_exclusion","clean_public_status","completed_within_fifteen_minutes"]'
+  init_golden_exclusions='["woocommerce_semantic_conformance","full_site_coverage","code_and_database_rollback","agent_installation_or_adoption"]'
+  if [ "$overall" -eq 0 ]; then
+    say "reference leg $leg/$total_legs: public existing-site duo init golden path"
+    set +e
+    DUO_INIT_PAIR="$PAIR" DUO_INIT_PORT1="$PORT1" DUO_INIT_PORT2="$PORT2" \
+      bash tests/regress_duo_init.sh > "$INIT_GOLDEN_LOG" 2>&1
+    init_golden_rc=$?
+    set -e
+    tail -40 "$INIT_GOLDEN_LOG"
+    init_golden_reason=passed
+    if [ "$init_golden_rc" -eq 0 ] && ! grep -qF '✔ REGRESS_DUO_INIT PASSED' "$INIT_GOLDEN_LOG"; then
+      init_golden_rc=70
+      init_golden_reason=invalid_checker_output
+    fi
+    if ! destroy_own_pair; then
+      init_golden_rc=72
+      init_golden_reason=cleanup_failed
+    fi
+    if [ "$init_golden_rc" -ne 0 ]; then
+      overall=1
+      [ "$init_golden_reason" = passed ] && init_golden_reason=command_failed
+      init_golden_result_assertions='[]'
+      init_golden_status=unknown
+    else
+      init_golden_result_assertions="$init_golden_assertions"
+      init_golden_status=clean
+    fi
+    write_scoped_result duo-init-golden-path "$init_golden_rc" "$init_golden_reason" \
+      "$init_golden_result_assertions" existing-site-init-workflow "$init_golden_exclusions" \
+      "$WORK_ROOT/duo-init-golden-path.result.json"
+    jq -n --arg status "$init_golden_status" --arg scope existing-site-init-workflow \
+      --argjson assertions "$init_golden_result_assertions" --argjson exclusions "$init_golden_exclusions" \
+      '{status:$status,scope:$scope,assertions:$assertions,exclusions:$exclusions,
+        fixture:{plugin:"woocommerce",version:"11.0.0",version_checked_only:true,
+          semantic_conformance:"not_certified_by_this_test"}}' \
+      > "$WORK_ROOT/duo-init-golden-path.diff.json"
   else
-    init_golden_result_assertions="$init_golden_assertions"
-    init_golden_status=clean
+    printf 'SKIPPED: blocked by an earlier failed reference-certification leg\n' > "$INIT_GOLDEN_LOG"
+    write_scoped_result duo-init-golden-path 99 blocked_by_prior_failure '[]' \
+      existing-site-init-workflow "$init_golden_exclusions" \
+      "$WORK_ROOT/duo-init-golden-path.result.json"
+    jq -n --arg scope existing-site-init-workflow --argjson exclusions "$init_golden_exclusions" \
+      '{status:"unknown",scope:$scope,reason:"blocked_by_prior_failure",assertions:[],exclusions:$exclusions,
+        fixture:{plugin:"woocommerce",version:"11.0.0",version_checked_only:true,
+          semantic_conformance:"not_certified_by_this_test"}}' \
+      > "$WORK_ROOT/duo-init-golden-path.diff.json"
   fi
-  write_scoped_result duo-init-golden-path "$init_golden_rc" "$init_golden_reason" \
-    "$init_golden_result_assertions" existing-site-init-workflow "$init_golden_exclusions" \
-    "$WORK_ROOT/duo-init-golden-path.result.json"
-  jq -n --arg status "$init_golden_status" --arg scope existing-site-init-workflow \
-    --argjson assertions "$init_golden_result_assertions" --argjson exclusions "$init_golden_exclusions" \
-    '{status:$status,scope:$scope,assertions:$assertions,exclusions:$exclusions,
-      fixture:{plugin:"woocommerce",version:"11.0.0",version_checked_only:true,
-        semantic_conformance:"not_certified_by_this_test"}}' \
-    > "$WORK_ROOT/duo-init-golden-path.diff.json"
+  write_fragment duo-init-golden-path existing-site-init-workflow \
+    "$WORK_ROOT/duo-init-golden-path.result.json" "$WORK_ROOT/duo-init-golden-path.diff.json" \
+    "$WORK_ROOT/duo-init-golden-path.fragment.json"
+  append_fragment "$WORK_ROOT/duo-init-golden-path.fragment.json" "$INIT_GOLDEN_LOG"
 else
-  printf 'SKIPPED: blocked by an earlier failed reference-certification leg\n' > "$INIT_GOLDEN_LOG"
-  write_scoped_result duo-init-golden-path 99 blocked_by_prior_failure '[]' \
-    existing-site-init-workflow "$init_golden_exclusions" \
-    "$WORK_ROOT/duo-init-golden-path.result.json"
-  jq -n --arg scope existing-site-init-workflow --argjson exclusions "$init_golden_exclusions" \
-    '{status:"unknown",scope:$scope,reason:"blocked_by_prior_failure",assertions:[],exclusions:$exclusions,
-      fixture:{plugin:"woocommerce",version:"11.0.0",version_checked_only:true,
-        semantic_conformance:"not_certified_by_this_test"}}' \
-    > "$WORK_ROOT/duo-init-golden-path.diff.json"
+  say "reference legs: init platform contract + public duo init golden path are DESCOPED"
+  printf '\033[1;33mSKIPPED (not certified, not claimed): the two init legs are out of the
+certified set pending DUO-3427 (init interrupted-recovery subsystem) and the
+golden-path clock defect -- #151 certified them before either had ever passed
+end to end. This bundle carries no init test fragment, assertion, or exclusion.
+Run them with CERT_BUNDLE_INCLUDE_INIT_LEGS=1 once both land.\033[0m\n'
 fi
-write_fragment duo-init-golden-path existing-site-init-workflow \
-  "$WORK_ROOT/duo-init-golden-path.result.json" "$WORK_ROOT/duo-init-golden-path.diff.json" \
-  "$WORK_ROOT/duo-init-golden-path.fragment.json"
-append_fragment "$WORK_ROOT/duo-init-golden-path.fragment.json" "$INIT_GOLDEN_LOG"
 
 assert_exact_source_unchanged
 say "materialize the content-addressed machine-readable bundle"

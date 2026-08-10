@@ -1504,6 +1504,14 @@ function cmd_init(EnvironmentDriver $t, array $extra): int {
 
     try {
         $proposal = Init::proposal($t);
+    } catch (\Duo\Orchestrator\InitRefusalException $e) {
+        // DUO-3421: the target refused with the common v1 envelope. Render its
+        // public fields the way every other host refusal surface does, instead
+        // of pasting raw machine JSON at a human or, worse, the transport
+        // noise that used to win over it.
+        fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
+        render_command_refusal_human($e->refusal);
+        return 1;
     } catch (\Throwable $e) {
         $message = $e->getMessage();
         if (str_contains(strtolower($message), 'not a registered wp command')
@@ -1532,6 +1540,10 @@ function cmd_init(EnvironmentDriver $t, array $extra): int {
 
     try {
         $result = Init::confirm($t, $digest);
+    } catch (\Duo\Orchestrator\InitRefusalException $e) {
+        fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
+        render_command_refusal_human($e->refusal);
+        return 1;
     } catch (\Throwable $e) {
         fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
         return 1;

@@ -180,6 +180,78 @@ try {
     check(str_contains($expected->getMessage(), 'invalid JSON'), 'invalid target JSON fails closed');
 }
 
+// DUO-3421: the target's refusal envelope arrives on STDOUT while a docker
+// transport's stderr always carries `docker compose run` progress noise. The
+// stderr-first rule handed the operator that noise and dropped the reason
+// code, the remediation, and the redaction witness — a refusal-transparency
+// loss of exactly the DUO-3398 shape, reproduced here without docker by
+// planting the noise the live transport really emits.
+$refusalEnvelope = [
+    'format' => 'duo-command-refusal/v1',
+    'ok' => false,
+    'command' => 'init',
+    'error' => 'init_failed',
+    'reason_code' => 'init_failed',
+    'message' => 'init refused at an unclassified safety gate',
+    'remediation' => 'correct the named init blocker, then retry the command',
+    'details_redacted' => true,
+    'diagnostics' => [[
+        'code' => 'init_failed',
+        'message' => 'init refused at an unclassified safety gate',
+        'remediation' => 'correct the named init blocker, then retry the command',
+    ]],
+];
+$composeNoise = " Container duo-pair-cli1-run-6a2f Creating \n Container duo-pair-cli1-run-6a2f Created\n";
+foreach (['proposal', 'confirmation'] as $noisyPhase) {
+    $noisy = new InitTransport([[
+        'exit' => 1,
+        'stdout' => json_encode($refusalEnvelope, JSON_UNESCAPED_SLASHES) . "\n",
+        'stderr' => $composeNoise,
+    ]]);
+    try {
+        $noisyPhase === 'proposal'
+            ? Init::proposal($noisy)
+            : Init::confirm($noisy, $digest);
+        fail("a refused init $noisyPhase was accepted");
+    } catch (\Duo\Orchestrator\InitRefusalException $refused) {
+        check(
+            $refused->refusal === $refusalEnvelope,
+            "a refused init $noisyPhase carries the target's complete v1 envelope for rendering, not a flattened string"
+        );
+        check(
+            !str_contains($refused->getMessage(), 'Container duo-')
+                && str_contains($refused->getMessage(), "init $noisyPhase failed"),
+            "a refused init $noisyPhase names its phase without pasting transport progress noise"
+        );
+    } catch (RuntimeException $wrong) {
+        fail("refused init $noisyPhase surfaced transport noise instead of the envelope: {$wrong->getMessage()}");
+    }
+}
+// Anything that is not a v1 envelope keeps the original stderr-else-stdout
+// passthrough, so non-docker transports and non-envelope failures are
+// untouched by the change above.
+try {
+    Init::proposal(new InitTransport([[
+        'exit' => 255,
+        'stdout' => '',
+        'stderr' => "Error: 'duo' is not a registered wp command.\n",
+    ]]));
+    fail('a non-envelope init failure was accepted');
+} catch (\Duo\Orchestrator\InitRefusalException) {
+    fail('a non-envelope init failure was misread as a refusal envelope');
+} catch (RuntimeException $passthrough) {
+    check(
+        str_contains($passthrough->getMessage(), 'not a registered wp command'),
+        'a non-envelope init failure still passes the target stderr through unchanged'
+    );
+}
+$initCommandSource = (string) file_get_contents(__DIR__ . '/../../cli/duo');
+check(
+    substr_count($initCommandSource, 'catch (\Duo\Orchestrator\InitRefusalException $e) {') === 2
+        && substr_count($initCommandSource, 'render_command_refusal_human($e->refusal);') === 2,
+    'both init phases render the refusal envelope through the shared host renderer, as status and pending do'
+);
+
 foreach ([
     'empty proposal' => [],
     'wrong proposal format' => array_replace($proposal, ['format' => 'duo-init-plan/v0']),
@@ -585,6 +657,88 @@ check(
     'live root suite covers missing, ancestor-link, symlink-swap, and ordinary-directory replacement boundaries'
 );
 
+// DUO-3421. This leg and the live golden path (bundle legs 13-14) both run on
+// bundle-owing branches BY CONSTRUCTION, where the checked-in attestation is
+// expired and every certified claim therefore carries evidence_not_current. An
+// init proposal with unsupported rows is not ready, refuses confirmation
+// instantly, and the live harness's paused root-replacement races then time out
+// waiting for an init lease no confirmation ever took — the bundle blocked on
+// the evidence it exists to mint. The live harness now mounts a hermetic
+// library (the shipped manifests byte for byte, attestation re-sealed against
+// the working tree) instead of the live one. Pinned here because the ordering
+// is the whole property: sealed and asserted BEFORE the pair exists, and the
+// live library never mounted at all.
+$fixtureBuild = strpos($liveHarness, 'php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT"');
+$fixtureMount = strpos($liveHarness, 'export DUO_MANIFESTS_SRC="$HERMETIC_MANIFESTS"');
+check(
+    $fixtureBuild !== false && $fixtureMount !== false && $pairUp !== false
+        && $fixtureBuild < $fixtureMount && $fixtureMount < $pairUp
+        && !str_contains($liveHarness, 'export DUO_MANIFESTS_SRC="$REPO_ROOT/manifests"'),
+    'live init evidence seals and mounts a hermetic certified library before pair bring-up, never the live one'
+);
+check(
+    str_contains($liveHarness, 'fixture manufacture failed: the sealed registry does not read current evidence')
+        && str_contains($liveHarness, 'fixture manufacture failed: the sealed library is not the shipped library outside capabilities/')
+        && str_contains($liveHarness, 'fixture manufacture failed: sealing the fixture modified the shipped manifest library'),
+    'live harness asserts its own fixture manufacture — current, byte-identical, and non-destructive — before any behavior'
+);
+// The fixture builder itself, exercised offline: if it cannot produce a current
+// attestation on this tree, legs 13-14 cannot pass and this says so in seconds
+// rather than an hour into a live pair.
+require_once __DIR__ . '/certification_fixture.php';
+$fixtureRoot = sys_get_temp_dir() . '/duo-init-contract-fixture-' . bin2hex(random_bytes(6));
+register_shutdown_function(static function () use ($fixtureRoot): void {
+    exec('rm -rf ' . escapeshellarg($fixtureRoot));
+});
+$sealedDir = duo_cert_seal_library(dirname(__DIR__, 2), $fixtureRoot);
+$sealedRegistry = \Duo\Canon::decode(\Duo\Canon::read_file("$sealedDir/capabilities/registry.json"));
+$sealedStatuses = [];
+foreach (['manifests', 'profiles'] as $sealedSection) {
+    foreach ($sealedRegistry[$sealedSection] as $sealedClaim) {
+        $sealedStatuses[(string) ($sealedClaim['evidence']['status'] ?? '?')] = true;
+    }
+}
+check(
+    ($sealedRegistry['evidence']['status'] ?? null) === 'current'
+        && array_keys($sealedStatuses) === ['current']
+        && duo_cert_library_bytes($sealedDir) === duo_cert_library_bytes(dirname(__DIR__, 2) . '/manifests'),
+    'the shared certification fixture seals this tree into a current attestation over byte-identical shipped manifests'
+);
+
+// DUO-3421. The confirmation logs are the only place a paused confirmation's
+// own answer is written, so a failed run must keep them; a green one still
+// cleans up after itself, and the owned pair is destroyed either way.
+check(
+    str_contains($liveHarness, 'trap cleanup_on_exit EXIT')
+        && str_contains($liveHarness, 'cleanup 1')
+        && str_contains($liveHarness, 'preserved init evidence for %s (this run failed; nothing below was deleted)')
+        && str_contains($liveHarness, 'if [ "$preserve" != 1 ]; then')
+        && str_contains($liveHarness, 'rm -f "${INIT_LOGS[@]}"'),
+    'live cleanup preserves and names the failed confirmation logs, and deletes them only on success'
+);
+check(
+    str_contains($liveHarness, 'confirmation never acquired the init lease for $repo; its own answer, from $log:')
+        && str_contains($liveHarness, '$(cat -- "$log" 2>&1)')
+        && str_contains($liveHarness, 'wait_for_init_lease /siterepo/swap-link "/tmp/${PAIR}-init-root-symlink.log"')
+        && str_contains($liveHarness, 'wait_for_init_lease /siterepo/swap-directory "/tmp/${PAIR}-init-root-directory.log"'),
+    'a lease-wait timeout pastes the confirmation log that already holds the diagnosis'
+);
+// DUO-3421 (DUO-3381 family). Every injected-failure case takes a fresh
+// proposal and confirms its digest; a compose run starved to empty with exit 0
+// yields an empty digest, a confirmation that refuses before its first
+// mutation, and a case that blames the ENGINE for losing the journal that was
+// never created. The manufacture is asserted before any of them consume it,
+// and nothing may reach a confirmation through the old unchecked shape.
+check(
+    str_contains($liveHarness, 'assert_init_plan() {')
+        && str_contains($liveHarness, 'fixture manufacture failed: $label proposal is not ready')
+        && str_contains($liveHarness, '[[ "$digest" =~ ^[a-f0-9]{64}$ ]]')
+        && substr_count($liveHarness, 'assert_init_plan wp') >= 20
+        && !preg_match('/_PLAN=\$\(wp[12] duo init/', $liveHarness)
+        && !str_contains($liveHarness, '_DIGEST=$(jq -r .digest <<<'),
+    'every confirmed live proposal asserts its own manufacture before the confirmation consumes the digest'
+);
+
 $unsafeRoot = __DIR__ . '/../unsafe1';
 $unsafeSentinel = $unsafeRoot . '/sentinel';
 if (!is_dir($unsafeRoot) && !mkdir($unsafeRoot, 0777, true) && !is_dir($unsafeRoot)) {
@@ -616,6 +770,242 @@ require_once __DIR__ . '/../../agent/src/Canon.php';
 require_once __DIR__ . '/../../agent/src/AdapterSources.php';
 require_once __DIR__ . '/../../agent/src/Init.php';
 if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
+
+// DUO-3421: the proposal-time manual-recovery gate and the recovery-time
+// deletion authority must answer the SAME question about an unmanifested Git
+// root. They did not: the gate tested only that `git_empty_identity` was
+// PRESENT, while the compensation path additionally requires it to still
+// describe the root. initialize_git() runs between the `git-reserved` journal
+// that records that key and the `git-ready` journal that records
+// `git_identity`, so an attempt interrupted inside that window was proposed as
+// a ready, confirmable `verify-interrupted-precommit-init` plan whose
+// confirmation then refused mid-protocol with the unclassified envelope.
+// Exercised against the real private predicate with real directory identities,
+// offline: no docker, no WordPress.
+// The predicate resolves the fixed capture-record slots through Publish.
+require_once __DIR__ . '/../../agent/src/Publish.php';
+$recoveryReason = (new ReflectionClass(\Duo\Init::class))
+    ->getMethod('interrupted_attempt_manual_recovery_reason');
+$recoveryReason->setAccessible(true);
+$directoryIdentity = (new ReflectionClass(\Duo\Init::class))->getMethod('directory_identity');
+$directoryIdentity->setAccessible(true);
+$gitFixtureRepo = sys_get_temp_dir() . '/duo-init-git-authority-' . bin2hex(random_bytes(6));
+if (!mkdir($gitFixtureRepo . '/.git', 0777, true)) fail('could not create the Git authority fixture');
+register_shutdown_function(static function () use ($gitFixtureRepo): void {
+    exec('rm -rf ' . escapeshellarg($gitFixtureRepo));
+});
+$emptyRootIdentity = (string) $directoryIdentity->invoke(null, $gitFixtureRepo . '/.git', 'Git metadata root');
+$gitAttempt = static fn(array $owned): array => ['owned' => ['git_created' => true] + $owned];
+check(
+    $recoveryReason->invoke(
+        null,
+        $gitFixtureRepo,
+        $gitAttempt(['git_empty_identity' => $emptyRootIdentity])
+    ) === null,
+    'a Git root reserved and still untouched keeps complete deletion authority and stays automatically recoverable'
+);
+$incompleteGitReason = 'the sealed attempt has incomplete Git metadata without a complete ownership manifest';
+check(
+    $recoveryReason->invoke(null, $gitFixtureRepo, $gitAttempt([])) === $incompleteGitReason,
+    'a reserved Git root with no ownership manifest at all is non-confirmable'
+);
+// The exact `git-initialized-before-identity` window the live harness injects.
+file_put_contents($gitFixtureRepo . '/.git/HEAD', "ref: refs/heads/main\n");
+check(
+    $recoveryReason->invoke(
+        null,
+        $gitFixtureRepo,
+        $gitAttempt(['git_empty_identity' => $emptyRootIdentity])
+    ) === $incompleteGitReason,
+    'a Git root written into after its empty-root manifest was sealed is non-confirmable — presence is not deletion authority'
+);
+check(
+    $recoveryReason->invoke(
+        null,
+        $gitFixtureRepo,
+        $gitAttempt([
+            'git_empty_identity' => $emptyRootIdentity,
+            'git_identity' => (string) $directoryIdentity->invoke(
+                null,
+                $gitFixtureRepo . '/.git',
+                'Git metadata root'
+            ),
+        ])
+    ) === null,
+    'a completed git-ready manifest remains automatically recoverable'
+);
+$initAuthoritySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Init.php');
+check(
+    substr_count($initAuthoritySource, 'self::git_empty_identity_current($repo, $owned)') === 2
+        && str_contains($initAuthoritySource, 'private static function git_empty_identity_current('),
+    'the proposal gate and the compensation authority resolve the empty-root manifest through one shared predicate'
+);
+
+// DUO-3421: the interrupted-init compensation runs over the same artifacts
+// twice by design — Init::confirm()'s catch compensates its own publications,
+// then re-enters recover_interrupted_attempt() to PROVE the rollback from the
+// sealed journal. Every branch of that proof is presence-guarded and therefore
+// idempotent except the two owned-file publications, which met a file they had
+// just deleted and refused; the caller turned that into a retained journal,
+// a retained lock, and an unclassified refusal where the contract promises a
+// clean rollback.
+$alreadyCompensated = (new ReflectionClass(\Duo\Init::class))
+    ->getMethod('owned_file_already_compensated');
+$alreadyCompensated->setAccessible(true);
+$compensatedFixture = sys_get_temp_dir() . '/duo-init-compensated-' . bin2hex(random_bytes(6));
+if (!mkdir($compensatedFixture, 0777, true)) fail('could not create the compensation fixture');
+register_shutdown_function(static function () use ($compensatedFixture): void {
+    exec('rm -rf ' . escapeshellarg($compensatedFixture));
+});
+$absentFile = $compensatedFixture . '/site.duo.json';
+$presentFile = $compensatedFixture . '/.gitignore';
+file_put_contents($presentFile, "published\n");
+check(
+    $alreadyCompensated->invoke(null, $absentFile, ['previous' => null, 'published' => 'x']) === true,
+    'a deleted owned file with no prior version to restore reads as already compensated'
+);
+check(
+    $alreadyCompensated->invoke(null, $absentFile, ['previous' => "prior\n", 'published' => 'x']) === false,
+    'a deleted owned file whose record carries a prior version is still a compensation to perform'
+);
+check(
+    $alreadyCompensated->invoke(null, $presentFile, ['previous' => null, 'published' => 'x']) === false
+        && $alreadyCompensated->invoke(null, $presentFile, ['previous' => "prior\n", 'published' => 'x']) === false,
+    'a present owned file is never skipped, whatever its record says'
+);
+$initCompensationSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Init.php');
+check(
+    substr_count($initCompensationSource, 'self::owned_file_already_compensated(') === 2
+        && str_contains($initCompensationSource, 'private static function owned_file_already_compensated('),
+    'both owned-file publications — site.duo.json and .gitignore — carry the same idempotence guard as their sibling branches'
+);
+
+// DUO-3421: both owned-file publications are strictly write-ahead — the plan,
+// carrying the previous bytes, is journaled BEFORE the path is touched — so an
+// artifact that is present while the journal holds no plan for it predates the
+// attempt and is none of recovery's business. Refusing it made every ordinary
+// pre-existing .gitignore (i.e. every existing Git worktree, which is what the
+// live harness sets up by name) an unprovable ownership situation and demanded
+// manual recovery for a file Duo had never opened.
+$gitignoreFixture = sys_get_temp_dir() . '/duo-init-unbound-' . bin2hex(random_bytes(6));
+if (!mkdir($gitignoreFixture, 0777, true)) fail('could not create the pre-existing-artifact fixture');
+register_shutdown_function(static function () use ($gitignoreFixture): void {
+    exec('rm -rf ' . escapeshellarg($gitignoreFixture));
+});
+file_put_contents($gitignoreFixture . '/.gitignore', "state.capture-staging/\n");
+check(
+    $recoveryReason->invoke(null, $gitignoreFixture, ['owned' => []]) === null,
+    'a pre-existing .gitignore with no journaled plan leaves the interrupted attempt automatically recoverable'
+);
+file_put_contents($gitignoreFixture . '/site.duo.json', "{}\n");
+check(
+    $recoveryReason->invoke(null, $gitignoreFixture, ['owned' => []]) === null,
+    'a pre-existing adoption seed with no journaled plan is likewise not this attempt to prove'
+);
+unlink($gitignoreFixture . '/.gitignore');
+symlink('/nonexistent', $gitignoreFixture . '/.gitignore');
+check(
+    $recoveryReason->invoke(null, $gitignoreFixture, ['owned' => []])
+        === 'the sealed attempt has a non-regular .gitignore boundary',
+    'a non-regular owned-file boundary is still non-confirmable'
+);
+// DUO-3421: the proposal blocker and the recovery-time refusal describe the
+// SAME artifact, and the harness (like both pins above) greps the proposal's
+// words. The proposal said "partial code staging root" while every sibling
+// message, the recovery refusal it precedes, and every pin said "tree", so the
+// blocker fired correctly and named itself in words nothing else used.
+check(
+    substr_count($initCompensationSource, 'partial code staging tree without a complete descriptor') === 2
+        && substr_count($initCompensationSource, 'partial state staging tree without a complete deletion manifest') === 2
+        && !str_contains($initCompensationSource, 'partial code staging root')
+        && !str_contains($initCompensationSource, 'partial state staging root'),
+    'the proposal blockers and the recovery refusals name the partial code and state staging trees identically'
+);
+check(
+    !str_contains($initCompensationSource, 'unbound site.duo.json')
+        && !str_contains($initCompensationSource, 'unbound .gitignore')
+        && substr_count($initCompensationSource, "is_array(\$owned['site_plan'] ?? null)") >= 1,
+    'neither owned-file arm refuses an artifact the journal never planned; both require the plan they compensate against'
+);
+
+// DUO-3421: the pre-COMMIT rollback is a SUCCESSFUL outcome delivered as a
+// non-zero exit — the interrupted attempt was proven and undone, and the
+// operator simply reruns. Thrown as a bare RuntimeException on a command that
+// is rightly absent from Cli::PUBLIC_REFUSAL_COMMANDS, it reached JSON callers
+// as "init refused at an unclassified safety gate" with details_redacted:
+// DUO-3398's shape on the recovery path. It has a reviewable shape, so per
+// DUO-3399 it carries one.
+require_once __DIR__ . '/../../agent/src/CommandRefusal.php';
+check(
+    str_contains($initCompensationSource, "throw new CommandRefusalException(\n                    'interrupted_init_rolled_back',")
+        && !str_contains(
+            $initCompensationSource,
+            "throw new \\RuntimeException(\n                    'duo: interrupted pre-COMMIT init was safely rolled back"
+        ),
+    'the proven pre-COMMIT rollback answers with a reviewed reason code, not the unclassified arm'
+);
+$rolledBack = new \Duo\CommandRefusalException(
+    'interrupted_init_rolled_back',
+    'duo: interrupted pre-COMMIT init was safely rolled back; rerun duo init and confirm the fresh proposal',
+    'rerun duo init and confirm the fresh proposal it prints'
+);
+check(
+    $rolledBack->reasonCode === 'interrupted_init_rolled_back'
+        && str_contains($rolledBack->publicMessage, 'safely rolled back')
+        && $rolledBack->detailsRedacted === false,
+    'the rollback outcome survives the refusal class own sensitivity screen as a public answer'
+);
+
+// DUO-3421: init must be able to STAGE the payload it is certified to manage.
+// The staging walk applied safe_component()'s identifier charset — the one for
+// slugs Duo selects — to directory names the SITE owns, so WooCommerce
+// 11.0.0's assets/client/blocks/@woocommerce made `duo init` refuse its own
+// golden path after the journal and lock existed. Staging components now use
+// the traversal/control-byte predicate the code half applies to these exact
+// paths for the rest of their lifecycle (Code::safe_relative()).
+require_once __DIR__ . '/../../agent/src/Code.php';
+$stageComponent = (new ReflectionClass(\Duo\Init::class))->getMethod('safe_stage_component');
+$stageComponent->setAccessible(true);
+$codeComponent = (new ReflectionClass(\Duo\Code::class))->getMethod('safe_component');
+$codeComponent->setAccessible(true);
+$identifierComponent = (new ReflectionClass(\Duo\Init::class))->getMethod('safe_component');
+$identifierComponent->setAccessible(true);
+$ecosystemNames = [
+    '@woocommerce' => true,
+    'Inter-VariableFont_slnt,wght.woff2' => true,
+    'akismet-refresh-logo@2x.png' => true,
+    'woocommerce' => true,
+    'twentytwentyone' => true,
+    '' => false,
+    '.' => false,
+    '..' => false,
+    'a/b' => false,
+    'a\\b' => false,
+    "a\0b" => false,
+    "a\tb" => false,
+];
+$stageVerdicts = [];
+$codeVerdicts = [];
+foreach ($ecosystemNames as $name => $expected) {
+    $stageVerdicts[$name] = (bool) $stageComponent->invoke(null, $name);
+    $codeVerdicts[$name] = (bool) $codeComponent->invoke(null, $name);
+}
+check(
+    $stageVerdicts === $ecosystemNames,
+    'code staging accepts the real ecosystem component names and still refuses traversal, separators, and control bytes'
+);
+check(
+    $stageVerdicts === $codeVerdicts,
+    'init stages exactly the components the code half will carry afterwards — one predicate, no init-only refusal'
+);
+check(
+    $identifierComponent->invoke(null, '@woocommerce') === false
+        && $identifierComponent->invoke(null, 'woocommerce') === true
+        && substr_count($initAuthoritySource, 'self::safe_stage_component($part)') === 1
+        && substr_count($initAuthoritySource, 'self::safe_component($component)') === 1
+        && substr_count($initAuthoritySource, 'self::safe_component($theme)') === 1,
+    'the selected plugin basename and theme slug keep the strict identifier charset; only the staging walk was widened'
+);
 
 final class InitRiskWpdb {
     public string $options = 'wp_options';

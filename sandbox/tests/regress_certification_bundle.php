@@ -144,6 +144,56 @@ if ($enumeration === '' || $gitWorkTree !== 0) {
     }
 }
 
+
+echo "\n== DUO-3421: the two init legs are descoped by default, loudly, and reversibly ==\n";
+// A certified set may only contain legs that have passed end to end. #151 put
+// both init legs in it before either ever had, so they are gated OFF until
+// DUO-3427 (init interrupted-recovery subsystem) and the golden-path clock
+// defect land. Three things must stay true, and each is pinned: the default
+// really is off and the leg arithmetic stays honest; the legs are DESCOPED,
+// not deleted, and still run under the documented opt-in; and a skipped run
+// SAYS SO — a certified set that quietly lost two legs is the failure this
+// gate exists to prevent.
+$gateOpen = strpos($referenceRunner, 'if [ "$INCLUDE_INIT_LEGS" = 1 ]; then');
+$initContractRun = strpos($referenceRunner, 'php tests/regress_init_contract.php > "$INIT_CONTRACT_LOG"');
+$initGoldenRun = strpos($referenceRunner, 'bash tests/regress_duo_init.sh > "$INIT_GOLDEN_LOG"');
+$gateElse = strpos($referenceRunner, 'say "reference legs: init platform contract + public duo init golden path are DESCOPED"');
+check(
+    str_contains($referenceRunner, 'INCLUDE_INIT_LEGS=0')
+        && str_contains($referenceRunner, 'case "${CERT_BUNDLE_INCLUDE_INIT_LEGS:-}" in')
+        && str_contains($referenceRunner, "''|0|false|no) INCLUDE_INIT_LEGS=0 ;;")
+        && str_contains($referenceRunner, '1|true|yes) INCLUDE_INIT_LEGS=1 ;;')
+        && str_contains($referenceRunner, 'fail "CERT_BUNDLE_INCLUDE_INIT_LEGS must be'),
+    'the init legs are gated on an explicit opt-in that defaults off and refuses an unreadable value'
+);
+check(
+    str_contains(
+        $referenceRunner,
+        'total_legs=$((${#CONFORMANCE_MANIFESTS[@]} + 2 + INCLUDE_INIT_LEGS * 2))'
+    ),
+    'leg numbering counts the init legs only when they are actually going to run'
+);
+check(
+    $gateOpen !== false && $initContractRun !== false && $initGoldenRun !== false
+        && $gateOpen < $initContractRun && $initContractRun < $initGoldenRun
+        && $gateElse !== false && $initGoldenRun < $gateElse,
+    'both init legs are descoped rather than deleted: each still runs, inside the opt-in gate'
+);
+check(
+    str_contains($referenceRunner, 'SKIPPED (not certified, not claimed)')
+        && str_contains($referenceRunner, 'DUO-3427')
+        && str_contains($referenceRunner, 'CERT_BUNDLE_INCLUDE_INIT_LEGS=1 once both land')
+        && $gateElse !== false,
+    'a default run announces the descoped legs and names what must land before they return'
+);
+check(
+    substr_count($referenceRunner, 'append_fragment "$WORK_ROOT/init-contract.fragment.json"') === 1
+        && substr_count($referenceRunner, 'append_fragment "$WORK_ROOT/duo-init-golden-path.fragment.json"') === 1
+        && strpos($referenceRunner, 'append_fragment "$WORK_ROOT/init-contract.fragment.json"') > $gateOpen
+        && strpos($referenceRunner, 'append_fragment "$WORK_ROOT/duo-init-golden-path.fragment.json"') < $gateElse,
+    'a gated-off bundle carries no init test fragment, so it claims neither leg'
+);
+
 echo "\n== Contact Form 7 checker does not race Docker output against an early reader ==\n";
 $cf7Checker = (string) file_get_contents(__DIR__ . '/../conformance/checks/contact-form-7.sh');
 check(

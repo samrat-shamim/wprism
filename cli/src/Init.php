@@ -1,6 +1,26 @@
 <?php
 namespace Duo\Orchestrator;
 
+/**
+ * An init phase the target answered with the common v1 refusal envelope.
+ *
+ * DUO-3421: the envelope is a STRUCTURED public answer on stdout, and the host
+ * renders it through render_command_refusal_human() exactly as cmd_status()
+ * and fetch_pending() do (DUO-3399). Carrying it on a typed exception rather
+ * than flattening it into the message keeps that rendering possible at the
+ * command layer and keeps this class free of any host output convention.
+ */
+final class InitRefusalException extends \RuntimeException {
+    /** @var array<string,mixed> */
+    public array $refusal;
+
+    /** @param array<string,mixed> $refusal */
+    public function __construct(string $message, array $refusal) {
+        parent::__construct($message);
+        $this->refusal = $refusal;
+    }
+}
+
 /** Host wrapper for the target agent's digest-bound initialization protocol. */
 final class Init {
     /** @return array<string,mixed> */
@@ -110,11 +130,26 @@ final class Init {
     private static function request(EnvironmentDriver $transport, array $args, string $phase): array {
         $result = $transport->captureWp($args);
         if ($result['exit'] !== 0) {
+            $label = "duo init $phase failed for '{$transport->name()}' (exit {$result['exit']})";
+            // DUO-3421: the agent answers a refusal with the common envelope on
+            // STDOUT. The stderr-first rule below is right for a transport
+            // whose stderr carries the target's own words, but a docker
+            // transport's stderr is never empty — `docker compose run` writes
+            // "Container ... Creating/Created" progress there on every single
+            // invocation — so the operator was handed compose progress noise
+            // and the refusal's reason code, remediation, and redaction
+            // witness were dropped on the floor. Observed live on the DUO-3421
+            // init evidence run: an adapter-boundary refusal surfaced as
+            // "(exit 1): Container duo-...-cli1-run-... Creating". Decode
+            // first, exactly as cmd_status()/fetch_pending() do (DUO-3399);
+            // anything that is not a v1 envelope still takes the original
+            // stderr-else-stdout path unchanged.
+            $refusal = json_decode(trim($result['stdout']), true);
+            if (is_array($refusal) && ($refusal['format'] ?? null) === 'duo-command-refusal/v1') {
+                throw new InitRefusalException($label, $refusal);
+            }
             $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
-            throw new \RuntimeException(
-                "duo init $phase failed for '{$transport->name()}' (exit {$result['exit']})"
-                . ($detail !== '' ? ": $detail" : '')
-            );
+            throw new \RuntimeException($label . ($detail !== '' ? ": $detail" : ''));
         }
         $decoded = json_decode(trim($result['stdout']), true);
         if (!is_array($decoded)) {

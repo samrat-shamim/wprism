@@ -664,7 +664,7 @@ final class Init {
         }
         if ($present(Publish::stage_dir($stateDir))
             && !is_array($owned['state_staging_manifest'] ?? null)) {
-            return 'the sealed attempt has a partial state staging root without a complete deletion manifest';
+            return 'the sealed attempt has a partial state staging tree without a complete deletion manifest';
         }
         if ($present($stateDir) && (is_link($stateDir) || !is_dir($stateDir))) {
             return 'the sealed attempt has a non-directory state reservation boundary';
@@ -779,7 +779,7 @@ final class Init {
         }
         if (is_string($stage) && $present($stage)
             && !is_string($owned['code_stage_identity'] ?? null)) {
-            return 'the sealed attempt has a partial code staging root without a complete descriptor';
+            return 'the sealed attempt has a partial code staging tree without a complete descriptor';
         }
         if (is_string($stage) && $present($stage)) {
             $reason = $identityMismatch($stage, $owned['code_stage_identity'] ?? null, 'code staging root');
@@ -788,35 +788,73 @@ final class Init {
             }
         }
 
+        // DUO-3421: an owned-file artifact that is PRESENT while the journal
+        // holds no plan for it is not this attempt's artifact -- it is content
+        // that predates the attempt, and recovery must leave it exactly where
+        // it is. Both publications are strictly write-ahead: confirm() journals
+        // `<artifact>_plan` (carrying the previous bytes to restore) BEFORE
+        // publish_owned_file() touches the path, so "present and unrecorded"
+        // cannot describe anything Duo wrote. Refusing it instead declared an
+        // ordinary pre-existing .gitignore -- which every existing Git worktree
+        // has, and which the live harness sets up by name -- an unprovable
+        // ownership situation, so a crash before the gitignore phase demanded
+        // manual recovery for a file Duo had never opened. The recorded shapes
+        // below are unchanged and still refuse: a non-regular boundary here, a
+        // recorded plan or publication whose bytes no longer match in the
+        // compensation path, and every partial tree.
         $siteFile = rtrim($repo, '/') . '/site.duo.json';
         if ($present($siteFile) && (is_link($siteFile) || !is_file($siteFile))) {
             return 'the sealed attempt has a non-regular site.duo.json boundary';
         }
-        if ($present($siteFile)
-            && !is_array($owned['site_publication'] ?? null)
-            && !is_array($owned['site_plan'] ?? null)) {
-            return 'the sealed attempt has an unbound site.duo.json';
-        }
         $gitignore = rtrim($repo, '/') . '/.gitignore';
         if ($present($gitignore) && (is_link($gitignore) || !is_file($gitignore))) {
             return 'the sealed attempt has a non-regular .gitignore boundary';
-        }
-        if ($present($gitignore)
-            && !is_array($owned['gitignore_publication'] ?? null)
-            && !is_array($owned['gitignore_plan'] ?? null)) {
-            return 'the sealed attempt has an unbound .gitignore';
         }
         $gitDir = rtrim($repo, '/') . '/.git';
         if (($owned['git_created'] ?? false) === true && $present($gitDir)
             && (is_link($gitDir) || !is_dir($gitDir))) {
             return 'the sealed attempt has a non-directory Git metadata boundary';
         }
+        // DUO-3421: exactly the authority compensate_interrupted_precommit()
+        // demands below before it may delete this root — a complete
+        // git_identity, or a git_empty_identity that STILL describes the
+        // reserved root as it stands. Presence alone is not deletion
+        // authority: initialize_git() runs between the `git-reserved` journal
+        // (which records git_empty_identity for the empty root) and the
+        // `git-ready` one (which records git_identity for the populated one),
+        // so an attempt interrupted inside that window carries an empty-root
+        // manifest that no longer describes the tree. Testing presence here
+        // made the proposal advertise `verify-interrupted-precommit-init` and
+        // report itself ready, and the confirmation the operator was invited
+        // to give then refused mid-protocol with the unclassified redacted
+        // envelope — the one shape this whole recovery contract exists to
+        // prevent. Both sites now ask the same question through
+        // git_empty_identity_current() so they cannot drift apart again.
         if (($owned['git_created'] ?? false) === true && $present($gitDir)
             && !is_string($owned['git_identity'] ?? null)
-            && !is_string($owned['git_empty_identity'] ?? null)) {
+            && !self::git_empty_identity_current($repo, $owned)) {
             return 'the sealed attempt has incomplete Git metadata without a complete ownership manifest';
         }
         return null;
+    }
+
+    /**
+     * True when the sealed empty-root manifest still describes the reserved
+     * Git metadata root exactly — i.e. the attempt was interrupted after the
+     * root was reserved but before anything was written into it, which is the
+     * only unmanifested Git shape that carries complete deletion authority.
+     *
+     * @param array<string,mixed> $owned
+     */
+    private static function git_empty_identity_current(string $repo, array $owned): bool {
+        $identity = $owned['git_empty_identity'] ?? null;
+        if (!is_string($identity)) {
+            return false;
+        }
+        return hash_equals(
+            $identity,
+            self::directory_identity(rtrim($repo, '/') . '/.git', 'Git metadata root')
+        );
     }
 
     /** @param array<string,mixed> $attempt @return array{previous:?string,published:string} */
@@ -1078,19 +1116,42 @@ final class Init {
             self::remove_owned_tree($stage, $stageIdentity, 'code staging root');
         }
 
+        // DUO-3421: presence-guarded like every sibling branch above and below
+        // (state, media, code, stage, git, and both `plan` arms). This one is
+        // ALSO reached in-process: Init::confirm()'s catch compensates its own
+        // publications and then re-enters this function through
+        // recover_interrupted_attempt() to PROVE the rollback from the sealed
+        // journal. That proof pass must tolerate work the catch already did.
+        // Without the guard the second pass met an absent file it had itself
+        // just deleted and refused with "preserved a replacement ... instead
+        // of deleting external bytes", which the caller reports as "init
+        // retained its sealed journal because final compensation could not
+        // prove every planned artifact" -- a clean rollback turned into a
+        // retained journal and lock plus an unclassified refusal. Only the
+        // already-compensated shape is skipped: an absent file with nothing
+        // to restore. Anything else -- absent with a prior version to put
+        // back, or present with unexpected bytes -- still refuses exactly as
+        // before.
         $sitePublication = $owned['site_publication'] ?? null;
-        if (is_array($sitePublication)) {
+        if (is_array($sitePublication)
+            && !self::owned_file_already_compensated(
+                rtrim($repo, '/') . '/site.duo.json',
+                $sitePublication
+            )) {
             self::compensate_owned_file(
                 rtrim($repo, '/') . '/site.duo.json',
                 $sitePublication,
                 'site.duo.json'
             );
-        } elseif (file_exists(rtrim($repo, '/') . '/site.duo.json')
-            || is_link(rtrim($repo, '/') . '/site.duo.json')) {
-            $sitePlan = $owned['site_plan'] ?? null;
-            if (!is_array($sitePlan)) {
-                throw new \RuntimeException('duo: interrupted init has an unbound site.duo.json; retained it');
-            }
+        } elseif (!is_array($sitePublication)
+            && is_array($owned['site_plan'] ?? null)
+            && (file_exists(rtrim($repo, '/') . '/site.duo.json')
+            || is_link(rtrim($repo, '/') . '/site.duo.json'))) {
+            // Same write-ahead invariant as the proposal gate above, and the
+            // same shape the .gitignore arm below already had: with no
+            // journaled plan this file predates the attempt and compensation
+            // has nothing to undo. (DUO-3421)
+            $sitePlan = $owned['site_plan'];
             $expected = (string) ($sitePlan['expected_identity'] ?? '');
             $current = self::regular_file_identity(rtrim($repo, '/') . '/site.duo.json', 'site.duo.json');
             if (!hash_equals($expected, $current)) {
@@ -1103,13 +1164,18 @@ final class Init {
         }
 
         $gitignorePublication = $owned['gitignore_publication'] ?? null;
-        if (is_array($gitignorePublication)) {
+        if (is_array($gitignorePublication)
+            && !self::owned_file_already_compensated(
+                rtrim($repo, '/') . '/.gitignore',
+                $gitignorePublication
+            )) {
             self::compensate_owned_file(
                 rtrim($repo, '/') . '/.gitignore',
                 $gitignorePublication,
                 '.gitignore'
             );
-        } elseif (is_array($owned['gitignore_plan'] ?? null)
+        } elseif (!is_array($gitignorePublication)
+            && is_array($owned['gitignore_plan'] ?? null)
             && (file_exists(rtrim($repo, '/') . '/.gitignore')
                 || is_link(rtrim($repo, '/') . '/.gitignore'))) {
             $gitignorePlan = $owned['gitignore_plan'];
@@ -1128,13 +1194,15 @@ final class Init {
             if (is_dir($gitDir) || is_link($gitDir)) {
                 $gitIdentity = $owned['git_identity'] ?? null;
                 if (!is_string($gitIdentity)) {
-                    $gitIdentity = $owned['git_empty_identity'] ?? null;
-                    if (!is_string($gitIdentity)
-                        || !hash_equals($gitIdentity, self::directory_identity($gitDir, 'Git metadata root'))) {
+                    // The same predicate the proposal refuses on (DUO-3421),
+                    // so a confirmation is never invited for a root this
+                    // branch would then refuse to delete.
+                    if (!self::git_empty_identity_current($repo, $owned)) {
                         throw new \RuntimeException(
                             'duo: interrupted init retained incomplete Git metadata without a complete ownership manifest; manual recovery is required'
                         );
                     }
+                    $gitIdentity = (string) $owned['git_empty_identity'];
                 }
                 self::remove_owned_tree($gitDir, $gitIdentity, 'Git metadata root');
             }
@@ -1383,8 +1451,22 @@ final class Init {
                     $retainPublicationLock = true;
                     throw $recoveryFailure;
                 }
-                throw new \RuntimeException(
-                    'duo: interrupted pre-COMMIT init was safely rolled back; rerun duo init and confirm the fresh proposal'
+                // DUO-3421: this is a SUCCESSFUL outcome delivered as a
+                // non-zero exit -- the interrupted attempt was proven and
+                // rolled back, and the operator's next step is simply to
+                // rerun. As a bare RuntimeException on a command that is
+                // (rightly) absent from Cli::PUBLIC_REFUSAL_COMMANDS, it
+                // reached JSON callers as "init refused at an unclassified
+                // safety gate" with details_redacted, sending the operator to
+                // private evidence for an answer that IS the public one -- the
+                // DUO-3398 shape again, on the recovery path this time. It has
+                // an entirely reviewable shape, so it gets one, per DUO-3399's
+                // rule that the generic arm is only for failures that genuinely
+                // have none.
+                throw new CommandRefusalException(
+                    'interrupted_init_rolled_back',
+                    'duo: interrupted pre-COMMIT init was safely rolled back; rerun duo init and confirm the fresh proposal',
+                    'rerun duo init and confirm the fresh proposal it prints'
                 );
             }
             $attemptRecord = [
@@ -2516,6 +2598,32 @@ final class Init {
     }
 
     /** @param array{previous:?string,published:string} $publication */
+    /**
+     * True when a journaled owned-file publication has already been fully
+     * compensated: the file Duo created is gone and the record names no prior
+     * version to restore.
+     *
+     * DUO-3421. The interrupted-init compensation runs twice on the same
+     * artifacts by design -- once from Init::confirm()'s own catch, then again
+     * through recover_interrupted_attempt(), which re-derives every planned
+     * artifact from the sealed journal as the PROOF that the rollback is
+     * complete. Every other branch of that proof is presence-guarded and so is
+     * naturally idempotent; the two owned-file publications were not, and a
+     * second pass over its own completed work refused. This is deliberately
+     * the narrowest possible predicate: absent AND nothing to restore. An
+     * absent file whose record carries a previous version is still a
+     * compensation to perform (and compensate_owned_file() still refuses it,
+     * loudly, as external interference), and a present file is untouched by
+     * this and screened exactly as before.
+     *
+     * @param array<string,mixed> $publication
+     */
+    private static function owned_file_already_compensated(string $path, array $publication): bool {
+        return ($publication['previous'] ?? null) === null
+            && !file_exists($path)
+            && !is_link($path);
+    }
+
     private static function compensate_owned_file(string $path, array $publication, string $label): void {
         if (!is_file($path) || is_link($path)
             || !hash_equals((string) $publication['published'], self::regular_file_identity($path, $label))) {
@@ -2831,7 +2939,21 @@ final class Init {
             0775,
             'code capture staging directory'
         );
-        $stageIdentity = self::directory_identity($stage, 'code capture staging directory');
+        // DUO-3421: the staging tree's full content identity is computed where
+        // it is actually consumed -- once on success (returned to the caller,
+        // which journals it as the deletion authority for this tree) and once
+        // in the catch below before compensation. It used to be recomputed
+        // after EVERY copied file and every created directory, into a by-ref
+        // accumulator nothing ever read: directory_identity() walks and lstats
+        // the whole tree, so staging a real wp-content payload cost O(n^2)
+        // syscalls: a 6062-file payload -- the size an ordinary commerce site
+        // carries -- meant about 18 million lstats, measured live at under one
+        // file per second on a bind mount and slowing as it went, i.e. the
+        // first-run experience the live evidence budget exists to bound could
+        // not finish at all. Every ownership guarantee is unchanged: each file and
+        // directory is still created through its parent-bound Publish
+        // primitive, and the stage root inode is still re-asserted at every
+        // step through assert_directory_inode().
         $stageRootIdentity = self::directory_inode_identity($stage, 'code capture staging directory');
         $ownedDirs = ['' => $stagePublication];
         if ($onStage !== null) {
@@ -2847,8 +2969,7 @@ final class Init {
                         $stage . '/' . $rootName . '/' . $name,
                         $stage,
                         $stageRootIdentity,
-                        $ownedDirs,
-                        $stageIdentity
+                        $ownedDirs
                     );
                 }
             }
@@ -2887,15 +3008,14 @@ final class Init {
         string $destination,
         string $stage,
         string $stageRootIdentity,
-        array &$ownedDirs,
-        string &$stageIdentity
+        array &$ownedDirs
     ): void {
         if (is_link($source)) {
             throw new \RuntimeException("duo: refusing symbolic-link code source $source");
         }
         if (is_file($source)) {
             $parent = dirname($destination);
-            self::ensure_code_stage_directory($stage, $parent, $stageRootIdentity, $ownedDirs, $stageIdentity);
+            self::ensure_code_stage_directory($stage, $parent, $stageRootIdentity, $ownedDirs);
             $parentKey = trim(substr($parent, strlen(rtrim($stage, '/'))), '/');
             self::copy_code_file_fresh(
                 $source,
@@ -2904,13 +3024,12 @@ final class Init {
                 $stageRootIdentity,
                 $ownedDirs[$parentKey]
             );
-            $stageIdentity = self::directory_identity($stage, 'code capture staging directory');
             return;
         }
         if (!is_dir($source)) {
             throw new \RuntimeException("duo: code source disappeared before copy: $source");
         }
-        self::ensure_code_stage_directory($stage, $destination, $stageRootIdentity, $ownedDirs, $stageIdentity);
+        self::ensure_code_stage_directory($stage, $destination, $stageRootIdentity, $ownedDirs);
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($source, \FilesystemIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::SELF_FIRST
@@ -2922,13 +3041,13 @@ final class Init {
                 throw new \RuntimeException("duo: refusing symbolic-link code source $path");
             }
             if ($item->isDir()) {
-                self::ensure_code_stage_directory($stage, $target, $stageRootIdentity, $ownedDirs, $stageIdentity);
+                self::ensure_code_stage_directory($stage, $target, $stageRootIdentity, $ownedDirs);
                 continue;
             }
             if (!$item->isFile()) {
                 throw new \RuntimeException("duo: could not copy regular code file $path");
             }
-            self::ensure_code_stage_directory($stage, dirname($target), $stageRootIdentity, $ownedDirs, $stageIdentity);
+            self::ensure_code_stage_directory($stage, dirname($target), $stageRootIdentity, $ownedDirs);
             $parentKey = trim(substr(dirname($target), strlen(rtrim($stage, '/'))), '/');
             self::copy_code_file_fresh(
                 $path,
@@ -2937,7 +3056,6 @@ final class Init {
                 $stageRootIdentity,
                 $ownedDirs[$parentKey]
             );
-            $stageIdentity = self::directory_identity($stage, 'code capture staging directory');
         }
     }
 
@@ -2946,8 +3064,7 @@ final class Init {
         string $stage,
         string $directory,
         string $stageRootIdentity,
-        array &$ownedDirs,
-        string &$stageIdentity
+        array &$ownedDirs
     ): void {
         self::assert_directory_inode($stage, $stageRootIdentity, 'code capture staging directory');
         $prefix = rtrim($stage, '/') . '/';
@@ -2958,7 +3075,7 @@ final class Init {
         $current = rtrim($stage, '/');
         $key = '';
         foreach ($relative === '' ? [] : explode('/', $relative) as $part) {
-            if (!self::safe_component($part)) {
+            if (!self::safe_stage_component($part)) {
                 throw new \RuntimeException('duo: code staging destination has an unsafe component');
             }
             $key = $key === '' ? $part : $key . '/' . $part;
@@ -2972,7 +3089,6 @@ final class Init {
                     'code staging child directory'
                 );
                 $current .= '/' . $part;
-                $stageIdentity = self::directory_identity($stage, 'code capture staging directory');
             } else {
                 $current .= '/' . $part;
                 if (Publish::directory_ownership_identity($current) !== $ownedDirs[$key]) {
@@ -3037,6 +3153,39 @@ final class Init {
     private static function safe_component(string $value): bool {
         return $value !== '' && $value !== '.' && $value !== '..'
             && preg_match('/^[A-Za-z0-9._-]+$/', $value) === 1;
+    }
+
+    /**
+     * A path component the code STAGING tree may create — deliberately not
+     * safe_component()'s identifier charset above.
+     *
+     * DUO-3421. safe_component() names something Duo SELECTS: an active
+     * plugin's basename, an active theme's slug. A staging component is
+     * different in kind: it names a directory the site already has, inside a
+     * payload Duo's job is to carry, and real extension and theme trees ship
+     * names outside [A-Za-z0-9._-] as a matter of course — build outputs keep
+     * their npm scope directories, whose names begin with '@', and font assets
+     * carry ',' in their filenames. The identifier charset therefore made
+     * `duo init` refuse to stage ordinary shipped bytes with "code staging
+     * destination has an unsafe component", after the journal and lock already
+     * existed. (File leaves were never charset-checked at all, so a directory
+     * was held to a stricter rule than the files beside it.)
+     *
+     * The predicate that matters here is traversal and literal-component
+     * safety, and the code half already has exactly that one for the entire
+     * rest of these paths' lifecycle — Code::safe_relative()/safe_component(),
+     * which every descriptor, materializer, and deploy check applies. This
+     * mirrors it component-wise, so init can never stage a path the code half
+     * would later refuse to carry, nor refuse one it would accept. Containment
+     * is unchanged and does not rest on the charset: the caller still requires
+     * the destination to start with the owned stage prefix, still creates each
+     * directory through Publish::create_directory_fresh() bound to its
+     * parent's identity, and still re-asserts the stage root inode every step.
+     */
+    private static function safe_stage_component(string $value): bool {
+        return $value !== '' && $value !== '.' && $value !== '..'
+            && !str_contains($value, '/') && !str_contains($value, '\\')
+            && preg_match('/[\x00-\x1f\x7f]/', $value) !== 1;
     }
 
     private static function init_fault_checkpoint(string $phase): void {
