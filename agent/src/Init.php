@@ -1112,15 +1112,36 @@ final class Init {
             self::remove_owned_tree($stage, $stageIdentity, 'code staging root');
         }
 
+        // DUO-3421: presence-guarded like every sibling branch above and below
+        // (state, media, code, stage, git, and both `plan` arms). This one is
+        // ALSO reached in-process: Init::confirm()'s catch compensates its own
+        // publications and then re-enters this function through
+        // recover_interrupted_attempt() to PROVE the rollback from the sealed
+        // journal. That proof pass must tolerate work the catch already did.
+        // Without the guard the second pass met an absent file it had itself
+        // just deleted and refused with "preserved a replacement ... instead
+        // of deleting external bytes", which the caller reports as "init
+        // retained its sealed journal because final compensation could not
+        // prove every planned artifact" -- a clean rollback turned into a
+        // retained journal and lock plus an unclassified refusal. Only the
+        // already-compensated shape is skipped: an absent file with nothing
+        // to restore. Anything else -- absent with a prior version to put
+        // back, or present with unexpected bytes -- still refuses exactly as
+        // before.
         $sitePublication = $owned['site_publication'] ?? null;
-        if (is_array($sitePublication)) {
+        if (is_array($sitePublication)
+            && !self::owned_file_already_compensated(
+                rtrim($repo, '/') . '/site.duo.json',
+                $sitePublication
+            )) {
             self::compensate_owned_file(
                 rtrim($repo, '/') . '/site.duo.json',
                 $sitePublication,
                 'site.duo.json'
             );
-        } elseif (file_exists(rtrim($repo, '/') . '/site.duo.json')
-            || is_link(rtrim($repo, '/') . '/site.duo.json')) {
+        } elseif (!is_array($sitePublication)
+            && (file_exists(rtrim($repo, '/') . '/site.duo.json')
+            || is_link(rtrim($repo, '/') . '/site.duo.json'))) {
             $sitePlan = $owned['site_plan'] ?? null;
             if (!is_array($sitePlan)) {
                 throw new \RuntimeException('duo: interrupted init has an unbound site.duo.json; retained it');
@@ -1137,13 +1158,18 @@ final class Init {
         }
 
         $gitignorePublication = $owned['gitignore_publication'] ?? null;
-        if (is_array($gitignorePublication)) {
+        if (is_array($gitignorePublication)
+            && !self::owned_file_already_compensated(
+                rtrim($repo, '/') . '/.gitignore',
+                $gitignorePublication
+            )) {
             self::compensate_owned_file(
                 rtrim($repo, '/') . '/.gitignore',
                 $gitignorePublication,
                 '.gitignore'
             );
-        } elseif (is_array($owned['gitignore_plan'] ?? null)
+        } elseif (!is_array($gitignorePublication)
+            && is_array($owned['gitignore_plan'] ?? null)
             && (file_exists(rtrim($repo, '/') . '/.gitignore')
                 || is_link(rtrim($repo, '/') . '/.gitignore'))) {
             $gitignorePlan = $owned['gitignore_plan'];
@@ -2552,6 +2578,32 @@ final class Init {
     }
 
     /** @param array{previous:?string,published:string} $publication */
+    /**
+     * True when a journaled owned-file publication has already been fully
+     * compensated: the file Duo created is gone and the record names no prior
+     * version to restore.
+     *
+     * DUO-3421. The interrupted-init compensation runs twice on the same
+     * artifacts by design -- once from Init::confirm()'s own catch, then again
+     * through recover_interrupted_attempt(), which re-derives every planned
+     * artifact from the sealed journal as the PROOF that the rollback is
+     * complete. Every other branch of that proof is presence-guarded and so is
+     * naturally idempotent; the two owned-file publications were not, and a
+     * second pass over its own completed work refused. This is deliberately
+     * the narrowest possible predicate: absent AND nothing to restore. An
+     * absent file whose record carries a previous version is still a
+     * compensation to perform (and compensate_owned_file() still refuses it,
+     * loudly, as external interference), and a present file is untouched by
+     * this and screened exactly as before.
+     *
+     * @param array<string,mixed> $publication
+     */
+    private static function owned_file_already_compensated(string $path, array $publication): bool {
+        return ($publication['previous'] ?? null) === null
+            && !file_exists($path)
+            && !is_link($path);
+    }
+
     private static function compensate_owned_file(string $path, array $publication, string $label): void {
         if (!is_file($path) || is_link($path)
             || !hash_equals((string) $publication['published'], self::regular_file_identity($path, $label))) {

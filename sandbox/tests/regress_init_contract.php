@@ -841,6 +841,45 @@ check(
     'the proposal gate and the compensation authority resolve the empty-root manifest through one shared predicate'
 );
 
+// DUO-3421: the interrupted-init compensation runs over the same artifacts
+// twice by design — Init::confirm()'s catch compensates its own publications,
+// then re-enters recover_interrupted_attempt() to PROVE the rollback from the
+// sealed journal. Every branch of that proof is presence-guarded and therefore
+// idempotent except the two owned-file publications, which met a file they had
+// just deleted and refused; the caller turned that into a retained journal,
+// a retained lock, and an unclassified refusal where the contract promises a
+// clean rollback.
+$alreadyCompensated = (new ReflectionClass(\Duo\Init::class))
+    ->getMethod('owned_file_already_compensated');
+$alreadyCompensated->setAccessible(true);
+$compensatedFixture = sys_get_temp_dir() . '/duo-init-compensated-' . bin2hex(random_bytes(6));
+if (!mkdir($compensatedFixture, 0777, true)) fail('could not create the compensation fixture');
+register_shutdown_function(static function () use ($compensatedFixture): void {
+    exec('rm -rf ' . escapeshellarg($compensatedFixture));
+});
+$absentFile = $compensatedFixture . '/site.duo.json';
+$presentFile = $compensatedFixture . '/.gitignore';
+file_put_contents($presentFile, "published\n");
+check(
+    $alreadyCompensated->invoke(null, $absentFile, ['previous' => null, 'published' => 'x']) === true,
+    'a deleted owned file with no prior version to restore reads as already compensated'
+);
+check(
+    $alreadyCompensated->invoke(null, $absentFile, ['previous' => "prior\n", 'published' => 'x']) === false,
+    'a deleted owned file whose record carries a prior version is still a compensation to perform'
+);
+check(
+    $alreadyCompensated->invoke(null, $presentFile, ['previous' => null, 'published' => 'x']) === false
+        && $alreadyCompensated->invoke(null, $presentFile, ['previous' => "prior\n", 'published' => 'x']) === false,
+    'a present owned file is never skipped, whatever its record says'
+);
+$initCompensationSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Init.php');
+check(
+    substr_count($initCompensationSource, 'self::owned_file_already_compensated(') === 2
+        && str_contains($initCompensationSource, 'private static function owned_file_already_compensated('),
+    'both owned-file publications — site.duo.json and .gitignore — carry the same idempotence guard as their sibling branches'
+);
+
 // DUO-3421: init must be able to STAGE the payload it is certified to manage.
 // The staging walk applied safe_component()'s identifier charset — the one for
 // slugs Duo selects — to directory names the SITE owns, so WooCommerce
