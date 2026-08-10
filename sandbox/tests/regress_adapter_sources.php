@@ -56,6 +56,10 @@ require __DIR__ . '/../../agent/src/SidebarState.php';
 require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
 require __DIR__ . '/../../agent/src/Deploy.php';
 require __DIR__ . '/../../cli/src/PlanSummary.php';
+// The shared certification fixture (DUO-3379's re-seal, extracted by DUO-3421
+// so sandbox/tests/regress_duo_init.sh can mount the identical library into a
+// live pair). certified_library() below is this suite's scratch-root wrapper.
+require __DIR__ . '/certification_fixture.php';
 
 use Duo\AdapterSources;
 use Duo\Canon;
@@ -186,35 +190,18 @@ function site_adapter(string $name, array $extra = []): array {
 }
 
 function copy_tree(string $from, string $to): void {
-    mkdir($to, 0777, true);
-    foreach (scandir($from) ?: [] as $entry) {
-        if ($entry === '.' || $entry === '..') {
-            continue;
-        }
-        if (is_dir("$from/$entry")) {
-            copy_tree("$from/$entry", "$to/$entry");
-        } else {
-            copy("$from/$entry", "$to/$entry");
-        }
-    }
+    duo_cert_copy_tree($from, $to);
 }
 
 /**
- * The re-seal hash basis of a certification bundle. The bundle builder
- * (certification-bundle.php::cert_json) and the importer
- * (scripts/capability-registry.php::cap_bundle_digest) already agree on this
- * exact compact canonical form, deliberately distinct from Canon::encode()'s
- * pretty-printed repository representation. A fixture that re-seals a bundle
- * has to use the same basis or it would be inventing a third notion of bundle
- * identity; the first check of the fixture group below pins that agreement by
- * reproducing the SHIPPED bundle's own recorded digest.
+ * The re-seal hash basis of a certification bundle — see
+ * certification_fixture.php's duo_cert_bundle_digest(), which the bundle
+ * builder, the importer, and both re-sealing fixtures now share. The first
+ * check of the fixture group below pins that agreement by reproducing the
+ * SHIPPED bundle's own recorded digest through it.
  */
 function bundle_digest(array $bundle): string {
-    unset($bundle['bundle_digest']);
-    return hash('sha256', json_encode(
-        Canon::normalize($bundle),
-        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
-    ) . "\n");
+    return duo_cert_bundle_digest($bundle);
 }
 
 /**
@@ -242,89 +229,21 @@ function bundle_digest(array $bundle): string {
  * fixture group below proves both halves of that: that the re-seal really is
  * current for these bytes, and that expired, stale, or malformed evidence
  * still refuses to certify anything.
+ *
+ * The re-seal itself moved to sandbox/tests/certification_fixture.php in
+ * DUO-3421, unchanged, because the live init suite needs the identical library
+ * mounted into a Docker pair and a second implementation of the bundle-identity
+ * basis is a third notion of bundle identity waiting to drift. This function
+ * keeps the scratch-root ownership (and therefore this suite's shutdown
+ * cleanup) and the memoization; the fixture group below is still where the
+ * re-seal's currency is PROVED, for both callers.
  */
 function certified_library(): string {
     static $manifestDir = null;
     if ($manifestDir !== null) {
         return $manifestDir;
     }
-    $repo = dirname(__DIR__, 2);
-    $root = scratch('certified-library');
-    copy_tree("$repo/manifests", "$root/manifests");
-    mkdir("$root/docs", 0777, true);
-    // CapabilityRegistry::validate() re-verifies generated_from against this
-    // file whenever it is present; copying it keeps that check live on the
-    // fixture instead of silently skipped.
-    copy("$repo/docs/compatibility-baseline.json", "$root/docs/compatibility-baseline.json");
-
-    $evidence = Canon::decode(Canon::read_file("$repo/manifests/capabilities/evidence.json"));
-    $registry = Canon::decode(Canon::read_file("$repo/manifests/capabilities/registry.json"));
-    $bundle = $evidence['bundle'];
-
-    // Bind the attestation to the bytes this tree actually has — what
-    // re-running certification on it would record. A bound input the branch
-    // deleted is simply no longer bound.
-    $bound = [];
-    foreach ($bundle['bound_inputs'] as $input) {
-        $file = $repo . '/' . (string) $input['path'];
-        if (is_file($file)) {
-            $bound[] = [
-                'path' => (string) $input['path'],
-                'sha256' => hash_file('sha256', $file),
-                'size' => filesize($file),
-            ];
-        }
-    }
-    $bundle['bound_inputs'] = $bound;
-
-    // A `current` registry refuses any certified claim citing evidence the
-    // bundle does not carry — correctly, and the fail-closed group asserts it.
-    // A branch mid-recertification cites IDs no already-imported bundle can
-    // contain, so the fixture supplies them: this attestation describes a
-    // library whose evidence covers its own citations.
-    $carried = [];
-    foreach ($bundle['tests'] as $test) {
-        $carried[(string) ($test['id'] ?? '')] = true;
-    }
-    foreach ([$registry['manifests'], $registry['profiles']] as $claims) {
-        foreach ($claims as $claim) {
-            foreach ($claim['evidence']['tests'] ?? [] as $cited) {
-                if (!isset($carried[(string) $cited])) {
-                    $bundle['tests'][] = ['id' => (string) $cited, 'verdict' => 'pass'];
-                    $carried[(string) $cited] = true;
-                }
-            }
-        }
-    }
-    $bundle['bundle_digest'] = bundle_digest($bundle);
-
-    $evidence['status'] = 'current';
-    $evidence['bundle'] = $bundle;
-    $evidenceFile = "$root/manifests/capabilities/evidence.json";
-    Canon::write_file($evidenceFile, Canon::encode($evidence));
-
-    // Exactly the fields cap_build_registry() derives from the attestation and
-    // nothing else, so every reviewed column stays the shipped generated one.
-    $registry['generated_from']['evidence_sha256'] = hash_file('sha256', $evidenceFile);
-    $registry['evidence']['status'] = 'current';
-    $registry['evidence']['bundle_digest'] = $bundle['bundle_digest'];
-    $registry['evidence']['tests'] = array_map(
-        fn(array $test): array => [
-            'id' => (string) ($test['id'] ?? ''),
-            'verdict' => (string) ($test['verdict'] ?? ''),
-        ],
-        $bundle['tests']
-    );
-    foreach (['manifests', 'profiles'] as $section) {
-        foreach ($registry[$section] as $name => $claim) {
-            $claim['evidence']['status'] = 'current';
-            $claim['evidence']['bundle_digest'] = $bundle['bundle_digest'];
-            $registry[$section][$name] = $claim;
-        }
-    }
-    Canon::write_file("$root/manifests/capabilities/registry.json", Canon::encode($registry));
-
-    return $manifestDir = "$root/manifests";
+    return $manifestDir = duo_cert_seal_library(dirname(__DIR__, 2), scratch('certified-library'));
 }
 
 /** A throwaway copy of the certification fixture, mutated by $mutate. */

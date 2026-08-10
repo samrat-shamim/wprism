@@ -45,6 +45,18 @@ HOST_REPO="$REPO_ROOT/sandbox/siterepo/${PAIR}1"
 HOST_REPO2="$REPO_ROOT/sandbox/siterepo/${PAIR}2"
 ENVS_FILE="$REPO_ROOT/sandbox/siterepo/${PAIR}-envs.json"
 COMPOSE_FILE="$REPO_ROOT/sandbox/pair.yml"
+# DUO-3421: the hermetic certification fixture this suite mounts instead of the
+# live library (see its manufacture below) and the confirmation logs that are
+# this suite's primary evidence when a paused confirmation misbehaves. Both are
+# derived from the validated $PAIR, so the EXIT trap's removals stay bounded to
+# paths this run owns.
+HERMETIC_ROOT="/tmp/${PAIR}-init-manifests"
+INIT_LOGS=(
+  "/tmp/${PAIR}-init-concurrent-1.log"
+  "/tmp/${PAIR}-init-concurrent-2.log"
+  "/tmp/${PAIR}-init-root-symlink.log"
+  "/tmp/${PAIR}-init-root-directory.log"
+)
 STARTED_AT=$SECONDS
 
 export DUO_PAIR="$PAIR"
@@ -53,8 +65,27 @@ say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
+# cleanup [preserve_evidence]
+#
+# DUO-3421: a failed run's confirmation logs ARE the diagnosis. The paused
+# confirmations below write their whole answer — refusal envelope included — to
+# /tmp/${PAIR}-init-*.log and nowhere else, so deleting them unconditionally
+# left the one interesting failure in this suite (a confirmation that refuses
+# before it can take the init lease) with no surviving evidence at all; the
+# defect this argument closes cost four instrumentation rounds to see. On
+# failure the logs and the hermetic fixture are kept and their paths printed;
+# on success everything is removed exactly as before. The pair itself is
+# destroyed either way — an owned pair is never leaked for evidence.
 cleanup() {
-  local destroy_status=0 remaining=""
+  local preserve="${1:-0}" destroy_status=0 remaining="" evidence=""
+  if [ "$preserve" = 1 ]; then
+    printf 'preserved init evidence for %s (this run failed; nothing below was deleted):\n' "$PAIR" >&2
+    for evidence in "${INIT_LOGS[@]}" "$HERMETIC_ROOT"; do
+      if [ -e "$evidence" ]; then
+        printf '  %s\n' "$evidence" >&2
+      fi
+    done
+  fi
   if bash sandbox/bin/pair.sh destroy "$PAIR" >/dev/null 2>&1; then
     destroy_status=0
   else
@@ -74,14 +105,23 @@ cleanup() {
     return 1
   fi
   rm -f "$ENVS_FILE"
-  rm -f "/tmp/${PAIR}-init-concurrent-1.log" "/tmp/${PAIR}-init-concurrent-2.log" \
-    "/tmp/${PAIR}-init-root-symlink.log" "/tmp/${PAIR}-init-root-directory.log" \
-    "/tmp/${PAIR}-committed-site.duo.json"
+  if [ "$preserve" != 1 ]; then
+    rm -f "${INIT_LOGS[@]}" "/tmp/${PAIR}-committed-site.duo.json"
+    rm -rf "$HERMETIC_ROOT"
+  fi
   rm -rf "$HOST_REPO" \
     "$REPO_ROOT/sandbox/siterepo/${PAIR}2" \
     "$REPO_ROOT/sandbox/siterepo/origin-${PAIR}.git"
 }
-trap cleanup EXIT
+cleanup_on_exit() {
+  local status=$?
+  if [ "$status" -ne 0 ]; then
+    cleanup 1
+  else
+    cleanup
+  fi
+}
+trap cleanup_on_exit EXIT
 
 # The evidence pair is deliberately reusable. Start from the same verified
 # clean-room boundary that the EXIT trap establishes so a prior interrupted
@@ -99,21 +139,84 @@ assert_exit() {
   pass "$description (exit $CODE)"
 }
 
+library_digest() { # library_digest <dir>
+  find "$1" -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}'
+}
+
+# DUO-3421: every `duo init` proposal below is evidence-gated. Init refuses to
+# advertise confirmation while any selected adapter reports an unsupported
+# capability row, and CapabilityRegistry attaches evidence_not_current to EVERY
+# certified claim the moment the registry's bound attestation is not current.
+# The checked-in attestation binds the exact bytes of every certification-bound
+# input, so it is EXPIRED by construction on every branch that owes a reference
+# bundle — including the branch whose bundle runs this very suite (legs 13-14).
+# The suite therefore self-blocked on the evidence it exists to mint: the paused
+# swap-link/swap-directory confirmations refused instantly with the redacted
+# not-ready envelope, never took the init lease, and the TOCTOU cases failed
+# with a lease timeout that named none of that.
+#
+# So the pair mounts a hermetic library instead: the shipped manifests byte for
+# byte, with ONLY the attestation re-sealed against this working tree, exactly
+# as re-certifying it would derive it (sandbox/tests/certification_fixture.php,
+# shared with regress_adapter_sources.php's DUO-3379 fixture). Every proposal
+# then sees current evidence regardless of where the live tree sits in its
+# certification cycle, and the product's own expired-evidence refusal is left
+# entirely intact — it is asserted, unmounted, by the offline capability suites.
+#
+# Manufactured and asserted BEFORE the first Docker mutation, and never on the
+# shipped library: a fixture whose manufacture silently failed would report the
+# ENGINE as broken (DUO-3381's premise-before-behavior family).
+say "manufacture the hermetic certification fixture this pair will mount"
+set +e
+LIVE_ATTESTATION=$(php scripts/capability-registry.php check 2>&1)
+LIVE_ATTESTATION_CODE=$?
+set -e
+printf 'live tree attestation (php scripts/capability-registry.php check, exit %s):\n%s\n' \
+  "$LIVE_ATTESTATION_CODE" "$LIVE_ATTESTATION"
+SHIPPED_LIBRARY_BEFORE=$(library_digest "$REPO_ROOT/manifests")
+rm -rf "$HERMETIC_ROOT"
+HERMETIC_MANIFESTS=$(php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT") \
+  || fail "fixture manufacture failed: could not seal a hermetic certification library under $HERMETIC_ROOT"
+[ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
+  || fail "fixture manufacture failed: sealed library landed at $HERMETIC_MANIFESTS, not under this run's owned scratch"
+jq -e '.evidence.status == "current"
+  and ([.manifests[].evidence.status] | unique) == ["current"]
+  and ([.profiles[].evidence.status] | unique) == ["current"]' \
+  "$HERMETIC_MANIFESTS/capabilities/registry.json" >/dev/null \
+  || fail "fixture manufacture failed: the sealed registry does not read current evidence"
+diff -r -x capabilities "$REPO_ROOT/manifests" "$HERMETIC_MANIFESTS" >/dev/null \
+  || fail "fixture manufacture failed: the sealed library is not the shipped library outside capabilities/"
+[ "$SHIPPED_LIBRARY_BEFORE" = "$(library_digest "$REPO_ROOT/manifests")" ] \
+  || fail "fixture manufacture failed: sealing the fixture modified the shipped manifest library"
+pass "hermetic certified library sealed at $HERMETIC_MANIFESTS (shipped bytes unchanged)"
+
 say "boot disposable authenticated Docker target on owned ports $PORT1/$PORT2"
 unset DUO_CLI_IMAGE || true
+# The hermetic library is exported before bring-up so nothing this suite starts
+# can resolve the live library by accident.
+export DUO_MANIFESTS_SRC="$HERMETIC_MANIFESTS"
 bash sandbox/bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless
 
-# pair.sh deliberately binds durable pairs to the primary checkout. This pair
-# is disposable evidence for the current issue worktree, so every subsequent
-# ephemeral CLI invocation explicitly mounts the bytes under test.
+# pair.sh deliberately binds durable pairs to the primary checkout (and
+# re-exports DUO_MANIFESTS_SRC inside its own process for exactly that reason).
+# This pair is disposable evidence for the current issue worktree, so every
+# subsequent ephemeral CLI invocation explicitly mounts the bytes under test:
+# this checkout's agent, and the hermetic library sealed above.
 export DUO_AGENT_SRC="$REPO_ROOT/agent"
-export DUO_MANIFESTS_SRC="$REPO_ROOT/manifests"
+export DUO_MANIFESTS_SRC="$HERMETIC_MANIFESTS"
 COMPOSE=(docker compose -p "duo-$PAIR" -f "$COMPOSE_FILE")
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 git1() { "${COMPOSE[@]}" run --rm -T --entrypoint git cli1 -C /siterepo "$@"; }
+# wait_for_init_lease <repo> <confirmation-log>
+#
+# DUO-3421: a confirmation that never takes the lease has ALREADY answered, in
+# its own log, and that answer is the entire diagnosis — a not-ready proposal
+# refuses before the paused phase is ever reached, which reads here as nothing
+# but a timeout. Paste the log into the failure instead of making the next
+# reader re-instrument the suite to see it (the DUO-3413 evidence discipline).
 wait_for_init_lease() {
-  local repo="$1" name holder
+  local repo="$1" log="$2" name holder
   name="duo-init:$(php -r 'echo substr(hash("sha256", "wp_" . chr(0) . $argv[1]), 0, 48);' "$repo")"
   for _ in $(seq 1 100); do
     holder=$(docker exec -e MYSQL_PWD=root duo-shared-db \
@@ -123,7 +226,10 @@ wait_for_init_lease() {
     fi
     sleep 0.1
   done
-  fail "confirmation never acquired the init lease for $repo"
+  fail "confirmation never acquired the init lease for $repo; its own answer, from $log:
+$(cat -- "$log" 2>&1)
+(a not-ready proposal refuses before the paused phase — check the capability
+rows above and the hermetic fixture at $HERMETIC_ROOT)"
 }
 
 say "install the exact certified WooCommerce boundary and representative authored entities"
@@ -286,7 +392,7 @@ set +e
   >"/tmp/${PAIR}-init-root-symlink.log" 2>&1 &
 SWAP_LINK_PID=$!
 set -e
-wait_for_init_lease /siterepo/swap-link
+wait_for_init_lease /siterepo/swap-link "/tmp/${PAIR}-init-root-symlink.log"
 mv "$HOST_REPO/swap-link" "$HOST_REPO/swap-link-reviewed"
 ln -s /var/www/html/duo-init-swap-external "$HOST_REPO/swap-link"
 set +e
@@ -320,7 +426,7 @@ set +e
   >"/tmp/${PAIR}-init-root-directory.log" 2>&1 &
 SWAP_DIR_PID=$!
 set -e
-wait_for_init_lease /siterepo/swap-directory
+wait_for_init_lease /siterepo/swap-directory "/tmp/${PAIR}-init-root-directory.log"
 mv "$HOST_REPO/swap-directory" "$HOST_REPO/swap-directory-reviewed"
 mv "$HOST_REPO/swap-directory-replacement" "$HOST_REPO/swap-directory"
 set +e

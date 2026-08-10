@@ -585,6 +585,73 @@ check(
     'live root suite covers missing, ancestor-link, symlink-swap, and ordinary-directory replacement boundaries'
 );
 
+// DUO-3421. This leg and the live golden path (bundle legs 13-14) both run on
+// bundle-owing branches BY CONSTRUCTION, where the checked-in attestation is
+// expired and every certified claim therefore carries evidence_not_current. An
+// init proposal with unsupported rows is not ready, refuses confirmation
+// instantly, and the live harness's paused root-replacement races then time out
+// waiting for an init lease no confirmation ever took — the bundle blocked on
+// the evidence it exists to mint. The live harness now mounts a hermetic
+// library (the shipped manifests byte for byte, attestation re-sealed against
+// the working tree) instead of the live one. Pinned here because the ordering
+// is the whole property: sealed and asserted BEFORE the pair exists, and the
+// live library never mounted at all.
+$fixtureBuild = strpos($liveHarness, 'php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT"');
+$fixtureMount = strpos($liveHarness, 'export DUO_MANIFESTS_SRC="$HERMETIC_MANIFESTS"');
+check(
+    $fixtureBuild !== false && $fixtureMount !== false && $pairUp !== false
+        && $fixtureBuild < $fixtureMount && $fixtureMount < $pairUp
+        && !str_contains($liveHarness, 'export DUO_MANIFESTS_SRC="$REPO_ROOT/manifests"'),
+    'live init evidence seals and mounts a hermetic certified library before pair bring-up, never the live one'
+);
+check(
+    str_contains($liveHarness, 'fixture manufacture failed: the sealed registry does not read current evidence')
+        && str_contains($liveHarness, 'fixture manufacture failed: the sealed library is not the shipped library outside capabilities/')
+        && str_contains($liveHarness, 'fixture manufacture failed: sealing the fixture modified the shipped manifest library'),
+    'live harness asserts its own fixture manufacture — current, byte-identical, and non-destructive — before any behavior'
+);
+// The fixture builder itself, exercised offline: if it cannot produce a current
+// attestation on this tree, legs 13-14 cannot pass and this says so in seconds
+// rather than an hour into a live pair.
+require_once __DIR__ . '/certification_fixture.php';
+$fixtureRoot = sys_get_temp_dir() . '/duo-init-contract-fixture-' . bin2hex(random_bytes(6));
+register_shutdown_function(static function () use ($fixtureRoot): void {
+    exec('rm -rf ' . escapeshellarg($fixtureRoot));
+});
+$sealedDir = duo_cert_seal_library(dirname(__DIR__, 2), $fixtureRoot);
+$sealedRegistry = \Duo\Canon::decode(\Duo\Canon::read_file("$sealedDir/capabilities/registry.json"));
+$sealedStatuses = [];
+foreach (['manifests', 'profiles'] as $sealedSection) {
+    foreach ($sealedRegistry[$sealedSection] as $sealedClaim) {
+        $sealedStatuses[(string) ($sealedClaim['evidence']['status'] ?? '?')] = true;
+    }
+}
+check(
+    ($sealedRegistry['evidence']['status'] ?? null) === 'current'
+        && array_keys($sealedStatuses) === ['current']
+        && duo_cert_library_bytes($sealedDir) === duo_cert_library_bytes(dirname(__DIR__, 2) . '/manifests'),
+    'the shared certification fixture seals this tree into a current attestation over byte-identical shipped manifests'
+);
+
+// DUO-3421. The confirmation logs are the only place a paused confirmation's
+// own answer is written, so a failed run must keep them; a green one still
+// cleans up after itself, and the owned pair is destroyed either way.
+check(
+    str_contains($liveHarness, 'trap cleanup_on_exit EXIT')
+        && str_contains($liveHarness, 'cleanup 1')
+        && str_contains($liveHarness, 'preserved init evidence for %s (this run failed; nothing below was deleted)')
+        && str_contains($liveHarness, 'if [ "$preserve" != 1 ]; then')
+        && str_contains($liveHarness, 'rm -f "${INIT_LOGS[@]}"'),
+    'live cleanup preserves and names the failed confirmation logs, and deletes them only on success'
+);
+check(
+    str_contains($liveHarness, 'confirmation never acquired the init lease for $repo; its own answer, from $log:')
+        && str_contains($liveHarness, '$(cat -- "$log" 2>&1)')
+        && str_contains($liveHarness, 'wait_for_init_lease /siterepo/swap-link "/tmp/${PAIR}-init-root-symlink.log"')
+        && str_contains($liveHarness, 'wait_for_init_lease /siterepo/swap-directory "/tmp/${PAIR}-init-root-directory.log"'),
+    'a lease-wait timeout pastes the confirmation log that already holds the diagnosis'
+);
+
 $unsafeRoot = __DIR__ . '/../unsafe1';
 $unsafeSentinel = $unsafeRoot . '/sentinel';
 if (!is_dir($unsafeRoot) && !mkdir($unsafeRoot, 0777, true) && !is_dir($unsafeRoot)) {
