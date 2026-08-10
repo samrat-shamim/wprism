@@ -916,8 +916,10 @@ check(
 // blocker fired correctly and named itself in words nothing else used.
 check(
     substr_count($initCompensationSource, 'partial code staging tree without a complete descriptor') === 2
-        && !str_contains($initCompensationSource, 'partial code staging root'),
-    'the proposal blocker and the recovery refusal name the partial staging tree identically'
+        && substr_count($initCompensationSource, 'partial state staging tree without a complete deletion manifest') === 2
+        && !str_contains($initCompensationSource, 'partial code staging root')
+        && !str_contains($initCompensationSource, 'partial state staging root'),
+    'the proposal blockers and the recovery refusals name the partial code and state staging trees identically'
 );
 check(
     !str_contains($initCompensationSource, 'unbound site.duo.json')

@@ -664,7 +664,7 @@ final class Init {
         }
         if ($present(Publish::stage_dir($stateDir))
             && !is_array($owned['state_staging_manifest'] ?? null)) {
-            return 'the sealed attempt has a partial state staging root without a complete deletion manifest';
+            return 'the sealed attempt has a partial state staging tree without a complete deletion manifest';
         }
         if ($present($stateDir) && (is_link($stateDir) || !is_dir($stateDir))) {
             return 'the sealed attempt has a non-directory state reservation boundary';
