@@ -478,7 +478,11 @@ DELETE_TARGET_ID="$(target_post_id "$DELETE_UUID")"
 pass "tombstone refusal happened before session creation, authored mutation, provider/native action, or generic debt"
 
 say "apply selected tombstone with explicit deletion authority and verify changed surfaces"
-run_duo_json tombstone-apply "$TMP/tombstone-apply.json" apply target "--scope-contract=$TOMB_CONTRACT" --with-deletes --format=json
+if ! "$DUO" --envs-file="$ENVS" apply target "--scope-contract=$TOMB_CONTRACT" --with-deletes >"$TMP/tombstone-apply-human.out" 2>&1; then
+  sed -n '1,240p' "$TMP/tombstone-apply-human.out" >&2
+  fail "diagnostic tombstone apply failed"
+fi
+fail "diagnostic tombstone apply unexpectedly succeeded; restore the JSON assertion path"
 jq -e '
   .format == "duo-scoped-apply-result/v1"
   and .canary == "clean"
