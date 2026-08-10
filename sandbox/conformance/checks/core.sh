@@ -445,15 +445,27 @@ CONFLICT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) 
 require_duo_answered "conf2 duo apply (unforced three-way conflict probe)" human "$CONFLICT_OUT"
 [ "$CONFLICT_RC" -ne 0 ] && grep -qi 'conflicts (env and repo both changed' <<<"$CONFLICT_OUT" \
   || fail "unforced three-way conflict did not refuse before mutation: $CONFLICT_OUT"
-[ "$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title)" = "$CONFLICT_TARGET_BEFORE" ] \
-  || fail "unforced conflict mutated the target title"
-[ "$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$UA'" --skip-column-names | tr -d '[:space:]')" = "$CONFLICT_BASE_BEFORE" ] \
-  || fail "unforced conflict advanced the target's last-synced base"
+# DUO-3401: capture each target OBSERVATION into a var and name an
+# empty-at-exit-0 compose death as infrastructure BEFORE comparing, so the
+# DUO-3381 signature (a load-starved `docker compose run` returning EMPTY at
+# exit 0) is named at the read site instead of reading as an engine mutation.
+# A healthy (non-empty) read reaches the exact same compare; a real mutation
+# (a different non-empty value) still reaches the accusation.
+CONFLICT_TARGET_AFTER=$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title) || true
+require_observed_nonempty "conf2 branch-a post_title (unforced-conflict target)" "$CONFLICT_TARGET_AFTER"
+[ "$CONFLICT_TARGET_AFTER" = "$CONFLICT_TARGET_BEFORE" ] \
+  || fail "unforced conflict mutated the target title (before=$CONFLICT_TARGET_BEFORE after=$CONFLICT_TARGET_AFTER)"
+CONFLICT_BASE_AFTER=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$UA'" --skip-column-names | tr -d '[:space:]') || true
+require_observed_nonempty "conf2 wp_duo_state content_hash (unforced-conflict base)" "$CONFLICT_BASE_AFTER"
+[ "$CONFLICT_BASE_AFTER" = "$CONFLICT_BASE_BEFORE" ] \
+  || fail "unforced conflict advanced the target's last-synced base (before=$CONFLICT_BASE_BEFORE after=$CONFLICT_BASE_AFTER)"
 FORCED_CONFLICT=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
 jq -e --arg uuid "$UA" '.warnings | any(contains("FORCED conflict " + $uuid))' <<<"$FORCED_CONFLICT" >/dev/null \
   || fail "--force-theirs did not report the overridden conflict in machine output: $FORCED_CONFLICT"
-[ "$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title)" = 'Branch Repository Intent For Conflict' ] \
-  || fail "forced repository intent did not converge on target"
+CONFLICT_TARGET_CONVERGED=$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title) || true
+require_observed_nonempty "conf2 branch-a post_title (forced-conflict convergence)" "$CONFLICT_TARGET_CONVERGED"
+[ "$CONFLICT_TARGET_CONVERGED" = 'Branch Repository Intent For Conflict' ] \
+  || fail "forced repository intent did not converge on target (after=$CONFLICT_TARGET_CONVERGED)"
 pass "plan conflicts speak WordPress names, expose hash-only base/repository/target intent, recommend reconciliation, and report destructive override (DUO-3345)"
 
 # DUO-3210: absence alone is not authority; capture replaces the prior Home
@@ -489,7 +501,14 @@ DELETE_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --force-delete-r
 jq -e '.canary == "clean" and (.warnings | any(contains("FORCED delete")))' <<<"$DELETE_OUT" >/dev/null \
   || fail "forced page deletion was not loud and clean: $DELETE_OUT"
 [ -z "$(wp_conf2 post list --post_type=page --name=home --field=ID)" ] || fail "Home page survived exact deletion"
-[ "$(wp_conf2 comment get "$COMMENT2" --field=comment_ID)" = "$COMMENT2" ] || fail "runtime comment was cascaded or lost"
+# DUO-3401: `comment get` on a genuine cascade exits NON-zero, but a
+# compose-death empty arrives at exit 0 (DUO-3381). Capture, name only the
+# exit-0 empty as infrastructure, and let a real (non-zero) cascade still
+# reach the engine accusation below.
+COMMENT2_REF_RC=0
+COMMENT2_REF=$(wp_conf2 comment get "$COMMENT2" --field=comment_ID 2>/dev/null) || COMMENT2_REF_RC=$?
+[ "$COMMENT2_REF_RC" -ne 0 ] || require_observed_nonempty "conf2 comment get (preserved runtime comment)" "$COMMENT2_REF"
+[ "$COMMENT2_REF" = "$COMMENT2" ] || fail "runtime comment was cascaded or lost (expected=$COMMENT2 got=${COMMENT2_REF:-<empty>})"
 RETRY_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 jq -e --arg uuid "$HOME_UUID" '(.delete | length) == 0 and (.delete_conflict | length) == 0 and (.deleted | any(.uuid == $uuid))' \
   <<<"$RETRY_PLAN" >/dev/null || fail "page tombstone retry did not settle as deleted: $RETRY_PLAN"
@@ -556,12 +575,25 @@ jq -e --arg entity_hash "$BLOCKED_ENTITY_HASH" '.format == "duo-command-refusal/
   || fail "guard-blocked deletion refusal leaked the raw entity identity: $BLOCKED_FORCE_JSON"
 ! grep -Fq 'runtime conflict guard' <<<"$BLOCKED_FORCE_JSON" \
   || fail "guard-blocked deletion refusal leaked raw guard detail: $BLOCKED_FORCE_JSON"
-[ "$(wp_conf2 post get "$HELLO2" --field=post_content)" = "$BLOCKED_CONTENT_BEFORE" ] \
-  || fail "guard-blocked forced deletion mutated the target post"
-[ "$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]')" = "$BLOCKED_BASE_BEFORE" ] \
-  || fail "guard-blocked forced deletion advanced the last-synced base"
-wp_conf2 comment get "$HELLO_COMMENT" --field=comment_ID >/dev/null \
-  || fail "guard-blocked forced deletion removed its runtime reference"
+# DUO-3401: post get exits non-zero on a genuinely deleted target, so a
+# compose-death empty (exit 0) is distinguished from a real deletion.
+BLOCKED_CONTENT_AFTER_RC=0
+BLOCKED_CONTENT_AFTER=$(wp_conf2 post get "$HELLO2" --field=post_content 2>/dev/null) || BLOCKED_CONTENT_AFTER_RC=$?
+[ "$BLOCKED_CONTENT_AFTER_RC" -ne 0 ] || require_observed_nonempty "conf2 post get post_content (guard-blocked deletion target)" "$BLOCKED_CONTENT_AFTER"
+[ "$BLOCKED_CONTENT_AFTER" = "$BLOCKED_CONTENT_BEFORE" ] \
+  || fail "guard-blocked forced deletion mutated the target post (before=$BLOCKED_CONTENT_BEFORE after=$BLOCKED_CONTENT_AFTER)"
+BLOCKED_BASE_AFTER=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]') || true
+require_observed_nonempty "conf2 wp_duo_state content_hash (guard-blocked deletion base)" "$BLOCKED_BASE_AFTER"
+[ "$BLOCKED_BASE_AFTER" = "$BLOCKED_BASE_BEFORE" ] \
+  || fail "guard-blocked forced deletion advanced the last-synced base (before=$BLOCKED_BASE_BEFORE after=$BLOCKED_BASE_AFTER)"
+# DUO-3401: was `comment get … >/dev/null || fail` — a compose-death empty
+# tripped this engine accusation. Capture, name an exit-0 empty as
+# infrastructure, and keep the accusation for a genuine (non-zero) removal.
+HELLO_COMMENT_REF_RC=0
+HELLO_COMMENT_REF=$(wp_conf2 comment get "$HELLO_COMMENT" --field=comment_ID 2>/dev/null) || HELLO_COMMENT_REF_RC=$?
+[ "$HELLO_COMMENT_REF_RC" -ne 0 ] || require_observed_nonempty "conf2 comment get (guard-blocked deletion runtime reference)" "$HELLO_COMMENT_REF"
+[ "$HELLO_COMMENT_REF" = "$HELLO_COMMENT" ] \
+  || fail "guard-blocked forced deletion removed its runtime reference (expected=$HELLO_COMMENT got=${HELLO_COMMENT_REF:-<empty>})"
 pass "guard-blocked deletion conflict refuses incomplete force authorization with truthful typed evidence and zero target/ledger mutation"
 wp_conf2 comment delete "$HELLO_COMMENT" --force >/dev/null
 LOCAL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
@@ -608,10 +640,17 @@ jq -e --arg entity_hash "$BLOCKED_ENTITY_HASH" '.format == "duo-command-refusal/
   and .forced_overrides[0].supplied_flags == ["--force-theirs"]
   and .forced_overrides[0].status == "incomplete"' <<<"$LOCAL_FORCE_ONLY_JSON" >/dev/null \
   || fail "entity tombstone conflict did not report the missing --with-deletes authorization honestly: $LOCAL_FORCE_ONLY_JSON"
-[ "$(wp_conf2 post get "$HELLO2" --field=post_content)" = "$LOCAL_FORCE_ONLY_CONTENT" ] \
-  || fail "--force-theirs without --with-deletes mutated the deletion-conflict target"
-[ "$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]')" = "$LOCAL_FORCE_ONLY_BASE" ] \
-  || fail "--force-theirs without --with-deletes advanced the deletion-conflict base"
+# DUO-3401: same guard as the guard-blocked region above — name a
+# compose-death empty as infrastructure before the mutation compare.
+LOCAL_FORCE_ONLY_CONTENT_AFTER_RC=0
+LOCAL_FORCE_ONLY_CONTENT_AFTER=$(wp_conf2 post get "$HELLO2" --field=post_content 2>/dev/null) || LOCAL_FORCE_ONLY_CONTENT_AFTER_RC=$?
+[ "$LOCAL_FORCE_ONLY_CONTENT_AFTER_RC" -ne 0 ] || require_observed_nonempty "conf2 post get post_content (force-theirs-only deletion-conflict target)" "$LOCAL_FORCE_ONLY_CONTENT_AFTER"
+[ "$LOCAL_FORCE_ONLY_CONTENT_AFTER" = "$LOCAL_FORCE_ONLY_CONTENT" ] \
+  || fail "--force-theirs without --with-deletes mutated the deletion-conflict target (before=$LOCAL_FORCE_ONLY_CONTENT after=$LOCAL_FORCE_ONLY_CONTENT_AFTER)"
+LOCAL_FORCE_ONLY_BASE_AFTER=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]') || true
+require_observed_nonempty "conf2 wp_duo_state content_hash (force-theirs-only deletion-conflict base)" "$LOCAL_FORCE_ONLY_BASE_AFTER"
+[ "$LOCAL_FORCE_ONLY_BASE_AFTER" = "$LOCAL_FORCE_ONLY_BASE" ] \
+  || fail "--force-theirs without --with-deletes advanced the deletion-conflict base (before=$LOCAL_FORCE_ONLY_BASE after=$LOCAL_FORCE_ONLY_BASE_AFTER)"
 pass "entity tombstone conflicts require both advertised flags and refuse incomplete authorization without mutation"
 LOCAL_RC=0
 LOCAL_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || LOCAL_RC=$?
