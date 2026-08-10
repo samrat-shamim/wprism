@@ -723,6 +723,21 @@ check(
         && str_contains($liveHarness, 'wait_for_init_lease /siterepo/swap-directory "/tmp/${PAIR}-init-root-directory.log"'),
     'a lease-wait timeout pastes the confirmation log that already holds the diagnosis'
 );
+// DUO-3421 (DUO-3381 family). Every injected-failure case takes a fresh
+// proposal and confirms its digest; a compose run starved to empty with exit 0
+// yields an empty digest, a confirmation that refuses before its first
+// mutation, and a case that blames the ENGINE for losing the journal that was
+// never created. The manufacture is asserted before any of them consume it,
+// and nothing may reach a confirmation through the old unchecked shape.
+check(
+    str_contains($liveHarness, 'require_init_plan() {')
+        && str_contains($liveHarness, 'fixture manufacture failed: $label proposal is not ready')
+        && str_contains($liveHarness, '[[ "$digest" =~ ^[a-f0-9]{64}$ ]]')
+        && substr_count($liveHarness, 'require_init_plan wp') >= 20
+        && !preg_match('/_PLAN=\$\(wp[12] duo init/', $liveHarness)
+        && !str_contains($liveHarness, '_DIGEST=$(jq -r .digest <<<'),
+    'every confirmed live proposal asserts its own manufacture before the confirmation consumes the digest'
+);
 
 $unsafeRoot = __DIR__ . '/../unsafe1';
 $unsafeSentinel = $unsafeRoot . '/sentinel';
