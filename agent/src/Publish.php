@@ -1848,6 +1848,15 @@ PHP;
 
     /** @return ?array<string,mixed> */
     private static function read_record(string $path, string $label): ?array {
+        // Docker Desktop's bind mount can hand PHP a stale cached stat for a
+        // path write_record() just @link()/@rename()'d into place, classifying
+        // that fresh regular file as a non-file. Refresh the stat first so the
+        // type check below is a fresh regular-file identity check — the same
+        // clearstatcache discipline lock_new()/assert_lock_path() already use
+        // before their is_file/inode checks. This only makes the stat fresh: a
+        // directory, symlink, malformed, non-object, or unsealed record still
+        // refuses exactly as before.
+        clearstatcache(true, $path);
         self::assert_not_symlink_root($path, "$label record");
         if (!file_exists($path) && !is_link($path)) {
             return null;
@@ -1967,6 +1976,12 @@ PHP;
             }
             self::fsync_dir(dirname($path));
         } finally {
+            // Refresh the owned temp's identity before removing it, so a stale
+            // cached stat cannot make is_file() miss the regular inode we
+            // created and leak the .tmp.<pid>.<rand> hard link. $tmp is a
+            // unique path we created, so a fresh is_file() is the correct
+            // owned-file check.
+            clearstatcache(true, $tmp);
             if (is_file($tmp)) {
                 @unlink($tmp);
             }
