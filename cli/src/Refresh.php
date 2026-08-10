@@ -31,8 +31,12 @@ final class Refresh {
      *
      * @return array{plan:array<string,mixed>,plan_path:string,context:array<string,mixed>}
      */
-    public static function refresh(EnvironmentDriver $transport, string $productionRef): array {
-        $prepared = self::prepare($transport, $productionRef);
+    public static function refresh(
+        EnvironmentDriver $transport,
+        string $productionRef,
+        ?array $scopeContract = null
+    ): array {
+        $prepared = self::prepare($transport, $productionRef, $scopeContract);
         return [
             'plan' => $prepared['plan'],
             'plan_path' => $prepared['plan_path'],
@@ -47,17 +51,23 @@ final class Refresh {
      *
      * @return array{plan_path:string,run_id:string,new_branch:string,head:string}
      */
-    public static function rebase(EnvironmentDriver $transport, string $productionRef, string $newBranch, array $resolution = []): array {
+    public static function rebase(
+        EnvironmentDriver $transport,
+        string $productionRef,
+        string $newBranch,
+        array $resolution = [],
+        ?array $scopeContract = null
+    ): array {
         self::requirePlanner(['normalizeProductionSnapshot', 'compileGitWorktree', 'assertProductionCodeMatches', 'plan', 'normalizePlan', 'materialize', 'validateMaterialization']);
         $resolution = self::normalizeResolution($resolution);
-        $prepared = self::prepare($transport, $productionRef);
+        $prepared = self::prepare($transport, $productionRef, $scopeContract);
         $context = $prepared['context'];
         $root = (string) $context['repo_root'];
         self::assertNewBranch($root, $newBranch);
 
         // Re-read production immediately before local materialization.  A plan
         // from a prior live snapshot must never silently become a new baseline.
-        $again = self::readProduction($transport, (string) $context['production_commit']);
+        $again = self::readProduction($transport, (string) $context['production_commit'], $scopeContract);
         if (($again['snapshot_hash'] ?? null) !== ($context['production_snapshot_hash'] ?? null)) {
             throw new \RuntimeException(
                 'production changed after refresh planning; no candidate branch was created (run duo refresh/rebase again)'
@@ -84,20 +94,33 @@ final class Refresh {
             'source_head' => $context['branch_commit'],
             'worktree' => $worktree,
         ];
+        if ($scopeContract !== null) {
+            $run['scope_hash'] = (string) ($scopeContract['scope_hash'] ?? '');
+        }
         $journal->start($runId, $run); // durable before `git worktree add`
 
         try {
             self::git($root, ['worktree', 'add', '--detach', $worktree, (string) $context['branch_commit']]);
             $journal->append($runId, 'worktree-created', ['worktree' => $worktree]);
 
-            self::rebaseCodeOnly(
-                $worktree,
-                (string) $context['production_commit'],
-                (string) $context['base_commit'],
-                $journal->runDir($runId)
-            );
-            self::assertNoUnmerged($worktree);
-            $journal->append($runId, 'code-rebased', ['head' => self::gitStdout($worktree, ['rev-parse', 'HEAD'])]);
+            if ($scopeContract === null) {
+                self::rebaseCodeOnly(
+                    $worktree,
+                    (string) $context['production_commit'],
+                    (string) $context['base_commit'],
+                    $journal->runDir($runId)
+                );
+                self::assertNoUnmerged($worktree);
+                $journal->append($runId, 'code-rebased', ['head' => self::gitStdout($worktree, ['rev-parse', 'HEAD'])]);
+            } else {
+                // duo-scope-contract/v1 explicitly excludes code and
+                // lifecycle. Keep the branch commit's code bytes/ancestry;
+                // only the scoped state overlay below may change paths.
+                $journal->append($runId, 'code-preserved', [
+                    'head' => self::gitStdout($worktree, ['rev-parse', 'HEAD']),
+                    'scope_hash' => (string) $scopeContract['scope_hash'],
+                ]);
+            }
 
             $receipt = self::planner('materialize', [$prepared['plan'], $worktree, $resolution]);
             if (!is_array($receipt)
@@ -157,7 +180,11 @@ final class Refresh {
     }
 
     /** @return array{plan:array<string,mixed>,plan_path:string,context:array<string,mixed>} */
-    private static function prepare(EnvironmentDriver $transport, string $productionRef): array {
+    private static function prepare(
+        EnvironmentDriver $transport,
+        string $productionRef,
+        ?array $scopeContract = null
+    ): array {
         self::requirePlanner(['normalizeProductionSnapshot', 'compileGitWorktree', 'assertProductionCodeMatches', 'plan', 'normalizePlan']);
         $root = self::repositoryRoot();
         $branch = self::assertCleanAttachedBranch($root);
@@ -169,7 +196,7 @@ final class Refresh {
         // the exact local production topology.  A completed code descriptor
         // proves bytes, not Git ancestry, so neither check replaces the other.
         self::assertTargetHead($transport, $productionCommit);
-        $production = self::readProduction($transport, $productionCommit);
+        $production = self::readProduction($transport, $productionCommit, $scopeContract);
 
         $journal = new RefreshRunJournal(self::journalRoot($root));
         $scratch = $journal->scratchPath(self::runId());
@@ -185,7 +212,10 @@ final class Refresh {
             self::git($root, ['worktree', 'add', '--detach', $productionTree, $productionCommit]);
             try {
                 $base = self::planner('compileGitWorktree', [$baseTree, $baseCommit, 'base']);
-                $branchArtifact = self::planner('compileGitWorktree', [$branchTree, $branchCommit, 'branch']);
+                $branchArtifact = self::planner(
+                    'compileGitWorktree',
+                    [$branchTree, $branchCommit, 'branch', null, $scopeContract !== null]
+                );
                 // The production-ref compiler is deliberately code-only.  Its
                 // repository state must never become P or shadow live truth.
                 $productionCode = self::planner('compileGitWorktree', [$productionTree, $productionCommit, 'production-code']);
@@ -205,6 +235,9 @@ final class Refresh {
                     'production_env' => $transport->name(),
                     'production_snapshot_hash' => $production['snapshot_hash'],
                 ];
+                if ($scopeContract !== null) {
+                    $planContext['scope_contract'] = $scopeContract;
+                }
                 $plan = self::planner('plan', [$base, $production, $branchArtifact, $planContext]);
                 $plan = self::planner('normalizePlan', [$plan]);
                 if (!is_array($plan) || ($plan['format'] ?? null) !== self::PLAN_FORMAT
@@ -228,7 +261,11 @@ final class Refresh {
     }
 
     /** @return array<string,mixed> */
-    private static function readProduction(EnvironmentDriver $transport, string $productionCommit): array {
+    private static function readProduction(
+        EnvironmentDriver $transport,
+        string $productionCommit,
+        ?array $scopeContract = null
+    ): array {
         self::assertTargetHead($transport, $productionCommit);
         // Boot only core + the protected Duo agent. Ordinary WP-CLI plugin,
         // theme, or user-MU bootstrap runs before RefreshExport can open its
@@ -237,9 +274,20 @@ final class Refresh {
         // server-enforced boundary even exists. Reuse the proven control
         // bootstrap that shadows user MU code and skips regular plugins and
         // themes while leaving manifest-owned providers available to Duo.
-        $result = $transport->captureWp(CodeDeploy::controlArgs([
-            'duo', 'refresh-export', '--repo=' . $transport->repoPath(), '--format=json',
-        ]));
+        $wpArgs = ['duo', 'refresh-export', '--repo=' . $transport->repoPath(), '--format=json'];
+        if ($scopeContract !== null) {
+            $request = [
+                'format' => 'duo-scope-request/v1',
+                'scope_hash' => (string) ($scopeContract['scope_hash'] ?? ''),
+                'selectors' => $scopeContract['selectors'] ?? null,
+            ];
+            if (!is_array($request['selectors'])
+                || preg_match('/^[a-f0-9]{64}$/D', $request['scope_hash']) !== 1) {
+                throw new \RuntimeException('refresh scope contract is malformed');
+            }
+            $wpArgs[] = '--scope-request-b64=' . base64_encode(self::encode($request));
+        }
+        $result = $transport->captureWp(CodeDeploy::controlArgs($wpArgs));
         if (($result['exit'] ?? 1) !== 0) {
             throw new \RuntimeException('refresh-export failed for production environment ' . $transport->name()
                 . ': ' . self::transportReason($result));
@@ -252,6 +300,19 @@ final class Refresh {
         self::assertProductionExportShape($raw);
         $production = self::planner('normalizeProductionSnapshot', [$raw]);
         self::assertProductionExportShape($production);
+        if ($scopeContract !== null) {
+            $scope = $production['scope'] ?? null;
+            if (!is_array($scope)
+                || ($scope['format'] ?? null) !== 'duo-refresh-scope/v1'
+                || ($scope['out_of_scope'] ?? null) !== 'omitted_not_absent'
+                || !hash_equals((string) $scopeContract['scope_hash'], (string) ($scope['scope_hash'] ?? ''))
+                || self::encode($scope['selectors'] ?? null) !== self::encode($scopeContract['selectors'] ?? null)
+                || self::encode($scope['source'] ?? null) !== self::encode($scopeContract['source'] ?? null)) {
+                throw new \RuntimeException('production scoped refresh export does not match its immutable contract');
+            }
+        } elseif (array_key_exists('scope', $production)) {
+            throw new \RuntimeException('production returned an unexpected scoped refresh export');
+        }
         self::assertTargetHead($transport, $productionCommit);
         return $production;
     }

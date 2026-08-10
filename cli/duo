@@ -40,6 +40,14 @@ if (is_file(__DIR__ . '/src/RefreshPlan.php')) {
     require __DIR__ . '/src/RefreshPlan.php';
 }
 require __DIR__ . '/src/Refresh.php';
+// Pure immutable-contract validation for host-local --scope-contract files.
+// These classes perform no WordPress bootstrap or target access here.
+require_once dirname(__DIR__) . '/agent/src/Canon.php';
+require_once dirname(__DIR__) . '/agent/src/ReferenceGraph.php';
+require_once dirname(__DIR__) . '/agent/src/ScopeClosure.php';
+require_once dirname(__DIR__) . '/agent/src/CanonicalSurfaces.php';
+require_once dirname(__DIR__) . '/agent/src/Deletion.php';
+require_once dirname(__DIR__) . '/agent/src/ScopeContract.php';
 
 use Duo\Orchestrator\Doctor;
 use Duo\Orchestrator\Adopt;
@@ -85,7 +93,7 @@ Usage:
   duo adopt  <env>
   duo status <env>
   duo capabilities <env> [--operation=<op>] [--surface=<surface>] [--revision=<sha>] [--format=json]
-  duo capture <env> [extra wp-cli flags...]
+  duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
   duo plan    <env> [extra wp-cli flags...]
   duo explain <env> <bucket>:<entity-key> [--format=json] [plan flags...]
   duo apply   <env> [extra wp-cli flags...]
@@ -96,8 +104,8 @@ Usage:
   duo classify <env> [--accept-proposals|--export-batch=<path>|--apply-batch=<path>]
   duo coverage <env> [--format=json]
   duo scope    <env> --roots=<selectors> [--contract] [--format=json]
-  duo refresh <production-env> --production-ref=<ref>
-  duo rebase <production-env> --production-ref=<ref> --new-branch=<name>
+  duo refresh <production-env> --production-ref=<ref> [--scope-contract=<local-path>]
+  duo rebase <production-env> --production-ref=<ref> --new-branch=<name> [--scope-contract=<local-path>]
   duo rebase <production-env> --abort=<run-id>
   duo -h | --help
 
@@ -218,7 +226,12 @@ Verbs:
                           plugin execution separately from branchable authored
                           state and explains every blocker. --format=json
                           returns the agent's canonical verdict.
-  capture <env> [...]     `wp duo capture --repo=<repo_path> [...]`
+  capture <env> [...]     `wp duo capture --repo=<repo_path> [...]`. A local
+    --scope-contract=<p>  canonical duo-scope-contract/v1 file is validated
+                          by the real engine parser, then transported as its
+                          normalized selectors + scope_hash; the target
+                          recompiles and verifies the complete contract before
+                          any target DDL/DML.
   plan <env> [...]        `wp duo plan    --repo=<repo_path> [...]`
   explain <env> <selector>
     [--format=json]       Rebuild the current plan under a strict observation
@@ -336,12 +349,12 @@ Verbs:
                           The host runs scope through the isolated control
                           plane, so plugins, themes, and normal MU code are
                           not booted before this target-independent compile.
-  refresh <production-env> --production-ref=<ref>
+  refresh <production-env> --production-ref=<ref> [--scope-contract=<p>]
                           Fetches only a read-only live production export and
                           writes an immutable semantic B/P/W plan locally.
                           The Git ref verifies code topology; it never stands
                           in for production database truth.
-  rebase <production-env> --production-ref=<ref> --new-branch=<name>
+  rebase <production-env> --production-ref=<ref> --new-branch=<name> [--scope-contract=<p>]
                           Builds a candidate only in a disposable local
                           worktree, then atomically creates a new branch after
                           semantic state validation. Source branch is untouched.
@@ -558,7 +571,8 @@ function main(array $argv): int {
         'doctor' => cmd_doctor($transport),
         'adopt' => cmd_adopt($transport, $extra),
         'status' => cmd_status($transport),
-        'capabilities', 'capture', 'plan', 'explain', 'apply', 'env-set', 'coverage' => cmd_passthrough($transport, $verb, $extra),
+        'capabilities', 'plan', 'explain', 'apply', 'env-set', 'coverage' => cmd_passthrough($transport, $verb, $extra),
+        'capture' => cmd_capture($transport, $extra),
         'scope' => cmd_scope($transport, $extra),
         'deploy' => cmd_deploy($transport, $extra),
         'promote' => cmd_promote($transport, $extra),
@@ -853,7 +867,7 @@ function refresh_flags(array $extra, string $verb): array {
             throw new \RuntimeException("duo $verb: expected only --name=value flags");
         }
         [$name, $value] = explode('=', $arg, 2);
-        if (!in_array($name, ['--production-ref', '--new-branch', '--abort'], true) || $value === '') {
+        if (!in_array($name, ['--production-ref', '--new-branch', '--abort', '--scope-contract'], true) || $value === '') {
             throw new \RuntimeException("duo $verb: unsupported or empty flag '$arg'");
         }
         if (isset($flags[$name])) {
@@ -899,7 +913,7 @@ function rebase_flags(array $extra): array {
             $strategySeen = true;
             continue;
         }
-        if (!in_array($name, ['--production-ref', '--new-branch', '--abort'], true) || isset($flags[$name])) {
+        if (!in_array($name, ['--production-ref', '--new-branch', '--abort', '--scope-contract'], true) || isset($flags[$name])) {
             throw new \RuntimeException("duo rebase: unsupported or duplicate flag '$arg'");
         }
         $flags[$name] = $value;
@@ -911,16 +925,19 @@ function rebase_flags(array $extra): array {
 function cmd_refresh(EnvironmentDriver $t, array $extra): int {
     try {
         $flags = refresh_flags($extra, 'refresh');
-        if (count($flags) !== 1 || !isset($flags['--production-ref'])) {
-            throw new \RuntimeException('duo refresh requires exactly --production-ref=<ref>');
+        if (!isset($flags['--production-ref']) || count($flags) !== (isset($flags['--scope-contract']) ? 2 : 1)) {
+            throw new \RuntimeException('duo refresh requires --production-ref=<ref> and optional --scope-contract=<local-path>');
         }
-        $result = Refresh::refresh($t, $flags['--production-ref']);
+        $scope = isset($flags['--scope-contract'])
+            ? read_scope_contract_input($flags['--scope-contract'])['contract']
+            : null;
+        $result = Refresh::refresh($t, $flags['--production-ref'], $scope);
         echo 'refresh plan: ' . $result['plan_path'] . "\n";
         echo 'base=' . ($result['context']['base_commit'] ?? '?')
             . ' production=' . ($result['context']['production_commit'] ?? '?')
             . ' branch=' . ($result['context']['branch_commit'] ?? '?') . "\n";
         echo 'plan_hash=' . ($result['plan']['plan_hash'] ?? '?') . "\n";
-        $counts = $result['plan']['counts'] ?? [];
+        $counts = $result['plan']['scope_counts'] ?? ($result['plan']['counts'] ?? []);
         if (is_array($counts)) {
             $parts = [];
             foreach (['unchanged', 'production-only', 'branch-only', 'compatible', 'conflicting'] as $category) {
@@ -929,7 +946,8 @@ function cmd_refresh(EnvironmentDriver $t, array $extra): int {
             echo 'categories: ' . implode(' ', $parts) . "\n";
         }
         foreach ((array) ($result['plan']['entries'] ?? []) as $entry) {
-            if (($entry['category'] ?? null) === 'conflicting') {
+            if (($entry['category'] ?? null) === 'conflicting'
+                && ($entry['in_scope'] ?? true) === true) {
                 echo 'conflict ' . ($entry['id'] ?? '?') . ': '
                     . ($entry['reason'] ?? 'semantic divergence') . "\n";
             }
@@ -953,10 +971,20 @@ function cmd_rebase(EnvironmentDriver $t, array $extra): int {
             echo 'refresh rebase aborted: ' . $flags['--abort'] . "\n";
             return 0;
         }
-        if (count($flags) !== 2 || !isset($flags['--production-ref']) || !isset($flags['--new-branch'])) {
-            throw new \RuntimeException('duo rebase requires exactly --production-ref=<ref> and --new-branch=<name>');
+        $expected = isset($flags['--scope-contract']) ? 3 : 2;
+        if (count($flags) !== $expected || !isset($flags['--production-ref']) || !isset($flags['--new-branch'])) {
+            throw new \RuntimeException('duo rebase requires --production-ref=<ref>, --new-branch=<name>, and optional --scope-contract=<local-path>');
         }
-        $result = Refresh::rebase($t, $flags['--production-ref'], $flags['--new-branch'], $parsed['resolution']);
+        $scope = isset($flags['--scope-contract'])
+            ? read_scope_contract_input($flags['--scope-contract'])['contract']
+            : null;
+        $result = Refresh::rebase(
+            $t,
+            $flags['--production-ref'],
+            $flags['--new-branch'],
+            $parsed['resolution'],
+            $scope
+        );
         echo 'refresh rebase complete: ' . $result['new_branch'] . ' at ' . $result['head'] . "\n";
         echo 'plan: ' . $result['plan_path'] . ' run: ' . $result['run_id'] . "\n";
         return 0;
@@ -1160,6 +1188,107 @@ function rollback_authority_fence(EnvironmentDriver $t, string $verb): bool {
 function cmd_passthrough(EnvironmentDriver $t, string $verb, array $extra): int {
     $wpArgs = array_merge(['duo', $verb, '--repo=' . $t->repoPath()], $extra);
     return $t->streamWp($wpArgs);
+}
+
+/** Validate a host-local scope contract, then forward only its compact proof. */
+function cmd_capture(EnvironmentDriver $t, array $extra): int {
+    $forward = [];
+    $contractPath = null;
+    foreach ($extra as $arg) {
+        if (str_starts_with($arg, '--scope-request-b64')) {
+            return capture_scope_refusal(
+                $extra,
+                'invalid_arguments',
+                'capture received an orchestrator-reserved scope argument',
+                'remove the internal scope argument and supply only --scope-contract=<local-path>'
+            );
+        }
+        if ($arg === '--scope-contract' || (str_starts_with($arg, '--scope-contract')
+            && !str_starts_with($arg, '--scope-contract='))) {
+            return capture_scope_refusal(
+                $extra,
+                'invalid_arguments',
+                'capture received a malformed scope contract flag',
+                'supply exactly --scope-contract=<local-path>'
+            );
+        }
+        if (str_starts_with($arg, '--scope-contract=')) {
+            if ($contractPath !== null) {
+                return capture_scope_refusal(
+                    $extra,
+                    'invalid_arguments',
+                    'capture received more than one scope contract',
+                    'supply exactly one --scope-contract=<local-path>'
+                );
+            }
+            $contractPath = substr($arg, strlen('--scope-contract='));
+            if ($contractPath === '') {
+                return capture_scope_refusal(
+                    $extra,
+                    'invalid_arguments',
+                    'capture received an empty scope contract path',
+                    'supply one readable canonical contract with --scope-contract=<local-path>'
+                );
+            }
+            continue;
+        }
+        $forward[] = $arg;
+    }
+    if ($contractPath !== null) {
+        try {
+            $input = read_scope_contract_input($contractPath);
+            $forward[] = '--scope-request-b64=' . $input['request_b64'];
+        } catch (\Throwable $e) {
+            return capture_scope_refusal(
+                $extra,
+                'scope_contract_invalid',
+                'the local scope contract is malformed, tampered, or unsupported',
+                'generate a fresh contract with duo scope --contract and retry capture'
+            );
+        }
+    }
+    return $t->streamWp(array_merge(['duo', 'capture', '--repo=' . $t->repoPath()], $forward));
+}
+
+function capture_scope_refusal(
+    array $extra,
+    string $reasonCode,
+    string $message,
+    string $remediation
+): int {
+    if (wants_agent_refusal_json('capture', $extra)) {
+        return render_agent_refusal_json('capture', $reasonCode, $message, $remediation);
+    }
+    fwrite(STDERR, "duo: capture: $message; $remediation\n");
+    return 2;
+}
+
+/**
+ * Real engine schema validation for a host-local immutable contract. The
+ * target still recompiles and recomputes it; this helper only prevents a bad
+ * local envelope from crossing the transport boundary.
+ *
+ * @return array{contract:array<string,mixed>,request_b64:string}
+ */
+function read_scope_contract_input(string $path): array {
+    $bytes = @file_get_contents($path);
+    if ($bytes === false || strlen($bytes) > 4 * 1024 * 1024) {
+        throw new \RuntimeException('cannot read bounded local scope contract');
+    }
+    $decoded = \Duo\Canon::decode($bytes);
+    if (!is_array($decoded)) {
+        throw new \RuntimeException('scope contract must be one object');
+    }
+    $contract = \Duo\ScopeContract::from_array($decoded);
+    $request = [
+        'format' => 'duo-scope-request/v1',
+        'scope_hash' => (string) $contract['scope_hash'],
+        'selectors' => $contract['selectors'],
+    ];
+    return [
+        'contract' => $contract,
+        'request_b64' => base64_encode(\Duo\Canon::encode($request)),
+    ];
 }
 
 /**

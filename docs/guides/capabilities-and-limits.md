@@ -305,23 +305,27 @@ rather than working around it.
   shipped — see "Which adapters are installed, and what may they do?" above,
   plus
   [adapter-authoring.md](adapter-authoring.md#declaring-repair-work-actions-and-providers).
-- Scoped promotion and synchronization with dependency closure — **Planned (DUO-3344)** — not yet shipped.
+- Scoped promotion and synchronization with dependency closure — **Partially shipped (DUO-3344)**.
   Resolving and previewing a scope has shipped: `duo scope <env> --roots=<selectors>`
   names the roots you asked for, everything pulled in by a declared dependency
   edge (each row naming the edge responsible), references pointing into the
-  scope from outside, and how much unrelated state is excluded. It is read-only
-  — it captures, promotes, and deletes nothing, and no capture/promote/rollback
-  command accepts a scope yet. A root that does not resolve is refused rather
-  than silently dropped. The narrower evidence slice is also shipped:
+  scope from outside, and how much unrelated state is excluded. The preview is
+  read-only and a root that does not resolve is refused rather than silently
+  dropped. The immutable evidence slice is also shipped:
   `duo scope <env> --roots=<selectors> --contract` emits immutable
   `duo-scope-contract/v1` evidence bound to the outer artifact hash, separate
   state revision hash, and manifest hash. It records only static, potential
   actions/providers/effects and static deletion obligations; it does not
-  negotiate providers, collect target guard witnesses, authorize a write, or
-  make scoped synchronization available. `all` includes compiled tombstones;
+  negotiate providers or collect target guard witnesses. `all` includes compiled tombstones;
   an individual immutable tombstone is named `tombstone:<uuid>`, never a
   mutation-sounding delete selector. The host isolates this read-only workflow
-  from ordinary plugin/theme/MU bootstrap before compiling.
+  from ordinary plugin/theme/MU bootstrap before compiling. Capture and
+  refresh/rebase now consume that evidence as a target-recomputed, state-only
+  overlay: selected whole records may move while excluded state, tombstones,
+  media, and branch code are preserved exactly. Scoped deletion is limited to
+  a selected live identity with normal deletion capability and no excluded
+  inbound referrer. Per-option capture, code dependency movement, and scoped
+  apply/promote/verification/rollback remain planned rather than inferred.
 - Field-level value diffs and an interactive conflict resolver — **Planned (DUO-3345)** — not yet shipped.
   Plan rows already carry authored WordPress display names and a stable,
   hash-only three-way conflict view with bounded safe choices. A separate

@@ -287,10 +287,20 @@ final class RepositoryCompiler {
     private array $media = [];
     /** @var array<string,string> every content-addressed blob in media/, including safe orphans */
     private array $mediaCatalog = [];
+    /** Exact media directory used for this compilation. Normally repo/media;
+     * scoped transaction probes may supply an immutable byte-for-byte view. */
+    private string $mediaDir;
 
-    private function __construct(string $stateDir, string $mediaRoot, Policy $policy, bool $completenessOptional = false) {
+    private function __construct(
+        string $stateDir,
+        string $mediaRoot,
+        Policy $policy,
+        bool $completenessOptional = false,
+        ?string $mediaDir = null
+    ) {
         $this->stateDir = rtrim($stateDir, '/');
         $this->repo = rtrim($mediaRoot, '/'); // media/ root only — see compile_staged()'s docblock for why this can differ from stateDir's own parent
+        $this->mediaDir = $mediaDir === null ? $this->repo . '/media' : rtrim($mediaDir, '/');
         $this->policy = $policy;
         $this->completenessOptional = $completenessOptional;
     }
@@ -306,9 +316,13 @@ final class RepositoryCompiler {
      * — see $completenessOptional's own docblock above for the exact
      * distinction and why it must not apply to every caller.
      */
-    public static function compile_for_diff(string $repo, Policy $policy): CompiledRepository {
+    public static function compile_for_diff(
+        string $repo,
+        Policy $policy,
+        ?string $mediaDir = null
+    ): CompiledRepository {
         $repo = rtrim($repo, '/');
-        $c = new self($repo . '/state', $repo, $policy, true);
+        $c = new self($repo . '/state', $repo, $policy, true, $mediaDir);
         return $c->run();
     }
 
@@ -330,8 +344,13 @@ final class RepositoryCompiler {
      * RepositoryAuthorization.php, IdentityBackup.php, Capture.php's own
      * previous-revision read) — none of them change.
      */
-    public static function compile_staged(string $stateDir, string $mediaRoot, Policy $policy): CompiledRepository {
-        $c = new self($stateDir, $mediaRoot, $policy);
+    public static function compile_staged(
+        string $stateDir,
+        string $mediaRoot,
+        Policy $policy,
+        ?string $mediaDir = null
+    ): CompiledRepository {
+        $c = new self($stateDir, $mediaRoot, $policy, false, $mediaDir);
         return $c->run();
     }
 
@@ -1231,7 +1250,7 @@ final class RepositoryCompiler {
             $this->add('unsafe_media_path', $path, 'media', "media reference '$blob' is not content-addressed");
             return;
         }
-        $absolute = $this->repo . '/media/' . $blob;
+        $absolute = $this->mediaDir . '/' . $blob;
         if (is_link($absolute)) {
             $this->add('unsafe_media_path', $path, 'media', "media/$blob is a symbolic link");
             return;
@@ -1252,7 +1271,7 @@ final class RepositoryCompiler {
     /** Hash the whole media partition so an artifact identifies one exact
      * repository revision even when capture has left safe orphan blobs. */
     private function catalog_media_directory(): void {
-        $dir = $this->repo . '/media';
+        $dir = $this->mediaDir;
         if (!is_dir($dir)) {
             return;
         }

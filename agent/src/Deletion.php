@@ -86,7 +86,8 @@ final class Deletion {
     public static function capture_tombstones(
         ?CompiledRepository $previous,
         array $liveEntities,
-        Policy $policy
+        Policy $policy,
+        ?array $authorizedUuids = null
     ): array {
         if ($previous === null) {
             return [];
@@ -95,9 +96,15 @@ final class Deletion {
         foreach ($liveEntities as $entity) {
             $live[(string) $entity['uuid']] = true;
         }
+        $authorized = $authorizedUuids === null
+            ? null
+            : array_fill_keys(array_map('strval', $authorizedUuids), true);
 
         $out = [];
         foreach ($previous->deletions() as $uuid => $deletion) {
+            if ($authorized !== null && !isset($authorized[$uuid])) {
+                continue;
+            }
             if (isset($live[$uuid])) {
                 continue;
             }
@@ -112,6 +119,9 @@ final class Deletion {
         }
 
         foreach ($previous->tree() as $uuid => $entity) {
+            if ($authorized !== null && !isset($authorized[$uuid])) {
+                continue;
+            }
             // User-meta sidecar absence is deliberately not deletion
             // authority. Users are target-local and have no portable
             // lifecycle; an empty retained sidecar expresses owned-key

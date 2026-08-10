@@ -232,6 +232,9 @@ try {
     $orderedPost = order_preserving_post_source();
     fixture_write($fixture . '/state/posts/post/00000000-0000-4000-8000-000000000002--order-preserved.md', $orderedPost);
     fixture_write($fixture . '/state/options/core.json', options_source());
+    $orphanMediaBytes = "refresh-safe-orphan-media\n";
+    $orphanMediaName = hash('sha256', $orphanMediaBytes) . '.txt';
+    fixture_write($fixture . '/media/' . $orphanMediaName, $orphanMediaBytes);
     fixture_write($fixture . '/manifests/regenerators/probe.php', provider_source('A', 'post'));
     git_fixture($fixture, ['add', '.']);
     git_fixture($fixture, ['commit', '-qm', 'probe implementation A']);
@@ -264,6 +267,13 @@ try {
     $base = RefreshPlan::compileGitWorktree($trees[0], $baseCommit, 'base');
     $branch = RefreshPlan::compileGitWorktree($trees[1], $branchCommit, 'branch');
     $productionCode = RefreshPlan::compileGitWorktree($trees[2], $productionCommit, 'production-code');
+    $scopedBranchBaseline = RefreshPlan::compileGitWorktree(
+        $trees[1],
+        $branchCommit,
+        'branch',
+        null,
+        true
+    );
 
     foreach ([['base', $base, $baseCommit], ['branch', $branch, $branchCommit], ['production-code', $productionCode, $productionCommit]] as [$label, $artifact, $commit]) {
         check_compile(is_array($artifact), "$label worker returned an artifact");
@@ -301,6 +311,14 @@ try {
         $optionsCanonical,
         'compile worker reconstructs options/core canonical content instead of an empty placeholder'
             . ($optionsCanonical ? '' : ' (got ' . var_export($optionsContent, true) . ')')
+    );
+    $orphanPayload = $scopedBranchBaseline['media'][$orphanMediaName] ?? null;
+    check_compile(
+        !isset($base['media'][$orphanMediaName])
+            && is_array($orphanPayload)
+            && ($orphanPayload['sha256'] ?? null) === hash('sha256', $orphanMediaBytes)
+            && base64_decode((string) ($orphanPayload['base64'] ?? ''), true) === $orphanMediaBytes,
+        'legacy ref snapshots omit safe orphans while a scoped W baseline carries every verified media blob'
     );
     try {
         // Calling plan first loads the shared state serializers in this

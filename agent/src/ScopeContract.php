@@ -185,6 +185,131 @@ final class ScopeContract {
     }
 
     /**
+     * Refuse a scoped candidate whose live dependency closure escapes the
+     * immutable source contract. Version 1 grants no resurrection authority;
+     * deleting a selected live identity is accepted only when the consuming
+     * transaction supplies its separately proven, execution-local deletion
+     * authority. Exact excluded-byte preservation is a separate overlay
+     * assertion.
+     */
+    public static function assert_candidate_bounded(
+        array $contract,
+        CompiledRepository $candidate,
+        Policy $policy,
+        array $authorizedDeletions = []
+    ): void {
+        $contract = self::from_array($contract);
+        $isAll = ($contract['selectors'] ?? null) === [ScopeClosure::SELECTOR_ALL];
+        $allowed = [];
+        $walk = [];
+        $expectedTypes = [];
+        foreach (['roots', 'closure'] as $field) {
+            foreach ((array) $contract['live'][$field] as $row) {
+                $identity = (string) $row['entity'];
+                $allowed[$identity] = true;
+                $walk[$identity] = true;
+                $expectedTypes[$identity] = (string) $row['type'];
+            }
+        }
+        foreach ((array) $contract['tombstones'] as $row) {
+            $identity = (string) $row['uuid'];
+            $allowed[$identity] = true;
+        }
+
+        $tree = $candidate->tree();
+        $deletions = $candidate->deletions();
+        if ($isAll) {
+            foreach (array_merge(array_keys($tree), array_keys($deletions)) as $identity) {
+                if (!isset($allowed[(string) $identity])) {
+                    throw new \RuntimeException(
+                        "duo: scoped all target observation introduced identity '$identity' outside the immutable source contract"
+                    );
+                }
+            }
+        }
+        $selectedTombstones = array_fill_keys(
+            array_map('strval', array_column((array) $contract['tombstones'], 'uuid')),
+            true
+        );
+        $authorizedDeletionSet = array_fill_keys(array_map('strval', $authorizedDeletions), true);
+        foreach (array_keys($authorizedDeletionSet) as $identity) {
+            if (!isset($allowed[$identity]) || isset($selectedTombstones[$identity])) {
+                throw new \RuntimeException(
+                    "duo: scoped candidate deletion authority escaped to '$identity'"
+                );
+            }
+        }
+        foreach (array_keys($allowed) as $identity) {
+            if (isset($selectedTombstones[$identity])) {
+                if (!isset($deletions[$identity]) || isset($tree[$identity])) {
+                    throw new \RuntimeException(
+                        "duo: scoped candidate changed selected tombstone '$identity' without deletion/resurrection authority"
+                    );
+                }
+                continue;
+            }
+            if (isset($tree[$identity]) && !isset($deletions[$identity])) {
+                if ((string) ($tree[$identity]['type'] ?? '') !== (string) ($expectedTypes[$identity] ?? '')) {
+                    throw new \RuntimeException(
+                        "duo: scoped candidate changed selected identity '$identity' to a different entity type"
+                    );
+                }
+                continue;
+            }
+            if (isset($authorizedDeletionSet[$identity]) && isset($deletions[$identity])) {
+                continue;
+            }
+            if (!isset($tree[$identity]) || isset($deletions[$identity])) {
+                throw new \RuntimeException(
+                    "duo: scoped candidate changed selected live identity '$identity' without deletion/resurrection authority"
+                );
+            }
+        }
+        $selectors = [];
+        // Rewalk every retained frozen live identity, not only the original
+        // roots. A root may legitimately stop referring to one of its old
+        // dependencies while that still-selected row gains a different edge;
+        // walking roots alone would silently stop checking the detached row.
+        foreach (array_keys($walk) as $identity) {
+            if (isset($authorizedDeletionSet[$identity])) {
+                continue;
+            }
+            $selectors[] = 'path:' . (string) $tree[$identity]['path'];
+        }
+        if ($selectors !== []) {
+            $closure = ScopeClosure::resolve($candidate, $policy, $selectors);
+            foreach ((array) ($closure['included'] ?? []) as $row) {
+                $identity = (string) ($row['entity'] ?? '');
+                if (!isset($allowed[$identity])) {
+                    throw new \RuntimeException(
+                        "duo: scoped candidate dependency closure escaped to excluded identity '$identity'"
+                    );
+                }
+            }
+        }
+
+        // On the complete live-target probe, a new out-of-scope referrer
+        // must not be erased from consideration merely because the final
+        // repository overlay preserves old source bytes. Deleting a selected
+        // identity would strand that target row, so target drift blocks before
+        // any publication exactly like source-bound inbound evidence does.
+        if ($authorizedDeletionSet !== []) {
+            $owners = ReferenceGraph::owners($tree);
+            foreach (ReferenceGraph::edges($tree, $policy) as $edge) {
+                $rawTarget = (string) ($edge['target'] ?? '');
+                $rawFrom = (string) ($edge['from'] ?? '');
+                $target = (string) ($owners[$rawTarget]['entity'] ?? $rawTarget);
+                $from = (string) ($owners[$rawFrom]['entity'] ?? $rawFrom);
+                if (isset($authorizedDeletionSet[$target]) && !isset($allowed[$from])) {
+                    throw new \RuntimeException(
+                        "duo: scoped target drift added an out-of-scope inbound reference to selected deletion '$target'"
+                    );
+                }
+            }
+        }
+    }
+
+    /**
      * Normalize request spelling before any resolution. `all` is the whole
      * compiled revision INCLUDING every compiled tombstone, so it subsumes
      * every narrower live or tombstone selector. `tombstone:<uuid>` names

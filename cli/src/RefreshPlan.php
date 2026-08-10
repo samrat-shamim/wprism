@@ -35,7 +35,13 @@ final class RefreshPlan {
     }
 
     /** Compile each ref in a fresh process so provider classes cannot leak between refs. */
-    public static function compileGitWorktree(string $path, string $commit, string $label = ''): array {
+    public static function compileGitWorktree(
+        string $path,
+        string $commit,
+        string $label = '',
+        ?array $scopeContract = null,
+        bool $completeMedia = false
+    ): array {
         if (!in_array($label, ['base', 'branch', 'production-code', 'candidate'], true)) {
             throw new \RuntimeException("cannot compile unknown '$label' Git worktree role");
         }
@@ -43,7 +49,29 @@ final class RefreshPlan {
         if (!is_file($worker)) {
             throw new \RuntimeException('refresh compiler worker is unavailable');
         }
-        $result = self::runProcess([PHP_BINARY, $worker, $path, $commit, $label]);
+        $scopePath = null;
+        $args = [PHP_BINARY, $worker, $path, $commit, $label];
+        if ($scopeContract !== null) {
+            self::loadCompiler();
+            $scopeContract = \Duo\ScopeContract::from_array($scopeContract);
+            $scopePath = tempnam(sys_get_temp_dir(), 'duo-refresh-scope-');
+            if ($scopePath === false
+                || file_put_contents($scopePath, \Duo\Canon::encode($scopeContract), LOCK_EX) === false) {
+                throw new \RuntimeException('cannot stage immutable scope evidence for candidate validation');
+            }
+            @chmod($scopePath, 0600);
+            $args[] = 'candidate';
+            $args[] = $scopePath;
+        } elseif ($completeMedia) {
+            $args[] = 'complete-media';
+        }
+        try {
+            $result = self::runProcess($args);
+        } finally {
+            if ($scopePath !== null && is_file($scopePath)) {
+                @unlink($scopePath);
+            }
+        }
         if ($result['exit'] !== 0) {
             $reason = trim($result['stderr']) ?: trim($result['stdout']);
             throw new \RuntimeException("cannot compile $label Git worktree: " . ($reason !== '' ? $reason : 'worker failed'));
@@ -61,7 +89,13 @@ final class RefreshPlan {
     }
 
     /** Fresh-process entrypoint; public only for RefreshPlanCompile.php. */
-    public static function compileGitWorktreeWorker(string $path, string $commit, string $label): array {
+    public static function compileGitWorktreeWorker(
+        string $path,
+        string $commit,
+        string $label,
+        ?string $scopeMode = null,
+        ?string $scopePath = null
+    ): array {
         self::loadCompiler();
         $root = realpath($path);
         if (!self::isCommit($commit) || $root === false || !is_file($root . '/site.duo.json')
@@ -79,6 +113,36 @@ final class RefreshPlan {
             $compiled = $label === 'base'
                 ? \Duo\RepositoryCompiler::compile_for_diff($root, $policy)
                 : \Duo\RepositoryCompiler::compile($root, $policy);
+            if ($scopeMode === 'candidate' || $scopePath !== null) {
+                if ($scopeMode !== 'candidate' || $scopePath === null || !is_file($scopePath)) {
+                    throw new \RuntimeException('cannot validate scoped candidate: malformed worker request');
+                }
+                $decoded = \Duo\Canon::decode(\Duo\Canon::read_file($scopePath));
+                if (!is_array($decoded)) {
+                    throw new \RuntimeException('cannot validate scoped candidate: contract is not an object');
+                }
+                $contract = \Duo\ScopeContract::from_array($decoded);
+                $sourceTombstones = array_fill_keys(
+                    array_map('strval', array_column((array) $contract['tombstones'], 'uuid')),
+                    true
+                );
+                $selected = array_fill_keys(\Duo\ScopedStateOverlay::selected_identities($contract), true);
+                $authorizedDeletions = [];
+                foreach (array_keys($compiled->deletions()) as $identity) {
+                    $identity = (string) $identity;
+                    if (isset($selected[$identity]) && !isset($sourceTombstones[$identity])) {
+                        $authorizedDeletions[] = $identity;
+                    }
+                }
+                \Duo\ScopeContract::assert_candidate_bounded(
+                    $contract,
+                    $compiled,
+                    $policy,
+                    $authorizedDeletions
+                );
+            } elseif ($scopeMode !== null && $scopeMode !== 'complete-media') {
+                throw new \RuntimeException('cannot validate scoped candidate: malformed worker request');
+            }
         } finally {
             $old === false ? putenv('DUO_MANIFESTS_DIR') : putenv('DUO_MANIFESTS_DIR=' . $old);
         }
@@ -93,7 +157,26 @@ final class RefreshPlan {
         }
         ksort($records, SORT_STRING);
         ksort($deletions, SORT_STRING);
+        // A scoped refresh starts from exact W bytes, including safe orphan
+        // content-addressed blobs. The artifact's `media` field contains
+        // only referenced payloads, while `media_catalog` deliberately binds
+        // every direct media/ file. Read and verify that complete catalog
+        // here so materializeScoped() cannot silently delete W orphans.
         $media = is_array($artifact['media'] ?? null) ? $artifact['media'] : [];
+        if (in_array($scopeMode, ['candidate', 'complete-media'], true)) {
+            $media = [];
+            foreach ((array) ($artifact['media_catalog'] ?? []) as $name => $expected) {
+                $name = (string) $name;
+                self::assertRelative($name);
+                $path = rtrim($root, '/') . '/media/' . $name;
+                $bytes = is_file($path) ? file_get_contents($path) : false;
+                if ($bytes === false || !self::isHash($expected)
+                    || !hash_equals((string) $expected, hash('sha256', $bytes))) {
+                    throw new \RuntimeException("compiled media catalog entry '$name' cannot be verified");
+                }
+                $media[$name] = ['sha256' => (string) $expected, 'base64' => base64_encode($bytes)];
+            }
+        }
         ksort($media, SORT_STRING);
         return [
             'format' => self::GIT_FORMAT,
@@ -146,10 +229,33 @@ final class RefreshPlan {
         self::assertSnapshot($base, 'base');
         self::assertSnapshot($production, 'production');
         self::assertSnapshot($branch, 'branch');
+        $scopeContract = is_array($context['scope_contract'] ?? null)
+            ? $context['scope_contract']
+            : null;
+        $selectedScope = [];
+        if ($scopeContract !== null) {
+            self::loadCompiler();
+            $scopeContract = \Duo\ScopeContract::from_array($scopeContract);
+            $scopeEvidence = $production['scope'] ?? null;
+            if (!is_array($scopeEvidence)
+                || ($scopeEvidence['format'] ?? null) !== 'duo-refresh-scope/v1'
+                || ($scopeEvidence['out_of_scope'] ?? null) !== 'omitted_not_absent'
+                || !hash_equals((string) $scopeContract['scope_hash'], (string) ($scopeEvidence['scope_hash'] ?? ''))) {
+                throw new \RuntimeException('scoped production snapshot does not match plan context');
+            }
+            foreach (\Duo\ScopedStateOverlay::selected_identities($scopeContract) as $identity) {
+                $selectedScope[$identity] = true;
+            }
+        }
+        // Legacy refresh keeps its valuable per-option three-way planning.
+        // A v1 scope, however, grants authority over options/core as one
+        // atomic canonical record; it may never manufacture a field-level
+        // mixed document from P and W.
+        $wholeOptions = isset($selectedScope['options/core']);
         $snapshots = [
-            'base' => self::expand($base),
-            'production' => self::expand($production),
-            'branch' => self::expand($branch),
+            'base' => self::expand($base, $wholeOptions),
+            'production' => self::expand($production, $wholeOptions),
+            'branch' => self::expand($branch, $wholeOptions),
         ];
         $keys = [];
         foreach ($snapshots as $snapshot) {
@@ -170,16 +276,24 @@ final class RefreshPlan {
             $b = $snapshots['base']['states'][$identity] ?? null;
             $p = $snapshots['production']['states'][$identity] ?? null;
             $w = $snapshots['branch']['states'][$identity] ?? null;
-            $bp = self::same($b, $p);
+            $inScope = $scopeContract === null
+                || isset($selectedScope[$identity])
+                || (str_starts_with($identity, 'option:') && isset($selectedScope['options/core']));
+            // Omitted production rows are explicitly not absence. Outside a
+            // scoped export, P is semantically B for categorization and W is
+            // always retained by the overlay materializer.
+            $effectiveP = $inScope ? $p : $b;
+            $bp = self::same($b, $effectiveP);
             $bw = self::same($b, $w);
-            $pw = self::same($p, $w);
+            $pw = self::same($effectiveP, $w);
             if ($bp && $bw) $category = 'unchanged';
             elseif ($bw) $category = 'production-only';
             elseif ($bp) $category = 'branch-only';
             elseif ($pw) $category = 'compatible';
             else $category = 'conflicting';
 
-            $unsafeAbsence = self::unsafeAbsence($b, $p) || self::unsafeAbsence($b, $w);
+            $unsafeAbsence = $inScope
+                && (self::unsafeAbsence($b, $effectiveP) || self::unsafeAbsence($b, $w));
             if ($unsafeAbsence) $category = 'conflicting';
             // A tombstone is a state, not a new entity kind. Prefer B's live
             // type so deleting a branch record does not rename its conflict
@@ -194,7 +308,7 @@ final class RefreshPlan {
                 }
                 if (array_key_exists($id, $perRecord)) $usedResolutions[$id] = true;
             }
-            $selectedSource = match ($category) {
+            $selectedSource = !$inScope ? 'branch' : match ($category) {
                 'unchanged' => $w !== null ? 'branch' : ($p !== null ? 'production' : 'base'),
                 'production-only' => 'production',
                 'branch-only', 'compatible' => 'branch',
@@ -216,6 +330,8 @@ final class RefreshPlan {
                 'resolution' => $choice,
                 'selected_source' => $selectedSource,
                 'selected' => $selected,
+                'in_scope' => $inScope,
+                'production_omitted' => !$inScope,
             ];
         }
         foreach (array_keys($perRecord) as $id) {
@@ -225,7 +341,7 @@ final class RefreshPlan {
         }
         $safeContext = $context;
         unset($safeContext['repo_root']);
-        return self::normalizePlan([
+        $plan = [
             'format' => self::PLAN_FORMAT,
             'context' => $safeContext,
             'strategy' => $strategy,
@@ -235,7 +351,18 @@ final class RefreshPlan {
                 'production' => $snapshots['production']['media'],
                 'branch' => $snapshots['branch']['media'],
             ],
-        ]);
+        ];
+        if ($scopeContract !== null) {
+            $plan['scope_baseline'] = [
+                'format' => 'duo-refresh-scope-baseline/v1',
+                'records' => $branch['records'],
+                'deletions' => $branch['deletions'],
+                'media' => $branch['media'],
+                'repository' => $branch['repository'],
+                'scope_hash' => (string) $scopeContract['scope_hash'],
+            ];
+        }
+        return self::normalizePlan($plan);
     }
 
     /** Sort and hash a plan, verifying a supplied hash if present. */
@@ -247,6 +374,8 @@ final class RefreshPlan {
         $seen = [];
         $counts = array_fill_keys(['unchanged', 'production-only', 'branch-only', 'compatible', 'conflicting'], 0);
         $unresolved = [];
+        $scoped = is_array($plan['context']['scope_contract'] ?? null);
+        $scopeCounts = array_fill_keys(['unchanged', 'production-only', 'branch-only', 'compatible', 'conflicting'], 0);
         foreach ($plan['entries'] as $entry) {
             $id = (string) ($entry['id'] ?? '');
             $category = (string) ($entry['category'] ?? '');
@@ -255,10 +384,20 @@ final class RefreshPlan {
             }
             $seen[$id] = true;
             $counts[$category]++;
-            if ($category === 'conflicting' && ($entry['selected_source'] ?? null) === null) $unresolved[] = $id;
+            if ($scoped && !is_bool($entry['in_scope'] ?? null)) {
+                throw new \RuntimeException('scoped refresh plan entry lacks an exact in_scope decision');
+            }
+            $inScope = !$scoped || $entry['in_scope'] === true;
+            if ($inScope) {
+                $scopeCounts[$category]++;
+            }
+            if ($inScope && $category === 'conflicting' && ($entry['selected_source'] ?? null) === null) $unresolved[] = $id;
         }
         $plan['counts'] = $counts;
         $plan['unresolved'] = $unresolved;
+        if ($scoped) {
+            $plan['scope_counts'] = $scopeCounts;
+        }
         $claimed = $plan['plan_hash'] ?? null;
         unset($plan['plan_hash']);
         $actual = hash('sha256', self::encode($plan));
@@ -277,6 +416,9 @@ final class RefreshPlan {
         $root = realpath($worktree);
         if ($root === false || !is_dir($root) || !is_file($root . '/.git')) {
             throw new \RuntimeException('refresh materializer requires a disposable Git worktree');
+        }
+        if (is_array($plan['context']['scope_contract'] ?? null)) {
+            return self::materializeScoped($plan, $planHash, $root, $resolution);
         }
         $stateRows = [];
         $options = [];
@@ -325,6 +467,118 @@ final class RefreshPlan {
         ];
     }
 
+    /** Contract-bound overlay: start from every exact W byte, replace only selected records. */
+    private static function materializeScoped(
+        array $plan,
+        string $planHash,
+        string $root,
+        array $resolution
+    ): array {
+        $baseline = $plan['scope_baseline'] ?? null;
+        if (!is_array($baseline)
+            || ($baseline['format'] ?? null) !== 'duo-refresh-scope-baseline/v1'
+            || !is_array($baseline['records'] ?? null)
+            || !is_array($baseline['deletions'] ?? null)
+            || !is_array($baseline['media'] ?? null)) {
+            throw new \RuntimeException('scoped refresh plan has no exact branch baseline');
+        }
+        $scopeContract = \Duo\ScopeContract::from_array($plan['context']['scope_contract']);
+        if (!hash_equals((string) $scopeContract['scope_hash'], (string) ($baseline['scope_hash'] ?? ''))) {
+            throw new \RuntimeException('scoped refresh baseline does not match its immutable contract');
+        }
+
+        $stateByIdentity = [];
+        foreach (['records', 'deletions'] as $field) {
+            foreach ($baseline[$field] as $identity => $row) {
+                if (!is_array($row) || !is_string($row['path'] ?? null) || !is_string($row['content'] ?? null)) {
+                    throw new \RuntimeException('scoped refresh baseline has a malformed canonical row');
+                }
+                $stateByIdentity[(string) $identity] = $row;
+            }
+        }
+        foreach ($plan['entries'] as $entry) {
+            if (($entry['in_scope'] ?? null) !== true) {
+                continue;
+            }
+            $identity = (string) ($entry['identity'] ?? '');
+            $row = $entry['selected'] ?? null;
+            if (str_starts_with($identity, 'option:')) {
+                throw new \RuntimeException('scoped refresh leaked a virtual option row into whole options/core authority');
+            }
+            unset($stateByIdentity[$identity]);
+            if ($row !== null) {
+                $stateByIdentity[$identity] = $row;
+            }
+        }
+        $stateRows = [];
+        foreach ($stateByIdentity as $row) {
+            $path = (string) $row['path'];
+            self::assertRelative($path);
+            if (isset($stateRows[$path])) {
+                throw new \RuntimeException("two scoped refresh records select '$path'");
+            }
+            $stateRows[$path] = (string) $row['content'];
+        }
+        ksort($stateRows, SORT_STRING);
+
+        $mediaRows = [];
+        foreach ($baseline['media'] as $name => $payload) {
+            $mediaRows[(string) $name] = self::verifiedMedia((string) $name, $payload);
+        }
+        foreach ($plan['entries'] as $entry) {
+            if (($entry['in_scope'] ?? null) !== true || !is_array($entry['selected'] ?? null)) {
+                continue;
+            }
+            $selectedRow = $entry['selected'];
+            if (($selectedRow['type'] ?? null) !== 'post') {
+                continue;
+            }
+            try {
+                [$front] = \Duo\Canon::parse_post_file((string) ($selectedRow['content'] ?? ''));
+            } catch (\Throwable $failure) {
+                throw new \RuntimeException('scoped refresh selected malformed canonical post state', 0, $failure);
+            }
+            if (($front['type'] ?? null) !== 'attachment') {
+                continue;
+            }
+            $mediaName = (string) ($front['media'] ?? '');
+            if ($mediaName === '') {
+                continue;
+            }
+            $source = (string) ($entry['selected_source'] ?? '');
+            $payload = $plan['media'][$source][$mediaName] ?? null;
+            if ($payload === null) {
+                throw new \RuntimeException("scoped refresh selected attachment media '$mediaName' is unavailable");
+            }
+            $mediaRows[$mediaName] = self::verifiedMedia($mediaName, $payload);
+        }
+        ksort($mediaRows, SORT_STRING);
+        self::replaceTree($root, 'state', $stateRows, false);
+        self::replaceTree($root, 'media', $mediaRows, true);
+        return [
+            'format' => self::MATERIALIZATION_FORMAT,
+            'plan_hash' => $planHash,
+            'resolution_hash' => hash('sha256', self::encode($resolution)),
+            'resolved' => true,
+            'scope_hash' => (string) $scopeContract['scope_hash'],
+            'state_hash' => self::treeHash($root . '/state'),
+            'media_hash' => self::treeHash($root . '/media'),
+        ];
+    }
+
+    private static function verifiedMedia(string $name, mixed $payload): string {
+        self::assertRelative($name);
+        if (!is_array($payload)) {
+            throw new \RuntimeException("refresh media '$name' is malformed");
+        }
+        $bytes = base64_decode((string) ($payload['base64'] ?? ''), true);
+        if ($bytes === false || !self::isHash($payload['sha256'] ?? null)
+            || !hash_equals((string) $payload['sha256'], hash('sha256', $bytes))) {
+            throw new \RuntimeException("refresh media '$name' does not verify");
+        }
+        return $bytes;
+    }
+
     /** Apply the immutable run's choices without rewriting the persisted plan. */
     private static function applyResolution(array $plan, array $resolution): array {
         $strategy = $resolution['strategy'] ?? 'manual';
@@ -342,6 +596,12 @@ final class RefreshPlan {
         $used = [];
         $unresolved = [];
         foreach ($plan['entries'] as &$entry) {
+            if (($entry['in_scope'] ?? true) === false) {
+                $entry['resolution'] = null;
+                $entry['selected_source'] = 'branch';
+                $entry['selected'] = $entry['versions']['branch'] ?? null;
+                continue;
+            }
             if (($entry['category'] ?? null) !== 'conflicting') continue;
             $id = (string) ($entry['id'] ?? '');
             if (array_key_exists($id, $records)) {
@@ -384,26 +644,78 @@ final class RefreshPlan {
     /** Strict-compile and bind the exact materialized bytes to the receipt. */
     public static function validateMaterialization(array $receipt, array $plan, string $worktree): void {
         $plan = self::normalizePlan($plan);
+        $scopeContract = is_array($plan['context']['scope_contract'] ?? null)
+            ? \Duo\ScopeContract::from_array($plan['context']['scope_contract'])
+            : null;
         if (($receipt['format'] ?? null) !== self::MATERIALIZATION_FORMAT
             || ($receipt['resolved'] ?? null) !== true
             || !hash_equals((string) $plan['plan_hash'], (string) ($receipt['plan_hash'] ?? ''))
             || !hash_equals((string) ($receipt['state_hash'] ?? ''), self::treeHash($worktree . '/state'))
-            || !hash_equals((string) ($receipt['media_hash'] ?? ''), self::treeHash($worktree . '/media'))) {
+            || !hash_equals((string) ($receipt['media_hash'] ?? ''), self::treeHash($worktree . '/media'))
+            || ($scopeContract !== null
+                && !hash_equals((string) $scopeContract['scope_hash'], (string) ($receipt['scope_hash'] ?? '')))) {
             throw new \RuntimeException('refresh materialization receipt does not match candidate bytes');
         }
         $head = self::runProcess(['git', '-C', $worktree, 'rev-parse', '--verify', 'HEAD^{commit}']);
         if ($head['exit'] !== 0 || !self::isCommit(trim($head['stdout']))) {
             throw new \RuntimeException('refresh candidate has no valid Git HEAD');
         }
-        self::compileGitWorktree($worktree, trim($head['stdout']), 'candidate');
+        $candidate = self::compileGitWorktree(
+            $worktree,
+            trim($head['stdout']),
+            'candidate',
+            $scopeContract
+        );
+        if ($scopeContract !== null) {
+            self::assertScopedBaselinePreserved($plan, $candidate, $scopeContract, $worktree);
+        }
+    }
+
+    /** Excluded W rows/media are exact baseline bytes, never inferred from P omission. */
+    private static function assertScopedBaselinePreserved(
+        array $plan,
+        array $candidate,
+        array $scopeContract,
+        string $worktree
+    ): void {
+        $baseline = $plan['scope_baseline'] ?? null;
+        if (!is_array($baseline)) {
+            throw new \RuntimeException('scoped refresh validation has no exact branch baseline');
+        }
+        $selected = array_fill_keys(\Duo\ScopedStateOverlay::selected_identities($scopeContract), true);
+        foreach (['records', 'deletions'] as $field) {
+            foreach ((array) ($baseline[$field] ?? []) as $identity => $row) {
+                $identity = (string) $identity;
+                if (isset($selected[$identity])) {
+                    continue;
+                }
+                $actualField = $field;
+                $actual = $candidate[$actualField][$identity] ?? null;
+                if (!is_array($row) || !is_array($actual)
+                    || (string) ($actual['path'] ?? '') !== (string) ($row['path'] ?? '')
+                    || (string) ($actual['content'] ?? '') !== (string) ($row['content'] ?? '')) {
+                    throw new \RuntimeException(
+                        "scoped refresh changed or removed excluded branch $field identity '$identity'"
+                    );
+                }
+            }
+        }
+        foreach ((array) ($baseline['media'] ?? []) as $name => $row) {
+            $path = rtrim($worktree, '/') . '/media/' . $name;
+            $bytes = is_file($path) ? file_get_contents($path) : false;
+            $expected = is_array($row) ? base64_decode((string) ($row['base64'] ?? ''), true) : false;
+            if ($bytes === false || $expected === false || !hash_equals($expected, $bytes)) {
+                throw new \RuntimeException("scoped refresh changed or removed excluded branch media '$name'");
+            }
+        }
     }
 
     /** @return array{states:array<string,mixed>,media:array<string,mixed>} */
-    private static function expand(array $snapshot): array {
+    private static function expand(array $snapshot, bool $wholeOptions = false): array {
         self::loadCompiler();
         $states = [];
         foreach ((array) ($snapshot['records'] ?? []) as $identity => $row) {
-            if ((string) $identity === 'options/core') {
+            if ((string) $identity === 'options/core' && !$wholeOptions) {
                 $document = \Duo\Canon::decode((string) $row['content']);
                 foreach (\Duo\OptionState::records($document) as $name => $record) {
                     $content = \Duo\Canon::encode($record);
@@ -476,7 +788,7 @@ final class RefreshPlan {
             && class_exists(\Duo\CodeStateContract::class, false)) return;
         if (!defined('DUO_SPEC_VERSION')) define('DUO_SPEC_VERSION', 2);
         $root = dirname(__DIR__, 2);
-        foreach (['Uuid','OrderPreserved','Canon','OptionState','UserMetaState','Db','Secrets','PersonalData','ManifestDispositions','CapabilityRegistry','Policy','Ledger','PromotionLock','Identity','IdentityBackup','Deletion','JsonRefs','Tokens','Blocks','PlainData','SidebarState','Shortcodes','Canary','IdentityNotes','Snapshot','Orphans','TransientDbException','Publish','Capture','RepositoryAuthorization','CodeCompatibility','Code','RepositoryCompiler','CodeStateContract'] as $file) {
+        foreach (['Uuid','OrderPreserved','Canon','OptionState','UserMetaState','Db','Secrets','PersonalData','ManifestDispositions','CapabilityRegistry','Policy','Ledger','PromotionLock','Identity','IdentityBackup','Deletion','JsonRefs','Tokens','Blocks','PlainData','SidebarState','Shortcodes','Canary','IdentityNotes','Snapshot','Orphans','TransientDbException','Publish','Capture','RepositoryAuthorization','CodeCompatibility','Code','ReferenceGraph','RepositoryCompiler','ScopeClosure','CanonicalSurfaces','ScopeContract','ScopedStateOverlay','CodeStateContract'] as $file) {
             require_once $root . '/agent/src/' . $file . '.php';
         }
     }

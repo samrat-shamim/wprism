@@ -13,6 +13,7 @@ command -v php >/dev/null || fail "php required on PATH"
 
 say "php -l syntax check (contract, shared surface projector, host/agent boundary, harness)"
 for file in regress_scope_contract.php ../../agent/src/CanonicalSurfaces.php ../../agent/src/ScopeContract.php \
+  ../../agent/src/ScopedStateOverlay.php \
   ../../agent/src/ScopeClosure.php ../../agent/src/RepositoryCompiler.php ../../agent/src/Policy.php \
   ../../agent/src/Apply.php ../../agent/src/Cli.php ../../cli/duo; do
   php -l "$file" >/dev/null || fail "$file has a syntax error"

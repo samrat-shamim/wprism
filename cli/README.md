@@ -38,7 +38,7 @@ duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
 duo adopt  <env>
 duo status <env>
 duo capabilities <env> [--format=json]
-duo capture <env> [extra wp-cli flags...]
+duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
 duo plan    <env> [extra wp-cli flags...]
 duo explain <env> <bucket>:<entity-key> [--format=json] [planning flags...]
 duo apply   <env> [extra wp-cli flags...]
@@ -49,8 +49,8 @@ duo pending <env>
 duo classify <env> [--accept-proposals|--export-batch=<path>|--apply-batch=<path>]
 duo coverage <env> [--format=json]
 duo scope <env> --roots=<selectors> [--contract] [--format=json]
-duo refresh <production-env> --production-ref=<ref>
-duo rebase <production-env> --production-ref=<ref> --new-branch=<name> [--strategy=manual|ours|theirs] [--resolve=<stable-id>=ours|theirs ...]
+duo refresh <production-env> --production-ref=<ref> [--scope-contract=<local-path>]
+duo rebase <production-env> --production-ref=<ref> --new-branch=<name> [--scope-contract=<local-path>] [--strategy=manual|ours|theirs] [--resolve=<stable-id>=ours|theirs ...]
 duo rebase <production-env> --abort=<run-id>
 duo -h | --help
 ```
@@ -338,7 +338,7 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   --all` reports the complete shipped library. `duo status`, host
   deploy/promote, and `make release-gate` consume the same generated claims.
 
-- **`duo capture|plan|explain|apply <env> [flags...]`** — pure passthrough to
+- **`duo plan|explain|apply <env> [flags...]`** — pure passthrough to
   `wp duo capture|plan|explain|apply --repo=<repo_path> [flags...]` for that
   environment.
   Every flag after `<env>` is forwarded verbatim — e.g.:
@@ -397,6 +397,25 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   a refusal — `lint` exits 1 with a findings **array** on a successful scan,
   by design — and a zero exit is never a refusal.
 
+- **`duo capture <env> [--scope-contract=<local-path>] [flags...]`** — retains
+  the same streaming agent command, but the optional contract path is consumed
+  by the host and is never forwarded to the target. The host validates the
+  canonical `duo-scope-contract/v1` with the engine parser, then sends only its
+  normalized selectors and hash through the isolated control plane. The target
+  recompiles and re-resolves the contract before observation. A bounded capture
+  publishes a strict full-tree overlay: selected rows may change, while every
+  excluded state/tombstone and unrelated media byte comes from the current
+  repository exactly. It performs no identity minting or global stale-map
+  pruning. A selected live deletion still needs the ordinary capability and
+  must not strand an excluded inbound referrer; selected tombstone resurrection
+  is refused. The complete target observation is checked before projection,
+  and `all` remains strict source-bound state authority rather than enabling
+  target identity minting. Media is authorized only by selected attachment records. New blobs are
+  verified off-source and the original artifact is re-associated immediately
+  before publication. Scoped capture refuses `--out`; legacy unscoped
+  output-only capture is unchanged. Publication and crash recovery keep using
+  the existing sealed full-candidate protocol.
+
 - **`duo scope <env> --roots=<selectors> [--contract]`** — resolves a
   target-independent closure from explicit live roots. The default remains
   the human/`duo-scope/v1` preview. `--contract` instead emits canonical,
@@ -411,7 +430,8 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   plugins, themes, and MU code cannot run before the read-only compile.
   Direct `wp duo scope --contract` without that isolated bootstrap refuses.
 
-- **`duo refresh <production-env> --production-ref=<ref>`** — gets `P` only
+- **`duo refresh <production-env> --production-ref=<ref>
+  [--scope-contract=<local-path>]`** — gets `P` only
   through `wp duo refresh-export --repo=<repo_path> --format=json`; it never
   uses capture/apply/promote or treats a Git tree as live production truth.
   The target repo’s HEAD must equal the locally resolved production ref and
@@ -420,9 +440,14 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   descriptor bytes prove deployed code, while the ref proves topology. The
   resulting B/P/W plan is persisted immutably under the repository’s Git
   common-dir (`duo-refresh/plans/`), so orchestration evidence never dirties
-  canonical state or requires a `.gitignore` rule.
+  canonical state or requires a `.gitignore` rule. With a scope contract, the
+  target associates it with that exact clean production ref and exports only
+  selected state/media; everything else is explicitly `omitted_not_absent`.
+  The planner treats those omissions as B, reports only in-scope conflicts,
+  and records the exact contract/hash in its immutable plan.
 
-- **`duo rebase <production-env> --production-ref=<ref> --new-branch=<name>`**
+- **`duo rebase <production-env> --production-ref=<ref> --new-branch=<name>
+  [--scope-contract=<local-path>]`**
   re-exports production immediately before materialization and refuses if its
   snapshot hash changes. It uses a disposable local worktree and atomically
   creates only a new ref after semantic state validation; it never resets,
@@ -430,7 +455,12 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   default (`--strategy=manual`); `--strategy=ours|theirs` and repeatable
   `--resolve=<stable-id>=ours|theirs` are explicit, journal-bound choices.
   An unresolved planner receipt creates no branch. `--abort=<run-id>` removes
-  only a retained journal-owned candidate worktree.
+  only a retained journal-owned candidate worktree. Scoped materialization
+  starts from exact W bytes, replaces selected whole records only, preserves
+  excluded state/tombstones/media byte-for-byte, and refuses closure outside
+  the contract. It is deliberately state-only: W's code and ancestry remain
+  unchanged. Apply, promote, verification, and rollback do not accept this v1
+  scope contract.
 
 ### Refresh semantic-planner contract
 

@@ -85,7 +85,12 @@ final class Capture {
      *
      * @return array summary
      */
-    public static function run(string $repo, ?string $outDir = null, bool $forceUnresolvedRefs = false): array {
+    public static function run(
+        string $repo,
+        ?string $outDir = null,
+        bool $forceUnresolvedRefs = false,
+        ?array $scopeRequest = null
+    ): array {
         Canary::suppress_cron_spawn();
         // Policy's v1 single-site boundary must run before any destination
         // lock or Ledger work: an unsupported multisite request is a clean
@@ -95,6 +100,11 @@ final class Capture {
         $intoRepo = ($outDir === null);
         $repoPath = rtrim($repo, '/');
         $stateDir = $intoRepo ? $repoPath . '/state' : rtrim($outDir, '/');
+        if ($scopeRequest !== null && !$intoRepo) {
+            throw new \RuntimeException(
+                'duo: scoped capture publishes a bounded overlay into its associated repository; --out is unsupported'
+            );
+        }
 
         // DUO-3213: a capture lock serializes concurrent publishers to this
         // SAME destination (Publish::lock() fails cleanly, non-blocking, if
@@ -106,10 +116,24 @@ final class Capture {
         $lock = Publish::lock($stateDir);
         $testPhaseMarked = false;
         try {
+            // Scoped recovery first reconciles any prior durable publication,
+            // then binds the new immutable evidence before this run's first
+            // DDL/DML. Unlike full capture it cannot initialize/repair the
+            // ledger and only later discover a stale source or policy.
+            $scopedPrevious = null;
+            $scopeContract = null;
+            $scoped = false;
+            $scopeSourceTreeSha256 = null;
             // The destination lock is deliberately acquired BEFORE even
             // Ledger::ensure(): schema migration and every row mutation below
             // belong to the same destination's serialized publication.
-            Ledger::ensure();
+            if ($scopeRequest === null) {
+                Ledger::ensure();
+            } else {
+                // A scoped request cannot bootstrap or repair global ledger
+                // schema. Existing durable identity is a precondition.
+                Ledger::assert_read_only_schema();
+            }
             $c = new self($repo, $policy);
             self::verify_engine_support($policy);
 
@@ -128,7 +152,7 @@ final class Capture {
             // rather than in-memory. No effect at all unless a caller
             // explicitly opts into both env vars; production capture is
             // unchanged.
-            if (getenv('DUO_TEST_MODE') === '1') {
+            if ($scopeRequest === null && getenv('DUO_TEST_MODE') === '1') {
                 // This marker is intentionally outside the consistent
                 // snapshot: a second process must be able to observe it
                 // while this process is paused inside the held flock(). It is
@@ -156,6 +180,26 @@ final class Capture {
             } catch (\Throwable $markerCleanupFailure) {
                 $recoveryWarnings[] = 'capture recovery completed, but its stale database commit marker could not be removed: '
                     . $markerCleanupFailure->getMessage();
+            }
+            if ($scopeRequest !== null) {
+                if (!is_dir($repoPath . '/state')) {
+                    throw new \RuntimeException('duo: scoped capture requires an existing compiled state revision');
+                }
+                // Recovery above is governed solely by its durable old
+                // intent/marker/receipt. Only after it is reconciled may the
+                // new contract bind the now-current source revision.
+                $scopedPrevious = RepositoryCompiler::compile_for_diff($repoPath, Policy::load($repoPath));
+                $scopeContract = self::scope_contract_for_request(
+                    $scopeRequest,
+                    $scopedPrevious,
+                    $policy
+                );
+                // A contract-selected `all` is still a scoped, state-only
+                // transaction. It must not silently fall back to legacy
+                // identity minting/global pruning merely because every
+                // source identity was selected.
+                $scoped = true;
+                $scopeSourceTreeSha256 = Publish::tree_digest($repoPath . '/state');
             }
             // The previous compiled revision is the only authority from
             // which a deletion intent can be created. A first capture has no
@@ -200,9 +244,9 @@ final class Capture {
             // field classified correctly on this repo's first-ever capture —
             // proof the previous revision's own priming was leaking forward
             // into the new one's classification instead of a fresh lookup.
-            $previous = is_dir($c->repo . '/state')
+            $previous = $scopedPrevious ?? (is_dir($c->repo . '/state')
                 ? RepositoryCompiler::compile_for_diff($c->repo, Policy::load($repo))
-                : null;
+                : null);
             $previousOptions = $previous?->tree()['options/core']['data'] ?? null;
             $previousUserLogins = [];
             foreach ($previous?->tree() ?? [] as $entity) {
@@ -221,7 +265,8 @@ final class Capture {
             $publicationPhase = [];
             $build = self::run_in_consistent_snapshot(function () use (
                 $c, $policy, $repo, $forceUnresolvedRefs, $previous, $previousOptions,
-                $previousUserLogins, $intoRepo, $stateDir, &$publicationPhase
+                $previousUserLogins, $intoRepo, $stateDir, &$publicationPhase,
+                $scoped, $scopeContract, $scopeSourceTreeSha256, $repoPath
             ): array {
                 // All map/state mutations which can happen while deciding
                 // whether this candidate is publishable are transactionally
@@ -229,25 +274,109 @@ final class Capture {
                 // therefore cannot strand a newly-minted identity or a
                 // pruned map row in the environment.
                 Identity::assert_embedded_unique();
-                Ledger::prune_dead_map();
-                $observedDeletedTables = Snapshot::observed_deleted_mapped_uuids($policy);
-                $observedDeletedWidgets = SidebarState::observed_deleted_mapped_uuids($policy);
-                SidebarState::prune_dead_map($policy);
-                // A typed method row may disappear before its instance-
-                // settings option. Keep the option-name identity alive
-                // through this capture so build_options() can still emit the
-                // paired canonical option tombstone instead of dropping the
-                // live row as unmapped.
-                Snapshot::prune_dead_map($policy, $previousOptions);
-                Snapshot::assert_mapped_history_present($policy, $repo, $observedDeletedTables);
-                SidebarState::assert_mapped_history_present($repo, $observedDeletedWidgets);
-                $candidate = $c->build(true, $forceUnresolvedRefs, $previousOptions, $previousUserLogins);
+                if (!$scoped) {
+                    Ledger::prune_dead_map();
+                    $observedDeletedTables = Snapshot::observed_deleted_mapped_uuids($policy);
+                    $observedDeletedWidgets = SidebarState::observed_deleted_mapped_uuids($policy);
+                    SidebarState::prune_dead_map($policy);
+                    // A typed method row may disappear before its instance-
+                    // settings option. Keep the option-name identity alive
+                    // through this capture so build_options() can still emit
+                    // the paired canonical option tombstone.
+                    Snapshot::prune_dead_map($policy, $previousOptions);
+                    Snapshot::assert_mapped_history_present($policy, $repo, $observedDeletedTables);
+                    SidebarState::assert_mapped_history_present($repo, $observedDeletedWidgets);
+                }
+                // Scoped v1 never mints or globally prunes target identity.
+                // Every selectable identity already exists in the associated
+                // repository revision; a missing one is a refusal below, not
+                // implicit deletion authority.
+                $candidate = $c->build(
+                    !$scoped,
+                    $forceUnresolvedRefs,
+                    $previousOptions,
+                    $previousUserLogins,
+                    $scoped
+                );
                 Identity::assert_entities_unique($candidate['entities']);
                 $candidate['deletions'] = Deletion::capture_tombstones(
                     $previous,
                     $candidate['entities'],
-                    $policy
+                    $policy,
+                    $scoped ? ScopedStateOverlay::selected_identities($scopeContract) : null
                 );
+                $authorizedScopedDeletions = [];
+                $scopedDeletionCount = 0;
+                $selectedObserved = $candidate['entities'];
+                if ($scoped) {
+                    $selectedSourceTombstones = array_fill_keys(
+                        array_map('strval', array_column((array) $scopeContract['tombstones'], 'uuid')),
+                        true
+                    );
+                    foreach ($candidate['deletions'] as $deletion) {
+                        $identity = (string) ($deletion['uuid'] ?? '');
+                        if ($identity !== '' && !isset($selectedSourceTombstones[$identity])) {
+                            $authorizedScopedDeletions[] = $identity;
+                        }
+                    }
+                    // Validate the complete coherent target observation
+                    // before projecting it onto old repository bytes. This
+                    // catches target-only inbound refs, declared children,
+                    // and outbound dependencies that would otherwise vanish
+                    // with an excluded-row overlay and evade the final tree.
+                    $targetProbeState = ScopedStateOverlay::stage_state_view(
+                        ScopedStateOverlay::target_probe_rows(
+                            $previous,
+                            $candidate['entities'],
+                            $candidate['deletions']
+                        )
+                    );
+                    $targetProbeMedia = null;
+                    try {
+                        $targetProbeMedia = ScopedStateOverlay::stage_candidate_media_view(
+                            $c->repo,
+                            $candidate['media']
+                        );
+                        $targetProbe = RepositoryCompiler::compile_staged(
+                            $targetProbeState,
+                            $c->repo,
+                            $policy,
+                            $targetProbeMedia
+                        );
+                        ScopeContract::assert_candidate_bounded(
+                            $scopeContract,
+                            $targetProbe,
+                            $policy,
+                            $authorizedScopedDeletions
+                        );
+                    } finally {
+                        if (is_string($targetProbeMedia)) {
+                            ScopedStateOverlay::discard_media_view($targetProbeMedia);
+                        }
+                        ScopedStateOverlay::discard_state_view($targetProbeState);
+                    }
+                    $selectedSet = array_fill_keys(ScopedStateOverlay::selected_identities($scopeContract), true);
+                    $selectedObserved = array_values(array_filter(
+                        $candidate['entities'],
+                        static fn(array $row): bool => isset($selectedSet[(string) ($row['uuid'] ?? '')])
+                    ));
+                    $overlay = ScopedStateOverlay::project_capture_associated(
+                        $previous,
+                        $scopeContract,
+                        $candidate['entities'],
+                        $candidate['deletions']
+                    );
+                    $candidate['entities'] = $overlay['entities'];
+                    $candidate['deletions'] = $overlay['deletions'];
+                    $scopedDeletionCount = count(array_filter(
+                        $candidate['deletions'],
+                        static fn(array $row): bool => isset($selectedSet[(string) ($row['uuid'] ?? '')])
+                    ));
+                    $candidate['media'] = ScopedStateOverlay::selected_media(
+                        $selectedObserved,
+                        $candidate['media']
+                    );
+                }
 
                 // Keep the transaction open through every candidate-side
                 // publication step. A staging/lint/media/compile failure
@@ -259,6 +388,36 @@ final class Capture {
                 if ($lint) {
                     $candidate['warnings'][] = count($lint)
                         . ' suspicious unrewritten ref(s) in captured state — run: wp duo lint --repo=' . $c->repo;
+                }
+                $compiledCandidate = null;
+                if ($scopeContract !== null) {
+                    $candidateMediaView = ScopedStateOverlay::stage_candidate_media_view(
+                        $c->repo,
+                        $candidate['media']
+                    );
+                    try {
+                        $compiledCandidate = RepositoryCompiler::compile_staged(
+                            $staging,
+                            $c->repo,
+                            $c->policy,
+                            $candidateMediaView
+                        );
+                    } finally {
+                        ScopedStateOverlay::discard_media_view($candidateMediaView);
+                    }
+                    if ($scoped) {
+                        ScopedStateOverlay::assert_excluded_preserved(
+                            $previous,
+                            $compiledCandidate,
+                            $scopeContract
+                        );
+                        ScopeContract::assert_candidate_bounded(
+                            $scopeContract,
+                            $compiledCandidate,
+                            $policy,
+                            $authorizedScopedDeletions
+                        );
+                    }
                 }
                 if ($intoRepo) {
                     // Media is content-addressed and idempotent. A rejected
@@ -274,7 +433,39 @@ final class Capture {
                             Canon::write_file($dst, $bytes);
                         }
                     }
+                }
+                if ($scopeContract === null && $intoRepo) {
+                    // Preserve legacy full-capture semantics: output-only
+                    // seeds do not require newly observed media to already
+                    // exist in repo/media, while a repository publication
+                    // still validates the exact staged state after writing
+                    // its content-addressed blobs.
                     RepositoryCompiler::compile_staged($staging, $c->repo, $c->policy);
+                }
+                if ($scopeContract !== null) {
+                    if (!is_string($scopeSourceTreeSha256)
+                        || !hash_equals($scopeSourceTreeSha256, Publish::tree_digest($repoPath . '/state'))) {
+                        throw new \RuntimeException(
+                            'duo: scoped capture source revision changed after contract association; refusing publication'
+                        );
+                    }
+                    $sourceExport = $previous->export();
+                    $sourceMediaView = ScopedStateOverlay::stage_associated_source_media_view(
+                        $repoPath,
+                        (array) ($sourceExport['media_catalog'] ?? []),
+                        $candidate['media']
+                    );
+                    try {
+                        $currentPolicy = Policy::load($repoPath);
+                        $currentSource = RepositoryCompiler::compile_for_diff(
+                            $repoPath,
+                            $currentPolicy,
+                            $sourceMediaView
+                        );
+                        ScopeContract::assert_associated($scopeContract, $currentSource, $currentPolicy);
+                    } finally {
+                        ScopedStateOverlay::discard_media_view($sourceMediaView);
+                    }
                 }
 
                 // The intent is durable before either rename. The old tree
@@ -287,18 +478,29 @@ final class Capture {
                 Publish::swap($stateDir, true);
                 $intent = Publish::mark_swapped($stateDir, $intent);
                 if ($intoRepo) {
-                    foreach ($candidate['entities'] as $e) {
+                    $ledgerEntities = $scoped ? $selectedObserved : $candidate['entities'];
+                    foreach ($ledgerEntities as $e) {
                         Ledger::set_state_hash(
                             $e['uuid'],
                             $e['type'],
                             hash('sha256', $e['hash_basis'] ?? $e['content'])
                         );
                     }
-                    Ledger::prune_state(array_merge(
-                        array_column($candidate['entities'], 'uuid'),
-                        array_column($candidate['deletions'], 'uuid')
-                    ));
-                    Deploy::record_code_versions($c->policy);
+                    if ($scoped) {
+                        foreach ($authorizedScopedDeletions as $identity) {
+                            // This is the only map/state removal in scoped
+                            // v1, and its UUID already passed selected-scope,
+                            // capability, inbound, and candidate gates.
+                            Ledger::forget((string) $identity);
+                        }
+                    }
+                    if (!$scoped) {
+                        Ledger::prune_state(array_merge(
+                            array_column($candidate['entities'], 'uuid'),
+                            array_column($candidate['deletions'], 'uuid')
+                        ));
+                        Deploy::record_code_versions($c->policy);
+                    }
                 }
                 $intent = Publish::mark_commit_ready($stateDir, $intent);
                 // Final DML in this transaction: a destination-scoped,
@@ -315,6 +517,21 @@ final class Capture {
                 // Carry only the durable intent across COMMIT. It is removed
                 // by cleanup_committed() after the receipt is written.
                 $candidate['_publication_intent'] = $intent;
+                if ($scopeContract !== null) {
+                    $candidate['_scope'] = [
+                        'format' => ScopeContract::FORMAT,
+                        'scope_hash' => (string) $scopeContract['scope_hash'],
+                        'source_artifact_hash' => (string) $scopeContract['source']['artifact_hash'],
+                        'source_state_revision_hash' => (string) $scopeContract['source']['state_revision_hash'],
+                        'selected_live' => count($selectedObserved),
+                        'selected_tombstones' => $scoped
+                            ? $scopedDeletionCount
+                            : count($scopeContract['tombstones']),
+                        'projection' => ScopedStateOverlay::is_all($scopeContract)
+                            ? 'all-overlay'
+                            : 'bounded-overlay',
+                    ];
+                }
                 return $candidate;
             }, $publicationPhase);
 
@@ -351,17 +568,60 @@ final class Capture {
         }
 
         $counts = ['post' => 0, 'term' => 0, 'menu' => 0, 'sidebar' => 0, 'options' => 0, 'deletion' => 0];
-        foreach ($build['entities'] as $e) {
+        $countedEntities = $scoped
+            ? array_values(array_filter($build['entities'], static function (array $row) use ($scopeContract): bool {
+                return in_array((string) ($row['uuid'] ?? ''), ScopedStateOverlay::selected_identities($scopeContract), true);
+            }))
+            : $build['entities'];
+        foreach ($countedEntities as $e) {
             $counts[$e['type']] = ($counts[$e['type']] ?? 0) + 1;
         }
-        $counts['deletion'] = count($build['deletions']);
-        return [
+        $counts['deletion'] = $scoped ? (int) $build['_scope']['selected_tombstones'] : count($build['deletions']);
+        $summary = [
             'counts' => $counts,
             'media' => count($build['media']),
             'notes' => $build['notes'],
             'warnings' => array_merge($recoveryWarnings, $build['warnings']),
             'state_dir' => $stateDir,
         ];
+        if (isset($build['_scope'])) {
+            $summary['scope'] = $build['_scope'];
+        }
+        return $summary;
+    }
+
+    /**
+     * Accept either the full local contract (direct wp-cli) or the compact
+     * selectors+hash proof forwarded by the host transport. In both cases
+     * the target recomputes and associates the complete contract itself.
+     *
+     * @return array<string,mixed>
+     */
+    private static function scope_contract_for_request(
+        array $request,
+        CompiledRepository $compiled,
+        Policy $policy
+    ): array {
+        if (($request['format'] ?? null) === ScopeContract::FORMAT) {
+            $contract = ScopeContract::from_array($request);
+            ScopeContract::assert_associated($contract, $compiled, $policy);
+            return $contract;
+        }
+        $keys = array_keys($request);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['format', 'scope_hash', 'selectors']
+            || ($request['format'] ?? null) !== 'duo-scope-request/v1'
+            || !is_array($request['selectors'] ?? null)
+            || !array_is_list($request['selectors'])) {
+            throw new \RuntimeException('duo: scoped capture request has an unexpected schema');
+        }
+        $selectors = ScopeContract::normalize_selectors($request['selectors']);
+        return ScopedStateOverlay::resolve_request(
+            $compiled,
+            $policy,
+            $selectors,
+            (string) ($request['scope_hash'] ?? '')
+        );
     }
 
     /**
@@ -1279,7 +1539,10 @@ final class Capture {
             || is_dir(Publish::backup_dir($stateDir))) {
             return;
         }
-        Ledger::kv_delete(self::publication_marker_key($stateDir));
+        $key = self::publication_marker_key($stateDir);
+        if (Ledger::kv_get($key) !== null) {
+            Ledger::kv_delete($key);
+        }
     }
 
     // ------------------------------------------------------------------

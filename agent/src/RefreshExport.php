@@ -24,10 +24,17 @@ final class RefreshExport {
     /**
      * @return array<string,mixed> canonical `duo-refresh-production/v1` payload
      */
-    public static function run(string $repo, bool $forceUnresolvedRefs = false): array {
+    public static function run(
+        string $repo,
+        bool $forceUnresolvedRefs = false,
+        ?array $scopeRequest = null
+    ): array {
         $repo = self::repository_root($repo);
         $policy = Policy::load($repo);
         $compiled = RepositoryCompiler::compile($repo, $policy);
+        $scopeContract = $scopeRequest === null
+            ? null
+            : self::scope_contract_for_request($scopeRequest, $compiled, $policy);
         Capture::assert_read_only_export_engine_support($policy);
 
         $previousOptions = $compiled->tree()['options/core']['data'] ?? null;
@@ -45,7 +52,8 @@ final class RefreshExport {
             $compiled,
             $previousOptions,
             $previousUserLogins,
-            $forceUnresolvedRefs
+            $forceUnresolvedRefs,
+            $scopeContract
         ): array {
             // The schema/map checks happen inside the same MVCC view as the
             // rows they authorize. No ensure/repair fallback is available.
@@ -61,9 +69,104 @@ final class RefreshExport {
                 $forceUnresolvedRefs
             );
             Identity::assert_entities_unique($candidate['entities']);
-            $deletions = Deletion::capture_tombstones($compiled, $candidate['entities'], $policy);
+            $selected = $scopeContract === null
+                ? null
+                : ScopedStateOverlay::selected_identities($scopeContract);
+            $deletions = Deletion::capture_tombstones(
+                $compiled,
+                $candidate['entities'],
+                $policy,
+                $selected
+            );
 
-            return self::payload($candidate, $deletions, $compiled);
+            if ($scopeContract !== null) {
+                $sourceTombstones = array_fill_keys(
+                    array_map('strval', array_column((array) $scopeContract['tombstones'], 'uuid')),
+                    true
+                );
+                $authorizedDeletions = [];
+                foreach ($deletions as $deletion) {
+                    $identity = (string) ($deletion['uuid'] ?? '');
+                    if ($identity !== '' && !isset($sourceTombstones[$identity])) {
+                        $authorizedDeletions[] = $identity;
+                    }
+                }
+                // Validate the complete production observation before its
+                // out-of-scope rows are intentionally omitted from the wire
+                // snapshot. Otherwise a target-only child/referrer could be
+                // filtered away and misrepresented as a bounded refresh.
+                $targetProbeState = ScopedStateOverlay::stage_state_view(
+                    ScopedStateOverlay::target_probe_rows(
+                        $compiled,
+                        $candidate['entities'],
+                        $deletions
+                    )
+                );
+                $targetProbeMedia = null;
+                try {
+                    $targetProbeMedia = ScopedStateOverlay::stage_candidate_media_view(
+                        $repo,
+                        $candidate['media']
+                    );
+                    $targetProbe = RepositoryCompiler::compile_staged(
+                        $targetProbeState,
+                        $repo,
+                        $policy,
+                        $targetProbeMedia
+                    );
+                    ScopeContract::assert_candidate_bounded(
+                        $scopeContract,
+                        $targetProbe,
+                        $policy,
+                        $authorizedDeletions
+                    );
+                } finally {
+                    if (is_string($targetProbeMedia)) {
+                        ScopedStateOverlay::discard_media_view($targetProbeMedia);
+                    }
+                    ScopedStateOverlay::discard_state_view($targetProbeState);
+                }
+                $selectedSet = array_fill_keys($selected, true);
+                $live = [];
+                foreach ($candidate['entities'] as $row) {
+                    $identity = (string) ($row['uuid'] ?? '');
+                    if (isset($selectedSet[$identity])) {
+                        $live[$identity] = $row;
+                    }
+                }
+                $deleted = array_fill_keys(array_map('strval', array_column($deletions, 'uuid')), true);
+                foreach ($selected as $identity) {
+                    if (isset($sourceTombstones[$identity])) {
+                        if (isset($live[$identity]) || !isset($deleted[$identity])) {
+                            throw new \RuntimeException(
+                                "duo: scoped refresh export observed resurrection of selected tombstone '$identity'"
+                            );
+                        }
+                        continue;
+                    }
+                    if (!isset($live[$identity]) && !isset($deleted[$identity])) {
+                        throw new \RuntimeException(
+                            "duo: scoped refresh export lost selected identity '$identity' without bounded deletion evidence"
+                        );
+                    }
+                    if (isset($deleted[$identity])) {
+                        foreach ((array) $scopeContract['live']['inbound'] as $inbound) {
+                            if ((string) ($inbound['target'] ?? '') === $identity) {
+                                throw new \RuntimeException(
+                                    "duo: scoped refresh deletion '$identity' would strand an excluded inbound reference"
+                                );
+                            }
+                        }
+                    }
+                }
+                $candidate['entities'] = array_values($live);
+                $candidate['media'] = ScopedStateOverlay::selected_media(
+                    $candidate['entities'],
+                    $candidate['media']
+                );
+            }
+
+            return self::payload($candidate, $deletions, $compiled, $scopeContract);
         });
     }
 
@@ -142,7 +245,12 @@ final class RefreshExport {
     }
 
     /** @return array<string,mixed> */
-    private static function payload(array $candidate, array $deletions, CompiledRepository $compiled): array {
+    private static function payload(
+        array $candidate,
+        array $deletions,
+        CompiledRepository $compiled,
+        ?array $scopeContract = null
+    ): array {
         $records = self::records((array) ($candidate['entities'] ?? []));
         $deleted = self::records($deletions);
         $media = [];
@@ -187,8 +295,45 @@ final class RefreshExport {
             'deletions' => $deleted,
             'warnings' => $warnings,
         ];
+        if ($scopeContract !== null) {
+            $payload['scope'] = [
+                'format' => 'duo-refresh-scope/v1',
+                'scope_hash' => (string) $scopeContract['scope_hash'],
+                'source' => $scopeContract['source'],
+                'selectors' => $scopeContract['selectors'],
+                'selected_identities' => ScopedStateOverlay::selected_identities($scopeContract),
+                'out_of_scope' => 'omitted_not_absent',
+            ];
+        }
         $payload['snapshot_hash'] = hash('sha256', Canon::encode($payload));
         return $payload;
+    }
+
+    /** @return array<string,mixed> */
+    private static function scope_contract_for_request(
+        array $request,
+        CompiledRepository $compiled,
+        Policy $policy
+    ): array {
+        if (($request['format'] ?? null) === ScopeContract::FORMAT) {
+            $contract = ScopeContract::from_array($request);
+            ScopeContract::assert_associated($contract, $compiled, $policy);
+            return $contract;
+        }
+        $keys = array_keys($request);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['format', 'scope_hash', 'selectors']
+            || ($request['format'] ?? null) !== 'duo-scope-request/v1'
+            || !is_array($request['selectors'] ?? null)
+            || !array_is_list($request['selectors'])) {
+            throw new \RuntimeException('duo: scoped refresh request has an unexpected schema');
+        }
+        return ScopedStateOverlay::resolve_request(
+            $compiled,
+            $policy,
+            ScopeContract::normalize_selectors($request['selectors']),
+            (string) ($request['scope_hash'] ?? '')
+        );
     }
 
     /** @return array<string,array{identity:string,type:string,path:string,hash:string,content:string}> */
