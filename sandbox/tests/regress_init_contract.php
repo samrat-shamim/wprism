@@ -922,6 +922,60 @@ check(
     'an entry absent from the sealed manifest is still refused and preserved'
 );
 
+// DUO-3427: the same asymmetry a third time, on the capture-record temporaries.
+// Publish::remove_matching_record_temps()'s docblock states the rule — resolve
+// only a temp that is a hard link to its sealed next slot carrying that exact
+// record, never sweep "by name pattern" — and the proposal gate swept by name
+// pattern. write_record() creates the temp, hard links it to `.next`, and only
+// then reaches the record-create-next fault boundary, so a crash there leaves
+// the bound shape the authority is built to resolve; the gate sent it to
+// manual archive-and-recreate instead, and the confirmation that would have
+// rolled it back completely was never offered. Exercised against the real
+// shared predicate with real inodes, offline.
+$tempFixture = sys_get_temp_dir() . '/duo-init-record-temp-' . bin2hex(random_bytes(6));
+if (!mkdir($tempFixture, 0777, true)) fail('could not create the record-temp fixture');
+register_shutdown_function(static function () use ($tempFixture): void {
+    exec('rm -rf ' . escapeshellarg($tempFixture));
+});
+$tempStateDir = $tempFixture . '/state';
+$sealIntent = static function (string $candidate): string {
+    $record = [
+        'format' => 'duo-capture-intent/v1',
+        'id' => bin2hex(random_bytes(16)),
+        'phase' => 'prepared',
+        'candidate_sha256' => $candidate,
+        'previous_sha256' => hash('sha256', ''),
+        'created_at' => gmdate('c'),
+    ];
+    $record['record_sha256'] = hash('sha256', \Duo\Canon::encode($record));
+    return \Duo\Canon::encode($record);
+};
+// The literal fixed slot name, as the site-repo ignore template pins it.
+$intentNext = \Duo\Publish::intent_path($tempStateDir) . '.next';
+$boundTemp = \Duo\Publish::intent_path($tempStateDir) . '.tmp.4242.' . bin2hex(random_bytes(6));
+file_put_contents($boundTemp, $sealIntent(str_repeat('a', 64)));
+if (!link($boundTemp, $intentNext)) fail('could not hard link the record-temp fixture');
+check(
+    \Duo\Publish::record_temp_is_resolvable($tempStateDir, basename($boundTemp)) === true,
+    'a record temp hard-linked to its sealed next slot is resolvable, exactly as the removal authority resolves it'
+);
+$strayTemp = \Duo\Publish::intent_path($tempStateDir) . '.tmp.4243.' . bin2hex(random_bytes(6));
+file_put_contents($strayTemp, $sealIntent(str_repeat('b', 64)));
+check(
+    \Duo\Publish::record_temp_is_resolvable($tempStateDir, basename($strayTemp)) === false,
+    'a record temp on its own inode is not resolvable and still means manual recovery'
+);
+unlink($intentNext);
+check(
+    \Duo\Publish::record_temp_is_resolvable($tempStateDir, basename($boundTemp)) === false,
+    'a record temp with no sealed next slot at all is not resolvable — the record-create-temp crash window is unchanged'
+);
+check(
+    substr_count($initAuthoritySource, 'Publish::record_temp_is_resolvable($stateDir, $entry)') === 1
+        && str_contains($initAuthoritySource, "str_starts_with(\$entry, 'state.capture-intent.tmp.')"),
+    'the proposal gate resolves record temporaries through the authority\'s own binding predicate, not a name sweep'
+);
+
 // DUO-3421: the interrupted-init compensation runs over the same artifacts
 // twice by design — Init::confirm()'s catch compensates its own publications,
 // then re-enters recover_interrupted_attempt() to PROVE the rollback from the

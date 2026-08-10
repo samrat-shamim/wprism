@@ -624,8 +624,21 @@ final class Init {
             if (str_contains($entry, '.duo-claim-')) {
                 return 'the interrupted-init repository contains an unjournaled cleanup claim artifact';
             }
-            if (str_starts_with($entry, 'state.capture-intent.tmp.')
-                || str_starts_with($entry, 'state.capture-receipt.tmp.')) {
+            // DUO-3427: "unbound" is the recovery authority's word, and it
+            // has a precise meaning there — a write_record() temp that is NOT
+            // a hard link to its sealed next slot carrying that exact record
+            // (Publish::remove_matching_record_temps(), whose docblock refuses
+            // to sweep "by name pattern"). This gate swept by name pattern,
+            // so the `record-create-next` crash window — temp created, hard
+            // linked to `.next`, fault before the canonical link, one unlink
+            // from resolved — was sent to manual archive-and-recreate even
+            // though the confirmation would have rolled it back completely.
+            // Both sites now ask Publish the same question; a genuinely
+            // unbound temp (the `record-create-temp` window, where no `.next`
+            // exists at all) still refuses here with the same sentence.
+            if ((str_starts_with($entry, 'state.capture-intent.tmp.')
+                || str_starts_with($entry, 'state.capture-receipt.tmp.'))
+                && !Publish::record_temp_is_resolvable($stateDir, $entry)) {
                 return 'the interrupted-init repository contains an unbound capture record temporary artifact';
             }
             $knownInitArtifact = $entry === self::ATTEMPT_FILE

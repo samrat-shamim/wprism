@@ -1795,6 +1795,90 @@ PHP;
     }
 
     /**
+     * Is this write_record() temporary a hard link to the sealed next-slot it
+     * was created for, carrying that exact record?
+     *
+     * The ONE binding rule, shared by the removal authority below and the
+     * read-only classifier beside it (DUO-3427). Fail-closed by construction:
+     * an unreadable stat, an unreadable or malformed record, a different
+     * inode, or different bytes all answer false, so a temp is only ever
+     * called bound on positive evidence.
+     *
+     * @param array<string,mixed> $record
+     */
+    private static function record_temp_bound_to_next(
+        string $candidatePath,
+        string $nextPath,
+        array $record,
+        string $label
+    ): bool {
+        $anchor = @lstat($nextPath);
+        if (!is_array($anchor) || is_link($nextPath) || !is_file($nextPath)) {
+            return false;
+        }
+        $candidateStat = @lstat($candidatePath);
+        if (!is_array($candidateStat)
+            || (string) ($candidateStat['dev'] ?? '') !== (string) ($anchor['dev'] ?? '')
+            || (string) ($candidateStat['ino'] ?? '') !== (string) ($anchor['ino'] ?? '')) {
+            return false;
+        }
+        try {
+            $candidate = self::read_record($candidatePath, $label);
+        } catch (\Throwable $unreadable) {
+            return false;
+        }
+        return $candidate !== null && Canon::encode($candidate) === Canon::encode($record);
+    }
+
+    /**
+     * DUO-3427: the read-only twin of the removal authority below, for the
+     * proposal-time gate.
+     *
+     * `Init::interrupted_attempt_manual_recovery_reason()` refused EVERY
+     * `state.capture-{intent,receipt}.tmp.*` entry by name — the exact
+     * "swept by name pattern" the authority's own docblock rejects — while
+     * the authority resolves any temp that is a hard link to its sealed next
+     * slot. write_record() creates the temp, hard-links it to `.next`, and
+     * only then reaches the `record-create-next` fault boundary, so a crash
+     * there leaves precisely the bound shape: same inode, same bytes, one
+     * unlink away from resolved. The gate sent it to manual archive-and-
+     * recreate anyway, and a rollback the engine could perform in full was
+     * never offered. Same asymmetry family as DUO-3421's git_empty_identity
+     * and this issue's manifest key ordering: the read-only gate and the
+     * authority answering one question two ways.
+     *
+     * A `true` here is a promise the authority keeps: bound implies a `.next`
+     * slot exists, which is what puts recover_interrupted_attempt() on a path
+     * through recover_initial_unpublished_intent_next() or
+     * recover_record_transition() — and both call the removal below.
+     */
+    public static function record_temp_is_resolvable(string $stateDir, string $entry): bool {
+        $directory = dirname($stateDir);
+        foreach ([
+            'intent' => self::intent_path($stateDir),
+            'receipt' => self::receipt_path($stateDir),
+        ] as $label => $recordPath) {
+            if (!str_starts_with($entry, basename($recordPath) . '.tmp.')) {
+                continue;
+            }
+            $nextPath = self::record_next_path($recordPath);
+            if (!file_exists($nextPath) && !is_link($nextPath)) {
+                return false;
+            }
+            try {
+                $next = self::read_record($nextPath, $label);
+            } catch (\Throwable $unreadable) {
+                return false;
+            }
+            if ($next === null) {
+                return false;
+            }
+            return self::record_temp_bound_to_next($directory . '/' . $entry, $nextPath, $next, $label);
+        }
+        return false;
+    }
+
+    /**
      * Remove only random write_record() temporaries that are hard links to
      * the validated fixed next slot. A temp with another inode or payload is
      * retained as ambiguous evidence rather than swept by name pattern.
@@ -1813,8 +1897,7 @@ PHP;
             throw self::ambiguous_recovery("capture $label temporary-record directory cannot be enumerated");
         }
         $prefix = basename($path) . '.tmp.';
-        $anchor = @lstat($nextPath);
-        if (!is_array($anchor) || is_link($nextPath) || !is_file($nextPath)) {
+        if (!is_array(@lstat($nextPath)) || is_link($nextPath) || !is_file($nextPath)) {
             throw self::ambiguous_recovery("capture $label next-transition has no regular-file identity");
         }
         foreach ($entries as $entry) {
@@ -1822,12 +1905,7 @@ PHP;
                 continue;
             }
             $candidatePath = $directory . '/' . $entry;
-            $candidateStat = @lstat($candidatePath);
-            $candidate = self::read_record($candidatePath, $label);
-            if (!is_array($candidateStat) || $candidate === null
-                || (string) ($candidateStat['dev'] ?? '') !== (string) ($anchor['dev'] ?? '')
-                || (string) ($candidateStat['ino'] ?? '') !== (string) ($anchor['ino'] ?? '')
-                || Canon::encode($candidate) !== Canon::encode($record)) {
+            if (!self::record_temp_bound_to_next($candidatePath, $nextPath, $record, $label)) {
                 throw self::ambiguous_recovery("capture $label retained an unrelated temporary record artifact");
             }
             if (!@unlink($candidatePath)) {
