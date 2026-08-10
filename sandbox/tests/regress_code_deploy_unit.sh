@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Offline contract for duo deploy <env>: compile -> begin target session ->
+# Offline contract for duo deploy <env>: compile -> target runtime preflight -> begin target session ->
 # optional code stage -> fresh lifecycle retire/activate -> optional code finalize.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -41,6 +41,14 @@ if [ "$first:$second" = duo:compile ]; then
     esac
   done
   printf '%s\n' "$summary"
+  exit 0
+fi
+if [ "$first:$second" = duo:code-preflight ]; then
+  if [ "$FAKE_PREFLIGHT_FAIL" = 1 ]; then
+    printf '%s\n' '{"format":"duo-command-refusal/v1","ok":false,"command":"code-preflight","error":"code_compilation_failed","diagnostics":[{"code":"code_source_requires_php_incompatible","path":"plugins/inactive/inactive.php","required_version":"99.0","target_version":"8.3.0"}]}'
+    exit 14
+  fi
+  printf '%s\n' '{"format":"duo-code-runtime/v1","enabled":true,"compatible":true,"code_revision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","target":{"php":"8.3.0","wordpress":"6.8.2","source":"target-control-plane"},"requirements":[],"diagnostics":[]}'
   exit 0
 fi
 if [ "$first:$second" = duo:promotion-begin ]; then exit 0; fi
@@ -85,7 +93,7 @@ invoke() {
   mode=$1
   shift
   : > "$LOG"
-  if OUT="$(FAKE_CODE_ENABLED="$mode" FAKE_COMPILE_FAIL=0 FAKE_STAGE_FAIL=0 FAKE_RETIRE_FAIL=0 FAKE_ACTIVATE_FAIL=0 FAKE_FINALIZE_FAIL=0 "$@" "$DUO" --envs-file="$ENVS" deploy unit --force-code-mismatch --force-code-drift 2>&1)"; then
+  if OUT="$(FAKE_CODE_ENABLED="$mode" FAKE_COMPILE_FAIL=0 FAKE_PREFLIGHT_FAIL=0 FAKE_STAGE_FAIL=0 FAKE_RETIRE_FAIL=0 FAKE_ACTIVATE_FAIL=0 FAKE_FINALIZE_FAIL=0 "$@" "$DUO" --envs-file="$ENVS" deploy unit --force-code-mismatch --force-code-drift 2>&1)"; then
     CODE=0
   else
     CODE=$?
@@ -181,36 +189,41 @@ pass "legacy artifact keeps lifecycle-only deploy"
 # and owner; only lifecycle gets hold/materializing-code; no DB checkpoint.
 invoke 1 env
 [ "$CODE" -eq 0 ] || fail "code deploy failed: $OUT"
-[ "$(calls)" = 6 ] || fail "code path expected six wp calls"
+[ "$(calls)" = 7 ] || fail "code path expected seven wp calls"
 ONE="$(line 1)"
 TWO="$(line 2)"
 THREE="$(line 3)"
 FOUR="$(line 4)"
 FIVE="$(line 5)"
 SIX="$(line 6)"
-[[ "$ONE" == *"duo compile"* && "$TWO" == *"duo promotion-begin"* && "$THREE" == *"duo code-stage"* \
-  && "$FOUR" == *"duo deploy"*"--lifecycle-phase=retire"* \
-  && "$FIVE" == *"duo deploy"*"--lifecycle-phase=activate"* \
-  && "$SIX" == *"duo code-finalize"* ]] || fail "code phase order wrong"
+SEVEN="$(line 7)"
+[[ "$ONE" == *"duo compile"* && "$TWO" == *"duo code-preflight"* \
+  && "$THREE" == *"duo promotion-begin"* && "$FOUR" == *"duo code-stage"* \
+  && "$FIVE" == *"duo deploy"*"--lifecycle-phase=retire"* \
+  && "$SIX" == *"duo deploy"*"--lifecycle-phase=activate"* \
+  && "$SEVEN" == *"duo code-finalize"* ]] || fail "code phase order wrong"
 assert_control_call "$ONE" "code compile"
-assert_control_call "$TWO" "code promotion-begin"
-assert_control_call "$THREE" "code stage"
-assert_runtime_call "$FOUR" "code retirement"
-assert_runtime_call "$FIVE" "code activation"
-assert_control_call "$SIX" "code finalize"
-A="$(arg "$THREE" '--compiled=[^ ]*')"
-O="$(arg "$THREE" '--promotion-owner=[^ ]*')"
-H="$(arg "$THREE" '--artifact-hash=[^ ]*')"
+assert_control_call "$TWO" "code target-runtime preflight"
+assert_control_call "$THREE" "code promotion-begin"
+assert_control_call "$FOUR" "code stage"
+assert_runtime_call "$FIVE" "code retirement"
+assert_runtime_call "$SIX" "code activation"
+assert_control_call "$SEVEN" "code finalize"
+A="$(arg "$FOUR" '--compiled=[^ ]*')"
+O="$(arg "$FOUR" '--promotion-owner=[^ ]*')"
+H="$(arg "$FOUR" '--artifact-hash=[^ ]*')"
 [ -n "$A" ] && [ -n "$O" ] || fail "stage lacks artifact/owner"
-[ "$(arg "$FOUR" '--compiled=[^ ]*')" = "$A" ] && [ "$(arg "$FIVE" '--compiled=[^ ]*')" = "$A" ] && [ "$(arg "$SIX" '--compiled=[^ ]*')" = "$A" ] || fail "artifact changed between code phases"
-[ "$(arg "$TWO" '--promotion-owner=[^ ]*')" = "$O" ] && [ "$(arg "$FOUR" '--promotion-owner=[^ ]*')" = "$O" ] && [ "$(arg "$FIVE" '--promotion-owner=[^ ]*')" = "$O" ] && [ "$(arg "$SIX" '--promotion-owner=[^ ]*')" = "$O" ] || fail "owner changed between code phases"
-[ "$(arg "$TWO" '--artifact-hash=[^ ]*')" = "$H" ] && [ "$(arg "$FOUR" '--artifact-hash=[^ ]*')" = "$H" ] && [ "$(arg "$FIVE" '--artifact-hash=[^ ]*')" = "$H" ] && [ "$(arg "$SIX" '--artifact-hash=[^ ]*')" = "$H" ] || fail "expected artifact hash changed between phases"
-[[ "$THREE" != *"--promotion-hold"* && "$THREE" != *"--materializing-code"* ]] || fail "stage got lifecycle-only flags"
-[[ "$FOUR" == *"--promotion-hold"* && "$FOUR" == *"--materializing-code"* && "$FOUR" != *"--state-handoff"* ]] \
-  || fail "standalone retirement flags crossed the promotion-only handoff boundary"
+[ "$(arg "$TWO" '--compiled=[^ ]*')" = "$A" ] || fail "preflight did not inspect the frozen stage artifact"
+[ "$(arg "$TWO" '--artifact-hash=[^ ]*')" = "$H" ] || fail "preflight did not bind the host-observed artifact hash"
+[ "$(arg "$FIVE" '--compiled=[^ ]*')" = "$A" ] && [ "$(arg "$SIX" '--compiled=[^ ]*')" = "$A" ] && [ "$(arg "$SEVEN" '--compiled=[^ ]*')" = "$A" ] || fail "artifact changed between code phases"
+[ "$(arg "$THREE" '--promotion-owner=[^ ]*')" = "$O" ] && [ "$(arg "$FIVE" '--promotion-owner=[^ ]*')" = "$O" ] && [ "$(arg "$SIX" '--promotion-owner=[^ ]*')" = "$O" ] && [ "$(arg "$SEVEN" '--promotion-owner=[^ ]*')" = "$O" ] || fail "owner changed between code phases"
+[ "$(arg "$THREE" '--artifact-hash=[^ ]*')" = "$H" ] && [ "$(arg "$FIVE" '--artifact-hash=[^ ]*')" = "$H" ] && [ "$(arg "$SIX" '--artifact-hash=[^ ]*')" = "$H" ] && [ "$(arg "$SEVEN" '--artifact-hash=[^ ]*')" = "$H" ] || fail "expected artifact hash changed between phases"
+[[ "$FOUR" != *"--promotion-hold"* && "$FOUR" != *"--materializing-code"* ]] || fail "stage got lifecycle-only flags"
 [[ "$FIVE" == *"--promotion-hold"* && "$FIVE" == *"--materializing-code"* && "$FIVE" != *"--state-handoff"* ]] \
+  || fail "standalone retirement flags crossed the promotion-only handoff boundary"
+[[ "$SIX" == *"--promotion-hold"* && "$SIX" == *"--materializing-code"* && "$SIX" != *"--state-handoff"* ]] \
   || fail "standalone activation did not retain the code-finalize continuation"
-[[ "$SIX" != *"--promotion-hold"* && "$SIX" != *"--materializing-code"* ]] || fail "standalone finalize retained lifecycle flags"
+[[ "$SEVEN" != *"--promotion-hold"* && "$SEVEN" != *"--materializing-code"* ]] || fail "standalone finalize retained lifecycle flags"
 ART="$(printf '%s' "$A" | sed 's/^--compiled=//')"
 [[ "$ART" == "$SITE/.duo/artifacts/deploy-"*.json ]] || fail "artifact outside target .duo/artifacts"
 [ -f "$ART" ] || fail "artifact not retained"
@@ -220,31 +233,31 @@ pass "code deploy stages/lifecycle-deploys/finalizes one frozen artifact"
 # Stop-on-first-failure boundaries.
 invoke 1 env FAKE_STAGE_FAIL=1
 [ "$CODE" -eq 8 ] || fail "stage exit not propagated"
-[ "$(calls)" = 4 ] || fail "later phases or cleanup were wrong after stage failure"
-[[ "$(line 4)" == *"duo promotion-abort"* ]] || fail "stage failure did not clean begun session"
-assert_control_call "$(line 4)" "stage-failure promotion-abort"
+[ "$(calls)" = 5 ] || fail "later phases or cleanup were wrong after stage failure"
+[[ "$(line 5)" == *"duo promotion-abort"* ]] || fail "stage failure did not clean begun session"
+assert_control_call "$(line 5)" "stage-failure promotion-abort"
 grep -q 'code-stage failed.*were not run' <<<"$OUT" || fail "stage stop wording missing"
 pass "stage failure stops lifecycle/finalize"
 
 invoke 1 env FAKE_RETIRE_FAIL=1
 [ "$CODE" -eq 7 ] || fail "lifecycle exit not propagated"
-[ "$(calls)" = 5 ] || fail "finalize/cleanup calls wrong after lifecycle failure"
-[[ "$(line 5)" == *"duo promotion-abort"* ]] || fail "lifecycle failure did not clean begun session"
-assert_control_call "$(line 5)" "retirement-failure promotion-abort"
+[ "$(calls)" = 6 ] || fail "finalize/cleanup calls wrong after lifecycle failure"
+[[ "$(line 6)" == *"duo promotion-abort"* ]] || fail "lifecycle failure did not clean begun session"
+assert_control_call "$(line 6)" "retirement-failure promotion-abort"
 pass "retirement failure stops activation/finalize"
 
 invoke 1 env FAKE_ACTIVATE_FAIL=1
 [ "$CODE" -eq 13 ] || fail "activation exit not propagated"
-[ "$(calls)" = 6 ] || fail "finalize/cleanup calls wrong after activation failure"
-[[ "$(line 6)" == *"duo promotion-abort"* ]] || fail "activation failure did not clean begun session"
-assert_control_call "$(line 6)" "activation-failure promotion-abort"
+[ "$(calls)" = 7 ] || fail "finalize/cleanup calls wrong after activation failure"
+[[ "$(line 7)" == *"duo promotion-abort"* ]] || fail "activation failure did not clean begun session"
+assert_control_call "$(line 7)" "activation-failure promotion-abort"
 pass "activation failure stops finalize"
 
 invoke 1 env FAKE_FINALIZE_FAIL=1
 [ "$CODE" -eq 9 ] || fail "finalize exit not propagated"
-[ "$(calls)" = 7 ] || fail "wrong calls after finalize failure"
-[[ "$(line 7)" == *"duo promotion-abort"* ]] || fail "finalize failure did not clean begun session"
-assert_control_call "$(line 7)" "finalize-failure promotion-abort"
+[ "$(calls)" = 8 ] || fail "wrong calls after finalize failure"
+[[ "$(line 8)" == *"duo promotion-abort"* ]] || fail "finalize failure did not clean begun session"
+assert_control_call "$(line 8)" "finalize-failure promotion-abort"
 pass "finalize failure is non-successful"
 
 invoke 1 env FAKE_COMPILE_FAIL=1
@@ -252,6 +265,19 @@ invoke 1 env FAKE_COMPILE_FAIL=1
 [ "$(calls)" = 1 ] || fail "code/lifecycle ran after compile failure"
 grep -q 'no lifecycle or code materialization occurred' <<<"$OUT" || fail "compile boundary missing"
 pass "compile failure causes no code/lifecycle call"
+
+invoke 1 env FAKE_PREFLIGHT_FAIL=1
+[ "$CODE" -eq 14 ] || fail "target-runtime preflight exit not propagated"
+[ "$(calls)" = 2 ] || fail "begin/stage/lifecycle ran after target-runtime preflight failure"
+[[ "$(line 1)" == *"duo compile"* && "$(line 2)" == *"duo code-preflight"* ]] \
+  || fail "target-runtime refusal did not stop at compile -> preflight"
+assert_control_call "$(line 2)" "failed code target-runtime preflight"
+grep -q 'code_source_requires_php_incompatible' <<<"$OUT" || fail "target-runtime refusal lost its structured diagnostic"
+grep -q 'refusing before promotion-begin' <<<"$OUT" || fail "target-runtime refusal did not name its no-lease boundary"
+if grep -q 'duo promotion-abort' "$LOG"; then
+  fail "pre-begin target-runtime refusal attempted lease cleanup"
+fi
+pass "target-runtime incompatibility refuses before begin with no cleanup fiction"
 
 # Public deploy owns its repo/artifact/lease flags and exposes only the two
 # force flags. A second --repo would otherwise make the lifecycle command's

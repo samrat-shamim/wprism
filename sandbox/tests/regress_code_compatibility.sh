@@ -55,9 +55,9 @@ $source = "$tmp/code/wp-content";
 mkdir($source, 0777, true);
 register_shutdown_function(static function () use ($tmp): void { remove_compat($tmp); });
 
-$provider = "<?php\n/*\nPlugin Name: Compat Provider\n// Version: 1.5.0\n*/\n";
+$provider = "<?php\n/*\nPlugin Name: Compat Provider\n// Version: 1.5.0\nRequires PHP: 8.3\nRequires at least: 6.7\n*/\n";
 $dependent = "<?php\n/*\nPlugin Name: Compat Dependent\nVersion: 1.5.0\nRequires Plugins: Provider\n*/\n";
-$theme = "/*\nTheme Name: Compat Theme\nVersion: 3.5.0 */\n";
+$theme = "/*\nTheme Name: Compat Theme\nVersion: 3.5.0\nRequires PHP: 8.2\nRequires at least: 6.6\n*/\n";
 put_compat("$source/plugins/provider/provider.php", $provider);
 put_compat("$source/plugins/dependent/dependent.php", $dependent);
 put_compat("$source/themes/compat-theme/style.css", $theme);
@@ -83,6 +83,74 @@ $clean = CodeCompatibility::diagnostics(
 );
 check_compat($clean === [], 'in-range provider/theme and provider closure must pass');
 check_compat(Canon::encode($descriptor) === $beforeDescriptor, 'compatibility checks must not mutate the descriptor');
+
+$runtimeClean = CodeCompatibility::target_report(
+    $source,
+    $descriptor,
+    ['php' => '8.3.7', 'wordpress' => '6.8.2', 'source' => 'target-control-plane']
+);
+check_compat(
+    ($runtimeClean['format'] ?? null) === 'duo-code-runtime/v1'
+        && ($runtimeClean['compatible'] ?? false) === true
+        && ($runtimeClean['diagnostics'] ?? null) === []
+        && count((array) ($runtimeClean['requirements'] ?? [])) === 2,
+    'satisfied plugin/theme runtime requirements must produce a canonical clean target report'
+);
+
+$runtimeBlocked = CodeCompatibility::target_report(
+    $source,
+    $descriptor,
+    ['php' => '8.1.0', 'wordpress' => '6.5.5', 'source' => 'target-control-plane']
+);
+check_compat(
+    has_code_compat($runtimeBlocked['diagnostics'] ?? [], 'code_source_requires_php_incompatible')
+        && has_code_compat($runtimeBlocked['diagnostics'] ?? [], 'code_source_requires_wordpress_incompatible'),
+    'plugin and theme requirements above the target runtime must fail generically'
+);
+$blockedPaths = array_values(array_unique(array_column($runtimeBlocked['diagnostics'] ?? [], 'path')));
+sort($blockedPaths, SORT_STRING);
+check_compat(
+    $blockedPaths === ['plugins/provider/provider.php', 'themes/compat-theme/style.css'],
+    'inactive/inventoried plugin and theme identities must remain explicit in runtime diagnostics'
+);
+foreach (($runtimeBlocked['diagnostics'] ?? []) as $diagnostic) {
+    check_compat(
+        isset($diagnostic['required_version'], $diagnostic['target_version'], $diagnostic['component_sha256']),
+        'runtime refusal rows must carry the requirement, observed target, and immutable component identity'
+    );
+}
+
+$missingRuntime = CodeCompatibility::target_report(
+    $source,
+    $descriptor,
+    ['php' => '', 'wordpress' => '', 'source' => 'target-control-plane']
+);
+check_compat(
+    has_code_compat($missingRuntime['diagnostics'] ?? [], 'code_target_php_version_missing')
+        && has_code_compat($missingRuntime['diagnostics'] ?? [], 'code_target_wordpress_version_missing'),
+    'missing target PHP/WordPress evidence must fail closed'
+);
+
+put_compat(
+    "$source/plugins/provider/provider.php",
+    str_replace(
+        ['Requires PHP: 8.3', 'Requires at least: 6.7'],
+        ['Requires PHP: newest', 'Requires at least: current'],
+        $provider
+    )
+);
+$malformedDescriptor = Code::descriptor_from_source($source);
+$malformedRuntime = CodeCompatibility::target_report(
+    $source,
+    $malformedDescriptor,
+    ['php' => '8.3.7', 'wordpress' => '6.8.2', 'source' => 'target-control-plane']
+);
+check_compat(
+    has_code_compat($malformedRuntime['diagnostics'] ?? [], 'code_source_requires_php_malformed')
+        && has_code_compat($malformedRuntime['diagnostics'] ?? [], 'code_source_requires_wordpress_malformed'),
+    'malformed runtime requirement headers must fail closed'
+);
+put_compat("$source/plugins/provider/provider.php", $provider);
 
 put_compat("$source/plugins/provider/provider.php", str_replace('1.5.0', '2.0.0', $provider));
 put_compat("$source/themes/compat-theme/style.css", str_replace('3.5.0', '4.0.0', $theme));
@@ -284,6 +352,17 @@ put_compat("$repo/state/options/core.json", Canon::encode(OptionState::document(
 
 $compiled = RepositoryCompiler::compile($repo, $policy);
 check_compat($compiled->code_descriptor() !== null, 'valid source compatibility fixture must compile');
+$runtimeRows = Code::target_compatibility_rows(
+    $repo,
+    $compiled,
+    ['php' => '8.2.0', 'wordpress' => '6.6.0', 'source' => 'target-control-plane']
+);
+check_compat(
+    count($runtimeRows) >= 2
+        && ($runtimeRows[0]['non_forceable'] ?? false) === true
+        && ($runtimeRows[0]['code_revision'] ?? '') === $compiled->code_revision(),
+    'semantic plan rows must bind non-forceable runtime findings to the immutable code revision'
+);
 
 put_compat("$repo/code/wp-content/plugins/provider/provider.php", str_replace('1.5.0', '2.0.0', $provider));
 $policy = Policy::load($repo);
@@ -379,9 +458,10 @@ mkdir($source . '/plugins/provider', 0777, true);
 mkdir($source . '/plugins/dependent', 0777, true);
 $themeDir = $source . '/themes/compat-theme';
 mkdir($themeDir, 0777, true);
-$provider = "<?php\n/*\nPlugin Name: Stage Provider\nVersion: 2.0.0\n*/\n";
+$provider = "<?php\n/*\nPlugin Name: Stage Provider\nVersion: 2.0.0\nRequires PHP: 99.0\nRequires at least: 6.0\n*/\n";
 $dependent = "<?php\n/*\nPlugin Name: Stage Dependent\nVersion: 1.0.0\nRequires Plugins: provider\n*/\n";
 $theme = "/*\nTheme Name: Stage Compat Theme\nVersion: 1.0.0\n*/\n";
+$GLOBALS['wp_version'] = '6.8.2';
 put_stage_compat("$source/plugins/provider/provider.php", $provider);
 put_stage_compat("$source/plugins/dependent/dependent.php", $dependent);
 put_stage_compat("$themeDir/style.css", $theme);
@@ -449,9 +529,42 @@ $compiled = new CompiledRepository(
         'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
     ]]
 );
+$runtimeFailure = null;
+try {
+    Code::stage($repo, $compiled, ['artifact_hash' => str_repeat('b', 64), 'promotion_owner' => 'compat-stage-runtime']);
+} catch (\Throwable $e) {
+    $runtimeFailure = $e->getMessage();
+}
+if ($runtimeFailure === null || !str_contains($runtimeFailure, 'code_source_requires_php_incompatible')) {
+    fail_stage_compat('stage did not repeat target PHP compatibility before writing: ' . (string) $runtimeFailure);
+}
+if (file_get_contents(WP_CONTENT_DIR . '/plugins/provider/provider.php') !== $beforeProvider
+    || file_get_contents(WP_CONTENT_DIR . '/plugins/dependent/dependent.php') !== $beforeDependent) {
+    fail_stage_compat('runtime-incompatible stage changed target bytes');
+}
+if (Ledger::$rows !== []) {
+    fail_stage_compat('runtime-incompatible stage left durable staged markers');
+}
+
+$stageProvider = str_replace('Requires PHP: 99.0', 'Requires PHP: 8.0', $stageProvider);
+put_stage_compat("$source/plugins/provider/provider.php", $stageProvider);
+$descriptor = Code::descriptor_from_source($source);
+$compiled = new CompiledRepository(
+    $descriptor,
+    str_repeat('c', 64),
+    ['options/core' => ['data' => OptionState::document([
+        'active_plugins' => OptionState::present(['dependent/dependent.php', 'provider/provider.php'], 'yes'),
+        'template' => OptionState::present('compat-theme', 'yes'),
+        'stylesheet' => OptionState::present('compat-theme', 'yes'),
+    ])]],
+    [[
+        'name' => 'stage-fixture', 'plugin' => 'provider/provider.php',
+        'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
+    ]]
+);
 $stageResult = null;
 try {
-    $stageResult = Code::stage($repo, $compiled, ['artifact_hash' => str_repeat('b', 64), 'promotion_owner' => 'compat-stage-order']);
+    $stageResult = Code::stage($repo, $compiled, ['artifact_hash' => str_repeat('c', 64), 'promotion_owner' => 'compat-stage-order']);
 } catch (\Throwable $e) {
     fail_stage_compat('stage rejected native/alphabetical dependency order: ' . $e->getMessage());
 }
