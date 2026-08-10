@@ -23,8 +23,16 @@ final class AdoptDoubleFailureTransport implements AdoptionTransport {
     public int $wpCalls = 0;
     public int $uploads = 0;
 
+    public function bootstrapCapability(): array {
+        return ['supported' => true, 'reason' => 'fixture adoption transport', 'remediation' => ''];
+    }
+
     public function repoPath(): string {
         return '/fixture/repo';
+    }
+
+    public function wpPath(): string {
+        return '/fixture/wordpress';
     }
 
     public function captureRaw(string $script): array {
@@ -64,6 +72,55 @@ final class AdoptDoubleFailureTransport implements AdoptionTransport {
             return ['exit' => 93, 'stdout' => '', 'stderr' => 'invalid upload fixture arguments'];
         }
         return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
+    }
+}
+
+final class AdoptCommittedCleanupFailureTransport implements AdoptionTransport {
+    /** @var list<string> */
+    public array $rawScripts = [];
+    public int $wpCalls = 0;
+
+    public function bootstrapCapability(): array {
+        return ['supported' => true, 'reason' => 'fixture adoption transport', 'remediation' => ''];
+    }
+    public function repoPath(): string { return '/fixture/repo'; }
+    public function wpPath(): string { return '/fixture/wordpress'; }
+    public function uploadFile(string $localPath, string $remotePath): array {
+        return is_file($localPath)
+            ? ['exit' => 0, 'stdout' => '', 'stderr' => '']
+            : ['exit' => 93, 'stdout' => '', 'stderr' => 'missing fixture upload'];
+    }
+    public function captureWp(array $wpArgs): array {
+        $this->wpCalls++;
+        return match ($this->wpCalls) {
+            1 => ['exit' => 0, 'stdout' => '', 'stderr' => ''],
+            2 => ['exit' => 0, 'stdout' => "/fixture/mu-plugins\n", 'stderr' => ''],
+            3 => ['exit' => 0, 'stdout' => "0.5.0\n", 'stderr' => ''],
+            4 => ['exit' => 0, 'stdout' => "duo-policy-ok\n", 'stderr' => ''],
+            default => ['exit' => 94, 'stdout' => '', 'stderr' => 'unexpected wp fixture call'],
+        };
+    }
+    public function captureRaw(string $script): array {
+        $this->rawScripts[] = $script;
+        if ($script === 'echo duo-reachable') {
+            return ['exit' => 0, 'stdout' => "duo-reachable\n", 'stderr' => ''];
+        }
+        if (str_contains($script, 'duo-install-complete')) {
+            return ['exit' => 0, 'stdout' => "duo-repo-retained\nduo-install-complete\n", 'stderr' => ''];
+        }
+        if (str_contains($script, 'rollback-control.php') && str_contains($script, ' status --root=')) {
+            return ['exit' => 0, 'stdout' => "{}\n", 'stderr' => ''];
+        }
+        if (str_contains($script, 'duo-adopt-commit-barrier')) {
+            return ['exit' => 0, 'stdout' => "duo-adopt-commit-barrier\n", 'stderr' => ''];
+        }
+        if (str_contains($script, 'committed install retained partial backup cleanup evidence')) {
+            return ['exit' => 73, 'stdout' => '', 'stderr' => 'fixture backup became undeletable'];
+        }
+        if (str_starts_with($script, 'rm -f ')) {
+            return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
+        }
+        return ['exit' => 95, 'stdout' => '', 'stderr' => 'unexpected raw fixture command'];
     }
 }
 
@@ -109,6 +166,41 @@ adopt_check(
     count(array_filter($transport->rawScripts, static fn(string $script): bool =>
         str_starts_with($script, 'rm -f '))) === 1,
     'remote archive cleanup still runs before the combined failure surfaces'
+);
+
+$cleanupTransport = new AdoptCommittedCleanupFailureTransport();
+$cleanupResult = Adopt::install($cleanupTransport, dirname(__DIR__, 2));
+adopt_check($cleanupResult['exit'] === 0 && $cleanupResult['phase'] === 'complete', 'backup cleanup failure cannot reverse a committed green install');
+adopt_check(
+    str_contains($cleanupResult['stderr'], 'retained adoption cleanup evidence for operator recovery'),
+    'committed cleanup failure returns bounded retained-evidence guidance'
+);
+adopt_check(
+    count(array_filter($cleanupTransport->rawScripts, static fn(string $script): bool =>
+        str_contains($script, 'live transaction identity changed before rollback'))) === 0,
+    'no rollback is attempted after the commit barrier'
+);
+$barrierIndex = null;
+$cleanupIndex = null;
+$cleanupScript = null;
+foreach ($cleanupTransport->rawScripts as $index => $script) {
+    if (str_contains($script, 'duo-adopt-commit-barrier')) {
+        $barrierIndex = $index;
+    }
+    if (str_contains($script, 'committed install retained partial backup cleanup evidence')) {
+        $cleanupIndex = $index;
+        $cleanupScript = $script;
+    }
+}
+adopt_check(
+    is_int($barrierIndex) && is_int($cleanupIndex) && $barrierIndex < $cleanupIndex,
+    'the mutation-free commit barrier precedes destructive backup cleanup'
+);
+adopt_check(
+    is_string($cleanupScript)
+        && strpos($cleanupScript, 'rollback copy identity changed before committed cleanup')
+            < strpos($cleanupScript, 'cleanup_failed=0'),
+    'committed cleanup validates every rollback-root identity before deletion begins'
 );
 
 echo "REGRESS_ADOPT_ROLLBACK PASSED\n";

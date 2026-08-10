@@ -277,6 +277,52 @@ final class RollbackControl {
         });
     }
 
+    /**
+     * Verify an existing authority without creating/chmodding a lock or any
+     * other path. Bootstrap eligibility uses this before it is allowed to
+     * stage a replacement control plane.
+     *
+     * @return array{ok:bool,quiescent:bool,state:?string,target_id:string}
+     */
+    public static function inspectReadOnly(string $root): array {
+        self::assertDirectory($root, 'control root');
+        self::assertDirectory($root . '/public-keys', 'public key root');
+        self::assertDirectory(dirname($root) . '/rollback', 'rollback root');
+        self::assertDirectory($root . '/recovery-runtime', 'recovery runtime root');
+        foreach ([
+            'rollback-control.php',
+            'RecoveryExecutor.php',
+            'CheckpointBundle.php',
+            'CodeRelease.php',
+            'UploadBundle.php',
+            'EffectBundle.php',
+        ] as $runtimeFile) {
+            self::assertRegularFile($root . '/recovery-runtime/' . $runtimeFile, 'recovery runtime file');
+        }
+        self::assertRegularFile($root . '/target.lock', 'target lock');
+        $target = self::readTarget($root);
+        if ($target['active_receipt'] === null) {
+            return [
+                'ok' => true,
+                'quiescent' => true,
+                'state' => null,
+                'target_id' => (string) $target['target_id'],
+            ];
+        }
+        $verified = self::verifyActive($root, $target);
+        $receiptDir = self::receiptDirectory($root, (string) $target['active_receipt']);
+        $eventFiles = glob($receiptDir . '/events/*.json') ?: [];
+        $quiescent = in_array((string) $target['state'], ['committed', 'rolled_back'], true)
+            && ($verified['open_operations'] ?? []) === []
+            && count($eventFiles) === (int) $target['sequence'];
+        return [
+            'ok' => $quiescent,
+            'quiescent' => $quiescent,
+            'state' => (string) $target['state'],
+            'target_id' => (string) $target['target_id'],
+        ];
+    }
+
     /** Verify a controller signature using only the adopted public key. */
     public static function verifyEnvelope(string $root, array $signed, string $label): array {
         return self::verifySigned($root, $signed, $label);
@@ -1168,6 +1214,13 @@ final class RollbackControl {
             throw new \RuntimeException("duo rollback: unsafe directory '$path'");
         }
         @chmod($path, $mode);
+    }
+
+    private static function assertDirectory(string $path, string $label): void {
+        $stat = @lstat($path);
+        if (!is_array($stat) || ($stat['mode'] & 0170000) !== 0040000) {
+            throw new \RuntimeException("duo rollback: $label is missing or not an ordinary directory");
+        }
     }
 
     private static function assertRegularFile(string $path, string $label): void {

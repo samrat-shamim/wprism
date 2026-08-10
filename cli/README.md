@@ -214,8 +214,11 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
 
   Built-in local, container, and SSH drivers all attach to configured
   pre-existing targets and use the same control/code/database proof
-  requirements. SSH additionally declares the product's existing explicit
-  `adopt` upload/bootstrap path. None of the built-ins currently claims host
+  requirements. SSH declares its explicit `adopt` upload/bootstrap path.
+  Local declares that mechanism only when the exact bootstrap opt-in came from
+  the untracked machine-local registry; this target-free declaration is not a
+  target-safety attestation, and `adopt` still runs the separate eligibility
+  report. Docker does not declare delivery. None of the built-ins claims host
   provisioning, destroy/TTL, media snapshot, maintenance-mode, URL mutation,
   or driver-owned operation receipts. Those stay visibly unsupported until a
   driver implements them; provider provisioning remains an optional driver
@@ -269,13 +272,20 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   call. A changed TTL or mutation lease refuses before detach or destroy.
 
 - **`duo adopt <env>`** — installs or updates this checkout's complete Duo
-  agent and manifest library on a pre-existing SSH target, creates a minimal
+  agent and manifest library on a pre-existing SSH target, or performs the
+  initial install on an explicitly opted-in machine-local target, creating a minimal
   core-only `site.duo.json` only when that file is absent, verifies
-  the exact installed agent version and policy load in fresh wp-cli processes,
-  then runs `duo doctor`. Existing site policy is retained. The target needs
+  the exact installed agent version, policy load, rollback authority, and
+  blocking `duo doctor` rows before committing the filesystem transaction.
+  Existing site policy is retained. The target needs
   no Git for adoption itself and the install does not rely on
   `DUO_MANIFESTS_DIR` surviving into an SSH login. The separate `duo init`
-  workflow does require target Git. See the operator procedure and
+  workflow does require target Git. Local delivery is privileged: the exact
+  `bootstrap` object below must come from the untracked machine-local overlay,
+  static capability reporting remains target-free, and `adopt` then obtains a
+  separate read-only eligibility proof before allocating or changing target
+  paths. Local bootstrap refuses an already-installed Duo control plane;
+  installed-target updates use the existing update path. Docker delivery remains unsupported. See the operator procedure and
   safety/update contract in [docs/adoption.md](../docs/adoption.md).
 
 - **`duo init <env> [--yes]`** — asks the reachable target agent for a
@@ -286,8 +296,9 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   publication locks, verifies or creates a target-owned Git worktree, and
   publishes separate code and canonical state/media baselines. The final
   status proof is limited to selected managed scope. Init does not install
-  WordPress or deliver the agent; SSH uses `duo adopt` first, while local and
-  Docker targets must already expose the agent through their control plane.
+  WordPress or deliver the agent; SSH and explicitly authorized local targets
+  use `duo adopt` first, while Docker targets must already expose the agent
+  through their control plane.
 
 - **`duo status <env>`** — runs `wp duo plan --repo=<repo_path>
   --format=json` (note: `--format=json`, not `--json` — wp-cli's dispatcher
@@ -901,7 +912,10 @@ environment name:
     "dev": {
       "transport": "local",
       "wp_path": "/var/www/html",
-      "repo_path": "/home/me/site"
+      "repo_path": "/home/me/site",
+      "bootstrap": {
+        "format": "duo-local-control-plane/v1"
+      }
     }
   }
 }
@@ -916,12 +930,20 @@ Per-transport required keys:
 
 | Transport | Required keys | Optional keys |
 |---|---|---|
-| `local` | `wp_path`, `repo_path` | — |
+| `local` | `wp_path`, `repo_path` | machine-local-only exact `bootstrap: {"format":"duo-local-control-plane/v1"}` |
 | `docker` | `compose_file`, `service`, `repo_path` | `profile` |
 | `ssh` | `host`, `wp_path`, `repo_path` | `ssh_config`, paired `rollback_key_id` + `rollback_signing_key`, `rollback_recovery`, `verified_rollback` |
 
 A missing required key is a loud, specific error naming the environment,
 the key, and the transport — never a guess.
+
+The local `bootstrap` member grants only the delivery mechanism. It is accepted
+only from an untracked `.duo-envs.json` entry whose provenance is assigned by
+the registry loader; the same bytes in checked-in `site.duo.json` remain
+unsupported. A present bootstrap object is closed and exact—`null`, another
+format, or any extra key is a configuration error. `duo driver-capabilities`
+does not contact WordPress. The later `duo adopt` command emits and binds a
+`duo-bootstrap-eligibility/v1` report for the exact target before installation.
 
 ### Optional branch-environment provider
 

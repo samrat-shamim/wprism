@@ -9,7 +9,10 @@ namespace Duo\Orchestrator;
  */
 final class Doctor {
     /** @return array{ok:bool, checks: list<array{label:string, ok:bool, detail:string, advisory?:bool}>} */
-    public static function run(EnvironmentDriver $t): array {
+    public static function run(EnvironmentDriver $t, ?callable $wpArgs = null): array {
+        $captureWp = static function (array $args) use ($t, $wpArgs): array {
+            return $t->captureWp($wpArgs === null ? $args : $wpArgs($args));
+        };
         $checks = [];
 
         $r = $t->captureRaw('echo duo-reachable');
@@ -18,7 +21,7 @@ final class Doctor {
 
         $installed = false;
         if ($reachable) {
-            $r = $t->captureWp(['core', 'is-installed']);
+            $r = $captureWp(['core', 'is-installed']);
             $installed = $r['exit'] === 0;
             $checks[] = self::check('WordPress installed', $installed, $installed ? '' : self::reason($r));
         } else {
@@ -28,7 +31,7 @@ final class Doctor {
         $agentPresent = false;
         if ($installed) {
             $snippet = 'echo class_exists("\\Duo\\Capture") ? "duo-ok" : "duo-missing";';
-            $r = $t->captureWp(['eval', $snippet]);
+            $r = $captureWp(['eval', $snippet]);
             $out = trim($r['stdout']);
             $agentPresent = $r['exit'] === 0 && $out === 'duo-ok';
             $detail = $agentPresent ? '' : ($r['exit'] !== 0 ? self::reason($r) : "agent class not found (wp eval returned '$out')");
@@ -128,7 +131,7 @@ final class Doctor {
         // against: friction that teaches people to ignore the check).
         if ($installed) {
             $snippet = 'echo (defined("DISALLOW_FILE_MODS") && DISALLOW_FILE_MODS) ? "duo-set" : "duo-unset";';
-            $r = $t->captureWp(['eval', $snippet]);
+            $r = $captureWp(['eval', $snippet]);
             $out = trim($r['stdout']);
             $set = $r['exit'] === 0 && $out === 'duo-set';
             $detail = $set ? '' : "DISALLOW_FILE_MODS is not set (or false) in wp-config.php — wp-admin plugin/theme "
@@ -170,7 +173,7 @@ final class Doctor {
                 $snippet = 'global $wpdb; echo PHP_VERSION . "|" . $wpdb->db_version() . "|" '
                     . '. (stripos($wpdb->db_server_info(), "mariadb") !== false ? "mariadb" : "mysql") . "|" '
                     . '. get_bloginfo("version");';
-                $r = $t->captureWp(['eval', $snippet]);
+                $r = $captureWp(['eval', $snippet]);
                 $parts = $r['exit'] === 0 ? explode('|', trim($r['stdout'])) : [];
                 if (count($parts) !== 4) {
                     $checks[] = self::check(
@@ -226,6 +229,21 @@ final class Doctor {
             $ok = $ok && $c['ok'];
         }
         return ['ok' => $ok, 'checks' => $checks];
+    }
+
+    /**
+     * Run the same public doctor checks through the installed out-of-band Duo
+     * control plane. Local adoption uses this before transaction commit so
+     * ordinary plugins, themes, MU plugins, and the provenance journal cannot
+     * turn verification into an unrollbackable application/ledger mutation.
+     *
+     * @return array{ok:bool, checks: list<array{label:string, ok:bool, detail:string, advisory?:bool}>}
+     */
+    public static function runIsolated(EnvironmentDriver $t): array {
+        return self::run(
+            $t,
+            static fn(array $args): array => CodeDeploy::controlArgs($args)
+        );
     }
 
     /** @return ?array{php:array{min:string,max:string}, database:array{engine:string,min:string,max:string}, wordpress:array{last_verified:string}} */

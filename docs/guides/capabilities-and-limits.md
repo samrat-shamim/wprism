@@ -406,9 +406,15 @@ rather than working around it.
   code and state/media baselines once the agent is reachable and the target has
   Git plus a pre-existing ordinary `repo_path` reached without symbolic-link
   ancestors. It does not create that control directory, install WordPress, or
-  deliver the agent; SSH delivery remains `duo adopt`, and automatic local/Docker
-  delivery is a separate capability.
-- Automatic local/Docker control-plane delivery — **Planned (DUO-3365)** — not yet shipped.
+  deliver the agent; SSH and explicitly opted-in machine-local delivery use
+  `duo adopt`, while Docker delivery is a separate capability.
+- Local control-plane delivery — **Shipped (DUO-3365)** for a machine-local
+  environment carrying the exact `duo-local-control-plane/v1` opt-in. Static
+  driver capability reporting stays target-free; adoption separately proves a
+  read-only safe target, atomically swaps the out-of-band agent/manifests/
+  rollback authority plus an absent-only minimal seed, and runs doctor before
+  commit. Docker delivery remains **Planned** and is not inferred from mounts
+  or generic shell access.
 - Discovery of adapters from a REMOTE source — a registry, an index, a URL you
   do not already have a copy of — **Planned** — not yet shipped. Every adapter
   Duo runs is a file already on the machine, in one of three local sources: the
