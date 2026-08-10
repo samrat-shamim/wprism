@@ -6099,7 +6099,7 @@ self::validate_post_type_children($manifest);
             }
             $seen = [];
             foreach ($names as $symbol) {
-                if (!is_string($symbol) || preg_match('/^\\\\?[A-Za-z_][A-Za-z0-9_\\\\]*$/', $symbol) !== 1) {
+                if (!is_string($symbol) || preg_match('/^\\\\?[A-Za-z_][A-Za-z0-9_\\\\]*$/D', $symbol) !== 1) {
                     throw new \RuntimeException(
                         "duo: $where.$key must contain only PHP symbol names "
                         . 'matching ^\?[A-Za-z_][A-Za-z0-9_\\\\]*$ (a leading backslash and namespace separators allowed)'

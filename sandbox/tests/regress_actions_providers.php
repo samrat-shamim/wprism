@@ -544,6 +544,12 @@ refuse_probe($m, '.functions must contain only PHP symbol names', 'a function na
 $m = probe_manifest();
 $m['providers'][0]['requires'] = ['classes' => ['WC_Data_Store', 'WC_Data_Store']];
 refuse_probe($m, ".classes repeats 'WC_Data_Store'", 'a repeated symbol name is refused');
+// The charset is single-line-bounded (`$…/D`): a trailing newline must not
+// slip a symbol name past the screen into the operator-facing found/expected
+// string. Without the D modifier bare `$` would admit one trailing newline.
+$m = probe_manifest();
+$m['providers'][0]['requires'] = ['functions' => ["wc_get_container\n"]];
+refuse_probe($m, '.functions must contain only PHP symbol names', 'a symbol name with a trailing newline is refused (the charset is single-line-bounded)');
 
 // version bounds: the shared {min,max} predicate, min inclusive, max exclusive.
 $m = probe_manifest();
