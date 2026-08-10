@@ -607,11 +607,52 @@ final class Providers {
                 '?',
                 'provider_diagnosis_failed',
                 'every declared provider to answer the negotiation questions without throwing',
-                get_class($t) . ': ' . $t->getMessage(),
+                self::publishable_foreign_detail(get_class($t) . ': ' . $t->getMessage()),
                 'see the message — it comes from code this engine does not own, and no provider identity was '
                     . 'established before it threw'
             )];
         }
+    }
+
+    /**
+     * The secret/path FLOOR under the one deliberately third-party-transparent
+     * field any problem row carries.
+     *
+     * Every OTHER string a problem row publishes is engine-authored and
+     * value-free by construction — channel_collision_problems()'s own note
+     * enumerates why ("no exception text, no class name, no third-party
+     * free-form data"). problems()'s generic `\Throwable` catch is the single,
+     * deliberate exception: it publishes a message from code this engine does
+     * not own, on purpose, so an operator sees the actual fault a misbehaving
+     * `duo_providers` callback (or a provider identity()/capabilities() read)
+     * threw during diagnosis. That transparency is the intended behavior and is
+     * kept — but a third-party exception is unreviewed prose, and nothing stops
+     * one embedding an absolute path or a credential it happened to interpolate
+     * into its own error text. This runs that one detail through the SAME
+     * secret/path screen every deliberately public refusal already uses
+     * (CommandRefusalException::containsSensitivePublicDetail(), i.e.
+     * Secrets::hard_match() plus the credential/URI and HOME-dir path shapes) —
+     * mirror of Cli::publishable_refusal()'s DUO-3398 posture and of
+     * bound_receipt_string()'s DUO-3383 `secret` witness — and, ONLY if it
+     * trips, replaces the whole detail with a bounded, secret-free placeholder.
+     * This is a secret/home-dir FLOOR inherited from that shared screen, not a
+     * full redaction: a non-home absolute path (`/var/www/…`, `/etc/…`) or a
+     * relative path is not a screen shape, so a clean-but-unreviewed
+     * third-party message — path-bearing or not — still publishes verbatim, by
+     * the deliberate-transparency design above. The floor closes the one class
+     * the screen names (secrets, credentials, home paths, control bytes), which
+     * is what a misbehaving callback can leak without the operator's consent.
+     * A clean message publishes verbatim (the common, intended case); a
+     * secret-bearing one is withheld without withholding the fact that the
+     * diagnosis failed, which is what the surrounding row still states. The
+     * placeholder carries no captured bytes, so it cannot itself leak.
+     */
+    private static function publishable_foreign_detail(string $detail): string {
+        if (CommandRefusalException::containsSensitivePublicDetail($detail)) {
+            return 'third-party diagnosis fault carried secret-, credential-, or home-path-shaped bytes; '
+                . 'inspect private operator evidence for the raw provider exception';
+        }
+        return $detail;
     }
 
     /**
