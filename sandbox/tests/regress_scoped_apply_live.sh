@@ -130,8 +130,8 @@ extract_final_json() { # <mixed-output-file> <json-file>
         break;
       }
     }
-    if (!is_array($final)) { fwrite(STDERR, "no final JSON object in product output\\n"); exit(1); }
-    file_put_contents($argv[2], json_encode($final, JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT)."\\n");
+    if (!is_array($final)) { fwrite(STDERR, "no final JSON object in product output\n"); exit(1); }
+    file_put_contents($argv[2], json_encode($final, JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT)."\n");
   ' "$1" "$2" || fail "could not extract the product JSON response from $(basename "$1")"
 }
 
@@ -170,7 +170,7 @@ write_site_policy() { # <path>
       ],
       "spec_version"=>2,
     ];
-    $bytes=json_encode($policy, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\\n";
+    $bytes=json_encode($policy, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n";
     if (file_put_contents($argv[1], $bytes, LOCK_EX) !== strlen($bytes)) exit(1);
   ' "$1" || fail "could not write isolated site policy"
 }
@@ -182,7 +182,7 @@ write_envs() {
       "source"=>["transport"=>"docker","compose_file"=>$compose,"service"=>"source","repo_path"=>"/siterepo"],
       "target"=>["transport"=>"docker","compose_file"=>$compose,"service"=>"target","repo_path"=>"/siterepo"],
     ]];
-    $bytes=json_encode($cfg, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\\n";
+    $bytes=json_encode($cfg, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n";
     if (file_put_contents($argv[1], $bytes, LOCK_EX) !== strlen($bytes)) exit(1);
   ' "$ENVS" "$DRIVER_COMPOSE" || fail "could not write private public-CLI environment config"
 }
@@ -273,7 +273,7 @@ extract_receipt_bytes() { # <summary-json> <output>
   php -r '
     $r=json_decode(file_get_contents($argv[1]),true,512,JSON_THROW_ON_ERROR);
     if (!is_array($r["scoped_receipt"] ?? null)) exit(1);
-    echo json_encode($r["scoped_receipt"], JSON_UNESCAPED_SLASHES), "\\n";
+    echo json_encode($r["scoped_receipt"], JSON_UNESCAPED_SLASHES), "\n";
   ' "$1" >"$2" || fail "could not extract terminal receipt bytes"
 }
 
@@ -560,7 +560,7 @@ TAMPERED_CONTRACT="$TMP/tampered-update.scope.json"
 php -r '
   $c=json_decode(file_get_contents($argv[1]),true,512,JSON_THROW_ON_ERROR);
   $c["scope_hash"]=str_repeat("0",64);
-  file_put_contents($argv[2],json_encode($c,JSON_UNESCAPED_SLASHES)."\\n");
+  file_put_contents($argv[2],json_encode($c,JSON_UNESCAPED_SLASHES)."\n");
 ' "$UPDATE_CONTRACT" "$TAMPERED_CONTRACT" || fail "could not create controlled tampered contract"
 TAMPERED_BOUNDARY_BEFORE="$(target_boundary_digest)"
 run_duo_refusal_json tampered-contract "$TMP/tampered-contract.json" plan target "--scope-contract=$TAMPERED_CONTRACT" --format=json
