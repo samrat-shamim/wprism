@@ -2527,25 +2527,16 @@ final class Apply {
                     $preflightContract,
                     $actual
                 );
-                if (ScopedApply::authored_state(
+                $terminalReceipt = $existingScopedSession->terminal_receipt();
+                if (!ScopedApply::terminal_replay_matches(
                     $actual,
                     $compiled,
                     $policy,
                     $preflightContract,
-                    (string) ($authority['target']['selected_before_hash'] ?? '')
-                ) !== 'desired'
-                    || !hash_equals(
-                        (string) ($authority['target']['protected_out_of_scope_hash'] ?? ''),
-                        (string) ($observation['protected_out_of_scope_root'] ?? '')
-                    )
-                    || !hash_equals(
-                        (string) ($authority['target']['protected_ledger_map_hash'] ?? ''),
-                        (string) ($observation['protected_ledger_map_root'] ?? '')
-                    )
-                    || !hash_equals(
-                        (string) ($authority['target']['selected_before_ledger_map_hash'] ?? ''),
-                        (string) ($observation['selected_ledger_map_root'] ?? '')
-                    )) {
+                    $authority,
+                    (array) $terminalReceipt,
+                    $observation
+                )) {
                     throw new \RuntimeException(
                         'duo: terminal scoped receipt no longer describes the live bounded target; no mutation or replay attempted'
                     );
@@ -3599,7 +3590,19 @@ final class Apply {
                 // database transaction, so COMMIT resolves to either a still-
                 // active verifying session or one terminal receipt plus all
                 // selected base updates. Global applied_revision never moves.
-                $this->scopedSession->complete($convergenceHash);
+                $terminalMapRoots = ScopedApply::ledger_map_roots($this->scopeContract);
+                if (!hash_equals(
+                    (string) $this->scopedSession->authority()['target']['protected_ledger_map_hash'],
+                    (string) $terminalMapRoots['protected_ledger_map_root']
+                )) {
+                    throw new \RuntimeException(
+                        'duo: protected identity map changed during scoped ledger finalization'
+                    );
+                }
+                $this->scopedSession->complete($convergenceHash, [
+                    'protected_ledger_map_hash' => (string) $terminalMapRoots['protected_ledger_map_root'],
+                    'selected_ledger_map_hash' => (string) $terminalMapRoots['selected_ledger_map_root'],
+                ]);
             } else {
                 Ledger::kv_set(
                     'applied_revision',

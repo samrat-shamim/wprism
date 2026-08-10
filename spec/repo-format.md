@@ -811,9 +811,12 @@ The verifier launches a fresh frozen artifact/policy process, proves selected
 live rows and tombstones, and requires exact equality of every protected
 out-of-scope authored and ledger-map root plus the authority/effect-receipt
 roots. Its terminal transaction advances only selected ledger base rows and
-the scoped terminal receipt. It never clears global recovery debt and never
-writes `applied_revision`. Full plan/apply refuse while a scoped session is
-nonterminal; a terminal retry returns the same receipt bytes. Scoped
+the scoped terminal receipt; that receipt binds the post-finalization selected
+identity-map root while the authority continues to bind the protected map.
+It never clears global recovery debt and never writes `applied_revision`.
+Full plan/apply refuse while a scoped session is nonterminal; a terminal retry
+returns the same receipt bytes only after desired authored state and those
+post/protected map roots are re-proved. Scoped
 promotion, code materialization, lifecycle, rollback, attachment derivative
 generation, legacy `regen_dependency`, triggerless actions, and per-option
 mutation remain explicitly outside this version.

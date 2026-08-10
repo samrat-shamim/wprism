@@ -22,7 +22,11 @@ namespace Duo\Orchestrator;
  * optional for backwards compatibility. Their strict display validators are
  * intentionally separate from `violations()`: malformed optional display
  * data must never alter promotion/convergence readiness, and no-filter
- * renderers simply omit it. The derivation
+ * renderers simply omit it. A scoped plan has a separate, closed set of
+ * top-level projections; those
+ * names are exposed through scopedProjections() for emitter-drift checks but
+ * are deliberately not accepted as optional full-plan projections by this
+ * trust boundary. The derivation
  * is machine-checked against Apply.php by
  * sandbox/tests/regress_plan_contract_trust.php: an emitter that grows a
  * bucket without teaching this list about it fails that suite loudly rather
@@ -168,6 +172,22 @@ final class PlanContract {
     /** @return list<string> */
     public static function optionalProjections(): array {
         return ['category_summary', 'plan_view'];
+    }
+
+    /**
+     * Closed decorations on `duo-scoped-plan/v1`, never full-plan options.
+     *
+     * @return list<string>
+     */
+    public static function scopedProjections(): array {
+        return [
+            'format',
+            'scope',
+            'scoped_recovery',
+            'selected_actions',
+            'selected_surfaces',
+            'target',
+        ];
     }
 
     public static function validCategorySummary(mixed $summary): bool {

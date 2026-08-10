@@ -210,9 +210,13 @@ $session->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
 $session->append_receipt($effectIntent + ['after_hash' => $h('effect-after')]);
 
 $convergenceHash = $h('convergence-root');
+$terminalTarget = [
+    'protected_ledger_map_hash' => $h('protected-map-terminal'),
+    'selected_ledger_map_hash' => $h('selected-map-terminal'),
+];
 $session
     ->transition(ScopedApplySession::PHASE_VERIFYING)
-    ->complete($convergenceHash);
+    ->complete($convergenceHash, $terminalTarget);
 $terminalBytes = $session->terminal_receipt_bytes();
 $terminalIdentity = $session->terminal_identity();
 $check($terminalBytes !== null && $terminalIdentity !== null, 'complete publishes a terminal receipt identity');
@@ -223,6 +227,24 @@ $check(
 $check(
     ($session->terminal_receipt()['convergence_hash'] ?? null) === $convergenceHash,
     'terminal receipt binds the caller-supplied convergence witness'
+);
+$check(
+    ($session->terminal_receipt()['selected_ledger_map_hash'] ?? null)
+        === $terminalTarget['selected_ledger_map_hash']
+        && ($session->terminal_receipt()['protected_ledger_map_hash'] ?? null)
+        === $terminalTarget['protected_ledger_map_hash'],
+    'terminal receipt binds the post-finalization selected/protected identity-map roots'
+);
+$changedTerminalTarget = $terminalTarget;
+$changedTerminalTarget['selected_ledger_map_hash'] = $h('selected-map-drifted');
+$expectThrow(
+    static fn() => $session->transition(
+        ScopedApplySession::PHASE_COMPLETE,
+        $convergenceHash,
+        $changedTerminalTarget
+    ),
+    'terminal target identity mismatch',
+    'terminal replay refuses a selected identity-map witness that changed after commit'
 );
 
 $reopened = ScopedApplySession::begin($store, $authority);

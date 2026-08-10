@@ -613,13 +613,17 @@ pct_ok(
 $emitted = array_values(array_unique(array_merge($initializerKeys[1], $assignedKeys[1])));
 sort($emitted, SORT_STRING);
 pct_ok(count($initializerKeys[1]) > 0 && count($assignedKeys[1]) > 0, 'the drift pin actually read the emitter');
-$required = array_merge($contract::requiredBuckets(), $contract::optionalProjections());
+$required = array_merge(
+    $contract::requiredBuckets(),
+    $contract::optionalProjections(),
+    $contract::scopedProjections()
+);
 sort($required, SORT_STRING);
 $drift = array_merge(
     array_map(static fn(string $b): string => "emitted but not required: $b", array_values(array_diff($emitted, $required))),
     array_map(static fn(string $b): string => "required but not emitted: $b", array_values(array_diff($required, $emitted)))
 );
-$pctLabel = 'the contract requires detailed buckets plus explicitly allowed optional projections emitted by Apply';
+$pctLabel = 'the contract requires detailed buckets plus closed ordinary/scoped projections emitted by Apply';
 pct_ok($emitted === $required, $pctLabel
     . ($drift === [] ? '' : ' (' . implode('; ', $drift) . ')'));
 

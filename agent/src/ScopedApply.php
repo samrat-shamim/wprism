@@ -219,6 +219,27 @@ final class ScopedApply {
             [$a['identity_hash'], $a['type'], $a['content_hash']]
                 <=> [$b['identity_hash'], $b['type'], $b['content_hash']]
         );
+        $mapRoots = self::ledger_map_roots($contract);
+        $roots = [
+            'selected_before_root' => self::hash_rows(array_values($selectedRows)),
+            'protected_out_of_scope_root' => self::hash_rows($protectedRows),
+        ] + $mapRoots;
+        $roots['target_observation_hash'] = hash('sha256', Canon::encode($roots));
+        return $roots + [
+            // Private, in-process recovery comparison only. Durable/public
+            // session records consume the roots above, never these raw rows.
+            '_selected_rows' => $selectedRows,
+            '_protected_rows' => $protectedRows,
+        ];
+    }
+
+    /**
+     * Hash-only identity-map roots for the exact selected/protected partition.
+     *
+     * @return array{ledger_map_root:string,protected_ledger_map_root:string,selected_ledger_map_root:string}
+     */
+    public static function ledger_map_roots(array $contract): array {
+        $selected = self::selected_set($contract);
         $map = Ledger::all_map();
         usort($map, static fn(array $a, array $b): int => [
             (string) ($a['uuid'] ?? ''), (string) ($a['id_kind'] ?? ''), (int) ($a['local_id'] ?? 0),
@@ -233,20 +254,51 @@ final class ScopedApply {
             $map,
             static fn(array $row): bool => isset($selected[(string) ($row['uuid'] ?? '')])
         ));
-        $roots = [
-            'selected_before_root' => self::hash_rows(array_values($selectedRows)),
-            'protected_out_of_scope_root' => self::hash_rows($protectedRows),
+        return [
             'ledger_map_root' => hash('sha256', Canon::encode($map)),
             'protected_ledger_map_root' => hash('sha256', Canon::encode($protectedMap)),
             'selected_ledger_map_root' => hash('sha256', Canon::encode($selectedMap)),
         ];
-        $roots['target_observation_hash'] = hash('sha256', Canon::encode($roots));
-        return $roots + [
-            // Private, in-process recovery comparison only. Durable/public
-            // session records consume the roots above, never these raw rows.
-            '_selected_rows' => $selectedRows,
-            '_protected_rows' => $protectedRows,
-        ];
+    }
+
+    /**
+     * Decide whether an exact terminal receipt is still replayable without
+     * mutation. The authority owns pre-transaction witnesses; the terminal
+     * receipt owns the selected identity-map root after finalization.
+     *
+     * @param array<string,array<string,mixed>> $actual
+     * @param array<string,mixed> $authority
+     * @param array<string,mixed> $terminal
+     * @param array<string,mixed> $observation
+     */
+    public static function terminal_replay_matches(
+        array $actual,
+        CompiledRepository $compiled,
+        Policy $policy,
+        array $contract,
+        array $authority,
+        array $terminal,
+        array $observation
+    ): bool {
+        return self::authored_state(
+            $actual,
+            $compiled,
+            $policy,
+            $contract,
+            (string) ($authority['target']['selected_before_hash'] ?? '')
+        ) === 'desired'
+            && hash_equals(
+                (string) ($authority['target']['protected_out_of_scope_hash'] ?? ''),
+                (string) ($observation['protected_out_of_scope_root'] ?? '')
+            )
+            && hash_equals(
+                (string) ($authority['target']['protected_ledger_map_hash'] ?? ''),
+                (string) ($observation['protected_ledger_map_root'] ?? '')
+            )
+            && hash_equals(
+                (string) ($terminal['selected_ledger_map_hash'] ?? ''),
+                (string) ($observation['selected_ledger_map_root'] ?? '')
+            );
     }
 
     /** @return array<string,mixed> */

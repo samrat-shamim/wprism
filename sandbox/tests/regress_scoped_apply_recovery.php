@@ -546,7 +546,12 @@ $check(
 // terminal receipt is the exact replay payload a lost CLI response can return.
 $reopenedAfterCommit->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
 $reopenedAfterCommit->transition(ScopedApplySession::PHASE_VERIFYING);
-$reopenedAfterCommit->complete($hash('scoped-convergence'));
+$terminalTarget = [
+    'protected_ledger_map_hash' => $hash('protected-map-before'),
+    // A create/adopt/delete may legitimately change only the selected map.
+    'selected_ledger_map_hash' => $hash('selected-map-after'),
+];
+$reopenedAfterCommit->complete($hash('scoped-convergence'), $terminalTarget);
 $terminalBytes = $reopenedAfterCommit->terminal_receipt_bytes();
 $terminalReplay = ScopedApplySession::begin($sessionStore, $authority);
 $check(
@@ -555,6 +560,60 @@ $check(
         && $terminalReplay->terminal_receipt_bytes() === $terminalBytes
         && $terminalReplay->terminal_identity() === $reopenedAfterCommit->terminal_identity(),
     'lost terminal CLI response reopens one byte-stable receipt and identity'
+);
+$check(
+    ($terminalReplay->terminal_receipt()['selected_ledger_map_hash'] ?? null)
+        === $terminalTarget['selected_ledger_map_hash']
+        && ($terminalReplay->terminal_receipt()['selected_ledger_map_hash'] ?? null)
+        !== $authority['target']['selected_before_ledger_map_hash']
+        && ($terminalReplay->terminal_receipt()['protected_ledger_map_hash'] ?? null)
+        === $authority['target']['protected_ledger_map_hash'],
+    'terminal replay binds the changed selected map after create/adopt/delete while protecting the out-of-scope map'
+);
+$terminalObservation = [
+    'protected_out_of_scope_root' => $protectedRoot,
+    'protected_ledger_map_root' => $terminalTarget['protected_ledger_map_hash'],
+    'selected_ledger_map_root' => $terminalTarget['selected_ledger_map_hash'],
+];
+$check(
+    ScopedApply::terminal_replay_matches(
+        $actualDesired,
+        $compiled,
+        $policy,
+        $contract,
+        $authority,
+        (array) $terminalReplay->terminal_receipt(),
+        $terminalObservation
+    ),
+    'product terminal gate accepts desired authored state plus the post-finalization selected-map root'
+);
+$selectedMapDrift = $terminalObservation;
+$selectedMapDrift['selected_ledger_map_root'] = $hash('selected-map-mutated-after-terminal');
+$check(
+    !ScopedApply::terminal_replay_matches(
+        $actualDesired,
+        $compiled,
+        $policy,
+        $contract,
+        $authority,
+        (array) $terminalReplay->terminal_receipt(),
+        $selectedMapDrift
+    ),
+    'product terminal gate refuses selected identity-map drift after completion'
+);
+$selectedMapPreApply = $terminalObservation;
+$selectedMapPreApply['selected_ledger_map_root'] = $authority['target']['selected_before_ledger_map_hash'];
+$check(
+    !ScopedApply::terminal_replay_matches(
+        $actualDesired,
+        $compiled,
+        $policy,
+        $contract,
+        $authority,
+        (array) $terminalReplay->terminal_receipt(),
+        $selectedMapPreApply
+    ),
+    'product terminal gate never mistakes the pre-apply selected-map root for a successful create/adopt/delete replay'
 );
 
 // Generic apply interlock: an active nonterminal scoped session owns the

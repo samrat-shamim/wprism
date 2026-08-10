@@ -2536,15 +2536,17 @@ $check(
     . 'witness on both sides and the changed note publishes as two — before/after remains decidable without the values'
 );
 
-// Stored evidence: there is no protected raw copy to guard, because the raw
-// value never exists past invoke(). These pin the two ways that could stop
-// being true — a second sink inside Apply, or a host that re-renders the rows.
+// Stored evidence: ordinary apply keeps the bounded public projection in one
+// in-memory list. Scoped apply adds only reviewed hash projections to that
+// same public list and persists only a hash-bound outer receipt in its closed
+// recovery session. These pins keep either path from acquiring a second raw
+// provider-value sink or a host re-renderer.
 $receiptLines = array_values(array_filter(
     (array) file($root . '/agent/src/Apply.php', FILE_IGNORE_NEW_LINES),
     static fn(string $line): bool => str_contains($line, 'actionReceipts')
 ));
 $check(
-    count($receiptLines) === 5
+    count($receiptLines) === 8
     && count(array_filter(
         $receiptLines,
         static fn(string $line): bool => str_contains($line, 'private array $actionReceipts = [];')
@@ -2555,10 +2557,29 @@ $check(
     )) === 3
     && count(array_filter(
         $receiptLines,
+        static fn(string $line): bool => str_contains($line, '$this->actionReceipts[] = $this->scoped_public_action_receipt(')
+    )) === 3
+    && count(array_filter(
+        $receiptLines,
         static fn(string $line): bool => str_contains($line, "'actions' => \$this->actionReceipts,")
     )) === 1,
-    'Apply holds receipts in exactly one in-memory list, appends to it three times, and returns it once — no '
-    . 'ledger row, no journal entry, no durable marker keeps a raw or a bounded copy'
+    'Apply holds public receipts in exactly one in-memory list: three legacy bounded projections and three scoped '
+    . 'hash-only projections, returned once; no durable scoped record keeps provider before/after values'
+);
+$scopedReceiptMethodStart = strpos($applySource, 'private function scoped_public_action_receipt(');
+$scopedReceiptMethodEnd = $scopedReceiptMethodStart === false
+    ? false
+    : strpos($applySource, "\n    /** @return array<string,mixed>|null */", $scopedReceiptMethodStart);
+$scopedReceiptMethod = ($scopedReceiptMethodStart === false || $scopedReceiptMethodEnd === false)
+    ? ''
+    : substr($applySource, $scopedReceiptMethodStart, $scopedReceiptMethodEnd - $scopedReceiptMethodStart);
+$check(
+    $scopedReceiptMethod !== ''
+    && str_contains($scopedReceiptMethod, "'operation_hash' =>")
+    && str_contains($scopedReceiptMethod, "'receipt_hash' =>")
+    && !str_contains($scopedReceiptMethod, "'before' =>")
+    && !str_contains($scopedReceiptMethod, "'after' =>"),
+    'the scoped public receipt helper exposes operation/receipt hashes and never provider before/after values'
 );
 $cliSource = (string) file_get_contents($root . '/agent/src/Cli.php');
 $check(

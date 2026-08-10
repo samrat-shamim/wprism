@@ -415,14 +415,22 @@ final class ScopedApplySession {
 
     /**
      * Advance exactly one normal phase. Completion requires the caller's
-     * canonical post-verification convergence witness hash; repeating the
-     * current terminal phase is safe without supplying it again.
+     * canonical post-verification convergence witness plus post-finalization
+     * selected/protected map roots; repeating the current terminal phase is
+     * safe without supplying them again.
      */
-    public function transition(string $nextPhase, ?string $convergenceHash = null): self {
+    public function transition(
+        string $nextPhase,
+        ?string $convergenceHash = null,
+        ?array $terminalTarget = null
+    ): self {
         if ($nextPhase === self::PHASE_COMPLETE && $convergenceHash !== null) {
             self::assert_hash($convergenceHash, 'convergence_hash');
         }
-        $this->mutate(function (array $record) use ($nextPhase, $convergenceHash): array {
+        if ($terminalTarget !== null) {
+            self::assert_terminal_target($terminalTarget);
+        }
+        $this->mutate(function (array $record) use ($nextPhase, $convergenceHash, $terminalTarget): array {
             $current = (string) $record['phase'];
             if ($nextPhase === $current) {
                 if ($current === self::PHASE_COMPLETE && $convergenceHash !== null
@@ -431,6 +439,16 @@ final class ScopedApplySession {
                         $convergenceHash
                     )) {
                     throw new \RuntimeException('duo: scoped apply terminal convergence identity mismatch');
+                }
+                if ($current === self::PHASE_COMPLETE && $terminalTarget !== null
+                    && (!hash_equals(
+                        (string) $record['terminal_receipt']['selected_ledger_map_hash'],
+                        (string) $terminalTarget['selected_ledger_map_hash']
+                    ) || !hash_equals(
+                        (string) $record['terminal_receipt']['protected_ledger_map_hash'],
+                        (string) $terminalTarget['protected_ledger_map_hash']
+                    ))) {
+                    throw new \RuntimeException('duo: scoped apply terminal target identity mismatch');
                 }
                 return $record;
             }
@@ -443,8 +461,11 @@ final class ScopedApplySession {
             if ($nextPhase === self::PHASE_RECOVERY_REQUIRED) {
                 throw new \RuntimeException('duo: recovery requires the recover() API and a cause hash');
             }
-            if ($nextPhase === self::PHASE_COMPLETE && $convergenceHash === null) {
-                throw new \RuntimeException('duo: complete requires a caller-supplied convergence witness hash');
+            if ($nextPhase === self::PHASE_COMPLETE
+                && ($convergenceHash === null || $terminalTarget === null)) {
+                throw new \RuntimeException(
+                    'duo: complete requires convergence and post-finalization target witness hashes'
+                );
             }
             $expected = self::NEXT_PHASE[$current] ?? null;
             if ($expected !== $nextPhase) {
@@ -457,7 +478,11 @@ final class ScopedApplySession {
             $record['phase_history'][] = $nextPhase;
             if ($nextPhase === self::PHASE_COMPLETE) {
                 self::assert_receipts_complete($record['intents'], $record['receipts']);
-                $record['terminal_receipt'] = self::build_terminal_receipt($record, (string) $convergenceHash);
+                $record['terminal_receipt'] = self::build_terminal_receipt(
+                    $record,
+                    (string) $convergenceHash,
+                    $terminalTarget
+                );
             }
             return $record;
         });
@@ -465,18 +490,22 @@ final class ScopedApplySession {
     }
 
     /** Alias for a phase-oriented integration caller. */
-    public function advance(string $nextPhase, ?string $convergenceHash = null): self {
-        return $this->transition($nextPhase, $convergenceHash);
+    public function advance(
+        string $nextPhase,
+        ?string $convergenceHash = null,
+        ?array $terminalTarget = null
+    ): self {
+        return $this->transition($nextPhase, $convergenceHash, $terminalTarget);
     }
 
     /** Complete after the fresh-process verifier has produced its witness. */
-    public function complete(string $convergenceHash): self {
-        return $this->transition(self::PHASE_COMPLETE, $convergenceHash);
+    public function complete(string $convergenceHash, array $terminalTarget): self {
+        return $this->transition(self::PHASE_COMPLETE, $convergenceHash, $terminalTarget);
     }
 
     /** Alias for integrations that name the verifier result explicitly. */
-    public function finalize(string $convergenceHash): self {
-        return $this->complete($convergenceHash);
+    public function finalize(string $convergenceHash, array $terminalTarget): self {
+        return $this->complete($convergenceHash, $terminalTarget);
     }
 
     /**
@@ -829,14 +858,21 @@ final class ScopedApplySession {
     }
 
     /** @param array<string,mixed> $record @return array<string,mixed> */
-    private static function build_terminal_receipt(array $record, string $convergenceHash): array {
+    private static function build_terminal_receipt(
+        array $record,
+        string $convergenceHash,
+        array $terminalTarget
+    ): array {
+        self::assert_terminal_target($terminalTarget);
         $base = [
             'authority_hash' => (string) $record['authority_hash'],
             'convergence_hash' => $convergenceHash,
             'intents_hash' => self::hash_value($record['intents']),
             'lease_hash' => self::lease_hash($record['lease']),
             'phase' => self::PHASE_COMPLETE,
+            'protected_ledger_map_hash' => (string) $terminalTarget['protected_ledger_map_hash'],
             'receipts_hash' => self::hash_value($record['receipts']),
+            'selected_ledger_map_hash' => (string) $terminalTarget['selected_ledger_map_hash'],
             'session_id' => (string) $record['session_id'],
         ];
         $base['terminal_hash'] = self::digest($base);
@@ -916,7 +952,9 @@ final class ScopedApplySession {
             throw new \RuntimeException('duo: scoped apply complete session has no terminal receipt');
         }
         self::assert_keys($terminal, [
-            'authority_hash', 'convergence_hash', 'intents_hash', 'lease_hash', 'phase', 'receipts_hash', 'session_id', 'terminal_hash',
+            'authority_hash', 'convergence_hash', 'intents_hash', 'lease_hash', 'phase',
+            'protected_ledger_map_hash', 'receipts_hash', 'selected_ledger_map_hash',
+            'session_id', 'terminal_hash',
         ], 'scoped apply terminal receipt');
         if (($terminal['phase'] ?? null) !== self::PHASE_COMPLETE
             || ($terminal['session_id'] ?? null) !== ($record['session_id'] ?? null)
@@ -927,6 +965,8 @@ final class ScopedApplySession {
         self::assert_hash($terminal['intents_hash'] ?? null, 'terminal intents_hash');
         self::assert_hash($terminal['receipts_hash'] ?? null, 'terminal receipts_hash');
         self::assert_hash($terminal['lease_hash'] ?? null, 'terminal lease_hash');
+        self::assert_hash($terminal['protected_ledger_map_hash'] ?? null, 'terminal protected_ledger_map_hash');
+        self::assert_hash($terminal['selected_ledger_map_hash'] ?? null, 'terminal selected_ledger_map_hash');
         self::assert_hash($terminal['terminal_hash'] ?? null, 'terminal_hash');
         if (!hash_equals((string) $terminal['intents_hash'], self::hash_value($record['intents']))
             || !hash_equals((string) $terminal['receipts_hash'], self::hash_value($record['receipts']))
@@ -938,6 +978,16 @@ final class ScopedApplySession {
         if (!hash_equals(self::digest($withoutHash), (string) $terminal['terminal_hash'])) {
             throw new \RuntimeException('duo: scoped apply terminal receipt hash does not verify');
         }
+    }
+
+    /** @param mixed $target */
+    private static function assert_terminal_target(mixed $target): void {
+        self::assert_keys($target, [
+            'protected_ledger_map_hash',
+            'selected_ledger_map_hash',
+        ], 'scoped apply terminal target');
+        self::assert_hash($target['protected_ledger_map_hash'] ?? null, 'terminal target protected_ledger_map_hash');
+        self::assert_hash($target['selected_ledger_map_hash'] ?? null, 'terminal target selected_ledger_map_hash');
     }
 
     /** @param mixed $intents @param array<string,mixed> $lease */
