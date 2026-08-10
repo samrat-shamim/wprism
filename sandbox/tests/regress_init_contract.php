@@ -540,6 +540,24 @@ check(
         && str_contains($agentSource, "hash_equals((string) (\$receipt['previous_sha256'] ?? ''), hash('sha256', ''))"),
     'ordinary capture cannot replace a retained initial receipt and committed recovery proves a first publication'
 );
+// DUO-3427: and it says so to a MACHINE caller. A retained init recovery
+// journal is the operator's whole answer — what exists, and the one command
+// that resolves it — in a fixed engine sentence carrying no path, selector, or
+// value. As a bare RuntimeException it reached `--format=json` as "capture
+// refused at an unclassified safety gate" with details_redacted, which sends
+// an operator holding an interrupted init to private evidence for public
+// guidance. Typed now, like the init side's proven rollback (DUO-3421), with
+// the human sentence preserved verbatim as the operator message.
+check(
+    str_contains($captureSource, "'interrupted_init_recovery_pending',")
+        && str_contains($captureSource, "'capture refused while a sealed init recovery journal exists',")
+        && str_contains($captureSource, "'run duo init for the same environment to verify or roll back that interrupted attempt, then capture again',")
+        && !preg_match(
+            '/private static function assert_no_interrupted_init.{0,400}throw new \\\\RuntimeException/s',
+            $captureSource
+        ),
+    'the retained init-recovery capture gate is a typed public refusal, not an unclassified redacted envelope'
+);
 check(
     str_contains($agentSource, 'private static function remove_exact_owned_file(')
         && str_contains($agentSource, 'if (!@unlink($path))'),

@@ -1032,11 +1032,29 @@ final class Capture {
         );
     }
 
+    /**
+     * DUO-3427: typed, because this refusal has an entirely reviewable shape.
+     *
+     * A retained init recovery journal is not an internal fault: the operator
+     * is told exactly what exists and exactly what to run, in a fixed engine
+     * sentence that names no path, selector, or value. As a bare
+     * RuntimeException it reached JSON callers as "capture refused at an
+     * unclassified safety gate" with details_redacted, sending an operator
+     * holding an interrupted init to private evidence for the one instruction
+     * that IS public — the DUO-3398/DUO-3399 shape, and the same treatment
+     * DUO-3421 gave the init side's proven rollback. The human rendering is
+     * unchanged: the operator message below is the sentence this gate has
+     * always printed.
+     */
     private static function assert_no_interrupted_init(string $repo): void {
         foreach (['.duo-init-attempt', '.duo-init-attempt.next'] as $name) {
             $path = rtrim($repo, '/') . '/' . $name;
             if (file_exists($path) || is_link($path)) {
-                throw new \RuntimeException(
+                throw new CommandRefusalException(
+                    'interrupted_init_recovery_pending',
+                    'capture refused while a sealed init recovery journal exists',
+                    'run duo init for the same environment to verify or roll back that interrupted attempt, then capture again',
+                    [],
                     'duo: capture refused while a sealed init recovery journal exists; '
                     . 'run duo init for the same environment to verify or roll back that attempt before capturing again'
                 );
