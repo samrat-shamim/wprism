@@ -4,6 +4,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-cli-json-refusals
 .PHONY: regress-plan-explain
 .PHONY: regress-plan-category-summary
+.PHONY: regress-plan-category-summary-live
 
 .PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half grind-code-half-ecosystem grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-reference-bundle certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-executor regress-checkpoint-bundle regress-code-release code-half-unit \
 	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy regress-taxonomy-object-keyspace \
@@ -540,6 +541,18 @@ regress-plan-title-render:
 regress-plan-category-summary:
 	php sandbox/tests/regress_plan_category_summary.php
 
+# DUO-3345 (category-summary menu evidence): live core-only companion to the
+# offline projection contract. It proves same-snapshot menu observations for
+# published-vs-draft capture, managed reconciliation, slug adoption, and
+# tombstones. The pair and exact mounted candidate bytes are intentionally
+# caller-supplied; do not spend the shared Docker budget by accident.
+regress-plan-category-summary-live:
+	@test -n "$(PLAN_CATEGORY_SUMMARY_PAIR)" || { echo 'PLAN_CATEGORY_SUMMARY_PAIR is required; choose an owned unique disposable pair' >&2; exit 2; }
+	@test -n "$(PLAN_CATEGORY_SUMMARY_PORT1)" || { echo 'PLAN_CATEGORY_SUMMARY_PORT1 is required; choose an even port at or above 8900' >&2; exit 2; }
+	@test -n "$(PLAN_CATEGORY_SUMMARY_PORT2)" || { echo 'PLAN_CATEGORY_SUMMARY_PORT2 is required; it must be PORT1 + 1' >&2; exit 2; }
+	@test -n "$(DUO_EXPECTED_SOURCE_SHA)" || { echo 'DUO_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
+	PLAN_CATEGORY_SUMMARY_PAIR="$(PLAN_CATEGORY_SUMMARY_PAIR)" PLAN_CATEGORY_SUMMARY_PORT1="$(PLAN_CATEGORY_SUMMARY_PORT1)" PLAN_CATEGORY_SUMMARY_PORT2="$(PLAN_CATEGORY_SUMMARY_PORT2)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/regress_plan_category_summary_live.sh
+
 # DUO-3345 (three-way conflict slice): the stable JSON evidence and host
 # summary distinguish target last-synced base, repository intent, target
 # intent, non-destructive reconciliation, and the loud destructive override.
@@ -955,6 +968,7 @@ regress-live-list:
 	@echo "  regress-provider-contract-live            pair claudemacb3338 8930/8931"
 	@echo "  regress-parent-scoped-natural-key         pair claudemacb3318 8930/8931 (parameterized: PARENT_KEY_PAIR/PARENT_KEY_PORT1/PARENT_KEY_PORT2)"
 	@echo "  regress-menu-item-meta-gate               pair asub3275 8954/8955"
+	@echo "  regress-plan-category-summary-live        explicit PLAN_CATEGORY_SUMMARY_PAIR/PORT1/PORT2 + DUO_EXPECTED_SOURCE_SHA (candidate-bound disposable pair)"
 	@echo "  regress-widgets                           pair awid3278 8960/..."
 	@echo "  regress-promotion                         pair codexmaca3216 8920/... (also runs in CI as code-half-grind's sibling)"
 	@echo "  regress-promotion-lock                    pair codexmac3217 8900/... (runs in CI: code-half-live-lock)"
