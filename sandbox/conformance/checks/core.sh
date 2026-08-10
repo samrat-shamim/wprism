@@ -291,6 +291,13 @@ if [ "$EXPLAIN_RC" -eq 0 ]; then
 fi
 $COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/duo-explain-offload-guard.php
 rm -f -- "$EXPLAIN_REGISTRY"
+# The json invocation is safe to gate: the host CLI's refusal envelope goes to
+# STDOUT (cli/duo's wants_agent_refusal_json path), so a genuine refusal still
+# reaches the accusation below while a compose-layer death (empty stdout)
+# names infrastructure. The HUMAN invocation above is deliberately ungated —
+# its healthy framing is `EXPLAIN CONFLICT …`, not wp-cli's, and its refusals
+# land on the dropped stderr (DUO-3413 owns capturing that).
+require_duo_answered "host duo explain (json envelope)" json "$EXPLAIN_JSON"
 [ "$EXPLAIN_RC" -eq 0 ] || fail "public host duo explain refused a valid current selector"
 jq -e --arg selector "$EXPLAIN_SELECTOR" --arg entity_hash "$EXPLAIN_ENTITY_HASH" '
   .format == "duo-explain/v1"
@@ -606,10 +613,11 @@ ROLL_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=a
 require_duo_answered "conf2 duo apply --with-deletes (injected FK rollback probe)" human "$ROLL_OUT"
 [ "$ROLL_RC" -ne 0 ] || fail "injected second-row deletion failure unexpectedly applied"
 # The two post-conditions below read the TARGET, not $ROLL_OUT, so the broad
-# answered-marker above cannot protect them: a `wp post list` that itself dies
-# at the docker layer returns an empty id and accuses the engine of losing a
-# page it never looked at. Paste the apply capture so a wp-cli-framed
-# infrastructure error at least self-identifies in the sweep log.
+# answered-marker above cannot protect them. Pasting the apply capture makes
+# a wp-cli-framed infrastructure error in the APPLY self-identify in the
+# sweep log; a docker-layer death of the `wp post list` reads themselves
+# remains diagnosable only by the pasted capture being healthy while the id
+# comes back empty.
 [ "$(wp_conf2 post list --post_type=page --name=rollback-alpha --field=ID | tr -d '[:space:]')" = "$ROLL_A2" ] \
   || fail "partial deletion failure did not roll back the first page: $ROLL_OUT"
 [ "$(wp_conf2 post list --post_type=page --name=rollback-beta --field=ID | tr -d '[:space:]')" = "$ROLL_B2" ] \
