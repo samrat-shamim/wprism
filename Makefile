@@ -3,7 +3,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-cli-json-refusals
 .PHONY: regress-plan-explain
-.PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source
+.PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live
 .PHONY: regress-init-contract regress-duo-init regress-bound-helper
 .PHONY: regress-plan-view regress-local-bootstrap regress-local-bootstrap-live
 
@@ -979,6 +979,22 @@ regress-scoped-effect-reconciliation:
 regress-scope-wire:
 	php sandbox/tests/regress_scope_wire.php
 
+# DUO-3344 slice 4 live proof: public host CLI -> DockerTransport -> scoped
+# target plan/apply/verification.  It requires an explicitly allocated,
+# disposable pair and a clean exact-source SHA; unlike offline regressions it
+# is intentionally absent from regress-offline-all.
+#
+#   make regress-scoped-apply-live \
+#     SCOPED_APPLY_LIVE_PAIR=codexmacb3344 \
+#     SCOPED_APPLY_LIVE_PORT1=8900 SCOPED_APPLY_LIVE_PORT2=8901 \
+#     DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)
+regress-scoped-apply-live:
+	@test -n "$(SCOPED_APPLY_LIVE_PAIR)" || { echo 'SCOPED_APPLY_LIVE_PAIR is required; use an unused disposable pair name' >&2; exit 2; }
+	@test -n "$(SCOPED_APPLY_LIVE_PORT1)" || { echo 'SCOPED_APPLY_LIVE_PORT1 is required; choose a free even port >= 8900' >&2; exit 2; }
+	@test -n "$(SCOPED_APPLY_LIVE_PORT2)" || { echo 'SCOPED_APPLY_LIVE_PORT2 is required; use PORT1 + 1' >&2; exit 2; }
+	@test -n "$(DUO_EXPECTED_SOURCE_SHA)" || { echo 'DUO_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
+	SCOPED_APPLY_LIVE_PAIR="$(SCOPED_APPLY_LIVE_PAIR)" SCOPED_APPLY_LIVE_PORT1="$(SCOPED_APPLY_LIVE_PORT1)" SCOPED_APPLY_LIVE_PORT2="$(SCOPED_APPLY_LIVE_PORT2)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/regress_scoped_apply_live.sh
+
 regress-snapshot-meta:
 	bash sandbox/tests/regress_snapshot_meta.sh
 
@@ -1081,6 +1097,7 @@ regress-live-list:
 	@echo "  regress-local-bootstrap-live              own disposable pair (parameterized: LOCAL_BOOTSTRAP_PAIR/LOCAL_BOOTSTRAP_PORT1/LOCAL_BOOTSTRAP_PORT2; exact candidate gate)"
 	@echo "  regress-plan-category-summary-live        pair codexsma3345 9060/9061 (parameterized: PLAN_CATEGORY_SUMMARY_PAIR/PLAN_CATEGORY_SUMMARY_PORT1/PLAN_CATEGORY_SUMMARY_PORT2)"
 	@echo "  regress-provider-requirements-live        pair claudemacb3317 8930/8931 (parameterized: PROVIDER_REQUIREMENTS_PAIR/PROVIDER_REQUIREMENTS_PORT1/PROVIDER_REQUIREMENTS_PORT2)"
+	@echo "  regress-scoped-apply-live                 explicit SCOPED_APPLY_LIVE_PAIR/PORT1/PORT2 + DUO_EXPECTED_SOURCE_SHA (public scoped plan/apply exact-source proof)"
 	@echo "  regress-parent-scoped-natural-key         pair claudemacb3318 8930/8931 (parameterized: PARENT_KEY_PAIR/PARENT_KEY_PORT1/PARENT_KEY_PORT2)"
 	@echo "  regress-menu-item-meta-gate               pair asub3275 8954/8955"
 	@echo "  regress-widgets                           pair awid3278 8960/..."
