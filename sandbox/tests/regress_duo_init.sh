@@ -190,20 +190,22 @@ diff -r -x capabilities "$REPO_ROOT/manifests" "$HERMETIC_MANIFESTS" >/dev/null 
   || fail "fixture manufacture failed: sealing the fixture modified the shipped manifest library"
 pass "hermetic certified library sealed at $HERMETIC_MANIFESTS (shipped bytes unchanged)"
 
-say "boot disposable authenticated Docker target on owned ports $PORT1/$PORT2"
-unset DUO_CLI_IMAGE || true
-# The hermetic library is exported before bring-up so nothing this suite starts
-# can resolve the live library by accident.
-export DUO_MANIFESTS_SRC="$HERMETIC_MANIFESTS"
-bash sandbox/bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless
-
-# pair.sh deliberately binds durable pairs to the primary checkout (and
-# re-exports DUO_MANIFESTS_SRC inside its own process for exactly that reason).
-# This pair is disposable evidence for the current issue worktree, so every
-# subsequent ephemeral CLI invocation explicitly mounts the bytes under test:
-# this checkout's agent, and the hermetic library sealed above.
+# pair.sh deliberately binds durable pairs to the primary checkout, and
+# pair_compose() re-resolves DUO_AGENT_SRC/DUO_MANIFESTS_SRC from the canonical
+# root inside its own process for exactly that reason — so the long-lived wp1/
+# wp2 web containers it creates below mount the canonical agent and library no
+# matter what this suite exports, and nothing here tries to change that. This
+# pair is disposable evidence for the current issue worktree, so every CLI
+# invocation the suite actually drives is an ephemeral `run --rm` container,
+# which resolves these two from the environment: this checkout's agent, and the
+# hermetic library sealed above. Exported before bring-up so the mount source
+# is fixed and asserted before the first container exists.
 export DUO_AGENT_SRC="$REPO_ROOT/agent"
 export DUO_MANIFESTS_SRC="$HERMETIC_MANIFESTS"
+
+say "boot disposable authenticated Docker target on owned ports $PORT1/$PORT2"
+unset DUO_CLI_IMAGE || true
+bash sandbox/bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless
 COMPOSE=(docker compose -p "duo-$PAIR" -f "$COMPOSE_FILE")
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
@@ -535,8 +537,18 @@ wp_mkdir_p($dir);
 file_put_contents($dir . "/duo-init-site.php", "<?php\n/* Plugin Name: Duo Init Site Adapter\nVersion: 1.0.0 */\n");
 ' >/dev/null
 wp1 plugin activate duo-init-site >/dev/null
+# DUO-3421: [1.0.0, 2.0.0), not [1.0.0, 1.0.0). Policy's assert_min_max_range()
+# has required min STRICTLY less than max since DUO-3222 ("wildcards, empty,
+# and unbounded forms are not certifiable"), so the original min == max fixture
+# made Policy::load() throw before the site adapter could be reported at all:
+# init answered with the redacted unclassified envelope (exit 1) instead of the
+# uncertified-source blocker this case exists to assert (exit 2). Nothing ever
+# saw it, because the evidence-coupled lease timeout above aborted every run
+# before this line. Verified live both ways: with the range repaired the
+# proposal reports adapter_source_uncertified for duo-init-site (and, on an
+# unsealed library, evidence_not_current beside it).
 cat > "$HOST_REPO/adapters/duo-init-site.json" <<'JSON'
-{"name":"duo-init-site","option_autoload":"preserve","options":{"duo_init_site_option":{"class":"authored"}},"plugin":"duo-init-site/duo-init-site.php","spec_version":2,"version_range":{"min":"1.0.0","max":"1.0.0"}}
+{"name":"duo-init-site","option_autoload":"preserve","options":{"duo_init_site_option":{"class":"authored"}},"plugin":"duo-init-site/duo-init-site.php","spec_version":2,"version_range":{"min":"1.0.0","max":"2.0.0"}}
 JSON
 SITE_ADAPTER_BEFORE=$(sha256sum "$HOST_REPO/adapters/duo-init-site.json" | awk '{print $1}')
 assert_exit 2 "uncertified site adapter blocks init" "${DUO[@]}" init "${PAIR}1" --yes
