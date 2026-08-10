@@ -439,12 +439,14 @@ regress-actions-providers:
 regress-provider-contract-live:
 	bash sandbox/tests/regress_provider_contract_live.sh
 
-# DUO-3345 (#189): value-free plan category summaries, live. Its own pair +
-# PLAN_CATEGORY_SUMMARY_PAIR/PORT1/PORT2. Live/pair suite — belongs in
-# regress-live-list, not the offline count.
+# DUO-3345 (#189): value-free plan category summaries, OFFLINE (no WordPress,
+# DB, providers, or docker) — belongs in regress-offline-all and its count.
 regress-plan-category-summary:
 	php sandbox/tests/regress_plan_category_summary.php
 
+# DUO-3345 (#189): the LIVE counterpart. Its own pair +
+# PLAN_CATEGORY_SUMMARY_PAIR/PORT1/PORT2 — belongs in regress-live-list, NEVER
+# the offline count.
 regress-plan-category-summary-live:
 	bash sandbox/tests/regress_plan_category_summary_live.sh
 
