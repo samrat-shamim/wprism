@@ -765,7 +765,7 @@
             ]
         },
         "elementor": {
-            "adapter_digest": "9de5f5d28ce3caef17146dbc6ee2b8954755f611285969a6d9e8880fca71b7d9",
+            "adapter_digest": "c090c335ba5dfaae8ec2759aa5bfe8e3b965681593607d3b5b0d7c201134930a",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -857,7 +857,7 @@
             ]
         },
         "ninja-forms": {
-            "adapter_digest": "2234b53337ff35510f78e40a5538d7385ece3d88edbfb5506398588ac4d92cc5",
+            "adapter_digest": "7f88e2552f8d400981a1e7a87231dc1eacabf4a07ba576d95d94d4bf17db95f5",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1116,7 +1116,7 @@
             ]
         },
         "polylang": {
-            "adapter_digest": "7e948993c856454ada459fea75c8482a254f77f3ae8788eab2ea547a3494b469",
+            "adapter_digest": "598f0ab6b882b28a6b3b8ea5aa3f73f5ea9955e8f2de07af97f51f20fc10b760",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1317,7 +1317,7 @@
             ]
         },
         "woocommerce": {
-            "adapter_digest": "f48b1bb478a58b482d68a2c36c871162ee1da8840a27fdc5e2d73cffabe3b764",
+            "adapter_digest": "1a5a31d0febd28b8c3e7ef10985fc8aa252503ccf41705942a785945e895ba81",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1585,7 +1585,7 @@
             ]
         },
         "yoast": {
-            "adapter_digest": "3a43db37f700c57de1f064ae2ac63af25d84414a4181fcd1797de96e97f4ab27",
+            "adapter_digest": "1d68ba113161d3ea71c501f24b41b5ea1c59e83b75853805c88a5f6e5ba80177",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"

@@ -1696,16 +1696,19 @@ final class Providers {
         string $operationName,
         array $operation
     ): ?array {
-        global $wpdb;
-        if (!is_object($wpdb) || !isset($wpdb->options) || !is_callable([$wpdb, 'prepare']) || !is_callable([$wpdb, 'get_var'])) {
+        $database = $GLOBALS['wpdb'] ?? null;
+        if (!is_object($database)
+            || !isset($database->options)
+            || !is_callable([$database, 'prepare'])
+            || !is_callable([$database, 'get_var'])) {
             throw new \RuntimeException('duo: scoped operation receipt storage requires a readable WordPress options table');
         }
-        $wpdb->last_error = '';
-        $raw = $wpdb->get_var($wpdb->prepare(
-            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+        $database->last_error = '';
+        $raw = $database->get_var($database->prepare(
+            "SELECT option_value FROM {$database->options} WHERE option_name = %s LIMIT 1",
             $key
         ));
-        if ($raw === false || (string) ($wpdb->last_error ?? '') !== '') {
+        if ($raw === false || (string) ($database->last_error ?? '') !== '') {
             throw new \RuntimeException('duo: scoped operation receipt read failed');
         }
         if ($raw === null) {
