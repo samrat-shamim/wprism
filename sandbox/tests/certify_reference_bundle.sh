@@ -902,13 +902,21 @@ ARTIFACTS=$(jq '[to_entries[] as $slug | $slug.value | to_entries[] | {name:$slu
 TESTS=$(printf '%s\n' "${TEST_FRAGMENTS[@]}" | jq -s .)
 CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 GIT_REVISION="$SOURCE_SHA"
+# DUO-3406: record any force/override env the sweeps honor (currently only
+# DUO_PAIR_BUDGET_OVERRIDE) as a force hatch, so a bundle built under an override
+# never affirmatively claims force_hatches:[] — silently-wrong evidence, worse
+# than recorded-as-forced. cap_import_bundle refuses a reference bundle with a
+# non-empty list, so a forced build fails loudly at import instead of forging a
+# clean certification. To add a sibling override, extend the name list below.
+FORCE_HATCHES=$(jq -n '[ "DUO_PAIR_BUDGET_OVERRIDE" ] | map(select($ENV[.] // "" | . != "" and . != "0"))')
 jq -n \
   --arg repo_root "$REPO_ROOT" --arg created_at "$CREATED_AT" --arg git_revision "$GIT_REVISION" \
   --arg environment "$ENV_FILE" --argjson bound_inputs "$BOUND_INPUTS" --argjson artifacts "$ARTIFACTS" \
   --arg ratification "$REPO_ROOT/manifests/dispositions.json" --argjson tests "$TESTS" \
+  --argjson force_hatches "$FORCE_HATCHES" \
   '{
     repo_root:$repo_root,created_at:$created_at,git_revision:$git_revision,
-    harness:{name:"duo-reference-certification",version:4},force_hatches:[],
+    harness:{name:"duo-reference-certification",version:4},force_hatches:$force_hatches,
     environment:$environment,ratification:$ratification,bound_inputs:$bound_inputs,artifacts:$artifacts,
     tests:$tests
   }' > "$WORK_ROOT/spec.json"

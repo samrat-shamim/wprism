@@ -150,6 +150,17 @@ function cap_import_bundle(string $repo, string $input): void {
             throw new RuntimeException('bundle has an absent or non-passing test');
         }
     }
+    // DUO-3406: a reference certification bundle must be produced without force
+    // hatches (e.g. DUO_PAIR_BUDGET_OVERRIDE). The builder records any override
+    // in force_hatches; refuse a non-empty (or malformed) list here so a forced
+    // build fails loudly at import rather than seeding a green reference claim.
+    // Mirrors AdapterCertification::verifyBundleManifest's adapter-side refusal.
+    $forceHatches = $bundle['force_hatches'] ?? [];
+    if (!is_array($forceHatches) || !array_is_list($forceHatches) || $forceHatches !== []) {
+        $shown = (is_array($forceHatches) && array_is_list($forceHatches))
+            ? implode(', ', array_map('strval', $forceHatches)) : 'malformed';
+        throw new RuntimeException("bundle used force hatches ($shown); a reference certification bundle must be produced without overrides");
+    }
     $evidence = [
         'format' => CapabilityRegistry::EVIDENCE_FORMAT,
         'status' => 'current',
