@@ -18,7 +18,7 @@ BRANCH_A=$(wp_conf1 post create --post_type=page --post_title='Branch A' --post_
 BRANCH_B=$(wp_conf1 post create --post_type=page --post_title='Branch B' --post_name=branch-b --post_status=publish --porcelain)
 # DUO-3381: assert the premise before anything consumes it. Every id above
 # comes back from a `docker compose run` that can be starved of output under
-# host load without exiting non-zero (see run.sh's require_fixture_ids), and
+# host load without exiting non-zero (see the shared conformance/asserts.sh's require_fixture_ids), and
 # an empty --post_parent silently casts to 0 — the two children below would
 # be created successfully, in the wrong place, and this manifest's own
 # hierarchy assertions (postdeploy/core.sh's ambiguous-key refusal,

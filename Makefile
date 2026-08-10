@@ -31,7 +31,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-capability-registry regress-woocommerce-contract regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
-	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-scope-contract \
+	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-scope-contract regress-conformance-asserts \
 	capability-registry-generate release-gate
 
 up:
@@ -465,6 +465,13 @@ regress-manifest-validate:
 # on both lock backends without docker or a 50-minute bundle run.
 regress-certbundle-lock:
 	bash sandbox/tests/regress_certbundle_lock.sh
+
+# DUO-3408: the shared conformance assertion fragment -- every require_*
+# helper the seeds/postdeploy hooks call must be defined in ONE fragment both
+# sourcing harnesses load, or bundle leg 12 dies at `command not found`.
+# Offline: pure grep over the harness sources.
+regress-conformance-asserts:
+	bash sandbox/tests/regress_conformance_asserts.sh
 
 # DUO-3339: the installed-adapter catalog -- `duo adapter list|inspect|doctor`
 # over both adapter sources the engine has, plus AdapterSources::survey(), the
@@ -902,8 +909,8 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
-	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract
-	@echo "regress-offline-all: 95 offline suites green"
+	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract regress-conformance-asserts
+	@echo "regress-offline-all: 96 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
