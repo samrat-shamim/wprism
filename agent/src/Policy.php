@@ -153,6 +153,26 @@ final class Policy {
             // path-free and canonical; never rewrite it into a different key.
             $key = $name;
             $manifest = Canon::decode(Canon::read_file($p->adapterSources->file($key, $dir)));
+            // DUO-3371: the earliest point on the live load path where a
+            // manifest's FILE name and its DECLARED name are both in hand, and
+            // therefore the only place one identity can be enforced for both
+            // keyings. The pin, the file, and ManifestDispositions::load()'s
+            // coverage check all key off the file name; ManifestDispositions::
+            // entry(), RepositoryCompiler::manifest_rows()'s per-adapter digest,
+            // and the capability registry's claims all key off the declared
+            // name. Every one of those declared-name lookups is downstream of
+            // this line — nothing reads $p->manifests before it exists — so
+            // refusing here, ahead of the first validator, is what keeps one
+            // adapter from answering to two keys. from_snapshot() has always
+            // refused the same disagreement against the frozen pin; this is the
+            // live path's half of that, and AdapterSources owns the sentence so
+            // the site source (DUO-3314) and the shipped source say it once.
+            AdapterSources::assert_declared_name(
+                $manifest,
+                $key,
+                $p->adapterSources->source($key),
+                (string) $p->adapterSources->path($key)
+            );
             if ($p->adapterSources->is_out_of_tree($key)) {
                 AdapterSources::assert_out_of_tree_contract(
                     $manifest,

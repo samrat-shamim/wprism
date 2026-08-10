@@ -442,17 +442,23 @@ check(true, 'a byte-identical widget restatement is allowed through, on the same
 // precedence layer, so a second declarer is the identical silent takeover.
 expect_throw(
     function (): void {
+        // load_pair() takes B first, then A (its signature), and both of these
+        // arrived reversed: A's declarations were written to b.json and B's to
+        // a.json. Harmless while nothing checked, but DUO-3371 refuses a
+        // manifest whose declared name is not its file name, so a fixture that
+        // crosses the two now refuses on identity instead of on the ownership
+        // collision it exists to prove.
         load_pair(
-            manifest_a(['taxonomies' => ['acme_tax' => ['class' => 'authored', 'description_refs' => ['kind' => 'post']]]]),
-            manifest_b(['taxonomies' => ['acme_tax' => ['class' => 'runtime', 'description_refs' => ['kind' => 'term']]]])
+            manifest_b(['taxonomies' => ['acme_tax' => ['class' => 'runtime', 'description_refs' => ['kind' => 'term']]]]),
+            manifest_a(['taxonomies' => ['acme_tax' => ['class' => 'authored', 'description_refs' => ['kind' => 'post']]]])
         );
     },
     'both declare taxonomies.acme_tax',
     'B cannot re-declare a taxonomy A owns — every taxonomy lookup is first-pin-wins with no precedence layer'
 );
 load_pair(
-    manifest_a(['taxonomies' => ['acme_tax' => ['class' => 'authored']]]),
-    manifest_b(['taxonomies' => ['acme_tax' => ['class' => 'authored']]])
+    manifest_b(['taxonomies' => ['acme_tax' => ['class' => 'authored']]]),
+    manifest_a(['taxonomies' => ['acme_tax' => ['class' => 'authored']]])
 );
 check(true, 'a byte-identical taxonomy restatement is allowed through, on the same terms');
 

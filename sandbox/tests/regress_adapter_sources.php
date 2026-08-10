@@ -117,6 +117,16 @@ function expect_throw(callable $fn, string $needle, string $msg): void {
     }
 }
 
+/** The refusal message itself, for a check that compares two refusals' wording. */
+function message_of(callable $fn): string {
+    try {
+        $fn();
+    } catch (\RuntimeException $e) {
+        return $e->getMessage();
+    }
+    return '<no refusal thrown>';
+}
+
 /** Recursively removed at exit; every fixture root registers itself here. */
 function rm_rf(string $path): void {
     if (is_dir($path) && !is_link($path)) {
@@ -708,13 +718,14 @@ expect_throw(
     'shadows the shipped adapter',
     'shadowing is refused for any shipped adapter, not just the one this repository pins'
 );
-// A shipped manifest's file name and its declared name are allowed to differ
-// (nothing has ever required them to agree, and the reviewed library is where
-// that freedom lives). The site side is held to file name == declared name, so
-// the only way two adapters can still reach one name is a shipped file
-// declaring a name the site source also uses — checked on the declared names,
-// not just the file names. A manifest directory without dispositions is the
-// cheapest way to install such a shipped manifest.
+// DUO-3314 checked the cross-source collision on DECLARED names rather than
+// file names because the shipped side was not yet held to the rule the site
+// side was: a shipped file could declare a name that was not its own, and the
+// site source could then reach that name from a differently-named file. That
+// check still has this job — the scan reads the whole library whether or not a
+// pin names the offending file, and an unpinned shipped manifest is refused by
+// nothing else. A manifest directory without dispositions is the cheapest way
+// to install such a shipped manifest.
 $oddShipped = scratch('odd-shipped');
 Canon::write_file("$oddShipped/renamed-file.json", Canon::encode(site_adapter('acme-widget')));
 putenv("DUO_MANIFESTS_DIR=$oddShipped");
@@ -728,6 +739,42 @@ putenv("DUO_MANIFESTS_DIR=$shippedDir");
 // sources, so a broken installation surfaces on the next command rather than
 // on the first command that happens to pin it.
 check(true, '(each refusal above fired while the offending adapter was NOT pinned)');
+
+// DUO-3371: PINNING that same shipped manifest is now itself a refusal. Until
+// this issue the shipped side kept the freedom DUO-3314 removed from the site
+// side, so one adapter answered to its file name in the disposition registry's
+// coverage and to its declared name in every digest, disposition lookup, and
+// capability claim. Both sources now speak one sentence, so the pair of checks
+// below pins that it really is one sentence and not two that happen to rhyme.
+putenv("DUO_MANIFESTS_DIR=$oddShipped");
+$shippedIdentity = message_of(fn() => Policy::load(fresh_site(['renamed-file'])));
+check(
+    str_contains($shippedIdentity, "duo: shipped adapter '$oddShipped/renamed-file.json' declares name"),
+    "a shipped manifest whose declared name disagrees with its file name is refused at load, naming the file ($shippedIdentity)"
+);
+// The site half of the pair needs a library that does NOT hold `renamed-file`,
+// or the site file shadows the shipped one and refuses for that reason first.
+putenv("DUO_MANIFESTS_DIR=$shippedDir");
+$siteIdentity = message_of(fn() => Policy::load(
+    fresh_site(['core'], ['renamed-file' => site_adapter('acme-widget')])
+));
+$tail = "declares name 'acme-widget' but its file name is 'renamed-file' — a pin names the file while every "
+    . 'downstream identity (dispositions, digests, diagnostics) keys off the declared name, so the two '
+    . 'disagreeing is ambiguous identity. Make the declared name match the file name';
+check(
+    str_ends_with($shippedIdentity, $tail) && str_ends_with($siteIdentity, $tail),
+    'the shipped and site refusals are one sentence differing only in which source installed the file'
+);
+// The rule is agreement, not a ban on the file name: the same library with the
+// file named as it declares itself loads.
+$evenShipped = scratch('even-shipped');
+Canon::write_file("$evenShipped/acme-widget.json", Canon::encode(site_adapter('acme-widget')));
+putenv("DUO_MANIFESTS_DIR=$evenShipped");
+check(
+    (Policy::load(fresh_site(['acme-widget']))->manifests[0]['name'] ?? null) === 'acme-widget',
+    'the same shipped manifest, named as it declares itself, loads unchanged'
+);
+putenv("DUO_MANIFESTS_DIR=$shippedDir");
 
 expect_throw(
     fn() => Policy::load(fresh_site(

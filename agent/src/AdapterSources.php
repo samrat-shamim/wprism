@@ -457,11 +457,8 @@ final class AdapterSources {
                     $refusals,
                     self::REFUSAL_AMBIGUOUS_IDENTITY,
                     [$relative],
-                    "duo: site adapter '$relative' declares name " . self::render($declared)
-                    . ' but its file name is ' . self::render($name) . ' — a pin names the file while every '
-                    . 'downstream identity (dispositions, digests, diagnostics) keys off the declared name, so the '
-                    . 'two disagreeing is ambiguous identity. Make the declared name match the file name',
-                    'make the declared name match the file name'
+                    self::ambiguous_identity_message(self::SITE, $relative, $declared, $name),
+                    self::AMBIGUOUS_IDENTITY_REMEDY
                 );
                 continue;
             }
@@ -1533,6 +1530,42 @@ final class AdapterSources {
     /** A declaration value as it appears in a basis string, never trusted to be a string. */
     private static function render_value($value): string {
         return is_string($value) ? "'" . $value . "'" : var_export($value, true);
+    }
+
+    /**
+     * One adapter, one name — asserted for a manifest this scan did not read.
+     *
+     * DUO-3314 refuses a disagreeing declared name for the SITE source inside
+     * scan(), where the file is opened. The SHIPPED source is not read there at
+     * all (see declared_names(): a repository with no adapters/ pays no decode),
+     * so its manifests reach Policy::load() with the same disagreement
+     * unrefused. That call is this method: the identical rule, stated in the
+     * identical sentence, applied at the one point on the shipped path where
+     * both names are in hand. Sharing the message rather than writing a second
+     * one is the whole point — two hand-written copies of the sentence that
+     * TEACHES this rule would eventually teach two different rules.
+     */
+    public static function assert_declared_name(array $manifest, string $name, string $source, string $path): void {
+        $declared = $manifest['name'] ?? null;
+        if (!is_string($declared) || $declared !== $name) {
+            throw new \RuntimeException(self::ambiguous_identity_message($source, $path, $declared, $name));
+        }
+    }
+
+    /** The remedy REFUSAL_AMBIGUOUS_IDENTITY rows carry, kept beside its message. */
+    private const AMBIGUOUS_IDENTITY_REMEDY = 'make the declared name match the file name';
+
+    /** The one ambiguous-identity sentence, built once for every adapter source. */
+    private static function ambiguous_identity_message(
+        string $source,
+        string $path,
+        $declared,
+        string $name
+    ): string {
+        return "duo: $source adapter '$path' declares name " . self::render($declared)
+            . ' but its file name is ' . self::render($name) . ' — a pin names the file while every '
+            . 'downstream identity (dispositions, digests, diagnostics) keys off the declared name, so the '
+            . 'two disagreeing is ambiguous identity. Make the declared name match the file name';
     }
 
     /**

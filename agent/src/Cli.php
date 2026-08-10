@@ -2034,7 +2034,13 @@ final class Cli {
                 $manifests = [];
                 foreach (glob(rtrim($dir, '/') . '/*.json') ?: [] as $file) {
                     if (basename($file) !== 'dispositions.json') {
-                        $manifests[] = Canon::decode(Canon::read_file($file));
+                        $manifest = Canon::decode(Canon::read_file($file));
+                        // DUO-3371: this path loads the library without Policy::load(),
+                        // so it must hold the same name==basename rule itself — a
+                        // mismatch otherwise surfaces as a malformed registry claim
+                        // that never says the name field is wrong.
+                        AdapterSources::assert_declared_name($manifest, basename($file, '.json'), AdapterSources::SHIPPED, $file);
+                        $manifests[] = $manifest;
                     }
                 }
                 $registry = CapabilityRegistry::load($dir, $dispositions, $manifests);

@@ -102,7 +102,11 @@ function option_records(array $overrides): string {
 $manifestDir = "$tmp/manifests";
 mkdir($manifestDir, 0777, true);
 copy("$root/manifests/core.json", "$manifestDir/core.json");
+// Both fixture adapters carry the name their file already carries: DUO-3371
+// refuses a manifest whose declared name is not its file basename, and a
+// nameless manifest is that refusal's degenerate case.
 put("$manifestDir/duo-scope-fixture.json", Canon::encode([
+    'name' => 'duo-scope-fixture',
     'post_types' => [
         'duo_parent' => ['class' => 'authored', 'children' => ['duo_child']],
         'duo_child' => ['class' => 'authored'],
@@ -114,6 +118,7 @@ put("$manifestDir/duo-scope-fixture.json", Canon::encode([
 // Kept in its OWN manifest so the unpinning experiment below can drop the
 // parent/child declaration while the tree it compiles stays byte-identical.
 put("$manifestDir/duo-scope-taxonomy.json", Canon::encode([
+    'name' => 'duo-scope-taxonomy',
     'taxonomies' => [
         'duo_link' => ['object_keyspace' => 'term'],
     ],
