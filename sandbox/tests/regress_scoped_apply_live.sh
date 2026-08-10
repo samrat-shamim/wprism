@@ -240,8 +240,9 @@ target_boundary_digest() {
   shasum -a 256 "$file" | awk '{print $1}'
 }
 
-# A terminal rotation is allowed to replace the active session and retain the
-# old one under its immutable archive key.  Everything else in this digest
+# A terminal rotation is allowed to replace the active session, retain the old
+# one under its immutable archive key, and advance promotion-lock audit
+# generation. Authored/plugin state, identity/base maps, and generic apply debt
 # must remain byte-stable across a clean rotation/replay.
 target_non_terminal_digest() {
   local file="$TMP/non-terminal-$RANDOM.txt"
@@ -250,7 +251,7 @@ target_non_terminal_digest() {
     SELECT 'option', option_name, option_value FROM wp_options WHERE option_name IN ('duo_agency_project_index','_transient_duo_agency_project_cache','_transient_timeout_duo_agency_project_cache') ORDER BY option_name;
     SELECT 'map', uuid, entity_type, id_kind, local_id FROM wp_duo_map ORDER BY uuid, id_kind;
     SELECT 'state', uuid, entity_type, content_hash FROM wp_duo_state ORDER BY uuid;
-    SELECT 'kv', k, v FROM wp_duo_kv WHERE k <> 'scoped_apply_session' AND k NOT LIKE 'scoped_apply_terminal:%' ORDER BY k;
+    SELECT 'kv', k, v FROM wp_duo_kv WHERE k IN ('applied_revision','apply_in_progress') OR k LIKE 'regen_pending:%' ORDER BY k;
   " --skip-column-names >"$file"
   shasum -a 256 "$file" | awk '{print $1}'
 }
