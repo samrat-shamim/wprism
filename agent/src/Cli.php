@@ -2167,11 +2167,18 @@ final class Cli {
                 $row['source'],
                 $row['trust_tier'],
                 $row['certification'] ?? 'no-registry',
-                $row['path']
+                // A VALID bundle from an ESC-named plugin directory is the
+                // one row type the refused/shadowed wraps did not cover —
+                // the attacker's best move is a perfectly well-formed
+                // bundle, so the installed row renders too.
+                AdapterSources::render_untrusted($row['path'])
             ));
-            WP_CLI::line('          tier basis: ' . $row['tier_basis']);
+            WP_CLI::line('          tier basis: ' . AdapterSources::render_untrusted($row['tier_basis']));
             if ($row['grammar']['message'] !== null) {
-                WP_CLI::line('          ' . $row['grammar']['message']);
+                // Engine prose, but it interpolates DECLARED tokens (an
+                // action name, a field type) verbatim — the same untrusted
+                // bytes as the basis beside it.
+                WP_CLI::line('          ' . AdapterSources::render_untrusted($row['grammar']['message']));
             }
         }
         if ($survey['adapters'] === []) {

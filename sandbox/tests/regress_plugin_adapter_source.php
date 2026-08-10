@@ -1593,6 +1593,88 @@ check(
     'and that path is likewise exact in the document, so it still names the file an operator has to go delete'
 );
 
+// The INSTALLED row was the one row type the wraps above did not cover — a
+// perfectly VALID bundle from an ESC-named plugin directory reaches the
+// terminal through the adapter table's own `path` column, and its
+// `tier_basis` (computed before any grammar verdict, so unvalidated by
+// construction) sits beside `trust_tier`, the highest-value forgery target
+// on the row. The attacker's best move is a well-formed bundle; this pins
+// that the row for a SUCCESSFUL install renders too.
+$validDirEscape = "okplug\x1b[2Jx";
+$validInstalled = child([
+    'plugins' => plugins_dir('render-installed', [
+        $validDirEscape => ['bundle' => adapter('escrowed-widget', [
+            'plugin' => $validDirEscape . '/okplug.php',
+            'version_range' => ['max' => '9.0.0', 'min' => '1.0.0'],
+            'actions' => [[
+                'kind' => 'native',
+                'action' => 'transient.delete',
+                'args' => ['name' => "seen\x1b[2J\x1b[1;31mCERTIFIED\x1b[0m"],
+                'triggers' => ['option:escrowed_widget_layout'],
+                'effects' => [],
+            ]],
+        ])],
+    ]),
+    'active' => [$validDirEscape . '/okplug.php'],
+    'repo' => null,
+    'mode' => 'survey_cli',
+]);
+$installedRows = array_column((array) ($validInstalled['document']['adapters'] ?? []), 'name');
+check(
+    in_array('escrowed-widget', $installedRows, true),
+    'the ESC-directory bundle really is INSTALLED — the fixture drives the adapter-table row, not a refusal'
+);
+check(
+    strcspn((string) ($validInstalled['text'] ?? ''), "\x1b\x00\x07")
+        === strlen((string) ($validInstalled['text'] ?? '')),
+    'a VALID bundle installed from an ESC-named plugin directory renders zero escape bytes — the installed '
+    . 'row\'s path and tier_basis go through the renderer like every refused and shadowed row already did'
+);
+check(
+    str_contains((string) json_encode($validInstalled['document'] ?? [], JSON_UNESCAPED_SLASHES), 'okplug'),
+    'while the document keeps the raw path bytes for correlation, as everywhere else'
+);
+
+// tier_basis is the second untrusted string on that row, and it needs its own
+// vector: the basis interpolates the DECLARED action name, which
+// tier_decision() reads before any grammar verdict — so an ESC-bearing action
+// name reaches the basis even though grammar will refuse the declaration a
+// moment later (the row still prints, with its grammar error beside it).
+$basisVector = child([
+    'plugins' => plugins_dir('render-basis', [
+        'basisplug' => ['bundle' => adapter('basis-widget', [
+            'plugin' => 'basisplug/basisplug.php',
+            'version_range' => ['max' => '9.0.0', 'min' => '1.0.0'],
+            'actions' => [[
+                'kind' => 'native',
+                'action' => "do\x1b[2J\x1b[1;31mCERTIFIED\x1b[0m",
+                'args' => [],
+                'triggers' => ['option:basis_widget_layout'],
+                'effects' => [],
+            ]],
+        ])],
+    ]),
+    'active' => ['basisplug/basisplug.php'],
+    'repo' => null,
+    'mode' => 'survey_cli',
+]);
+$basisRow = null;
+foreach ((array) ($basisVector['document']['adapters'] ?? []) as $candidateRow) {
+    if (($candidateRow['name'] ?? null) === 'basis-widget') {
+        $basisRow = $candidateRow;
+    }
+}
+check(
+    is_array($basisRow) && str_contains((string) ($basisRow['tier_basis'] ?? ''), "\x1b"),
+    'the fixture manufactured what it claims: the DOCUMENT row\'s tier_basis really carries the raw ESC bytes'
+);
+check(
+    strcspn((string) ($basisVector['text'] ?? ''), "\x1b\x00\x07")
+        === strlen((string) ($basisVector['text'] ?? '')),
+    'and the RENDERED tier basis line — sitting beside trust_tier, the highest-value forgery target on the '
+    . 'row — carries zero escape bytes'
+);
+
 // The third channel, and the one the other two do not reach: a plugin
 // DIRECTORY whose own name carries ESC bytes puts them in the middle of every
 // repo-relative path this scan builds — including the paths interpolated into

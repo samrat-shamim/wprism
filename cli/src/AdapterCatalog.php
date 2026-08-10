@@ -727,11 +727,11 @@ final class AdapterCatalog {
                         : (string) ($row['disposition_status'] ?? ($row['certification'] === null
                             ? 'no-registry'
                             : 'unreviewed')),
-                    $row['path']
+                    AdapterSources::render_untrusted($row['path'])
                 );
-                echo '          tier basis: ' . $row['tier_basis'] . "\n";
+                echo '          tier basis: ' . AdapterSources::render_untrusted($row['tier_basis']) . "\n";
                 if ($row['grammar']['message'] !== null) {
-                    echo '          ' . $row['grammar']['message'] . "\n";
+                    echo '          ' . AdapterSources::render_untrusted($row['grammar']['message']) . "\n";
                 }
             }
             if ($report['adapters'] === []) {
@@ -846,7 +846,7 @@ final class AdapterCatalog {
     /** @param array<string,mixed> $row */
     private static function render_adapter(array $row): void {
         echo "\nADAPTER {$row['name']}\n";
-        echo "  source:            {$row['source']} ({$row['path']})\n";
+        echo '  source:            ' . $row['source'] . ' (' . AdapterSources::render_untrusted($row['path']) . ")\n";
         echo "  sha256:            {$row['sha256']}\n";
         echo "  trust_tier:        {$row['trust_tier']}\n";
         echo "  tier_basis:        {$row['tier_basis']}\n";
