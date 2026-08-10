@@ -734,6 +734,22 @@ expect_throw(
     'already declared by the shipped manifest',
     'a site adapter is refused when a shipped manifest DECLARES that name under a different file name — two adapters cannot answer to one name'
 );
+// DUO-3387: #167 collapsed the DUO-3153 two-branch (site-vs-site / site-vs-
+// shipped) collision into this single site-vs-shipped check, so "shipped" is
+// now structurally always correct rather than a fallible hardcoded word. What
+// still needs pinning is that the refusal names the ACTUAL colliding file,
+// looked up from the shipped declared-name index ($shippedNames[$name]),
+// NOT a hardcoded or wrong filename — a regression that dropped the lookup or
+// named the site file would keep the static phrase above but move this needle.
+$collisionMsg = message_of(fn() => Policy::load(
+    fresh_site(['renamed-file'], ['acme-widget' => site_adapter('acme-widget')])
+));
+check(
+    str_contains($collisionMsg, "already declared by the shipped manifest 'renamed-file'")
+        && str_contains($collisionMsg, "claims the name 'acme-widget'"),
+    "the cross-source collision refusal names the SPECIFIC shipped file it collides with, "
+    . "derived from the shipped declared-name index, not a hardcoded origin ($collisionMsg)"
+);
 putenv("DUO_MANIFESTS_DIR=$shippedDir");
 // The pins above never name the offending adapter: discovery scans whole
 // sources, so a broken installation surfaces on the next command rather than
