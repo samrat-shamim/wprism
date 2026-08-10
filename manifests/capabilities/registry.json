@@ -1207,7 +1207,7 @@
             ]
         },
         "the-events-calendar": {
-            "adapter_digest": "721d14e71c436cf91814f9566a0270e830ab92832598606a39265f71eb0750a7",
+            "adapter_digest": "e4f6f3152442ca8269c5adf983e329c25fb9b76025f179d443ef0064aa00fc3c",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "experimental"

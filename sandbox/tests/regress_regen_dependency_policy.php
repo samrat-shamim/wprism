@@ -17,7 +17,12 @@
  * in this codebase, none of which get a FakeWpdb offline harness (see
  * regress_snapshot_meta.sh/regress_shipping_zones.sh/regress_collision.sh
  * — all live, docker-based). sandbox/tests/regress_tec_regen.sh is that
- * live proof, including the hard-fail + marker-retry mechanics.
+ * live proof, including the hard-fail + marker-retry mechanics. Nor the
+ * DUO-3360 digest binding of the regenerator FILE (a changed regenerator is a
+ * changed adapter): that row is built by two implementations that cannot call
+ * each other, so it is pinned as one row in
+ * sandbox/tests/regress_actions_providers.php beside the interpreter/provider
+ * entries it mirrors, rather than split across each mechanism's own suite.
  *
  * Exit 0 and "ALL PASSED" on success; any failed check prints "FAIL: ..."
  * and the script exits 1.

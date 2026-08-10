@@ -4,7 +4,11 @@
  * LOAD-TIME half: the structured `actions`/`providers` manifest grammar, the
  * retirement of the free-form `rebuilders` channel, the effect inventory the
  * new channel feeds, the bytes the shipped adapters actually declare, and the
- * digest that binds manifest-shipped provider code to its adapter identity.
+ * digest that binds manifest-shipped code to its adapter identity — provider
+ * files (DUO-3338) and, on the same terms and in the same row, regenerator
+ * files (DUO-3360). The identity row lives here rather than beside each
+ * mechanism because it is ONE row built by TWO implementations that cannot
+ * call each other; splitting its coverage is how they would drift apart.
  *
  * The regression this exists for is concrete and was live until this change:
  * a manifest could carry `rebuilders: [{"command": "eval '<php>'"}]` and Apply
@@ -96,15 +100,18 @@ function expect_throw(callable $fn, string $needle, string $msg): void {
 
 /**
  * Fresh scratch manifests dir for one group, optionally with real
- * manifest-shipped provider files under providers/ — the exact layout
- * Providers::manifest_provider() and both digest implementations resolve.
+ * manifest-shipped provider files under providers/ and regenerator files under
+ * regenerators/ — the exact layout Providers::manifest_provider(),
+ * Policy::regenerators(), and both digest implementations resolve.
  *
  * @param array<string, array|string> $files manifest name => decoded manifest or raw JSON
  * @param array<string, string> $providers provider id => PHP source
+ * @param array<string, string> $regenerators regenerator name => PHP source
  */
-function fresh_manifests_dir(array $files, array $providers = []): string {
+function fresh_manifests_dir(array $files, array $providers = [], array $regenerators = []): string {
     $root = sys_get_temp_dir() . '/duo_regress_actions_providers_' . bin2hex(random_bytes(4));
     mkdir($root . '/providers', 0777, true);
+    mkdir($root . '/regenerators', 0777, true);
     foreach ($files as $name => $content) {
         Canon::write_file(
             "$root/$name.json",
@@ -114,11 +121,16 @@ function fresh_manifests_dir(array $files, array $providers = []): string {
     foreach ($providers as $id => $source) {
         file_put_contents("$root/providers/$id.php", $source);
     }
+    foreach ($regenerators as $name => $source) {
+        file_put_contents("$root/regenerators/$name.php", $source);
+    }
     register_shutdown_function(function () use ($root) {
-        foreach (glob("$root/providers/*") ?: [] as $f) {
-            unlink($f);
+        foreach (['providers', 'regenerators'] as $sub) {
+            foreach (glob("$root/$sub/*") ?: [] as $f) {
+                unlink($f);
+            }
+            @rmdir("$root/$sub");
         }
-        @rmdir("$root/providers");
         foreach (glob("$root/*") ?: [] as $f) {
             if (is_file($f)) {
                 unlink($f);
@@ -819,6 +831,52 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
 }
 check($providerCount === 6, "all six shipped manifest-sourced providers were exercised (found $providerCount)");
 
+// ======================================================================
+echo "\n== the two identity implementations agree over the REAL shipped library ==\n";
+
+// The row builder is private and feeds manifest_hash(); adapter_digest() is a
+// deliberate second implementation of the same row (it must hash a manifest
+// without a compiled repository, so it cannot call in here). Comparing
+// resolved_adapters() to adapter_digest() would prove nothing — the former
+// DELEGATES to the latter — so the pin is the row itself: manifest_rows()'s
+// row, hashed alone (resolved_adapters()' own no-registry fallback formula),
+// must equal adapter_digest()'s answer for every shipped adapter. A key added
+// to one implementation and not the other fails here, over real bytes,
+// including the manifest that ships a regenerator.
+$manifestRows = new \ReflectionMethod(RepositoryCompiler::class, 'manifest_rows');
+$rowDigest = static fn(array $row): string => hash('sha256', Canon::encode($row));
+$declaredRegenerators = [];
+foreach ($shippedPolicies as $name => $shippedPolicy) {
+    $row = $manifestRows->invoke(null, $shippedPolicy)[0];
+    check(
+        $rowDigest($row) === CapabilityRegistry::adapter_digest(
+            $shippedPolicy->manifests[0],
+            $shippedPolicy->manifest_disposition($name),
+            $shipped
+        ),
+        "manifest_rows() and CapabilityRegistry::adapter_digest() build the identical identity row for shipped '$name'"
+    );
+    foreach ($row['regenerators'] ?? [] as $entry) {
+        $declaredRegenerators[$name][] = $entry;
+    }
+}
+// The audit this issue turns on: DUO-3342 retired the WooCommerce lookup
+// regenerator onto the provider contract, so exactly one shipped manifest
+// still declares one. Asserted rather than assumed, so a manifest that adds or
+// drops a regenerator declaration has to come back through this file.
+check(
+    array_keys($declaredRegenerators) === ['the-events-calendar'],
+    'exactly one shipped manifest still declares a regenerator (found: '
+    . (implode(', ', array_keys($declaredRegenerators)) ?: 'none') . ')'
+);
+check(
+    ($declaredRegenerators['the-events-calendar'] ?? null) === [[
+        'name' => 'the-events-calendar',
+        'sha256' => hash_file('sha256', "$shipped/regenerators/the-events-calendar.php"),
+    ]],
+    "and the shipped regenerator file's real bytes are what its identity row carries"
+);
+
 echo "\n== purely declarative adapters keep the pre-change behavior exactly ==\n";
 
 foreach (['acf', 'core', 'contact-form-7'] as $name) {
@@ -895,8 +953,8 @@ check(
 );
 // The bytes are folded in TWO places that cannot call each other (the registry
 // loads without a compiled repository), so the compiler's own row builder is
-// asserted directly rather than only through the digest it feeds.
-$manifestRows = new \ReflectionMethod(RepositoryCompiler::class, 'manifest_rows');
+// asserted directly rather than only through the digest it feeds ($manifestRows
+// is the same reflection handle the real-library agreement pin above uses).
 $row = $manifestRows->invoke(null, $digestPolicyAfter)[0];
 check(
     ($row['providers'] ?? null) === [[
@@ -932,6 +990,159 @@ file_put_contents("$pluginDir/providers/digest-probe.php", $providerSource);
 check(
     RepositoryCompiler::resolved_adapters(Policy::load(null, ['digestplugin']))[0]['digest'] === $pluginBefore,
     'a plugin-sourced provider is NOT file-hashed — its identity anchor is the installed plugin the code half already version-bounds'
+);
+
+// ======================================================================
+echo "\n== digest binding: manifest-shipped regenerator bytes are part of the adapter's identity (DUO-3360) ==\n";
+
+// Same trust boundary as the interpreter and provider entries above:
+// executable code that ships, versions, and pins with its manifest. Until
+// DUO-3360 nothing hashed it, so two regenerator implementations could share
+// one manifest revision's identity — a certified claim could not tell them
+// apart. The fixture declares one regenerator on TWO post types (the entry
+// must appear once) plus a second on a third (count and order are load-
+// bearing: the row is a list, so Canon::encode() preserves order rather than
+// normalizing it), and a fourth post type declares none.
+$regenSource = static fn(string $class): string => "<?php\nnamespace Duo\\Regenerators;\n"
+    . "final class $class {\n    public function __construct(\\Duo\\Policy \$policy) {}\n"
+    . "    public function regenerate(int \$localId): void {}\n}\n";
+$regenDependency = static fn(string $name): array => [
+    'regen_dependency' => [
+        'regenerator' => $name,
+        'verify' => ['table' => 'probe_rows', 'column' => 'post_id'],
+    ],
+];
+// Declaration order is deliberately NOT name order here: `second-regen` is
+// declared first and must still sort second.
+$regenManifest = [
+    'name' => 'digestregen',
+    'spec_version' => DUO_SPEC_VERSION,
+    'plugin' => 'probe/probe.php',
+    'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
+    'post_types' => [
+        'probe_gamma' => $regenDependency('second-regen'),
+        'probe_alpha' => $regenDependency('digest-regen'),
+        'probe_beta' => $regenDependency('digest-regen'),
+        'probe_delta' => ['class' => 'authored'],
+    ],
+];
+// A neighbour pinned in the same load that declares no regenerator at all:
+// the sensitivity check below has to show the perturbation moves the DECLARING
+// manifest's digest and nothing else's.
+$quietManifest = [
+    'name' => 'digestquiet',
+    'spec_version' => DUO_SPEC_VERSION,
+    'post_types' => ['probe_quiet' => ['class' => 'authored']],
+];
+$regenDir = fresh_manifests_dir(
+    ['digestregen' => $regenManifest, 'digestquiet' => $quietManifest],
+    [],
+    ['digest-regen' => $regenSource('DigestRegen'), 'second-regen' => $regenSource('SecondRegen')]
+);
+$regenPins = ['digestregen', 'digestquiet'];
+$regenPolicy = Policy::load(null, $regenPins);
+$regenRow = $manifestRows->invoke(null, $regenPolicy)[0];
+check(
+    ($regenRow['regenerators'] ?? null) === [
+        ['name' => 'digest-regen', 'sha256' => hash_file('sha256', "$regenDir/regenerators/digest-regen.php")],
+        ['name' => 'second-regen', 'sha256' => hash_file('sha256', "$regenDir/regenerators/second-regen.php")],
+    ],
+    'manifest_rows() carries every distinct declared regenerator ONCE, sorted by name, with its real file bytes'
+);
+check(
+    $rowDigest($regenRow) === CapabilityRegistry::adapter_digest($regenPolicy->manifests[0], null, $regenDir),
+    'CapabilityRegistry::adapter_digest() builds the byte-identical row (the two implementations must never split)'
+);
+$regenBefore = RepositoryCompiler::resolved_adapters($regenPolicy)[0]['digest'];
+$quietBefore = RepositoryCompiler::resolved_adapters($regenPolicy)[1]['digest'];
+$regenCombinedBefore = RepositoryCompiler::manifest_hash($regenPolicy);
+check(
+    ($manifestRows->invoke(null, $regenPolicy)[1]['regenerators'] ?? 'absent') === 'absent',
+    'a manifest declaring no regenerator carries no regenerators key at all — the row shape of every existing adapter is untouched'
+);
+
+// Why the entries sort by name instead of keeping discovery order, the way
+// providers[] keeps its authored order: providers[] is a JSON array, so its
+// order IS canonical content, while these names come off a JSON OBJECT whose
+// key order Canon::encode() normalizes away — including inside the `manifest`
+// slot of this very row. Two manifests that differ only by post_types{} key
+// order are the same canonical manifest, so they must be the same adapter.
+$reshuffled = $regenManifest;
+$reshuffled['post_types'] = [
+    'probe_alpha' => $regenDependency('digest-regen'),
+    'probe_delta' => ['class' => 'authored'],
+    'probe_beta' => $regenDependency('digest-regen'),
+    'probe_gamma' => $regenDependency('second-regen'),
+];
+$reshuffledDir = fresh_manifests_dir(
+    ['digestregen' => $reshuffled],
+    [],
+    ['digest-regen' => $regenSource('DigestRegen'), 'second-regen' => $regenSource('SecondRegen')]
+);
+$reshuffledPolicy = Policy::load(null, ['digestregen']);
+check(
+    $reshuffledPolicy->manifests[0] !== $regenPolicy->manifests[0]
+        && Canon::encode($reshuffledPolicy->manifests[0]) === Canon::encode($regenPolicy->manifests[0]),
+    'the reshuffled fixture really does differ only in post_types{} key order (same canonical bytes, different PHP array)'
+);
+check(
+    RepositoryCompiler::resolved_adapters($reshuffledPolicy)[0]['digest'] === $regenBefore
+        && CapabilityRegistry::adapter_digest($reshuffledPolicy->manifests[0], null, $reshuffledDir) === $regenBefore,
+    'and its digest is unchanged in both implementations — a no-op key reshuffle must never move a certified adapter'
+);
+putenv("DUO_MANIFESTS_DIR=$regenDir");
+
+// Only the regenerator file changes; the manifest bytes are untouched.
+file_put_contents("$regenDir/regenerators/digest-regen.php", $regenSource('DigestRegen') . "// drift\n");
+$regenPolicyAfter = Policy::load(null, $regenPins);
+check(
+    $regenPolicyAfter->manifests[0] === $regenPolicy->manifests[0],
+    'the manifest bytes are byte-identical across the two loads — only the regenerator file moved'
+);
+$regenAfter = RepositoryCompiler::resolved_adapters($regenPolicyAfter)[0]['digest'];
+check(
+    $regenAfter !== $regenBefore,
+    'changing manifest-shipped regenerator file BYTES changes the per-adapter digest — a changed regenerator is a changed adapter, not invisible drift'
+);
+$regenMirrorAfter = CapabilityRegistry::adapter_digest($regenPolicyAfter->manifests[0], null, $regenDir);
+check(
+    $regenMirrorAfter !== $regenBefore
+        && $regenMirrorAfter === $regenAfter
+        && $rowDigest($manifestRows->invoke(null, $regenPolicyAfter)[0]) === $regenMirrorAfter,
+    'both implementations move identically — the registry cannot certify bytes the compiler no longer recognizes'
+);
+check(
+    RepositoryCompiler::resolved_adapters($regenPolicyAfter)[1]['digest'] === $quietBefore,
+    'and ONLY the declaring manifest moves — a pinned neighbour that declares no regenerator keeps its digest'
+);
+check(
+    RepositoryCompiler::manifest_hash($regenPolicyAfter) !== $regenCombinedBefore,
+    'the combined manifest_hash() moves too — one notion of identity, exposed both per-adapter and combined'
+);
+check(
+    RepositoryCompiler::resolved_adapters(Policy::load(null, $regenPins))[0]['digest'] === $regenAfter,
+    'the digest is deterministic — identical regenerator bytes re-hash identically across two loads'
+);
+
+// A missing file is Policy::regenerators()' loud refusal to make (`duo
+// manifest-validate` drives it offline, before any apply). This layer records
+// identity, so the entry must stay present with a null hash — a silent skip
+// would let deleting the file leave the adapter's identity unmoved.
+unlink("$regenDir/regenerators/second-regen.php");
+$regenMissingRow = $manifestRows->invoke(null, Policy::load(null, $regenPins))[0];
+check(
+    ($regenMissingRow['regenerators'] ?? null) === [
+        ['name' => 'digest-regen', 'sha256' => hash_file('sha256', "$regenDir/regenerators/digest-regen.php")],
+        ['name' => 'second-regen', 'sha256' => null],
+    ],
+    'a missing regenerator file hashes as null in the identity row rather than silently vanishing from it'
+);
+check(
+    $rowDigest($regenMissingRow) !== $regenAfter
+        && $rowDigest($regenMissingRow) === CapabilityRegistry::adapter_digest(
+            Policy::load(null, $regenPins)->manifests[0], null, $regenDir
+        ),
+    'deleting the file therefore MOVES the digest, identically in both implementations'
 );
 
 // ======================================================================
