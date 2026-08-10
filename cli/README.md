@@ -436,16 +436,13 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   the stable `error` remains, and `details_redacted: true` records the
   refusal. Query- or fragment-bearing absolute URIs are conservatively
   classified as sensitive refusal evidence. Ordinary human mode is unchanged.
-  An expected gate contributes only deliberately public fields. An
-  engine-authored refusal — a single-line `duo: `-prefixed message that is
-  not one of the wrapper families carrying foreign text and passes the
-  sensitivity screen (no secret shapes, logins, or absolute paths) — is
-  public verbatim under `<command>_refused` (DUO-3398), except from the
-  observation commands (`refresh-export`, `scope`), whose refusals stay
-  fully redacted (DUO-3397). Any other
+  An expected gate contributes only deliberately reviewed fields through a
+  typed refusal or an established typed compiler diagnostic. The
+  human-facing `duo: ` prefix is never machine-publication authority: every
   unclassified Throwable contributes none of its message, cause, path,
-  login, or trace and instead sets `details_redacted: true`. Known uncertain-commit and ambiguous-publication
-  refusals explicitly say not to retry or discard retained recovery evidence.
+  login, or trace and instead sets `details_redacted: true` (DUO-3404). Known
+  uncertain-commit and ambiguous-publication refusals explicitly say not to
+  retry or discard retained recovery evidence.
   The host uses the same envelope if environment or driver preflight refuses
   `capture`, `plan`, or `apply` before the agent can run. Integrations must
   branch on the finite `reason_code` (the compatibility `error` has the same

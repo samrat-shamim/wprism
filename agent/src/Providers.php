@@ -628,12 +628,12 @@ final class Providers {
      * threw during diagnosis. That transparency is the intended behavior and is
      * kept — but a third-party exception is unreviewed prose, and nothing stops
      * one embedding an absolute path or a credential it happened to interpolate
-     * into its own error text. This runs that one detail through the SAME
-     * secret/path screen every deliberately public refusal already uses
+     * into its own error text. This runs that one detail through the shared
+     * secret/path screen reviewed typed refusals use
      * (CommandRefusalException::containsSensitivePublicDetail(), i.e.
      * Secrets::hard_match() plus the credential/URI and HOME-dir path shapes) —
-     * mirror of Cli::publishable_refusal()'s DUO-3398 posture and of
-     * bound_receipt_string()'s DUO-3383 `secret` witness — and, ONLY if it
+     * alongside bound_receipt_string()'s DUO-3383 `secret` witness — and,
+     * ONLY if it
      * trips, replaces the whole detail with a bounded, secret-free placeholder.
      * This is a secret/home-dir FLOOR inherited from that shared screen, not a
      * full redaction: a non-home absolute path (`/var/www/…`, `/etc/…`) or a

@@ -19,8 +19,11 @@ final class Cli {
      * whitelist emitted structured output only for compiler diagnostics;
      * every other failure fell through to WP_CLI::error(), so capture and
      * ordinary plan/apply gates returned human stderr to machine callers.
-     * Keep typed diagnostics intact, but put every JSON-mode throwable in
-     * one versioned envelope before WP-CLI can add its human "Error:" layer.
+     * Keep reviewed typed diagnostics intact, but put every JSON-mode
+     * throwable in one versioned envelope before WP-CLI can add its human
+     * "Error:" layer. A human-facing `duo: ` prefix is not JSON authority:
+     * only a typed refusal (or one of the legacy typed diagnostic classes)
+     * may contribute public evidence.
      */
     private static function halt_json_failure(\Throwable $t, array $assoc, string $command): void {
         if (!isset($assoc['json']) && ($assoc['format'] ?? '') !== 'json') {
@@ -54,35 +57,6 @@ final class Cli {
             $message = $t->publicMessage;
             $remediation = $t->remediation;
             $redacted = false;
-        } elseif (self::publishable_refusal($command, $t->getMessage())) {
-            // The engine's own refusal convention: a message deliberately
-            // authored for the operator, prefixed `duo: ` at its throw site
-            // (Deletion::capability(), Policy's validators, dozens more).
-            // Redacting these broke the product's refusal transparency —
-            // observed live as DUO-3398, where the ninja-forms conformance's
-            // parent-deletion refusal ("deletion intent for table:nf3_forms
-            // is unsupported…") surfaced as an unclassified redacted
-            // envelope and the operator was sent to private evidence for a
-            // refusal that WAS the public answer. The message is public;
-            // everything else about the Throwable (class, previous chain,
-            // file, trace) remains private, and the sensitivity screen both
-            // here and in the final pass below still redacts a refusal that
-            // embeds a secret-shaped value.
-            $reasonCode = str_replace('-', '_', $command) . '_refused';
-            $message = $t->getMessage();
-            // Not the generic "inspect private operator evidence" floor: the
-            // whole premise of this branch is that the message IS the public
-            // answer.
-            $remediation = 'the refusal message names the blocker; correct it, then retry the command';
-            $specific = [
-                'error' => $reasonCode,
-                'diagnostics' => [[
-                    'code' => $reasonCode,
-                    'message' => $message,
-                    'remediation' => $remediation,
-                ]],
-            ];
-            $redacted = false;
         } else {
             $reasonCode = str_replace('-', '_', $command) . '_failed';
             $message = "$command refused at an unclassified safety gate";
@@ -95,9 +69,9 @@ final class Cli {
                     'remediation' => $remediation,
                 ]],
             ];
-            // A catch-all Throwable without the engine's own refusal prefix
-            // is private operator evidence.  Never copy its message,
-            // previous chain, file, or trace into public JSON.
+            // Every catch-all Throwable is private operator evidence. Never
+            // copy its message, previous chain, file, or trace into public
+            // JSON; a `duo: ` prefix is a human-rendering convention only.
             $redacted = true;
         }
 
@@ -154,71 +128,6 @@ final class Cli {
         }
         WP_CLI::line($encoded);
         WP_CLI::halt(1);
-    }
-
-    /**
-     * May this Throwable's message be published verbatim in the JSON
-     * refusal envelope?
-     *
-     * The `duo: ` prefix marks a refusal deliberately authored for the
-     * operator — but the prefix alone is not proof of authorship: three
-     * wrapper families re-prefix text the engine does NOT write (a
-     * provider/regenerator's own exit tail per DUO-3282, and wpdb's
-     * last_error on the deletion-guard paths — which Db.php's own header
-     * warns "can echo option/meta payloads"). Those stay redacted here even
-     * though their non-JSON rendering is unchanged. Beyond the shared
-     * sensitivity screen, two extra shapes are excluded from this branch
-     * only (scoped here, not in containsSensitivePublicDetail, so typed
-     * refusal payloads keep their existing semantics): user logins
-     * (`exact login '…'` — cli/README's redaction contract names logins
-     * explicitly, and guard_personal_data() deliberately keeps them
-     * operator-only) and absolute filesystem paths (the shared screen only
-     * catches home-dir shapes). A refusal excluded here falls back to the
-     * fully-redacted envelope — exactly the pre-DUO-3398 behavior, so
-     * fail-closed is never a regression. A multi-line refusal also stays
-     * redacted (the control-byte screen): the loud multi-line gates keep
-     * their non-JSON rendering and are a candidate for typed refusals, not
-     * for this branch.
-     */
-    /**
-     * The commands whose duo:-prefixed raw refusals may publish. This is an
-     * ALLOWLIST, and the rule is contract provenance, not command category:
-     * these are the commands whose reachable refusal messages were audited
-     * value-free at DUO-3398 (one of them load-bearing for the DUO-3328
-     * ninja-forms certification contract). refresh-export and scope are
-     * absent because DUO-3397 deliberately pinned blanket redaction for
-     * them — a fresh reviewed decision this branch does not reverse —
-     * and explain is absent because its own catch declares a stricter
-     * value-free posture than any other command. A command not on this
-     * list is redacted until someone audits it and adds it here WITH its
-     * suite pins; silently inheriting publication is how the DUO-3398
-     * fix-forward incident happened.
-     */
-    private const PUBLIC_REFUSAL_COMMANDS = [
-        'apply', 'capture', 'code-finalize', 'code-stage', 'compile', 'deploy', 'plan',
-    ];
-
-    private static function publishable_refusal(string $command, string $message): bool {
-        if (!in_array($command, self::PUBLIC_REFUSAL_COMMANDS, true)) {
-            return false;
-        }
-        if (!str_starts_with($message, 'duo: ')) {
-            return false;
-        }
-        foreach ([
-            'duo: required manifest action',
-            'duo: batch regenerator',
-            'duo: deletion guard lock',
-        ] as $wrapperPrefix) {
-            if (str_starts_with($message, $wrapperPrefix)) {
-                return false;
-            }
-        }
-        if (preg_match("~\\bexact login '~", $message) === 1
-            || preg_match('~(?:^|[\s"\'(=])(?:[A-Za-z]:[\\\\/]|/)[^\s"\')]+~', substr($message, 5)) === 1) {
-            return false;
-        }
-        return !CommandRefusalException::containsSensitivePublicDetail(['message' => $message]);
     }
 
     private static function refusal_remediation(string $command): string {
