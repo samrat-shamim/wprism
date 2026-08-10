@@ -2,6 +2,13 @@
 namespace Duo;
 
 /**
+ * Signals that an init-owned artifact could not be safely compensated in the
+ * current process. The sealed attempt journal and canonical capture lock must
+ * remain in place so a fresh process can verify and recover the exact tuple.
+ */
+final class InitAttemptRetentionException extends \RuntimeException {}
+
+/**
  * First-run, target-local onboarding for an existing WordPress installation.
  *
  * Discovery is deliberately read-only and produces a content-addressed plan.
@@ -17,6 +24,8 @@ final class Init {
     private const RISK_ROW_LIMIT = 5000;
     private const RISK_BYTE_LIMIT = 8388608;
     private const RISK_BATCH_SIZE = 100;
+    private const ATTEMPT_FILE = '.duo-init-attempt';
+    private const ATTEMPT_NEXT_FILE = '.duo-init-attempt.next';
 
     /** @return array<string,mixed> */
     public static function proposal(string $repo): array {
@@ -40,11 +49,17 @@ final class Init {
         string $repo,
         string $logicalRepo,
         string $rootIdentity,
-        bool $ownsCaptureLock = false
+        bool $ownsCaptureLock = false,
+        bool $ownsInitAttempt = false
     ): array {
         global $wpdb;
         if (!is_object($wpdb)) {
             throw new \RuntimeException('duo: init requires a loaded WordPress database connection');
+        }
+
+        $attempt = self::read_init_attempt($repo);
+        if (!$ownsInitAttempt && $attempt !== null) {
+            return self::interrupted_attempt_proposal($attempt, $repo, $logicalRepo, $rootIdentity);
         }
 
         $git = self::git_probe($repo);
@@ -390,6 +405,819 @@ final class Init {
         return [Policy::load(null, $pins, false, $repo), $pins];
     }
 
+    /** @return ?array<string,mixed> */
+    private static function read_init_attempt(string $repo): ?array {
+        $path = rtrim($repo, '/') . '/' . self::ATTEMPT_FILE;
+        $nextPath = rtrim($repo, '/') . '/' . self::ATTEMPT_NEXT_FILE;
+        $hasAttempt = file_exists($path) || is_link($path);
+        $hasNext = file_exists($nextPath) || is_link($nextPath);
+        if (!$hasAttempt && $hasNext) {
+            throw new \RuntimeException(
+                'duo: interrupted init next-record exists without its canonical sealed attempt; retained it'
+            );
+        }
+        if (!$hasAttempt) {
+            return null;
+        }
+        $record = self::read_init_attempt_file($path, self::ATTEMPT_FILE);
+        if ($hasNext) {
+            $next = self::read_init_attempt_file($nextPath, self::ATTEMPT_NEXT_FILE);
+            self::assert_init_attempt_transition($record, $next);
+        }
+        return $record;
+    }
+
+    /** @return array<string,mixed> */
+    private static function read_init_attempt_file(string $path, string $label): array {
+        if (is_link($path) || !is_file($path)) {
+            throw new \RuntimeException("duo: interrupted init $label is not an ordinary regular file");
+        }
+        $record = Canon::decode(Canon::read_file($path));
+        if (!is_array($record)) {
+            throw new \RuntimeException("duo: interrupted init $label is not an object");
+        }
+        $seal = $record['record_sha256'] ?? null;
+        $payload = $record;
+        unset($payload['record_sha256']);
+        $expectedKeys = ['format', 'owned', 'phase', 'proposal', 'repository', 'repository_identity'];
+        $keys = array_keys($payload);
+        sort($keys, SORT_STRING);
+        sort($expectedKeys, SORT_STRING);
+        if (!is_string($seal) || preg_match('/^[a-f0-9]{64}$/D', $seal) !== 1
+            || $keys !== $expectedKeys
+            || !hash_equals($seal, hash('sha256', Canon::encode($payload)))
+            || ($record['format'] ?? null) !== 'duo-init-attempt/v1'
+            || !is_string($record['phase'] ?? null)
+            || !is_array($record['owned'] ?? null)
+            || !is_array($record['proposal'] ?? null)
+            || !is_string($record['repository'] ?? null)
+            || !is_string($record['repository_identity'] ?? null)) {
+            throw new \RuntimeException("duo: interrupted init $label is malformed or unsealed");
+        }
+        return $record;
+    }
+
+    /** @param array<string,mixed> $current @param array<string,mixed> $next */
+    private static function assert_init_attempt_transition(array $current, array $next): void {
+        $phases = [
+            'preparing', 'locked', 'git-planned', 'git-reserved', 'git-ready',
+            'gitignore-planned', 'gitignore-ready', 'code-stage-planned',
+            'code-staging', 'code-staged', 'code-root-planned',
+            'code-root-reserved', 'code-publish-planned', 'code-ready',
+            'config-planned', 'config-ready', 'media-planned', 'state-planned',
+            'capture-ready', 'capture-payload-ready',
+        ];
+        $currentRank = array_search($current['phase'] ?? null, $phases, true);
+        $nextRank = array_search($next['phase'] ?? null, $phases, true);
+        $payloadRefresh = ($current['phase'] ?? null) === 'capture-payload-ready'
+            && ($next['phase'] ?? null) === 'capture-payload-ready';
+        if (!is_int($currentRank) || !is_int($nextRank)
+            || (!$payloadRefresh && $nextRank <= $currentRank)
+            || ($current['format'] ?? null) !== ($next['format'] ?? null)
+            || ($current['repository'] ?? null) !== ($next['repository'] ?? null)
+            || ($current['repository_identity'] ?? null) !== ($next['repository_identity'] ?? null)
+            || Canon::encode($current['proposal'] ?? null) !== Canon::encode($next['proposal'] ?? null)) {
+            throw new \RuntimeException(
+                'duo: interrupted init next-record is not a forward transition of its canonical sealed attempt'
+            );
+        }
+    }
+
+    /** @param array<string,mixed> $attempt @return array<string,mixed> */
+    private static function interrupted_attempt_proposal(
+        array $attempt,
+        string $repo,
+        string $logicalRepo,
+        string $rootIdentity
+    ): array {
+        if (!hash_equals((string) $attempt['repository'], $logicalRepo)
+            || !hash_equals((string) $attempt['repository_identity'], $rootIdentity)) {
+            throw new \RuntimeException('duo: interrupted init record belongs to a different repository identity');
+        }
+        $proposal = $attempt['proposal'];
+        if (($proposal['format'] ?? null) !== self::FORMAT
+            || ($proposal['ready'] ?? null) !== true
+            || !is_array($proposal['unsupported'] ?? null)
+            || $proposal['unsupported'] !== []) {
+            throw new \RuntimeException('duo: interrupted init record does not contain a confirmable original proposal');
+        }
+        $manualReason = self::interrupted_attempt_manual_recovery_reason($repo, $attempt);
+        $stateDir = rtrim($repo, '/') . '/state';
+        $intent = Publish::intent_record($stateDir);
+        $receiptRecord = Publish::receipt_record($stateDir);
+        $committed = $receiptRecord !== null;
+        if (!$committed && is_array($intent) && ($intent['phase'] ?? null) === 'committing') {
+            $committed = Capture::publication_commit_status($stateDir, $intent);
+        }
+        if ($manualReason !== null) {
+            $proposal['state']['recovery'] = 'manual-interrupted-init-recovery';
+            $proposal['unsupported'][] = [
+                'code' => 'interrupted_init_manual_recovery',
+                'extension' => $logicalRepo,
+                'kind' => 'repository',
+                'reason' => $manualReason,
+                'remediation' => 'keep the repository quiesced and preserve the sealed journal, lock, and complete partial root; follow the documented archive-and-recreate manual recovery procedure',
+            ];
+            $proposal['ready'] = false;
+        } elseif ($committed) {
+            $proposal['state']['recovery'] = 'verify-interrupted-committed-init';
+            $proposal['advisories'][] = [
+                'code' => 'interrupted_committed_init_finalization',
+                'extension' => $logicalRepo,
+                'kind' => 'repository',
+                'reason' => 'the interrupted attempt appears to have durable committed-state proof but did not clear its sealed init journal',
+                'remediation' => 'confirm this verification plan to re-prove the committed state/code/Git tuple; only exact proof permits clearing the sealed journal, otherwise every recovery artifact is retained',
+            ];
+        } else {
+            $proposal['state']['recovery'] = 'verify-interrupted-precommit-init';
+            $proposal['advisories'][] = [
+                'code' => 'interrupted_init_recovery',
+                'extension' => $logicalRepo,
+                'kind' => 'repository',
+                'reason' => 'a sealed prior init attempt ended before it returned a completed baseline and requires exact ownership verification',
+                'remediation' => 'confirm this verification plan to roll back only payloads carrying complete deletion authority; partial or ambiguous artifacts are retained for the documented manual recovery procedure',
+            ];
+        }
+        usort($proposal['advisories'], static function (array $a, array $b): int {
+            return [$a['kind'], $a['extension'], $a['code']] <=> [$b['kind'], $b['extension'], $b['code']];
+        });
+        unset($proposal['digest']);
+        $proposal['digest'] = hash('sha256', Canon::encode($proposal));
+        return $proposal;
+    }
+
+    /**
+     * A read-only preflight for shapes that cannot authorize automatic
+     * deletion. Confirmation still re-verifies every complete manifest under
+     * the publication lock; this classifier only prevents the public plan
+     * from promising a recovery that the sealed journal cannot prove.
+     *
+     * @param array<string,mixed> $attempt
+     */
+    private static function interrupted_attempt_manual_recovery_reason(string $repo, array $attempt): ?string {
+        $owned = (array) ($attempt['owned'] ?? []);
+        $stateDir = rtrim($repo, '/') . '/state';
+        $present = static fn(string $path): bool => file_exists($path) || is_link($path);
+        $manifestMismatch = static function (
+            string $path,
+            mixed $manifest,
+            string $label
+        ) use ($present): ?string {
+            if (!$present($path)) {
+                return null;
+            }
+            if (!is_array($manifest)) {
+                return "the sealed attempt has a present $label without a complete ownership manifest";
+            }
+            try {
+                $actual = Publish::tree_ownership_manifest($path);
+            } catch (\Throwable $failure) {
+                return "the interrupted-init $label cannot be enumerated for manifest verification";
+            }
+            if (Canon::encode($actual) !== Canon::encode($manifest)) {
+                return "the interrupted-init $label no longer matches its sealed ownership manifest";
+            }
+            return null;
+        };
+        $identityMismatch = static function (
+            string $path,
+            mixed $identity,
+            string $label
+        ) use ($present): ?string {
+            if (!$present($path)) {
+                return null;
+            }
+            if (!is_string($identity)) {
+                return "the sealed attempt has a present $label without a complete ownership identity";
+            }
+            try {
+                $actual = self::directory_identity($path, $label);
+            } catch (\Throwable $failure) {
+                return "the interrupted-init $label cannot be enumerated for ownership verification";
+            }
+            if (!hash_equals($identity, $actual)) {
+                return "the interrupted-init $label no longer matches its sealed ownership identity";
+            }
+            return null;
+        };
+        $entries = @scandir($repo);
+        if ($entries === false) {
+            return 'the interrupted-init repository root cannot be enumerated for recovery artifacts';
+        }
+        foreach ($entries as $entry) {
+            if (str_contains($entry, '.duo-claim-')) {
+                return 'the interrupted-init repository contains an unjournaled cleanup claim artifact';
+            }
+            if (str_starts_with($entry, 'state.capture-intent.tmp.')
+                || str_starts_with($entry, 'state.capture-receipt.tmp.')) {
+                return 'the interrupted-init repository contains an unbound capture record temporary artifact';
+            }
+            $knownInitArtifact = $entry === self::ATTEMPT_FILE
+                || $entry === self::ATTEMPT_NEXT_FILE
+                || str_starts_with($entry, '.duo-init-code-');
+            if (str_contains($entry, '.duo-init-') && !$knownInitArtifact) {
+                return 'the interrupted-init repository contains an unjournaled Init temporary or claim artifact';
+            }
+        }
+        $recordPaths = [
+            Publish::intent_path($stateDir),
+            Publish::intent_path($stateDir) . '.previous',
+            Publish::intent_path($stateDir) . '.next',
+            Publish::receipt_path($stateDir),
+            Publish::receipt_path($stateDir) . '.previous',
+            Publish::receipt_path($stateDir) . '.next',
+        ];
+        $hasPublicationRecord = false;
+        foreach ($recordPaths as $recordPath) {
+            if ($present($recordPath)) {
+                $hasPublicationRecord = true;
+                break;
+            }
+        }
+        if ($hasPublicationRecord
+            && (!is_array($owned['state_staging_manifest'] ?? null)
+                || !is_array($owned['state_reservation_manifest'] ?? null))) {
+            return 'the sealed attempt has publication records without complete state deletion manifests';
+        }
+        if ($present(Publish::backup_dir($stateDir)) && !$hasPublicationRecord) {
+            return 'the sealed attempt has a state backup without its publication record';
+        }
+        if ($present(Publish::stage_dir($stateDir))
+            && (is_link(Publish::stage_dir($stateDir)) || !is_dir(Publish::stage_dir($stateDir)))) {
+            return 'the sealed attempt has a non-directory state staging boundary';
+        }
+        if ($present(Publish::stage_dir($stateDir))
+            && !is_array($owned['state_staging_manifest'] ?? null)) {
+            return 'the sealed attempt has a partial state staging root without a complete deletion manifest';
+        }
+        if ($present($stateDir) && (is_link($stateDir) || !is_dir($stateDir))) {
+            return 'the sealed attempt has a non-directory state reservation boundary';
+        }
+        if ($present($stateDir) && !$hasPublicationRecord
+            && !is_string($owned['state_identity'] ?? null)) {
+            return 'the sealed attempt has an incomplete state reservation without a complete ownership manifest';
+        }
+
+        // A sealed journal is deletion authority only for the exact tree it
+        // described.  A crash during strict cleanup can leave a partial tree
+        // while the journal and its manifest remain intact; do this check in
+        // the read-only proposal path so the operator never receives a
+        // confirmable plan that will fail only after recovery starts.
+        if ($present(Publish::stage_dir($stateDir))) {
+            $reason = $manifestMismatch(
+                Publish::stage_dir($stateDir),
+                $owned['state_staging_manifest'] ?? null,
+                'state capture staging root'
+            );
+            if ($reason !== null) {
+                return $reason;
+            }
+        }
+        if ($present(Publish::backup_dir($stateDir))) {
+            $reason = $manifestMismatch(
+                Publish::backup_dir($stateDir),
+                $owned['state_reservation_manifest'] ?? null,
+                'state capture backup root'
+            );
+            if ($reason !== null) {
+                return $reason;
+            }
+        }
+        if ($present($stateDir)) {
+            $stateCandidates = [];
+            if (is_array($owned['state_staging_manifest'] ?? null)) {
+                $stateCandidates[] = $owned['state_staging_manifest'];
+            }
+            if (is_array($owned['state_reservation_manifest'] ?? null)) {
+                $stateCandidates[] = $owned['state_reservation_manifest'];
+            }
+            if ($stateCandidates !== []) {
+                try {
+                    $actualState = Publish::tree_ownership_manifest($stateDir);
+                } catch (\Throwable $failure) {
+                    return 'the interrupted-init published state root cannot be enumerated for manifest verification';
+                }
+                $matchesManifest = false;
+                foreach ($stateCandidates as $candidateManifest) {
+                    if (Canon::encode($actualState) === Canon::encode($candidateManifest)) {
+                        $matchesManifest = true;
+                        break;
+                    }
+                }
+                if (!$matchesManifest) {
+                    return 'the interrupted-init state root no longer matches any sealed ownership manifest';
+                }
+            } else {
+                $reason = $identityMismatch(
+                    $stateDir,
+                    $owned['state_identity'] ?? null,
+                    'state reservation root'
+                );
+                if ($reason !== null) {
+                    return $reason;
+                }
+            }
+        }
+
+        $mediaDir = rtrim($repo, '/') . '/media';
+        if ($present($mediaDir) && (is_link($mediaDir) || !is_dir($mediaDir))) {
+            return 'the sealed attempt has a non-directory media publication boundary';
+        }
+        if ($present($mediaDir)
+            && !is_array($owned['media_manifest'] ?? null)
+            && !is_string($owned['media_identity'] ?? null)) {
+            return 'the sealed attempt has a partial media root without a complete deletion manifest';
+        }
+        if ($present($mediaDir)) {
+            $reason = is_array($owned['media_manifest'] ?? null)
+                ? $manifestMismatch($mediaDir, $owned['media_manifest'], 'media publication root')
+                : $identityMismatch($mediaDir, $owned['media_identity'] ?? null, 'media publication root');
+            if ($reason !== null) {
+                return $reason;
+            }
+        }
+        $codeDir = rtrim($repo, '/') . '/code';
+        if ($present($codeDir) && (is_link($codeDir) || !is_dir($codeDir))) {
+            return 'the sealed attempt has a non-directory code publication boundary';
+        }
+        if ($present($codeDir)
+            && !is_string($owned['code_identity'] ?? null)
+            && !is_string($owned['code_root_empty_identity'] ?? null)) {
+            return 'the sealed attempt has an incomplete code root without a complete descriptor';
+        }
+        if ($present($codeDir)) {
+            $reason = $identityMismatch(
+                $codeDir,
+                is_string($owned['code_identity'] ?? null)
+                    ? $owned['code_identity']
+                    : ($owned['code_root_empty_identity'] ?? null),
+                'code publication root'
+            );
+            if ($reason !== null) {
+                return $reason;
+            }
+        }
+        $stage = $owned['code_stage'] ?? null;
+        if (is_string($stage) && $present($stage) && (is_link($stage) || !is_dir($stage))) {
+            return 'the sealed attempt has a non-directory code staging boundary';
+        }
+        if (is_string($stage) && $present($stage)
+            && !is_string($owned['code_stage_identity'] ?? null)) {
+            return 'the sealed attempt has a partial code staging root without a complete descriptor';
+        }
+        if (is_string($stage) && $present($stage)) {
+            $reason = $identityMismatch($stage, $owned['code_stage_identity'] ?? null, 'code staging root');
+            if ($reason !== null) {
+                return $reason;
+            }
+        }
+
+        $siteFile = rtrim($repo, '/') . '/site.duo.json';
+        if ($present($siteFile) && (is_link($siteFile) || !is_file($siteFile))) {
+            return 'the sealed attempt has a non-regular site.duo.json boundary';
+        }
+        if ($present($siteFile)
+            && !is_array($owned['site_publication'] ?? null)
+            && !is_array($owned['site_plan'] ?? null)) {
+            return 'the sealed attempt has an unbound site.duo.json';
+        }
+        $gitignore = rtrim($repo, '/') . '/.gitignore';
+        if ($present($gitignore) && (is_link($gitignore) || !is_file($gitignore))) {
+            return 'the sealed attempt has a non-regular .gitignore boundary';
+        }
+        if ($present($gitignore)
+            && !is_array($owned['gitignore_publication'] ?? null)
+            && !is_array($owned['gitignore_plan'] ?? null)) {
+            return 'the sealed attempt has an unbound .gitignore';
+        }
+        $gitDir = rtrim($repo, '/') . '/.git';
+        if (($owned['git_created'] ?? false) === true && $present($gitDir)
+            && (is_link($gitDir) || !is_dir($gitDir))) {
+            return 'the sealed attempt has a non-directory Git metadata boundary';
+        }
+        if (($owned['git_created'] ?? false) === true && $present($gitDir)
+            && !is_string($owned['git_identity'] ?? null)
+            && !is_string($owned['git_empty_identity'] ?? null)) {
+            return 'the sealed attempt has incomplete Git metadata without a complete ownership manifest';
+        }
+        return null;
+    }
+
+    /** @param array<string,mixed> $attempt @return array{previous:?string,published:string} */
+    private static function write_init_attempt(
+        string $repo,
+        array $attempt,
+        string $expectedIdentity
+    ): array {
+        unset($attempt['record_sha256']);
+        $attempt['record_sha256'] = hash('sha256', Canon::encode($attempt));
+        $path = rtrim($repo, '/') . '/' . self::ATTEMPT_FILE;
+        $bytes = Canon::encode($attempt);
+        $parent = dirname($path);
+        if ($expectedIdentity === 'absent') {
+            Publish::write_file_fresh(
+                $path,
+                $bytes,
+                self::ATTEMPT_FILE,
+                Publish::directory_ownership_identity($parent)
+            );
+            return ['previous' => null, 'published' => self::regular_file_identity($path, self::ATTEMPT_FILE)];
+        }
+        if (preg_match('/^sha256:[a-f0-9]{64}$/D', $expectedIdentity) !== 1
+            || !hash_equals($expectedIdentity, self::regular_file_identity($path, self::ATTEMPT_FILE))) {
+            throw new \RuntimeException('duo: interrupted init record changed before its durable phase transition');
+        }
+        $tmp = $parent . '/' . self::ATTEMPT_NEXT_FILE;
+        $tmpIdentity = Publish::write_file_fresh(
+            $tmp,
+            $bytes,
+            self::ATTEMPT_FILE . ' transition',
+            Publish::directory_ownership_identity($parent)
+        );
+        try {
+            // Same-filesystem rename is the crash boundary: after a kill the
+            // canonical name contains either the complete prior phase or the
+            // complete next phase, never an absent hidden claim window.
+            self::init_fault_checkpoint('attempt-transition-pre-rename');
+            self::init_fault_checkpoint('attempt-transition-pre-rename-' . (string) $attempt['phase']);
+            if (!@rename($tmp, $path)) {
+                throw new \RuntimeException('duo: interrupted init record phase transition could not be published');
+            }
+            Publish::sync_parent($path);
+        } finally {
+            if (file_exists($tmp) || is_link($tmp)) {
+                Publish::remove_owned_file($tmp, $tmpIdentity, self::ATTEMPT_FILE . ' transition');
+            }
+        }
+        return ['previous' => null, 'published' => self::regular_file_identity($path, self::ATTEMPT_FILE)];
+    }
+
+    /**
+     * Finish a fully sealed fixed-slot journal transition after the recovery
+     * lock is held. The next phase is already content-addressed and was
+     * validated by read_init_attempt(); publishing it makes its completed
+     * payload manifests available to the cleanup authority.
+     *
+     * @param array<string,mixed> $attempt
+     * @param array{previous:?string,published:string} $publication
+     * @return array{0:array<string,mixed>,1:array{previous:?string,published:string}}
+     */
+    private static function resolve_init_attempt_transition(
+        string $repo,
+        array $attempt,
+        array $publication
+    ): array {
+        $path = rtrim($repo, '/') . '/' . self::ATTEMPT_FILE;
+        $nextPath = rtrim($repo, '/') . '/' . self::ATTEMPT_NEXT_FILE;
+        if (!file_exists($nextPath) && !is_link($nextPath)) {
+            return [$attempt, $publication];
+        }
+        $next = self::read_init_attempt_file($nextPath, self::ATTEMPT_NEXT_FILE);
+        self::assert_init_attempt_transition($attempt, $next);
+        if (!hash_equals(
+            (string) $publication['published'],
+            self::regular_file_identity($path, self::ATTEMPT_FILE)
+        )) {
+            throw new \RuntimeException('duo: interrupted init canonical journal changed before transition recovery');
+        }
+        if (!@rename($nextPath, $path)) {
+            throw new \RuntimeException('duo: interrupted init could not publish its sealed next journal phase');
+        }
+        Publish::sync_parent($path);
+        return [
+            $next,
+            ['previous' => null, 'published' => self::regular_file_identity($path, self::ATTEMPT_FILE)],
+        ];
+    }
+
+    /**
+     * Roll back a sealed pre-COMMIT attempt in a fresh process. This path is
+     * deliberately cleanup-only: after it succeeds the host must request and
+     * confirm a new discovery digest, so stale target facts are never reused
+     * as authority for a second capture transaction.
+     *
+     * @param array<string,mixed> $attempt
+     * @param array{previous:?string,published:string} $attemptPublication
+     * @param resource $lock
+     * @return array{outcome:string,revision_hash?:string,descriptor?:array<string,mixed>,lifecycle?:array<string,mixed>}
+     */
+    private static function recover_interrupted_attempt(
+        string $repo,
+        string $logicalRepo,
+        array $rootStat,
+        $lock,
+        array $attempt,
+        array $attemptPublication
+    ): array {
+        self::assert_repository_binding($logicalRepo, $rootStat);
+        $currentAttempt = self::read_init_attempt($repo);
+        if ($currentAttempt === null || Canon::encode($currentAttempt) !== Canon::encode($attempt)) {
+            throw new \RuntimeException('duo: interrupted init record changed before recovery locking');
+        }
+        $stateDir = rtrim($repo, '/') . '/state';
+        Publish::assert_lock_path($lock, $stateDir);
+        $owned = (array) $attempt['owned'];
+        if (is_string($owned['lock_inode'] ?? null)
+            && !hash_equals(
+                (string) $owned['lock_inode'],
+                self::regular_file_inode_identity(Publish::lock_path($stateDir), 'state.capture.lock')
+            )) {
+            throw new \RuntimeException('duo: interrupted init lock identity changed; retained recovery evidence');
+        }
+
+        $intentPath = Publish::intent_path($stateDir);
+        $intentNext = $intentPath . '.next';
+        if (!file_exists($intentPath) && !is_link($intentPath)
+            && !file_exists($intentPath . '.previous') && !is_link($intentPath . '.previous')
+            && (file_exists($intentNext) || is_link($intentNext))) {
+            $stagingManifest = $owned['state_staging_manifest'] ?? null;
+            if (!is_array($stagingManifest)) {
+                throw new \RuntimeException(
+                    'duo: interrupted init retained an unpublished intent without a complete staging manifest; manual recovery is required'
+                );
+            }
+            Publish::recover_initial_unpublished_intent_next($stateDir, $stagingManifest);
+        }
+
+        $recordPaths = [
+            Publish::intent_path($stateDir),
+            Publish::intent_path($stateDir) . '.previous',
+            Publish::intent_path($stateDir) . '.next',
+            Publish::receipt_path($stateDir),
+            Publish::receipt_path($stateDir) . '.previous',
+            Publish::receipt_path($stateDir) . '.next',
+        ];
+        $hasPublicationRecord = false;
+        foreach ($recordPaths as $recordPath) {
+            if (file_exists($recordPath) || is_link($recordPath)) {
+                $hasPublicationRecord = true;
+                break;
+            }
+        }
+        if ($hasPublicationRecord) {
+            $stagingManifest = $owned['state_staging_manifest'] ?? null;
+            $stateReservationManifest = $owned['state_reservation_manifest'] ?? null;
+            if (!is_array($stagingManifest) || !is_array($stateReservationManifest)) {
+                throw new \RuntimeException(
+                    'duo: interrupted init retained a publication record without complete state manifests; manual recovery is required'
+                );
+            }
+            Publish::recover_initial(
+                $stateDir,
+                $stateReservationManifest,
+                $stagingManifest,
+                static function (array $intent) use ($stateDir): bool {
+                    return Capture::publication_commit_status($stateDir, $intent);
+                }
+            );
+        } elseif (file_exists(Publish::backup_dir($stateDir)) || is_link(Publish::backup_dir($stateDir))) {
+            throw new \RuntimeException(
+                'duo: interrupted init retained a backup without a sealed publication record; manual recovery is required'
+            );
+        }
+        if (!$hasPublicationRecord) {
+            Publish::assert_no_record_temps($stateDir);
+        }
+        $receipt = Publish::receipt_record($stateDir);
+        if ($receipt !== null) {
+            $verified = self::assert_interrupted_committed_attempt($repo, $attempt, $receipt);
+            self::remove_init_attempt_records(
+                $repo,
+                $logicalRepo,
+                $attempt,
+                $attemptPublication,
+                true
+            );
+            self::assert_repository_binding($logicalRepo, $rootStat);
+            return ['outcome' => 'committed-finalized'] + $verified;
+        }
+        $staging = Publish::stage_dir($stateDir);
+        if (file_exists($staging) || is_link($staging)) {
+            $stagingManifest = $owned['state_staging_manifest'] ?? null;
+            if (!is_array($stagingManifest)) {
+                throw new \RuntimeException(
+                    'duo: interrupted init retained a partial state staging tree without a complete deletion manifest; manual recovery is required'
+                );
+            }
+            Publish::remove_owned_tree($staging, $stagingManifest, 'initial capture staging');
+        }
+        foreach ([Publish::intent_path($stateDir), $staging, Publish::backup_dir($stateDir)] as $path) {
+            if (file_exists($path) || is_link($path)) {
+                throw new \RuntimeException('duo: interrupted init recovery retained an ambiguous state publication boundary');
+            }
+        }
+        if (is_dir($stateDir) || is_link($stateDir)) {
+            $stateIdentity = $owned['state_identity'] ?? null;
+            if (!is_string($stateIdentity)
+                || !hash_equals($stateIdentity, self::directory_identity($stateDir, 'initial state reservation'))) {
+                throw new \RuntimeException(
+                    'duo: interrupted init retained an incomplete state reservation without a complete ownership manifest; manual recovery is required'
+                );
+            }
+            self::remove_owned_tree($stateDir, $stateIdentity, 'initial state reservation');
+        }
+
+        $mediaDir = rtrim($repo, '/') . '/media';
+        if (is_dir($mediaDir) || is_link($mediaDir)) {
+            $mediaManifest = $owned['media_manifest'] ?? null;
+            if (is_array($mediaManifest)) {
+                Publish::remove_owned_tree($mediaDir, $mediaManifest, 'initial media root');
+            } else {
+                $mediaIdentity = $owned['media_identity'] ?? null;
+                if (!is_string($mediaIdentity)
+                    || !hash_equals($mediaIdentity, self::directory_identity($mediaDir, 'media publication root'))) {
+                    throw new \RuntimeException(
+                        'duo: interrupted init retained a partial media root without a complete deletion manifest; manual recovery is required'
+                    );
+                }
+                self::remove_owned_tree($mediaDir, $mediaIdentity, 'media publication root');
+            }
+        }
+
+        $codeDir = rtrim($repo, '/') . '/code';
+        if (is_dir($codeDir) || is_link($codeDir)) {
+            $codeIdentity = $owned['code_identity'] ?? null;
+            if (!is_string($codeIdentity)) {
+                $codeIdentity = $owned['code_root_empty_identity'] ?? null;
+                if (!is_string($codeIdentity)
+                    || !hash_equals($codeIdentity, self::directory_identity($codeDir, 'code publication root'))) {
+                    throw new \RuntimeException(
+                        'duo: interrupted init retained an incomplete code root without a complete descriptor; manual recovery is required'
+                    );
+                }
+            }
+            self::remove_owned_tree($codeDir, $codeIdentity, 'code publication root');
+        }
+        $stage = $owned['code_stage'] ?? null;
+        $stageIdentity = $owned['code_stage_identity'] ?? null;
+        if (is_string($stage) && (file_exists($stage) || is_link($stage))) {
+            if (!str_starts_with($stage, rtrim($repo, '/') . '/.duo-init-code-')) {
+                throw new \RuntimeException('duo: interrupted init code-stage path escaped the repository boundary');
+            }
+            if (!is_string($stageIdentity)) {
+                throw new \RuntimeException(
+                    'duo: interrupted init retained a partial code staging tree without a complete descriptor; manual recovery is required'
+                );
+            }
+            self::remove_owned_tree($stage, $stageIdentity, 'code staging root');
+        }
+
+        $sitePublication = $owned['site_publication'] ?? null;
+        if (is_array($sitePublication)) {
+            self::compensate_owned_file(
+                rtrim($repo, '/') . '/site.duo.json',
+                $sitePublication,
+                'site.duo.json'
+            );
+        } elseif (file_exists(rtrim($repo, '/') . '/site.duo.json')
+            || is_link(rtrim($repo, '/') . '/site.duo.json')) {
+            $sitePlan = $owned['site_plan'] ?? null;
+            if (!is_array($sitePlan)) {
+                throw new \RuntimeException('duo: interrupted init has an unbound site.duo.json; retained it');
+            }
+            $expected = (string) ($sitePlan['expected_identity'] ?? '');
+            $current = self::regular_file_identity(rtrim($repo, '/') . '/site.duo.json', 'site.duo.json');
+            if (!hash_equals($expected, $current)) {
+                self::compensate_owned_file(
+                    rtrim($repo, '/') . '/site.duo.json',
+                    ['previous' => $sitePlan['previous'] ?? null, 'published' => $current],
+                    'site.duo.json'
+                );
+            }
+        }
+
+        $gitignorePublication = $owned['gitignore_publication'] ?? null;
+        if (is_array($gitignorePublication)) {
+            self::compensate_owned_file(
+                rtrim($repo, '/') . '/.gitignore',
+                $gitignorePublication,
+                '.gitignore'
+            );
+        } elseif (is_array($owned['gitignore_plan'] ?? null)
+            && (file_exists(rtrim($repo, '/') . '/.gitignore')
+                || is_link(rtrim($repo, '/') . '/.gitignore'))) {
+            $gitignorePlan = $owned['gitignore_plan'];
+            $expected = (string) ($gitignorePlan['expected_identity'] ?? '');
+            $current = self::regular_file_identity(rtrim($repo, '/') . '/.gitignore', '.gitignore');
+            if (!hash_equals($expected, $current)) {
+                self::compensate_owned_file(
+                    rtrim($repo, '/') . '/.gitignore',
+                    ['previous' => $gitignorePlan['previous'] ?? null, 'published' => $current],
+                    '.gitignore'
+                );
+            }
+        }
+        if (($owned['git_created'] ?? false) === true) {
+            $gitDir = rtrim($repo, '/') . '/.git';
+            if (is_dir($gitDir) || is_link($gitDir)) {
+                $gitIdentity = $owned['git_identity'] ?? null;
+                if (!is_string($gitIdentity)) {
+                    $gitIdentity = $owned['git_empty_identity'] ?? null;
+                    if (!is_string($gitIdentity)
+                        || !hash_equals($gitIdentity, self::directory_identity($gitDir, 'Git metadata root'))) {
+                        throw new \RuntimeException(
+                            'duo: interrupted init retained incomplete Git metadata without a complete ownership manifest; manual recovery is required'
+                        );
+                    }
+                }
+                self::remove_owned_tree($gitDir, $gitIdentity, 'Git metadata root');
+            }
+        }
+        $postCleanupGit = self::git_probe($repo);
+        if (($postCleanupGit['blockers'] ?? []) !== []) {
+            throw new \RuntimeException(
+                'duo: interrupted init retained an unjournalled repository artifact; inspect it before retrying'
+            );
+        }
+        self::assert_repository_binding($logicalRepo, $rootStat);
+        return ['outcome' => 'precommit-rolled-back'];
+    }
+
+    /**
+     * @param array<string,mixed> $attempt
+     * @param array<string,mixed> $receipt
+     * @return array{revision_hash:string,descriptor:array<string,mixed>,lifecycle:array<string,mixed>}
+     */
+    private static function assert_interrupted_committed_attempt(
+        string $repo,
+        array $attempt,
+        array $receipt
+    ): array {
+        $stateDir = rtrim($repo, '/') . '/state';
+        foreach ([Publish::intent_path($stateDir), Publish::stage_dir($stateDir), Publish::backup_dir($stateDir)] as $path) {
+            if (file_exists($path) || is_link($path)) {
+                throw new \RuntimeException('duo: committed init finalization retained an ambiguous publication boundary');
+            }
+        }
+        if (is_link($stateDir) || !is_dir($stateDir)
+            || !hash_equals((string) ($receipt['candidate_sha256'] ?? ''), Publish::tree_digest($stateDir))
+            || !hash_equals((string) ($receipt['previous_sha256'] ?? ''), hash('sha256', ''))) {
+            throw new \RuntimeException('duo: committed init receipt does not prove the current state tree');
+        }
+        $proposal = $attempt['proposal'] ?? null;
+        $expectedConfig = is_array($proposal) ? ($proposal['state']['config'] ?? null) : null;
+        $siteFile = rtrim($repo, '/') . '/site.duo.json';
+        if (!is_array($expectedConfig) || is_link($siteFile) || !is_file($siteFile)
+            || Canon::read_file($siteFile) !== Canon::encode($expectedConfig)) {
+            throw new \RuntimeException('duo: committed init site.duo.json no longer matches the confirmed proposal');
+        }
+        $policy = Policy::load($repo);
+        $compiled = RepositoryCompiler::compile($repo, $policy);
+        $descriptor = $compiled->code_descriptor();
+        $expectedRevision = is_array($proposal) ? ($proposal['code']['source_revision'] ?? null) : null;
+        if (!is_array($descriptor) || !is_string($expectedRevision)
+            || !hash_equals($expectedRevision, (string) ($descriptor['code_revision'] ?? ''))) {
+            throw new \RuntimeException('duo: committed init code descriptor no longer matches the confirmed proposal');
+        }
+        $codeMismatch = Code::completed_code_mismatch($compiled);
+        if ($codeMismatch !== null) {
+            throw new \RuntimeException('duo: committed init code lifecycle is not complete: ' . $codeMismatch);
+        }
+        $git = self::git_probe($repo);
+        if (($git['mode'] ?? null) !== 'existing-worktree' || ($git['blockers'] ?? []) !== []) {
+            throw new \RuntimeException('duo: committed init Git worktree no longer satisfies the confirmed boundary');
+        }
+        return [
+            'revision_hash' => $compiled->revision_hash(),
+            'descriptor' => $descriptor,
+            'lifecycle' => [
+                'enabled' => true,
+                'completed' => true,
+                'code_revision' => (string) $descriptor['code_revision'],
+                'files' => count((array) ($descriptor['files'] ?? [])),
+            ],
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $attempt
+     * @param array{previous:?string,published:string} $attemptPublication
+     */
+    private static function remove_init_attempt_records(
+        string $repo,
+        string $logicalRepo,
+        array $attempt,
+        array $attemptPublication,
+        bool $completed = false
+    ): void {
+        $nextAttempt = rtrim($repo, '/') . '/' . self::ATTEMPT_NEXT_FILE;
+        if (file_exists($nextAttempt) || is_link($nextAttempt)) {
+            $next = self::read_init_attempt_file($nextAttempt, self::ATTEMPT_NEXT_FILE);
+            self::assert_init_attempt_transition($attempt, $next);
+            self::remove_exact_owned_file(
+                $nextAttempt,
+                self::regular_file_identity($nextAttempt, self::ATTEMPT_NEXT_FILE),
+                self::ATTEMPT_NEXT_FILE
+            );
+        }
+        self::remove_exact_owned_file(
+            rtrim($repo, '/') . '/' . self::ATTEMPT_FILE,
+            (string) $attemptPublication['published'],
+            self::ATTEMPT_FILE,
+            $completed
+        );
+    }
+
     /** @return array<string,mixed> */
     public static function confirm(string $repo, string $expectedDigest): array {
         $logicalRepo = self::normalize_repository_path($repo);
@@ -405,6 +1233,8 @@ final class Init {
         $lockOwnedAndCreated = false;
         $lockPublication = null;
         $retainPublicationLock = false;
+        $attemptRecord = null;
+        $attemptPublication = null;
         $succeeded = false;
         $previousCwd = null;
         $rootStat = null;
@@ -423,6 +1253,7 @@ final class Init {
         $stagedCodeIdentity = null;
         $mediaCreated = false;
         $mediaIdentity = null;
+        $mediaRootIdentity = null;
         $stateReserved = false;
         $stateIdentity = null;
         try {
@@ -448,14 +1279,126 @@ final class Init {
             }
             $stateDir = $repo . '/state';
             $lockPath = Publish::lock_path($stateDir);
+            $attemptRecord = self::read_init_attempt($repo);
+            if ($attemptRecord !== null) {
+                $publicationLock = (file_exists($lockPath) || is_link($lockPath))
+                    ? Publish::lock($stateDir)
+                    : Publish::lock_new($stateDir);
+                $lockOwnedAndCreated = true;
+                Publish::assert_lock_path($publicationLock, $stateDir);
+                $lockPublication = [
+                    'previous' => null,
+                    'published' => self::regular_file_identity($lockPath, 'state.capture.lock'),
+                ];
+                $attemptPublication = [
+                    'previous' => null,
+                    'published' => self::regular_file_identity(
+                        $repo . '/' . self::ATTEMPT_FILE,
+                        self::ATTEMPT_FILE
+                    ),
+                ];
+                [$attemptRecord, $attemptPublication] = self::resolve_init_attempt_transition(
+                    $repo,
+                    $attemptRecord,
+                    $attemptPublication
+                );
+                try {
+                    $recoveryOutcome = self::recover_interrupted_attempt(
+                        $repo,
+                        $logicalRepo,
+                        $rootStat,
+                        $publicationLock,
+                        $attemptRecord,
+                        $attemptPublication
+                    );
+                    if (($recoveryOutcome['outcome'] ?? null) === 'committed-finalized') {
+                        $attemptPublication = null;
+                        $descriptor = (array) $recoveryOutcome['descriptor'];
+                        $lifecycle = (array) $recoveryOutcome['lifecycle'];
+                        $revisionHash = (string) $recoveryOutcome['revision_hash'];
+                        $finalGit = self::git_probe($repo);
+                        $succeeded = true;
+                        return [
+                            'format' => 'duo-init-result/v1',
+                            'proposal_digest' => $expectedDigest,
+                            'recovery' => 'committed-finalized',
+                            'baseline' => [
+                                'kind' => 'state-capture',
+                                'revision_hash' => $revisionHash,
+                                'rollback_note' => 'This is a state baseline, not a code-and-database rollback checkpoint.',
+                            ],
+                            'capture' => [
+                                'revision_hash' => $revisionHash,
+                                'initial_code_baseline' => $lifecycle,
+                                'initial_publication_cleanup' => 'clean',
+                            ],
+                            'code' => [
+                                'descriptor' => $descriptor,
+                                'management' => 'managed-baseline',
+                                'revision_hash' => $descriptor['code_revision'],
+                                'source' => Code::SOURCE,
+                                'lifecycle' => $lifecycle,
+                            ],
+                            'state' => [
+                                'git' => $finalGit['mode'],
+                                'repository' => $logicalRepo,
+                                'site_config' => $logicalRepo . '/site.duo.json',
+                            ],
+                            'unsupported' => [],
+                        ];
+                    }
+                    if ($lockOwnedAndCreated && is_array($lockPublication)) {
+                        self::remove_exact_owned_file(
+                            $lockPath,
+                            (string) $lockPublication['published'],
+                            'state.capture.lock'
+                        );
+                        $lockOwnedAndCreated = false;
+                        $lockPublication = null;
+                    }
+                    self::remove_init_attempt_records(
+                        $repo,
+                        $logicalRepo,
+                        $attemptRecord,
+                        $attemptPublication
+                    );
+                    $attemptPublication = null;
+                } catch (\Throwable $recoveryFailure) {
+                    $retainPublicationLock = true;
+                    throw $recoveryFailure;
+                }
+                throw new \RuntimeException(
+                    'duo: interrupted pre-COMMIT init was safely rolled back; rerun duo init and confirm the fresh proposal'
+                );
+            }
+            $attemptRecord = [
+                'format' => 'duo-init-attempt/v1',
+                'phase' => 'preparing',
+                'repository' => $logicalRepo,
+                'repository_identity' => $binding['identity'],
+                'proposal' => $proposal,
+                'owned' => ['lock_planned' => true],
+            ];
+            $attemptPublication = self::write_init_attempt($repo, $attemptRecord, 'absent');
             self::assert_absent_owned_path($lockPath, 'state.capture.lock');
             $publicationLock = Publish::lock_new($stateDir);
             $lockOwnedAndCreated = true;
+            self::init_fault_checkpoint('lock-created');
             Publish::assert_lock_path($publicationLock, $stateDir);
             $lockPublication = [
                 'previous' => null,
                 'published' => self::regular_file_identity($lockPath, 'state.capture.lock'),
             ];
+            $attemptRecord['phase'] = 'locked';
+            $attemptRecord['owned']['lock_inode'] = self::regular_file_inode_identity(
+                $lockPath,
+                'state.capture.lock'
+            );
+            $attemptPublication = self::write_init_attempt(
+                $repo,
+                $attemptRecord,
+                (string) $attemptPublication['published']
+            );
             self::assert_repository_binding($logicalRepo, $rootStat);
             Publish::assert_lock_path($publicationLock, $stateDir);
 
@@ -463,44 +1406,144 @@ final class Init {
             // state publication lock are held. The operator confirms facts,
             // never a mutable config payload; neither a second init nor an
             // ordinary capture can publish between this recheck and commit.
-            $proposal = self::proposal_bound($repo, $logicalRepo, $binding['identity'], true);
+            $proposal = self::proposal_bound($repo, $logicalRepo, $binding['identity'], true, true);
             self::assert_confirmed_proposal($proposal, $expectedDigest);
 
             if (($proposal['state']['git']['mode'] ?? null) === 'initialize-on-confirm') {
                 Publish::assert_lock_path($publicationLock, $stateDir);
                 self::assert_repository_binding($logicalRepo, $rootStat);
                 self::assert_absent_owned_path($repo . '/.git', 'Git metadata root');
+                $attemptRecord['phase'] = 'git-planned';
+                $attemptRecord['owned']['git_created'] = true;
+                $attemptPublication = self::write_init_attempt(
+                    $repo,
+                    $attemptRecord,
+                    (string) $attemptPublication['published']
+                );
                 if (!mkdir($repo . '/.git', 0775)) {
                     throw new \RuntimeException('duo: could not reserve the target Git metadata root');
                 }
                 $gitCreated = true;
                 $gitRootIdentity = self::directory_inode_identity($repo . '/.git', 'Git metadata root');
+                $attemptRecord['phase'] = 'git-reserved';
+                $attemptRecord['owned']['git_created'] = true;
+                $attemptRecord['owned']['git_root_inode'] = $gitRootIdentity;
+                $attemptRecord['owned']['git_empty_identity'] = self::directory_identity(
+                    $repo . '/.git',
+                    'Git metadata root'
+                );
+                $attemptPublication = self::write_init_attempt(
+                    $repo,
+                    $attemptRecord,
+                    (string) $attemptPublication['published']
+                );
                 self::assert_directory_inode($repo . '/.git', $gitRootIdentity, 'Git metadata root');
                 self::initialize_git($repo);
                 self::assert_directory_inode($repo . '/.git', $gitRootIdentity, 'Git metadata root');
+                if (getenv('DUO_TEST_MODE') === '1'
+                    && getenv('DUO_TEST_INIT_FAIL_PHASE') === 'git-initialized-before-identity') {
+                    throw new \RuntimeException(
+                        'duo: injected failure after Git initialization and before its complete ownership manifest'
+                    );
+                }
                 $gitIdentity = self::directory_identity($repo . '/.git', 'Git metadata root');
+                $attemptRecord['phase'] = 'git-ready';
+                $attemptRecord['owned']['git_identity'] = $gitIdentity;
+                $attemptPublication = self::write_init_attempt(
+                    $repo,
+                    $attemptRecord,
+                    (string) $attemptPublication['published']
+                );
                 if (getenv('DUO_TEST_MODE') === '1'
                     && getenv('DUO_TEST_INIT_FAIL_AFTER_GIT_CREATE') === '1') {
                     throw new \RuntimeException('duo: injected init failure after Git metadata creation');
                 }
             }
+            if (!$gitCreated) {
+                $attemptRecord['owned']['git_created'] = false;
+            }
+            $gitignorePath = $repo . '/.gitignore';
+            $attemptRecord['phase'] = 'gitignore-planned';
+            $attemptRecord['owned']['gitignore_plan'] = [
+                'expected_identity' => (string) ($proposal['state']['gitignore_identity'] ?? ''),
+                'previous' => is_file($gitignorePath) && !is_link($gitignorePath)
+                    ? Canon::read_file($gitignorePath)
+                    : null,
+            ];
+            $attemptPublication = self::write_init_attempt(
+                $repo,
+                $attemptRecord,
+                (string) $attemptPublication['published']
+            );
             $gitignorePublication = self::ensure_gitignore(
                 $repo,
                 (string) ($proposal['state']['gitignore_identity'] ?? '')
             );
+            $attemptRecord['phase'] = 'gitignore-ready';
+            $attemptRecord['owned']['gitignore_publication'] = $gitignorePublication;
+            $attemptRecord['owned']['gitignore_identity'] = self::regular_file_identity(
+                $repo . '/.gitignore',
+                '.gitignore'
+            );
+            $attemptPublication = self::write_init_attempt(
+                $repo,
+                $attemptRecord,
+                (string) $attemptPublication['published']
+            );
 
             self::assert_repository_binding($logicalRepo, $rootStat);
             Publish::assert_lock_path($publicationLock, $stateDir);
-            [$descriptor, $stagedCode, $stagedCodeIdentity] = self::capture_code($repo, $proposal['code']);
+            [$descriptor, $stagedCode, $stagedCodeIdentity] = self::capture_code(
+                $repo,
+                $proposal['code'],
+                function (string $stage, ?string $rootIdentity) use (
+                    $repo, &$attemptRecord, &$attemptPublication
+                ): void {
+                    $attemptRecord['phase'] = $rootIdentity === null ? 'code-stage-planned' : 'code-staging';
+                    $attemptRecord['owned']['code_stage'] = $stage;
+                    $attemptRecord['owned']['code_stage_planned'] = true;
+                    if ($rootIdentity !== null) {
+                        $attemptRecord['owned']['code_stage_root_inode'] = $rootIdentity;
+                    }
+                    $attemptPublication = self::write_init_attempt(
+                        $repo,
+                        $attemptRecord,
+                        (string) $attemptPublication['published']
+                    );
+                }
+            );
+            $attemptRecord['phase'] = 'code-staged';
+            $attemptRecord['owned']['code_stage'] = $stagedCode;
+            $attemptRecord['owned']['code_stage_identity'] = $stagedCodeIdentity;
+            $attemptPublication = self::write_init_attempt(
+                $repo,
+                $attemptRecord,
+                (string) $attemptPublication['published']
+            );
             $codeRoot = $repo . '/code';
             self::assert_repository_binding($logicalRepo, $rootStat);
             self::assert_absent_owned_path($codeRoot, 'code publication root');
+            $attemptRecord['phase'] = 'code-root-planned';
+            $attemptRecord['owned']['code_root_planned'] = true;
+            $attemptPublication = self::write_init_attempt(
+                $repo,
+                $attemptRecord,
+                (string) $attemptPublication['published']
+            );
             if (!mkdir($codeRoot, 0700)) {
                 throw new \RuntimeException('duo: could not reserve the code publication root');
             }
             $codeRootCreated = true;
             $codeRootIdentity = self::directory_inode_identity($codeRoot, 'code publication root');
             $codeRootEmptyIdentity = self::directory_identity($codeRoot, 'code publication root');
+            $attemptRecord['phase'] = 'code-root-reserved';
+            $attemptRecord['owned']['code_root_inode'] = $codeRootIdentity;
+            $attemptRecord['owned']['code_root_empty_identity'] = $codeRootEmptyIdentity;
+            $attemptPublication = self::write_init_attempt(
+                $repo,
+                $attemptRecord,
+                (string) $attemptPublication['published']
+            );
             self::assert_directory_inode($codeRoot, $codeRootIdentity, 'code publication root');
             self::assert_absent_owned_path($codeRoot . '/wp-content', 'code baseline child');
             if (!hash_equals(
@@ -509,6 +1552,12 @@ final class Init {
             )) {
                 throw new \RuntimeException('duo: verified code staging changed before publication');
             }
+            $attemptRecord['phase'] = 'code-publish-planned';
+            $attemptPublication = self::write_init_attempt(
+                $repo,
+                $attemptRecord,
+                (string) $attemptPublication['published']
+            );
             if (!rename($stagedCode, $codeRoot . '/wp-content')) {
                 throw new \RuntimeException('duo: could not publish the verified code baseline into its reserved root');
             }
@@ -522,6 +1571,31 @@ final class Init {
                 throw new \RuntimeException('duo: published code baseline differs from its reviewed descriptor');
             }
             $publishedCodeIdentity = self::directory_identity($codeRoot, 'code publication root');
+            $attemptRecord['phase'] = 'code-ready';
+            unset(
+                $attemptRecord['owned']['code_stage'],
+                $attemptRecord['owned']['code_stage_identity'],
+                $attemptRecord['owned']['code_stage_root_inode'],
+                $attemptRecord['owned']['code_stage_planned']
+            );
+            $attemptRecord['owned']['code_identity'] = $publishedCodeIdentity;
+            $attemptPublication = self::write_init_attempt(
+                $repo,
+                $attemptRecord,
+                (string) $attemptPublication['published']
+            );
+            $attemptRecord['phase'] = 'config-planned';
+            $attemptRecord['owned']['site_plan'] = [
+                'expected_identity' => (string) ($proposal['state']['config_identity'] ?? ''),
+                'previous' => is_file($siteFile) && !is_link($siteFile)
+                    ? Canon::read_file($siteFile)
+                    : null,
+            ];
+            $attemptPublication = self::write_init_attempt(
+                $repo,
+                $attemptRecord,
+                (string) $attemptPublication['published']
+            );
             if (getenv('DUO_TEST_MODE') === '1') {
                 $pauseMs = (int) (getenv('DUO_TEST_INIT_CONFIG_PAUSE_MS') ?: 0);
                 if ($pauseMs > 0 && $pauseMs <= 10000) {
@@ -534,21 +1608,60 @@ final class Init {
                 (string) ($proposal['state']['config_identity'] ?? ''),
                 'site.duo.json'
             );
+            $attemptRecord['phase'] = 'config-ready';
+            $attemptRecord['owned']['site_publication'] = $sitePublication;
+            $attemptPublication = self::write_init_attempt(
+                $repo,
+                $attemptRecord,
+                (string) $attemptPublication['published']
+            );
             Policy::load($repo);
             Publish::assert_lock_path($publicationLock, $stateDir);
             $mediaDir = $repo . '/media';
             self::assert_absent_owned_path($mediaDir, 'media publication root');
+            $attemptRecord['phase'] = 'media-planned';
+            $attemptRecord['owned']['media_planned'] = true;
+            $attemptPublication = self::write_init_attempt(
+                $repo,
+                $attemptRecord,
+                (string) $attemptPublication['published']
+            );
             if (!mkdir($mediaDir, 0775)) {
                 throw new \RuntimeException("duo: could not create media publication root $mediaDir");
             }
             $mediaCreated = true;
             $mediaIdentity = self::directory_identity($mediaDir, 'media publication root');
+            $mediaRootIdentity = self::directory_inode_identity($mediaDir, 'media publication root');
             self::assert_absent_owned_path($stateDir, 'initial state reservation');
+            $attemptRecord['phase'] = 'state-planned';
+            $attemptRecord['owned']['media_root_inode'] = $mediaRootIdentity;
+            $attemptRecord['owned']['media_identity'] = $mediaIdentity;
+            $attemptRecord['owned']['state_planned'] = true;
+            $attemptPublication = self::write_init_attempt(
+                $repo,
+                $attemptRecord,
+                (string) $attemptPublication['published']
+            );
             if (!mkdir($stateDir, 0775)) {
                 throw new \RuntimeException('duo: could not reserve the initial state publication root');
             }
+            if (getenv('DUO_TEST_MODE') === '1'
+                && getenv('DUO_TEST_INIT_FAIL_PHASE') === 'state-reserved-before-identity') {
+                throw new \RuntimeException(
+                    'duo: injected failure after state reservation and before its complete ownership manifest'
+                );
+            }
             $stateReserved = true;
             $stateIdentity = self::directory_identity($stateDir, 'initial state reservation');
+            $attemptRecord['phase'] = 'capture-ready';
+            $attemptRecord['owned']['media_root_inode'] = $mediaRootIdentity;
+            $attemptRecord['owned']['media_identity'] = $mediaIdentity;
+            $attemptRecord['owned']['state_identity'] = $stateIdentity;
+            $attemptPublication = self::write_init_attempt(
+                $repo,
+                $attemptRecord,
+                (string) $attemptPublication['published']
+            );
             if (getenv('DUO_TEST_MODE') === '1') {
                 $pauseMs = (int) (getenv('DUO_TEST_INIT_PUBLICATION_PAUSE_MS') ?: 0);
                 if ($pauseMs > 0 && $pauseMs <= 10000) {
@@ -606,7 +1719,20 @@ final class Init {
                 $publicationLock,
                 (string) $stateIdentity,
                 (string) $mediaIdentity,
-                (string) ($sitePublication['published'] ?? '')
+                (string) ($sitePublication['published'] ?? ''),
+                function (array $stagingManifest, array $mediaManifest, array $stateManifest) use (
+                    $repo, &$attemptRecord, &$attemptPublication
+                ): void {
+                    $attemptRecord['phase'] = 'capture-payload-ready';
+                    $attemptRecord['owned']['state_staging_manifest'] = $stagingManifest;
+                    $attemptRecord['owned']['media_manifest'] = $mediaManifest;
+                    $attemptRecord['owned']['state_reservation_manifest'] = $stateManifest;
+                    $attemptPublication = self::write_init_attempt(
+                        $repo,
+                        $attemptRecord,
+                        (string) $attemptPublication['published']
+                    );
+                }
             );
             $stateReserved = false;
             if (($capture['initial_publication_cleanup'] ?? null) !== 'clean') {
@@ -641,6 +1767,17 @@ final class Init {
                 );
             }
             self::assert_repository_binding($logicalRepo, $rootStat);
+            self::init_fault_checkpoint('capture-complete');
+            if (is_array($attemptPublication) && is_array($attemptRecord)) {
+                self::remove_init_attempt_records(
+                    $repo,
+                    $logicalRepo,
+                    $attemptRecord,
+                    $attemptPublication,
+                    true
+                );
+                $attemptPublication = null;
+            }
             $succeeded = true;
             return [
                 'format' => 'duo-init-result/v1',
@@ -669,20 +1806,42 @@ final class Init {
             if ($previousCwd === null || $repo !== '.') {
                 throw $error;
             }
+            if ($error instanceof InitAttemptRetentionException) {
+                $retainPublicationLock = true;
+                throw new \RuntimeException(
+                    'duo: init retained its sealed recovery journal and capture lock because an owned staging artifact could not be safely compensated: '
+                    . $error->getMessage(),
+                    0,
+                    $error
+                );
+            }
             // Once Capture has swapped state or written an intent, its
             // transaction/receipt protocol is the authority. Never delete
             // config/code around a possibly committed state tree; retain the
             // complete set for deterministic recovery instead of creating a
             // ghost baseline. All failures before that boundary are fully
             // compensated below while both leases remain held.
-            $hasIntent = file_exists(Publish::intent_path($repo . '/state'));
-            $hasReceipt = file_exists(Publish::receipt_path($repo . '/state'));
+            $intentPath = Publish::intent_path($repo . '/state');
+            $receiptPath = Publish::receipt_path($repo . '/state');
+            $hasIntent = file_exists($intentPath);
+            $hasReceipt = file_exists($receiptPath);
+            $hasRecordTransition = false;
+            foreach ([
+                $intentPath . '.previous', $intentPath . '.next',
+                $receiptPath . '.previous', $receiptPath . '.next',
+            ] as $transitionSlot) {
+                if (file_exists($transitionSlot) || is_link($transitionSlot)) {
+                    $hasRecordTransition = true;
+                    break;
+                }
+            }
             $boundaryRefusal = $error instanceof InitialStateBoundaryException
                 && !$hasIntent && !$hasReceipt;
             $crossedPublication = !$boundaryRefusal && (
                 !$stateReserved && is_dir($repo . '/state')
                 || $hasIntent
                 || $hasReceipt
+                || $hasRecordTransition
             );
             if ($crossedPublication) {
                 $retainPublicationLock = true;
@@ -731,13 +1890,80 @@ final class Init {
                 && (file_exists($repo . '/.git') || is_link($repo . '/.git'))) {
                 self::remove_owned_tree($repo . '/.git', $gitIdentity, 'Git metadata root');
             }
+            if (is_array($attemptPublication) && is_resource($publicationLock)) {
+                try {
+                    $diskAttempt = self::read_init_attempt($repo);
+                    if (!is_array($diskAttempt)) {
+                        throw new \RuntimeException(
+                            'duo: init lost its sealed recovery journal before final compensation verification'
+                        );
+                    }
+                    $diskPublication = [
+                        'previous' => null,
+                        'published' => self::regular_file_identity(
+                            $repo . '/' . self::ATTEMPT_FILE,
+                            self::ATTEMPT_FILE
+                        ),
+                    ];
+                    [$diskAttempt, $diskPublication] = self::resolve_init_attempt_transition(
+                        $repo,
+                        $diskAttempt,
+                        $diskPublication
+                    );
+                    $verifiedCleanup = self::recover_interrupted_attempt(
+                        $repo,
+                        $logicalRepo,
+                        $rootStat,
+                        $publicationLock,
+                        $diskAttempt,
+                        $diskPublication
+                    );
+                    if (($verifiedCleanup['outcome'] ?? null) !== 'precommit-rolled-back') {
+                        throw new \RuntimeException(
+                            'duo: init compensation reached a durable committed publication and cannot discard its journal'
+                        );
+                    }
+                    $attemptRecord = $diskAttempt;
+                    $attemptPublication = $diskPublication;
+                } catch (\Throwable $verificationFailure) {
+                    $retainPublicationLock = true;
+                    throw new \RuntimeException(
+                        $error->getMessage()
+                        . "\nduo: init retained its sealed journal because final compensation could not prove every planned artifact: "
+                        . $verificationFailure->getMessage(),
+                        0,
+                        $error
+                    );
+                }
+            }
+            if (!$retainPublicationLock && $lockOwnedAndCreated
+                && is_array($lockPublication) && is_resource($publicationLock)) {
+                self::remove_exact_owned_file(
+                    Publish::lock_path($repo . '/state'),
+                    (string) $lockPublication['published'],
+                    'state.capture.lock'
+                );
+                $lockOwnedAndCreated = false;
+                $lockPublication = null;
+            }
+            if (is_array($attemptPublication) && is_array($attemptRecord)
+                && (file_exists($repo . '/' . self::ATTEMPT_FILE)
+                    || is_link($repo . '/' . self::ATTEMPT_FILE))) {
+                self::remove_init_attempt_records(
+                    $repo,
+                    $logicalRepo,
+                    $attemptRecord,
+                    $attemptPublication
+                );
+                $attemptPublication = null;
+            }
             throw $error;
         } finally {
             if (!$succeeded && !$retainPublicationLock && $lockOwnedAndCreated
                 && is_array($lockPublication) && is_resource($publicationLock)) {
-                self::compensate_owned_file(
+                self::remove_exact_owned_file(
                     Publish::lock_path($repo . '/state'),
-                    $lockPublication,
+                    (string) $lockPublication['published'],
                     'state.capture.lock'
                 );
             }
@@ -1068,6 +2294,7 @@ final class Init {
         $allowed = array_fill_keys([
             '.', '..', '.duo', '.duo-env-values.json', '.duo-envs.json', '.git', '.gitignore', 'adapters',
             'code', 'media', 'site.duo.json', 'state', 'state.capture.lock', 'state.capture-receipt',
+            self::ATTEMPT_FILE, self::ATTEMPT_NEXT_FILE,
         ], true);
         $unexpected = [];
         $entries = @scandir($repo);
@@ -1138,9 +2365,12 @@ final class Init {
             throw new \RuntimeException('duo: init .gitignore boundary changed after proposal review');
         }
         $required = [
-            '.tmp*', 'state.capture.lock', 'state.capture-staging/', 'state.capture-backup/',
+            '.tmp*', '.duo-init-code-*', '.*.duo-init-*', self::ATTEMPT_FILE, self::ATTEMPT_NEXT_FILE,
+            'state.capture.lock', 'state.capture-staging/', 'state.capture-backup/',
             'state.capture-intent', 'state.capture-receipt', 'state.capture-intent.tmp.*',
-            'state.capture-receipt.tmp.*', '.duo-env-values.json',
+            'state.capture-receipt.tmp.*', 'state.capture-intent.previous',
+            'state.capture-intent.next', 'state.capture-receipt.previous',
+            'state.capture-receipt.next', '.duo-env-values.json',
         ];
         $lines = $previous === null ? [] : preg_split('/\r?\n/', $previous);
         $known = array_fill_keys(is_array($lines) ? $lines : [], true);
@@ -1188,6 +2418,21 @@ final class Init {
         ]));
     }
 
+    private static function regular_file_inode_identity(string $path, string $label): string {
+        clearstatcache(true, $path);
+        if (is_link($path) || !is_file($path)) {
+            throw new \RuntimeException("duo: init lost ownership of repository-owned $label path $path");
+        }
+        $stat = @lstat($path);
+        if (!is_array($stat) || !isset($stat['dev'], $stat['ino'])) {
+            throw new \RuntimeException("duo: init could not identify repository-owned $label path $path");
+        }
+        return 'sha256:' . hash('sha256', Canon::encode([
+            'dev' => (string) $stat['dev'],
+            'ino' => (string) $stat['ino'],
+        ]));
+    }
+
     private static function owned_file_boundary_identity(string $path, string $label): string {
         if (is_link($path) || (file_exists($path) && !is_file($path))) {
             return 'unsafe';
@@ -1195,13 +2440,7 @@ final class Init {
         return is_file($path) ? self::regular_file_identity($path, $label) : 'absent';
     }
 
-    /**
-     * Publish a complete file without replacing a raced path. Existing bytes
-     * are first moved to a private claim and verified there; a hard link then
-     * supplies atomic create-if-absent semantics for the new canonical name.
-     *
-     * @return array{previous:?string,published:string}
-     */
+    /** @return array{previous:?string,published:string} */
     private static function publish_owned_file(
         string $path,
         string $content,
@@ -1213,10 +2452,10 @@ final class Init {
             throw new \RuntimeException("duo: init refuses unsafe parent for repository-owned $label path $path");
         }
         $tmp = $dir . '/.' . basename($path) . '.duo-init-' . bin2hex(random_bytes(8));
-        $claim = null;
         $previous = null;
         try {
             Canon::write_file($tmp, $content);
+            self::init_fault_checkpoint('owned-file-temp');
             if ($expectedIdentity === 'absent') {
                 if (!@link($tmp, $path)) {
                     throw new \RuntimeException(
@@ -1228,36 +2467,26 @@ final class Init {
                     throw new \RuntimeException("duo: init has no valid reviewed identity for $label");
                 }
                 self::assert_regular_file_or_absent($path, $label);
-                $claim = $dir . '/.' . basename($path) . '.duo-init-previous-' . bin2hex(random_bytes(8));
-                if (!@rename($path, $claim)) {
-                    throw new \RuntimeException("duo: init could not claim the reviewed $label boundary");
-                }
-                if (!hash_equals($expectedIdentity, self::regular_file_identity($claim, $label))) {
-                    self::restore_claimed_file($claim, $path, $label);
-                    $claim = null;
+                if (!hash_equals($expectedIdentity, self::regular_file_identity($path, $label))) {
                     throw new \RuntimeException(
                         "duo: init $label boundary changed after review; the concurrent bytes were preserved"
                     );
                 }
-                $previous = Canon::read_file($claim);
-                if (!@link($tmp, $path)) {
-                    self::restore_claimed_file($claim, $path, $label);
-                    $claim = null;
-                    throw new \RuntimeException(
-                        "duo: init $label publication lost its create-if-absent boundary; retained the reviewed bytes"
-                    );
+                $previous = Canon::read_file($path);
+                // Repository-wide external-writer exclusion makes atomic
+                // same-filesystem replacement the crash-safe boundary: the
+                // canonical name always contains the complete old or new
+                // file, never an absent hidden claim.
+                if (!@rename($tmp, $path)) {
+                    throw new \RuntimeException("duo: init could not publish the reviewed $label boundary");
                 }
-                @unlink($claim);
-                $claim = null;
             }
+            Publish::sync_parent($path);
             return ['previous' => $previous, 'published' => self::regular_file_identity($path, $label)];
         } finally {
             if (is_file($tmp) || is_link($tmp)) {
                 @unlink($tmp);
             }
-            // A non-null claim may contain bytes owned by a concurrent writer.
-            // Never unlink it in generic cleanup; the thrown diagnostic names
-            // the boundary and a human can recover the retained hidden file.
         }
     }
 
@@ -1281,6 +2510,7 @@ final class Init {
         if (!@rename($path, $claim)) {
             throw new \RuntimeException("duo: init could not claim its published $label for compensation");
         }
+        self::init_fault_checkpoint('owned-file-claim');
         if (!hash_equals((string) $publication['published'], self::regular_file_identity($claim, $label))) {
             self::restore_claimed_file($claim, $path, $label);
             throw new \RuntimeException("duo: init preserved a raced $label during compensation");
@@ -1289,6 +2519,7 @@ final class Init {
         if ($previous !== null) {
             $restore = $dir . '/.' . basename($path) . '.duo-init-restore-' . bin2hex(random_bytes(8));
             Canon::write_file($restore, $previous);
+            self::init_fault_checkpoint('owned-file-restore');
             if (!@link($restore, $path)) {
                 throw new \RuntimeException(
                     "duo: init retained its prior $label at $restore because a concurrent writer owns $path"
@@ -1297,6 +2528,35 @@ final class Init {
             @unlink($restore);
         }
         @unlink($claim);
+    }
+
+    /**
+     * Remove an exact first-init-owned file without ever making its canonical
+     * name disappear into an unjournalled claim. Under the proposal's
+     * repository-wide writer exclusion, unlink is the crash boundary: a kill
+     * leaves either the complete sealed journal or no journal after the fully
+     * verified tuple has become authoritative.
+     */
+    private static function remove_exact_owned_file(
+        string $path,
+        string $expectedIdentity,
+        string $label,
+        bool $completedJournal = false
+    ): void {
+        if (!is_file($path) || is_link($path)
+            || !hash_equals($expectedIdentity, self::regular_file_identity($path, $label))) {
+            throw new \RuntimeException("duo: init preserved a replacement $label instead of removing external bytes");
+        }
+        if ($completedJournal) {
+            self::init_fault_checkpoint('attempt-remove-pre-unlink');
+        }
+        if (!@unlink($path)) {
+            throw new \RuntimeException("duo: init could not remove its exact $label");
+        }
+        Publish::sync_parent($path);
+        if ($completedJournal) {
+            self::init_fault_checkpoint('attempt-remove-post-unlink');
+        }
     }
 
     /** @return array{exit:int,stdout:string,stderr:string} */
@@ -1532,7 +2792,7 @@ final class Init {
     }
 
     /** @return array{0:array<string,mixed>,1:string,2:string} descriptor, staging root, ownership identity */
-    private static function capture_code(string $repo, array $code): array {
+    private static function capture_code(string $repo, array $code, ?callable $onStage = null): array {
         $blockers = [];
         $inventory = self::code_inventory((array) ($code['roots'] ?? []), (array) ($code['components'] ?? []), $blockers);
         if ($blockers !== []) {
@@ -1544,6 +2804,9 @@ final class Init {
         }
 
         $stage = $repo . '/.duo-init-code-' . bin2hex(random_bytes(8));
+        if ($onStage !== null) {
+            $onStage($stage, null);
+        }
         $stageParent = dirname($stage);
         $stagePublication = Publish::create_directory_fresh(
             $stageParent,
@@ -1555,6 +2818,9 @@ final class Init {
         $stageIdentity = self::directory_identity($stage, 'code capture staging directory');
         $stageRootIdentity = self::directory_inode_identity($stage, 'code capture staging directory');
         $ownedDirs = ['' => $stagePublication];
+        if ($onStage !== null) {
+            $onStage($stage, $stageRootIdentity);
+        }
         try {
             foreach ((array) ($code['components'] ?? []) as $rootName => $names) {
                 $sourceRoot = (string) (($code['roots'][$rootName] ?? null) ?: '');
@@ -1579,7 +2845,22 @@ final class Init {
             }
             return [$descriptor, $stage, self::directory_identity($stage, 'code capture staging directory')];
         } catch (\Throwable $error) {
-            self::remove_owned_tree($stage, $stageIdentity, 'code capture staging directory');
+            try {
+                // A bound copy can create its destination and then reject a
+                // changed source digest before the caller refreshes the stage
+                // manifest. Re-identify the Duo-created partial tree under the
+                // confirmed repository-writer exclusion before compensating it.
+                $currentIdentity = self::directory_identity($stage, 'code capture staging directory');
+                self::remove_owned_tree($stage, $currentIdentity, 'code capture staging directory');
+            } catch (\Throwable $cleanupError) {
+                throw new InitAttemptRetentionException(
+                    $error->getMessage()
+                    . "\nduo: init retained the partial code staging tree for sealed fresh-process recovery: "
+                    . $cleanupError->getMessage(),
+                    0,
+                    $error
+                );
+            }
             throw $error;
         }
     }
@@ -1702,10 +2983,17 @@ final class Init {
         if (!is_string($digest) || !is_int($mode)) {
             throw new \RuntimeException('duo: could not identify the reviewed code source before copy');
         }
+        $expectedDigest = $digest;
+        if (getenv('DUO_TEST_MODE') === '1'
+            && getenv('DUO_TEST_INIT_FAIL_PHASE') === 'code-copy-after-file') {
+            // Exercise the bound helper's post-create source-digest refusal:
+            // the helper must remove only the destination inode it created.
+            $expectedDigest = str_repeat('0', 64);
+        }
         Publish::copy_file_fresh(
             $source,
             $destination,
-            $digest,
+            $expectedDigest,
             $mode & 0777,
             'code staging file',
             $expectedParent
@@ -1733,6 +3021,17 @@ final class Init {
     private static function safe_component(string $value): bool {
         return $value !== '' && $value !== '.' && $value !== '..'
             && preg_match('/^[A-Za-z0-9._-]+$/', $value) === 1;
+    }
+
+    private static function init_fault_checkpoint(string $phase): void {
+        if (getenv('DUO_TEST_MODE') !== '1'
+            || (string) getenv('DUO_TEST_INIT_KILL_PHASE') !== $phase) {
+            return;
+        }
+        if (function_exists('posix_kill')) {
+            @posix_kill(getmypid(), defined('SIGKILL') ? SIGKILL : 9);
+        }
+        exit(137);
     }
 
     private static function directory_inode_identity(string $path, string $label): string {
@@ -1815,6 +3114,7 @@ final class Init {
         if (!@rename($path, $claim)) {
             throw new \RuntimeException("duo: init could not claim its $label for cleanup");
         }
+        self::init_fault_checkpoint('owned-tree-claim');
         if (!hash_equals($identity, self::directory_identity($claim, $label))) {
             if (!file_exists($path) && !is_link($path)) {
                 @rename($claim, $path);

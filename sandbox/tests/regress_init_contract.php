@@ -143,6 +143,11 @@ check(Init::proposal($transport) === $proposal, 'proposal JSON is returned witho
 check($transport->calls[0] === ['duo', 'init', '--repo=/srv/shop-state', '--format=json'], 'proposal uses the authenticated target agent and repository path');
 check(Init::confirm($transport, $digest) === $result, 'confirmation result is returned');
 check($transport->calls[1] === ['duo', 'init', '--repo=/srv/shop-state', '--confirm=' . $digest, '--format=json'], 'confirmation sends only the reviewed digest, never a mutable config payload');
+$recoveryResult = array_replace($result, ['recovery' => 'committed-finalized']);
+check(
+    Init::confirm(new InitTransport([response($recoveryResult)]), $digest) === $recoveryResult,
+    'verified committed-init finalization uses the same fail-closed result contract'
+);
 
 $slashTransport = new InitTransport([response($proposal), response($result)], '/srv/shop-state/');
 check(Init::proposal($slashTransport) === $proposal, 'host normalizes a configured trailing slash when validating the target proposal');
@@ -305,9 +310,9 @@ check(
 check(
     str_contains($agentSource, "'unsafe_site_config'")
         && str_contains($agentSource, 'self::publish_owned_file(')
-        && str_contains($agentSource, 'self::regular_file_identity($claim, $label)')
-        && str_contains($agentSource, 'if (!@link($tmp, $path))'),
-    'site config publication uses reviewed inode/bytes and create-if-absent replacement'
+        && str_contains($agentSource, 'self::regular_file_identity($path, $label)')
+        && str_contains($agentSource, 'if (!@rename($tmp, $path))'),
+    'site config publication verifies reviewed bytes before its crash-atomic same-parent replacement'
 );
 check(
     str_contains($agentSource, "'unsafe_code_root'")
@@ -317,6 +322,8 @@ check(
     'code baseline reserves an owned root before publishing its verified child'
 );
 $publishSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Publish.php');
+$captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
+$liveHarness = (string) file_get_contents(__DIR__ . '/regress_duo_init.sh');
 check(
     str_contains($publishSource, 'public static function lock_new(')
         && str_contains($publishSource, 'public static function assert_lock_path(')
@@ -324,6 +331,147 @@ check(
         && str_contains($publishSource, 'public static function swap_initial(')
         && str_contains($publishSource, 'public static function cleanup_committed_initial('),
     'initial publication has fresh lock, strict staging, swap, and exact cleanup primitives'
+);
+check(
+    substr_count($captureSource, "Publish::intent_path(\$stateDir) . '.previous'") >= 2
+        && substr_count($captureSource, "Publish::receipt_path(\$stateDir) . '.previous'") >= 2
+        && str_contains($publishSource, 'self::assert_record_slot_absent($previousPath, "$label previous-transition")'),
+    'fresh and final first-publication gates include every fixed record-transition slot'
+);
+$repoFormat = (string) file_get_contents(__DIR__ . '/../../spec/repo-format.md');
+check(
+    str_contains($repoFormat, 'requires non-Duo tools to leave the')
+        && str_contains($repoFormat, 'complete `state.capture*` protocol namespace untouched')
+        && str_contains($repoFormat, 'adversarial namespace-race sandbox for these siblings'),
+    'ordinary capture states its protocol-namespace exclusion without overclaiming portable PHP race safety'
+);
+check(
+    str_contains($agentSource, "private const ATTEMPT_FILE = '.duo-init-attempt';")
+        && str_contains($agentSource, "private const ATTEMPT_NEXT_FILE = '.duo-init-attempt.next';")
+        && strpos($agentSource, 'self::write_init_attempt($repo, $attemptRecord, \'absent\')')
+            < strpos($agentSource, '$publicationLock = Publish::lock_new($stateDir);'),
+    'sealed init recovery journal is durable before the first persistent capture lock mutation'
+);
+check(
+    str_contains($agentSource, "'verify-interrupted-precommit-init'")
+        && str_contains($agentSource, 'roll back only payloads carrying complete deletion authority')
+        && str_contains($agentSource, 'partial or ambiguous artifacts are retained')
+        && str_contains($agentSource, "'verify-interrupted-committed-init'")
+        && str_contains($agentSource, 'appears to have durable committed-state proof')
+        && str_contains($agentSource, 'only exact proof permits clearing the sealed journal'),
+    'interrupted-init proposals promise verification, never cleanup before exact recovery authority is proven'
+);
+check(
+    str_contains($agentSource, 'private static function interrupted_attempt_manual_recovery_reason(')
+        && str_contains($agentSource, "'manual-interrupted-init-recovery'")
+        && str_contains($agentSource, "'interrupted_init_manual_recovery'")
+        && str_contains($agentSource, 'state.capture-intent.tmp.')
+        && str_contains($agentSource, "str_contains(\$entry, '.duo-claim-')")
+        && str_contains($agentSource, "str_contains(\$entry, '.duo-init-')")
+        && str_contains($agentSource, 'the interrupted-init repository contains an unjournaled Init temporary or claim artifact')
+        && str_contains($agentSource, "'.*.duo-init-*'")
+        && str_contains($agentSource, "\$proposal['ready'] = false;")
+        && str_contains($liveHarness, 'unmanifested state recovery is non-confirmable')
+        && str_contains($liveHarness, 'partial code-stage recovery is non-confirmable')
+        && str_contains($liveHarness, 'partial state-stage recovery is non-confirmable'),
+    'known partial init payloads produce a non-confirmable manual-recovery plan before mutation'
+);
+check(
+    str_contains($publishSource, "self::fault_checkpoint('record-create-temp');")
+        && str_contains($publishSource, 'public static function remove_owned_tree_initial(')
+        && str_contains($publishSource, 'public static function remove_owned_file_initial(')
+        && str_contains($publishSource, 'remove_owned_tree_initial($backup')
+        && str_contains($publishSource, 'remove_owned_file_initial($intent'),
+    'strict first-publication cleanup has a temp crash seam and no unjournaled claim rename'
+);
+check(
+    str_contains($agentSource, "self::init_fault_checkpoint('owned-file-temp');")
+        && str_contains($agentSource, "self::init_fault_checkpoint('owned-file-claim');")
+        && str_contains($agentSource, "self::init_fault_checkpoint('owned-tree-claim');"),
+    'Init hidden temp and claim boundaries have explicit crash seams for live evidence'
+);
+check(
+    str_contains($agentSource, "self::init_fault_checkpoint('lock-created')")
+        && str_contains($agentSource, "self::init_fault_checkpoint('attempt-transition-pre-rename')")
+        && str_contains($agentSource, "'attempt-transition-pre-rename-' . (string) \$attempt['phase']")
+        && str_contains($agentSource, "self::init_fault_checkpoint('capture-complete')")
+        && str_contains($agentSource, "self::init_fault_checkpoint('attempt-remove-pre-unlink')")
+        && str_contains($agentSource, "self::init_fault_checkpoint('attempt-remove-post-unlink')")
+        && str_contains($agentSource, "return ['outcome' => 'precommit-rolled-back']")
+        && str_contains($agentSource, "return ['outcome' => 'committed-finalized']"),
+    'init exposes fresh-process crash seams and distinct precommit/committed recovery outcomes'
+);
+check(
+    str_contains($agentSource, "\$attemptRecord['owned']['code_stage_planned'] = true;")
+        && str_contains($agentSource, 'partial code staging tree without a complete descriptor'),
+    'code-stage creation is write-ahead journaled before the staging-root mutation'
+);
+check(
+    str_contains($agentSource, 'final class InitAttemptRetentionException')
+        && str_contains($agentSource, 'if ($error instanceof InitAttemptRetentionException)')
+        && str_contains($agentSource, "DUO_TEST_INIT_FAIL_PHASE') === 'code-copy-after-file'")
+        && str_contains($liveHarness, 'changed code source left a staging tree, journal, lock, or canonical payload')
+        && str_contains($publishSource, "if (\$stillSame) @unlink(\$name);"),
+    'post-create code-copy failures either compensate the exact partial stage or retain sealed recovery authority'
+);
+check(
+    str_contains($agentSource, 'git-initialized-before-identity')
+        && str_contains($agentSource, 'incomplete Git metadata without a complete ownership manifest')
+        && str_contains($liveHarness, 'Git initialization failure left an unjournaled or unlocked metadata root'),
+    'planned-to-mutated Git failures retain their sealed journal when no complete ownership manifest exists'
+);
+check(
+    str_contains($publishSource, 'lock-acquire-after-create')
+        && str_contains($liveHarness, 'first-lock acquisition failure stranded a lock, journal, or repository payload'),
+    'first-lock acquisition failure cannot erase its journal while leaving an unowned canonical lock'
+);
+check(
+    str_contains($agentSource, 'state-reserved-before-identity')
+        && str_contains($agentSource, 'incomplete state reservation without a complete ownership manifest')
+        && str_contains($liveHarness, 'state recovery refusal deleted the unmanifested sentinel'),
+    'state reservation is not deletion authority until its complete identity is sealed'
+);
+check(
+    str_contains($agentSource, "'capture-payload-ready'")
+        && str_contains($agentSource, "\$attemptRecord['owned']['state_staging_manifest'] = \$stagingManifest;")
+        && str_contains($agentSource, "\$attemptRecord['owned']['media_manifest'] = \$mediaManifest;")
+        && str_contains($agentSource, 'the interrupted-init state root no longer matches any sealed ownership manifest')
+        && str_contains($agentSource, 'Publish::tree_ownership_manifest($path)')
+        && str_contains($agentSource, 'no longer matches its sealed ownership manifest')
+        && str_contains($agentSource, 'partial state staging tree without a complete deletion manifest')
+        && str_contains($agentSource, 'partial code staging tree without a complete descriptor')
+        && str_contains($liveHarness, 'DUO_TEST_PUBLISH_KILL_PHASE=initial-staging-partial')
+        && str_contains($liveHarness, 'record-create-next intent-written after-state-rename')
+        && str_contains($liveHarness, 'partial manifest-bound tree is non-confirmable')
+        && str_contains($publishSource, 'recover_initial_unpublished_intent_next')
+        && str_contains($publishSource, 'remove_matching_record_temps')
+        && str_contains($publishSource, 'public static function recover_initial(')
+        && str_contains($liveHarness, 'unmanifested-empty-directory'),
+    'interrupted first publication deletes only journaled complete manifests and retains partial payloads'
+);
+check(
+    str_contains($captureSource, 'post-swap-unmanifested-empty')
+        && substr_count($captureSource, "Publish::assert_owned_tree(\n                        \$stateDir") >= 2
+        && str_contains($liveHarness, 'post-swap recovery deleted the unmanifested directory or cleared its journal'),
+    'initial success revalidates the exact published candidate before receipt cleanup and final result'
+);
+check(
+    str_contains($publishSource, 'public static function intent_record(')
+        && str_contains($publishSource, 'public static function receipt_record(')
+        && str_contains($agentSource, 'self::assert_interrupted_committed_attempt(')
+        && str_contains($agentSource, "'recovery' => 'committed-finalized'"),
+    'committed journal recovery verifies durable intent/receipt state before returning a truthful result'
+);
+check(
+    substr_count($captureSource, 'self::assert_no_interrupted_init($repoPath);') >= 2
+        && str_contains($captureSource, 'sealed init recovery journal exists')
+        && str_contains($agentSource, "hash_equals((string) (\$receipt['previous_sha256'] ?? ''), hash('sha256', ''))"),
+    'ordinary capture cannot replace a retained initial receipt and committed recovery proves a first publication'
+);
+check(
+    str_contains($agentSource, 'private static function remove_exact_owned_file(')
+        && str_contains($agentSource, 'if (!@unlink($path))'),
+    'completed journal removal uses an identity-checked atomic unlink instead of an unjournalled hidden claim'
 );
 check(
     str_contains($agentSource, "'unreadable_repository_root'")
@@ -358,7 +506,36 @@ foreach (['product_cat', 'product_tag', 'product_shipping_class', 'product_type'
 }
 check(($woo['taxonomies']['product_visibility']['class'] ?? null) === 'runtime', 'Woo adapter keeps mixed product visibility out of authored state');
 
-$liveHarness = (string) file_get_contents(__DIR__ . '/regress_duo_init.sh');
+$ignoreTemplate = (string) file_get_contents(__DIR__ . '/../site-repo.gitignore.template');
+check(
+    str_contains($liveHarness, 'attempt-transition-pre-rename-code-staging')
+        && str_contains($liveHarness, 'partial code staging tree without a complete descriptor'),
+    'live crash recovery retains a code-stage transition without manufacturing deletion authority'
+);
+check(
+    str_contains($agentSource, 'self::assert_init_attempt_transition($record, $next);')
+        && str_contains($agentSource, 'next-record exists without its canonical sealed attempt')
+        && str_contains($liveHarness, 'orphan init next-record blocks proposal before writes')
+        && str_contains($liveHarness, 'malformed next-record blocks recovery before cleanup'),
+    'init validates orphan and canonical-plus-next journal shapes before any recovery mutation'
+);
+check(
+    str_contains($liveHarness, 'DUO_TEST_INIT_KILL_PHASE=attempt-remove-pre-unlink')
+        && str_contains($liveHarness, 'DUO_TEST_INIT_KILL_PHASE=attempt-remove-post-unlink')
+        && str_contains($liveHarness, ".duo-init-compensate-*"),
+    'live coverage proves both sides of the completed-journal unlink crash boundary'
+);
+check(
+    str_contains($ignoreTemplate, '.duo-init-attempt')
+        && str_contains($ignoreTemplate, '.duo-init-attempt.next')
+        && str_contains($ignoreTemplate, '.duo-init-code-*')
+        && str_contains($ignoreTemplate, '.*.duo-init-*')
+        && str_contains($ignoreTemplate, 'state.capture-intent.previous')
+        && str_contains($ignoreTemplate, 'state.capture-intent.next')
+        && str_contains($ignoreTemplate, 'state.capture-receipt.previous')
+        && str_contains($ignoreTemplate, 'state.capture-receipt.next'),
+    'canonical site-repo ignore template protects the init journal and fixed capture transition slots'
+);
 $sourceBinding = strpos($liveHarness, 'export DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA"');
 $pairUp = strpos($liveHarness, 'bash sandbox/bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless');
 check(

@@ -1276,8 +1276,14 @@ function cmd_init(EnvironmentDriver $t, array $extra): int {
         return 1;
     }
     $baseline = $result['baseline'] ?? [];
-    echo 'Initialized canonical state baseline ' . ($baseline['revision_hash'] ?? '(unknown)') . ".\n";
-    echo 'Initialized separate code baseline ' . ($result['code']['revision_hash'] ?? '(unknown)') . ".\n";
+    if (($result['recovery'] ?? null) === 'committed-finalized') {
+        echo 'Verified the interrupted committed init and cleared its sealed recovery journal.' . "\n";
+        echo 'Recovered canonical state baseline ' . ($baseline['revision_hash'] ?? '(unknown)') . ".\n";
+        echo 'Recovered separate code baseline ' . ($result['code']['revision_hash'] ?? '(unknown)') . ".\n";
+    } else {
+        echo 'Initialized canonical state baseline ' . ($baseline['revision_hash'] ?? '(unknown)') . ".\n";
+        echo 'Initialized separate code baseline ' . ($result['code']['revision_hash'] ?? '(unknown)') . ".\n";
+    }
     echo ($baseline['rollback_note'] ?? 'This is a state baseline, not a code-and-database rollback checkpoint.') . "\n";
     echo "Verifying selected managed scope:\n";
     $status = cmd_status($t);

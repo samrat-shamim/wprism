@@ -281,13 +281,36 @@ one line after writing `site.duo.json`:
 cp sandbox/site-repo.gitignore.template <repo>/.gitignore
 ```
 
-That covers capture's publication artifacts (`state.capture.lock`,
-`state.capture-staging/`, `state.capture-backup/`, `state.capture-intent`,
-`state.capture-receipt`, `.tmp*`) and the optional per-environment
-`.duo-env-values.json` scratch file. Omitting `state.capture.lock` in
+That covers init's sealed recovery journal (`.duo-init-attempt` and its
+`.duo-init-attempt.next` transition), its unpublished `.duo-init-code-*`
+staging root, capture's publication artifacts
+(`state.capture.lock`, `state.capture-staging/`, `state.capture-backup/`,
+`state.capture-intent`, `state.capture-receipt`, their fixed `.previous`/`.next`
+transition slots, and `.tmp*`), and the optional
+per-environment `.duo-env-values.json` scratch file. Omitting
+`state.capture.lock` in
 particular is not cosmetic: the template's own comment records the structural
 failure it causes the moment two environments capture on both sides of a pair
 before the second one pulls.
+
+Init's hidden `.*.duo-init-*` temporary and claim names are ignored for Git
+hygiene but remain ownership evidence. If one survives a crash, keep the
+repository quiesced and treat the init plan as non-confirmable until the
+documented archive-and-recreate recovery has been completed.
+
+Those `state.capture*` names are Duo-owned protocol boundaries, not editable
+repository content. During capture or recovery, keep shell automation and all
+other non-Duo writers out of that namespace; the capture lock serializes Duo
+processes but cannot fence an unrelated filesystem writer.
+
+If an interrupted init reports that a partial code, media, state-staging, or
+Git payload has no completed deletion manifest, it deliberately retains the
+sealed journal and lock instead of guessing that the partial bytes are safe to
+delete. Keep the repository quiesced and preserve that complete root for
+inspection. The conservative retry is to archive the entire interrupted site
+repository, recreate the configured path as a new ordinary empty directory
+(restoring only reviewed adoption-seed files), and run `duo init` again; never
+delete only the journal and leave its partial payload behind.
 
 Then append the two orchestrator-side lines, which the template does not carry:
 

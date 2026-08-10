@@ -23,7 +23,15 @@ state.capture-intent
 state.capture-receipt
 state.capture-intent.tmp.*
 state.capture-receipt.tmp.*
+state.capture-intent.previous
+state.capture-intent.next
+state.capture-receipt.previous
+state.capture-receipt.next
 state.capture.lock
+.duo-init-code-*
+.duo-init-attempt
+.duo-init-attempt.next
+.*.duo-init-*
 
 # DUO-3232: see sandbox/site-repo.gitignore.template's own note — belt-and-
 # suspenders for local testing/experimentation against this repo's own
