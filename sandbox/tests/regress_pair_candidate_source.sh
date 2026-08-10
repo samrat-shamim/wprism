@@ -45,6 +45,12 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/duo-pair-candidate-source.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$TMP"' EXIT
 ORIGINAL_PATH="$PATH"
+# DUO-3396: pair.sh's budget refusal now consults the host certification
+# rendezvous (read-only) to see whether the candidate is the pair a HELD
+# certification lock reserved. Point it at a path under this suite's own
+# scratch that is never created, so these cases decide against a fixture
+# instead of against whatever bundle happens to be running on this host.
+export CERT_BUNDLE_LOCK_DIR="$TMP/no-certbundle-rendezvous"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }

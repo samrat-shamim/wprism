@@ -109,7 +109,13 @@ Sandbox discipline (see `docs/sandbox.md`):
   `DUO_PAIR_BUDGET_OVERRIDE=1` as the named report-not-hide escape hatch —
   never set it unless the dispatch prompt explicitly says so. Check
   `pair.sh list` before every `up`; need a second env outside the
-  active-parallel-suites case below? Stop or destroy your first.
+  active-parallel-suites case below? Stop or destroy your first. One name
+  is exempt while — and only while — a lock says so: the pair recorded by
+  a HELD host certification lock is already budgeted, because a bundle
+  destroys and recreates that one pair per leg across ~50 minutes and must
+  not lose the slot it reserved mid-run (DUO-3396). Nothing else is
+  exempt, the name is matched exactly, and a crashed bundle's leftover
+  record grants nothing.
 - **Release when idle:** whenever you are not actively executing against
   your pair — polling Linear, waiting on a human/review, blocked, writing
   code or docs for more than ~15 minutes — `pair.sh stop <name>` (frees all

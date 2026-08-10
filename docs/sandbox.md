@@ -295,6 +295,26 @@ kernel releases the descriptor after a crash/signal; the lock file itself is
 never removed, so a later owner cannot delete another process's reservation.
 `list` uses the same serialized strict query and surfaces the budget warning.
 
+One pair name is exempt, and only while a lock says so.
+`certify_reference_bundle.sh` holds the per-host certification lock
+(`/tmp/duo-certbundle.lock`, DUO-3382) for a whole ~50-minute run while
+destroying and recreating ONE pair per leg, so every leg re-enters this gate;
+a leg that lands after other agents
+have filled the budget in between would end the bundle in an immutable FAIL
+after the legs it had already earned. While that lock is HELD, `up`/`start`
+treat the exact pair name its `holder.json` records as already budgeted
+(DUO-3396). The name is compared literally — never a prefix or a pattern — and
+the record alone grants nothing: a crashed bundle's record outlives it, so
+pair.sh asks the kernel whether the flock is still held (a shared, nonblocking
+probe on a read-only descriptor, dropped the instant it is taken) and any doubt
+at all — no record, an unreadable one, a different name, a lock nobody holds,
+no way to probe — falls through to the ordinary refusal. This side only READS
+that rendezvous; it never creates, writes, or removes anything in it.
+`DUO_PAIR_BUDGET_OVERRIDE=1` is deliberately not the mechanism: the bundle does
+not detect the override today, so its manifest would affirmatively claim
+`force_hatches:[]` for a run whose budget was forced — silently wrong evidence
+(DUO-3406 tracks detecting and recording it).
+
 ## The destroy-when-green convention
 
 Going forward, an agent that brings up a pair.sh-managed pair for its own
