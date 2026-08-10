@@ -2932,73 +2932,87 @@ final class Init {
             $onStage($stage, null);
         }
         $stageParent = dirname($stage);
-        $stagePublication = Publish::create_directory_fresh(
-            $stageParent,
-            Publish::directory_ownership_identity($stageParent),
-            basename($stage),
-            0775,
-            'code capture staging directory'
-        );
-        // DUO-3421: the staging tree's full content identity is computed where
-        // it is actually consumed -- once on success (returned to the caller,
-        // which journals it as the deletion authority for this tree) and once
-        // in the catch below before compensation. It used to be recomputed
-        // after EVERY copied file and every created directory, into a by-ref
-        // accumulator nothing ever read: directory_identity() walks and lstats
-        // the whole tree, so staging a real wp-content payload cost O(n^2)
-        // syscalls: a 6062-file payload -- the size an ordinary commerce site
-        // carries -- meant about 18 million lstats, measured live at under one
-        // file per second on a bind mount and slowing as it went, i.e. the
-        // first-run experience the live evidence budget exists to bound could
-        // not finish at all. Every ownership guarantee is unchanged: each file and
-        // directory is still created through its parent-bound Publish
-        // primitive, and the stage root inode is still re-asserted at every
-        // step through assert_directory_inode().
-        $stageRootIdentity = self::directory_inode_identity($stage, 'code capture staging directory');
-        $ownedDirs = ['' => $stagePublication];
-        if ($onStage !== null) {
-            $onStage($stage, $stageRootIdentity);
-        }
+        // DUO-3425: one inode-bound helper for the whole capture walk (the
+        // 6062-file hot path) — the same per-op CWD-as-inode-capability
+        // guarantee as a fresh per-file spawn, but ONE subprocess for the
+        // whole tree. The finally guarantees a mid-walk throw can never leak
+        // a live child. The stage-root create sits inside this try only for
+        // that teardown — its own failure still bypasses the inner
+        // compensation exactly as before (there is nothing to compensate).
+        $helper = new BoundHelper();
         try {
-            foreach ((array) ($code['components'] ?? []) as $rootName => $names) {
-                $sourceRoot = (string) (($code['roots'][$rootName] ?? null) ?: '');
-                foreach ((array) $names as $name) {
-                    self::assert_directory_inode($stage, $stageRootIdentity, 'code capture staging directory');
-                    self::copy_code_path(
-                        rtrim($sourceRoot, '/') . '/' . $name,
-                        $stage . '/' . $rootName . '/' . $name,
-                        $stage,
-                        $stageRootIdentity,
-                        $ownedDirs
+            $stagePublication = Publish::create_directory_fresh(
+                $stageParent,
+                Publish::directory_ownership_identity($stageParent),
+                basename($stage),
+                0775,
+                'code capture staging directory',
+                $helper
+            );
+            // DUO-3421: the staging tree's full content identity is computed where
+            // it is actually consumed -- once on success (returned to the caller,
+            // which journals it as the deletion authority for this tree) and once
+            // in the catch below before compensation. It used to be recomputed
+            // after EVERY copied file and every created directory, into a by-ref
+            // accumulator nothing ever read: directory_identity() walks and lstats
+            // the whole tree, so staging a real wp-content payload cost O(n^2)
+            // syscalls: a 6062-file payload -- the size an ordinary commerce site
+            // carries -- meant about 18 million lstats, measured live at under one
+            // file per second on a bind mount and slowing as it went, i.e. the
+            // first-run experience the live evidence budget exists to bound could
+            // not finish at all. Every ownership guarantee is unchanged: each file and
+            // directory is still created through its parent-bound Publish
+            // primitive, and the stage root inode is still re-asserted at every
+            // step through assert_directory_inode().
+            $stageRootIdentity = self::directory_inode_identity($stage, 'code capture staging directory');
+            $ownedDirs = ['' => $stagePublication];
+            if ($onStage !== null) {
+                $onStage($stage, $stageRootIdentity);
+            }
+            try {
+                foreach ((array) ($code['components'] ?? []) as $rootName => $names) {
+                    $sourceRoot = (string) (($code['roots'][$rootName] ?? null) ?: '');
+                    foreach ((array) $names as $name) {
+                        self::assert_directory_inode($stage, $stageRootIdentity, 'code capture staging directory');
+                        self::copy_code_path(
+                            rtrim($sourceRoot, '/') . '/' . $name,
+                            $stage . '/' . $rootName . '/' . $name,
+                            $stage,
+                            $stageRootIdentity,
+                            $ownedDirs,
+                            $helper
+                        );
+                    }
+                }
+                self::assert_directory_inode($stage, $stageRootIdentity, 'code capture staging directory');
+                self::assert_staged_code_no_secrets($stage);
+                $descriptor = Code::descriptor_from_source($stage);
+                $copiedRevision = hash('sha256', Canon::encode($descriptor['files']));
+                if (!hash_equals($revision, $copiedRevision)) {
+                    throw new \RuntimeException('duo: code changed while the baseline was being copied; rerun init');
+                }
+                return [$descriptor, $stage, self::directory_identity($stage, 'code capture staging directory')];
+            } catch (\Throwable $error) {
+                try {
+                    // A bound copy can create its destination and then reject a
+                    // changed source digest before the caller refreshes the stage
+                    // manifest. Re-identify the Duo-created partial tree under the
+                    // confirmed repository-writer exclusion before compensating it.
+                    $currentIdentity = self::directory_identity($stage, 'code capture staging directory');
+                    self::remove_owned_tree($stage, $currentIdentity, 'code capture staging directory');
+                } catch (\Throwable $cleanupError) {
+                    throw new InitAttemptRetentionException(
+                        $error->getMessage()
+                        . "\nduo: init retained the partial code staging tree for sealed fresh-process recovery: "
+                        . $cleanupError->getMessage(),
+                        0,
+                        $error
                     );
                 }
+                throw $error;
             }
-            self::assert_directory_inode($stage, $stageRootIdentity, 'code capture staging directory');
-            self::assert_staged_code_no_secrets($stage);
-            $descriptor = Code::descriptor_from_source($stage);
-            $copiedRevision = hash('sha256', Canon::encode($descriptor['files']));
-            if (!hash_equals($revision, $copiedRevision)) {
-                throw new \RuntimeException('duo: code changed while the baseline was being copied; rerun init');
-            }
-            return [$descriptor, $stage, self::directory_identity($stage, 'code capture staging directory')];
-        } catch (\Throwable $error) {
-            try {
-                // A bound copy can create its destination and then reject a
-                // changed source digest before the caller refreshes the stage
-                // manifest. Re-identify the Duo-created partial tree under the
-                // confirmed repository-writer exclusion before compensating it.
-                $currentIdentity = self::directory_identity($stage, 'code capture staging directory');
-                self::remove_owned_tree($stage, $currentIdentity, 'code capture staging directory');
-            } catch (\Throwable $cleanupError) {
-                throw new InitAttemptRetentionException(
-                    $error->getMessage()
-                    . "\nduo: init retained the partial code staging tree for sealed fresh-process recovery: "
-                    . $cleanupError->getMessage(),
-                    0,
-                    $error
-                );
-            }
-            throw $error;
+        } finally {
+            $helper->close();
         }
     }
 
@@ -3008,28 +3022,30 @@ final class Init {
         string $destination,
         string $stage,
         string $stageRootIdentity,
-        array &$ownedDirs
+        array &$ownedDirs,
+        BoundHelper $helper
     ): void {
         if (is_link($source)) {
             throw new \RuntimeException("duo: refusing symbolic-link code source $source");
         }
         if (is_file($source)) {
             $parent = dirname($destination);
-            self::ensure_code_stage_directory($stage, $parent, $stageRootIdentity, $ownedDirs);
+            self::ensure_code_stage_directory($stage, $parent, $stageRootIdentity, $ownedDirs, $helper);
             $parentKey = trim(substr($parent, strlen(rtrim($stage, '/'))), '/');
             self::copy_code_file_fresh(
                 $source,
                 $destination,
                 $stage,
                 $stageRootIdentity,
-                $ownedDirs[$parentKey]
+                $ownedDirs[$parentKey],
+                $helper
             );
             return;
         }
         if (!is_dir($source)) {
             throw new \RuntimeException("duo: code source disappeared before copy: $source");
         }
-        self::ensure_code_stage_directory($stage, $destination, $stageRootIdentity, $ownedDirs);
+        self::ensure_code_stage_directory($stage, $destination, $stageRootIdentity, $ownedDirs, $helper);
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($source, \FilesystemIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::SELF_FIRST
@@ -3041,20 +3057,21 @@ final class Init {
                 throw new \RuntimeException("duo: refusing symbolic-link code source $path");
             }
             if ($item->isDir()) {
-                self::ensure_code_stage_directory($stage, $target, $stageRootIdentity, $ownedDirs);
+                self::ensure_code_stage_directory($stage, $target, $stageRootIdentity, $ownedDirs, $helper);
                 continue;
             }
             if (!$item->isFile()) {
                 throw new \RuntimeException("duo: could not copy regular code file $path");
             }
-            self::ensure_code_stage_directory($stage, dirname($target), $stageRootIdentity, $ownedDirs);
+            self::ensure_code_stage_directory($stage, dirname($target), $stageRootIdentity, $ownedDirs, $helper);
             $parentKey = trim(substr(dirname($target), strlen(rtrim($stage, '/'))), '/');
             self::copy_code_file_fresh(
                 $path,
                 $target,
                 $stage,
                 $stageRootIdentity,
-                $ownedDirs[$parentKey]
+                $ownedDirs[$parentKey],
+                $helper
             );
         }
     }
@@ -3064,7 +3081,8 @@ final class Init {
         string $stage,
         string $directory,
         string $stageRootIdentity,
-        array &$ownedDirs
+        array &$ownedDirs,
+        BoundHelper $helper
     ): void {
         self::assert_directory_inode($stage, $stageRootIdentity, 'code capture staging directory');
         $prefix = rtrim($stage, '/') . '/';
@@ -3086,7 +3104,8 @@ final class Init {
                     $ownedDirs[$parentKey],
                     $part,
                     0775,
-                    'code staging child directory'
+                    'code staging child directory',
+                    $helper
                 );
                 $current .= '/' . $part;
             } else {
@@ -3104,7 +3123,8 @@ final class Init {
         string $destination,
         string $stage,
         string $stageRootIdentity,
-        array $expectedParent
+        array $expectedParent,
+        BoundHelper $helper
     ): void {
         self::assert_directory_inode($stage, $stageRootIdentity, 'code capture staging directory');
         if (file_exists($destination) || is_link($destination)) {
@@ -3128,7 +3148,8 @@ final class Init {
             $expectedDigest,
             $mode & 0777,
             'code staging file',
-            $expectedParent
+            $expectedParent,
+            $helper
         );
     }
 
