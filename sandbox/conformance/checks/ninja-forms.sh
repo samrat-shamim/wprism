@@ -138,10 +138,23 @@ wp_conf1 db query "
 STATE_STATUS_BEFORE=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 [ -z "$STATE_STATUS_BEFORE" ] || fail "source canonical state was dirty before parent-deletion refusal: $STATE_STATUS_BEFORE"
 CAPTURE_DELETE_RC=0
-CAPTURE_DELETE_OUT=$(wp_conf1 duo capture --repo=/siterepo --format=json 2>&1) || CAPTURE_DELETE_RC=$?
+# The command's versioned record is stdout. Compose writes container lifecycle
+# progress to stderr even for a healthy `run --rm`; folding both streams would
+# make jq judge Docker's prose as if it were part of Duo's machine contract.
+CAPTURE_DELETE_OUT=$(wp_conf1 duo capture --repo=/siterepo --format=json) || CAPTURE_DELETE_RC=$?
+require_duo_answered "parent-deletion capture" json "$CAPTURE_DELETE_OUT"
 [ "$CAPTURE_DELETE_RC" -ne 0 ] || fail "capture accepted unsupported table:nf3_forms deletion"
-grep -Fq 'deletion intent for table:nf3_forms is unsupported' <<<"$CAPTURE_DELETE_OUT" \
-  || fail "parent-deletion refusal did not name table:nf3_forms: $CAPTURE_DELETE_OUT"
+jq -se '
+  length == 1
+  and .[0].format == "duo-command-refusal/v1"
+  and .[0].ok == false
+  and .[0].command == "capture"
+  and .[0].reason_code == "unsupported_deletion"
+  and any(.[0].diagnostics[]?;
+    .code == "unsupported_deletion"
+    and .surface == "table:nf3_forms")
+' <<<"$CAPTURE_DELETE_OUT" >/dev/null \
+  || fail "parent-deletion refusal did not expose the exact table:nf3_forms capability gap: $CAPTURE_DELETE_OUT"
 STATE_STATUS_AFTER=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 [ "$STATE_STATUS_AFTER" = "$STATE_STATUS_BEFORE" ] \
   || fail "failed parent-deletion capture changed canonical state: $STATE_STATUS_AFTER"

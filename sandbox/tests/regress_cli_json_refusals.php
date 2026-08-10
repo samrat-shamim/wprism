@@ -208,6 +208,7 @@ namespace Duo {
 namespace {
     require __DIR__ . '/../../agent/src/Secrets.php';
     require __DIR__ . '/../../agent/src/CommandRefusal.php';
+    require __DIR__ . '/../../agent/src/Deletion.php';
     require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
     require __DIR__ . '/../../agent/src/Code.php';
     require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
@@ -318,6 +319,31 @@ namespace {
         'capture JSON keeps the exact state surface and per-finding remedy'
     );
     check(!str_contains((string) json_encode($capture), '/private/repo'), 'operator-only typed evidence is absent from JSON');
+
+    $unsupportedDeletionFactory = new ReflectionMethod(\Duo\Deletion::class, 'unsupported_capability_refusal');
+    \Duo\Capture::$failure = $unsupportedDeletionFactory->invoke(null, 'table:nf3_forms');
+    $unsupportedDeletion = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+    check(
+        ($unsupportedDeletion['format'] ?? null) === 'duo-command-refusal/v1'
+            && ($unsupportedDeletion['ok'] ?? null) === false
+            && ($unsupportedDeletion['command'] ?? null) === 'capture',
+        'unsupported deletion uses the primary capture refusal envelope'
+    );
+    check(
+        ($unsupportedDeletion['error'] ?? null) === 'unsupported_deletion'
+            && ($unsupportedDeletion['reason_code'] ?? null) === 'unsupported_deletion',
+        'unsupported deletion retains its finite source-owned reason'
+    );
+    check(
+        ($unsupportedDeletion['diagnostics'][0]['code'] ?? null) === 'unsupported_deletion'
+            && ($unsupportedDeletion['diagnostics'][0]['surface'] ?? null) === 'table:nf3_forms',
+        'unsupported deletion JSON identifies the exact generic selector'
+    );
+    check(
+        !isset($unsupportedDeletion['details_redacted'])
+            && !str_contains((string) json_encode($unsupportedDeletion), 'reverse-reference checks'),
+        'safe selector evidence stays public while richer operator prose stays private'
+    );
 
     \Duo\Capture::$failure = new \Duo\CommandRefusalException(
         'policy_refused',

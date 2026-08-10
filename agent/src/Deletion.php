@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/CommandRefusal.php';
+
 /**
  * Canonical deletion intent. Absence from state is never authority: capture
  * converts a previously-compiled live entity that disappeared from the
@@ -41,9 +43,7 @@ final class Deletion {
         $selector = self::selector($kind, $type);
         $cap = $policy->deletion_capability($selector);
         if ($cap === null) {
-            throw new \RuntimeException(
-                "duo: deletion intent for $selector is unsupported — no pinned adapter declares its reverse-reference checks and cascade effects"
-            );
+            throw self::unsupported_capability_refusal($selector);
         }
         $required = match ($kind) {
             'post' => ['postmeta', 'post_revisions', 'term_relationships'],
@@ -60,6 +60,23 @@ final class Deletion {
             );
         }
         return $cap;
+    }
+
+    /** One reviewed machine contract for a generic deletion selector no adapter owns. */
+    private static function unsupported_capability_refusal(string $selector): CommandRefusalException {
+        $operatorMessage = "duo: deletion intent for $selector is unsupported — no pinned adapter declares its reverse-reference checks and cascade effects";
+        return new CommandRefusalException(
+            'unsupported_deletion',
+            "deletion intent for $selector is unsupported because no pinned adapter owns its destructive semantics",
+            'restore the missing source entity, or pin a compatible adapter that declares the required reverse-reference guards and cascade effects before trying again',
+            [[
+                'code' => 'unsupported_deletion',
+                'surface' => $selector,
+                'message' => 'no pinned adapter declares this deletion selector',
+                'remediation' => 'restore the missing source entity or pin a compatible adapter with complete deletion guards and cascade effects',
+            ]],
+            $operatorMessage
+        );
     }
 
     /**
