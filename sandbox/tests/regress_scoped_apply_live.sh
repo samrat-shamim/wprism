@@ -213,6 +213,10 @@ target_project_id() {
   target_wp post list --post_type=project --post_status=any --meta_key=_duo_uuid --meta_value="$1" --format=ids \
     | tr -d '[:space:]'
 }
+target_post_id() {
+  target_wp post list --post_status=any --meta_key=_duo_uuid --meta_value="$1" --format=ids \
+    | tr -d '[:space:]'
+}
 target_title() { target_wp post get "$1" --field=post_title | tr -d '\r\n'; }
 target_kv() {
   target_wp eval "echo \\Duo\\Ledger::kv_get('$1') ?? '__DUO_NULL__';" \
@@ -226,7 +230,7 @@ target_kv() {
 target_boundary_digest() {
   local file="$TMP/boundary-$RANDOM.txt"
   target_wp db query "
-    SELECT 'post', ID, post_type, post_status, post_title FROM wp_posts WHERE post_type='project' ORDER BY ID;
+    SELECT 'post', ID, post_type, post_status, post_title FROM wp_posts WHERE post_type IN ('post','project') ORDER BY ID;
     SELECT 'option', option_name, option_value FROM wp_options WHERE option_name IN ('duo_agency_project_index','_transient_duo_agency_project_cache','_transient_timeout_duo_agency_project_cache') ORDER BY option_name;
     SELECT 'map', uuid, entity_type, id_kind, local_id FROM wp_duo_map ORDER BY uuid, id_kind;
     SELECT 'state', uuid, entity_type, content_hash FROM wp_duo_state ORDER BY uuid;
@@ -290,18 +294,18 @@ assert_hash_only_actions() { # <apply-summary>
   ' "$1" >/dev/null || fail "changed-surface action receipts were not the exact public hash-only provider/native shape"
 }
 
-assert_scoped_plan() { # <plan> <contract> <expected selector>
-  local plan=$1 contract=$2 selector=$3 scope_hash
+assert_scoped_plan() { # <plan> <contract> <selector> <surface> <action-count>
+  local plan=$1 contract=$2 selector=$3 surface=$4 action_count=$5 scope_hash
   scope_hash="$(jq -r '.scope_hash' "$contract")"
-  jq -e --arg scope_hash "$scope_hash" --arg selector "$selector" '
+  jq -e --arg scope_hash "$scope_hash" --arg selector "$selector" --arg surface "$surface" --argjson action_count "$action_count" '
     .format == "duo-scoped-plan/v1"
     and .scope.format == "duo-scope-contract/v1"
     and .scope.scope_hash == $scope_hash
     and (.target | keys | sort == ["ledger_map_root","protected_ledger_map_root","protected_out_of_scope_root","selected_before_root","selected_ledger_map_root","target_observation_hash"])
     and (.target | all(.[]; test("^[a-f0-9]{64}$")))
-    and (.selected_surfaces | index("post:project") != null)
-    and (.selected_actions | length == 2)
-    and all(.selected_actions[]; .manifest == "duo-agency-cpt" and (.declaration_hash | test("^[a-f0-9]{64}$")))
+    and (.selected_surfaces | index($surface) != null)
+    and (.selected_actions | length == $action_count)
+    and ($action_count == 0 or all(.selected_actions[]; .manifest == "duo-agency-cpt" and (.declaration_hash | test("^[a-f0-9]{64}$"))))
   ' "$plan" >/dev/null || fail "scoped plan lacked target-bound roots/selected action evidence for $selector"
 }
 
@@ -404,7 +408,7 @@ OUTSIDE_TARGET_TITLE='DUO-3344 outside target survives'
 STALE_PROTECTED_SOURCE_TITLE='DUO-3344 stale protected source'
 STALE_PROTECTED_TARGET_TITLE='DUO-3344 stale protected target edit'
 UPDATE_SOURCE_ID="$(source_wp post create --post_type=project --post_status=publish --post_title="$UPDATE_TITLE_BEFORE" --porcelain)"
-DELETE_SOURCE_ID="$(source_wp post create --post_type=project --post_status=publish --post_title="$DELETE_TITLE" --porcelain)"
+DELETE_SOURCE_ID="$(source_wp post create --post_type=post --post_status=publish --post_title="$DELETE_TITLE" --porcelain)"
 OUTSIDE_SOURCE_ID="$(source_wp post create --post_type=project --post_status=publish --post_title="$OUTSIDE_SOURCE_TITLE" --porcelain)"
 STALE_PROTECTED_SOURCE_ID="$(source_wp post create --post_type=project --post_status=publish --post_title="$STALE_PROTECTED_SOURCE_TITLE" --porcelain)"
 run_duo_json baseline-capture "$TMP/baseline-capture.json" capture source --format=json
@@ -438,10 +442,7 @@ git -C "$SITE2" pull -q --ff-only origin main
 OUTSIDE_TARGET_ID="$(target_project_id "$OUTSIDE_UUID")"
 [ -n "$OUTSIDE_TARGET_ID" ] || fail "baseline target lacks the intended out-of-scope project"
 target_wp post update "$OUTSIDE_TARGET_ID" --post_title="$OUTSIDE_TARGET_TITLE" >/dev/null
-target_wp transient set duo_agency_project_cache stale-before-scoped-delete 600 >/dev/null
-[ "$(target_wp transient get duo_agency_project_cache | tr -d '\r\n')" = stale-before-scoped-delete ] \
-  || fail "could not establish a native-action changed surface"
-pass "source has independent update/tombstone intent; target-only project edit and stale cache are now protected evidence"
+pass "source has independent update/tombstone intent; the target-only project edit is protected evidence"
 
 say "scope/plan the selected tombstone through the public host CLI"
 TOMB_CONTRACT="$TMP/tombstone.scope.json"
@@ -450,11 +451,11 @@ jq -e --arg uuid "$DELETE_UUID" '
   .format == "duo-scope-contract/v1"
   and .selectors == ["tombstone:" + $uuid]
   and (.tombstones | length == 1 and .[0].uuid == $uuid)
-  and ([.potential_actions[].source] | sort == ["native:transient.delete","provider:duo-agency-index/rebuild_project_index"])
-  and (.potential_providers | length == 1 and .[0].id == "duo-agency-index")
-' "$TOMB_CONTRACT" >/dev/null || fail "tombstone contract lacked exact scoped provider/native eligibility"
+  and (.potential_actions | length == 0)
+  and (.potential_providers | length == 0)
+' "$TOMB_CONTRACT" >/dev/null || fail "core-post tombstone contract widened into unrelated plugin effects"
 run_duo_json tombstone-plan "$TMP/tombstone-plan.json" plan target "--scope-contract=$TOMB_CONTRACT" --format=json
-assert_scoped_plan "$TMP/tombstone-plan.json" "$TOMB_CONTRACT" "tombstone:${DELETE_UUID}"
+assert_scoped_plan "$TMP/tombstone-plan.json" "$TOMB_CONTRACT" "tombstone:${DELETE_UUID}" post:post 0
 [ "$(target_kv scoped_apply_session)" = '__DUO_NULL__' ] \
   || fail "read-only scoped plan created a scoped session"
 assert_generic_scoped_boundary "read-only scoped plan"
@@ -472,7 +473,7 @@ jq -e '.command == "apply" and .reason_code == "apply_refused" and (.message | c
   || fail "missing --with-deletes changed selected/protected/ledger/action state"
 assert_generic_scoped_boundary "early delete refusal"
 assert_outside_preserved "early delete refusal"
-DELETE_TARGET_ID="$(target_project_id "$DELETE_UUID")"
+DELETE_TARGET_ID="$(target_post_id "$DELETE_UUID")"
 [ -n "$DELETE_TARGET_ID" ] || fail "missing --with-deletes removed the selected target project"
 pass "tombstone refusal happened before session creation, authored mutation, provider/native action, or generic debt"
 
@@ -487,20 +488,13 @@ jq -e '
   and (.verification.protected_out_of_scope_root | test("^[a-f0-9]{64}$"))
   and (.verification.protected_ledger_map_root | test("^[a-f0-9]{64}$"))
   and .scoped_receipt.phase == "complete"
+  and (.actions | length == 0)
   and ([.scoped_receipt.authority_hash,.scoped_receipt.selected_ledger_map_hash,.scoped_receipt.protected_ledger_map_hash,.scoped_receipt.terminal_hash] | all(.[]; test("^[a-f0-9]{64}$")))
 ' "$TMP/tombstone-apply.json" >/dev/null || fail "scoped tombstone apply lacked terminal target-bound convergence evidence"
-assert_hash_only_actions "$TMP/tombstone-apply.json"
-[ -z "$(target_project_id "$DELETE_UUID")" ] || fail "scoped tombstone apply left selected target project live"
-CACHE_ROWS="$(target_wp db query "SELECT COUNT(*) FROM wp_options WHERE option_name IN ('_transient_duo_agency_project_cache','_transient_timeout_duo_agency_project_cache')" --skip-column-names | awk 'NF {last=$0} END {print last}')"
-[ "$CACHE_ROWS" = 0 ] || fail "native transient.delete did not clear the stale cache"
-TARGET_PROJECT_IDS="$(target_wp post list --post_type=project --post_status=publish --orderby=ID --order=ASC --format=ids | tr -d '\r\n')"
-TARGET_PROJECT_IDS_JSON="$(jq -cn '$ARGS.positional | map(tonumber)' --args $TARGET_PROJECT_IDS)"
-target_wp option get duo_agency_project_index --format=json >"$TMP/index-after-tombstone.json"
-jq -e --argjson ids "$TARGET_PROJECT_IDS_JSON" '.ids == $ids and (.titles | length == ($ids | length))' "$TMP/index-after-tombstone.json" >/dev/null \
-  || fail "plugin-owned provider did not rebuild the target-local project index"
+[ -z "$(target_post_id "$DELETE_UUID")" ] || fail "scoped tombstone apply left the selected core post live"
 assert_outside_preserved "scoped tombstone apply"
 assert_generic_scoped_boundary "scoped tombstone apply"
-pass "real plugin provider and native action changed their target surfaces; public receipts exposed hashes only"
+pass "adapter-certified core deletion converged without widening into unrelated plugin effects"
 
 say "replay the terminal tombstone authority and require byte-stable receipt evidence"
 run_duo_json tombstone-replay "$TMP/tombstone-replay.json" apply target "--scope-contract=$TOMB_CONTRACT" --with-deletes --format=json
@@ -539,7 +533,10 @@ jq -e --arg uuid "$UPDATE_UUID" '
   and (.tombstones | length == 0)
 ' "$UPDATE_CONTRACT" >/dev/null || fail "update contract did not bind exactly the selected live project"
 run_duo_json update-plan "$TMP/update-plan.json" plan target "--scope-contract=$UPDATE_CONTRACT" --format=json
-assert_scoped_plan "$TMP/update-plan.json" "$UPDATE_CONTRACT" "post:${UPDATE_UUID}"
+assert_scoped_plan "$TMP/update-plan.json" "$UPDATE_CONTRACT" "post:${UPDATE_UUID}" post:project 2
+target_wp transient set duo_agency_project_cache stale-before-scoped-update 600 >/dev/null
+[ "$(target_wp transient get duo_agency_project_cache | tr -d '\r\n')" = stale-before-scoped-update ] \
+  || fail "could not establish the selected update's native-action changed surface"
 run_duo_json update-apply "$TMP/update-apply.json" apply target "--scope-contract=$UPDATE_CONTRACT" --format=json
 jq -e '
   .format == "duo-scoped-apply-result/v1"
@@ -552,10 +549,17 @@ jq -e '
 assert_hash_only_actions "$TMP/update-apply.json"
 UPDATE_TARGET_ID="$(target_project_id "$UPDATE_UUID")"
 [ "$(target_title "$UPDATE_TARGET_ID")" = "$UPDATE_TITLE_AFTER" ] || fail "scoped update did not apply selected source title"
+CACHE_ROWS="$(target_wp db query "SELECT COUNT(*) FROM wp_options WHERE option_name IN ('_transient_duo_agency_project_cache','_transient_timeout_duo_agency_project_cache')" --skip-column-names | awk 'NF {last=$0} END {print last}')"
+[ "$CACHE_ROWS" = 0 ] || fail "native transient.delete did not clear the stale cache"
+TARGET_PROJECT_IDS="$(target_wp post list --post_type=project --post_status=publish --orderby=ID --order=ASC --format=ids | tr -d '\r\n')"
+TARGET_PROJECT_IDS_JSON="$(jq -cn '$ARGS.positional | map(tonumber)' --args $TARGET_PROJECT_IDS)"
+target_wp option get duo_agency_project_index --format=json >"$TMP/index-after-update.json"
+jq -e --argjson ids "$TARGET_PROJECT_IDS_JSON" '.ids == $ids and (.titles | length == ($ids | length))' "$TMP/index-after-update.json" >/dev/null \
+  || fail "plugin-owned provider did not rebuild the target-local project index"
 assert_outside_preserved "scoped update apply"
 assert_stale_protected_preserved "scoped update apply"
 assert_generic_scoped_boundary "scoped update apply"
-pass "new scoped authority updates only its selected project; generic revision/debt and outside target state remain preserved"
+pass "new scoped authority updates only its selected project; plugin/native effects are hash-only and generic/outside state stays preserved"
 
 say "tamper the host-local contract and prove public host refusal before target mutation"
 TAMPERED_CONTRACT="$TMP/tampered-update.scope.json"
