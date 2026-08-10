@@ -288,6 +288,32 @@ $COMPOSE exec -T --user root wp2 sh -c \
   'printf "%s\n" "<?php" "add_filter(\"duo_attachment_capture_source\", static function () { throw new RuntimeException(\"DUO_EXPLAIN_OFFLOAD_HOOK_WAS_INVOKED\"); });" > /var/www/html/wp-content/mu-plugins/duo-explain-offload-guard.php'
 [ "$(wp_conf2 eval 'echo has_filter("duo_attachment_capture_source") ? "registered" : "missing";')" = 'registered' ] \
   || fail "the throwing attachment-offload premise hook was not registered"
+# DUO-3410: this proof hashes the WHOLE target database before/after two host
+# `duo explain` invocations and asserts equality to show explain is SELECT-only.
+# It false-failed intermittently ("strict explain changed the target database")
+# because UNRELATED asynchronous WordPress state — not any explain write —
+# entered the hash window. Two WP-core mechanisms were identified live (see the
+# DUO-3410 reproduction), both firing on ANY wp-cli WordPress boot, and every
+# hash and every explain here IS a wp-cli boot of conf2:
+#   1. WP-Cron: with due events pending (a fresh install has several), spawn_cron()
+#      rewrites the `_transient_doing_cron` option with a fresh microtime() on each
+#      boot — the dominant culprit (two idle exports seconds apart differed there).
+#   2. Lazy transient GC: reading an expired transient DELETEs its `_transient_*`
+#      rows on read, so an expiry landing mid-window mutates wp_options.
+# Neither is an explain write. Quiesce both across the whole window: clear expired
+# transients (site- and network-scoped) so lazy GC has nothing to collect, and
+# freeze WP-Cron for every boot via a scoped DISABLE_WP_CRON mu-plugin (installed
+# through the pair's own owned web container, like the offload guard above). The
+# tooth is untouched: the comparison stays a byte-exact hash of the ENTIRE database
+# with NO row filtering, so an explain write to ANY row still fails — a positive
+# control at the end proves that live. Both the freeze and the offload guard are
+# lifted BEFORE any fail-prone assertion below, so neither leaks past this proof.
+wp_conf2 transient delete --expired >/dev/null 2>&1 || true
+wp_conf2 transient delete --expired --network >/dev/null 2>&1 || true
+$COMPOSE exec -T --user root wp2 sh -c \
+  'printf "%s\n" "<?php" "if (!defined(\"DISABLE_WP_CRON\")) { define(\"DISABLE_WP_CRON\", true); }" > /var/www/html/wp-content/mu-plugins/duo-explain-cron-freeze.php'
+[ "$(wp_conf2 eval 'echo (defined("DISABLE_WP_CRON") && DISABLE_WP_CRON) ? "frozen" : "live";')" = 'frozen' ] \
+  || fail "the WP-Cron freeze premise (DISABLE_WP_CRON) was not active for the strict-explain read-only window"
 # DUO-3413: premise-assert the before-export carried bytes BEFORE hashing, so an
 # empty-at-exit-0 compose run is named as infrastructure rather than silently
 # hashing to the empty-string digest and later reading as an engine mutation.
@@ -313,6 +339,34 @@ if [ "$EXPLAIN_RC" -eq 0 ]; then
   EXPLAIN_HUMAN_ERR=$(cat "$EXPLAIN_REGISTRY_DIR/human.stderr" 2>/dev/null || true)
 fi
 $COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/duo-explain-offload-guard.php
+# DUO-3410: fingerprint the target while WP-Cron is STILL frozen (a db export is
+# itself a wp-cli boot), so no post-window boot can churn `_transient_doing_cron`
+# back into the AFTER hash. Then stage the mutation-tooth positive control under
+# the SAME quiescing, and only THEN lift the freeze — so every fail-prone
+# assertion below runs after the window is fully closed. (DUO-3413 premise still
+# applies: an empty-at-exit-0 export is named infrastructure, not a mutation.)
+EXPLAIN_DB_AFTER_SQL=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null)
+require_observed_nonempty "conf2 db export (after strict explain)" "$EXPLAIN_DB_AFTER_SQL"
+EXPLAIN_DB_AFTER=$(printf '%s' "$EXPLAIN_DB_AFTER_SQL" | shasum -a 256 | awk '{print $1}')
+# Positive control (acceptance item): staged under the identical quiescing the
+# proof used, a real durable write to a NON-transient option must still move the
+# whole-database fingerprint. If it does not, the quiescing has blinded the tooth
+# and a genuine explain write could pass unseen — the deferred assertion at the
+# end of this proof refuses on exactly that.
+wp_conf2 transient delete --expired >/dev/null 2>&1 || true
+wp_conf2 transient delete --expired --network >/dev/null 2>&1 || true
+EXPLAIN_TOOTH_BEFORE_SQL=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null)
+require_observed_nonempty "conf2 db export (mutation-tooth before)" "$EXPLAIN_TOOTH_BEFORE_SQL"
+EXPLAIN_TOOTH_BEFORE=$(printf '%s' "$EXPLAIN_TOOTH_BEFORE_SQL" | shasum -a 256 | awk '{print $1}')
+wp_conf2 option update duo_explain_mutation_tooth duo-3410 >/dev/null \
+  || fail "DUO-3410 mutation-tooth self-test could not stage its durable probe write"
+EXPLAIN_TOOTH_AFTER_SQL=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null)
+require_observed_nonempty "conf2 db export (mutation-tooth after)" "$EXPLAIN_TOOTH_AFTER_SQL"
+EXPLAIN_TOOTH_AFTER=$(printf '%s' "$EXPLAIN_TOOTH_AFTER_SQL" | shasum -a 256 | awk '{print $1}')
+wp_conf2 option delete duo_explain_mutation_tooth >/dev/null
+# DUO-3410: lift the WP-Cron freeze BEFORE any fail-prone assertion below, so it
+# never leaks past this proof (the offload guard above is lifted the same way).
+$COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/duo-explain-cron-freeze.php
 rm -rf -- "$EXPLAIN_REGISTRY_DIR"
 trap - EXIT
 # The json invocation is safe to gate: the host CLI's refusal envelope goes to
@@ -367,17 +421,22 @@ for NEEDLE in \
   grep -Fq "$NEEDLE" <<<"$EXPLAIN_HUMAN" \
     || fail "human explain is missing '$NEEDLE': $EXPLAIN_HUMAN"
 done
-# DUO-3413: same premise before the after-hash, and paste both digests into the
-# mutation accusation so it is diagnosable (was neither hash nor diff).
-EXPLAIN_DB_AFTER_SQL=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null)
-require_observed_nonempty "conf2 db export (after strict explain)" "$EXPLAIN_DB_AFTER_SQL"
-EXPLAIN_DB_AFTER=$(printf '%s' "$EXPLAIN_DB_AFTER_SQL" | shasum -a 256 | awk '{print $1}')
+# DUO-3413: paste both digests into the mutation accusation so it is diagnosable
+# (was neither hash nor diff). EXPLAIN_DB_AFTER was captured above under the same
+# WP-Cron/transient quiescing as EXPLAIN_DB_BEFORE (DUO-3410), while frozen.
 [ "$EXPLAIN_DB_AFTER" = "$EXPLAIN_DB_BEFORE" ] \
   || fail "strict explain changed the target database: before=$EXPLAIN_DB_BEFORE after=$EXPLAIN_DB_AFTER"
 EXPLAIN_REPO_AFTER=$(git -C "$CONF_REPO2" status --porcelain --untracked-files=all)
 [ "$EXPLAIN_REPO_AFTER" = "$EXPLAIN_REPO_BEFORE" ] \
   || fail "strict explain changed the target repository: $(diff <(printf '%s\n' "$EXPLAIN_REPO_BEFORE") <(printf '%s\n' "$EXPLAIN_REPO_AFTER") | tr '\n' ' ')"
-pass "public duo explain traces one current row through a deterministic value-free contract with zero database/repository/provider/action mutation"
+# DUO-3410 mutation-tooth positive control, deferred to here so the freeze is
+# already lifted before any fail: under the SAME quiescing this proof used, a real
+# durable write to a non-transient option must still move the whole-database
+# fingerprint — proving the quiescing removed the async WP-Cron/transient churn
+# WITHOUT removing the read-only tooth.
+[ "$EXPLAIN_TOOTH_AFTER" != "$EXPLAIN_TOOTH_BEFORE" ] \
+  || fail "DUO-3410 mutation-tooth regression: under the SAME async-churn quiescing this proof uses, a real durable write to a non-transient option no longer moves the whole-database fingerprint — the SELECT-only tooth is gone, and a genuine explain write could pass unseen"
+pass "public duo explain traces one current row through a deterministic value-free contract with zero database/repository/provider/action mutation (DUO-3410: WP-Cron/expired-transient churn quiesced across the window; whole-database mutation tooth verified live under that same quiescing)"
 
 CONFLICT_TARGET_BEFORE=$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title)
 CONFLICT_BASE_BEFORE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$UA'" --skip-column-names | tr -d '[:space:]')
