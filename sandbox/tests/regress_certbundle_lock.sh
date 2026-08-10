@@ -811,7 +811,7 @@ pass "every helper this suite started cleaned up its own control directory"
 # DUO_PAIR_BUDGET_OVERRIDE=1 is not available to a certification: nothing in
 # the bundle detects the override today, so its manifest would affirmatively
 # claim force_hatches:[] for a run whose budget WAS forced -- silently wrong
-# evidence (DUO-3404 tracks making the bundle detect and record it).
+# evidence (DUO-3406 tracks making the bundle detect and record it).
 #
 # So while this lock is HELD, pair.sh treats the exact pair name its record
 # carries as already budgeted. The cases below drive the SHIPPED pair.sh
