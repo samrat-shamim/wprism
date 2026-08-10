@@ -911,7 +911,7 @@ namespace {
         \Duo\Policy::$failure = new \Duo\InitialStateBoundaryException($boundary);
         $published = invoke_json(static fn() => $cli->$method([], ['repo' => '/fixture', 'format' => 'json']));
         check(
-            ($published['error'] ?? null) === str_replace('-', '_', $command) . '_refused'
+            ($published['error'] ?? null) === 'initial_state_boundary'
                 && ($published['message'] ?? null) === $boundary
                 && !array_key_exists('details_redacted', $published),
             "$command publishes an admitted-class boundary refusal verbatim although the command is not allowlisted"

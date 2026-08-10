@@ -58,7 +58,12 @@ final class Cli {
             $remediation = $t->remediation;
             $redacted = false;
         } elseif (in_array(get_class($t), self::PUBLIC_REFUSAL_CLASSES, true)
-            && !CommandRefusalException::containsSensitivePublicDetail(['message' => $t->getMessage()])) {
+            && !CommandRefusalException::containsSensitivePublicDetail($t->getMessage())
+            // The class audit's premise is that no sentence carries a path;
+            // the one edge is the bound helper's reason being subprocess
+            // stderr. Any absolute-path shape means the premise broke, so it
+            // falls through to the redacted catch-all rather than publishing.
+            && preg_match('~(?:^|[\s:(\'"])/[^\s\'")]+~', $t->getMessage()) !== 1) {
             // DUO-3421: a refusal CLASS with a closed, audited message
             // vocabulary (see PUBLIC_REFUSAL_CLASSES below) is itself the
             // typed contract this function's doctrine demands — its sentence
@@ -168,21 +173,40 @@ final class Cli {
      * for this branch.
      */
     /**
-     * The commands whose duo:-prefixed raw refusals may publish. This is an
-     * ALLOWLIST, and the rule is contract provenance, not command category:
-     * these are the commands whose reachable refusal messages were audited
-     * value-free at DUO-3398 (one of them load-bearing for the DUO-3328
-     * ninja-forms certification contract). refresh-export and scope are
-     * absent because DUO-3397 deliberately pinned blanket redaction for
-     * them — a fresh reviewed decision this branch does not reverse —
-     * and explain is absent because its own catch declares a stricter
-     * value-free posture than any other command. A command not on this
-     * list is redacted until someone audits it and adds it here WITH its
-     * suite pins; silently inheriting publication is how the DUO-3398
-     * fix-forward incident happened.
+     * Refusal CLASSES whose message vocabulary is closed and reviewed, so their
+     * public answer does not depend on any per-command grant. The #180
+     * audit rule, one axis over: a class is admitted only after
+     * someone audits every one of its throw sites and adds it here WITH its
+     * suite pins; a class is never admitted to spare a command the audit, and
+     * admitting one grants that command nothing else.
+     *
+     * DUO-3421 admits InitialStateBoundaryException. Audited: every throw site
+     * in Publish and Capture is a fixed engine sentence; the only
+     * interpolations are $label, drawn from a closed set of engine-authored
+     * artifact names (`site.duo.json`, `Git metadata root`, `code staging
+     * file`, `initial state reservation`, `intent`, `receipt`, …), the bound
+     * helper's own fixed reason vocabulary (`copy source digest changed`,
+     * `parent identity changed`, …), and — once — a nested message from this
+     * same class, which is closed by the same audit. Nothing carries a
+     * repository path, an entity selector, an option value, or any other
+     * operator byte.
+     *
+     * The helper's reason is the one edge worth naming: it is that process's
+     * STDERR, so a PHP diagnostic from inside the helper could in principle
+     * arrive carrying a path. That is exactly why admission is by class and
+     * not by trust — every screen below still runs on the message, and the
+     * refusals suite plants an absolute path in a boundary refusal to prove
+     * the screen still sends it back to the redacted envelope.
+     *
+     * Why this class specifically: `init`'s bound-copy digest boundary
+     * ("copy source digest changed") is the operator's whole answer when the
+     * code changed underneath a confirmed baseline — rerun init — and it was
+     * arriving as "init refused at an unclassified safety gate". `init` gains
+     * nothing else: its injected-fault and ownership internals
+     * must keep redacting, and they do, because they are ordinary Throwables.
      */
-    private const PUBLIC_REFUSAL_COMMANDS = [
-        'apply', 'capture', 'code-finalize', 'code-stage', 'compile', 'deploy', 'plan',
+    private const PUBLIC_REFUSAL_CLASSES = [
+        InitialStateBoundaryException::class,
     ];
     private static function refusal_remediation(string $command): string {
         return match ($command) {
