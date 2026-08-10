@@ -834,7 +834,10 @@ final class Apply {
             if (!is_array($entry['data'] ?? null)) {
                 return null;
             }
-            $widgets = $entry['data']['widgets'] ?? [];
+            if (!array_key_exists('widgets', $entry['data'])) {
+                return null;
+            }
+            $widgets = $entry['data']['widgets'];
             if (!is_array($widgets) || !array_is_list($widgets)) {
                 return null;
             }
@@ -852,10 +855,12 @@ final class Apply {
         }
 
         foreach (['create', 'adopt', 'update', 'conflict'] as $bucket) {
-            $rows = $plan[$bucket] ?? [];
-            if (!is_array($rows) || !array_is_list($rows)) {
+            if (!array_key_exists($bucket, $plan)
+                || !is_array($plan[$bucket])
+                || !array_is_list($plan[$bucket])) {
                 return null;
             }
+            $rows = $plan[$bucket];
             foreach ($rows as $row) {
                 if (!is_array($row)) {
                     return null;
@@ -885,7 +890,10 @@ final class Apply {
                     if (!is_array($entry['data'] ?? null)) {
                         return null;
                     }
-                    $items = $entry['data']['items'] ?? [];
+                    if (!array_key_exists('items', $entry['data'])) {
+                        return null;
+                    }
+                    $items = $entry['data']['items'];
                     if (!is_array($items) || !array_is_list($items)) {
                         return null;
                     }
@@ -934,10 +942,12 @@ final class Apply {
         }
 
         foreach (['delete', 'delete_conflict'] as $bucket) {
-            $rows = $plan[$bucket] ?? [];
-            if (!is_array($rows) || !array_is_list($rows)) {
+            if (!array_key_exists($bucket, $plan)
+                || !is_array($plan[$bucket])
+                || !array_is_list($plan[$bucket])) {
                 return null;
             }
+            $rows = $plan[$bucket];
             foreach ($rows as $row) {
                 if (!is_array($row)) {
                     return null;
@@ -958,10 +968,12 @@ final class Apply {
         }
 
         foreach (['create', 'update', 'conflict'] as $bucket) {
-            $rows = $plan[$bucket] ?? [];
-            if (!is_array($rows) || !array_is_list($rows)) {
+            if (!array_key_exists($bucket, $plan)
+                || !is_array($plan[$bucket])
+                || !array_is_list($plan[$bucket])) {
                 return null;
             }
+            $rows = $plan[$bucket];
             foreach ($rows as $row) {
                 if (!is_array($row)) {
                     return null;

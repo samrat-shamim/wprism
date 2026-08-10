@@ -40,7 +40,7 @@ $emptyPlan = static function (): array {
         'collision', 'conflict', 'create', 'delete', 'delete_conflict',
         'deleted', 'drift', 'effects_inventory', 'env_missing',
         'incomplete_apply', 'incomplete_lifecycle', 'missing_user',
-        'provider_problems', 'regen_pending', 'skipped_user_meta',
+        'provider_problems', 'regen_context', 'regen_pending', 'skipped_user_meta',
         'unchanged', 'update', 'uploads_inventory', 'warnings',
     ], []);
 };
@@ -344,6 +344,9 @@ $malformedPlan = $plan;
 $malformedPlan['create'] = 'SECRET_NOT_A_LIST';
 $check(PlanCategorySummary::build($malformedPlan, $tree, $deletions, $context) === null, 'non-list consumed bucket omits rather than fabricates a projection');
 $malformedPlan = $plan;
+unset($malformedPlan['create']);
+$check(PlanCategorySummary::build($malformedPlan, $tree, $deletions, $context) === null, 'missing consumed bucket omits rather than fabricates an empty count');
+$malformedPlan = $plan;
 $malformedPlan['create'] = ['named' => $plan['create'][0]];
 $check(PlanCategorySummary::build($malformedPlan, $tree, $deletions, $context) === null, 'associative consumed bucket omits rather than reorders a projection');
 $malformedPlan = $plan;
@@ -429,9 +432,18 @@ $check($nested->invoke(null, $nestedEnv, $nestedTree, $nestedPlan, $badObservati
 $badNestedTree = $nestedTree;
 $badNestedTree['sidebar-a']['data']['widgets'][] = 'SECRET_NOT_A_WIDGET';
 $check($nested->invoke(null, $nestedEnv, $badNestedTree, $nestedPlan, $observations) === null, 'malformed desired widget row fails closed');
+$badNestedTree = $nestedTree;
+unset($badNestedTree['sidebar-a']['data']['widgets']);
+$check($nested->invoke(null, $nestedEnv, $badNestedTree, $nestedPlan, $observations) === null, 'missing desired widget list fails closed');
+$badNestedTree = $nestedTree;
+unset($badNestedTree['menu-update']['data']['items']);
+$check($nested->invoke(null, $nestedEnv, $badNestedTree, $nestedPlan, $observations) === null, 'missing desired menu-item list fails closed');
 $badNestedPlan = $nestedPlan;
 $badNestedPlan['update'][] = 'SECRET_NOT_A_PLAN_ROW';
 $check($nested->invoke(null, $nestedEnv, $nestedTree, $badNestedPlan, $observations) === null, 'malformed nested-plan row fails closed');
+$badNestedPlan = $nestedPlan;
+unset($badNestedPlan['delete']);
+$check($nested->invoke(null, $nestedEnv, $nestedTree, $badNestedPlan, $observations) === null, 'missing consumed nested-plan bucket fails closed');
 $badNestedPlan = $nestedPlan;
 $badNestedPlan['update'][1]['widget_deletes'][] = 'SECRET_NOT_A_WIDGET_DELETE';
 $check($nested->invoke(null, $nestedEnv, $nestedTree, $badNestedPlan, $observations) === null, 'malformed widget deletion row fails closed');

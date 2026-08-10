@@ -385,10 +385,12 @@ final class PlanCategorySummary {
     /** @param array<string,mixed> $plan */
     private static function validPlanRows(array $plan): bool {
         foreach (self::CONSUMED_ROW_KEYS as $key) {
-            $rows = $plan[$key] ?? [];
-            if (!is_array($rows) || !array_is_list($rows)) {
+            if (!array_key_exists($key, $plan)
+                || !is_array($plan[$key])
+                || !array_is_list($plan[$key])) {
                 return false;
             }
+            $rows = $plan[$key];
             foreach ($rows as $row) {
                 if (!is_array($row)) {
                     return false;
@@ -401,7 +403,7 @@ final class PlanCategorySummary {
     /** @return list<array<string,mixed>> */
     private static function rows(array $plan, string $key): array {
         /** @var list<array<string,mixed>> $rows */
-        $rows = $plan[$key] ?? [];
+        $rows = $plan[$key];
         return $rows;
     }
 
