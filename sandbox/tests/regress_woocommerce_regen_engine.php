@@ -1,12 +1,27 @@
 <?php
 /**
- * Offline engine seam for manifest batch regeneration.
+ * Offline engine seam for manifest derived-state regeneration — BOTH
+ * dispatchers, over the same scenarios.
  *
  * This deliberately exercises Apply's private dispatch boundary with a fake
- * wpdb and manifest-shipped regenerators.  It proves candidate scoping,
+ * wpdb and manifest-shipped adapters.  It proves candidate scoping,
  * stale-row refresh dispatch, pending retry/marker lifetime, delete-only
  * cleanup, no-op/unrelated isolation, callback heartbeats, and the unchanged
  * legacy single-id path without loading WordPress or WooCommerce.
+ *
+ * DUO-3342 migrated the shipped WooCommerce lookup repair from the batch
+ * regen_dependency channel to the provider contract, so the file grew a second
+ * half that re-expresses every behavioural claim above against
+ * Apply::rebuild()'s provider dispatch. The batch half is deliberately KEPT
+ * rather than rewritten: it is the parity oracle, and a migration claim proved
+ * only against the new path proves nothing about the old one it is claiming
+ * parity with. The batch channel also remains a live engine grammar any
+ * manifest may declare (the-events-calendar.json still declares its non-batch
+ * sibling), so retiring its coverage would retire a validator's evidence as a
+ * side effect of moving one adapter.
+ *
+ * Neither half names a plugin: the fixtures use unrelated CPT names on purpose,
+ * so a product/variation branch in engine code could not satisfy either.
  */
 
 if (!defined('DUO_SPEC_VERSION')) {
@@ -154,6 +169,37 @@ file_put_contents($fixtureDir . '/batch.json', json_encode([
         ],
     ],
 ], JSON_PRETTY_PRINT));
+// The provider-dispatch half's fixture (DUO-3342). Deliberately declares NO
+// regen_dependency: the two dispatchers may not both claim a post type, and
+// negotiation refuses a channel-declaring capability on one that a batch
+// declaration owns. `children` is what the engine's pre-delete inventory reads
+// to bound a parent receipt, so the parent/child scenarios below exercise the
+// same declared relation the batch half does, under different CPT names.
+file_put_contents($fixtureDir . '/provider.json', json_encode([
+    'name' => 'provider',
+    'spec_version' => DUO_SPEC_VERSION,
+    'plugin' => 'fake-dispatch/fake-dispatch.php',
+    'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
+    'providers' => [[
+        'id' => 'fake-dispatch',
+        'version' => '1.0.0',
+        'source' => 'manifest',
+        'plugin' => 'fake-dispatch/fake-dispatch.php',
+        'capabilities' => ['rebuild'],
+    ]],
+    'actions' => [[
+        'kind' => 'provider',
+        'provider' => 'fake-dispatch',
+        'capability' => 'rebuild',
+        'args' => new stdClass(),
+        'triggers' => ['post:duo_widget', 'post:duo_widget_part'],
+    ]],
+    'post_types' => [
+        'duo_widget' => ['class' => 'authored', 'children' => ['duo_widget_part']],
+        'duo_widget_part' => ['class' => 'authored'],
+        'duo_widget_unrelated' => ['class' => 'authored'],
+    ],
+], JSON_PRETTY_PRINT));
 file_put_contents($fixtureDir . '/legacy.json', json_encode([
     'name' => 'legacy',
     'spec_version' => DUO_SPEC_VERSION,
@@ -168,9 +214,29 @@ file_put_contents($fixtureDir . '/legacy.json', json_encode([
 ], JSON_PRETTY_PRINT));
 putenv('DUO_MANIFESTS_DIR=' . $fixtureDir);
 
+// The narrow WordPress surface Apply::rebuild() touches on the provider-dispatch
+// drive below: an object-cache flush either side of the action loop (hard-fails
+// on false) and the future-post cron reschedule for every post-kind work row.
+function wp_cache_flush(): bool {
+    $GLOBALS['woo_engine_cache_flushes'] = ($GLOBALS['woo_engine_cache_flushes'] ?? 0) + 1;
+    return true;
+}
+function wp_clear_scheduled_hook(string $hook, array $args = []): int {
+    return 0;
+}
+function wp_schedule_single_event(int $timestamp, string $hook, array $args = []): bool {
+    return true;
+}
+function wp_next_scheduled(string $hook, array $args = []): int|false {
+    return false;
+}
+
 final class WooEngineFakeWpdb {
     public string $prefix = 'wp_';
     public string $posts = 'wp_posts';
+    // Apply::rebuild()'s term-recount step names this table; get_col() below
+    // matches no query against it, so the recount loop walks past an empty set.
+    public string $term_taxonomy = 'wp_term_taxonomy';
     public string $last_error = '';
     public string $failReadContaining = '';
     public int $catalogScanCalls = 0;
@@ -803,6 +869,426 @@ $check(!isset($wpdb->kv[$deleteKey]), 'successful delete-only batch clears durab
 
 // The generic engine supplies and the adapter consumes a heartbeat callback.
 $check(\Duo\Regenerators\FakeBatch::$heartbeats > 0, 'batch engine passes an invoked heartbeat callback');
+
+// ======================================================================
+// DUO-3342: the SAME semantics, driven through the provider dispatch.
+//
+// Every behavioural claim the batch scenarios above make is re-expressed
+// here against Apply::rebuild()'s provider path: candidate scoping, the
+// pre-delete parent/child inventory, deleted-id suppression, durable
+// deletion/reparent receipts as retry authority, pending-marker lifetime,
+// and marker clearing gated on a verified receipt. The batch half stays
+// because it is the ORACLE — a claim about parity is worth nothing if only
+// one side of it still runs.
+//
+// The fake provider stands in exactly where FakeBatch stands above, and the
+// engine's own contract does the rest: Providers::invoke() refuses a
+// malformed or unverified receipt, so "the adapter reported success" is a
+// property of this drive rather than an assumption in it.
+// ======================================================================
+
+final class FakeDispatchProvider {
+    public static int $calls = 0;
+    public static bool $fail = false;
+    public static bool $unverified = false;
+    /** @var array<int,array<int,int>> */
+    public static array $ids = [];
+    /** @var array<int,array<int,array<string,mixed>>> */
+    public static array $deletions = [];
+    /** @var array<int,array<string,mixed>> */
+    public static array $envelopes = [];
+
+    public function identity(): array {
+        return ['id' => 'fake-dispatch', 'plugin' => 'fake-dispatch/fake-dispatch.php', 'version' => '1.0.0'];
+    }
+
+    public function capabilities(): array {
+        return ['rebuild' => FakeDispatchProvider::declaration()];
+    }
+
+    /** @return array<string,mixed> */
+    public static function declaration(): array {
+        return [
+            'args' => [],
+            'reads' => ['post:duo_widget', 'post:duo_widget_part'],
+            'writes' => ['table:lookup'],
+            'scope' => 'entity',
+            'idempotent' => true,
+            'timeout_seconds' => 60,
+            'context' => ['always_on_write', 'deletions', 'reparents', 'retry'],
+        ];
+    }
+
+    public function invoke(string $capability, array $args): array {
+        global $wpdb;
+        self::$calls++;
+        $envelope = (array) ($args['entities'] ?? []);
+        self::$envelopes[] = $envelope;
+        $liveIds = [];
+        foreach ((array) ($envelope['entities'] ?? []) as $entity) {
+            $liveIds[] = (int) $entity['id'];
+        }
+        self::$ids[] = $liveIds;
+        // The same regrouping the shipped Woo provider does: one row per root
+        // back into one context per moved entity, so the accumulated root set
+        // an interrupted chain left behind is what the repair sees.
+        $context = [];
+        foreach ((array) ($envelope['deletions'] ?? []) as $row) {
+            $context[] = [
+                'kind' => 'delete',
+                'uuid' => (string) $row['uuid'],
+                'id' => (int) $row['id'],
+                'post_type' => (string) $row['post_type'],
+                'parent_id' => (int) $row['parent_id'],
+                'child_ids' => array_map('intval', (array) $row['child_ids']),
+            ];
+        }
+        $moves = [];
+        foreach ((array) ($envelope['reparents'] ?? []) as $row) {
+            $uuid = (string) $row['uuid'];
+            $moves[$uuid] ??= [
+                'kind' => 'reparent',
+                'uuid' => $uuid,
+                'id' => (int) $row['id'],
+                'old_parent_id' => (int) $row['old_parent_id'],
+                'new_parent_id' => (int) $row['new_parent_id'],
+                'root_ids' => [],
+            ];
+            $rootId = (int) $row['root_id'];
+            if ($rootId > 0) {
+                $moves[$uuid]['root_ids'][$rootId] = $rootId;
+            }
+        }
+        foreach ($moves as $move) {
+            $move['root_ids'] = array_values($move['root_ids']);
+            sort($move['root_ids'], SORT_NUMERIC);
+            $context[] = $move;
+        }
+        self::$deletions[] = $context;
+
+        if (self::$fail) {
+            throw new \RuntimeException('injected provider failure');
+        }
+        foreach ($liveIds as $id) {
+            $wpdb->lookupRows[$id] = true;
+        }
+        foreach ($context as $row) {
+            if ($row['kind'] === 'reparent') {
+                continue;
+            }
+            unset($wpdb->lookupRows[(int) $row['id']]);
+            foreach ((array) $row['child_ids'] as $childId) {
+                unset($wpdb->lookupRows[(int) $childId]);
+            }
+        }
+        return [
+            'before' => ['live_ids' => $liveIds],
+            'after' => ['live_ids' => $liveIds],
+            'verified' => !self::$unverified,
+        ];
+    }
+}
+
+echo "\n== the same semantics through the provider dispatch (DUO-3342) ==\n";
+
+
+$providerPolicy = \Duo\Policy::load(null, ['provider']);
+$providerAction = $providerPolicy->actions_for(['post:duo_widget'])[0];
+$check(($providerAction['capability'] ?? null) === 'rebuild'
+    && ($providerAction['triggers'] ?? null) === ['post:duo_widget', 'post:duo_widget_part'],
+    'the provider fixture action is selected off its own declared surfaces');
+$check($providerPolicy->regen_batch('duo_widget') === null
+    && $providerPolicy->regen_batch('duo_widget_part') === null,
+    'and its post types are claimed by no batch regenerator, which is what lets one dispatcher own their markers');
+
+$providerApply = $applyReflection->newInstanceWithoutConstructor();
+$policyProperty->setValue($providerApply, $providerPolicy);
+$selectedProperty = $applyReflection->getProperty('selectedActions');
+$negotiatedProperty = $applyReflection->getProperty('negotiatedProviders');
+$warningsProperty = $applyReflection->getProperty('warnings');
+$receiptsProperty = $applyReflection->getProperty('actionReceipts');
+$retryProperty = $applyReflection->getProperty('retryingIncompleteApply');
+$rebuildMethod = $applyReflection->getMethod('rebuild');
+$captureDeleteProvider = $applyReflection->getMethod('capture_regen_delete_context');
+$captureReparentProvider = $applyReflection->getMethod('capture_regen_reparent_context');
+$selectedProperty->setValue($providerApply, [$providerAction]);
+$negotiatedProperty->setValue($providerApply, [
+    'providers' => ['fake-dispatch' => new FakeDispatchProvider()],
+    'capabilities' => ['fake-dispatch' => ['rebuild' => FakeDispatchProvider::declaration()]],
+]);
+$retryProperty->setValue($providerApply, false);
+
+/**
+ * One rebuild() pass. Returns the pass's own warnings/receipts plus whether it
+ * threw, so a broken edge reads as a FAIL line rather than exit 255.
+ */
+$driveProvider = static function (
+    array $work = [],
+    array $tree = [],
+    array $regenContext = [],
+    array $deleteWork = [],
+    bool $withDeletes = false
+) use ($rebuildMethod, $providerApply, $warningsProperty, $receiptsProperty): array {
+    $warningsProperty->setValue($providerApply, []);
+    $receiptsProperty->setValue($providerApply, []);
+    $error = '';
+    try {
+        $rebuildMethod->invokeArgs(
+            $providerApply,
+            [[], $work, $tree, $regenContext, $deleteWork, $withDeletes, []]
+        );
+    } catch (\Throwable $t) {
+        $error = $t->getMessage();
+    }
+    return [
+        'error' => $error,
+        'warnings' => implode("\n", (array) $warningsProperty->getValue($providerApply)),
+        'receipts' => (array) $receiptsProperty->getValue($providerApply),
+    ];
+};
+
+$widget = 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1';
+$widgetPart = 'b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2';
+$widgetOtherPart = 'c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3';
+$widgetUnrelated = 'd4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4';
+$widgetMoved = 'e5e5e5e5-e5e5-4e5e-8e5e-e5e5e5e5e5e5';
+$wpdb->map[] = ['uuid' => $widget, 'kind' => 'post', 'id' => 401];
+$wpdb->map[] = ['uuid' => $widgetPart, 'kind' => 'post', 'id' => 402];
+$wpdb->map[] = ['uuid' => $widgetOtherPart, 'kind' => 'post', 'id' => 403];
+$wpdb->map[] = ['uuid' => $widgetUnrelated, 'kind' => 'post', 'id' => 404];
+$wpdb->map[] = ['uuid' => $widgetMoved, 'kind' => 'post', 'id' => 405];
+$wpdb->postsRows[401] = ['post_type' => 'duo_widget', 'post_parent' => 0];
+$wpdb->postsRows[402] = ['post_type' => 'duo_widget_part', 'post_parent' => 401];
+$wpdb->postsRows[403] = ['post_type' => 'duo_widget_part', 'post_parent' => 401];
+$wpdb->postsRows[404] = ['post_type' => 'duo_widget_unrelated', 'post_parent' => 401];
+$wpdb->postsRows[405] = ['post_type' => 'duo_widget_part', 'post_parent' => 401];
+foreach ([401, 402, 403, 404, 405] as $lookupId) {
+    $wpdb->lookupRows[$lookupId] = true;
+}
+$providerTree = [
+    $widget => ['type' => 'post', 'data' => ['type' => 'duo_widget']],
+    $widgetPart => ['type' => 'post', 'data' => ['type' => 'duo_widget_part']],
+    $widgetMoved => ['type' => 'post', 'data' => ['type' => 'duo_widget_part', 'parent' => '{{post:' . $widget . '}}']],
+];
+$providerWork = static fn(string $uuid): array => [['uuid' => $uuid]];
+$deleteRow = static fn(string $uuid, string $postType): array => [
+    'uuid' => $uuid, 'type' => 'post', 'deletion_kind' => 'post', 'deletion_type' => $postType,
+];
+$lastEnvelope = static fn(): array => FakeDispatchProvider::$envelopes[count(FakeDispatchProvider::$envelopes) - 1] ?? [];
+$lastIds = static fn(): array => FakeDispatchProvider::$ids[count(FakeDispatchProvider::$ids) - 1] ?? [];
+$lastContext = static fn(): array => FakeDispatchProvider::$deletions[count(FakeDispatchProvider::$deletions) - 1] ?? [];
+
+// --- candidate scoping: this run's write candidates, no catalog scan ---
+$scansBefore = $wpdb->catalogScanCalls;
+$run = $driveProvider($providerWork($widget), $providerTree);
+$check($run['error'] === '' && FakeDispatchProvider::$calls === 1 && $lastIds() === [401],
+    'a changed post dispatches the provider with only this run\'s write candidate');
+$check($wpdb->catalogScanCalls === $scansBefore,
+    'provider candidate dispatch performs no whole-catalog mapped-post scan either');
+$check(($lastEnvelope()['always_on_write'] ?? null) === true
+    && ($lastEnvelope()['retry'] ?? null) === false,
+    'the flags the retired batch declaration carried ride in the envelope instead of being implied');
+
+$before = FakeDispatchProvider::$calls;
+$run = $driveProvider();
+$check(FakeDispatchProvider::$calls === $before && $run['error'] === '',
+    'a no-op apply dispatches nothing at all');
+$check(str_contains((string) ($run['receipts'][0]['skipped'] ?? ''), 'empty entity batch'),
+    'and says so in an explicit skip receipt rather than firing on an empty batch');
+
+$run = $driveProvider($providerWork($u1), $tree);
+$check(FakeDispatchProvider::$calls === $before,
+    "a post type this action does not trigger on is not this dispatcher's work");
+
+// --- the pre-delete inventory: declared children only, no cascade ---
+$wpdb->kv = [];
+$inventoryBefore = count($wpdb->childInventoryQueries);
+$providerDeleteWork = [
+    ['type' => 'post', 'uuid' => $widget],
+    ['type' => 'post', 'uuid' => $widgetPart],
+    ['type' => 'post', 'uuid' => $widgetUnrelated],
+];
+$captured = (array) $captureDeleteProvider->invoke($providerApply, $providerDeleteWork);
+$capturedByUuid = [];
+foreach ($captured as $context) {
+    $capturedByUuid[(string) $context['uuid']] = $context;
+}
+$check(($capturedByUuid[$widget]['child_ids'] ?? null) === [402],
+    'the provider-declared parent receipt contains only its explicitly tombstoned declared child');
+$check(isset($capturedByUuid[$widgetPart]) && !isset($capturedByUuid[$widgetUnrelated]),
+    'the declared child keeps its own receipt; an undeclared sibling CPT gets none');
+$check(($wpdb->childInventoryQueries[count($wpdb->childInventoryQueries) - 1] ?? null)
+    === ['parent_id' => 401, 'post_types' => ['duo_widget_part']],
+    'and the inventory query is driven by the declared child CPT, not a product convention');
+$check(count($wpdb->childInventoryQueries) === $inventoryBefore + 1,
+    'the undeclared post type performs no child inventory query of its own');
+
+// --- delivery, deleted-id suppression, and clear-on-verified ---
+$run = $driveProvider(
+    $providerWork($widgetOtherPart),
+    $providerTree + [$widgetOtherPart => ['type' => 'post', 'data' => ['type' => 'duo_widget_part']]],
+    [],
+    [$deleteRow($widget, 'duo_widget'), $deleteRow($widgetPart, 'duo_widget_part')],
+    true
+);
+$deliveredDeletes = array_values(array_filter($lastContext(), static fn(array $r): bool => $r['kind'] === 'delete'));
+$check($run['error'] === '' && count($deliveredDeletes) === 2,
+    'a --with-deletes run delivers both tombstones on the deletions channel');
+$parentRow = null;
+foreach ($deliveredDeletes as $row) {
+    if ($row['uuid'] === $widget) {
+        $parentRow = $row;
+    }
+}
+$check(($parentRow['child_ids'] ?? null) === [402] && ($parentRow['parent_id'] ?? null) === 0
+    && ($parentRow['post_type'] ?? null) === 'duo_widget',
+    'carrying the captured inventory the regenerator channel carried — the documented parity gap is closed');
+$check($lastIds() === [403],
+    'the still-live sibling is live work, and the deleted ids never appear among it');
+$check(!isset($wpdb->lookupRows[401]) && !isset($wpdb->lookupRows[402]) && isset($wpdb->lookupRows[403]),
+    'the repair removed exactly the explicit receipts and retained the live declared child');
+$check(!isset($wpdb->kv['regen_delete_context:' . $widget])
+    && !isset($wpdb->kv['regen_delete_context:' . $widgetPart]),
+    'and a verified receipt cleared both durable delete markers');
+
+// --- failure retains every marker family; the retry replays them ---
+$wpdb->kv = [];
+$captureDeleteProvider->invoke($providerApply, [['type' => 'post', 'uuid' => $widget]]);
+$check(isset($wpdb->kv['regen_delete_context:' . $widget]), 'a fresh capture arms the durable delete marker');
+FakeDispatchProvider::$fail = true;
+$run = $driveProvider($providerWork($widgetOtherPart), $providerTree + [
+    $widgetOtherPart => ['type' => 'post', 'data' => ['type' => 'duo_widget_part']],
+]);
+// One asymmetry with the batch path, observed rather than asserted away: the
+// batch dispatcher re-throws the adapter's own message inline, while
+// Providers::invoke() carries it as $previous under a fixed wrapper. Both are
+// hard apply failures; only the rendered text differs, and the operator-facing
+// half of that is DUO-3338's posture, not this migration's.
+$check(str_contains($run['error'], "duo: required manifest action 'provider:fake-dispatch/rebuild' failed")
+    && str_contains($run['error'], "provider 'fake-dispatch' capability 'rebuild' failed"),
+    'a provider failure is a hard apply failure naming the declaration, not a warning');
+$check(isset($wpdb->kv['regen_delete_context:' . $widget]),
+    'THE RETRY AUTHORITY: the durable delete receipt survives the failure');
+$check(($wpdb->kv['regen_pending:' . $widgetOtherPart] ?? null) === 'duo_widget_part',
+    'and the live candidate keeps a pending marker, exactly as the batch path leaves one');
+FakeDispatchProvider::$fail = false;
+$run = $driveProvider();
+$check($run['error'] === '' && $lastIds() === [403],
+    'a marker-only retry replays the same live id with no authored work at all');
+$check(count(array_filter($lastContext(), static fn(array $r): bool => $r['kind'] === 'delete')) === 1,
+    'and replays the outstanding deletion receipt in the same call');
+$check(!isset($wpdb->kv['regen_pending:' . $widgetOtherPart])
+    && !isset($wpdb->kv['regen_delete_context:' . $widget]),
+    'the successful retry clears both marker families');
+
+// --- an unverified receipt is not success ---
+$wpdb->kv = [];
+$captureDeleteProvider->invoke($providerApply, [['type' => 'post', 'uuid' => $widget]]);
+FakeDispatchProvider::$unverified = true;
+$run = $driveProvider();
+FakeDispatchProvider::$unverified = false;
+$check(str_contains($run['error'], 'no value-level verification'),
+    'a receipt that proves nothing is refused by the engine contract itself');
+$check(isset($wpdb->kv['regen_delete_context:' . $widget]),
+    'and an unverified invocation clears nothing — convergence is the receipt, not the call');
+$run = $driveProvider();
+$check($run['error'] === '' && !isset($wpdb->kv['regen_delete_context:' . $widget]),
+    'the next apply re-delivers and clears it');
+
+// --- chained reparents: every accumulated root survives to the retry ---
+$wpdb->kv = [];
+$wpdb->kv['regen_reparent_context:' . $widgetMoved] = json_encode([
+    'kind' => 'reparent',
+    'uuid' => $widgetMoved,
+    'id' => 405,
+    'post_type' => 'duo_widget_part',
+    'old_parent_id' => 401,
+    'new_parent_id' => 406,
+    'parent_id' => 401,
+    'root_ids' => [401, 406],
+    'child_ids' => [],
+]);
+$wpdb->postsRows[405]['post_parent'] = 406;
+$providerTree[$widgetMoved]['data']['parent'] = '{{post:' . $widgetOtherPart . '}}';
+$freshMove = (array) $captureReparentProvider->invoke($providerApply, [['uuid' => $widgetMoved]], $providerTree);
+$mergedRoots = array_map('intval', (array) (json_decode(
+    (string) $wpdb->kv['regen_reparent_context:' . $widgetMoved],
+    true
+)['root_ids'] ?? []));
+sort($mergedRoots, SORT_NUMERIC);
+$check($mergedRoots === [401, 403, 406],
+    'the pre-mutation capture accumulates A/B/C roots for a provider-declared post type too');
+FakeDispatchProvider::$fail = true;
+$run = $driveProvider([], [], $freshMove);
+FakeDispatchProvider::$fail = false;
+$check($run['error'] !== '' && isset($wpdb->kv['regen_reparent_context:' . $widgetMoved]),
+    'a failed reparent repair retains the durable receipt');
+$run = $driveProvider();
+$replayed = null;
+foreach ($lastContext() as $row) {
+    if ($row['kind'] === 'reparent') {
+        $replayed = $row;
+    }
+}
+$check(($replayed['root_ids'] ?? null) === [401, 403, 406],
+    'the receipt-only retry replays every accumulated root — no root is lost to the one-row-per-root delivery');
+$check(!isset($wpdb->kv['regen_reparent_context:' . $widgetMoved]),
+    'and the verified retry clears the reparent marker');
+
+// --- deleted after a failed reparent: stale id discovers the job, never live work ---
+$wpdb->kv = [];
+$wpdb->kv['regen_reparent_context:' . $widgetMoved] = json_encode([
+    'kind' => 'reparent',
+    'uuid' => $widgetMoved,
+    'id' => 405,
+    'post_type' => 'duo_widget_part',
+    'old_parent_id' => 401,
+    'new_parent_id' => 406,
+    'parent_id' => 401,
+    'root_ids' => [401, 406],
+    'child_ids' => [],
+]);
+$wpdb->kv['regen_pending:' . $widgetMoved] = 'duo_widget_part';
+$wpdb->kv['regen_delete_context:' . $widgetMoved] = json_encode([
+    'kind' => 'delete',
+    'uuid' => $widgetMoved,
+    'id' => 405,
+    'post_type' => 'duo_widget_part',
+    'parent_id' => 406,
+    'child_ids' => [],
+]);
+$wpdb->lookupRows[405] = true;
+$run = $driveProvider();
+$kinds = array_map(static fn(array $r): string => $r['kind'], $lastContext());
+sort($kinds, SORT_STRING);
+$check($run['error'] === '' && $lastIds() === [],
+    'a deleted entity whose stale mapping still resolves is suppressed from the live batch');
+$check($kinds === ['delete', 'reparent'],
+    'while both of its outstanding receipts are delivered in the same call');
+$check(!isset($wpdb->lookupRows[405]), 'the repair removed its lookup row');
+$check(!isset($wpdb->kv['regen_reparent_context:' . $widgetMoved])
+    && !isset($wpdb->kv['regen_delete_context:' . $widgetMoved])
+    && !isset($wpdb->kv['regen_pending:' . $widgetMoved]),
+    'and a verified receipt clears reparent, deletion, and pending markers together');
+
+// --- the lease bracket that replaces the heartbeat callback ---
+// The batch channel hands its adapter a heartbeat callable; the provider
+// contract has no such parameter (invoke() takes a capability name and typed
+// args), so the engine brackets the whole invocation instead. Asserted against
+// the source because an offline Apply carries no lease identity, which is the
+// same idiom this suite uses for run()'s own threading.
+$rebuildSource = implode("\n", array_slice(
+    (array) file((string) $rebuildMethod->getFileName(), FILE_IGNORE_NEW_LINES),
+    $rebuildMethod->getStartLine() - 1,
+    $rebuildMethod->getEndLine() - $rebuildMethod->getStartLine() + 1
+));
+$check((bool) preg_match(
+    '/\$this->renew_provider_lease\(\);\s*\$receipt = Providers::invoke\(/',
+    $rebuildSource
+) && (bool) preg_match('/\);\s*\$this->renew_provider_lease\(\);/', $rebuildSource),
+    'the promotion lease is renewed immediately before and after the opaque provider call');
+$check(($GLOBALS['woo_engine_cache_flushes'] ?? 0) > 0,
+    'and the drive above is the real rebuild() pass, object-cache flush included');
 
 if ($failures > 0) {
     echo "FAIL: $failures check(s) failed\n";

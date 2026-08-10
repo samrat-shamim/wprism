@@ -116,8 +116,20 @@ $actionSources = array_map(
     static fn(array $row): string => \Duo\Policy::action_source($row, (int) $row['index']),
     $actions
 );
-woo_ok($actionSources === ['native:transient.delete', 'provider:woocommerce-cache/invalidate_cache_groups'],
-    'manifest keeps only the bounded attribute-transient and shipping/tax cache repairs; the whole-catalog projection is not automatic');
+woo_ok($actionSources === [
+    'native:transient.delete',
+    'provider:woocommerce-cache/invalidate_cache_groups',
+    'provider:woocommerce-product-lookups/rebuild_product_lookups',
+], 'manifest keeps only the bounded attribute-transient, shipping/tax cache, and per-product lookup repairs; '
+    . 'the whole-catalog projection is not automatic');
+// DUO-3342: the third entry is a MIGRATED dispatch, not a new repair. It is
+// bounded by the same two post-type triggers the retired regen_dependency
+// declarations covered, and those declarations are gone — a manifest carrying
+// both would be two dispatchers over one post type, which negotiation refuses.
+woo_ok(($actions[2]['triggers'] ?? null) === ['post:product', 'post:product_variation'],
+    'the product lookup repair stays bounded to the two product post types it always covered');
+woo_ok($policy->regen_batch_post_types() === [] && $policy->regen_dependency('product') === null,
+    'and the batch regenerator channel it replaced claims no Woo post type any more');
 // DUO-3341: the legacy whole-catalog projection class is deleted outright,
 // not quarantined. Engine core must carry no WooCommerce-named production
 // source and the bootstrap must not load one; Woo semantics live in

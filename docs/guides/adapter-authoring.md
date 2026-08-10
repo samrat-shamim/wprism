@@ -220,30 +220,76 @@ argument stays exactly the bare row list it has always been.
 What each channel delivers — and, where it is narrower than the batch
 regenerator channel an adapter may be migrating from, what it does *not*:
 
-- `deletions` — `{kind, uuid, id}` per tombstone on your own triggering
-  surfaces, for deletes this apply actually executed (`--with-deletes`) or that
-  a previous incomplete apply had already made absent. A tombstone this run only
-  planned is not delivered. `id` is `0` when the ledger mapping is already gone.
-  **Not delivered**: the regenerator deletion context's `parent_id` and
-  `child_ids`. Those come from a pre-delete inventory the engine writes only for
-  post types with a batch `regen_dependency`, and `child_ids` is a list the
-  one-level scalar row grammar cannot carry as-is; closing that gap is DUO-3342.
+- `deletions` — `{kind, uuid, id, post_type, parent_id, child_ids}` per
+  tombstone on your own triggering surfaces, for deletes this apply actually
+  executed (`--with-deletes`), that a previous incomplete apply had already made
+  absent, or that an earlier incomplete apply left a durable receipt for. A
+  tombstone this run only planned is not delivered. `id` is `0` when the ledger
+  mapping is already gone. `parent_id`/`child_ids` are the engine's pre-delete
+  inventory, taken because your capability declared this channel; all six keys
+  are always present, so an empty `child_ids` means "no declared children were
+  tombstoned", never "the engine did not look".
 - `reparents` — `{kind, uuid, id, root_id, old_parent_id, new_parent_id}`, one
   row per derived root, unioned with any durable reparent marker an earlier
   incomplete apply left outstanding. **Bounded by capture**: the engine records a
   reparent receipt for post types with a batch `regen_dependency`, or whose
   surface a `reparents`-declaring capability in the same run triggers on — a
-  move on any other post type produces no row. On a provider-only manifest the
-  durable marker is swept by the batch pass in the same run that reads it, so
-  treat the channel as this run's evidence, not a queue: a rebuild that fails
-  at or after your capability loses the marker, and the retry sees an empty
-  channel — `idempotent: true` does not rescue that path.
+  move on any other post type produces no row. One row per root is how a chained
+  A→B→C move survives a scalar row grammar; regroup them by `uuid` if your repair
+  wants the accumulated root set, and do not collapse to the old/new pair, which
+  silently strands the first root.
 - `retry` — whether this apply is retrying an incomplete one.
 - `always_on_write` — a flag stating you fired on an always-on basis. It mirrors
   `regen_dependency`'s flag, which suppresses a per-candidate existence check
   and never creates candidates: **it does not make your capability fire on an
   empty run.** A capability fires when its entity batch or an evidence channel
   carries something; otherwise apply records an explicit skip receipt.
+
+Declaring a channel also makes you the OWNER of the durable bookkeeping behind
+it, which is what makes the channels a retry queue rather than a one-shot read.
+A `regen_delete_context:`/`regen_reparent_context:` marker on a surface your
+action triggers on is deleted only after your receipt says `verified: true` —
+and only on your own triggering surfaces, so your receipt never retires another
+adapter's outstanding evidence. Ownership is decided from the PINNED manifest,
+not from what a given run happened to select: an apply that touched nothing on
+your surface leaves your markers alone rather than reading "no work here" as "no
+consumer exists". They are swept, with a warning naming the marker and the
+channel nobody consumed, when a run does reach the surface and no negotiated
+capability wants the channel, or when no pinned action claims it at all. Two
+consequences to plan for: a marker for a plugin you have pinned but deactivated
+persists rather than decaying, and every outstanding receipt is listed in
+`duo plan` / `duo status` (`regen_context`, which reports not-ok while one
+stands) — visible debt rather than silent debt. Exactly one capability may
+consume a given channel on a given surface; a second one is refused at
+negotiation, because the clear is per-marker and the second consumer would lose
+the evidence its own retry needs. The entity batch works the same
+way through `regen_pending:<uuid>`: armed before the call for every post-kind
+entity delivered, cleared on a verified receipt, and unioned back into a later
+run's batch when it was not — which is the only path by which a failed repair
+retries at all, since a plan's content hash never reflects derived state. Every
+entity row is also filtered against that run's deletions (ids and `child_ids`),
+so a deleted id never reaches you as live work. This is where `idempotent: true`
+earns its keep: a retry re-delivers exactly the batch that failed.
+
+Those three marker prefixes are SHARED with the batch `regen_dependency`
+channel on purpose — one retry vocabulary, one `duo plan` / `duo status`
+projection — so a post type may be claimed by only one of them. A capability
+declaring any channel while triggering on a post type that also declares an
+enabled batch `regen_dependency` is refused at negotiation, before any target
+mutation, naming both claimants: that refusal is what a half-finished migration
+looks like, and the fix is to finish it (drop the `regen_dependency`; its
+`batch`, `verify`, and `effects` belong on the action now).
+
+One thing the contract does not give you: a heartbeat. `invoke()` receives a
+capability name and typed arguments and nothing else, so apply renews the
+promotion lease immediately before and after your call and cannot renew during
+it. That does not make a long call self-abort — the lease heartbeat tolerates an
+expired lease while the promotion's process fence is continuous, so the renewal
+on the far side still succeeds unless another writer actually took the lock in
+the meantime. What a long call really costs is that window in which the lock is
+acquirable by someone else, so declare `timeout_seconds` at the lease TTL and an
+overrun is reported once, with its measured duration, instead of later as a lock
+loss nobody can attribute.
 
 An adapter needing no executable semantics declares neither key and stays purely
 declarative. Most should. For worked examples,

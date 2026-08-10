@@ -407,12 +407,20 @@ foreach (woo_effect_shipping_tax_action() as $effect) {
         'effect' => $effect,
     ];
 }
+// DUO-3342: these 108 effects are unchanged bytes that MOVED. They were two
+// post_types.<type>.regen_dependency.effects lists, inventoried under the
+// `regenerator` phase and sourced by post type; they are now one action's
+// effects list, inventoried under `rebuild` and sourced by the exact provider
+// capability a recovery operator can re-run. woo_effect_product_regenerator()
+// is deliberately still the per-post-type expectation builder, so a row that
+// changed while moving fails here rather than being absorbed by a rewrite.
+$lookupSource = 'provider:woocommerce-product-lookups/rebuild_product_lookups';
 foreach (['product', 'product_variation'] as $postType) {
     foreach (woo_effect_product_regenerator($postType) as $effect) {
         $expectedWooRows[] = [
             'manifest' => 'woocommerce',
-            'phase' => 'regenerator',
-            'source' => $postType,
+            'phase' => 'rebuild',
+            'source' => $lookupSource,
             'effect' => $effect,
         ];
     }
@@ -480,25 +488,54 @@ $cacheTriggers = [
 ];
 $nativeKeys = array_keys((array) ($wooManifest['actions'][0] ?? []));
 $providerKeys = array_keys((array) ($wooManifest['actions'][1] ?? []));
+$lookupKeys = array_keys((array) ($wooManifest['actions'][2] ?? []));
 sort($nativeKeys, SORT_STRING);
 sort($providerKeys, SORT_STRING);
+sort($lookupKeys, SORT_STRING);
 woo_effect_check(
-    count((array) ($wooManifest['actions'] ?? [])) === 2
+    count((array) ($wooManifest['actions'] ?? [])) === 3
         && $nativeKeys === ['action', 'args', 'effects', 'kind', 'triggers']
         && $providerKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
+        && $lookupKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && ($wooManifest['actions'][1]['triggers'] ?? null) === $cacheTriggers
         && ($wooManifest['actions'][1]['args'] ?? null) === ['groups' => ['woocommerce-attributes', 'shipping_zones', 'taxes']],
     'the migrated Woo actions carry exactly the retired channel\'s trigger surfaces and argument values, and no key beyond the two closed entry shapes'
 );
+// DUO-3342: the lookup entry carries NO arguments at all. Every input it
+// receives is engine-assembled (the entity batch and the declared channels),
+// and a capability may not declare the reserved `entities` argument, so an
+// args map here would be a claim the contract cannot honor.
 woo_effect_check(
-    ($wooManifest['providers'] ?? null) === [[
-        'id' => 'woocommerce-cache',
-        'version' => '1.0.0',
-        'source' => 'manifest',
-        'plugin' => 'woocommerce/woocommerce.php',
-        'capabilities' => ['invalidate_cache_groups'],
-    ]],
-    'the Woo provider declaration is one manifest-shipped identity owned by the version-pinned plugin, advertising exactly the capability its action names'
+    ($wooManifest['actions'][2]['provider'] ?? null) === 'woocommerce-product-lookups'
+        && ($wooManifest['actions'][2]['capability'] ?? null) === 'rebuild_product_lookups'
+        && ($wooManifest['actions'][2]['args'] ?? null) === []
+        && ($wooManifest['actions'][2]['triggers'] ?? null) === ['post:product', 'post:product_variation'],
+    'the migrated lookup action names the provider capability and stays bounded to the two post types its '
+        . 'retired regen_dependency declarations covered'
+);
+woo_effect_check(
+    !array_key_exists('regen_dependency', (array) ($wooManifest['post_types']['product'] ?? []))
+        && !array_key_exists('regen_dependency', (array) ($wooManifest['post_types']['product_variation'] ?? [])),
+    'and neither post type still declares the batch regenerator channel those effects moved off'
+);
+woo_effect_check(
+    ($wooManifest['providers'] ?? null) === [
+        [
+            'id' => 'woocommerce-cache',
+            'version' => '1.0.0',
+            'source' => 'manifest',
+            'plugin' => 'woocommerce/woocommerce.php',
+            'capabilities' => ['invalidate_cache_groups'],
+        ],
+        [
+            'id' => 'woocommerce-product-lookups',
+            'version' => '1.0.0',
+            'source' => 'manifest',
+            'plugin' => 'woocommerce/woocommerce.php',
+            'capabilities' => ['rebuild_product_lookups'],
+        ],
+    ],
+    'the Woo provider declarations are manifest-shipped identities owned by the version-pinned plugin, each advertising exactly the capability its action names'
 );
 woo_effect_check(
     str_contains($cacheProviderSource, "get_transient_version('shipping', true)")
@@ -514,9 +551,15 @@ woo_effect_check(
     'Woo manifest states category lookup as an explicit manual boundary rather than automatic authority'
 );
 foreach (['product', 'product_variation'] as $postType) {
+    // One action now sources both halves, so the split is by the effect-id
+    // prefix the manifest note keeps deliberately distinct between product and
+    // variation rather than by the inventory's `source`.
+    $idPrefix = $postType === 'product' ? 'woocommerce-product-' : 'woocommerce-variation-';
     $rows = array_values(array_filter(
         $wooRows,
-        static fn(array $row): bool => ($row['phase'] ?? null) === 'regenerator' && ($row['source'] ?? null) === $postType
+        static fn(array $row): bool => ($row['phase'] ?? null) === 'rebuild'
+            && ($row['source'] ?? null) === $lookupSource
+            && str_starts_with((string) ($row['effect']['id'] ?? ''), $idPrefix)
     ));
     $effects = array_map(static fn(array $row): array => $row['effect'], $rows);
     $expectedEffects = woo_effect_product_regenerator($postType);
@@ -698,22 +741,40 @@ foreach (['product', 'product_variation'] as $postType) {
 // The key gate must admit effects, then let the existing effect validator
 // reject a malformed entry. An unrelated key must still fail at the strict
 // regen_dependency boundary.
-$unknownKeyManifest = $wooManifest;
+// DUO-3342 moved Woo off the regen_dependency channel, so the channel's own
+// key gate is exercised against a synthesized declaration rather than a shipped
+// one. The grammar is still engine-owned and still reachable by any manifest,
+// so dropping these two would retire a validator's coverage as a side effect of
+// migrating one adapter — which is exactly the silent loss this suite exists to
+// prevent. The base declaration is the minimum the validator accepts.
+$wooWithRegen = $wooManifest;
+$wooWithRegen['post_types']['product']['regen_dependency'] = [
+    'regenerator' => 'woocommerce-product-lookups',
+    'verify' => ['table' => 'wc_product_meta_lookup', 'column' => 'product_id'],
+];
+woo_effect_check(
+    woo_effect_policy_for_manifest($wooWithRegen)->regen_dependency('product') !== null,
+    'the synthesized regen_dependency base loads clean, so the two refusals below are about the key they add'
+);
+$unknownKeyManifest = $wooWithRegen;
 $unknownKeyManifest['post_types']['product']['regen_dependency']['unsupported'] = true;
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($unknownKeyManifest),
     'contains unknown key(s)',
     'regen_dependency rejects an unknown top-level key'
 );
-$badEffectManifest = $wooManifest;
+$badEffectManifest = $wooWithRegen;
 $badEffectManifest['post_types']['product']['regen_dependency']['effects'] = ['malformed-effect'];
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badEffectManifest),
     'must be an object',
     'regen_dependency.effects is admitted by key validation but malformed entries are rejected by effect schema validation'
 );
+// The bounded provider-resource aggregate now lives on the migrated action's
+// own effects list; the grammar checked below is the effect validator's, which
+// never cared which declaration carried the row.
 $providerEffectIndex = null;
-foreach (($wooManifest['post_types']['product']['regen_dependency']['effects'] ?? []) as $index => $effect) {
+foreach (($wooManifest['actions'][2]['effects'] ?? []) as $index => $effect) {
     if (($effect['id'] ?? null) === 'woocommerce-product-cache-provider-resource') {
         $providerEffectIndex = (int) $index;
         break;
@@ -722,43 +783,43 @@ foreach (($wooManifest['post_types']['product']['regen_dependency']['effects'] ?
 woo_effect_check($providerEffectIndex !== null, 'Woo manifest test locates the bounded provider aggregate by effect id');
 $providerEffectIndex ??= 0;
 $badMembers = $wooManifest;
-$badMembers['post_types']['product']['regen_dependency']['effects'][$providerEffectIndex]['selector']['members']['templates'][0] = 'item_{unknown}';
+$badMembers['actions'][2]['effects'][$providerEffectIndex]['selector']['members']['templates'][0] = 'item_{unknown}';
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'unknown placeholder',
     'provider-resource members reject unknown typed placeholders during policy compilation'
 );
 $badMembers = $wooManifest;
-$badMembers['post_types']['product']['regen_dependency']['effects'][$providerEffectIndex]['selector']['members']['templates'][0] = 'item_*';
+$badMembers['actions'][2]['effects'][$providerEffectIndex]['selector']['members']['templates'][0] = 'item_*';
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'malformed, broad, or secret-shaped',
     'provider-resource members reject wildcard templates during policy compilation'
 );
 $badMembers = $wooManifest;
-$badMembers['post_types']['product']['regen_dependency']['effects'][$providerEffectIndex]['selector']['members']['unexpected'] = [];
+$badMembers['actions'][2]['effects'][$providerEffectIndex]['selector']['members']['unexpected'] = [];
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'requires exactly exact and templates',
     'provider-resource members reject extra grammar keys during policy compilation'
 );
 $badMembers = $wooManifest;
-$badMembers['post_types']['product']['regen_dependency']['effects'][$providerEffectIndex]['selector']['unexpected'] = true;
+$badMembers['actions'][2]['effects'][$providerEffectIndex]['selector']['unexpected'] = true;
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'requires exactly scope, type, value, and optional members',
     'provider-resource selectors reject extra top-level keys during policy compilation'
 );
 $badMembers = $wooManifest;
-$badMembers['post_types']['product']['regen_dependency']['effects'][$providerEffectIndex]['selector']['members']['exact'][] = 'wc_products_onsale';
+$badMembers['actions'][2]['effects'][$providerEffectIndex]['selector']['members']['exact'][] = 'wc_products_onsale';
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'duplicate member',
     'provider-resource members reject duplicate exact values during policy compilation'
 );
 $badMembers = $wooManifest;
-$aggregateValue = (string) $badMembers['post_types']['product']['regen_dependency']['effects'][$providerEffectIndex]['selector']['value'];
-$badMembers['post_types']['product']['regen_dependency']['effects'][$providerEffectIndex]['selector']['members']['exact'][] = $aggregateValue;
+$aggregateValue = (string) $badMembers['actions'][2]['effects'][$providerEffectIndex]['selector']['value'];
+$badMembers['actions'][2]['effects'][$providerEffectIndex]['selector']['members']['exact'][] = $aggregateValue;
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'malformed, broad, or secret-shaped',
@@ -813,7 +874,7 @@ try {
 
     $regenInventory = array_values(array_filter(
         $wooRows,
-        static fn(array $row): bool => ($row['phase'] ?? null) === 'regenerator'
+        static fn(array $row): bool => ($row['source'] ?? null) === $lookupSource
     ));
     woo_effect_expect_throw(
         fn() => woo_effect_signed_request($root, [

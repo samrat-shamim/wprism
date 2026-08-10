@@ -271,9 +271,16 @@ check(
 );
 
 $woo = row_named($listReport, 'woocommerce');
+// DUO-3342 retired this manifest's regenerator: the lookup repair is a
+// manifest-sourced PROVIDER now. The tier is unchanged — manifest-sourced
+// provider code loads out of the agent's own tree exactly as a regenerator
+// does — so this row still demonstrates what it was written to demonstrate,
+// and demonstrates it better: woocommerce and the-events-calendar now reach
+// one tier through two genuinely different declarations rather than through
+// the same one.
 check(
     is_array($woo) && $woo['trust_tier'] === 'compatibility_shim'
-    && str_contains((string) $woo['tier_basis'], 'regen_dependency.regenerator'),
+    && str_contains((string) $woo['tier_basis'], 'providers[0] source "manifest"'),
     'woocommerce reaches the same tier through a different declaration, and the basis says which (basis: '
     . (is_array($woo) ? $woo['tier_basis'] : '(no row)') . ')'
 );
@@ -289,8 +296,14 @@ check(
     "woocommerce's required provider is named with the exact capability it must advertise, its source, and its owning plugin"
 );
 check(
-    is_array($woo) && ($woo['executable_surfaces']['manifest_providers'] ?? []) === ['woocommerce-cache'],
-    'and the same provider is listed as manifest-shipped executable code'
+    is_array($woo) && ($woo['executable_surfaces']['manifest_providers'] ?? [])
+        === ['woocommerce-cache', 'woocommerce-product-lookups'],
+    'and both of its manifest-shipped providers are listed as executable code — including the lookup repair '
+    . 'DUO-3342 moved out of the regenerator channel, which the row below confirms is no longer a regenerator'
+);
+check(
+    is_array($woo) && ($woo['executable_surfaces']['regenerators'] ?? null) === [],
+    'while it declares no regenerator at all any more: the executable surface moved, it did not double up'
 );
 
 $core = row_named($listReport, 'core');
@@ -349,9 +362,16 @@ check(
     is_array($adapter) && ($inspect['command'] ?? null) === 'inspect',
     'duo adapter inspect emits one adapter under the same envelope'
 );
+// Asserted as EQUALITY with the survey's own row rather than against a
+// literal: "merged from the survey" is the property, and pinning the basis
+// string here a second time only records which declaration happened to be
+// first today (DUO-3342 moved it from the regenerator to providers[0]).
 check(
-    is_array($adapter) && str_contains((string) $adapter['tier_basis'], 'woocommerce-product-lookups'),
-    'MERGED FROM THE SURVEY: the tier basis rides on the inspected row'
+    is_array($adapter) && is_array($woo)
+    && (string) $adapter['tier_basis'] === (string) $woo['tier_basis']
+    && (string) $adapter['tier_basis'] !== '',
+    'MERGED FROM THE SURVEY: the tier basis rides on the inspected row (basis: '
+    . (is_array($adapter) ? $adapter['tier_basis'] : '(no row)') . ')'
 );
 check(
     is_array($adapter) && is_array($adapter['disposition'] ?? null)
@@ -644,9 +664,24 @@ check(
     && trim((string) $sourceBlockers[0]['remediation']) !== '',
     'and its blocker row carries source, trust tier, and remediation — the same row `duo status` renders'
 );
+// The property is NON-CONTAGION: an uncertified site adapter must not make the
+// certified shipped adapter beside it look blocked. `evidence_not_current` is
+// carved out because it is a fact about this WORKING TREE rather than about
+// `core` — a branch that changed manifest or provider bytes regenerates the
+// registry into `candidate` status until its certification bundle runs, and
+// every shipped adapter carries that one row meanwhile. Carving it out keeps
+// the check meaningful on both sides of the bundle instead of green only on a
+// tree whose evidence happens to be current; any OTHER core blocker still
+// fails, which is the contagion this was written to catch.
+$coreBlockers = array_values(array_filter(
+    $blockedReport['blockers'] ?? [],
+    static fn(array $r): bool => ($r['name'] ?? '') === 'core'
+        && ($r['code'] ?? '') !== 'evidence_not_current'
+));
 check(
-    array_filter($blockedReport['blockers'] ?? [], static fn(array $r): bool => ($r['name'] ?? '') === 'core') === [],
-    'while the certified shipped adapter beside it contributes no blocker'
+    $coreBlockers === [],
+    'while the certified shipped adapter beside it contributes no blocker of its own (found: '
+    . implode(', ', array_column($coreBlockers, 'code')) . ')'
 );
 
 $brokenList = report(duo(['list', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']));

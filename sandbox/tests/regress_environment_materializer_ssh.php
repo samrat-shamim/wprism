@@ -174,7 +174,8 @@ try {
         'collision' => [], 'conflict' => [], 'create' => [], 'delete' => [],
         'delete_conflict' => [], 'deleted' => [], 'drift' => [], 'effects_inventory' => [],
         'env_missing' => [], 'incomplete_apply' => [], 'incomplete_lifecycle' => [],
-        'missing_user' => [], 'provider_problems' => [], 'regen_pending' => [], 'skipped_user_meta' => [],
+        'missing_user' => [], 'provider_problems' => [], 'regen_context' => [], 'regen_pending' => [],
+        'skipped_user_meta' => [],
         'unchanged' => [], 'update' => [], 'uploads_inventory' => [], 'warnings' => [],
     ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 

@@ -14,8 +14,8 @@ namespace Duo\Orchestrator;
  *
  * REQUIRED_BUCKETS is the exact key set agent/src/Apply.php emits:
  * build_plan()'s own initializer plus the buckets it assigns later
- * (regen_pending, env_missing), plus `warnings`, which only the plan()
- * entry point attaches — so a document missing it did not come from `wp duo
+ * (regen_pending, regen_context, env_missing), plus `warnings` and
+ * `provider_problems`, which only the plan() entry point attaches — so a document missing it did not come from `wp duo
  * plan` at all. Cli.php::plan() json_encode()s that array verbatim, so the
  * wire envelope and the emitter's array are the same thing. The derivation
  * is machine-checked against Apply.php by
@@ -48,6 +48,7 @@ final class PlanContract {
         'incomplete_lifecycle',
         'missing_user',
         'provider_problems',
+        'regen_context',
         'regen_pending',
         'skipped_user_meta',
         'unchanged',

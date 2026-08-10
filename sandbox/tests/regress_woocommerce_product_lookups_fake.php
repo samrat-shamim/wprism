@@ -391,6 +391,29 @@ namespace {
             if (preg_match('/COUNT\\(\\*\\) FROM `?wp_wc_product_meta_lookup`? WHERE product_id = (\\d+)/', $query, $m)) {
                 return isset($fakeMetaLookup[(int) $m[1]]) ? 1 : 0;
             }
+            // DUO-3342 receipt observation, batched (independent review F7):
+            // one COUNT per chunk per table instead of two per id. Modeled as
+            // DISTINCT rows touching any id in the set, which is what the SQL
+            // does — deliberately not a per-id sum, since that is the
+            // double-count the batching removes.
+            if (preg_match('/COUNT\\(\\*\\) FROM `?wp_wc_product_meta_lookup`? WHERE product_id IN \\(([0-9, ]+)\\)/', $query, $m)) {
+                $wanted = array_map('intval', preg_split('/\\s*,\\s*/', trim($m[1])) ?: []);
+                return count(array_filter(
+                    array_keys($fakeMetaLookup),
+                    static fn($id): bool => in_array((int) $id, $wanted, true)
+                ));
+            }
+            if (preg_match(
+                '/COUNT\\(\\*\\) FROM wp_wc_product_attributes_lookup WHERE product_id IN \\(([0-9, ]+)\\) OR product_or_parent_id IN \\(([0-9, ]+)\\)/',
+                $query,
+                $m
+            )) {
+                $wanted = array_map('intval', preg_split('/\\s*,\\s*/', trim($m[1])) ?: []);
+                $wantedParents = array_map('intval', preg_split('/\\s*,\\s*/', trim($m[2])) ?: []);
+                return count(array_filter($fakeAttrLookup, static fn(array $row): bool =>
+                    in_array((int) $row['product_id'], $wanted, true)
+                    || in_array((int) $row['product_or_parent_id'], $wantedParents, true)));
+            }
             if (preg_match('/COUNT\\(\\*\\) FROM wp_wc_product_attributes_lookup WHERE product_id = (\\d+) OR product_or_parent_id = (\\d+)/', $query, $m)) {
                 $a = (int) $m[1];
                 $b = (int) $m[2];
@@ -1058,11 +1081,14 @@ namespace {
     require dirname(__DIR__, 2) . '/agent/src/Canon.php';
     require dirname(__DIR__, 2) . '/agent/src/OptionState.php';
     require dirname(__DIR__, 2) . '/agent/src/Policy.php';
-    require dirname(__DIR__, 2) . '/manifests/regenerators/woocommerce-product-lookups.php';
+    // invoke() reads the engine's reserved batch-argument name from the
+    // contract itself rather than restating the literal.
+    require dirname(__DIR__, 2) . '/agent/src/Providers.php';
+    require dirname(__DIR__, 2) . '/manifests/providers/woocommerce-product-lookups.php';
 
     $reflection = new \ReflectionClass(\Duo\Policy::class);
     $policy = $reflection->newInstanceWithoutConstructor();
-    $adapter = new \Duo\Regenerators\WoocommerceProductLookups($policy);
+    $adapter = new \Duo\Providers\WoocommerceProductLookups($policy);
     // Prime a product read before the registry refresh. The adapter must evict
     // this stale parsed object after registering the newly-applied taxonomy.
     wc_get_product(15);
@@ -1901,6 +1927,119 @@ namespace {
     $adapter->regenerate_batch([80], []);
     $check(($fakeMetaLookup[80]['min_price'] ?? null) === '21',
         'the batch converges again once WooCommerce publishes its derivation');
+
+    // ------------------------------------------------------------------
+    // DUO-3342: invoke() is the only NEW adapter code — the mapping from the
+    // engine batch envelope onto the two arguments everything above drives
+    // directly. Everything it must not lose is asserted here against the same
+    // fixture: the entity ids, the captured deletion inventory, and (the
+    // subtle one) the accumulated reparent roots the engine delivers as one
+    // row per root.
+    // ------------------------------------------------------------------
+    // No setAccessible(): reflection reaches a private directly from PHP 8.1,
+    // and calling it only adds a deprecation notice on 8.5+.
+    $mapChannels = new \ReflectionMethod($adapter, 'deletion_context_from_channels');
+    $mapped = $mapChannels->invoke(
+        $adapter,
+        [[
+            'kind' => 'post:product_variation', 'uuid' => 'variation-delete', 'id' => 11,
+            'post_type' => 'product_variation', 'parent_id' => 10, 'child_ids' => [12, 11],
+        ]],
+        [
+            ['kind' => 'post:product_variation', 'uuid' => 'moved', 'id' => 21, 'root_id' => 24,
+             'old_parent_id' => 22, 'new_parent_id' => 20],
+            ['kind' => 'post:product_variation', 'uuid' => 'moved', 'id' => 21, 'root_id' => 20,
+             'old_parent_id' => 22, 'new_parent_id' => 20],
+            ['kind' => 'post:product_variation', 'uuid' => 'moved', 'id' => 21, 'root_id' => 22,
+             'old_parent_id' => 22, 'new_parent_id' => 20],
+        ]
+    );
+    $check($mapped[0] === [
+        'kind' => 'delete', 'uuid' => 'variation-delete', 'id' => 11,
+        'post_type' => 'product_variation', 'parent_id' => 10, 'child_ids' => [11, 12],
+    ], 'a deletions channel row maps onto the regenerator-shaped delete context with its captured '
+        . 'parent_id and child_ids intact');
+    $check(count($mapped) === 2
+        && ($mapped[1]['kind'] ?? null) === 'reparent'
+        && ($mapped[1]['root_ids'] ?? null) === [20, 22, 24]
+        && ($mapped[1]['id'] ?? null) === 21
+        && ($mapped[1]['post_type'] ?? null) === 'product_variation',
+        'and THREE reparent rows for one entity regroup into ONE context carrying all three roots — '
+        . 'collapsing to the old/new pair would silently strand the first root of a chained move');
+    $check(($mapped[1]['old_parent_id'] ?? null) === 22 && ($mapped[1]['new_parent_id'] ?? null) === 20
+        && ($mapped[1]['parent_id'] ?? null) === 22,
+        'the old/new pair rides along for the pre-root_ids fallback the batch entry point still honors');
+
+    // The whole envelope, through the real invoke(), against the same fixture
+    // the deletion scenarios above used: a receipt whose before/after are
+    // observed row cardinalities and whose verified is true only because the
+    // exact-state pass inside regenerate_batch() already ran.
+    $fakeMetaLookup[11] = $fakeMetaLookup[12];
+    $fakeMetaLookup[11]['product_id'] = 11;
+    $receipt = $adapter->invoke('rebuild_product_lookups', [
+        'entities' => [
+            'entities' => [['kind' => 'post:product', 'id' => 10]],
+            'always_on_write' => true,
+            'deletions' => [[
+                'kind' => 'post:product_variation', 'uuid' => 'variation-delete', 'id' => 11,
+                'post_type' => 'product_variation', 'parent_id' => 10, 'child_ids' => [],
+            ]],
+            'reparents' => [],
+            'retry' => false,
+        ],
+    ]);
+    $check(array_keys($receipt) === ['before', 'after', 'verified'] && $receipt['verified'] === true,
+        'invoke() returns exactly the before/after/verified receipt the provider contract requires');
+    $check(($receipt['before']['scoped_products'] ?? null) === 2
+        && ($receipt['before']['meta_lookup_rows'] ?? null) === 2
+        && ($receipt['after']['meta_lookup_rows'] ?? null) === 1,
+        'the receipt observes the ids it was handed on both sides, and records the deleted row disappearing');
+    // Independent review F7: the observation is batched into IN (...), so the
+    // attribute count is DISTINCT rows touching the id set. Asserted against the
+    // fixture's own rows rather than a magic number, so a revert to per-id
+    // summing fails here the moment one row names two batched ids — the
+    // ordinary variable-product shape.
+    $distinctAttributeRows = count(array_filter($fakeAttrLookup, static fn(array $row): bool =>
+        in_array((int) $row['product_id'], [10, 11], true)
+        || in_array((int) $row['product_or_parent_id'], [10, 11], true)));
+    $check(($receipt['after']['attribute_lookup_rows'] ?? null) === $distinctAttributeRows,
+        'and counts each attribute-lookup row once, not once per id it happens to name');
+    // Non-vacuous by construction: ids 68/70 are a variation and its variable
+    // root, and the fixture's row 68/70 names BOTH — so the per-id sum this
+    // batching replaced counts it twice while the batched query counts it once.
+    $observe = new \ReflectionMethod($adapter, 'observe_lookup_state');
+    $observed = (array) $observe->invoke($adapter, [68, 70]);
+    $perIdSum = 0;
+    foreach ([68, 70] as $probeId) {
+        $perIdSum += count(array_filter($fakeAttrLookup, static fn(array $row): bool =>
+            (int) $row['product_id'] === $probeId || (int) $row['product_or_parent_id'] === $probeId));
+    }
+    $distinctPair = count(array_filter($fakeAttrLookup, static fn(array $row): bool =>
+        in_array((int) $row['product_id'], [68, 70], true)
+        || in_array((int) $row['product_or_parent_id'], [68, 70], true)));
+    $check($perIdSum > $distinctPair,
+        'the fixture really does contain a row naming two ids of one batch, so the next check discriminates');
+    $check(($observed['attribute_lookup_rows'] ?? null) === $distinctPair,
+        'the batched observation counts that row ONCE — a per-id sum would report it twice, and the two '
+        . 'numbers are what the batching changed');
+    $check(!isset($fakeMetaLookup[11]),
+        'and the envelope really reached the deletion path — the deleted lookup row is gone');
+    $unknownCapabilityCaught = false;
+    try {
+        $adapter->invoke('regenerate_everything', ['entities' => []]);
+    } catch (\Throwable $failure) {
+        $unknownCapabilityCaught = str_contains($failure->getMessage(), "does not implement capability");
+    }
+    $check($unknownCapabilityCaught, 'an unadvertised capability name is refused rather than silently run');
+    $missingEnvelopeCaught = false;
+    try {
+        $adapter->invoke('rebuild_product_lookups', ['entities' => [['kind' => 'post:product', 'id' => 10]]]);
+    } catch (\Throwable $failure) {
+        $missingEnvelopeCaught = str_contains($failure->getMessage(), 'no engine batch envelope');
+    }
+    $check($missingEnvelopeCaught,
+        'a bare batch where the declared channels belong fails closed — a missing channel would mean this '
+        . 'adapter silently stopped seeing tombstones');
 
     if ($failures > 0) {
         echo "FAIL: $failures check(s) failed\n";

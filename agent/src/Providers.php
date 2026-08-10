@@ -217,6 +217,7 @@ final class Providers {
         $problems = [];
         $instances = [];
         $capabilities = [];
+        $channelClaims = [];
         $pluginSupplied = null;
         foreach ($wanted as $id => $wantedActions) {
             usort($wantedActions, static fn(array $a, array $b): int =>
@@ -351,7 +352,37 @@ final class Providers {
                     $failed = true;
                     continue;
                 }
+                $problem = self::dual_claimant_problem(
+                    $policy,
+                    $declaration,
+                    $capability,
+                    $action,
+                    (array) $advertised[$capability]
+                );
+                if ($problem !== null) {
+                    $problems[] = $problem;
+                    $failed = true;
+                    continue;
+                }
                 $bound[$capability] = $advertised[$capability];
+                // Accumulated across providers, resolved after the loop: a
+                // channel collision is a fact about two DIFFERENT capabilities,
+                // which may live in two different providers, so it cannot be
+                // decided while looking at one.
+                foreach ((array) ($advertised[$capability]['context'] ?? []) as $channel) {
+                    foreach ((array) ($action['triggers'] ?? []) as $trigger) {
+                        if (!is_string($trigger) || !str_starts_with($trigger, 'post:')) {
+                            continue;
+                        }
+                        $claimant = "$id/$capability";
+                        $channelClaims[(string) $channel][$trigger][$claimant] = [
+                            'provider' => $id,
+                            'manifest' => $manifest,
+                            'plugin' => $plugin,
+                            'capability' => $capability,
+                        ];
+                    }
+                }
             }
             // A count comparison cannot express completeness here: the wanted
             // rows are actions while the bound rows are capabilities, and the
@@ -360,6 +391,21 @@ final class Providers {
                 $instances[$id] = $provider;
                 $capabilities[$id] = $bound;
             }
+        }
+        $collisions = self::channel_collision_problems($channelClaims);
+        foreach ($collisions['problems'] as $problem) {
+            $problems[] = $problem;
+        }
+        // Neither claimant may bind: which of them would have cleared the
+        // shared marker is exactly the question that has no answer, so leaving
+        // either one bound would pick a winner by accident. Carried beside the
+        // problems rather than ON them (DUO-3314 rebase): a problem row is now
+        // promoted verbatim into the operator-facing readiness wire shape
+        // (Policy::provider_readiness_blockers()), so every row this method
+        // emits stays exactly what self::problem() returns — no extra key some
+        // renderer has to know to ignore.
+        foreach ($collisions['unbind'] as $claimantProvider) {
+            unset($instances[$claimantProvider], $capabilities[$claimantProvider]);
         }
         return ['problems' => $problems, 'providers' => $instances, 'capabilities' => $capabilities];
     }
@@ -463,6 +509,93 @@ final class Providers {
                     . 'established before it threw'
             )];
         }
+    }
+
+    /**
+     * One channel, one surface, one consumer — refused before any mutation.
+     *
+     * The durable `regen_delete_context:`/`regen_reparent_context:` markers a
+     * channel delivers are cleared by the engine on the FIRST verified receipt
+     * of a run (Apply::rebuild()), because a marker is engine bookkeeping about
+     * one entity rather than per-consumer state. That is correct while a
+     * surface has one consumer and silently wrong the moment it has two:
+     * capability A verifies, the engine retires the receipt, capability B fails,
+     * and B's retry never sees the tombstone again — a convergence claim for
+     * work that never happened, which is precisely the failure class the
+     * clear-on-verified rule exists to prevent (independent review, F2, driven
+     * against the real rebuild pass).
+     *
+     * Refused rather than fixed by making the clear per-consumer, deliberately.
+     * Per-consumer clearing would need a second durable keyspace keyed by
+     * (marker, capability) whose own lifetime nothing owns — an unbounded
+     * accumulation for a shape no shipped adapter has and no reviewer could
+     * bound. One consumer per channel per surface is the property the whole
+     * marker design already assumes; this makes the assumption a refusal
+     * instead of a comment.
+     *
+     * Scoped to `post:` triggers because that is the whole domain of the three
+     * marker keyspaces (they are keyed by a post uuid). Two capabilities may
+     * still declare the same channel on DIFFERENT surfaces, or different
+     * channels on the same surface — neither shares a marker.
+     *
+     * The dedupe key is capability IDENTITY, not the declaring action: one
+     * capability selected by two actions is one consumer, because the code
+     * that verifies is the code that repairs. Bound worth naming: those two
+     * actions may pass different `args`, and invocation #1's verified receipt
+     * discharges a marker invocation #2 (doing different work) may also have
+     * owed. The marker records engine inventory, not per-args intent, so
+     * this is accepted — but it is a bound, not an accident.
+     *
+     * Every string this method puts in a problem row is bounded by a closed
+     * vocabulary or an already-validated identifier — the channel name is a
+     * CONTEXT_CHANNELS member (validate_capability_declaration() ran before the
+     * capability was bound), the surface came from the action's own
+     * SURFACE_PATTERN-checked triggers, and the claimant names are
+     * ID_PATTERN/CAPABILITY_PATTERN identities. That is the property DUO-3314's
+     * fail-closed readiness posture needs from a row it renders to an operator:
+     * no exception text, no class name, no third-party free-form data.
+     *
+     * @param array<string,array<string,array<string,array<string,string>>>> $claims
+     *   channel => surface => "provider/capability" => claimant row
+     * @return array{problems:list<array<string,mixed>>, unbind:list<string>}
+     */
+    private static function channel_collision_problems(array $claims): array {
+        $problems = [];
+        $unbind = [];
+        ksort($claims, SORT_STRING);
+        foreach ($claims as $channel => $surfaces) {
+            ksort($surfaces, SORT_STRING);
+            foreach ($surfaces as $surface => $claimants) {
+                if (count($claimants) < 2) {
+                    continue;
+                }
+                ksort($claimants, SORT_STRING);
+                $names = array_keys($claimants);
+                // The row is attributed to the alphabetically-first claimant
+                // (provider/manifest/plugin are its), so in a readiness view
+                // it appears under ONE adapter's name — `found` names every
+                // claimant pair, which is where an operator reading that
+                // adapter's row finds the other. All claimants unbind.
+                $first = $claimants[$names[0]];
+                $problem = self::problem(
+                    (string) $first['provider'],
+                    (string) $first['manifest'],
+                    (string) $first['plugin'],
+                    'channel_claimed_twice',
+                    "exactly one capability consuming the '$channel' channel for $surface",
+                    count($names) . ' capabilities consuming it: ' . implode(', ', $names),
+                    "the durable $channel receipts for $surface are one keyspace with one lifetime — the "
+                        . 'engine clears them on the first verified receipt, so a second consumer would lose '
+                        . 'the evidence its own retry depends on. Narrow the triggers so one capability owns '
+                        . "$surface, or fold the two repairs into one capability"
+                );
+                $problems[] = $problem;
+                foreach ($claimants as $claimant) {
+                    $unbind[(string) $claimant['provider']] = (string) $claimant['provider'];
+                }
+            }
+        }
+        return ['problems' => $problems, 'unbind' => array_values($unbind)];
     }
 
     /**
@@ -940,6 +1073,88 @@ final class Providers {
             );
         }
         return null;
+    }
+
+    /**
+     * One post type, two dispatchers — refused before the first mutation.
+     *
+     * The batch `regen_dependency` channel and the channel-declaring provider
+     * contract are two dispatchers over the SAME durable bookkeeping: the
+     * `regen_pending:`, `regen_delete_context:`, and `regen_reparent_context:`
+     * keyspaces. Sharing them is deliberate (DUO-3342) — one retry vocabulary,
+     * one `duo plan`/`duo status` projection, one meaning for an operator
+     * auditing duo_kv — and it is only coherent while exactly one dispatcher
+     * OWNS a given post type. Two claimants would each treat the other's
+     * markers as theirs to consume and clear: the batch pass would sweep a
+     * receipt the provider had not yet been delivered, and a verified provider
+     * receipt would retire a marker the batch regenerator still owed work for.
+     * Both are silent convergence claims about work that never happened.
+     *
+     * Refused at negotiation rather than at load, because the question is about
+     * this run's SELECTION: the same manifest may legitimately declare a batch
+     * regenerator for one post type and a channel-declaring capability for
+     * another, and only the negotiated declaration says which channels the
+     * installed capability actually asked for. It is still before any target
+     * mutation, which is the property that matters.
+     *
+     * The remediation names the extension path rather than "pick one at
+     * random": a post type migrating from the batch channel to a provider drops
+     * its `regen_dependency` (batch, verify, and effects move to the action), so
+     * the refusal is what a half-finished migration looks like.
+     *
+     * Every string below is bounded by a closed vocabulary or an
+     * already-validated identifier (post types from the action's own
+     * SURFACE_PATTERN-checked triggers, the capability name from
+     * CAPABILITY_PATTERN, the channels from CONTEXT_CHANNELS — the declaration
+     * was validated before this method is reached). DUO-3314 made a problem row
+     * operator-facing wire data (Policy::provider_readiness_blockers() promotes
+     * it into adapter_dispositions), so "no third-party free-form text in a
+     * refusal" is a property this row has to keep, not a style preference.
+     *
+     * @param array<string,mixed> $providerDeclaration the manifest's providers[] row
+     * @param array<string,mixed> $action the selected action
+     * @param array<string,mixed> $decl the advertised capability declaration
+     */
+    private static function dual_claimant_problem(
+        Policy $policy,
+        array $providerDeclaration,
+        string $capability,
+        array $action,
+        array $decl
+    ): ?array {
+        $channels = (array) ($decl['context'] ?? []);
+        if ($channels === []) {
+            return null;
+        }
+        $claimed = [];
+        foreach ((array) ($action['triggers'] ?? []) as $trigger) {
+            $trigger = is_string($trigger) ? $trigger : '';
+            if (!str_starts_with($trigger, 'post:')) {
+                continue;
+            }
+            $postType = substr($trigger, strlen('post:'));
+            if ($postType !== '' && $policy->regen_batch($postType) !== null) {
+                $claimed[$postType] = $postType;
+            }
+        }
+        if ($claimed === []) {
+            return null;
+        }
+        $types = implode(', ', array_keys($claimed));
+        return self::problem(
+            (string) $providerDeclaration['id'],
+            (string) $providerDeclaration['manifest'],
+            (string) $providerDeclaration['plugin'],
+            'post_type_claimed_by_regen_batch',
+            "post type(s) $types dispatched by exactly one of the batch regen_dependency channel "
+                . "or capability '$capability' (context: " . implode(', ', $channels) . ')',
+            "both: post_types.$types declares an enabled batch regen_dependency AND this action triggers "
+                . "'$capability' on it",
+            "finish the migration — remove the batch regen_dependency for $types (its batch, verify, and "
+                . 'effects belong on this provider action) so one dispatcher owns the regen_pending / '
+                . 'regen_delete_context / regen_reparent_context markers, or drop the `context` declaration '
+                . 'and leave the batch channel in charge'
+        );
     }
 
     /**
