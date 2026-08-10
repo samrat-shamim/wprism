@@ -8,6 +8,7 @@ require_once __DIR__ . '/CommandRefusal.php';
 require_once __DIR__ . '/CanonicalSurfaces.php';
 require_once __DIR__ . '/PlanExplanation.php';
 require_once __DIR__ . '/PlanCategorySummary.php';
+require_once __DIR__ . '/PlanView.php';
 
 /**
  * Plan + apply: repo state tree -> environment DB.
@@ -139,6 +140,42 @@ final class Apply {
         );
         if ($categorySummary !== null) {
             $plan['category_summary'] = $categorySummary;
+        }
+        // DUO-3345 slice 6: an explicit filter asks for a bounded
+        // observation-only index from this SAME full plan snapshot.  It is
+        // intentionally attached only by the plan entry point; apply/run and
+        // their mutation/readiness authority do not consume or emit it.
+        if (isset($opts['plan_view'])) {
+            $request = $opts['plan_view'];
+            if (!is_array($request)) {
+                throw new CommandRefusalException(
+                    'plan_view_unavailable',
+                    'the requested plan view is unavailable for this plan',
+                    'rerun the complete plan without view filters or repair the plan identity/provenance inconsistency before retrying',
+                    [],
+                    'duo: requested plan view unavailable'
+                );
+            }
+            // A category request promises both row facets and the matching
+            // full-plan category counts. If compiled/same-snapshot context
+            // was insufficient for the optional summary, do not pretend a
+            // category-only filter is meaningful; action/entity/limit views
+            // remain available without that optional display projection.
+            if (($request['category'] ?? []) !== [] && $categorySummary === null) {
+                throw new CommandRefusalException(
+                    'plan_view_unavailable',
+                    'the requested plan view is unavailable for this plan',
+                    'rerun the complete plan without category filters or repair the plan identity/provenance inconsistency before retrying',
+                    [],
+                    'duo: category-filtered plan view unavailable'
+                );
+            }
+            $plan['plan_view'] = PlanView::build(
+                $plan,
+                $compiled->tree(),
+                $compiled->deletions(),
+                $request
+            );
         }
         return $plan;
     }

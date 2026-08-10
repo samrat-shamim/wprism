@@ -4,6 +4,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-cli-json-refusals
 .PHONY: regress-plan-explain
 .PHONY: regress-init-contract regress-duo-init
+.PHONY: regress-plan-view
 
 .PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half grind-code-half-ecosystem grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-reference-bundle certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-executor regress-checkpoint-bundle regress-code-release code-half-unit \
 	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy regress-taxonomy-object-keyspace \
@@ -449,6 +450,13 @@ regress-plan-category-summary:
 # the offline count.
 regress-plan-category-summary-live:
 	bash sandbox/tests/regress_plan_category_summary_live.sh
+
+# DUO-3345 (bounded plan-view slice): offline proof of the explicit
+# same-snapshot filtered projection, canonical AND/OR request grammar,
+# UUID ordering/cap, value-free references, full safety/readiness evidence,
+# host validation/legacy refusal, and control-byte-safe new itemization.
+regress-plan-view:
+	php sandbox/tests/regress_plan_view.php
 
 # DUO-3317 live counterpart: a provider whose declared `requires` names an
 # environment this target does not have refuses before the first mutation, then
@@ -940,8 +948,8 @@ regress-offline-all: code-half-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract regress-conformance-asserts \
-	regress-plugin-adapter-source regress-plan-category-summary
-	@echo "regress-offline-all: 100 offline suites green"
+	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view
+	@echo "regress-offline-all: 101 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
