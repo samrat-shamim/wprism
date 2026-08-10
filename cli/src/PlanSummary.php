@@ -1,6 +1,8 @@
 <?php
 namespace Duo\Orchestrator;
 
+require_once __DIR__ . '/PlanContract.php';
+
 /**
  * Turns the JSON from `wp duo plan --format=json` (agent/src/Apply.php
  * build_plan(): keys create/update/unchanged/drift/conflict/adopt/
@@ -120,6 +122,14 @@ final class PlanSummary {
         $summary .= ', ' . count($adapterDispositions) . ' adapter_dispositions';
         $summary .= ', ' . count($providerProblems) . ' provider_problems';
         $lines[] = $summary;
+
+        // DUO-3345 slice 5: render only the optional, strictly validated
+        // projection. Older agents omit it; the host cannot reconstruct
+        // attachment provenance, selected actions, or blocker origin from
+        // detailed rows alone, so it leaves category lines out.
+        foreach (PlanContract::categorySummaryHumanLines($plan['category_summary'] ?? null) as $line) {
+            $lines[] = $line;
+        }
 
         foreach ($uploadsInventory as $row) {
             $directory = (string) ($row['derivative_directory'] ?? '');

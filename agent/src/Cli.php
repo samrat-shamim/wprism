@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/CommandRefusal.php';
 require_once __DIR__ . '/PlanExplanation.php';
+require_once __DIR__ . '/PlanCategorySummary.php';
 
 use WP_CLI;
 
@@ -672,6 +673,15 @@ final class Cli {
         if (($assoc['format'] ?? '') === 'json') {
             WP_CLI::line(json_encode($plan, JSON_UNESCAPED_SLASHES));
             return;
+        }
+        // Apply owns this projection and builds it with compiled/action
+        // provenance that the host cannot reconstruct from detailed rows.
+        // Render the field when present; the host renderer is the strict
+        // validator because it accepts plans from older or external agents.
+        if (is_array($plan['category_summary'] ?? null)) {
+            foreach (PlanCategorySummary::humanLines($plan['category_summary']) as $line) {
+                WP_CLI::line($line);
+            }
         }
         $kinds = [
             'create', 'update', 'adopt', 'unchanged', 'drift', 'conflict',

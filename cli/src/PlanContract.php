@@ -12,12 +12,16 @@ namespace Duo\Orchestrator;
  * branch environment. Validation therefore belongs here, at the trust-
  * critical callers, never inside the renderer.
  *
- * REQUIRED_BUCKETS is the exact key set agent/src/Apply.php emits:
+ * REQUIRED_BUCKETS is the exact detailed bucket set agent/src/Apply.php emits:
  * build_plan()'s own initializer plus the buckets it assigns later
  * (regen_pending, regen_context, env_missing), plus `warnings` and
  * `provider_problems`, which only the plan() entry point attaches — so a document missing it did not come from `wp duo
  * plan` at all. Cli.php::plan() json_encode()s that array verbatim, so the
- * wire envelope and the emitter's array are the same thing. The derivation
+ * detailed wire envelope and the emitter's array are the same thing. The
+ * additive `category_summary` is optional for backwards compatibility. Its
+ * strict display validator is intentionally separate from `violations()`:
+ * malformed optional display data must never alter promotion/convergence
+ * readiness, and renderers simply omit it. The derivation
  * is machine-checked against Apply.php by
  * sandbox/tests/regress_plan_contract_trust.php: an emitter that grows a
  * bucket without teaching this list about it fails that suite loudly rather
@@ -29,6 +33,82 @@ namespace Duo\Orchestrator;
  * property that makes a count trustworthy.
  */
 final class PlanContract {
+    private const CATEGORY_SUMMARY_FORMAT = 'duo-plan-category-summary/v1';
+
+    /** @var list<string> */
+    private const CATEGORY_SUMMARY_IDS = [
+        'code', 'lifecycle', 'authored_state', 'generated_effects', 'media',
+        'secrets', 'environment_state', 'capabilities', 'deletions',
+    ];
+
+    /** @var array<string,list<string>> */
+    private const CATEGORY_SUMMARY_METRICS = [
+        'code' => [
+            'count', 'compatibility_mismatch', 'lifecycle_mismatch', 'revision_stale',
+            'drift', 'other_mismatch', 'unsupported_code',
+        ],
+        'lifecycle' => ['count', 'code_lifecycle_mismatch', 'incomplete_lifecycle'],
+        'authored_state' => ['count'],
+        'generated_effects' => [
+            'count', 'declared_effects', 'declared_lifecycle_effects',
+            'declared_rebuild_effects', 'declared_regenerator_effects',
+            'selected_native_actions', 'selected_provider_actions',
+            'regen_pending', 'incomplete_apply',
+        ],
+        'media' => ['count', 'attachment_entities', 'upload_inventory_entries'],
+        'secrets' => [],
+        'environment_state' => [
+            'count', 'state_drift', 'code_drift', 'required_env_missing',
+            'optional_env_missing', 'missing_user', 'skipped_user_meta',
+            'incomplete_lifecycle', 'incomplete_apply', 'regen_pending',
+        ],
+        'capabilities' => [
+            'count', 'certification_source_blockers', 'selected_provider_blockers',
+            'declared_unselected_provider_problems',
+        ],
+        'deletions' => [
+            'count', 'blocked', 'nested_menu_item_delete_candidates',
+            'nested_widget_delete_candidates', 'nested_option_delete_candidates',
+        ],
+    ];
+
+    /** @var array<string,list<string>> */
+    private const CATEGORY_SUMMARY_ACTIONS = [
+        'code' => [],
+        'lifecycle' => [],
+        'authored_state' => [
+            'create', 'update', 'adopt', 'unchanged', 'drift', 'conflict', 'collision',
+        ],
+        'generated_effects' => [],
+        'media' => [
+            'create', 'update', 'adopt', 'unchanged', 'drift', 'conflict', 'collision',
+            'delete', 'delete_conflict', 'deleted',
+        ],
+        'secrets' => [],
+        'environment_state' => [],
+        'capabilities' => [],
+        'deletions' => ['delete', 'delete_conflict', 'deleted'],
+    ];
+
+    /** @var array<string,list<string>> */
+    private const CATEGORY_SUMMARY_ENTITIES = [
+        'code' => ['plugin', 'theme', 'other'],
+        'lifecycle' => [],
+        'authored_state' => [
+            'post', 'attachment', 'term', 'menu', 'sidebar', 'options',
+            'user_meta', 'typed_table',
+        ],
+        'generated_effects' => [],
+        'media' => ['attachment'],
+        'secrets' => [],
+        'environment_state' => [],
+        'capabilities' => [],
+        'deletions' => [
+            'post', 'attachment', 'term', 'menu', 'sidebar', 'options',
+            'user_meta', 'typed_table',
+        ],
+    ];
+
     /** @var list<string> */
     private const REQUIRED_BUCKETS = [
         'adapter_dispositions',
@@ -62,6 +142,67 @@ final class PlanContract {
         return self::REQUIRED_BUCKETS;
     }
 
+    /** @return list<string> */
+    public static function optionalProjections(): array {
+        return ['category_summary'];
+    }
+
+    public static function validCategorySummary(mixed $summary): bool {
+        return self::categorySummaryViolations($summary) === [];
+    }
+
+    /**
+     * Render only a projection that passed this host's closed validator.
+     *
+     * The host CLI and WordPress agent are separately deployable, so this is
+     * intentionally a tiny host-side renderer rather than a cross-tree class
+     * include. The regression compares its exact output with the agent twin.
+     *
+     * @return list<string>
+     */
+    public static function categorySummaryHumanLines(mixed $summary): array {
+        if (!self::validCategorySummary($summary)) {
+            return [];
+        }
+        /** @var array<string,mixed> $summary */
+        $labels = [
+            'code' => 'code',
+            'lifecycle' => 'lifecycle',
+            'authored_state' => 'authored state',
+            'generated_effects' => 'generated effects',
+            'media' => 'media',
+            'secrets' => 'secrets',
+            'environment_state' => 'environment state',
+            'capabilities' => 'capabilities',
+            'deletions' => 'deletions',
+        ];
+        $lines = ['SUMMARY [' . self::CATEGORY_SUMMARY_FORMAT . ']'];
+        foreach (self::CATEGORY_SUMMARY_IDS as $index => $id) {
+            if ($id === 'secrets') {
+                $lines[] = '  secrets: redacted; secret values omitted; secret-state refusals use duo-command-refusal/v1';
+                continue;
+            }
+            /** @var array<string,mixed> $category */
+            $category = $summary['categories'][$index];
+            $parts = [];
+            foreach ($category['metrics'] as $metric => $count) {
+                $parts[] = $metric . '=' . $count;
+            }
+            foreach (['entity_actions' => 'actions', 'contained_entities' => 'entities'] as $facet => $facetLabel) {
+                $counts = [];
+                foreach ($category[$facet] as $key => $count) {
+                    $counts[] = $key . '=' . $count;
+                }
+                if ($counts !== []) {
+                    $parts[] = $facetLabel . '[' . implode(',', $counts) . ']';
+                }
+            }
+            $lines[] = '  ' . $labels[$id] . ': ' . implode(', ', $parts);
+        }
+        $lines[] = '  vocabulary: generated effects use shipped derived classification; values omitted';
+        return $lines;
+    }
+
     /**
      * Name every way this document falls short of the complete envelope.
      *
@@ -86,6 +227,148 @@ final class PlanContract {
             }
         }
         return $violations;
+    }
+
+    /** @return list<string> */
+    public static function categorySummaryViolations(mixed $summary): array {
+        if (!is_array($summary) || array_is_list($summary)) {
+            return ['is not an object'];
+        }
+        $violations = [];
+        $expected = ['format', 'redaction', 'facets', 'vocabulary', 'categories'];
+        $actual = array_keys($summary);
+        if ($actual !== $expected) {
+            $violations[] = 'has unexpected or out-of-order top-level keys';
+        }
+        if (($summary['format'] ?? null) !== self::CATEGORY_SUMMARY_FORMAT) {
+            $violations[] = 'format is not duo-plan-category-summary/v1';
+        }
+        if (($summary['redaction'] ?? null) !== 'values_omitted') {
+            $violations[] = 'redaction is not values_omitted';
+        }
+        if (($summary['facets'] ?? null) !== 'overlapping') {
+            $violations[] = 'facets is not overlapping';
+        }
+        $vocabulary = $summary['vocabulary'] ?? null;
+        if (!is_array($vocabulary)
+            || array_keys($vocabulary) !== ['generated_effects']
+            || !is_array($vocabulary['generated_effects'] ?? null)
+            || array_keys($vocabulary['generated_effects']) !== ['public_label', 'wire_class']
+            || ($vocabulary['generated_effects']['public_label'] ?? null) !== 'generated'
+            || ($vocabulary['generated_effects']['wire_class'] ?? null) !== 'derived'
+        ) {
+            $violations[] = 'vocabulary is malformed';
+        }
+        $categories = $summary['categories'] ?? null;
+        if (!is_array($categories) || !array_is_list($categories)) {
+            $violations[] = 'categories is not an ordered list';
+            return $violations;
+        }
+        if (count($categories) !== count(self::CATEGORY_SUMMARY_IDS)) {
+            $violations[] = 'categories has the wrong length';
+        }
+        $byId = [];
+        foreach (self::CATEGORY_SUMMARY_IDS as $index => $id) {
+            $category = $categories[$index] ?? null;
+            if (!is_array($category) || ($category['id'] ?? null) !== $id) {
+                $violations[] = "category $id is missing or out of order";
+                continue;
+            }
+            $categoryKeys = ['id', 'metrics', 'entity_actions', 'contained_entities'];
+            if ($id === 'secrets') {
+                $categoryKeys[] = 'visibility';
+            }
+            if (array_keys($category) !== $categoryKeys) {
+                $violations[] = "category $id has unexpected or out-of-order keys";
+                continue;
+            }
+            foreach ([
+                'metrics' => self::CATEGORY_SUMMARY_METRICS[$id],
+                'entity_actions' => self::CATEGORY_SUMMARY_ACTIONS[$id],
+                'contained_entities' => self::CATEGORY_SUMMARY_ENTITIES[$id],
+            ] as $facet => $keys) {
+                $violations = array_merge(
+                    $violations,
+                    self::countMapViolations($category[$facet] ?? null, $keys, "category $id.$facet")
+                );
+            }
+            if ($id === 'secrets' && ($category['visibility'] ?? null) !== 'redacted') {
+                $violations[] = 'category secrets visibility is not redacted';
+            }
+            $byId[$id] = $category;
+        }
+        if ($violations === []) {
+            $code = $byId['code']['metrics'];
+            if ($code['count'] !== $code['compatibility_mismatch'] + $code['lifecycle_mismatch']
+                + $code['revision_stale'] + $code['drift'] + $code['other_mismatch']
+                || $code['unsupported_code'] !== $code['compatibility_mismatch']
+                || array_sum($byId['code']['contained_entities']) !== $code['count']) {
+                $violations[] = 'category code arithmetic is inconsistent';
+            }
+            $lifecycle = $byId['lifecycle']['metrics'];
+            if ($lifecycle['count'] !== $lifecycle['code_lifecycle_mismatch'] + $lifecycle['incomplete_lifecycle']
+                || $lifecycle['code_lifecycle_mismatch'] !== $code['lifecycle_mismatch']) {
+                $violations[] = 'category lifecycle arithmetic is inconsistent';
+            }
+            $authored = $byId['authored_state'];
+            if ($authored['metrics']['count'] !== array_sum($authored['entity_actions'])
+                || $authored['metrics']['count'] !== array_sum($authored['contained_entities'])) {
+                $violations[] = 'category authored_state arithmetic is inconsistent';
+            }
+            $generated = $byId['generated_effects']['metrics'];
+            if ($generated['count'] !== $generated['declared_effects']
+                    + $generated['selected_native_actions'] + $generated['selected_provider_actions']
+                    + $generated['regen_pending'] + $generated['incomplete_apply']
+                || $generated['declared_lifecycle_effects'] + $generated['declared_rebuild_effects']
+                    + $generated['declared_regenerator_effects'] > $generated['declared_effects']) {
+                $violations[] = 'category generated_effects arithmetic is inconsistent';
+            }
+            $media = $byId['media'];
+            if ($media['metrics']['attachment_entities'] !== array_sum($media['entity_actions'])
+                || $media['metrics']['attachment_entities'] !== $media['contained_entities']['attachment']
+                || $media['metrics']['count'] !== $media['metrics']['attachment_entities']
+                    + $media['metrics']['upload_inventory_entries']) {
+                $violations[] = 'category media arithmetic is inconsistent';
+            }
+            $environment = $byId['environment_state']['metrics'];
+            if ($environment['count'] !== array_sum($environment) - $environment['count']) {
+                $violations[] = 'category environment_state arithmetic is inconsistent';
+            }
+            $capabilities = $byId['capabilities']['metrics'];
+            if ($capabilities['count'] !== $capabilities['certification_source_blockers']
+                + $capabilities['selected_provider_blockers']
+                + $capabilities['declared_unselected_provider_problems']) {
+                $violations[] = 'category capabilities arithmetic is inconsistent';
+            }
+            $deletions = $byId['deletions'];
+            if ($deletions['metrics']['count'] !== array_sum($deletions['entity_actions'])
+                || $deletions['metrics']['count'] !== array_sum($deletions['contained_entities'])
+                || $deletions['metrics']['blocked'] > $deletions['entity_actions']['delete']
+                    + $deletions['entity_actions']['delete_conflict']) {
+                $violations[] = 'category deletions arithmetic is inconsistent';
+            }
+        }
+        return $violations;
+    }
+
+    /** @param list<string> $keys @return list<string> */
+    private static function countMapViolations(mixed $value, array $keys, string $where): array {
+        // Internally generated empty maps are stdClass so json_encode emits
+        // `{}`. The host decodes JSON associatively, where both `{}` and `[]`
+        // become PHP's empty array, so accept that one unavoidable decoded
+        // representation too. Non-empty maps retain exact ordered keys.
+        if ($keys === [] && $value instanceof \stdClass && get_object_vars($value) === []) {
+            return [];
+        }
+        if (!is_array($value) || array_keys($value) !== $keys) {
+            return ["$where is not the closed ordered count map"];
+        }
+        foreach ($keys as $key) {
+            if (!is_int($value[$key]) || $value[$key] < 0) {
+                return ["$where.$key is not a nonnegative integer"];
+            }
+        }
+        return [];
     }
 
     /**

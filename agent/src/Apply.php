@@ -7,6 +7,7 @@ require_once __DIR__ . '/StructuredValue.php';
 require_once __DIR__ . '/CommandRefusal.php';
 require_once __DIR__ . '/CanonicalSurfaces.php';
 require_once __DIR__ . '/PlanExplanation.php';
+require_once __DIR__ . '/PlanCategorySummary.php';
 
 /**
  * Plan + apply: repo state tree -> environment DB.
@@ -43,6 +44,8 @@ final class Apply {
     private string $promotionArtifact = '';
     /** @var list<array<string,mixed>> actions selected by this run's canonical surfaces (DUO-3338) */
     private array $selectedActions = [];
+    /** @var array<string,int>|null exact count-only context for the optional plan category projection */
+    private ?array $categorySummaryContext = null;
     /** @var array{providers: array<string,object>, capabilities: array<string,array>}|null negotiated before the first mutation */
     private ?array $negotiatedProviders = null;
     /** @var list<array<string,mixed>> structured rebuild-action receipts for this run's summary */
@@ -123,6 +126,20 @@ final class Apply {
         // bucket, and what belongs here is only the remainder this revision's
         // work never reaches.
         $plan['provider_problems'] = Providers::problems($policy, $plan['adapter_dispositions'] ?? []);
+        // DUO-3345 slice 5: additive, value-free category projection. Keep
+        // every detailed bucket above unchanged. Counts are derived from
+        // those rows plus the compiled identity/action provenance and the
+        // same-snapshot nested-deletion observations saved by build_plan().
+        // Machine consumers may ignore it when talking to an older agent.
+        $categorySummary = $a->categorySummaryContext === null ? null : PlanCategorySummary::build(
+            $plan,
+            $compiled->tree(),
+            $compiled->deletions(),
+            $a->categorySummaryContext
+        );
+        if ($categorySummary !== null) {
+            $plan['category_summary'] = $categorySummary;
+        }
         return $plan;
     }
 
@@ -140,19 +157,23 @@ final class Apply {
         // loud-and-blocking gate on an unscoped ref-typed option. Threaded
         // through so plan/apply have the same escape hatch `duo capture`
         // does, matching this file's existing --force-* precedents.
-        $env = $strictObservation
-            ? Capture::snapshot_read_only(
-                $this->repo,
-                !empty($opts['force_unresolved_refs']),
-                $compiled,
-                $this->policy
-            )
-            : Capture::snapshot(
+        $planObservations = null;
+        if ($strictObservation) {
+            $env = Capture::snapshot_read_only(
                 $this->repo,
                 !empty($opts['force_unresolved_refs']),
                 $compiled,
                 $this->policy
             );
+        } else {
+            $env = Capture::snapshot(
+                $this->repo,
+                !empty($opts['force_unresolved_refs']),
+                $compiled,
+                $this->policy,
+                $planObservations
+            );
+        }
         $base = Ledger::all_state();
         $adopt = array_fill_keys(array_filter(explode(',', $opts['adopt_by_slug'] ?? '')), true);
         $lifecycleTransition = null;
@@ -165,6 +186,10 @@ final class Apply {
             );
         }
 
+        $certificationBlockers = $diagnoseAdapters
+            ? $this->policy->certification_readiness_blockers()
+            : [];
+        $this->categorySummaryContext = null;
         $plan = [
             'create' => [], 'update' => [], 'unchanged' => [], 'drift' => [],
             'conflict' => [], 'adopt' => [], 'collision' => [], 'delete' => [],
@@ -182,9 +207,7 @@ final class Apply {
             // Source/evidence facts are plan-independent. Provider runtime
             // blockers are appended at the end from this plan's exact
             // rebuild-surface selection; see rebuild_work() below.
-            'adapter_dispositions' => $diagnoseAdapters
-                ? $this->policy->certification_readiness_blockers()
-                : [],
+            'adapter_dispositions' => $certificationBlockers,
         ];
         $collisionCache = [];
         foreach ($tree as $uuid => $e) {
@@ -693,20 +716,274 @@ final class Apply {
         // turn a clean plan red while a selected missing capability stays
         // visible in adapter_dispositions.
         $rebuildWork = $this->rebuild_work($plan, $tree, $opts, $retryingIncompleteApply);
-        $selectedActions = $this->policy->actions_for(
+        $this->selectedActions = $this->policy->actions_for(
             $this->rebuild_surfaces(
                 $rebuildWork['work'],
                 $tree,
                 $rebuildWork['rebuild_delete_work']
             )
         );
+        $selectedProviderBlockers = [];
         if ($diagnoseAdapters) {
+            $selectedProviderBlockers = $this->policy->provider_readiness_blockers($this->selectedActions);
             $plan['adapter_dispositions'] = array_merge(
                 $plan['adapter_dispositions'],
-                $this->policy->provider_readiness_blockers($selectedActions)
+                $selectedProviderBlockers
             );
         }
+        $nestedDeleteCounts = $strictObservation ? null : self::nested_delete_candidate_counts(
+            $env,
+            $tree,
+            $plan,
+            $planObservations
+        );
+        if ($nestedDeleteCounts !== null) {
+            $this->categorySummaryContext = [
+                'selected_native_actions' => count(array_filter(
+                    $this->selectedActions,
+                    static fn(array $action): bool => ($action['kind'] ?? null) === 'native'
+                )),
+                'selected_provider_actions' => count(array_filter(
+                    $this->selectedActions,
+                    static fn(array $action): bool => ($action['kind'] ?? null) === 'provider'
+                )),
+                'certification_source_blockers' => count($certificationBlockers),
+                'selected_provider_blockers' => count($selectedProviderBlockers),
+                'nested_menu_item_delete_candidates' => $nestedDeleteCounts['menu'],
+                'nested_widget_delete_candidates' => $nestedDeleteCounts['widget'],
+                'nested_option_delete_candidates' => $nestedDeleteCounts['option'],
+            ];
+        }
         return $plan;
+    }
+
+    /**
+     * Project nested deletion candidates from the exact snapshot/build-plan
+     * evidence already in memory. No target, ledger, policy, provider, or
+     * filesystem call is permitted here: a later read could describe a
+     * different target moment from the plan it annotates.
+     *
+     * Menu observations are Capture's internal side channel from the same
+     * MVCC build. Widget rows are narrowed against the GLOBAL desired UUID
+     * set, matching SidebarState::finalize_sidebar() so a sidebar move is not
+     * reported as deletion. Option names are deduplicated across the exact
+     * three buckets Apply::run() turns into pending option deletes.
+     *
+     * @param array<string,array<string,mixed>> $env
+     * @param array<string,array<string,mixed>> $tree
+     * @param array<string,mixed> $plan
+     * @param array{menus_by_term_id:array<string,array{uuid:?string,managed_menu_item_uuids:list<string>,all_menu_item_count:int}>}|null $observations
+     * @return array{menu:int,widget:int,option:int}|null
+     */
+    private static function nested_delete_candidate_counts(
+        array $env,
+        array $tree,
+        array $plan,
+        ?array $observations
+    ): ?array {
+        if (!is_array($observations) || !is_array($observations['menus_by_term_id'] ?? null)) {
+            return null;
+        }
+        $menuObservationsByTerm = [];
+        $menuObservationsByUuid = [];
+        foreach ($observations['menus_by_term_id'] as $termId => $observation) {
+            $termKey = (string) $termId;
+            if ($termKey === '' || !ctype_digit($termKey) || (int) $termKey < 1
+                || !is_array($observation)
+                || !array_key_exists('uuid', $observation)
+                || !($observation['uuid'] === null
+                    || (is_string($observation['uuid']) && $observation['uuid'] !== ''))
+                || !is_array($observation['managed_menu_item_uuids'] ?? null)
+                || !array_is_list($observation['managed_menu_item_uuids'])
+                || !is_int($observation['all_menu_item_count'] ?? null)
+                || $observation['all_menu_item_count'] < 0) {
+                return null;
+            }
+            $managedMenuItems = [];
+            foreach ($observation['managed_menu_item_uuids'] as $itemUuid) {
+                if (!is_string($itemUuid) || $itemUuid === ''
+                    || isset($managedMenuItems[$itemUuid])) {
+                    return null;
+                }
+                $managedMenuItems[$itemUuid] = true;
+            }
+            if (count($managedMenuItems) > $observation['all_menu_item_count']) {
+                return null;
+            }
+            $menuObservationsByTerm[$termKey] = $observation;
+            $menuUuid = $observation['uuid'];
+            if (is_string($menuUuid)) {
+                if (isset($menuObservationsByUuid[$menuUuid])) {
+                    return null;
+                }
+                $menuObservationsByUuid[$menuUuid] = $observation;
+            }
+        }
+        $menuCandidates = 0;
+        $widgetCandidates = [];
+        $optionCandidates = [];
+        $globallyDesiredWidgets = [];
+
+        foreach ($tree as $entry) {
+            if (!is_array($entry)) {
+                return null;
+            }
+            if (($entry['type'] ?? null) !== 'sidebar') {
+                continue;
+            }
+            if (!is_array($entry['data'] ?? null)) {
+                return null;
+            }
+            $widgets = $entry['data']['widgets'] ?? [];
+            if (!is_array($widgets) || !array_is_list($widgets)) {
+                return null;
+            }
+            foreach ($widgets as $widget) {
+                if (!is_array($widget)) {
+                    return null;
+                }
+                $type = $widget['type'] ?? null;
+                $uuid = $widget['uuid'] ?? null;
+                if (!is_string($type) || $type === '' || !is_string($uuid) || $uuid === '') {
+                    return null;
+                }
+                $globallyDesiredWidgets[$type . "\0" . $uuid] = true;
+            }
+        }
+
+        foreach (['create', 'adopt', 'update', 'conflict'] as $bucket) {
+            $rows = $plan[$bucket] ?? [];
+            if (!is_array($rows) || !array_is_list($rows)) {
+                return null;
+            }
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    return null;
+                }
+                $uuid = $row['uuid'] ?? null;
+                if (!is_string($uuid) || $uuid === '' || !is_array($tree[$uuid] ?? null)) {
+                    return null;
+                }
+                $entry = $tree[$uuid];
+                if (($entry['type'] ?? null) === 'menu') {
+                    if ($bucket === 'adopt') {
+                        $termId = $row['env_id'] ?? null;
+                        if (!is_int($termId) || $termId < 1) {
+                            return null;
+                        }
+                        $observation = $menuObservationsByTerm[(string) $termId] ?? null;
+                    } elseif (!isset($env[$uuid])) {
+                        // A genuinely new menu has no target items to remove.
+                        continue;
+                    } else {
+                        $observation = $menuObservationsByUuid[$uuid] ?? null;
+                    }
+                    if (!is_array($observation)) {
+                        return null;
+                    }
+                    $desired = [];
+                    if (!is_array($entry['data'] ?? null)) {
+                        return null;
+                    }
+                    $items = $entry['data']['items'] ?? [];
+                    if (!is_array($items) || !array_is_list($items)) {
+                        return null;
+                    }
+                    foreach ($items as $item) {
+                        $itemUuid = is_array($item) ? ($item['uuid'] ?? null) : null;
+                        if (!is_string($itemUuid) || $itemUuid === '' || isset($desired[$itemUuid])) {
+                            return null;
+                        }
+                        $desired[$itemUuid] = true;
+                    }
+                    foreach ($observation['managed_menu_item_uuids'] as $itemUuid) {
+                        if (!is_string($itemUuid) || $itemUuid === '') {
+                            return null;
+                        }
+                        if (!isset($desired[$itemUuid])) {
+                            $menuCandidates++;
+                        }
+                    }
+                    continue;
+                }
+                if (!isset($env[$uuid])) {
+                    continue;
+                }
+                if (($entry['type'] ?? null) === 'sidebar') {
+                    $widgetDeletes = $row['widget_deletes'] ?? [];
+                    if (!is_array($widgetDeletes) || !array_is_list($widgetDeletes)) {
+                        return null;
+                    }
+                    foreach ($widgetDeletes as $widget) {
+                        if (!is_array($widget)) {
+                            return null;
+                        }
+                        $type = $widget['type'] ?? null;
+                        $widgetUuid = $widget['uuid'] ?? null;
+                        if (!is_string($type) || $type === ''
+                            || !is_string($widgetUuid) || $widgetUuid === '') {
+                            return null;
+                        }
+                        $key = $type . "\0" . $widgetUuid;
+                        if (!isset($globallyDesiredWidgets[$key])) {
+                            $widgetCandidates[$key] = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        foreach (['delete', 'delete_conflict'] as $bucket) {
+            $rows = $plan[$bucket] ?? [];
+            if (!is_array($rows) || !array_is_list($rows)) {
+                return null;
+            }
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    return null;
+                }
+                if (($row['deletion_kind'] ?? null) !== 'menu') {
+                    continue;
+                }
+                $uuid = $row['uuid'] ?? null;
+                if (!is_string($uuid) || $uuid === '') {
+                    return null;
+                }
+                $observation = $menuObservationsByUuid[$uuid] ?? null;
+                if (!isset($env[$uuid]) || !is_array($observation)) {
+                    return null;
+                }
+                $menuCandidates += $observation['all_menu_item_count'];
+            }
+        }
+
+        foreach (['create', 'update', 'conflict'] as $bucket) {
+            $rows = $plan[$bucket] ?? [];
+            if (!is_array($rows) || !array_is_list($rows)) {
+                return null;
+            }
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    return null;
+                }
+                $optionDeletes = $row['option_deletes'] ?? [];
+                if (!is_array($optionDeletes) || !array_is_list($optionDeletes)) {
+                    return null;
+                }
+                foreach ($optionDeletes as $name) {
+                    if (!is_string($name) || $name === '') {
+                        return null;
+                    }
+                    $optionCandidates[$name] = true;
+                }
+            }
+        }
+
+        return [
+            'menu' => $menuCandidates,
+            'widget' => count($widgetCandidates),
+            'option' => count($optionCandidates),
+        ];
     }
 
     /**
