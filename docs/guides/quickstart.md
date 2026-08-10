@@ -5,10 +5,12 @@ on an existing WordPress target. How the agent gets there is transport-specific:
 
 1. **SSH:** `duo adopt` installs the agent, manifest library, and recovery
    runtime first; then `duo init` discovers and captures the site.
-2. **Local or Docker:** the agent must already be installed or mounted; then
-   `duo init` uses that authenticated transport directly. Automatic local and
-   Docker agent delivery is a separate capability (DUO-3365), not something
-   init silently performs.
+2. **Machine-local:** an untracked, explicit bootstrap opt-in lets `duo adopt`
+   prove and initially install that same control plane before `duo init`. It
+   refuses when a Duo control plane is already present; installed-target
+   updates use the existing environment update path.
+3. **Docker:** the agent must already be installed or mounted; `duo init` uses
+   that authenticated transport directly. Init never silently delivers it.
 
 Init is not a WordPress installer. It starts from a working site and a reachable
 agent, proposes the exact managed boundary without mutation, requires explicit
@@ -29,8 +31,8 @@ than cloning a repository, but the subsequent `duo init` path also requires a
 working `git` binary on the target: init verifies or creates the target-owned
 Git worktree before publishing its baseline. The configured `repo_path` itself
 must already be an ordinary directory reached without symbolic-link ancestors;
-SSH adoption creates it, while local/Docker control-plane setup or the site's
-bind mount must create it before init. Init binds that exact directory before
+SSH or authorized local adoption creates it, while Docker control-plane setup
+or the site's bind mount must create it before init. Init binds that exact directory before
 reading or writing repository children and refuses if its identity changes.
 The SSH account must be able to
 write WordPress's actual `WPMU_PLUGIN_DIR` (discovered through the target's own
@@ -40,12 +42,11 @@ write WordPress's actual `WPMU_PLUGIN_DIR` (discovered through the target's own
 The full prerequisite and safety contract is
 [docs/adoption.md](../adoption.md); this guide is the narrative around it.
 
-## Path A — adopt an existing site over SSH
+## Path A — adopt an existing site over SSH or an authorized local transport
 
-SSH is the only transport `duo adopt` supports. This is not an arbitrary
-restriction: adoption's job is to push a specific release's `agent/`,
-`manifests/`, and recovery trees onto a machine you do not otherwise control,
-and that shape only exists for the SSH transport today.
+SSH always exposes the explicit transfer mechanism. A local environment may
+expose it only through a loader-proven, untracked machine-local opt-in; Docker
+does not infer bootstrap authority from a bind mount or shell access.
 
 ### 1. Describe the environment
 
@@ -75,6 +76,28 @@ overlay.
 per-transport required keys and the rollback/recovery options an SSH entry may
 additionally carry.
 
+For a local target, put the full entry in the untracked `.duo-envs.json`
+overlay (not `site.duo.json`):
+
+```json
+{
+  "envs": {
+    "dev": {
+      "transport": "local",
+      "wp_path": "/srv/wordpress",
+      "repo_path": "/srv/site-repo",
+      "bootstrap": {"format": "duo-local-control-plane/v1"}
+    }
+  }
+}
+```
+
+`duo driver-capabilities dev --operation=adopt` checks only that closed local
+authorization and never contacts the target. `duo adopt dev` then isolates
+ordinary plugin/theme/MU loading, proves WordPress and a safe disjoint
+filesystem topology read-only, and refuses with remediation before creating
+an archive or target path when that proof is red.
+
 ### 2. Check, then adopt
 
 Run these from a Duo source checkout whose `cli/`, `agent/`, `manifests/`, and
@@ -100,9 +123,11 @@ installed agent version matches this checkout exactly and that the policy
 loads. It ends by running the same `duo doctor` checks, and succeeds only when
 every blocking one passes.
 
-Re-running `duo adopt` is the update mechanism. It replaces the agent and
-manifest trees with the ones beside the invoking CLI and leaves the site's
-policy untouched.
+Over SSH, re-running `duo adopt` is the update mechanism: it replaces the
+agent and manifest trees with the ones beside the invoking CLI and leaves the
+site's policy untouched. The privileged machine-local bootstrap is
+initial-only and refuses a second adoption rather than racing an installed
+recovery authority.
 
 ### 3. Review and confirm the first baseline
 
@@ -209,11 +234,11 @@ Keep the source repo as the canonical artifact. Do not copy the WordPress
 database to another host to "prove" portability — that proves the database
 copied, which was never in question.
 
-## Path B — a local or Docker site
+## Path B — a Docker site or a local site without bootstrap authority
 
-`duo adopt` remains SSH-only. Install or mount the Duo agent and manifest
-library through the local environment's own control-plane setup, declare the
-environment, and run the same public initializer:
+Install or mount the Duo agent and manifest library through that environment's
+own control-plane setup, declare the environment, and run the same public
+initializer:
 
 ```sh
 cli/duo init dev

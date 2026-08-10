@@ -76,12 +76,16 @@ final class DriverCapabilityReport {
     public const FORMAT = 'duo-environment-driver-capabilities/v1';
     public const DRIVER_PROTOCOL = 1;
 
-    /** @param array<string,bool> $supported */
+    /**
+     * @param array<string,bool> $supported
+     * @param array<string,array{reason:string,remediation:string}> $unsupportedDetails
+     */
     public static function forDriver(
         string $environment,
         string $driverId,
         string $operation,
-        array $supported
+        array $supported,
+        array $unsupportedDetails = []
     ): self {
         $known = DriverCapability::all();
         $unknown = array_diff(array_keys($supported), $known);
@@ -89,6 +93,26 @@ final class DriverCapabilityReport {
             throw new \RuntimeException(
                 "driver '$driverId' declared unknown capability '" . reset($unknown) . "'"
             );
+        }
+        $unknownDetails = array_diff(array_keys($unsupportedDetails), $known);
+        if ($unknownDetails !== []) {
+            throw new \RuntimeException(
+                "driver '$driverId' described unknown capability '" . reset($unknownDetails) . "'"
+            );
+        }
+        foreach ($unsupportedDetails as $capability => $detail) {
+            $keys = is_array($detail) ? array_keys($detail) : [];
+            sort($keys, SORT_STRING);
+            if ($keys !== ['reason', 'remediation']
+                || !is_string($detail['reason'] ?? null)
+                || trim((string) ($detail['reason'] ?? '')) === ''
+                || !is_string($detail['remediation'] ?? null)
+                || trim((string) ($detail['remediation'] ?? '')) === ''
+                || !empty($supported[$capability])) {
+                throw new \RuntimeException(
+                    "driver '$driverId' returned malformed unsupported detail for '$capability'"
+                );
+            }
         }
 
         $requirements = self::requirements($operation);
@@ -102,12 +126,20 @@ final class DriverCapabilityReport {
         foreach ($requirements as $capability) {
             $ok = $capabilities[$capability] === 'supported';
             $ready = $ready && $ok;
+            $detail = $unsupportedDetails[$capability] ?? null;
             $checks[] = [
                 'capability' => $capability,
                 'state' => $ok ? 'supported' : 'unsupported',
                 'reason' => $ok
                     ? 'driver declares the exact required capability'
-                    : "driver '$driverId' does not implement '$capability'; no emulation is permitted",
+                    : (is_array($detail)
+                        ? $detail['reason']
+                        : "driver '$driverId' does not implement '$capability'; no emulation is permitted"),
+                'remediation' => $ok
+                    ? ''
+                    : (is_array($detail)
+                        ? $detail['remediation']
+                        : 'select or configure a driver that explicitly implements this capability'),
             ];
         }
 
@@ -145,7 +177,7 @@ final class DriverCapabilityReport {
         return $this->body;
     }
 
-    /** @return list<array{capability:string,state:string,reason:string}> */
+    /** @return list<array{capability:string,state:string,reason:string,remediation:string}> */
     public function blockers(): array {
         return array_values(array_filter(
             $this->body['requirements'],

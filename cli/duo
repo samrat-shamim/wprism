@@ -23,6 +23,7 @@ require __DIR__ . '/src/SshTransport.php';
 require dirname(__DIR__) . '/recovery/rollback-control.php';
 require __DIR__ . '/src/RollbackAuthority.php';
 require __DIR__ . '/src/VerifiedRollbackProfile.php';
+require __DIR__ . '/src/BootstrapEligibility.php';
 require __DIR__ . '/src/Adopt.php';
 require __DIR__ . '/src/Init.php';
 require __DIR__ . '/src/Doctor.php';
@@ -56,6 +57,8 @@ require_once dirname(__DIR__) . '/agent/src/ScopeContract.php';
 
 use Duo\Orchestrator\Doctor;
 use Duo\Orchestrator\Adopt;
+use Duo\Orchestrator\AdoptionTransport;
+use Duo\Orchestrator\BootstrapEligibilityReport;
 use Duo\Orchestrator\Init;
 use Duo\Orchestrator\CodeDeploy;
 use Duo\Orchestrator\DriverCapabilityReport;
@@ -262,10 +265,12 @@ Verbs:
     [--format=json]        explicit and non-zero; destructive operations are
                           never silently emulated.
   adopt <env>             Bootstrap this checkout's agent + manifests and a
-                          seed site repo onto an SSH-only WordPress host, then
-                          verify the exact agent version, policy load, and
-                          doctor checks. Idempotent; existing site.duo.json is
-                          retained. SSH transport only.
+                          seed site repo onto an SSH target or an explicitly
+                          authorized machine-local target. Local adoption first
+                          proves a read-only safe topology; both paths verify
+                          the exact agent version, policy load, rollback
+                          authority, and doctor checks before transaction
+                          commit. Existing site.duo.json is retained.
   init <env>              Discover an existing authenticated local/docker/SSH
                           target and print a content-addressed proposal before
                           writing anything. Unsupported active extensions,
@@ -650,7 +655,7 @@ function main(array $argv): int {
                     'capability' => (string) $blocker['capability'],
                     'state' => (string) $blocker['state'],
                     'message' => 'the required driver capability is unsupported',
-                    'remediation' => 'select or configure a driver that explicitly implements this capability',
+                    'remediation' => (string) $blocker['remediation'],
                 ],
                 $driverReport->blockers()
             );
@@ -736,6 +741,9 @@ function cmd_driver_capabilities(EnvironmentDriver $driver, array $extra): int {
         foreach ($body['requirements'] as $check) {
             $mark = $check['state'] === 'supported' ? 'PASS' : 'BLOCKED';
             echo "[$mark] {$check['capability']} — {$check['reason']}\n";
+            if ($check['state'] !== 'supported') {
+                echo "  remediation: {$check['remediation']}\n";
+            }
         }
         echo "report {$body['digest']}\n";
     }
@@ -751,6 +759,7 @@ function render_driver_blockers(DriverCapabilityReport $report): void {
     );
     foreach ($report->blockers() as $blocker) {
         fwrite(STDERR, "  {$blocker['capability']}: {$blocker['reason']}\n");
+        fwrite(STDERR, "    remediation: {$blocker['remediation']}\n");
     }
     fwrite(STDERR, "  report: {$body['digest']}\n");
 }
@@ -1333,6 +1342,12 @@ function cmd_envs(?string $envsFileOverride): int {
 
 function cmd_doctor(EnvironmentDriver $t): int {
     $result = Doctor::run($t);
+    render_doctor_result($result);
+    return $result['ok'] ? 0 : 1;
+}
+
+/** @param array{ok:bool,checks:list<array{label:string,ok:bool,detail:string,advisory?:bool}>} $result */
+function render_doctor_result(array $result): void {
     foreach ($result['checks'] as $c) {
         // DUO-3231: an advisory check (DISALLOW_FILE_MODS today) never
         // fails the command (Doctor::run()'s own $ok fold already skips
@@ -1347,7 +1362,6 @@ function cmd_doctor(EnvironmentDriver $t): int {
         }
         echo $line . "\n";
     }
-    return $result['ok'] ? 0 : 1;
 }
 
 function cmd_adopt(EnvironmentDriver $t, array $extra): int {
@@ -1355,35 +1369,81 @@ function cmd_adopt(EnvironmentDriver $t, array $extra): int {
         fwrite(STDERR, "duo: adopt accepts no extra arguments\n");
         return 1;
     }
-    if (!$t instanceof \Duo\Orchestrator\SshTransport) {
-        fwrite(STDERR, "duo: adopt requires an ssh transport; local/docker environments already have a direct delivery path\n");
+    if (!$t instanceof AdoptionTransport) {
+        fwrite(STDERR, "duo: adopt requires a transport with explicit control-plane transfer authority\n");
         return 1;
     }
 
-    echo "adopt phase: preflight + staged install\n";
+    $eligibility = null;
+    if ($t instanceof \Duo\Orchestrator\LocalTransport) {
+        echo "adopt phase: read-only target eligibility\n";
+        $eligibility = BootstrapEligibilityReport::inspect(
+            $t,
+            $t->name(),
+            $t->driverId(),
+            dirname(__DIR__)
+        );
+        foreach ($eligibility->checks() as $check) {
+            $mark = $check['state'] === 'passed' ? 'PASS' : 'BLOCKED';
+            echo "[$mark] bootstrap {$check['code']} — {$check['reason']}\n";
+            if ($check['state'] !== 'passed') {
+                echo "  remediation: {$check['remediation']}\n";
+            }
+        }
+        echo 'eligibility ' . $eligibility->toArray()['digest'] . "\n";
+        if (!$eligibility->ready()) {
+            fwrite(STDERR, "duo: adopt refused because the target is not safely eligible; no bootstrap write was attempted\n");
+            return 1;
+        }
+    }
+
+    echo "adopt phase: staged install + transactional doctor\n";
     $keyId = null;
     $publicKey = null;
-    if ($t->rollbackConfigured()) {
+    $recoveryConfig = null;
+    if ($t instanceof \Duo\Orchestrator\SshTransport && $t->rollbackConfigured()) {
         try {
             $authority = new RollbackAuthority($t);
             $keyId = $authority->keyId();
             $publicKey = $authority->publicKeyBase64();
+            $recoveryConfig = $t->recoveryConfig();
         } catch (\Throwable $e) {
             fwrite(STDERR, 'duo: adopt: ' . $e->getMessage() . "\n");
             return 1;
         }
     }
-    $result = Adopt::install($t, dirname(__DIR__), $keyId, $publicKey, $t->recoveryConfig());
+    $doctor = null;
+    $isolatedDoctor = $eligibility !== null;
+    $result = Adopt::install(
+        $t,
+        dirname(__DIR__),
+        $keyId,
+        $publicKey,
+        $recoveryConfig,
+        $eligibility,
+        static function () use ($t, &$doctor, $isolatedDoctor): bool {
+            $doctor = $isolatedDoctor ? Doctor::runIsolated($t) : Doctor::run($t);
+            return $doctor['ok'] === true;
+        }
+    );
     if ($result['exit'] !== 0) {
         fwrite(STDERR, "duo: adopt failed during {$result['phase']}\n");
         print_transport_detail($result);
+        if (is_array($doctor)) {
+            render_doctor_result($doctor);
+        }
         return $result['exit'];
     }
 
     $repoAction = $result['repo_created'] ? 'created seed site.duo.json' : 'retained existing site.duo.json';
     echo "adopt: installed agent {$result['version']} + manifest library + rollback authority; $repoAction\n";
-    echo "adopt phase: doctor\n";
-    return cmd_doctor($t);
+    echo "adopt phase: doctor (verified before commit)\n";
+    if (!is_array($doctor)) {
+        fwrite(STDERR, "duo: adopt: committed transaction has no doctor verification result\n");
+        return 1;
+    }
+    render_doctor_result($doctor);
+    return 0;
 }
 
 /** @param list<string> $extra */
@@ -1540,7 +1600,7 @@ function cmd_init(EnvironmentDriver $t, array $extra): int {
         $message = $e->getMessage();
         if (str_contains(strtolower($message), 'not a registered wp command')
             || str_contains(strtolower($message), 'duo is not a registered')) {
-            $message .= "; install the Duo agent first (run 'duo adopt {$t->name()}' for an SSH environment)";
+            $message .= "; install the Duo agent first (run 'duo adopt {$t->name()}' for an SSH or explicitly authorized local environment)";
         }
         fwrite(STDERR, "duo: $message\n");
         return 1;

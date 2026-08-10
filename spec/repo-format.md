@@ -1174,6 +1174,48 @@ capabilities are a loud operator-directed fallback; configured-but-invalid
 capabilities refuse before mutation. No filesystem layout is capability
 evidence.
 
+### Local control-plane bootstrap (`duo-bootstrap-eligibility/v1`)
+
+`duo driver-capabilities <env> --operation=adopt` remains target-free. A local
+driver advertises `environment.bootstrap` and `code.transfer` only when its
+loader-proven machine-local entry contains exactly
+`"bootstrap":{"format":"duo-local-control-plane/v1"}` beside normalized
+absolute, non-root `wp_path` and `repo_path`. The same declaration in
+checked-in policy has no authority; a missing declaration is an actionable
+unsupported row, while a present malformed declaration is a configuration
+refusal. Docker never inherits bootstrap authority from generic shell access
+or a mount.
+
+The later local `duo adopt` call obtains a separate canonical
+`duo-bootstrap-eligibility/v1` object with exact top-level fields `format`,
+`driver`, `repo_path`, `ready`, `checks`, and `digest`. Checks are ordered
+closed rows `{code,state,reason,remediation}`; `digest` is the SHA-256 of the
+canonical object without that field. This report is advisory evidence, not a
+write token: install repeats the bounded topology proof immediately before
+staging. The proof uses a plugin/theme/MU-isolated WordPress bootstrap, requires
+installed WordPress and its standard MU leaf, disjoint normalized source/WP/
+repository roots, ordinary non-symlink ancestors and absent-or-ordinary
+destinations, required tools/access, no stale adoption transaction, and either
+an entirely absent local Duo agent/loader/manifest/`.duo` control plane. Local
+bootstrap is initial-only: an installed target is refused with remediation to
+use its existing update path, avoiding any race with recovery writers. It
+performs no Duo target write.
+
+Local adoption copies only the invoking checkout's fixed `agent`, `manifests`,
+and recovery artifact. The new agent/loader/manifests and repository `.duo`
+tree are staged under exclusively created, identity-recorded paths. Recovery initialization and configured probes run only against the
+staged `.duo`; `site.duo.json` is hard-linked into place only when absent. The
+swap, exact agent/policy/authority verification, and isolated public doctor are
+one rollback unit. Only a green doctor crosses a mutation-free commit barrier;
+rollback copies are deleted afterward, and any cleanup failure retains evidence
+without attempting restoration from a possibly partial backup. Every earlier
+failure restores the prior site policy and any newly created repository or MU
+leaf byte-for-byte; cleanup refuses to delete a path whose filesystem identity
+changed. The exclusively uploaded local archive is consumed and removed only
+while its recorded identity still matches. This out-of-band control-plane/authority seed never installs
+WordPress, materializes managed code, captures canonical state, creates entity
+identity/ledger rows, or authorizes a later `duo init`.
+
 Deploy and apply also share one target-authoritative lease in the target
 database. The `duo_kv.promotion_lock` record names a random orchestrator owner,
 the compiled artifact hash, current phase, and bounded expiry. In an

@@ -1,13 +1,17 @@
 # Adopting an existing WordPress host
 
 `duo adopt <env>` installs Duo onto an already-running WordPress site reached
-through the orchestrator's SSH transport. It is the bootstrap step before the
+through the orchestrator's SSH transport or an explicitly authorized
+machine-local transport. It is the bootstrap step before the
 first `duo pending`, `duo classify`, or `duo capture`; it does not claim that
-the site's pre-existing plugin state is already classified.
+the site's pre-existing plugin state is already classified. Machine-local
+delivery is initial-only and refuses an already-installed Duo control plane;
+SSH retains the established install-or-update workflow.
 
 ## Prerequisites
 
-The machine running `duo` needs PHP 8+ with Sodium, `ssh`, `scp`, and `tar`.
+The machine running `duo` needs PHP 8+ with Sodium and `tar`; SSH adoption
+also needs `ssh` and `scp`.
 The target needs PHP 8+ with Sodium and `fsync()`, a working `wp` command,
 `tar`, and a WordPress install. It does **not**
 need Git. The SSH account must be able to write:
@@ -31,6 +35,28 @@ gitignored `.duo-envs.json`:
   }
 }
 ```
+
+Local delivery is a privileged opt-in and must live in untracked
+`.duo-envs.json`:
+
+```json
+{
+  "envs": {
+    "local-existing": {
+      "transport": "local",
+      "wp_path": "/srv/wordpress",
+      "repo_path": "/srv/site-repo",
+      "bootstrap": {"format": "duo-local-control-plane/v1"}
+    }
+  }
+}
+```
+
+That exact closed object authorizes only the mechanism. Checked-in repository
+configuration cannot self-label it machine-local. `duo driver-capabilities`
+remains target-free; `duo adopt` separately emits a read-only eligibility
+report and refuses before archive allocation or target writes unless every
+target check passes. Docker has no adoption capability at this version.
 
 For signed rollback receipts, put the controller key in the machine-local
 `.duo-envs.json` overlay and keep it mode `0600`:
@@ -91,7 +117,7 @@ identity, proxy, and host-key policy stay identical:
 }
 ```
 
-## Install or update
+## Install, or update over SSH
 
 Run from a Duo source checkout whose `cli/`, `agent/`, `manifests/`, and `recovery/`
 directories belong to the release you intend to install:
@@ -103,16 +129,23 @@ cli/duo adopt production
 
 Adoption performs these operations:
 
-1. verifies SSH reachability and an installed WordPress;
-2. discovers `WPMU_PLUGIN_DIR` through the target's own `wp` command;
+1. negotiates explicit transport authority; for local targets, proves a
+   normalized, disjoint, ordinary, writable filesystem topology and a wholly
+   absent prior Duo agent/loader/manifest/rollback authority without writes;
+2. verifies reachability and installed WordPress; local adoption discovers the
+   standard `WPMU_PLUGIN_DIR` through a plugin-free control bootstrap, while
+   SSH preserves its existing target-discovered path contract;
 3. sends one archive containing this checkout's complete `agent/`,
    `manifests/`, and public recovery-runtime trees;
-4. stages and rollback-protects the live paths, then installs:
+4. creates every transaction path exclusively, records its filesystem
+   identity, stages and rollback-protects the live paths, then installs:
    - `WPMU_PLUGIN_DIR/duo/` (the agent),
    - `WPMU_PLUGIN_DIR/duo-loader.php` (the required top-level loader),
    - `WPMU_PLUGIN_DIR/manifests/` (the manifest library),
    - `repo_path/.duo/control/recovery-runtime/` (outside managed code);
-5. creates or verifies the protected `repo_path/.duo/control/` root and its
+5. for SSH updates, stages the entire existing `repo_path/.duo/` tree
+   (including artifacts and checkpoints); local bootstrap requires that tree
+   absent. It creates or verifies the protected `control/` root and stable
    stable target identity, and installs the configured public verification
    key without copying controller secrets; when `rollback_recovery` is set it
    installs the path-only configuration and probes the exclusion, checkpoint,
@@ -123,16 +156,23 @@ Adoption performs these operations:
    exactly matches this checkout and that `Policy::load()` can read the seed
    plus installed manifest library;
 8. verifies the recovery runtime can read and validate the external target;
-9. discards the prior release's rollback copies only after those checks pass;
-10. runs the normal `duo doctor` checks. The command is successful only when
-   every blocking doctor check passes.
+9. runs the normal public doctor checks while the swap is still rollbackable
+   (the local path uses the isolated control plane);
+10. publishes a mutation-free commit marker only after every blocking
+    verification passes, leaves the rollbackable phase, and only then discards
+    prior SSH rollback copies. Cleanup trouble retains transaction evidence and
+    never triggers restoration from a partially deleted backup.
 
-An existing `site.duo.json` is never overwritten. Re-running the command is
-the update mechanism: the current agent and manifest trees are replaced by
-the exact trees beside the invoking CLI, while the site's policy remains
-untouched. Symlink destinations are refused rather than followed, and an
-install failure restores the previous agent, loader, and manifests and
-removes a seed created by that failed run. A target-side adoption lock refuses
+An existing `site.duo.json` is never overwritten. Over SSH, re-running the
+command is the update mechanism: the current agent and manifest trees are
+replaced by the exact trees beside the invoking CLI, while the site's policy
+remains untouched. Local bootstrap refuses a repeat and points to the existing
+installed-environment update path. Symlink destinations are refused rather than followed, and an
+install failure restores the previous agent, loader, manifests, complete
+`.duo` tree, and repository bytes, and removes a seed/directory leaf created
+by that failed run. Cleanup first rechecks each transaction path's recorded
+filesystem identity; an unexpected replacement is retained for operator
+recovery rather than recursively deleted. A target-side adoption lock refuses
 overlapping operators. If the host process is killed so abruptly that
 `.duo-adopt-lock` remains, adoption fails loudly and requires operator
 inspection rather than guessing whether the interrupted release should be
@@ -140,8 +180,9 @@ committed or restored.
 
 The control root holds `target.json`, `target.lock`, immutable public keys,
 and the installed runtime. Receipts and signed event chains live beside it at
-`repo_path/.duo/rollback/<receipt-id>/`; re-adoption updates only the runtime
-and preserves the stable identity and all generations. This is the authority
+`repo_path/.duo/rollback/<receipt-id>/`; SSH re-adoption stages the whole `.duo`
+tree, updates only its runtime/declared authority data, and preserves unrelated
+opaque subtrees plus the stable identity and all generations. This is the authority
 substrate plus the fatal-safe executor. A configured checkpoint provider adds
 the encrypted database before-image slice described in
 [checkpoint-bundle.md](checkpoint-bundle.md), but it still does not make

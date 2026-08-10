@@ -116,7 +116,7 @@ foreach ([$local, $docker, $ssh] as $driver) {
 }
 pass('local, container, and SSH drivers share one proof contract while attach remains distinct from create');
 
-assert_true(!$local->capabilityReport('adopt')->ready(), 'local driver fabricated bootstrap support');
+assert_true(!$local->capabilityReport('adopt')->ready(), 'local driver fabricated bootstrap support without an opt-in');
 assert_true(!$docker->capabilityReport('adopt')->ready(), 'container driver fabricated bootstrap support');
 assert_true($ssh->capabilityReport('adopt')->ready(), 'SSH adoption path did not declare its actual upload/bootstrap support');
 pass('driver-specific bootstrap support is explicit and truthful');
@@ -189,6 +189,11 @@ $envs = [
         'local-proof' => [
             'transport' => 'local', 'wp_path' => $tmp . '/wordpress', 'repo_path' => $tmp . '/repo',
         ],
+        'local-bootstrap' => [
+            'transport' => 'local', 'wp_path' => $tmp . '/bootstrap-wordpress',
+            'repo_path' => $tmp . '/bootstrap-repo',
+            'bootstrap' => ['format' => LocalTransport::BOOTSTRAP_FORMAT],
+        ],
         'ssh-proof' => [
             'transport' => 'ssh', 'host' => 'driver-proof.invalid',
             'wp_path' => '/wordpress', 'repo_path' => '/repo',
@@ -213,6 +218,20 @@ $unsupported = invoke_cli([
 $unsupportedBody = json_decode($unsupported['stdout'], true);
 assert_true($unsupported['exit'] !== 0, 'unsupported create report returned success');
 assert_true(is_array($unsupportedBody) && $unsupportedBody['ready'] === false, 'unsupported create was not visible in JSON');
+
+$authorizedLocal = invoke_cli([
+    '--envs-file=' . $envsFile, 'driver-capabilities', 'local-bootstrap',
+    '--operation=adopt', '--format=json',
+]);
+$authorizedLocalBody = json_decode($authorizedLocal['stdout'], true);
+assert_true($authorizedLocal['exit'] === 0, 'machine-local bootstrap mechanism report returned non-zero');
+assert_true(
+    is_array($authorizedLocalBody)
+        && ($authorizedLocalBody['ready'] ?? false) === true
+        && !file_exists($tmp . '/bootstrap-wordpress')
+        && !file_exists($tmp . '/bootstrap-repo'),
+    'target-free authorized local capability reporting contacted or changed the target'
+);
 
 $deniedCli = invoke_cli(['--envs-file=' . $envsFile, 'adopt', 'local-proof']);
 assert_true($deniedCli['exit'] !== 0, 'local adopt silently emulated SSH bootstrap');

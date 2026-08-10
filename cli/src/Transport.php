@@ -4,13 +4,22 @@ namespace Duo\Orchestrator;
 require_once __DIR__ . '/EnvironmentDriver.php';
 
 /**
- * Exact command surface required by the SSH adoption transaction.
+ * Exact command surface required by the adoption transaction.
  *
  * Keeping this boundary narrower than SshTransport makes the double-failure
- * contract executable offline without weakening the CLI's SSH-only gate.
+ * contract executable offline without coupling the transaction to one
+ * transport. The capability row is target-free: `duo adopt` performs a
+ * separate read-only eligibility proof before calling install().
  */
 interface AdoptionTransport {
+    /**
+     * @return array{supported:bool,reason:string,remediation:string}
+     */
+    public function bootstrapCapability(): array;
+
     public function repoPath(): string;
+
+    public function wpPath(): string;
 
     /** @return array{exit:int, stdout:string, stderr:string} */
     public function captureRaw(string $script): array;
@@ -84,11 +93,43 @@ abstract class Transport implements EnvironmentDriver {
             DriverCapability::DB_SNAPSHOT_READ => true,
             DriverCapability::DB_SNAPSHOT_RESTORE => true,
         ];
+        $unsupported = [];
         if ($this instanceof AdoptionTransport) {
-            $supported[DriverCapability::BOOTSTRAP] = true;
-            $supported[DriverCapability::CODE_TRANSFER] = true;
+            $bootstrap = $this->bootstrapCapability();
+            self::assertBootstrapCapability($bootstrap);
+            if ($bootstrap['supported']) {
+                $supported[DriverCapability::BOOTSTRAP] = true;
+                $supported[DriverCapability::CODE_TRANSFER] = true;
+            } else {
+                $detail = [
+                    'reason' => $bootstrap['reason'],
+                    'remediation' => $bootstrap['remediation'],
+                ];
+                $unsupported[DriverCapability::BOOTSTRAP] = $detail;
+                $unsupported[DriverCapability::CODE_TRANSFER] = $detail;
+            }
         }
-        return DriverCapabilityReport::forDriver($this->name, $this->driverId, $operation, $supported);
+        return DriverCapabilityReport::forDriver(
+            $this->name,
+            $this->driverId,
+            $operation,
+            $supported,
+            $unsupported
+        );
+    }
+
+    /** @param array<string,mixed> $capability */
+    private static function assertBootstrapCapability(array $capability): void {
+        $keys = array_keys($capability);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['reason', 'remediation', 'supported']
+            || !is_bool($capability['supported'] ?? null)
+            || !is_string($capability['reason'] ?? null)
+            || !is_string($capability['remediation'] ?? null)
+            || trim((string) $capability['reason']) === ''
+            || (!$capability['supported'] && trim((string) $capability['remediation']) === '')) {
+            throw new \RuntimeException('adoption transport returned a malformed bootstrap capability');
+        }
     }
 
     /** One-line description for `duo envs`. */

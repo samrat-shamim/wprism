@@ -78,6 +78,19 @@ final class SshTransport extends Transport implements AdoptionTransport {
         return "ssh    host={$this->host} wp_path={$this->wpPath} repo_path={$this->repoPath}{$config}{$rollback}{$recovery}{$verified}";
     }
 
+    public function wpPath(): string {
+        return $this->wpPath;
+    }
+
+    /** @return array{supported:bool,reason:string,remediation:string} */
+    public function bootstrapCapability(): array {
+        return [
+            'supported' => true,
+            'reason' => 'the SSH driver implements explicit control-plane transfer and bootstrap',
+            'remediation' => '',
+        ];
+    }
+
     public function rollbackConfigured(): bool {
         return $this->rollbackKeyId !== null && $this->rollbackSigningKey !== null;
     }
