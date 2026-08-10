@@ -2867,7 +2867,21 @@ final class Init {
             0775,
             'code capture staging directory'
         );
-        $stageIdentity = self::directory_identity($stage, 'code capture staging directory');
+        // DUO-3421: the staging tree's full content identity is computed where
+        // it is actually consumed -- once on success (returned to the caller,
+        // which journals it as the deletion authority for this tree) and once
+        // in the catch below before compensation. It used to be recomputed
+        // after EVERY copied file and every created directory, into a by-ref
+        // accumulator nothing ever read: directory_identity() walks and lstats
+        // the whole tree, so staging a real wp-content payload cost O(n^2)
+        // syscalls: a 6062-file payload -- the size an ordinary commerce site
+        // carries -- meant about 18 million lstats, measured live at under one
+        // file per second on a bind mount and slowing as it went, i.e. the
+        // first-run experience the live evidence budget exists to bound could
+        // not finish at all. Every ownership guarantee is unchanged: each file and
+        // directory is still created through its parent-bound Publish
+        // primitive, and the stage root inode is still re-asserted at every
+        // step through assert_directory_inode().
         $stageRootIdentity = self::directory_inode_identity($stage, 'code capture staging directory');
         $ownedDirs = ['' => $stagePublication];
         if ($onStage !== null) {
@@ -2883,8 +2897,7 @@ final class Init {
                         $stage . '/' . $rootName . '/' . $name,
                         $stage,
                         $stageRootIdentity,
-                        $ownedDirs,
-                        $stageIdentity
+                        $ownedDirs
                     );
                 }
             }
@@ -2923,15 +2936,14 @@ final class Init {
         string $destination,
         string $stage,
         string $stageRootIdentity,
-        array &$ownedDirs,
-        string &$stageIdentity
+        array &$ownedDirs
     ): void {
         if (is_link($source)) {
             throw new \RuntimeException("duo: refusing symbolic-link code source $source");
         }
         if (is_file($source)) {
             $parent = dirname($destination);
-            self::ensure_code_stage_directory($stage, $parent, $stageRootIdentity, $ownedDirs, $stageIdentity);
+            self::ensure_code_stage_directory($stage, $parent, $stageRootIdentity, $ownedDirs);
             $parentKey = trim(substr($parent, strlen(rtrim($stage, '/'))), '/');
             self::copy_code_file_fresh(
                 $source,
@@ -2940,13 +2952,12 @@ final class Init {
                 $stageRootIdentity,
                 $ownedDirs[$parentKey]
             );
-            $stageIdentity = self::directory_identity($stage, 'code capture staging directory');
             return;
         }
         if (!is_dir($source)) {
             throw new \RuntimeException("duo: code source disappeared before copy: $source");
         }
-        self::ensure_code_stage_directory($stage, $destination, $stageRootIdentity, $ownedDirs, $stageIdentity);
+        self::ensure_code_stage_directory($stage, $destination, $stageRootIdentity, $ownedDirs);
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($source, \FilesystemIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::SELF_FIRST
@@ -2958,13 +2969,13 @@ final class Init {
                 throw new \RuntimeException("duo: refusing symbolic-link code source $path");
             }
             if ($item->isDir()) {
-                self::ensure_code_stage_directory($stage, $target, $stageRootIdentity, $ownedDirs, $stageIdentity);
+                self::ensure_code_stage_directory($stage, $target, $stageRootIdentity, $ownedDirs);
                 continue;
             }
             if (!$item->isFile()) {
                 throw new \RuntimeException("duo: could not copy regular code file $path");
             }
-            self::ensure_code_stage_directory($stage, dirname($target), $stageRootIdentity, $ownedDirs, $stageIdentity);
+            self::ensure_code_stage_directory($stage, dirname($target), $stageRootIdentity, $ownedDirs);
             $parentKey = trim(substr(dirname($target), strlen(rtrim($stage, '/'))), '/');
             self::copy_code_file_fresh(
                 $path,
@@ -2973,7 +2984,6 @@ final class Init {
                 $stageRootIdentity,
                 $ownedDirs[$parentKey]
             );
-            $stageIdentity = self::directory_identity($stage, 'code capture staging directory');
         }
     }
 
@@ -2982,8 +2992,7 @@ final class Init {
         string $stage,
         string $directory,
         string $stageRootIdentity,
-        array &$ownedDirs,
-        string &$stageIdentity
+        array &$ownedDirs
     ): void {
         self::assert_directory_inode($stage, $stageRootIdentity, 'code capture staging directory');
         $prefix = rtrim($stage, '/') . '/';
@@ -2994,7 +3003,7 @@ final class Init {
         $current = rtrim($stage, '/');
         $key = '';
         foreach ($relative === '' ? [] : explode('/', $relative) as $part) {
-            if (!self::safe_component($part)) {
+            if (!self::safe_stage_component($part)) {
                 throw new \RuntimeException('duo: code staging destination has an unsafe component');
             }
             $key = $key === '' ? $part : $key . '/' . $part;
@@ -3008,7 +3017,6 @@ final class Init {
                     'code staging child directory'
                 );
                 $current .= '/' . $part;
-                $stageIdentity = self::directory_identity($stage, 'code capture staging directory');
             } else {
                 $current .= '/' . $part;
                 if (Publish::directory_ownership_identity($current) !== $ownedDirs[$key]) {
@@ -3073,6 +3081,39 @@ final class Init {
     private static function safe_component(string $value): bool {
         return $value !== '' && $value !== '.' && $value !== '..'
             && preg_match('/^[A-Za-z0-9._-]+$/', $value) === 1;
+    }
+
+    /**
+     * A path component the code STAGING tree may create — deliberately not
+     * safe_component()'s identifier charset above.
+     *
+     * DUO-3421. safe_component() names something Duo SELECTS: an active
+     * plugin's basename, an active theme's slug. A staging component is
+     * different in kind: it names a directory the site already has, inside a
+     * payload Duo's job is to carry, and real extension and theme trees ship
+     * names outside [A-Za-z0-9._-] as a matter of course — build outputs keep
+     * their npm scope directories, whose names begin with '@', and font assets
+     * carry ',' in their filenames. The identifier charset therefore made
+     * `duo init` refuse to stage ordinary shipped bytes with "code staging
+     * destination has an unsafe component", after the journal and lock already
+     * existed. (File leaves were never charset-checked at all, so a directory
+     * was held to a stricter rule than the files beside it.)
+     *
+     * The predicate that matters here is traversal and literal-component
+     * safety, and the code half already has exactly that one for the entire
+     * rest of these paths' lifecycle — Code::safe_relative()/safe_component(),
+     * which every descriptor, materializer, and deploy check applies. This
+     * mirrors it component-wise, so init can never stage a path the code half
+     * would later refuse to carry, nor refuse one it would accept. Containment
+     * is unchanged and does not rest on the charset: the caller still requires
+     * the destination to start with the owned stage prefix, still creates each
+     * directory through Publish::create_directory_fresh() bound to its
+     * parent's identity, and still re-asserts the stage root inode every step.
+     */
+    private static function safe_stage_component(string $value): bool {
+        return $value !== '' && $value !== '.' && $value !== '..'
+            && !str_contains($value, '/') && !str_contains($value, '\\')
+            && preg_match('/[\x00-\x1f\x7f]/', $value) !== 1;
     }
 
     private static function init_fault_checkpoint(string $phase): void {

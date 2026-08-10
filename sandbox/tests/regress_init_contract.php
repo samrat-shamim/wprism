@@ -841,6 +841,57 @@ check(
     'the proposal gate and the compensation authority resolve the empty-root manifest through one shared predicate'
 );
 
+// DUO-3421: init must be able to STAGE the payload it is certified to manage.
+// The staging walk applied safe_component()'s identifier charset — the one for
+// slugs Duo selects — to directory names the SITE owns, so WooCommerce
+// 11.0.0's assets/client/blocks/@woocommerce made `duo init` refuse its own
+// golden path after the journal and lock existed. Staging components now use
+// the traversal/control-byte predicate the code half applies to these exact
+// paths for the rest of their lifecycle (Code::safe_relative()).
+require_once __DIR__ . '/../../agent/src/Code.php';
+$stageComponent = (new ReflectionClass(\Duo\Init::class))->getMethod('safe_stage_component');
+$stageComponent->setAccessible(true);
+$codeComponent = (new ReflectionClass(\Duo\Code::class))->getMethod('safe_component');
+$codeComponent->setAccessible(true);
+$identifierComponent = (new ReflectionClass(\Duo\Init::class))->getMethod('safe_component');
+$identifierComponent->setAccessible(true);
+$ecosystemNames = [
+    '@woocommerce' => true,
+    'Inter-VariableFont_slnt,wght.woff2' => true,
+    'akismet-refresh-logo@2x.png' => true,
+    'woocommerce' => true,
+    'twentytwentyone' => true,
+    '' => false,
+    '.' => false,
+    '..' => false,
+    'a/b' => false,
+    'a\\b' => false,
+    "a\0b" => false,
+    "a\tb" => false,
+];
+$stageVerdicts = [];
+$codeVerdicts = [];
+foreach ($ecosystemNames as $name => $expected) {
+    $stageVerdicts[$name] = (bool) $stageComponent->invoke(null, $name);
+    $codeVerdicts[$name] = (bool) $codeComponent->invoke(null, $name);
+}
+check(
+    $stageVerdicts === $ecosystemNames,
+    'code staging accepts the real ecosystem component names and still refuses traversal, separators, and control bytes'
+);
+check(
+    $stageVerdicts === $codeVerdicts,
+    'init stages exactly the components the code half will carry afterwards — one predicate, no init-only refusal'
+);
+check(
+    $identifierComponent->invoke(null, '@woocommerce') === false
+        && $identifierComponent->invoke(null, 'woocommerce') === true
+        && substr_count($initAuthoritySource, 'self::safe_stage_component($part)') === 1
+        && substr_count($initAuthoritySource, 'self::safe_component($component)') === 1
+        && substr_count($initAuthoritySource, 'self::safe_component($theme)') === 1,
+    'the selected plugin basename and theme slug keep the strict identifier charset; only the staging walk was widened'
+);
+
 final class InitRiskWpdb {
     public string $options = 'wp_options';
     public string $usermeta = 'wp_usermeta';
