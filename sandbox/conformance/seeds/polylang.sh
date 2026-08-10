@@ -94,7 +94,7 @@ echo 'tagged';
 "
 CATS_EN=$(wp_conf1 eval "echo implode(',', wp_list_pluck(wp_get_post_terms($POST_EN, 'category'), 'slug'));")
 CATS_FR=$(wp_conf1 eval "echo implode(',', wp_list_pluck(wp_get_post_terms($POST_FR, 'category'), 'slug'));")
-[ "$CATS_EN" = "conformance-polylang-news" ] || { echo "post_en category mismatch: $CATS_EN" >&2; exit 1; }
-[ "$CATS_FR" = "conformance-polylang-actualites" ] || { echo "post_fr category mismatch: $CATS_FR" >&2; exit 1; }
+[ "$CATS_EN" = "conformance-polylang-news" ] || fail "post_en category mismatch: $CATS_EN"
+[ "$CATS_FR" = "conformance-polylang-actualites" ] || fail "post_fr category mismatch: $CATS_FR"
 
 echo "polylang seed: news=$NEWS_TERM_ID actualites=$ACT_TERM_ID post_en=$POST_EN post_fr=$POST_FR"
