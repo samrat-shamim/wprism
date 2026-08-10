@@ -673,7 +673,9 @@ final class Capture {
                     }
                 }
                 $publicationPhase['publication_started'] = true;
-                $intent = Publish::begin_intent($stateDir, $staging, $initialBaseline);
+                $intent = $initialBaseline
+                    ? Publish::begin_intent($stateDir, $staging, true)
+                    : Publish::begin_intent($stateDir, $staging);
                 $publicationPhase['filesystem_swapped'] = true;
                 if ($initialBaseline) {
                     self::assert_initial_state_reservation($stateDir, (string) $initialStateIdentity);
