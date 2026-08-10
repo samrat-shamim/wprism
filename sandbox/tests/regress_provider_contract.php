@@ -1283,6 +1283,24 @@ $check(
     'the witness digest is type-tagged: containers differing only in one scalar TYPE witness differently'
 );
 
+// The KEY half of the tag (review round-2 F2b): serialize($key)'s length
+// prefix is what keeps the container stream unambiguous. These two arrays are
+// a constructed collision for an UNTYPED key concatenation — each embeds the
+// other's `=<child-digest>;` boundary inside a key, so `key . '=' . digest
+// . ';'` streams byte-identically for both — and only the length prefix
+// separates them. Nested past publication depth so the digest is what decides.
+$dOne = hash('sha256', serialize('one'));
+$dWww = hash('sha256', serialize('www'));
+$bury = static fn(array $v): array => ['n1' => ['n2' => ['n3' => ['n4' => $v]]]];
+$keyed = $publish(
+    $bury(['a=' . $dOne . ';P' => 'www', 'Q' => 'two']),
+    $bury(['a' => 'one', 'P=' . $dWww . ';Q' => 'two'])
+);
+$check(
+    $keyed['before'] !== $keyed['after'],
+    'the witness digest type-tags map KEYS too: a key-boundary collision pair witnesses differently'
+);
+
 // Bounding runs LAST in invoke() (review F3): a receipt that is both
 // unverified and unpublishable must refuse as unverified — the pinned
 // precedence, defended behaviorally rather than by source text alone.
