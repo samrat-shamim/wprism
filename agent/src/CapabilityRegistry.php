@@ -62,6 +62,10 @@ final class CapabilityRegistry {
      * The exact digest RepositoryCompiler exposes for a pinned adapter.
      * Keep one implementation: registry generation/validation and compiled
      * artifacts must never disagree about the bytes that identify a claim.
+     * The agreement is pinned, not merely asserted — sandbox/tests/
+     * regress_actions_providers.php requires this row to equal
+     * RepositoryCompiler::manifest_rows()' row for every shipped adapter and
+     * for fixtures carrying each optional key.
      */
     public static function adapter_digest(
         array $manifest,
@@ -108,6 +112,37 @@ final class CapabilityRegistry {
         }
         if ($providerHashes !== []) {
             $row['providers'] = $providerHashes;
+        }
+        // DUO-3360: manifest-shipped regenerator bytes join the identity row
+        // for the same reason and in the same shape RepositoryCompiler::
+        // manifest_rows() folds them — same "provably the SAME content" pair,
+        // so the de-duplication (one entry per distinct name), the name sort
+        // (post_types{} is a map, whose key order Canon::encode() normalizes
+        // away — see that method for why discovery order would be wrong), the
+        // `name` key, the basename()d <manifests_dir>/regenerators/<name>.php
+        // resolution Policy::regenerators() loads, and the null hash for a
+        // missing file must stay byte-identical to the block that method runs.
+        $regeneratorHashes = [];
+        $seenRegenerators = [];
+        foreach ((array) ($manifest['post_types'] ?? []) as $declaration) {
+            $regenerator = is_array($declaration)
+                ? ($declaration['regen_dependency']['regenerator'] ?? null)
+                : null;
+            if (!is_string($regenerator) || $regenerator === ''
+                || isset($seenRegenerators[$regenerator])) {
+                continue;
+            }
+            $seenRegenerators[$regenerator] = true;
+            $dir = $manifestDir ?? self::manifests_dir();
+            $file = rtrim($dir, '/') . '/regenerators/' . basename($regenerator) . '.php';
+            $regeneratorHashes[] = [
+                'name' => $regenerator,
+                'sha256' => is_file($file) ? hash_file('sha256', $file) : null,
+            ];
+        }
+        usort($regeneratorHashes, static fn(array $a, array $b): int => strcmp($a['name'], $b['name']));
+        if ($regeneratorHashes !== []) {
+            $row['regenerators'] = $regeneratorHashes;
         }
         return hash('sha256', Canon::encode($row));
     }

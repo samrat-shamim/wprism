@@ -77,12 +77,13 @@ That last one is worth stating without euphemism: **Duo loads PHP shipped
 inside the manifests directory today.** The trust argument is not that it
 doesn't — it is that the manifests directory is operator-controlled and deploys
 with the agent itself, so loading code from it is the same trust decision as
-running the agent at all. Provider bytes strengthen that: a manifest-sourced
-provider's file joins the per-adapter content digest alongside the
-interpreter's, so a changed provider is a *changed adapter* rather than
-invisible drift behind a stable manifest digest. **Regenerator files are not
-digest-bound** — a pre-existing gap the provider work did not close. Know which
-of the three you are editing before you assume a pin change will catch it.
+running the agent at all. Content digests strengthen that: all three files —
+interpreter, manifest-sourced provider, and (since DUO-3360) regenerator — join
+the per-adapter content digest, so editing any of them is a *changed adapter*
+rather than invisible drift behind a stable manifest digest. Editing one
+therefore moves the declaring manifest's digest and expires its certified
+claim, which is the point: two implementations can no longer share one manifest
+revision's identity.
 
 ## The minimal worked example
 
