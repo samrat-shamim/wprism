@@ -3,6 +3,8 @@ Theme Name: Duo Commerce Child
 Description: The migrated storefront skin for the ecommerce grind.
 Template: duo-commerce-parent
 Version: 2.0.0
+Requires PHP: 8.3
+Requires at least: 6.0
 */
 
 .duo-commerce-catalog {

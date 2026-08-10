@@ -33,6 +33,7 @@ final class CodeCompatibility {
 
         self::version_diagnostics($source, $plugins, $resolvedAdapters, $diagnostics);
         self::theme_version_diagnostics($source, $descriptor, $resolvedAdapters, $diagnostics);
+        self::runtime_header_diagnostics($source, $descriptor, $diagnostics);
 
         if ($activePlugins !== null) {
             self::dependency_diagnostics($source, $plugins, $activePlugins, $diagnostics);
@@ -69,6 +70,263 @@ final class CodeCompatibility {
             . " blocking diagnostic(s)); no target code was staged:\n  - "
             . implode("\n  - ", $lines)
         );
+    }
+
+    /**
+     * Compare WordPress-standard plugin/theme runtime headers with one
+     * explicit target-control-plane observation. These facts deliberately do
+     * not enter the compiled artifact: the descriptor binds source bytes,
+     * while this ephemeral report answers whether those exact bytes may be
+     * materialized on this target now.
+     *
+     * Every inventoried plugin main file and theme style.css participates,
+     * including inactive components. Runtime requirements govern whether
+     * code can be loaded at all; active_plugins/template/stylesheet remain a
+     * separate lifecycle/state contract.
+     *
+     * @param array<string,mixed> $target {php:string, wordpress:string, source:string}
+     * @return array{
+     *   format:string,
+     *   compatible:bool,
+     *   target:array{php:string,wordpress:string,source:string},
+     *   requirements:list<array<string,mixed>>,
+     *   diagnostics:list<array<string,mixed>>
+     * }
+     */
+    public static function target_report(string $source, array $descriptor, array $target): array {
+        $source = rtrim($source, '/');
+        $targetRecord = [
+            'php' => is_string($target['php'] ?? null) ? trim((string) $target['php']) : '',
+            'wordpress' => is_string($target['wordpress'] ?? null) ? trim((string) $target['wordpress']) : '',
+            'source' => is_string($target['source'] ?? null) ? trim((string) $target['source']) : '',
+        ];
+        $requirements = self::runtime_requirement_rows($source, $descriptor);
+        $diagnostics = [];
+
+        foreach ($requirements as $row) {
+            foreach ([
+                'php' => ['header' => 'Requires PHP', 'label' => 'PHP'],
+                'wordpress' => ['header' => 'Requires at least', 'label' => 'WordPress'],
+            ] as $runtime => $meta) {
+                $required = (string) ($row['requires_' . $runtime] ?? '');
+                if ($required === '') {
+                    continue;
+                }
+                $common = [
+                    'component' => $row['component'],
+                    'identity' => $row['identity'],
+                    'component_sha256' => $row['component_sha256'],
+                    'sha256' => $row['component_sha256'],
+                    'runtime' => $runtime,
+                    'required_version' => $required,
+                    'target_version' => $targetRecord[$runtime],
+                    'requires_php' => $row['requires_php'],
+                    'requires_wordpress' => $row['requires_wordpress'],
+                    'target_php' => $targetRecord['php'],
+                    'target_wordpress' => $targetRecord['wordpress'],
+                    $row['component'] => $row['identity'],
+                ];
+                if (!self::valid_runtime_version($required)) {
+                    $diagnostics[] = self::runtime_diagnostic(
+                        'code_source_requires_' . $runtime . '_malformed',
+                        $row,
+                        $meta['header'],
+                        "{$row['component']} '{$row['identity']}' has malformed {$meta['header']} header '$required'",
+                        $common
+                    );
+                    continue;
+                }
+                if ($targetRecord['source'] !== 'target-control-plane') {
+                    $diagnostics[] = self::runtime_diagnostic(
+                        'code_target_runtime_evidence_missing',
+                        $row,
+                        $meta['header'],
+                        "{$row['component']} '{$row['identity']}' requires {$meta['label']} >=$required, but no target-control-plane runtime provenance was reported",
+                        $common
+                    );
+                    continue;
+                }
+                $observed = $targetRecord[$runtime];
+                if ($observed === '') {
+                    $diagnostics[] = self::runtime_diagnostic(
+                        'code_target_' . $runtime . '_version_missing',
+                        $row,
+                        $meta['header'],
+                        "{$row['component']} '{$row['identity']}' requires {$meta['label']} >=$required, but the target reported no {$meta['label']} version",
+                        $common
+                    );
+                    continue;
+                }
+                if (!self::valid_runtime_version($observed)) {
+                    $diagnostics[] = self::runtime_diagnostic(
+                        'code_target_' . $runtime . '_version_malformed',
+                        $row,
+                        $meta['header'],
+                        "{$row['component']} '{$row['identity']}' requires {$meta['label']} >=$required, but the target reported malformed version '$observed'",
+                        $common
+                    );
+                    continue;
+                }
+                if (version_compare($observed, $required, '<')) {
+                    $diagnostics[] = self::runtime_diagnostic(
+                        'code_source_requires_' . $runtime . '_incompatible',
+                        $row,
+                        $meta['header'],
+                        "{$row['component']} '{$row['identity']}' requires {$meta['label']} >=$required, but target {$meta['label']} is $observed",
+                        $common
+                    );
+                }
+            }
+        }
+
+        usort($diagnostics, static function (array $a, array $b): int {
+            return [$a['path'], $a['locator'], $a['code']]
+                <=> [$b['path'], $b['locator'], $b['code']];
+        });
+        return [
+            'format' => 'duo-code-runtime/v1',
+            'compatible' => $diagnostics === [],
+            'target' => $targetRecord,
+            'requirements' => $requirements,
+            'diagnostics' => $diagnostics,
+        ];
+    }
+
+    /** @return list<array<string,mixed>> */
+    private static function runtime_requirement_rows(string $source, array $descriptor): array {
+        $rows = [];
+        foreach (self::plugin_rows($descriptor) as $plugin) {
+            $absolute = self::source_path($source, $plugin['path']);
+            if ($absolute === null) {
+                continue;
+            }
+            $requiresPhp = self::header_value($absolute, 'Requires PHP') ?? '';
+            $requiresWordPress = self::header_value($absolute, 'Requires at least') ?? '';
+            if ($requiresPhp === '' && $requiresWordPress === '') {
+                continue;
+            }
+            $rows[] = [
+                'component' => 'plugin',
+                'identity' => $plugin['basename'],
+                'path' => $plugin['path'],
+                'component_sha256' => $plugin['sha256'],
+                'requires_php' => $requiresPhp,
+                'requires_wordpress' => $requiresWordPress,
+            ];
+        }
+
+        $fileHashes = [];
+        foreach (($descriptor['files'] ?? []) as $file) {
+            if (is_array($file) && is_string($file['path'] ?? null) && is_string($file['sha256'] ?? null)) {
+                $fileHashes[$file['path']] = $file['sha256'];
+            }
+        }
+        // WordPress loads top-level MU PHP files on every ordinary bootstrap;
+        // when one declares standard plugin runtime headers it has no
+        // inactive lifecycle state that could make an incompatibility safe.
+        foreach ($fileHashes as $path => $sha256) {
+            if (preg_match('~^mu-plugins/[^/]+\.php$~D', $path) !== 1) {
+                continue;
+            }
+            $absolute = self::source_path($source, $path);
+            if ($absolute === null || self::header_value($absolute, 'Plugin Name') === null) {
+                continue;
+            }
+            $requiresPhp = self::header_value($absolute, 'Requires PHP') ?? '';
+            $requiresWordPress = self::header_value($absolute, 'Requires at least') ?? '';
+            if ($requiresPhp === '' && $requiresWordPress === '') {
+                continue;
+            }
+            $rows[] = [
+                'component' => 'plugin',
+                'identity' => $path,
+                'path' => $path,
+                'component_sha256' => $sha256,
+                'requires_php' => $requiresPhp,
+                'requires_wordpress' => $requiresWordPress,
+            ];
+        }
+        foreach (($descriptor['theme_slugs'] ?? []) as $slug) {
+            if (!is_string($slug) || $slug === '') {
+                continue;
+            }
+            $path = 'themes/' . $slug . '/style.css';
+            $absolute = self::source_path($source, $path);
+            if ($absolute === null || !isset($fileHashes[$path])) {
+                continue;
+            }
+            $requiresPhp = self::header_value($absolute, 'Requires PHP') ?? '';
+            $requiresWordPress = self::header_value($absolute, 'Requires at least') ?? '';
+            if ($requiresPhp === '' && $requiresWordPress === '') {
+                continue;
+            }
+            $rows[] = [
+                'component' => 'theme',
+                'identity' => $slug,
+                'path' => $path,
+                'component_sha256' => $fileHashes[$path],
+                'requires_php' => $requiresPhp,
+                'requires_wordpress' => $requiresWordPress,
+            ];
+        }
+        usort($rows, static fn(array $a, array $b): int => $a['path'] <=> $b['path']);
+        return $rows;
+    }
+
+    /** @param list<array<string,mixed>> $diagnostics */
+    private static function runtime_header_diagnostics(
+        string $source,
+        array $descriptor,
+        array &$diagnostics
+    ): void {
+        foreach (self::runtime_requirement_rows($source, $descriptor) as $row) {
+            foreach ([
+                'php' => 'Requires PHP',
+                'wordpress' => 'Requires at least',
+            ] as $runtime => $header) {
+                $required = (string) ($row['requires_' . $runtime] ?? '');
+                if ($required === '' || self::valid_runtime_version($required)) {
+                    continue;
+                }
+                $diagnostics[] = self::runtime_diagnostic(
+                    'code_source_requires_' . $runtime . '_malformed',
+                    $row,
+                    $header,
+                    "{$row['component']} '{$row['identity']}' has malformed $header header '$required'",
+                    [
+                        'component' => $row['component'],
+                        'identity' => $row['identity'],
+                        'component_sha256' => $row['component_sha256'],
+                        'required_version' => $required,
+                        $row['component'] => $row['identity'],
+                    ]
+                );
+            }
+        }
+    }
+
+    /** @param array<string,mixed> $extra @return array<string,mixed> */
+    private static function runtime_diagnostic(
+        string $code,
+        array $row,
+        string $locator,
+        string $message,
+        array $extra
+    ): array {
+        return array_merge([
+            'severity' => 'blocking',
+            'code' => $code,
+            'path' => $row['path'],
+            'locator' => $locator,
+            'message' => $message,
+        ], $extra);
+    }
+
+    private static function valid_runtime_version(string $version): bool {
+        return preg_match(
+            '/^[0-9]+(?:\.[0-9]+)*(?:[-+_.][0-9A-Za-z][0-9A-Za-z._+-]*)?$/D',
+            $version
+        ) === 1;
     }
 
     /** WordPress core's plugin-file -> dependency-slug mapping. */

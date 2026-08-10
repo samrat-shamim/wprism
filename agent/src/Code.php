@@ -588,6 +588,95 @@ final class Code {
     }
 
     /**
+     * Read-only target-aware gate for one immutable artifact. It runs before
+     * promotion-begin and is repeated by stage under the lease; neither the
+     * observed runtime nor parsed header requirements enter the artifact.
+     */
+    public static function preflight(string $repo, CompiledRepository $compiled, array $opts = []): array {
+        $descriptor = $compiled->code_descriptor();
+        if ($descriptor === null) {
+            return [
+                'format' => 'duo-code-runtime/v1',
+                'enabled' => false,
+                'compatible' => true,
+                'code_revision' => null,
+                'target' => self::target_runtime_versions(),
+                'requirements' => [],
+                'diagnostics' => [],
+            ];
+        }
+        self::assert_descriptor($descriptor);
+        CodeStateContract::validate($compiled, $descriptor);
+        self::assert_expected_artifact($compiled, $opts);
+        self::assert_source_matches($repo, $descriptor);
+        self::assert_source_compatibility($repo, $compiled, $descriptor);
+        $report = CodeCompatibility::target_report(
+            rtrim($repo, '/') . '/' . self::SOURCE,
+            $descriptor,
+            self::target_runtime_versions()
+        );
+        if ($report['diagnostics']) {
+            throw new CodeCompilationException($report['diagnostics']);
+        }
+        return ['enabled' => true, 'code_revision' => $descriptor['code_revision']] + $report;
+    }
+
+    /**
+     * Exact current runtime evidence, distinct from Duo's generated
+     * certification baseline. The protected agent/control-plane process is
+     * the source; this record makes no support verdict of its own.
+     *
+     * @return array{php:string,wordpress:string,source:string}
+     */
+    public static function target_runtime_versions(): array {
+        $wordpress = is_string($GLOBALS['wp_version'] ?? null)
+            ? trim((string) $GLOBALS['wp_version'])
+            : '';
+        if ($wordpress === '' && function_exists('get_bloginfo')) {
+            $observed = get_bloginfo('version');
+            $wordpress = is_string($observed) ? trim($observed) : '';
+        }
+        return [
+            'php' => defined('PHP_VERSION') ? (string) PHP_VERSION : '',
+            'wordpress' => $wordpress,
+            'source' => 'target-control-plane',
+        ];
+    }
+
+    /**
+     * Plan-facing form of preflight diagnostics. Every row binds the frozen
+     * code revision and descriptor component hash and is non-forceable.
+     *
+     * @param ?array<string,mixed> $target Test seam; production reads the current runtime.
+     * @return list<array<string,mixed>>
+     */
+    public static function target_compatibility_rows(
+        string $repo,
+        CompiledRepository $compiled,
+        ?array $target = null
+    ): array {
+        $descriptor = $compiled->code_descriptor();
+        if ($descriptor === null) {
+            return [];
+        }
+        self::assert_descriptor($descriptor);
+        self::assert_source_matches($repo, $descriptor);
+        $report = CodeCompatibility::target_report(
+            rtrim($repo, '/') . '/' . self::SOURCE,
+            $descriptor,
+            $target ?? self::target_runtime_versions()
+        );
+        return array_map(static function (array $diagnostic) use ($descriptor): array {
+            return $diagnostic + [
+                'issue' => (string) $diagnostic['code'],
+                'kind' => (string) ($diagnostic['component'] ?? 'code'),
+                'code_revision' => (string) $descriptor['code_revision'],
+                'non_forceable' => true,
+            ];
+        }, $report['diagnostics']);
+    }
+
+    /**
      * Stage all desired files with per-file temp+rename atomicity. Completed
      * code is never removed; the bounded staged-only MU recovery documented
      * above may remove one prior abandoned path. The promotion lease remains
@@ -625,18 +714,27 @@ final class Code {
             if ($staged !== null && $staged['code_revision'] !== $descriptor['code_revision']) {
                 $history[$staged['code_revision']] = $staged;
             }
-            // Re-check after acquiring the target lease. The first check is
-            // an early, target-free failure; this one detects a checkout
-            // change closer to the first target write, while the post-write
-            // check below catches a change during materialization.
+            // Re-check after acquiring the target lease. The host preflight
+            // was an earlier no-write target check; this one detects a
+            // checkout change closer to the first target write, while the
+            // post-write check below catches a change during materialization.
             self::assert_source_matches($repo, $descriptor);
             CodeStateContract::validate($compiled, $descriptor);
-            // Version ranges and Requires Plugins are source/header facts,
-            // not descriptor fields. Re-read them after acquiring the target
-            // lease and immediately before the first payload rename so a
-            // precompiled artifact cannot stage an out-of-range or
-            // dependency-incoherent checkout.
+            // Version ranges, Requires Plugins, Requires PHP, and Requires at
+            // least are source/header facts, not descriptor fields. Re-read
+            // them after acquiring the target lease and immediately before
+            // the first payload rename so a precompiled artifact cannot stage
+            // an out-of-range, dependency-incoherent, or runtime-incompatible
+            // checkout.
             self::assert_source_compatibility($repo, $compiled, $descriptor);
+            $runtimeReport = CodeCompatibility::target_report(
+                rtrim($repo, '/') . '/' . self::SOURCE,
+                $descriptor,
+                self::target_runtime_versions()
+            );
+            if ($runtimeReport['diagnostics']) {
+                throw new CodeCompilationException($runtimeReport['diagnostics']);
+            }
             $previous = self::stored_descriptor();
             $materialized = self::materialize_payload(
                 $repo,

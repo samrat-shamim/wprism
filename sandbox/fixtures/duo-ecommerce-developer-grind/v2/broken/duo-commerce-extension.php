@@ -3,6 +3,8 @@
  * Plugin Name: Duo Commerce Extension
  * Description: Deliberately broken v2 activation fixture for recovery testing.
  * Version: 2.0.0
+ * Requires PHP: 8.3
+ * Requires at least: 6.0
  * Requires Plugins: woocommerce
  */
 

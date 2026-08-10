@@ -40,6 +40,15 @@ function fmp_ok(bool $condition, string $message): void {
     echo "ok: $message\n";
 }
 
+/** @param array<int,string> $args */
+function fmp_wp_verb(array $args): string {
+    $duoAt = array_search('duo', $args, true);
+    if (is_int($duoAt)) {
+        return (string) ($args[$duoAt + 1] ?? '');
+    }
+    return (string) ($args[1] ?? '');
+}
+
 /**
  * One complete `wp duo plan --format=json` envelope, spelled out the way the
  * agent emits it. Reconciliation only trusts a complete envelope (DUO-3384),
@@ -132,7 +141,7 @@ final class FrozenPromotionDriver implements EnvironmentDriver {
 
     public function captureWp(array $args): array {
         $this->calls[] = ['kind' => 'wp', 'args' => $args];
-        $verb = (string) ($args[1] ?? '');
+        $verb = fmp_wp_verb($args);
         if (($args[0] ?? '') === 'db' && ($args[1] ?? '') === 'export') {
             $path = (string) ($args[2] ?? '');
             $this->files[$path] = $this->emptyExport ? '' : "-- frozen checkpoint\n";
@@ -142,6 +151,21 @@ final class FrozenPromotionDriver implements EnvironmentDriver {
             return $this->ok(json_encode($this->cleanPlan
                 ? fmp_plan()
                 : fmp_plan(['drift' => [['path' => 'state/options/core.json']]])) . "\n");
+        }
+        if ($verb === 'code-preflight') {
+            return $this->ok(json_encode([
+                'format' => 'duo-code-runtime/v1',
+                'enabled' => true,
+                'compatible' => true,
+                'code_revision' => hash('sha256', 'code-release'),
+                'target' => [
+                    'php' => '8.3.0',
+                    'wordpress' => '6.8.2',
+                    'source' => 'target-control-plane',
+                ],
+                'requirements' => [],
+                'diagnostics' => [],
+            ], JSON_UNESCAPED_SLASHES) . "\n");
         }
         if ($verb === 'apply') {
             $artifact = '';
@@ -210,6 +234,14 @@ $driver = new FrozenPromotionDriver('/target/repo');
 $driver->artifactHash = $artifactHash;
 $first = cmd_promote_frozen($driver, $context);
 fmp_ok(is_array($first) && ($first['status'] ?? null) === 'completed', 'frozen promotion returns completed structured receipt');
+$initialVerbs = array_values(array_filter(array_map(
+    static fn(array $call): string => $call['kind'] === 'wp' ? fmp_wp_verb($call['args']) : '',
+    $driver->calls
+)));
+$preflightAt = array_search('code-preflight', $initialVerbs, true);
+$beginAt = array_search('promotion-begin', $initialVerbs, true);
+fmp_ok(is_int($preflightAt) && is_int($beginAt) && $preflightAt < $beginAt,
+    'frozen promotion checks target runtime before acquiring a new promotion lease');
 $receiptKeys = array_keys($first);
 $expectedReceiptKeys = [
     'artifact_hash', 'checkpoint_identity', 'code_revision', 'format',
@@ -230,7 +262,7 @@ $second = cmd_promote_frozen($driver, $context);
 fmp_ok(is_array($second) && $second === $first, 'completed retry verifies the same durable receipt');
 fmp_ok(count($driver->calls) > $callCount, 'completed retry performs only read-only reconciliation calls');
 $retryTail = array_slice($driver->calls, $callCount);
-$retryVerbs = array_values(array_map(static fn(array $call): string => $call['kind'] === 'wp' ? (string) ($call['args'][1] ?? '') : '', $retryTail));
+$retryVerbs = array_values(array_map(static fn(array $call): string => $call['kind'] === 'wp' ? fmp_wp_verb($call['args']) : '', $retryTail));
 fmp_ok(in_array('plan', $retryVerbs, true) && !in_array('promotion-begin', $retryVerbs, true) && !in_array('apply', $retryVerbs, true), 'same-owner retry never replays promotion');
 
 $recovery = new FrozenPromotionDriver('/target/repo');
@@ -241,7 +273,7 @@ $beforeRecoveryRetry = count($recovery->calls);
 $recovered = cmd_promote_frozen($recovery, $context);
 fmp_ok(is_array($recovered) && ($recovered['status'] ?? null) === 'completed' && $recovered === $lost, 'retry reconciles exact clean plan after receipt publication loss');
 $tail = array_slice($recovery->calls, $beforeRecoveryRetry);
-$verbs = array_values(array_map(static fn(array $call): string => $call['kind'] === 'wp' ? (string) ($call['args'][1] ?? '') : '', $tail));
+$verbs = array_values(array_map(static fn(array $call): string => $call['kind'] === 'wp' ? fmp_wp_verb($call['args']) : '', $tail));
 fmp_ok(in_array('plan', $verbs, true) && !in_array('promotion-begin', $verbs, true) && !in_array('apply', $verbs, true), 'receipt-loss retry reconciles before any new mutation');
 
 $invalid = new FrozenPromotionDriver('/target/repo');
@@ -249,7 +281,7 @@ $invalid->artifactHash = $artifactHash;
 $invalid->files[$context['checkpoint_path']] = '';
 $invalidResult = cmd_promote_frozen($invalid, $context);
 fmp_ok($invalidResult === 1, 'empty checkpoint evidence refuses instead of being overwritten');
-$invalidVerbs = array_values(array_map(static fn(array $call): string => $call['kind'] === 'wp' ? (string) ($call['args'][1] ?? '') : '', $invalid->calls));
+$invalidVerbs = array_values(array_map(static fn(array $call): string => $call['kind'] === 'wp' ? fmp_wp_verb($call['args']) : '', $invalid->calls));
 fmp_ok(!in_array('promotion-begin', $invalidVerbs, true), 'truncated checkpoint refusal happens before target mutation');
 
 $outside = $context;

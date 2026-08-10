@@ -115,8 +115,14 @@ check_compat(
 );
 foreach (($runtimeBlocked['diagnostics'] ?? []) as $diagnostic) {
     check_compat(
-        isset($diagnostic['required_version'], $diagnostic['target_version'], $diagnostic['component_sha256']),
-        'runtime refusal rows must carry the requirement, observed target, and immutable component identity'
+        isset(
+            $diagnostic['required_version'],
+            $diagnostic['target_version'],
+            $diagnostic['target_php'],
+            $diagnostic['target_wordpress'],
+            $diagnostic['component_sha256']
+        ),
+        'runtime refusal rows must carry the requirement, both observed target values, and immutable component identity'
     );
 }
 
@@ -363,6 +369,23 @@ check_compat(
         && ($runtimeRows[0]['code_revision'] ?? '') === $compiled->code_revision(),
     'semantic plan rows must bind non-forceable runtime findings to the immutable code revision'
 );
+
+put_compat(
+    "$repo/code/wp-content/plugins/provider/provider.php",
+    str_replace('Requires PHP: 8.3', 'Requires PHP: newest', $provider)
+);
+$policy = Policy::load($repo);
+try {
+    RepositoryCompiler::compile($repo, $policy);
+    fail_compat('compiler accepted a malformed Requires PHP header');
+} catch (RepositoryCompilationException $e) {
+    $diagnostics = $e->payload()['diagnostics'] ?? [];
+    check_compat(
+        has_code_compat($diagnostics, 'code_source_requires_php_malformed'),
+        'compiler must expose malformed runtime headers before target contact'
+    );
+}
+put_compat("$repo/code/wp-content/plugins/provider/provider.php", $provider);
 
 put_compat("$repo/code/wp-content/plugins/provider/provider.php", str_replace('1.5.0', '2.0.0', $provider));
 $policy = Policy::load($repo);

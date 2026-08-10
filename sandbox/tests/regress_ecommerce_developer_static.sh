@@ -237,6 +237,7 @@ FRONTEND_HELPER_BLOCK="$(function_block assert_frontend_child_parent | strip_sta
 REST_HELPER_BLOCK="$(function_block assert_extension_rest_status | strip_static_comments)"
 STORE_API_HTTP_HELPER_BLOCK="$(function_block assert_store_api_http | strip_static_comments)"
 INITIAL_V1_PHASE_BLOCK="$(phase_block 'publish target-only env registry and materialize v1 code/lifecycle' | strip_static_comments)"
+INACTIVE_COMPAT_PHASE_BLOCK="$(phase_block 'target runtime compatibility: inactive vendored plugin refuses before promotion-begin and force flags cannot bypass' | strip_static_comments)"
 FAILED_V2_PHASE_BLOCK="$(phase_block 'v2 reviewed change: migrate scalar setting/table and deliberately fail activation' | strip_static_comments)"
 FAILED_V2_RECOVERY_PHASE_BLOCK="$(phase_block 'exact checkpoint recovery, then fixed v2 retry' | strip_static_comments)"
 ROLLBACK_PHASE_BLOCK="$(phase_block 'exact rollback: import v1 checkpoint under maintenance, then promote v1' | strip_static_comments)"
@@ -835,6 +836,35 @@ assert_helper_contracts store-api-http "$STORE_API_HTTP_HELPER_BLOCK" "$STORE_AP
   '.[0].prices.price == $expected' 'external Store API probe does not assert exact public price data' \
   'type == "array" and length == 0' 'external Store API probe does not assert empty negative filters'
 
+ordered_contract inactive-runtime-compatibility "$INACTIVE_COMPAT_PHASE_BLOCK" \
+  'target_wp plugin is-active "$EXT_SLUG"' \
+  'INACTIVE_COMPAT_TREE_BEFORE="$(target_managed_code_tree_hash)"' \
+  'INACTIVE_COMPAT_PLUGIN_TREE_BEFORE="$(target_plugin_tree_hash)"' \
+  'INACTIVE_COMPAT_REVISION_BEFORE="$(ledger_revision)"' \
+  'INACTIVE_COMPAT_SESSION_BEFORE="$(ledger_value promotion_session)"' \
+  'INACTIVE_COMPAT_LOCK_BEFORE="$(ledger_value promotion_lock)"' \
+  'Requires PHP: 99.0' \
+  'INACTIVE_COMPAT_PLAN="$(plan_json)"' \
+  '.issue == "code_source_requires_php_incompatible"' \
+  '.target_php == $php' \
+  '.target_wordpress == $wordpress' \
+  '.non_forceable == true' \
+  'if INACTIVE_COMPAT_OUT="$(deploy --force-code-mismatch 2>&1)"; then' \
+  "assert_absent \"\$INACTIVE_COMPAT_OUT\" 'deploy phase: promotion-begin'" \
+  'assert_eq "$INACTIVE_COMPAT_TREE_BEFORE" "$(target_managed_code_tree_hash)"' \
+  'assert_eq "$INACTIVE_COMPAT_PLUGIN_TREE_BEFORE" "$(target_plugin_tree_hash)"' \
+  'assert_eq "$INACTIVE_COMPAT_REVISION_BEFORE" "$(ledger_revision)"' \
+  'assert_eq "$INACTIVE_COMPAT_SESSION_BEFORE" "$(ledger_value promotion_session)"' \
+  'assert_eq "$INACTIVE_COMPAT_LOCK_BEFORE" "$(ledger_value promotion_lock)"' \
+  'target_wp plugin is-active "$EXT_SLUG"' \
+  'cp "$FIXTURE/v1/wp-content/plugins/$EXT_SLUG/$EXT_FILE" "$INACTIVE_COMPAT_SOURCE"'
+block_contains inactive-runtime-compatibility "$INACTIVE_COMPAT_PHASE_BLOCK" 'target PHP is $INACTIVE_COMPAT_TARGET_PHP' \
+  'inactive runtime refusal does not expose the exact observed target PHP value'
+block_contains inactive-runtime-compatibility "$INACTIVE_COMPAT_PHASE_BLOCK" 'lifecycle trace after inactive compatibility refusal' \
+  'inactive runtime refusal does not preserve lifecycle evidence'
+block_absent inactive-runtime-compatibility "$INACTIVE_COMPAT_PHASE_BLOCK" 'promotion-abort' \
+  'pre-begin runtime refusal must not claim lease cleanup'
+
 ordered_contract failed-v2-checkpoint "$FAILED_V2_PHASE_BLOCK" \
   'V2_FAILED_CHECKPOINT="$(sed -n' \
   'V2_FAILED_RUN_ID="$(basename "$V2_FAILED_CHECKPOINT")"' \
@@ -1115,6 +1145,12 @@ grep -Fq 'assert_derived_indexes 7 instock 16.49 9.99 16.49 1649' "$SCRIPT" || f
 grep -Fq -- "-name 'deploy-*.json'" "$SCRIPT" || fail 'deploy receipts are not selected'
 grep -Fq 'promote-$checkpoint.json' "$SCRIPT" || fail 'promote receipts are not bound to the printed checkpoint run'
 grep -Fq 'code_source_outside_version_range' "$SCRIPT" || fail 'source version compatibility assertion missing'
+grep -Fq 'code_source_requires_php_incompatible' "$SCRIPT" || fail 'target PHP compatibility assertion missing'
+grep -Fq 'managed code tree after inactive compatibility refusal' "$SCRIPT" || fail 'target runtime no-mutation evidence missing'
+grep -Fq 'Requires PHP: 8.3' "$FIXTURE/v2/fixed/duo-commerce-extension.php" || fail 'compatible v2 plugin PHP requirement missing'
+grep -Fq 'Requires at least: 6.0' "$FIXTURE/v2/fixed/duo-commerce-extension.php" || fail 'compatible v2 plugin WordPress requirement missing'
+grep -Fq 'Requires PHP: 8.3' "$FIXTURE/v2/wp-content/themes/duo-commerce-child/style.css" || fail 'compatible child-theme PHP requirement missing'
+grep -Fq 'Requires at least: 6.0' "$FIXTURE/v2/wp-content/themes/duo-commerce-child/style.css" || fail 'compatible child-theme WordPress requirement missing'
 grep -Fq 'NATIVE_ACTIVE_PLUGINS_JSON' "$SCRIPT" || fail 'native WordPress active_plugins order assertion missing'
 grep -Fq 'provider-first lifecycle planning' "$SCRIPT" || fail 'provider-first activation assertion missing'
 grep -Fq 'code_plugin_dependency_inactive' "$SCRIPT" || fail 'dependency closure assertion missing'

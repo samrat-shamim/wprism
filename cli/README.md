@@ -695,13 +695,16 @@ in manifests, native actions, or plugin-owned providers—not this shell.
 
 - **`duo deploy <env> [--force-code-mismatch] [--force-code-drift]`** — the
   standalone lifecycle/code path. It compiles once into the target's
-  `.duo/artifacts/` directory, begins an exact target owner/artifact session,
-  and deliberately takes no database checkpoint.
+  `.duo/artifacts/` directory, checks that artifact's standard plugin/theme
+  runtime headers against exact target-control-plane PHP/WordPress evidence,
+  then begins an exact target owner/artifact session; it deliberately takes no
+  database checkpoint. Runtime requirements and target values remain outside
+  the artifact and are reacquired before each new lease.
   The artifact has a state revision and may have a separate, opaque code
   descriptor/revision; its `artifact_hash` binds both. When that descriptor is
-  present, the host carries the one frozen artifact, its expected outer hash,
-  and generated owner through
-  `wp duo code-stage` → fresh-process lifecycle retirement → fresh-process
+  present, the host carries the one frozen artifact and expected outer hash
+  through `wp duo code-preflight`, then binds those with the generated owner
+  through `wp duo code-stage` → fresh-process lifecycle retirement → fresh-process
   lifecycle activation → `wp duo code-finalize`. It does not interpret
   descriptor fields or mutate
   files itself — those checks and mutations belong to the target agent. An
@@ -717,7 +720,8 @@ in manifests, native actions, or plugin-owned providers—not this shell.
 
 - **`duo promote <env> [apply flags...]`** — the normal fail-closed
   code-and-state promotion path. It compiles the repository once into
-  `.duo/artifacts/`, acquires a target-DB lease bound to that artifact's outer
+  `.duo/artifacts/`, runs the same descriptor-bound target runtime preflight,
+  acquires a target-DB lease bound to that artifact's outer
   `artifact_hash`, then exports the target database into `.duo/checkpoints/`.
   The same generated owner and artifact remain bound throughout. If the
   artifact declares code, it runs `code-stage` → lifecycle retirement →
@@ -743,7 +747,7 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   requires both receipts, so a caller cannot turn a merely staged payload into
   a completed `code_revision` by skipping WordPress lifecycle.
 
-  Fatal-safe control commands (`compile`, `code-stage`, `code-finalize`, lease
+  Fatal-safe control commands (`compile`, `code-preflight`, `code-stage`, `code-finalize`, lease
   begin/abort, and recovery import) register their isolated agent loader at
   WP-CLI's `after_wp_config_load` boundary. They prove the effective content/MU
   layout before hiding user MU code. The v0 control plane accepts only the

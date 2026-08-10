@@ -2074,6 +2074,41 @@ function deploy_force_flags(array $extra, string $verb): array {
 }
 
 /**
+ * Acquire ephemeral target PHP/WordPress evidence for the exact frozen code
+ * revision. This is read-only and must complete before promotion-begin; a
+ * failure therefore has no lease/checkpoint cleanup to perform.
+ */
+function code_runtime_preflight(
+    EnvironmentDriver $t,
+    string $verb,
+    string $repo,
+    string $artifact,
+    string $artifactHash,
+    array $compiledSummary
+): ?int {
+    $codeRevision = $compiledSummary['code']['code_revision'] ?? null;
+    if (!is_string($codeRevision) || preg_match('/^[0-9a-f]{64}$/', $codeRevision) !== 1) {
+        fwrite(STDERR, "duo: $verb: compiled code descriptor has no valid revision; refusing before promotion-begin\n");
+        return 1;
+    }
+    echo "$verb phase: code-preflight\n";
+    $preflight = CodeDeploy::preflight($t, $repo, $artifact, $artifactHash, $codeRevision);
+    if ($preflight['exit'] !== 0) {
+        $boundary = $verb === 'promote' ? 'promotion-begin/checkpoint' : 'promotion-begin';
+        fwrite(STDERR, "duo: $verb: code runtime preflight failed; refusing before $boundary\n");
+        print_transport_detail($preflight);
+        return $preflight['exit'] !== 0 ? $preflight['exit'] : 1;
+    }
+    if ($preflight['summary'] === null) {
+        $boundary = $verb === 'promote' ? 'promotion-begin/checkpoint' : 'promotion-begin';
+        fwrite(STDERR, "duo: $verb: code runtime preflight returned no valid target evidence; refusing before $boundary\n");
+        print_transport_detail($preflight);
+        return 1;
+    }
+    return null;
+}
+
+/**
  * Host-level code deploy. Unlike promote it deliberately does not create a
  * database checkpoint: it owns only the immutable artifact plus the code
  * stage/lifecycle/finalize sequence. Operators who need the coupled DB
@@ -2126,6 +2161,19 @@ function cmd_deploy(EnvironmentDriver $t, array $extra): int {
 
     $artifactHash = (string) $compile['summary']['artifact_hash'];
     $codeEnabled = CodeDeploy::enabled($compile['summary']);
+    if ($codeEnabled) {
+        $preflightExit = code_runtime_preflight(
+            $t,
+            'deploy',
+            $repo,
+            $artifact,
+            $artifactHash,
+            $compile['summary']
+        );
+        if ($preflightExit !== null) {
+            return $preflightExit;
+        }
+    }
     echo "deploy phase: promotion-begin\n";
     $begin = $t->captureWp(CodeDeploy::beginArgs($runId, $artifactHash));
     if ($begin['exit'] !== 0) {
@@ -2298,6 +2346,7 @@ function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozen
     }
     $artifactHash = (string) $compile['summary']['artifact_hash'];
     $codeEnabled = CodeDeploy::enabled($compile['summary']);
+    $runtimePreflightDone = !$codeEnabled;
     if ($frozen !== null) {
         try {
             frozen_promotion_assert_no_symlinks($t, $repo, $frozen);
@@ -2305,6 +2354,20 @@ function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozen
             fwrite(STDERR, "duo: promote: frozen promotion path inspection failed: {$e->getMessage()}\n");
             return 1;
         }
+    }
+    if ($frozen === null && $codeEnabled) {
+        $preflightExit = code_runtime_preflight(
+            $t,
+            'promote',
+            $repo,
+            $artifact,
+            $artifactHash,
+            $compile['summary']
+        );
+        if ($preflightExit !== null) {
+            return $preflightExit;
+        }
+        $runtimePreflightDone = true;
     }
 
     if ($t instanceof \Duo\Orchestrator\SshTransport) {
@@ -2327,6 +2390,20 @@ function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozen
                     fwrite(STDERR, "duo: promote: verified frozen promotion reconciliation failed: {$e->getMessage()}\n");
                     return 1;
                 }
+            }
+            if (!$runtimePreflightDone) {
+                $preflightExit = code_runtime_preflight(
+                    $t,
+                    'promote',
+                    $repo,
+                    $artifact,
+                    $artifactHash,
+                    $compile['summary']
+                );
+                if ($preflightExit !== null) {
+                    return $preflightExit;
+                }
+                $runtimePreflightDone = true;
             }
             // The external exclusion provider must be able to reconcile an
             // interrupted prepare from a fresh process. Bind its claimant and
@@ -2376,6 +2453,20 @@ function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozen
             fwrite(STDERR, "duo: promote: frozen promotion receipt is invalid; refusing retry: {$e->getMessage()}\n");
             return 1;
         }
+        if (!$runtimePreflightDone) {
+            $preflightExit = code_runtime_preflight(
+                $t,
+                'promote',
+                $repo,
+                $artifact,
+                $artifactHash,
+                $compile['summary']
+            );
+            if ($preflightExit !== null) {
+                return $preflightExit;
+            }
+            $runtimePreflightDone = true;
+        }
         $mkdir = $t->captureRaw(
             'mkdir -p ' . escapeshellarg(dirname($artifact)) . ' ' . escapeshellarg(dirname($checkpoint))
         );
@@ -2384,6 +2475,11 @@ function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozen
             print_transport_detail($mkdir);
             return $mkdir['exit'] !== 0 ? $mkdir['exit'] : 1;
         }
+    }
+
+    if (!$runtimePreflightDone) {
+        fwrite(STDERR, "duo: promote: code runtime preflight was not completed; refusing before promotion-begin/checkpoint\n");
+        return 1;
     }
 
     echo "promote phase: promotion-begin\n";

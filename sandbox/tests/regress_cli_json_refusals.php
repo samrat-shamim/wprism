@@ -272,6 +272,7 @@ namespace {
     echo "\n== every primary JSON command owns a stable missing-argument refusal ==\n";
     $commands = [
         'compile' => 'compile',
+        'code_preflight' => 'code-preflight',
         'code_stage' => 'code-stage',
         'code_finalize' => 'code-finalize',
         'init' => 'init',
@@ -837,7 +838,7 @@ namespace {
     // have to be remembered to update.
     $cliSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Cli.php');
     preg_match_all('/\/\*\*(.*?)\*\/\s*public function (\w+)\((.*?)\n    \}/s', $cliSource, $handlers, PREG_SET_ORDER);
-    check(count($handlers) >= 21, 'source scan found the product command handlers');
+    check(count($handlers) >= 22, 'source scan found the product command handlers');
     $advertised = [];
     foreach ($handlers as [, $doc, $method, $body]) {
         if (!str_contains($doc, '--format=<format>')) {
@@ -856,8 +857,10 @@ namespace {
     // envelope fails the per-command check above, and DROPPING an
     // advertisement (or a handler) fails this count instead of silently
     // shrinking the set the contract sentence claims is closed.
-    // 24 since the current CLI surface added its latest JSON-capable command;
-    // each advertised handler is covered by the envelope contract below.
+    // 24 with `adapter-observe`, `adapter-survey`, `init`, and DUO-3326's
+    // `code-preflight` on the current CLI surface. Every advertised handler is
+    // covered by the common envelope contract, so this count moves with the set
+    // rather than around it.
     check(count($advertised) === 24, 'every one of the 24 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
@@ -866,6 +869,7 @@ namespace {
     // regression this closes.
     $armed = new ReflectionMethod(\Duo\Cli::class, 'refusal_remediation');
     foreach ([
+        'code-preflight',
         'promotion-begin', 'promotion-abort', 'env-set', 'orphans', 'verify-canonical',
         'journal-report', 'pending', 'coverage', 'classify', 'lint', 'capabilities',
     ] as $command) {
@@ -992,6 +996,20 @@ namespace {
     // These are the ones behind it, including the two contradictory-argument
     // gates that are not "missing" anything at all.
     $laterGates = [
+        'code-preflight missing --compiled' => [
+            static fn() => $cli->code_preflight([], ['repo' => '/fixture', 'format' => 'json']),
+            '--compiled is required for code-preflight',
+            null,
+        ],
+        'code-preflight missing --artifact-hash' => [
+            static fn() => $cli->code_preflight([], [
+                'repo' => '/fixture',
+                'compiled' => '/fixture/artifact.json',
+                'format' => 'json',
+            ]),
+            '--artifact-hash is required for code-preflight',
+            null,
+        ],
         'orphans missing --repo behind its table selector' => [
             static fn() => $cli->orphans(['wp_fixture'], ['format' => 'json']),
             '--repo is required for orphans',

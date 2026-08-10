@@ -2,6 +2,8 @@
 Theme Name: Duo Commerce Parent
 Description: A small WooCommerce-aware storefront parent theme.
 Version: 1.1.0
+Requires PHP: 8.3
+Requires at least: 6.0
 */
 
 body.duo-commerce-storefront {

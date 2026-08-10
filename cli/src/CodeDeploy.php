@@ -107,6 +107,44 @@ PHP;
         return $result + ['summary' => $summary];
     }
 
+    /**
+     * Read the target's exact runtime through the protected control plane and
+     * compare it with standard headers in the frozen artifact's source. The
+     * report is intentionally outside the artifact/hash: target evidence is
+     * ephemeral and must be reacquired before every new promotion lease.
+     *
+     * @return array{exit:int,stdout:string,stderr:string,summary:?array}
+     */
+    public static function preflight(
+        EnvironmentDriver $transport,
+        string $repo,
+        string $artifact,
+        string $artifactHash,
+        string $codeRevision
+    ): array {
+        $result = $transport->captureWp(self::preflightArgs($repo, $artifact, $artifactHash));
+        if ($result['exit'] !== 0) {
+            return $result + ['summary' => null];
+        }
+        $summary = json_decode(trim($result['stdout']), true);
+        if (!is_array($summary)
+            || ($summary['format'] ?? null) !== 'duo-code-runtime/v1'
+            || ($summary['enabled'] ?? null) !== true
+            || ($summary['compatible'] ?? null) !== true
+            || !hash_equals($codeRevision, (string) ($summary['code_revision'] ?? ''))
+            || !is_array($summary['target'] ?? null)
+            || ($summary['target']['source'] ?? null) !== 'target-control-plane'
+            || !is_string($summary['target']['php'] ?? null)
+            || trim((string) $summary['target']['php']) === ''
+            || !is_string($summary['target']['wordpress'] ?? null)
+            || trim((string) $summary['target']['wordpress']) === ''
+            || !is_array($summary['requirements'] ?? null)
+            || ($summary['diagnostics'] ?? null) !== []) {
+            return $result + ['summary' => null];
+        }
+        return $result + ['summary' => $summary];
+    }
+
     /** The content-addressed artifact invariant the host can validate itself. */
     public static function validArtifactHash(array $summary): bool {
         return is_string($summary['artifact_hash'] ?? null)
@@ -213,6 +251,14 @@ PHP;
         return self::controlArgs([
             'duo', 'code-stage', '--repo=' . $repo, '--compiled=' . $artifact,
             '--promotion-owner=' . $owner, '--artifact-hash=' . $artifactHash,
+        ]);
+    }
+
+    /** @return array<int,string> */
+    public static function preflightArgs(string $repo, string $artifact, string $artifactHash): array {
+        return self::controlArgs([
+            'duo', 'code-preflight', '--repo=' . $repo, '--compiled=' . $artifact,
+            '--artifact-hash=' . $artifactHash, '--format=json',
         ]);
     }
 

@@ -698,6 +698,7 @@ final class Apply {
             ? Deploy::extract_desired($tree['options/core']['data'])
             : [];
         $plan['code_mismatch'] = array_merge(
+            Code::target_compatibility_rows($this->repo, $compiled),
             Deploy::code_mismatch($this->policy, $desired),
             Deploy::code_revision_mismatch($compiled)
         );
@@ -3847,12 +3848,28 @@ final class Apply {
      * @return list<array<string,mixed>> forceable lifecycle mismatches
      */
     private static function enforce_code_mismatch_gate(array $mismatches, array $opts): array {
-        $stale = array_values(array_filter(
+        $nonForceable = array_values(array_filter(
             $mismatches,
             static fn(array $r): bool => ($r['issue'] ?? null) === 'code_revision_stale'
+                || !empty($r['non_forceable'])
         ));
-        if ($stale) {
-            $list = implode("\n\n", array_map(fn(array $r): string => '  - ' . ($r['message'] ?? 'code revision is stale'), $stale));
+        if ($nonForceable) {
+            $list = implode("\n\n", array_map(
+                fn(array $r): string => '  - ' . ($r['message'] ?? 'non-forceable code compatibility blocker'),
+                $nonForceable
+            ));
+            $runtime = array_values(array_filter(
+                $nonForceable,
+                static fn(array $r): bool => !empty($r['non_forceable'])
+                    && ($r['issue'] ?? null) !== 'code_revision_stale'
+            ));
+            if ($runtime) {
+                throw new \RuntimeException(
+                    "duo: apply refused — code runtime compatibility is non-forceable:\n\n$list\n\n"
+                    . 'Correct the declared Requires PHP/Requires at least header or use a target that reports compatible runtime versions. '
+                    . 'Neither --force-code-mismatch nor Duo certification-baseline evidence overrides a component runtime requirement.'
+                );
+            }
             throw new \RuntimeException(
                 "duo: apply refused — code_revision_stale:\n\n$list\n\n"
                 . "Run the host 'duo deploy <env>' workflow to stage, reconcile, verify, and finalize the exact code payload. "
@@ -3863,6 +3880,7 @@ final class Apply {
         $forceable = array_values(array_filter(
             $mismatches,
             static fn(array $r): bool => ($r['issue'] ?? null) !== 'code_revision_stale'
+                && empty($r['non_forceable'])
         ));
         if ($forceable && empty($opts['force_code_mismatch'])) {
             $list = implode("\n\n", array_map(fn(array $r): string => '  - ' . ($r['message'] ?? 'code mismatch'), $forceable));
