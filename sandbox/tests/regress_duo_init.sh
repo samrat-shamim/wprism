@@ -567,20 +567,31 @@ rm -rf "$HOST_REPO/adapters"
 pass "site adapter source remains distinct from a missing shipped adapter"
 
 say "the adapters allowlist never launders a foreign file or symlink"
+# DUO-3421: these two go through the PUBLIC HOST CLI, whose contract for a
+# refusal is the rendered envelope (render_command_refusal_human), not the
+# machine JSON — `duo init` is a human surface, and cmd_status()/fetch_pending()
+# established that shape in DUO-3399. The stable reason code, the remediation,
+# and the redaction witness must all survive the transport; the raw
+# duo-command-refusal/v1 document is asserted where it belongs, on the direct
+# --format=json invocation above. Until DUO-3421 the host preferred stderr,
+# which for a docker transport is never empty (compose writes "Container ...
+# Creating" there on every run), so all three were replaced by that noise.
 printf 'foreign repository payload\n' > "$HOST_REPO/adapters"
 assert_exit 1 "regular-file adapter boundary blocks init" "${DUO[@]}" init "${PAIR}1" --yes
-grep -q 'duo-command-refusal/v1' <<<"$OUT" || fail "regular-file adapter refusal omitted its stable JSON envelope"
-grep -q 'init_failed' <<<"$OUT" || fail "regular-file adapter refusal omitted its stable reason code"
-grep -q 'details_redacted' <<<"$OUT" || fail "regular-file adapter refusal exposed private exception detail"
+grep -qF '[init_failed]' <<<"$OUT" || fail "regular-file adapter refusal omitted its stable rendered envelope and reason code"
+grep -q 'details: redacted from machine output' <<<"$OUT" || fail "regular-file adapter refusal omitted its redaction witness"
+grep -q 'correct the named init blocker' <<<"$OUT" || fail "regular-file adapter refusal omitted its remediation"
+! grep -q 'Container duo-' <<<"$OUT" || fail "regular-file adapter refusal surfaced transport noise instead of the target's answer"
 ! grep -q 'exists but is not a real directory' <<<"$OUT" || fail "regular-file adapter refusal leaked private ownership detail"
 [ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
   || fail "regular-file adapter boundary mutated the repository"
 rm -f "$HOST_REPO/adapters"
 ln -s /tmp/duo-init-missing-adapters "$HOST_REPO/adapters"
 assert_exit 1 "dangling adapter symlink blocks init" "${DUO[@]}" init "${PAIR}1" --yes
-grep -q 'duo-command-refusal/v1' <<<"$OUT" || fail "adapter symlink refusal omitted its stable JSON envelope"
-grep -q 'init_failed' <<<"$OUT" || fail "adapter symlink refusal omitted its stable reason code"
-grep -q 'details_redacted' <<<"$OUT" || fail "adapter symlink refusal exposed private exception detail"
+grep -qF '[init_failed]' <<<"$OUT" || fail "adapter symlink refusal omitted its stable rendered envelope and reason code"
+grep -q 'details: redacted from machine output' <<<"$OUT" || fail "adapter symlink refusal omitted its redaction witness"
+grep -q 'correct the named init blocker' <<<"$OUT" || fail "adapter symlink refusal omitted its remediation"
+! grep -q 'Container duo-' <<<"$OUT" || fail "adapter symlink refusal surfaced transport noise instead of the target's answer"
 ! grep -q 'exists but is not a real directory' <<<"$OUT" || fail "adapter symlink refusal leaked private ownership detail"
 [ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
   || fail "adapter symlink boundary mutated the repository"

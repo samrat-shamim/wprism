@@ -180,6 +180,78 @@ try {
     check(str_contains($expected->getMessage(), 'invalid JSON'), 'invalid target JSON fails closed');
 }
 
+// DUO-3421: the target's refusal envelope arrives on STDOUT while a docker
+// transport's stderr always carries `docker compose run` progress noise. The
+// stderr-first rule handed the operator that noise and dropped the reason
+// code, the remediation, and the redaction witness — a refusal-transparency
+// loss of exactly the DUO-3398 shape, reproduced here without docker by
+// planting the noise the live transport really emits.
+$refusalEnvelope = [
+    'format' => 'duo-command-refusal/v1',
+    'ok' => false,
+    'command' => 'init',
+    'error' => 'init_failed',
+    'reason_code' => 'init_failed',
+    'message' => 'init refused at an unclassified safety gate',
+    'remediation' => 'correct the named init blocker, then retry the command',
+    'details_redacted' => true,
+    'diagnostics' => [[
+        'code' => 'init_failed',
+        'message' => 'init refused at an unclassified safety gate',
+        'remediation' => 'correct the named init blocker, then retry the command',
+    ]],
+];
+$composeNoise = " Container duo-pair-cli1-run-6a2f Creating \n Container duo-pair-cli1-run-6a2f Created\n";
+foreach (['proposal', 'confirmation'] as $noisyPhase) {
+    $noisy = new InitTransport([[
+        'exit' => 1,
+        'stdout' => json_encode($refusalEnvelope, JSON_UNESCAPED_SLASHES) . "\n",
+        'stderr' => $composeNoise,
+    ]]);
+    try {
+        $noisyPhase === 'proposal'
+            ? Init::proposal($noisy)
+            : Init::confirm($noisy, $digest);
+        fail("a refused init $noisyPhase was accepted");
+    } catch (\Duo\Orchestrator\InitRefusalException $refused) {
+        check(
+            $refused->refusal === $refusalEnvelope,
+            "a refused init $noisyPhase carries the target's complete v1 envelope for rendering, not a flattened string"
+        );
+        check(
+            !str_contains($refused->getMessage(), 'Container duo-')
+                && str_contains($refused->getMessage(), "init $noisyPhase failed"),
+            "a refused init $noisyPhase names its phase without pasting transport progress noise"
+        );
+    } catch (RuntimeException $wrong) {
+        fail("refused init $noisyPhase surfaced transport noise instead of the envelope: {$wrong->getMessage()}");
+    }
+}
+// Anything that is not a v1 envelope keeps the original stderr-else-stdout
+// passthrough, so non-docker transports and non-envelope failures are
+// untouched by the change above.
+try {
+    Init::proposal(new InitTransport([[
+        'exit' => 255,
+        'stdout' => '',
+        'stderr' => "Error: 'duo' is not a registered wp command.\n",
+    ]]));
+    fail('a non-envelope init failure was accepted');
+} catch (\Duo\Orchestrator\InitRefusalException) {
+    fail('a non-envelope init failure was misread as a refusal envelope');
+} catch (RuntimeException $passthrough) {
+    check(
+        str_contains($passthrough->getMessage(), 'not a registered wp command'),
+        'a non-envelope init failure still passes the target stderr through unchanged'
+    );
+}
+$initCommandSource = (string) file_get_contents(__DIR__ . '/../../cli/duo');
+check(
+    substr_count($initCommandSource, 'catch (\Duo\Orchestrator\InitRefusalException $e) {') === 2
+        && substr_count($initCommandSource, 'render_command_refusal_human($e->refusal);') === 2,
+    'both init phases render the refusal envelope through the shared host renderer, as status and pending do'
+);
+
 foreach ([
     'empty proposal' => [],
     'wrong proposal format' => array_replace($proposal, ['format' => 'duo-init-plan/v0']),
@@ -683,6 +755,76 @@ require_once __DIR__ . '/../../agent/src/Canon.php';
 require_once __DIR__ . '/../../agent/src/AdapterSources.php';
 require_once __DIR__ . '/../../agent/src/Init.php';
 if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
+
+// DUO-3421: the proposal-time manual-recovery gate and the recovery-time
+// deletion authority must answer the SAME question about an unmanifested Git
+// root. They did not: the gate tested only that `git_empty_identity` was
+// PRESENT, while the compensation path additionally requires it to still
+// describe the root. initialize_git() runs between the `git-reserved` journal
+// that records that key and the `git-ready` journal that records
+// `git_identity`, so an attempt interrupted inside that window was proposed as
+// a ready, confirmable `verify-interrupted-precommit-init` plan whose
+// confirmation then refused mid-protocol with the unclassified envelope.
+// Exercised against the real private predicate with real directory identities,
+// offline: no docker, no WordPress.
+// The predicate resolves the fixed capture-record slots through Publish.
+require_once __DIR__ . '/../../agent/src/Publish.php';
+$recoveryReason = (new ReflectionClass(\Duo\Init::class))
+    ->getMethod('interrupted_attempt_manual_recovery_reason');
+$recoveryReason->setAccessible(true);
+$directoryIdentity = (new ReflectionClass(\Duo\Init::class))->getMethod('directory_identity');
+$directoryIdentity->setAccessible(true);
+$gitFixtureRepo = sys_get_temp_dir() . '/duo-init-git-authority-' . bin2hex(random_bytes(6));
+if (!mkdir($gitFixtureRepo . '/.git', 0777, true)) fail('could not create the Git authority fixture');
+register_shutdown_function(static function () use ($gitFixtureRepo): void {
+    exec('rm -rf ' . escapeshellarg($gitFixtureRepo));
+});
+$emptyRootIdentity = (string) $directoryIdentity->invoke(null, $gitFixtureRepo . '/.git', 'Git metadata root');
+$gitAttempt = static fn(array $owned): array => ['owned' => ['git_created' => true] + $owned];
+check(
+    $recoveryReason->invoke(
+        null,
+        $gitFixtureRepo,
+        $gitAttempt(['git_empty_identity' => $emptyRootIdentity])
+    ) === null,
+    'a Git root reserved and still untouched keeps complete deletion authority and stays automatically recoverable'
+);
+$incompleteGitReason = 'the sealed attempt has incomplete Git metadata without a complete ownership manifest';
+check(
+    $recoveryReason->invoke(null, $gitFixtureRepo, $gitAttempt([])) === $incompleteGitReason,
+    'a reserved Git root with no ownership manifest at all is non-confirmable'
+);
+// The exact `git-initialized-before-identity` window the live harness injects.
+file_put_contents($gitFixtureRepo . '/.git/HEAD', "ref: refs/heads/main\n");
+check(
+    $recoveryReason->invoke(
+        null,
+        $gitFixtureRepo,
+        $gitAttempt(['git_empty_identity' => $emptyRootIdentity])
+    ) === $incompleteGitReason,
+    'a Git root written into after its empty-root manifest was sealed is non-confirmable — presence is not deletion authority'
+);
+check(
+    $recoveryReason->invoke(
+        null,
+        $gitFixtureRepo,
+        $gitAttempt([
+            'git_empty_identity' => $emptyRootIdentity,
+            'git_identity' => (string) $directoryIdentity->invoke(
+                null,
+                $gitFixtureRepo . '/.git',
+                'Git metadata root'
+            ),
+        ])
+    ) === null,
+    'a completed git-ready manifest remains automatically recoverable'
+);
+$initAuthoritySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Init.php');
+check(
+    substr_count($initAuthoritySource, 'self::git_empty_identity_current($repo, $owned)') === 2
+        && str_contains($initAuthoritySource, 'private static function git_empty_identity_current('),
+    'the proposal gate and the compensation authority resolve the empty-root manifest through one shared predicate'
+);
 
 final class InitRiskWpdb {
     public string $options = 'wp_options';
