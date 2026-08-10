@@ -822,10 +822,19 @@ $check(
 // source. The protocol seams they call are exercised dynamically above.
 $applySource = (string) file_get_contents($root . '/agent/src/Apply.php');
 $deleteGateAt = strpos($applySource, 'scoped apply selected live tombstones but --with-deletes was not supplied');
+$terminalArchiveAt = strpos($applySource, '$this->terminalScopedSessionToArchive->archive_terminal();');
 $sessionBeginAt = strpos($applySource, 'ScopedApplySession::begin(');
 $check(
     $deleteGateAt !== false && $sessionBeginAt !== false && $deleteGateAt < $sessionBeginAt,
     'scoped tombstones without --with-deletes refuse before a session can authorize target mutation'
+);
+$check(
+    $terminalArchiveAt !== false
+        && $deleteGateAt !== false
+        && $sessionBeginAt !== false
+        && $deleteGateAt < $terminalArchiveAt
+        && $terminalArchiveAt < $sessionBeginAt,
+    'a different scoped request preserves prior terminal evidence until every new-operation gate passes'
 );
 $check(
     substr_count($applySource, 'NativeActions::reconcile_scoped(') === 2

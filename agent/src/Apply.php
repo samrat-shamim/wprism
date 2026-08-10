@@ -65,6 +65,8 @@ final class Apply {
     /** Hash-only target witnesses captured under the active promotion lease. */
     private ?array $scopedObservation = null;
     private ?ScopedApplySession $scopedSession = null;
+    /** Prior terminal slot awaiting a fully preflighted different scoped authority. */
+    private ?ScopedApplySession $terminalScopedSessionToArchive = null;
 
     private function __construct(string $repo, Policy $policy, CompiledRepository $compiled) {
         $this->repo = rtrim($repo, '/');
@@ -2585,13 +2587,6 @@ final class Apply {
         }
         $a = null;
         try {
-            if ($terminalScopedSessionToArchive !== null) {
-                // Rotating the active terminal slot is itself target metadata
-                // mutation. Do it only after the new exact promotion lease is
-                // held; the archived terminal remains addressable by its
-                // authority hash for old lost-response readback.
-                $terminalScopedSessionToArchive->archive_terminal();
-            }
             // The artifact was first validated before target contact. Repeat
             // that association under the lease so a concurrent checkout or
             // manifest/site-policy edit cannot alter the meaning between
@@ -2612,6 +2607,7 @@ final class Apply {
             $a->promotionOwner = $promotionOwner;
             $a->promotionArtifact = $promotionArtifact;
             $a->scopedSession = $recoveringScopedSession ? $existingScopedSession : null;
+            $a->terminalScopedSessionToArchive = $terminalScopedSessionToArchive;
             if ($scoped) {
                 $a->scopeContract = ScopedApply::resolve_contract(
                     $scopeRequest,
@@ -3210,6 +3206,14 @@ final class Apply {
                 throw new \RuntimeException(
                     'duo: scoped apply recovery refused protected out-of-scope target drift'
                 );
+            }
+            if ($this->terminalScopedSessionToArchive !== null) {
+                // Rotation is target metadata mutation too. Keep the prior
+                // terminal receipt active through every new-operation gate,
+                // locked plan/target/code recheck, and authority validation;
+                // an early refusal must not consume lost-response evidence.
+                $this->terminalScopedSessionToArchive->archive_terminal();
+                $this->terminalScopedSessionToArchive = null;
             }
             $this->scopedSession = ScopedApplySession::begin(
                 new LedgerScopedApplySessionStorage(),

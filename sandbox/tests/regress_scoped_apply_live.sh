@@ -489,15 +489,15 @@ run_duo_refusal_json tombstone-without-deletes "$TMP/tombstone-without-deletes.j
 jq -e '.command == "apply" and .reason_code == "apply_refused" and (.message | contains("--with-deletes"))' \
   "$TMP/tombstone-without-deletes.json" >/dev/null \
   || fail "missing --with-deletes did not surface the public scoped delete refusal"
-[ "$(target_kv scoped_apply_session)" = '__DUO_NULL__' ] \
-  || fail "missing --with-deletes created a scoped session"
+[ "$(target_kv scoped_apply_session)" = "$NOOP_TERMINAL_SESSION" ] \
+  || fail "missing --with-deletes changed the prior terminal session evidence"
 [ "$(target_boundary_digest)" = "$EARLY_BOUNDARY_BEFORE" ] \
   || fail "missing --with-deletes changed selected/protected/ledger/action state"
 assert_generic_scoped_boundary "early delete refusal"
 assert_outside_preserved "early delete refusal"
 DELETE_TARGET_ID="$(target_post_id "$DELETE_UUID")"
 [ -n "$DELETE_TARGET_ID" ] || fail "missing --with-deletes removed the selected target project"
-pass "tombstone refusal happened before session creation, authored mutation, provider/native action, or generic debt"
+pass "tombstone refusal preserved prior terminal evidence before new session, authored, provider/native, or generic mutation"
 
 say "apply selected tombstone with explicit deletion authority and verify changed surfaces"
 run_duo_json tombstone-apply "$TMP/tombstone-apply.json" apply target "--scope-contract=$TOMB_CONTRACT" --with-deletes --format=json
