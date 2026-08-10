@@ -222,7 +222,11 @@ receipt carrying an object, a resource, or a non-finite number is refused
 outright — the engine will not summarize what it cannot read. Nothing retains
 the raw values anywhere; if you want a specific fact to survive publication,
 summarize it yourself (a count, a hash, a short outcome string) instead of
-returning raw state and hoping it fits.
+returning raw state and hoping it fits. The secrecy and control screens are
+per-leaf and pattern-based (C0/DEL control bytes; the shared refusal screen's
+secret grammar): a credential split across entries, base64/hex-encoded, or
+carried in C1/zero-width/bidi codepoints is NOT detected — do not put
+credentials in receipts at all.
 
 An argument may be a scalar, a `list<string>`, or a `list<object>` — the last
 declaring its own closed `fields` vocabulary of `bool`/`int`/`string`, exactly

@@ -1195,7 +1195,7 @@ $publish = static function (mixed $before, mixed $after) use ($reset, $provider,
 /** Every published byte a machine caller and a human caller could ever see. */
 $publishedJson = static fn(array $receipt): string => (string) json_encode(
     $receipt,
-    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+    JSON_UNESCAPED_SLASHES // the exact flags Cli::apply() publishes with (review F1)
 );
 $isWitness = static fn(mixed $v): bool => is_string($v)
     && str_starts_with($v, \Duo\Providers::RECEIPT_WITNESS_PREFIX)
@@ -1267,6 +1267,29 @@ $check(
     $deepSame['before'] === $deepSame['after'] && $deepDiffers['before'] !== $deepDiffers['after'],
     'and a difference living BELOW the published depth still changes the witness: the digest is taken over the raw '
     . 'value at every level, so a repair that changed something deep cannot publish as one that changed nothing'
+);
+
+// The digest is TYPE-TAGGED (review F2): two containers identical except one
+// scalar's TYPE must witness differently, or a changed receipt could publish
+// as unchanged — an untyped hash of (string) casts collides int 1 with "1".
+$typedInt = array_fill(0, 129, 0);
+$typedInt[0] = 1;
+$typedStr = $typedInt;
+$typedStr[0] = '1';
+$typed = $publish(['rows' => $typedInt], ['rows' => $typedStr]);
+$check(
+    $isWitness($typed['before']['rows'] ?? null) && $isWitness($typed['after']['rows'] ?? null)
+    && $typed['before']['rows'] !== $typed['after']['rows'],
+    'the witness digest is type-tagged: containers differing only in one scalar TYPE witness differently'
+);
+
+// Bounding runs LAST in invoke() (review F3): a receipt that is both
+// unverified and unpublishable must refuse as unverified — the pinned
+// precedence, defended behaviorally rather than by source text alone.
+$expectInvokeFailure(
+    static fn() => \Duo\Providers\ProbeCache::$receiptOverride = ['before' => (object) [], 'after' => [], 'verified' => false],
+    'no value-level verification',
+    'a receipt both unverified and unpublishable refuses as unverified — bounding stays last'
 );
 
 $wideSame = $publish($receiptWide(1), $receiptWide(1));
@@ -2213,7 +2236,7 @@ $plantedReceipt = [
     'verified' => true,
 ];
 $plantedRun = $driveRebuild(['deletions'], [[], [], [], [], $driveTombstones, true, []], false, $plantedReceipt);
-$plantedJson = (string) json_encode($plantedRun['receipts'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+$plantedJson = (string) json_encode($plantedRun["receipts"], JSON_UNESCAPED_SLASHES);
 $check($plantedRun['error'] === '' && $plantedRun['calls'] === 1
     && ($plantedRun['receipts'][0]['verified'] ?? null) === true,
     'a receipt whose every value is out of bounds is still a SUCCESSFUL receipt: the pass fires, verifies, and '

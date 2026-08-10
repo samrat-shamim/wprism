@@ -804,7 +804,7 @@ final class Providers {
             // of them legal — so the whole value gets one final bound, and
             // the witness stands for the RAW value rather than the
             // projection, which is what keeps equality decidable.
-            if (strlen((string) json_encode($projection, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE))
+            if (strlen((string) json_encode($projection, JSON_UNESCAPED_SLASHES))
                 > self::RECEIPT_MAX_VALUE_BYTES) {
                 $projection = self::receipt_witness('oversized', $digest);
             }
@@ -903,9 +903,10 @@ final class Providers {
     /**
      * One string leaf or map key: verbatim, or the witness that stands for it.
      *
-     * The order is the reason vocabulary's, not an accident. The sensitivity
-     * screen flags control bytes too, so the cheap structural tests run first
-     * and `secret` means what it says.
+     * The test order is cheap-structural-first, not the vocabulary's order,
+     * and that is not an accident: the sensitivity screen flags control bytes
+     * too, so running the structural tests first is what makes `secret` mean
+     * what it says.
      */
     private static function bound_receipt_string(string $value, int $maxBytes, ?string $digest = null): string {
         $witness = static fn(string $reason): string => self::receipt_witness(
@@ -931,6 +932,9 @@ final class Providers {
     }
 
     private static function receipt_witness(string $reason, string $digest): string {
+        if (!in_array($reason, self::RECEIPT_WITNESS_REASONS, true)) {
+            throw new \RuntimeException('duo: receipt witness reason is outside the closed vocabulary');
+        }
         return self::RECEIPT_WITNESS_PREFIX . $reason . ':sha256:' . $digest . '>';
     }
 
