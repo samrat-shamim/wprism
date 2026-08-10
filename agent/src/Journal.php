@@ -16,9 +16,17 @@ namespace Duo;
 final class Journal {
     private static bool $booted = false;
     private static array $buffer = [];
+    /**
+     * A bounded command-level switch, used only by adapter observation after
+     * ordinary WordPress/plugin bootstrap has completed.  A plugin/provider
+     * may still have written during bootstrap, but this prevents the journal
+     * query hook from turning that request's buffer (or a later callback) into
+     * a Duo-owned INSERT at shutdown.
+     */
+    private static bool $observationSuspended = false;
 
     public static function boot(): void {
-        if (self::$booted) {
+        if (self::$booted || self::$observationSuspended) {
             return;
         }
         self::$booted = true;
@@ -37,6 +45,9 @@ final class Journal {
     }
 
     public static function observe($sql) {
+        if (self::$observationSuspended) {
+            return $sql;
+        }
         if (!is_string($sql) || !preg_match('/^\s*(INSERT|UPDATE|DELETE|REPLACE)\b/i', $sql, $m)) {
             return $sql;
         }
@@ -72,6 +83,10 @@ final class Journal {
     }
 
     public static function flush(): void {
+        if (self::$observationSuspended) {
+            self::$buffer = [];
+            return;
+        }
         global $wpdb;
         if (!self::$buffer || !isset($wpdb)) {
             return;
@@ -94,6 +109,25 @@ final class Journal {
             ), 'journal flush observations');
         } finally {
             add_filter('query', [self::class, 'observe'], -2147483646);
+        }
+    }
+
+    /**
+     * Stop this request's optional provenance observer without changing its
+     * durable configuration.  `adapter-observe` deliberately keeps normal
+     * plugin bootstrap enabled, so it must also discard any pre-command
+     * bootstrap observations and remove the shutdown flush before it reads
+     * policy/provider evidence.  The next process starts with the normal
+     * opt-in journal behavior unchanged.
+     */
+    public static function suspend_for_observation(): void {
+        self::$observationSuspended = true;
+        self::$buffer = [];
+        if (function_exists('remove_filter')) {
+            remove_filter('query', [self::class, 'observe'], -2147483646);
+        }
+        if (function_exists('remove_action')) {
+            remove_action('shutdown', [self::class, 'flush'], PHP_INT_MAX);
         }
     }
 
@@ -200,16 +234,40 @@ final class Journal {
      * unclassified rows ARE the product surface: the review queue.
      */
     public static function report(array $manifestNames): array {
-        global $wpdb;
         Ledger::ensure();
-        $policy = Policy::load(null, $manifestNames);
+        return self::report_with_policy(Policy::load(null, $manifestNames), false);
+    }
+
+    /**
+     * Read-only twin of report() for bounded evidence collection.
+     *
+     * The ordinary report is intentionally self-healing: the public command
+     * has historically made the journal table available through Ledger::ensure()
+     * before it asks the aggregate question.  That is the right posture for a
+     * command whose normal prerequisite is "the agent owns its journal", but
+     * it is the wrong posture for an observation export: a missing table is
+     * evidence that no observation can honestly claim to have read, not an
+     * invitation to create one.  AdapterObservation proves the table exists
+     * before it calls this method; this method itself performs SELECT-only
+     * aggregation and never repairs ledger state.
+     */
+    public static function report_read_only(Policy $policy): array {
+        return self::report_with_policy($policy, true);
+    }
+
+    private static function report_with_policy(Policy $policy, bool $strictRead): array {
+        global $wpdb;
         $rows = $wpdb->get_results(
             "SELECT tbl, item, surface, caps, proposal, COUNT(*) AS n
              FROM {$wpdb->prefix}duo_journal
              GROUP BY tbl, item, surface, caps, proposal
              ORDER BY tbl, item, surface",
             ARRAY_A
-        ) ?: [];
+        );
+        if ($strictRead && (!is_array($rows) || self::database_read_error($wpdb))) {
+            self::refuse_read_error();
+        }
+        $rows = $rows ?: [];
         $out = ['rows' => [], 'agree' => 0, 'disagree' => 0, 'abstain' => 0, 'unclassified' => 0];
         foreach ($rows as $r) {
             $ground = self::ground_truth($policy, $r['tbl'], $r['item']);
@@ -245,6 +303,26 @@ final class Journal {
         $den = $out['agree'] + $out['disagree'];
         $out['agreement_pct'] = $den > 0 ? round(100 * $out['agree'] / $den, 1) : null;
         return $out;
+    }
+
+    /** A stale or malformed journal must not become a misleading zero report. */
+    private static function database_read_error(mixed $wpdb): bool {
+        $error = is_object($wpdb) ? ($wpdb->last_error ?? '') : '';
+        return !is_string($error) || $error !== '';
+    }
+
+    private static function refuse_read_error(): never {
+        throw new CommandRefusalException(
+            'adapter_observation_journal_unreadable',
+            'adapter observation could not read the existing provenance journal',
+            'inspect and repair the journal through the existing controlled workflow before collecting proposal evidence',
+            [[
+                'code' => 'adapter_observation_journal_unreadable',
+                'message' => 'the observer will not treat a failed journal read as an empty journal',
+                'remediation' => 'restore readable provenance state before collecting adapter observation evidence',
+            ]],
+            'duo: adapter observation refused because the provenance journal SELECT failed'
+        );
     }
 
     /** Public so Pending::scan() can reuse the exact same ground-truth lookup

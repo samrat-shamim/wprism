@@ -154,6 +154,9 @@ namespace Duo {
     final class Journal {
         public static ?\Throwable $failure = null;
 
+        /** adapter-observe must suspend before even its argument gates. */
+        public static function suspend_for_observation(): void {}
+
         public static function report(array $names): array {
             if (self::$failure !== null) {
                 throw self::$failure;
@@ -263,6 +266,7 @@ namespace {
         'code_stage' => 'code-stage',
         'code_finalize' => 'code-finalize',
         'init' => 'init',
+        'adapter_observe' => 'adapter-observe',
         'scope' => 'scope',
         'capture' => 'capture',
         'plan' => 'plan',
@@ -817,9 +821,9 @@ namespace {
     // envelope fails the per-command check above, and DROPPING an
     // advertisement (or a handler) fails this count instead of silently
     // shrinking the set the contract sentence claims is closed.
-    // 23 since the current CLI surface added its latest JSON-capable command;
+    // 24 since the current CLI surface added its latest JSON-capable command;
     // each advertised handler is covered by the envelope contract below.
-    check(count($advertised) === 23, 'every one of the 23 --format=json commands was scanned (' . count($advertised) . ')');
+    check(count($advertised) === 24, 'every one of the 24 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path

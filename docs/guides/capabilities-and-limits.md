@@ -254,6 +254,8 @@ duo adapter list    [--repo=<site-repo>] [--format=json]
 duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
 duo adapter doctor  [--repo=<site-repo>] [--format=json]
 wp duo adapter-survey [--repo=<path>] [--format=json]     # on the target
+duo adapter-observe <env> [--out=<local-file>|--format=json]
+wp duo adapter-observe --repo=<target-site-repo> --format=json # on the target
 ```
 
 There are **three adapter sources**: the agent's own manifest library, a site
@@ -267,6 +269,25 @@ every run in a `sources` block that marks each source scanned or not scanned
 and why; `wp duo adapter-survey` is the same survey running ON the target and
 is where the plugin source is reported. An empty result never means "no adapter
 is installed", only "none in the sources this process could reach".
+
+`duo adapter-observe` is different from the offline catalog: it asks the
+configured target once for a closed, canonical
+`duo-adapter-observation/v1` proposal-evidence projection. The host has no
+local `--repo` override and validates the target document, including its hash,
+before it prints or create-only writes `--out`. The projection omits values,
+target-local IDs, titles, paths, messages, SQL, and credentials. Its nested
+`catalog` is a bounded projection of the target's
+`duo-adapter-sources/v2` survey, not a claim to preserve the complete
+`duo-adapter-catalog/v2` contract. It never makes AdapterDraft evidence
+authoritative and never changes certification or registry claims.
+
+The observer deliberately keeps normal plugin/provider registration and
+capability negotiation enabled, because those facts are part of the live
+report. Third-party callbacks can therefore have side effects before or during
+evidence collection; Duo invokes no provider action and performs no explicit
+mutation after observer entry. The projection is proposal evidence only: it
+does not prove table semantics, apply, rollback, version lifecycle,
+publication, or certification.
 
 Adapter sources rank `shipped > site > plugin`. The two you author refuse
 outright if both could answer one name. A plugin-bundled name that a shipped or

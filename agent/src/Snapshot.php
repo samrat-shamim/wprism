@@ -1028,7 +1028,10 @@ final class Snapshot {
      *
      * @return list<array{table:string,key:string,owner:string,count:int,value_shapes:string[],reason:string}>
      */
-    public static function keyspace_gaps(Policy $policy): array {
+    public static function keyspace_gaps(
+        Policy $policy,
+        ?callable $observationReadCheckpoint = null
+    ): array {
         global $wpdb;
         $out = [];
         foreach (self::meta_tables($policy) as $table => $decl) {
@@ -1037,7 +1040,9 @@ final class Snapshot {
                 continue;
             }
             $prefixed = $wpdb->prefix . preg_replace('/[^A-Za-z0-9_]/', '', $table);
-            if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
+            $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed));
+            self::checkpoint_observation_read($observationReadCheckpoint);
+            if (!$exists) {
                 continue;
             }
             $keyCol = preg_replace('/[^A-Za-z0-9_]/', '', (string) ($decl['key_column'] ?? 'meta_key'));
@@ -1046,6 +1051,7 @@ final class Snapshot {
                 "SELECT `$keyCol` AS k, `$valCol` AS v FROM `$prefixed` ORDER BY `$keyCol` ASC",
                 ARRAY_A
             ) ?: [];
+            self::checkpoint_observation_read($observationReadCheckpoint);
             $unknown = [];
             foreach ($rows as $row) {
                 $key = (string) $row['k'];
@@ -1073,6 +1079,13 @@ final class Snapshot {
             }
         }
         return $out;
+    }
+
+    /** Invoke adapter observation's strict read check without changing normal snapshot behavior. */
+    private static function checkpoint_observation_read(?callable $observationReadCheckpoint): void {
+        if ($observationReadCheckpoint !== null) {
+            $observationReadCheckpoint();
+        }
     }
 
     /** True when an attached-meta key is inside its declared adapter keyspace. */

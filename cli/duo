@@ -36,6 +36,7 @@ require __DIR__ . '/src/ClassificationBatch.php';
 require __DIR__ . '/src/ManifestValidate.php';
 require __DIR__ . '/src/AdapterDraft.php';
 require __DIR__ . '/src/AdapterCatalog.php';
+require __DIR__ . '/src/AdapterObservation.php';
 // RefreshPlan lands as a separately-reviewable semantic layer. Keep this
 // host shell loadable while that contract is unavailable; Refresh itself
 // fails closed with an actionable diagnostic before any candidate ref exists.
@@ -46,6 +47,7 @@ require __DIR__ . '/src/Refresh.php';
 // Pure immutable-contract validation for host-local --scope-contract files.
 // These classes perform no WordPress bootstrap or target access here.
 require_once dirname(__DIR__) . '/agent/src/Canon.php';
+require_once dirname(__DIR__) . '/agent/src/Secrets.php';
 require_once dirname(__DIR__) . '/agent/src/ReferenceGraph.php';
 require_once dirname(__DIR__) . '/agent/src/ScopeClosure.php';
 require_once dirname(__DIR__) . '/agent/src/CanonicalSurfaces.php';
@@ -71,6 +73,7 @@ use Duo\Orchestrator\VerifiedRollbackProfile;
 use Duo\Orchestrator\ManifestValidate;
 use Duo\Orchestrator\AdapterDraft;
 use Duo\Orchestrator\AdapterCatalog;
+use Duo\Orchestrator\AdapterObservation;
 use Duo\Orchestrator\Registry;
 use Duo\Orchestrator\Transport;
 use Duo\Orchestrator\Triage;
@@ -99,6 +102,7 @@ Usage:
   duo adapter list [--repo=<site-repo>] [--format=json]
   duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
   duo adapter doctor [--repo=<site-repo>] [--format=json]
+  duo adapter-observe <env> [--out=<local-file>|--format=json]
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
   duo adopt  <env>
@@ -235,6 +239,20 @@ Verbs:
                           target, the manifest-shipped PHP it deliberately does
                           not load, and the cross-manifest guards that belong to
                           a pin set.
+  adapter-observe <env>   Ask exactly one configured target for its closed,
+    [--out=<local-file>]  value-redacted adapter proposal-evidence document.
+    [--format=json]       The host supplies only that environment's configured
+                          target repo_path, validates every field/order and the
+                          canonical observation hash before output, and never
+                          accepts a host-local --repo. --out creates one local
+                          evidence file atomically and never overwrites it.
+                          This is non-authorizing evidence, not draft evidence,
+                          certification, registry publication, or an apply
+                          claim. Normal target plugin/provider registration and
+                          readiness negotiation remain enabled; their third-
+                          party callbacks can have side effects, while Duo
+                          itself invokes no provider action or explicit mutation
+                          after observer entry.
   doctor <env>            Check transport reachability, WordPress install, the
                           duo agent, and repo_path/site.duo.json. Non-zero exit
                           on any failing check.
@@ -465,7 +483,7 @@ function duo_fail(string $message, int $code = 1) {
 
 /** The host owns JSON refusals for commands it preflights locally. */
 function wants_agent_refusal_json(string $verb, array $extra): bool {
-    if (!in_array($verb, ['capture', 'plan', 'explain', 'apply', 'refresh'], true)) {
+    if (!in_array($verb, ['adapter-observe', 'capture', 'plan', 'explain', 'apply', 'refresh'], true)) {
         return false;
     }
     foreach ($extra as $index => $arg) {
@@ -537,7 +555,7 @@ function main(array $argv): int {
     }
 
     $verb = array_shift($rest);
-    $verbsNeedingEnv = ['doctor', 'driver-capabilities', 'adopt', 'init', 'status', 'capabilities', 'capture', 'plan', 'explain', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase'];
+    $verbsNeedingEnv = ['doctor', 'driver-capabilities', 'adopt', 'init', 'status', 'capabilities', 'adapter-observe', 'capture', 'plan', 'explain', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase'];
 
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
@@ -653,6 +671,7 @@ function main(array $argv): int {
         'adopt' => cmd_adopt($transport, $extra),
         'init' => cmd_init($transport, $extra),
         'status' => cmd_status($transport, $extra),
+        'adapter-observe' => cmd_adapter_observe($transport, $extra),
         'capabilities', 'plan', 'explain', 'apply', 'env-set', 'coverage' => cmd_passthrough($transport, $verb, $extra),
         'capture' => cmd_capture($transport, $extra),
         'scope' => cmd_scope($transport, $extra),
@@ -663,6 +682,11 @@ function main(array $argv): int {
         'refresh' => cmd_refresh($transport, $extra),
         'rebase' => cmd_rebase($transport, $extra),
     };
+}
+
+/** One target call, closed response validation, optional create-only evidence. */
+function cmd_adapter_observe(EnvironmentDriver $driver, array $extra): int {
+    return AdapterObservation::run($driver, $extra);
 }
 
 /** The one canonical report drives both human and JSON output/exit status. */

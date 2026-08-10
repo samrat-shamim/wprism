@@ -25,6 +25,58 @@ final class Ledger {
     }
 }
 
+final class FakePromotionWpdb {
+    public string $prefix = 'wp_duo_';
+    public string $dbname = 'duo_unit';
+    /** @var list<mixed> */
+    public array $preparedArgs = [];
+    public bool $fenceHeld = false;
+
+    public function prepare(string $sql, mixed ...$args): string {
+        $this->preparedArgs = $args;
+        return $sql;
+    }
+
+    public function get_var(string $sql): mixed {
+        if (str_contains($sql, 'CONNECTION_ID()')) {
+            return 17;
+        }
+        if (str_contains($sql, 'GET_LOCK(')) {
+            $this->fenceHeld = true;
+            return 1;
+        }
+        if (str_contains($sql, 'IS_USED_LOCK(')) {
+            return $this->fenceHeld ? 17 : null;
+        }
+        if (str_contains($sql, 'RELEASE_LOCK(')) {
+            $this->fenceHeld = false;
+            return 1;
+        }
+        return 0;
+    }
+}
+
+final class Db {
+    public static function query(string $sql, string $label): int {
+        global $wpdb;
+        if ($label === 'promotion lock acquire') {
+            Ledger::kv_set('promotion_lock', (string) ($wpdb->preparedArgs[1] ?? ''));
+            return 1;
+        }
+        if ($label === 'promotion lock release') {
+            unset(Ledger::$rows['promotion_lock']);
+            return 1;
+        }
+        if ($label === 'promotion lock heartbeat') {
+            Ledger::kv_set('promotion_lock', (string) ($wpdb->preparedArgs[0] ?? ''));
+            return 1;
+        }
+        throw new \RuntimeException("unexpected unit Db::query operation: $label");
+    }
+}
+
+$wpdb = new FakePromotionWpdb();
+
 require_once dirname(__DIR__, 2) . '/agent/src/PromotionLock.php';
 
 $check = static function (bool $ok, string $message): void {
@@ -48,6 +100,54 @@ $before = str_repeat('b', 64);
 $retired = str_repeat('c', 64);
 $interfered = str_repeat('d', 64);
 $activated = str_repeat('e', 64);
+
+// A direct apply's lease is target-authoritative during planning, but a
+// refusal before mutation must not replace the previous durable session. The
+// session becomes truthful recovery evidence only after the locked provider
+// and plan gates pass and begin_apply_session() is called explicitly.
+$priorSession = json_encode([
+    'owner' => 'previous-session-owner',
+    'artifact_hash' => str_repeat('9', 64),
+    'begun_at' => 99,
+], JSON_THROW_ON_ERROR);
+Ledger::$rows['promotion_session'] = $priorSession;
+PromotionLock::acquire_apply_preflight('direct-preflight-owner', $artifact);
+$check(
+    Ledger::$rows['promotion_session'] === $priorSession,
+    'direct apply preflight changed the previous promotion session'
+);
+PromotionLock::release('direct-preflight-owner', $artifact);
+$check(
+    Ledger::$rows['promotion_session'] === $priorSession,
+    'refused direct apply cleanup changed the previous promotion session'
+);
+
+PromotionLock::acquire_apply_preflight('direct-preflight-owner', $artifact);
+$expiredLease = json_decode(Ledger::$rows['promotion_lock'], true, 512, JSON_THROW_ON_ERROR);
+$expiredLease['expires_at'] = time() - 1;
+Ledger::$rows['promotion_lock'] = json_encode($expiredLease, JSON_THROW_ON_ERROR);
+PromotionLock::begin_apply_session('direct-preflight-owner', $artifact);
+$directSession = json_decode(Ledger::$rows['promotion_session'], true, 512, JSON_THROW_ON_ERROR);
+$renewedLease = json_decode(Ledger::$rows['promotion_lock'], true, 512, JSON_THROW_ON_ERROR);
+$check(
+    ($directSession['owner'] ?? null) === 'direct-preflight-owner'
+        && ($directSession['artifact_hash'] ?? null) === $artifact
+        && is_int($directSession['begun_at'] ?? null),
+    'successful direct apply preflight did not publish its exact session'
+);
+$check(
+    ($renewedLease['phase'] ?? null) === 'apply-session-begin'
+        && (int) ($renewedLease['expires_at'] ?? 0) > time(),
+    'continuously fenced direct apply could not renew an expired preflight row before session publication'
+);
+$throws(
+    static fn() => PromotionLock::begin_apply_session('direct-preflight-owner', $artifact),
+    'already begun',
+    'direct apply session could be published twice'
+);
+PromotionLock::release('direct-preflight-owner', $artifact);
+
+Ledger::$rows = [];
 
 Ledger::$rows['promotion_lock'] = json_encode([
     'owner' => $owner,
