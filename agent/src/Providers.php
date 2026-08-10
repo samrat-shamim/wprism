@@ -1,6 +1,13 @@
 <?php
 namespace Duo;
 
+// DUO-3383: receipt bounding screens provider strings through the same
+// public-output authority the JSON refusal envelope uses, so there is one
+// secret grammar in this engine rather than a second one written here. Pulled
+// in the way CommandRefusal.php pulls in Secrets.php — this file's callers all
+// load it directly, so it cannot rely on someone else having loaded the screen.
+require_once __DIR__ . '/CommandRefusal.php';
+
 /**
  * Plugin-owned provider contract: discovery, negotiation, and invocation of
  * executable semantics the engine deliberately does not own.
@@ -115,6 +122,89 @@ final class Providers {
      * declaration rather than by remembering to edit a string comparison.
      */
     public const NO_WORK_CHANNELS = ['always_on_write'];
+
+    /**
+     * Publication bounds for a SUCCESSFUL receipt's `before`/`after` values
+     * (DUO-3383). DUO-3314 hardened the FAILURE diagnostics; a successful
+     * receipt was the remaining path on which arbitrary provider-returned
+     * bytes reached `wp duo apply --format=json` (Apply::rebuild() copies
+     * them into its `actions` rows, Cli::apply() serializes the summary
+     * whole) with no secrecy and no size contract at all.
+     *
+     * The split this fixes is a trust-domain split, not a formatting one.
+     * `verified` is the provider's own value-level proof and stays exactly
+     * what it was; the VALUES it is proved from are third-party bytes, and
+     * everything downstream of invoke() is public output. So bounding happens
+     * here, at the one place provider bytes enter the engine, rather than at
+     * each renderer: there is then no code path on which a raw provider value
+     * is retained anywhere — not in Apply's receipts, not in the JSON
+     * summary, not in the human warning line (which carries duration only).
+     *
+     * The bounds are deliberately generous against what the shipped providers
+     * really return (the widest is elementor-css's per-file CSS inventory, a
+     * depth-3 map of `name => {bytes, mtime}`) and deliberately finite against
+     * what an arbitrary one could. Publication depth is 4 because that
+     * inventory is 3; the scan depth and node budget below are separate, much
+     * wider stack/time bounds on what the engine will WALK at all.
+     */
+    public const RECEIPT_MAX_DEPTH = 4;
+    public const RECEIPT_MAX_ENTRIES = 128;
+    public const RECEIPT_MAX_STRING_BYTES = 512;
+    public const RECEIPT_MAX_KEY_BYTES = 128;
+    public const RECEIPT_MAX_VALUE_BYTES = 8192;
+    public const RECEIPT_MAX_SCAN_DEPTH = 64;
+    public const RECEIPT_MAX_NODES = 65536;
+
+    /**
+     * The value-level redaction witness, and the property that makes bounding
+     * safe to do at all.
+     *
+     * A witness is `<duo:receipt-witness/v1:<reason>:sha256:<digest>>`, where
+     * the digest is a canonical, type-tagged hash of the RAW value it stands
+     * for. That is what keeps value-level verification intact while the
+     * plaintext never publishes: equal raw values always project to the same
+     * bytes and unequal ones never do (modulo sha256), so a reader of the
+     * PUBLISHED receipt can still decide `before === after` — the question
+     * DUO-3338 receipts exist to answer — without the engine handing it the
+     * secret, the control bytes, or the megabyte.
+     *
+     * The house convention is PlanExplanation::publicCoordinate()'s
+     * `sha256:<digest>` substitution; this adds the reason (a receipt is
+     * evidence, so "summarized, and why" is part of the evidence) and the
+     * bracketing prefix that makes the substitution unambiguous — a raw
+     * string already shaped like a witness is itself witnessed
+     * (`ambiguous`), so no published verbatim string can ever be mistaken for
+     * one.
+     */
+    public const RECEIPT_WITNESS_PREFIX = '<duo:receipt-witness/v1:';
+
+    /**
+     * Why a value was replaced. Closed, and engine-owned: every reason names
+     * one bound above, so a reason a manifest or a provider could influence
+     * cannot exist.
+     *
+     *   - `secret`     failed the shared public-output sensitivity screen
+     *                  (CommandRefusalException::containsSensitivePublicDetail(),
+     *                  which is Secrets::hard_match() plus the credentialed
+     *                  URI / query-secret / email / home-path shapes DUO-3345
+     *                  reviewed for exactly this surface).
+     *   - `control`    carries C0/DEL bytes — the injection half of the
+     *                  acceptance, told apart from `secret` because the screen
+     *                  above would flag it too and "why" would then be wrong.
+     *   - `binary`     is not valid UTF-8. Today this is also the only shape
+     *                  that could make Cli::apply()'s json_encode() return
+     *                  false and print an empty line where the summary should
+     *                  be, so it is a correctness fix as much as a secrecy one.
+     *   - `oversized`  a string past RECEIPT_MAX_STRING_BYTES / a key past
+     *                  RECEIPT_MAX_KEY_BYTES / a whole value whose bounded
+     *                  projection is still past RECEIPT_MAX_VALUE_BYTES.
+     *   - `deep`       a container nested past RECEIPT_MAX_DEPTH.
+     *   - `wide`       a container holding more than RECEIPT_MAX_ENTRIES.
+     *   - `ambiguous`  a raw string already shaped like a witness.
+     */
+    public const RECEIPT_WITNESS_REASONS = [
+        'ambiguous', 'binary', 'control', 'deep', 'oversized', 'secret', 'wide',
+    ];
 
     private const ID_PATTERN = '/^[a-z][a-z0-9-]{0,63}$/D';
     private const CAPABILITY_PATTERN = '/^[a-z0-9_]{1,64}$/D';
@@ -617,6 +707,12 @@ final class Providers {
      * @param array<string,mixed> $actionEntry one Policy::actions_for() row
      * @param array<string,mixed> $capabilityDecl the negotiated declaration
      * @param list<array{kind:string,id:int}> $entities batch for scope=entity
+     * The returned `before`/`after` are the PUBLISHED PROJECTION of what the
+     * provider observed, not its bytes — see bound_receipt() and the
+     * RECEIPT_* bounds. The provider's own value-level comparison already
+     * happened, against the raw values, inside its invoke(); nothing here
+     * compares them, so bounding cannot reach a verification verdict.
+     *
      * @param array<string,mixed> $context engine batch channels the caller
      *   assembled, keyed by channel name — exactly the declared
      *   CONTEXT_CHANNELS, no more and no fewer (see batch_payload()).
@@ -676,7 +772,185 @@ final class Providers {
                 . 'legitimately this large, or reduce the batch it is given'
             );
         }
-        return $receipt + ['duration_seconds' => round($elapsed, 3)];
+        // Last, so every refusal above keeps the precedence and the wording
+        // regress_provider_contract.php pins: a receipt that is malformed,
+        // unverified, or over budget is refused as such, and only a receipt
+        // that already passed all three is projected for publication.
+        return self::bound_receipt($receipt, $id, $capability) + ['duration_seconds' => round($elapsed, 3)];
+    }
+
+    /**
+     * Project one accepted receipt's `before`/`after` onto what may publish.
+     *
+     * Public because it is the contract, not an implementation detail: this
+     * is the whole of what `wp duo apply --format=json` is allowed to say
+     * about provider-observed values, and a suite proving that must be able
+     * to call it directly.
+     *
+     * Key order is preserved by assigning through the existing keys, so a
+     * receipt whose values were all already in bounds is byte-identical to
+     * what the pre-DUO-3383 engine returned.
+     *
+     * @param array{before:mixed, after:mixed, verified:true} $receipt
+     * @return array{before:mixed, after:mixed, verified:true}
+     */
+    public static function bound_receipt(array $receipt, string $id, string $capability): array {
+        foreach (['before', 'after'] as $field) {
+            $nodes = 0;
+            [$projection, $digest] = self::bound_receipt_value($receipt[$field], 1, $id, $capability, $nodes);
+            // The published byte count, measured on exactly the encoder
+            // Cli::apply() will use. A projection can still be large after
+            // per-string and per-container bounding — many small entries, all
+            // of them legal — so the whole value gets one final bound, and
+            // the witness stands for the RAW value rather than the
+            // projection, which is what keeps equality decidable.
+            if (strlen((string) json_encode($projection, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE))
+                > self::RECEIPT_MAX_VALUE_BYTES) {
+                $projection = self::receipt_witness('oversized', $digest);
+            }
+            $receipt[$field] = $projection;
+        }
+        return $receipt;
+    }
+
+    /**
+     * One value's projection and its canonical digest, in one walk.
+     *
+     * The digest is computed from the RAW value at every level, including the
+     * levels that do not publish — a `before` and an `after` differing only
+     * below RECEIPT_MAX_DEPTH must still project to different witnesses, or
+     * the summary would claim a repair changed nothing. It is type-tagged
+     * (serialize() of each scalar and of each key, folded through one
+     * streaming context per container) so no two distinct values share one,
+     * and streaming so a wide container costs no memory to digest.
+     *
+     * Walking a subtree the engine will not publish is deliberate for the
+     * same reason: the alternative — hashing an unwalked subtree wholesale —
+     * would serialize values this method has not yet proved are serializable.
+     *
+     * @param int $nodes by-reference budget, shared across the whole walk of
+     *   one field and reset for the other — `before` and `after` are each
+     *   independently bounded evidence, not two halves of one budget
+     * @return array{0:mixed, 1:string} projection, raw digest
+     */
+    private static function bound_receipt_value(
+        mixed $value,
+        int $depth,
+        string $id,
+        string $capability,
+        int &$nodes
+    ): array {
+        if (++$nodes > self::RECEIPT_MAX_NODES) {
+            throw self::unpublishable_receipt(
+                $id,
+                $capability,
+                'more than ' . self::RECEIPT_MAX_NODES . ' values in one field'
+            );
+        }
+        if (is_array($value)) {
+            if ($depth > self::RECEIPT_MAX_SCAN_DEPTH) {
+                throw self::unpublishable_receipt(
+                    $id,
+                    $capability,
+                    'nested deeper than ' . self::RECEIPT_MAX_SCAN_DEPTH
+                );
+            }
+            $context = hash_init('sha256');
+            hash_update($context, 'a:' . count($value) . ':');
+            $summarize = $depth > self::RECEIPT_MAX_DEPTH ? 'deep'
+                : (count($value) > self::RECEIPT_MAX_ENTRIES ? 'wide' : '');
+            $out = [];
+            foreach ($value as $key => $item) {
+                [$child, $childDigest] = self::bound_receipt_value($item, $depth + 1, $id, $capability, $nodes);
+                hash_update($context, serialize($key) . '=' . $childDigest . ';');
+                if ($summarize !== '') {
+                    continue;
+                }
+                $boundedKey = is_int($key)
+                    ? $key
+                    : self::bound_receipt_string((string) $key, self::RECEIPT_MAX_KEY_BYTES);
+                if (array_key_exists($boundedKey, $out)) {
+                    // Unreachable through the witness grammar (distinct keys
+                    // digest distinctly, and a witness-shaped key is itself
+                    // witnessed), so this is the structural proof of that
+                    // rather than a handled case: two keys collapsing into one
+                    // would silently drop half a receipt.
+                    throw self::unpublishable_receipt($id, $capability, 'keys that collide once bounded');
+                }
+                $out[$boundedKey] = $child;
+            }
+            $digest = hash_final($context);
+            return [$summarize === '' ? $out : self::receipt_witness($summarize, $digest), $digest];
+        }
+        if (is_float($value) && !is_finite($value)) {
+            // INF/NAN survive serialize() but not json_encode(), so a receipt
+            // carrying one publishes as an empty line rather than a summary.
+            throw self::unpublishable_receipt($id, $capability, 'a non-finite number');
+        }
+        if ($value !== null && !is_scalar($value)) {
+            // Objects and resources, the shape CommandRefusal.php already
+            // fails closed on for public payloads: their serialization can
+            // expose bytes an array walk never sees, so the engine will not
+            // summarize one either.
+            throw self::unpublishable_receipt($id, $capability, 'a value that is neither scalar nor array');
+        }
+        $digest = hash('sha256', serialize($value));
+        return [is_string($value)
+            ? self::bound_receipt_string($value, self::RECEIPT_MAX_STRING_BYTES, $digest)
+            : $value, $digest];
+    }
+
+    /**
+     * One string leaf or map key: verbatim, or the witness that stands for it.
+     *
+     * The order is the reason vocabulary's, not an accident. The sensitivity
+     * screen flags control bytes too, so the cheap structural tests run first
+     * and `secret` means what it says.
+     */
+    private static function bound_receipt_string(string $value, int $maxBytes, ?string $digest = null): string {
+        $witness = static fn(string $reason): string => self::receipt_witness(
+            $reason,
+            $digest ?? hash('sha256', serialize($value))
+        );
+        if (strlen($value) > $maxBytes) {
+            return $witness('oversized');
+        }
+        if (preg_match('//u', $value) !== 1) {
+            return $witness('binary');
+        }
+        if (preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+            return $witness('control');
+        }
+        if (str_starts_with($value, self::RECEIPT_WITNESS_PREFIX)) {
+            return $witness('ambiguous');
+        }
+        if (CommandRefusalException::containsSensitivePublicDetail($value)) {
+            return $witness('secret');
+        }
+        return $value;
+    }
+
+    private static function receipt_witness(string $reason, string $digest): string {
+        return self::RECEIPT_WITNESS_PREFIX . $reason . ':sha256:' . $digest . '>';
+    }
+
+    /**
+     * The fail-closed half. `$reason` is engine-authored and value-free by
+     * construction — a message quoting the offending value to explain why it
+     * cannot be published would publish it, and the offending value has no
+     * coordinate worth naming either, since a key path through a malformed
+     * receipt is provider bytes too.
+     */
+    private static function unpublishable_receipt(
+        string $id,
+        string $capability,
+        string $reason
+    ): \RuntimeException {
+        return new \RuntimeException(
+            "duo: provider '$id' capability '$capability' returned a receipt the engine cannot publish ($reason) — "
+            . 'before and after must be bounded arrays of scalars; summarize the observation in the provider '
+            . 'rather than returning raw state'
+        );
     }
 
     /**

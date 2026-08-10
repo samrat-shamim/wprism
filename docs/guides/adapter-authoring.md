@@ -208,6 +208,22 @@ refused — an exit code is not evidence that derived state was repaired. A
 successful native action surfaces in apply's output as
 `native action fired: <action> (verified)`.
 
+Your `before`/`after` are **public output** — they reach `wp duo apply
+--format=json` — so the engine publishes a bounded projection of them rather
+than your bytes. A string over 512 bytes, one carrying control bytes or invalid
+UTF-8, one matching the shared secret grammar, a map key breaking the same
+rules, a container nested past 4 levels or holding over 128 entries, and a
+whole value still over 8 KiB after all of that are each replaced by
+`<duo:receipt-witness/v1:<reason>:sha256:<digest>>`. The digest is taken over
+the raw value at every level, so **equal values still publish equal bytes and
+unequal ones still publish unequal bytes**: `before === after` stays decidable
+from the published receipt, which is the whole point of returning both. A
+receipt carrying an object, a resource, or a non-finite number is refused
+outright — the engine will not summarize what it cannot read. Nothing retains
+the raw values anywhere; if you want a specific fact to survive publication,
+summarize it yourself (a count, a hash, a short outcome string) instead of
+returning raw state and hoping it fits.
+
 An argument may be a scalar, a `list<string>`, or a `list<object>` — the last
 declaring its own closed `fields` vocabulary of `bool`/`int`/`string`, exactly
 one level deep, so a row is structured without becoming a free-form payload. An
