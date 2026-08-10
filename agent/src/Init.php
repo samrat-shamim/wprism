@@ -779,7 +779,7 @@ final class Init {
         }
         if (is_string($stage) && $present($stage)
             && !is_string($owned['code_stage_identity'] ?? null)) {
-            return 'the sealed attempt has a partial code staging root without a complete descriptor';
+            return 'the sealed attempt has a partial code staging tree without a complete descriptor';
         }
         if (is_string($stage) && $present($stage)) {
             $reason = $identityMismatch($stage, $owned['code_stage_identity'] ?? null, 'code staging root');

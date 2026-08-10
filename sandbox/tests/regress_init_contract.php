@@ -909,6 +909,16 @@ check(
         === 'the sealed attempt has a non-regular .gitignore boundary',
     'a non-regular owned-file boundary is still non-confirmable'
 );
+// DUO-3421: the proposal blocker and the recovery-time refusal describe the
+// SAME artifact, and the harness (like both pins above) greps the proposal's
+// words. The proposal said "partial code staging root" while every sibling
+// message, the recovery refusal it precedes, and every pin said "tree", so the
+// blocker fired correctly and named itself in words nothing else used.
+check(
+    substr_count($initCompensationSource, 'partial code staging tree without a complete descriptor') === 2
+        && !str_contains($initCompensationSource, 'partial code staging root'),
+    'the proposal blocker and the recovery refusal name the partial staging tree identically'
+);
 check(
     !str_contains($initCompensationSource, 'unbound site.duo.json')
         && !str_contains($initCompensationSource, 'unbound .gitignore')
