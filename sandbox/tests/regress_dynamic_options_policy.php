@@ -187,6 +187,179 @@ write_manifest($fixtureDir, 'bad_subkey_class', [
 expect_load_failure($fixtureDir, 'bad_subkey_class', 'dynamic_options.widgets.sub_keys.x');
 
 // ======================================================================
+echo "\n== DUO-3375: a top-level `class` on a dynamic_options declaration is a DEAD field, refused at load ==\n";
+
+// resolve_dynamic_option()/dynamic_option_rule_for_name() HARDWIRE the resolved
+// row's class to 'env' (proven above), so a manifest that writes a top-level
+// class used to LOAD and then be silently discarded — the operator's ownership
+// claim (e.g. class:authored) accepted and overridden with no signal. The fix
+// refuses it at load with an actionable dead-field message. Mutation anchor: if
+// the array_key_exists('class', $decl) guard in validate_dynamic_options() is
+// reverted, this manifest LOADS and resolve_dynamic_option() reports class=env
+// — the exact bug — and the checks below flip to FAIL.
+$msg = '';
+$threw = false;
+try {
+    write_manifest($fixtureDir, 'bad_toplevel_class_authored', [
+        'name' => 'bad_toplevel_class_authored', 'spec_version' => DUO_SPEC_VERSION,
+        'option_autoload' => 'preserve',
+        'dynamic_options' => ['widgets' => [
+            'prefix' => 'widgets_',
+            'resolver' => 'active_stylesheet',
+            'class' => 'authored', // the operator's ownership claim — never consumed
+            'sub_keys' => ['x' => ['class' => 'authored']],
+        ]],
+    ]);
+    Policy::load(null, ['core', 'bad_toplevel_class_authored']);
+} catch (\RuntimeException $e) {
+    $threw = true;
+    $msg = $e->getMessage();
+}
+check($threw, "a dynamic_options declaration carrying class:authored is REFUSED at load — never loaded-then-coerced-to-env (the DUO-3375 bug)");
+check(str_contains($msg, 'dynamic_options.widgets.class'), "the refusal names the exact dead field (got: $msg)");
+check(str_contains($msg, 'authored'), 'the refusal echoes the rejected value back to the operator');
+check(str_contains($msg, "'env'"), "the refusal names what the engine forces instead — 'env'");
+check(
+    str_contains($msg, 'discarded') || str_contains($msg, 'never consumed') || str_contains($msg, 'not consumed'),
+    'the refusal says the field is not consumed (dead-field diagnosis, not a shape typo)'
+);
+
+// ANY top-level class is refused — even 'env' (the value the engine forces) and
+// 'managed'. The field is dead regardless of value; declaring the "right" value
+// is still an unconsumed claim, so the schema is not quietly widened to it.
+foreach (['env', 'managed'] as $deadClass) {
+    write_manifest($fixtureDir, "bad_toplevel_class_$deadClass", [
+        'name' => "bad_toplevel_class_$deadClass", 'spec_version' => DUO_SPEC_VERSION,
+        'option_autoload' => 'preserve',
+        'dynamic_options' => ['widgets' => [
+            'prefix' => 'widgets_',
+            'resolver' => 'active_stylesheet',
+            'class' => $deadClass,
+            'sub_keys' => ['x' => ['class' => 'authored']],
+        ]],
+    ]);
+    expect_load_failure($fixtureDir, "bad_toplevel_class_$deadClass", 'dynamic_options.widgets.class');
+}
+
+// ======================================================================
+echo "\n== DUO-3375: the frozen-snapshot entry point reaches the SAME verdict (load/from_snapshot lockstep) ==\n";
+
+// Both Policy::load() and Policy::from_snapshot() call the identical
+// validate_dynamic_options(); this half proves the from_snapshot() call site
+// (Policy.php, the DUO-3318 lockstep line) is present. Mutation anchor: delete
+// the self::validate_dynamic_options() call inside from_snapshot() and the
+// refusal check below flips to FAIL while load() above still refuses — exactly
+// the DUO-3318 L1 divergence class.
+function frozen_snapshot(array $manifests): array {
+    return [
+        'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
+        'capabilities' => null,
+        'dispositions' => null,
+        'format' => 'duo-policy-snapshot/v4',
+        'manifests' => $manifests,
+        // A real snapshot has already been through Canon::decode(), so every
+        // object is a PHP array by the time from_snapshot() sees it.
+        'site' => [
+            'manifests' => array_map(static fn(array $m): string => (string) $m['name'], $manifests),
+            'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
+            'spec_version' => DUO_SPEC_VERSION,
+        ],
+    ];
+}
+
+$cleanCoreManifest = [
+    'name' => 'core',
+    'spec_version' => DUO_SPEC_VERSION,
+    'option_autoload' => 'preserve',
+    'dynamic_options' => ['theme_mods' => [
+        'prefix' => 'theme_mods_',
+        'resolver' => 'active_stylesheet',
+        'autoload' => 'preserve',
+        'sub_keys' => [
+            'background_color' => ['class' => 'authored'],
+            'custom_logo' => ['class' => 'authored', 'ref' => 'post'],
+            'sidebars_widgets' => ['class' => 'runtime'],
+        ],
+    ]],
+];
+$badCoreManifest = $cleanCoreManifest;
+$badCoreManifest['dynamic_options']['theme_mods']['class'] = 'authored';
+
+$frozenClean = Policy::from_snapshot(frozen_snapshot([$cleanCoreManifest]));
+check(
+    ($frozenClean->dynamic_options()['theme_mods']['prefix'] ?? null) === 'theme_mods_',
+    'a clean dynamic_options declaration loads through the frozen entry point too — the fix does not break the valid shape'
+);
+
+$frozenMsg = '';
+$frozenThrew = false;
+try {
+    Policy::from_snapshot(frozen_snapshot([$badCoreManifest]));
+} catch (\RuntimeException $e) {
+    $frozenThrew = true;
+    $frozenMsg = $e->getMessage();
+}
+check($frozenThrew, 'from_snapshot() ALSO refuses a top-level class — the two entry points reach the same verdict (DUO-3375 lockstep)');
+check(str_contains($frozenMsg, 'dynamic_options.theme_mods.class'), "from_snapshot()'s refusal names the dead field too (got: $frozenMsg)");
+
+// ======================================================================
+echo "\n== DUO-3375: a valid declaration's canonical bytes are UNCHANGED (schema not widened) ==\n";
+
+// $p is the clean 'core' fixture loaded at the top of this file. Its enumerated
+// declaration and its resolved row must serialize to these exact bytes: the fix
+// only ADDS a refusal for a top-level class and touches no valid path, so a
+// declaration with no top-level class must load byte-identically.
+$expectedEnumCanon = <<<JSON
+{
+    "autoload": "preserve",
+    "prefix": "theme_mods_",
+    "resolver": "active_stylesheet",
+    "sub_keys": {
+        "background_color": {
+            "class": "authored"
+        },
+        "custom_logo": {
+            "class": "authored",
+            "ref": "post"
+        },
+        "sidebars_widgets": {
+            "class": "runtime"
+        }
+    }
+}
+
+JSON;
+check(
+    \Duo\Canon::encode($p->dynamic_options()['theme_mods']) === $expectedEnumCanon,
+    'the enumerated valid declaration canonicalizes to its expected, unchanged bytes'
+);
+
+$expectedResolveCanon = <<<JSON
+{
+    "autoload": "preserve",
+    "class": "env",
+    "name": "theme_mods_storefront",
+    "sub_keys": {
+        "background_color": {
+            "class": "authored"
+        },
+        "custom_logo": {
+            "class": "authored",
+            "ref": "post"
+        },
+        "sidebars_widgets": {
+            "class": "runtime"
+        }
+    }
+}
+
+JSON;
+check(
+    \Duo\Canon::encode($p->resolve_dynamic_option('theme_mods', 'storefront')) === $expectedResolveCanon,
+    "the resolved row still canonicalizes with class=env and the declared sub_keys — unchanged bytes"
+);
+
+// ======================================================================
 echo "\n== validate_option_storage(): a dynamic_options entry with an authored sub_key still needs autoload ==\n";
 
 write_manifest($fixtureDir, 'bad_no_autoload', [
