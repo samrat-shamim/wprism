@@ -74,6 +74,76 @@ check(
     'exact-checkout refusal runs before temporary allocation or Docker pair inspection'
 );
 
+echo "\n== bound-input enumeration is locale-pinned (DUO-3361) ==\n";
+// bound_inputs is a JSON ARRAY, and cert_canonical() sorts object keys while
+// preserving list order -- so the enumeration's collation is load-bearing input
+// to bundle_digest and to the checked-in evidence.json attestation. Unpinned,
+// the digest is a function of the operator's locale rather than of the tree.
+// The behavioural leg runs the runner's OWN expression, lifted out of the
+// script text, so the assertion cannot drift away from the shipped pipeline.
+$enumStart = strpos($referenceRunner, 'BOUND_INPUTS=$({ git -C "$REPO_ROOT" ls-files');
+$enumTail = $enumStart === false ? false : strpos($referenceRunner, 'jq -s .)', $enumStart);
+$enumEnd = $enumTail === false ? false : strpos($referenceRunner, "\n", $enumTail);
+$enumeration = ($enumStart === false || $enumEnd === false)
+    ? ''
+    : substr($referenceRunner, $enumStart, $enumEnd - $enumStart);
+check($enumeration !== '', 'bound-input enumeration is locatable in the reference runner');
+check(
+    str_contains($enumeration, 'LC_ALL=C sort -u'),
+    'bound-input enumeration pins collation with LC_ALL=C sort -u'
+);
+check(
+    $enumeration !== '' && preg_match('/(?<!LC_ALL=C )\bsort\b/', $enumeration) !== 1,
+    'bound-input enumeration carries no unpinned sort stage'
+);
+
+$certRepoRoot = dirname(__DIR__, 2);
+$gitWorkTree = 0;
+exec('git -C ' . escapeshellarg($certRepoRoot) . ' rev-parse --is-inside-work-tree >/dev/null 2>&1', $ignored, $gitWorkTree);
+if ($enumeration === '' || $gitWorkTree !== 0) {
+    echo "skip: no git work tree here, so the two-locale behavioural leg cannot run\n";
+} else {
+    $probe = tempnam(sys_get_temp_dir(), 'duo_cert_enum_');
+    register_shutdown_function(fn() => @unlink($probe));
+    file_put_contents($probe, "set -euo pipefail\nREPO_ROOT=" . escapeshellarg($certRepoRoot) . "\n"
+        // drop only the JSON-encoding tail; the enumeration itself is verbatim
+        . preg_replace('/ \| jq -R \. \| jq -s \.\)$/', ')', $enumeration) . "\n"
+        . "printf '%s\\n' \"\$BOUND_INPUTS\"\n");
+    $enumerate = function (string $locale) use ($probe): array {
+        $lines = [];
+        $status = 0;
+        exec('LC_ALL=' . escapeshellarg($locale) . ' bash ' . escapeshellarg($probe) . ' 2>/dev/null', $lines, $status);
+        return $status === 0 ? $lines : [];
+    };
+    $inC = $enumerate('C');
+    check($inC !== [], 'the runner enumeration expression executes and names bound inputs');
+    $byteOrder = $inC;
+    sort($byteOrder, SORT_STRING);
+    check($inC === $byteOrder, 'the pinned enumeration emits paths in byte order');
+
+    $locales = [];
+    exec('locale -a 2>/dev/null', $locales);
+    $witness = 'en_US.UTF-8';
+    if (!in_array($witness, $locales, true) && !in_array('en_US.utf8', $locales, true)) {
+        echo "skip: host advertises no en_US.UTF-8, so no differing-collation witness is available\n";
+    } else {
+        $witness = in_array($witness, $locales, true) ? $witness : 'en_US.utf8';
+        // Say out loud whether the witness locale really collates differently
+        // here -- otherwise a host whose en_US.UTF-8 agrees with C would report
+        // a vacuous pass below, and the reader deserves to know which it is.
+        $colliding = escapeshellarg("DESIGN.md\nMakefile\nagent/duo.php\ncli/README.md\ncli/duo\n");
+        $underC = $underWitness = [];
+        exec('printf %s ' . $colliding . ' | LC_ALL=C sort', $underC);
+        exec('printf %s ' . $colliding . ' | LC_ALL=' . escapeshellarg($witness) . ' sort', $underWitness);
+        echo 'note: ' . $witness . ' collation of the documented colliding paths '
+            . ($underC === $underWitness ? 'agrees with' : 'differs from') . " C on this host\n";
+        check(
+            $enumerate($witness) === $inC,
+            "bound-input ordering is identical under C and $witness"
+        );
+    }
+}
+
 echo "\n== Contact Form 7 checker does not race Docker output against an early reader ==\n";
 $cf7Checker = (string) file_get_contents(__DIR__ . '/../conformance/checks/contact-form-7.sh');
 check(

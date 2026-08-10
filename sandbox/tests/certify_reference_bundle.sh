@@ -871,6 +871,21 @@ append_fragment "$WORK_ROOT/duo-init-golden-path.fragment.json" "$INIT_GOLDEN_LO
 
 assert_exact_source_unchanged
 say "materialize the content-addressed machine-readable bundle"
+# DUO-3361: the enumeration below MUST stay `LC_ALL=C sort -u`.
+#
+# bound_inputs is a JSON ARRAY, and the bundle's canonical encoding
+# (certification-bundle.php::cert_canonical) sorts object KEYS but preserves
+# list ORDER by construction -- so this sort's output order is load-bearing
+# input to bundle_digest, and from there to the checked-in attestation in
+# manifests/capabilities/evidence.json. Collation is a property of the
+# OPERATOR'S LOCALE, not of the tree: `sort` under en_US.UTF-8 orders
+# DESIGN.md and Makefile among the lowercase paths and puts cli/duo before
+# cli/README.md, where the C locale's byte order does neither. Two sweeps of a
+# byte-identical tree in two locales therefore produced two different digests
+# and an evidence refresh whose diff was almost entirely reordering (PR #141:
+# ~5 meaningful lines inflated to 89). Content and hashes were always right --
+# only the order was ambient. Pinning the locale makes the enumeration a
+# function of the tree alone.
 BOUND_INPUTS=$({ git -C "$REPO_ROOT" ls-files \
   agent cli manifests sandbox/bin sandbox/conformance \
   sandbox/tests/certify_reference_bundle.sh \
@@ -882,7 +897,7 @@ BOUND_INPUTS=$({ git -C "$REPO_ROOT" ls-files \
   scripts/capability-registry.php docs/compatibility-baseline.json \
   DESIGN.md spec/repo-format.md Makefile .github/workflows/conformance.yml; \
   printf '%s\n' manifests/dispositions.json; } \
-  | grep -v '^manifests/capabilities/' | sort -u | jq -R . | jq -s .)
+  | grep -v '^manifests/capabilities/' | LC_ALL=C sort -u | jq -R . | jq -s .)
 ARTIFACTS=$(jq '[to_entries[] as $slug | $slug.value | to_entries[] | {name:$slug.key,version:.key,url:.value.url,sha256:.value.sha256,role:.value.role}]' conformance/artifacts.lock.json)
 TESTS=$(printf '%s\n' "${TEST_FRAGMENTS[@]}" | jq -s .)
 CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
