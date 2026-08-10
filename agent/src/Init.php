@@ -1287,13 +1287,35 @@ final class Init {
             || Canon::encode(Canon::decode(Canon::read_file($siteFile))) !== Canon::encode($expectedConfig)) {
             throw new \RuntimeException('duo: committed init site.duo.json no longer matches the confirmed proposal');
         }
+        // DUO-3427: two quantities that are never equal were compared as if
+        // they were one. `proposal.code.source_revision` digests the LIVE
+        // SOURCE inventory (the target's own wp-content) and is verified
+        // against that source, correctly, in capture_code(); a compiled
+        // `code_revision` digests the REPOSITORY PAYLOAD. They are computed
+        // over different roots from different inputs — the payload
+        // deliberately excludes Duo's own control-plane loader, for one — so
+        // this refused every committed finalization on arithmetic alone, a
+        // second unconditional gate behind the site.duo.json one above.
+        //
+        // The payload is proved the way everything else in this subsystem is:
+        // against evidence the sealed journal carries. `code_identity` is the
+        // publication identity Duo recorded for the code root at `code-ready`
+        // (dev/ino plus content digest for every child), so it proves the
+        // payload is byte-for-byte the tree this attempt published; the
+        // completed_code_mismatch() check immediately below already proves
+        // that same payload is the one the committed transaction recorded in
+        // the ledger. Together those are the binding this line was reaching
+        // for. Nothing binds the payload to `source_revision`, because the
+        // product does not claim they are equal.
         $policy = Policy::load($repo);
         $compiled = RepositoryCompiler::compile($repo, $policy);
         $descriptor = $compiled->code_descriptor();
-        $expectedRevision = is_array($proposal) ? ($proposal['code']['source_revision'] ?? null) : null;
-        if (!is_array($descriptor) || !is_string($expectedRevision)
-            || !hash_equals($expectedRevision, (string) ($descriptor['code_revision'] ?? ''))) {
-            throw new \RuntimeException('duo: committed init code descriptor no longer matches the confirmed proposal');
+        $codeIdentity = ((array) ($attempt['owned'] ?? []))['code_identity'] ?? null;
+        $codeRoot = rtrim($repo, '/') . '/code';
+        if (!is_array($descriptor) || !is_string($codeIdentity)
+            || is_link($codeRoot) || !is_dir($codeRoot)
+            || !hash_equals($codeIdentity, self::directory_identity($codeRoot, 'code publication root'))) {
+            throw new \RuntimeException('duo: committed init code payload changed after Duo published it');
         }
         $codeMismatch = Code::completed_code_mismatch($compiled);
         if ($codeMismatch !== null) {

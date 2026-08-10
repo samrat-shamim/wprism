@@ -1019,6 +1019,29 @@ check(
         && !str_contains($initAuthoritySource, 'Canon::read_file($siteFile) !== Canon::encode($expectedConfig)'),
     'committed-init finalization proves site.duo.json byte-exactly through its journaled publication identity, and structurally against the confirmed proposal'
 );
+// DUO-3427: the second unconditional gate on the same path. The finalization
+// compared the compiled payload's `code_revision` to the proposal's
+// `source_revision` — a digest of the LIVE SOURCE inventory, verified against
+// that source in capture_code(), computed over a different root from different
+// inputs (the payload excludes Duo's own loader, which the live suite asserts
+// by name). They are never equal, so this refused every committed
+// finalization on arithmetic. The payload is now proved against the journaled
+// publication identity of the code root, beside the completed_code_mismatch()
+// check that binds the same payload to the committed ledger.
+check(
+    str_contains($initAuthoritySource, "\$codeIdentity = ((array) (\$attempt['owned'] ?? []))['code_identity'] ?? null;")
+        && str_contains($initAuthoritySource, "hash_equals(\$codeIdentity, self::directory_identity(\$codeRoot, 'code publication root'))")
+        && str_contains($initAuthoritySource, 'Code::completed_code_mismatch($compiled)')
+        && !str_contains($initAuthoritySource, "\$expectedRevision = is_array(\$proposal) ? (\$proposal['code']['source_revision'] ?? null) : null;"),
+    'committed-init finalization proves the code payload against its journaled publication identity, not against the live source digest'
+);
+// The source digest keeps its own, correct verification site: the confirmation
+// still refuses when the target's code changed between proposal and capture.
+check(
+    str_contains($initAuthoritySource, "if (!hash_equals((string) (\$code['source_revision'] ?? ''), \$revision)) {")
+        && str_contains($initAuthoritySource, 'duo: code changed after proposal review; rerun init and review the new digest'),
+    'the live source digest is still enforced where it belongs, against the source it describes'
+);
 
 // DUO-3427: a rolled-back init must leave ZERO Duo ledger rows — a non-pristine
 // ledger is `existing_duo_ledger`, so residue is the difference between a
