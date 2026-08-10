@@ -391,6 +391,12 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   `--format`, always print one canonical JSON document, and refuse human-only,
   so their refusal reads as an empty stdout with a non-zero exit.
 
+  Detect a refusal by the payload, not by the exit code: branch on the
+  top-level `format` field (or simply on stdout being a JSON *object* where
+  the command's success shape is an array). A non-zero exit is not by itself
+  a refusal — `lint` exits 1 with a findings **array** on a successful scan,
+  by design — and a zero exit is never a refusal.
+
 - **`duo scope <env> --roots=<selectors> [--contract]`** — resolves a
   target-independent closure from explicit live roots. The default remains
   the human/`duo-scope/v1` preview. `--contract` instead emits canonical,

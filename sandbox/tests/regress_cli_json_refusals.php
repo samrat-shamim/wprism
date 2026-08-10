@@ -771,6 +771,10 @@ namespace {
             "$command advertises --format=json and routes its refusals through the common envelope"
         );
     }
+    // Deliberately two-sided: a NEW --format=json command arriving without an
+    // envelope fails the per-command check above, and DROPPING an
+    // advertisement (or a handler) fails this count instead of silently
+    // shrinking the set the contract sentence claims is closed.
     check(count($advertised) === 21, 'every one of the 21 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
@@ -778,7 +782,6 @@ namespace {
     // that redacts every name.  A command silently falling back to it is the
     // regression this closes.
     $armed = new ReflectionMethod(\Duo\Cli::class, 'refusal_remediation');
-    $armed->setAccessible(true);
     foreach ([
         'promotion-begin', 'promotion-abort', 'env-set', 'orphans', 'verify-canonical',
         'journal-report', 'pending', 'coverage', 'classify', 'lint', 'capabilities',
@@ -789,6 +792,55 @@ namespace {
             "$command carries a reviewed remediation arm, not the self-contradicting default"
         );
     }
+
+    echo "\n== DUO-3399: none of the eleven inherits DUO-3398's publication branch ==\n";
+    // DUO-3398 (#178) added a middle branch to halt_json_failure(): a
+    // `duo: `-prefixed message that passes the sensitivity screen publishes
+    // VERBATIM as <command>_refused. Its fix-forward (#180) then made that an
+    // ALLOWLIST after refresh-export/scope inherited publication by accident,
+    // and its own docblock states the rule these checks enforce: "A command
+    // not on this list is redacted until someone audits it and adds it here
+    // WITH its suite pins; silently inheriting publication is how the
+    // DUO-3398 fix-forward incident happened."
+    //
+    // None of DUO-3399's eleven was part of that audit, so all eleven are
+    // absent from the allowlist and stay fully redacted. Nothing pinned that
+    // until now — these commands arrived after #180 was written, so adding
+    // one to the allowlist would have changed its public contract with no
+    // test objecting. Both halves are asserted: the membership itself, and a
+    // live value-free `duo: ` refusal per command, so the pin cannot pass
+    // just because a token pattern happened to trip the screen.
+    $publicRefusalCommands = (new ReflectionClass(\Duo\Cli::class))
+        ->getConstant('PUBLIC_REFUSAL_COMMANDS');
+    check(is_array($publicRefusalCommands), 'the publication allowlist is readable as a constant');
+    $duo3399Commands = [
+        'promotion-begin', 'promotion-abort', 'env-set', 'orphans', 'verify-canonical',
+        'journal-report', 'pending', 'coverage', 'classify', 'lint', 'capabilities',
+    ];
+    check(
+        array_values(array_intersect($duo3399Commands, (array) $publicRefusalCommands)) === [],
+        'no DUO-3399 command is on the publication allowlist'
+    );
+
+    // The live half, on the two commands this file already drives end to end.
+    // The message is deliberately value-free and correctly `duo: `-prefixed —
+    // exactly the shape that DOES publish for an allowlisted command — so the
+    // command's absence from the list is the only thing keeping it redacted.
+    foreach (['lint' => 'lint', 'capabilities' => 'capabilities'] as $method => $command) {
+        $valueFree = "duo: $command refused for a perfectly value-free reason";
+        \Duo\Policy::$failure = new RuntimeException($valueFree);
+        $unpublished = invoke_json(static fn() => $cli->$method([], ['repo' => '/fixture', 'format' => 'json']));
+        check(
+            ($unpublished['error'] ?? null) === str_replace('-', '_', $command) . '_failed',
+            "$command keeps the redacted _failed code for a value-free duo: refusal"
+        );
+        check(($unpublished['details_redacted'] ?? null) === true, "$command records redaction for a value-free duo: refusal");
+        check(
+            !str_contains((string) json_encode($unpublished), 'value-free reason'),
+            "$command publishes none of a value-free duo: refusal's prose"
+        );
+    }
+    \Duo\Policy::$failure = null;
 
     echo "\n== DUO-3399: gates behind the first one refuse through the same envelope ==\n";
     // The per-command loop above only ever reaches each command's FIRST gate.
@@ -818,6 +870,18 @@ namespace {
         'verify-canonical missing --compiled' => [
             static fn() => $cli->verify_canonical([], ['repo' => '/fixture', 'expected-artifact' => str_repeat('a', 64), 'format' => 'json']),
             '--compiled is required for verify-canonical',
+            null,
+        ],
+        // The deepest gate of the four, and the only one whose absence the
+        // three checks above cannot distinguish from a short-circuit.
+        'verify-canonical missing --policy-snapshot' => [
+            static fn() => $cli->verify_canonical([], [
+                'repo' => '/fixture',
+                'expected-artifact' => str_repeat('a', 64),
+                'compiled' => '/fixture/artifact.json',
+                'format' => 'json',
+            ]),
+            '--policy-snapshot is required for verify-canonical',
             null,
         ],
         'env-set missing --name' => [
@@ -936,14 +1000,29 @@ namespace {
             "capabilities $shape bytes are absent from machine output"
         );
     }
-    check(
-        str_contains((string) ($lint['remediation'] ?? ''), 'captured state tree'),
-        'lint unclassified refusal carries its reviewed remediation arm'
-    );
-    check(
-        str_contains((string) ($capabilities['remediation'] ?? ''), 'capability registry'),
-        'capabilities unclassified refusal carries its reviewed remediation arm'
-    );
+    // Drive a FRESH, explicitly sensitive refusal for the arm assertions
+    // rather than reading whichever record the loop above happened to leave
+    // behind. A trailing loop variable silently re-points if the shape list is
+    // reordered, and the reviewed arm is only the contractual answer on the
+    // REDACTED branch — so assert the redaction witness in the same breath,
+    // which is what makes this a check of the arm and not of a leftover.
+    foreach ([
+        'lint' => ['lint', 'captured state tree'],
+        'capabilities' => ['capabilities', 'capability registry'],
+    ] as $method => [$command, $armFragment]) {
+        \Duo\Policy::$failure = new RuntimeException("duo: $command refused at /Users/private-customer/site");
+        $armRecord = invoke_json(static fn() => $cli->$method([], ['repo' => '/fixture', 'format' => 'json']));
+        check(
+            ($armRecord['details_redacted'] ?? null) === true
+                && ($armRecord['error'] ?? null) === str_replace('-', '_', $command) . '_failed',
+            "$command arm assertion reads an explicitly redacted record"
+        );
+        check(
+            str_contains((string) ($armRecord['remediation'] ?? ''), $armFragment),
+            "$command unclassified refusal carries its reviewed remediation arm"
+        );
+    }
+    \Duo\Policy::$failure = null;
 
     // A typed refusal raised by one of these backends must still pass through
     // with its own reviewed code, not flatten to the unclassified one.
@@ -1281,6 +1360,37 @@ namespace {
     check($hostStatus['stdout'] === '', 'human status does not dump refusal JSON to stdout');
     check(str_contains($hostStatus['stderr'], '[plan_failed] plan refused'), 'human status renders the refusal code and message');
     check(!str_contains($hostStatus['stderr'], '"format"'), 'human status never dumps the raw JSON envelope');
+
+    // DUO-3399: `duo pending`'s human table is fed by fetch_pending(), which
+    // reads the agent's --format=json channel. Now that a pending refusal
+    // answers there with the envelope, its stderr-else-stdout fallback dumped
+    // raw JSON at the operator — the exact thing render_command_refusal_human()
+    // exists to prevent. Driven the same way cmd_status's case is: a fake wp on
+    // PATH that prints one envelope and exits 1.
+    $pendingRefusal = [
+        'format' => 'duo-command-refusal/v1',
+        'ok' => false,
+        'command' => 'pending',
+        'error' => 'pending_failed',
+        'reason_code' => 'pending_failed',
+        'message' => 'pending refused at an unclassified safety gate',
+        'remediation' => 'inspect the repository policy and provenance journal state, then correct the policy or ledger blocker before scanning the review queue again',
+        'details_redacted' => true,
+    ];
+    file_put_contents($fakeWp, "#!/bin/sh\nprintf '%s\\n' '" . json_encode($pendingRefusal, JSON_UNESCAPED_SLASHES) . "'\nexit 1\n");
+    chmod($fakeWp, 0700);
+    $hostPending = $runHost(['pending', 'status-fixture', '--envs-file=' . $registry], $tmp);
+    check($hostPending['status'] === 1, 'human pending preserves the refused agent exit');
+    check($hostPending['stdout'] === '', 'human pending does not dump refusal JSON to stdout');
+    check(
+        str_contains($hostPending['stderr'], '[pending_failed] pending refused'),
+        'human pending renders the refusal code and message'
+    );
+    check(!str_contains($hostPending['stderr'], '"format"'), 'human pending never dumps the raw JSON envelope');
+    check(
+        str_contains($hostPending['stderr'], 'remedy: inspect the repository policy'),
+        'human pending forwards the reviewed remediation as a remedy line'
+    );
     @unlink($registry);
     @unlink($fakeWp);
     @rmdir($tmp);
