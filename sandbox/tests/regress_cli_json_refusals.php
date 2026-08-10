@@ -80,6 +80,23 @@ namespace Duo {
             }
             return [];
         }
+
+        public static function verify_canonical($repo, array $options): array {
+            if (self::$verifyFailure !== null) {
+                throw self::$verifyFailure;
+            }
+            return [];
+        }
+
+        public static function set_env_option($repo, string $name, string $value): array {
+            if (self::$envFailure !== null) {
+                throw self::$envFailure;
+            }
+            return [];
+        }
+
+        public static ?\Throwable $verifyFailure = null;
+        public static ?\Throwable $envFailure = null;
     }
 
     final class Deploy {
@@ -121,6 +138,65 @@ namespace Duo {
         public static ?\Throwable $failure = null;
 
         public static function load($repo, ?array $pins = null, bool $capabilities = false): array {
+            if (self::$failure !== null) {
+                throw self::$failure;
+            }
+            return [];
+        }
+    }
+
+    /**
+     * DUO-3399: journal-report is the one newly enveloped command with no
+     * required argument at all, so its catch boundary can only be reached
+     * through its backend.  Everything else in this file's per-command loop
+     * refuses at a gate before any backend is touched.
+     */
+    final class Journal {
+        public static ?\Throwable $failure = null;
+
+        public static function report(array $names): array {
+            if (self::$failure !== null) {
+                throw self::$failure;
+            }
+            return [];
+        }
+    }
+
+    /**
+     * These three exist because PHP resolves a static callee BEFORE it
+     * evaluates that call's arguments: a `?? throw` gate written inside
+     * Pending::scan(...)/Coverage::report(...)/Orphans::run(...) never fires
+     * while the class or method is missing — the suite would instead see an
+     * unclassified Error and quietly agree that "some refusal happened".
+     * Stubbing them keeps each assertion about the gate it names.
+     */
+    final class Pending {
+        public static ?\Throwable $failure = null;
+
+        public static function scan($repo): array {
+            if (self::$failure !== null) {
+                throw self::$failure;
+            }
+            return [];
+        }
+    }
+
+    final class Coverage {
+        public const LARGE_LISTING_THRESHOLD = 20;
+        public static ?\Throwable $failure = null;
+
+        public static function report($repo): array {
+            if (self::$failure !== null) {
+                throw self::$failure;
+            }
+            return [];
+        }
+    }
+
+    final class Orphans {
+        public static ?\Throwable $failure = null;
+
+        public static function run($repo, string $table, array $options): array {
             if (self::$failure !== null) {
                 throw self::$failure;
             }
@@ -183,6 +259,24 @@ namespace {
         // machine caller with the same envelope every other command does.
         'refresh_export' => 'refresh-export',
         'scope' => 'scope',
+        // DUO-3399: the remaining eleven commands that advertise
+        // --format=json all caught \Throwable straight into WP_CLI::error(),
+        // and most gated their arguments outside the try as well, so a
+        // machine caller got human stderr and ZERO records.  With these the
+        // envelope set is closed: every --format=json command is here.
+        // journal-report is deliberately absent — it has no required
+        // argument, so it has no missing-argument refusal to assert; its
+        // backend refusal is exercised on its own below.
+        'promotion_begin' => 'promotion-begin',
+        'promotion_abort' => 'promotion-abort',
+        'env_set' => 'env-set',
+        'orphans' => 'orphans',
+        'verify_canonical' => 'verify-canonical',
+        'pending' => 'pending',
+        'coverage' => 'coverage',
+        'classify' => 'classify',
+        'lint' => 'lint',
+        'capabilities' => 'capabilities',
     ];
     foreach ($commands as $method => $command) {
         $payload = invoke_json(static fn() => $cli->$method([], ['format' => 'json']));
@@ -191,7 +285,14 @@ namespace {
         check(($payload['command'] ?? null) === $command, "$command refusal names the public command");
         check(($payload['error'] ?? null) === 'invalid_arguments', "$command refusal has a stable argument error code");
         check(($payload['reason_code'] ?? null) === $payload['error'], "$command refusal exposes the error as a finite reason code");
-        $missing = $command === 'explain' ? '<bucket>:<entity-key>' : '--repo';
+        // Each command's FIRST gate, in its own declaration order — the one a
+        // caller invoking with nothing actually hits.
+        $missing = match ($command) {
+            'explain' => '<bucket>:<entity-key>',
+            'orphans' => '<table>',
+            'promotion-begin', 'promotion-abort' => '--promotion-owner',
+            default => '--repo',
+        };
         check(($payload['message'] ?? null) === "$missing is required for $command", "$command refusal identifies the missing argument");
         check(is_string($payload['remediation'] ?? null) && $payload['remediation'] !== '', "$command refusal carries remediation");
     }
@@ -647,6 +748,305 @@ namespace {
     check(!str_contains((string) json_encode($contractScope, JSON_UNESCAPED_SLASHES), 'private-customer'), 'scope --contract JSON failure redacts operator bytes');
     \Duo\Policy::$failure = null;
 
+    echo "\n== DUO-3399: the envelope set is closed over every --format=json command ==\n";
+    // The contract sentence in spec/repo-format.md and cli/README.md stopped
+    // enumerating commands and now says "every command that advertises
+    // --format=json".  That is only true while it is structurally true, so
+    // assert it against the source rather than against a list this file would
+    // have to be remembered to update.
+    $cliSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Cli.php');
+    preg_match_all('/\/\*\*(.*?)\*\/\s*public function (\w+)\((.*?)\n    \}/s', $cliSource, $handlers, PREG_SET_ORDER);
+    check(count($handlers) >= 21, 'source scan found the product command handlers');
+    $advertised = [];
+    foreach ($handlers as [, $doc, $method, $body]) {
+        if (!str_contains($doc, '--format=<format>')) {
+            continue;
+        }
+        $command = preg_match('/@subcommand\s+(\S+)/', $doc, $sub) === 1
+            ? $sub[1]
+            : str_replace('_', '-', $method);
+        $advertised[] = $command;
+        check(
+            str_contains($body, "self::halt_json_failure(\$t, \$assoc, '$command')"),
+            "$command advertises --format=json and routes its refusals through the common envelope"
+        );
+    }
+    // Deliberately two-sided: a NEW --format=json command arriving without an
+    // envelope fails the per-command check above, and DROPPING an
+    // advertisement (or a handler) fails this count instead of silently
+    // shrinking the set the contract sentence claims is closed.
+    check(count($advertised) === 21, 'every one of the 21 --format=json commands was scanned (' . count($advertised) . ')');
+
+    // Each newly enveloped command got a reviewed remediation arm, because the
+    // default arm promises to "correct the named blocker" on exactly the path
+    // that redacts every name.  A command silently falling back to it is the
+    // regression this closes.
+    $armed = new ReflectionMethod(\Duo\Cli::class, 'refusal_remediation');
+    foreach ([
+        'promotion-begin', 'promotion-abort', 'env-set', 'orphans', 'verify-canonical',
+        'journal-report', 'pending', 'coverage', 'classify', 'lint', 'capabilities',
+    ] as $command) {
+        $arm = (string) $armed->invoke(null, $command);
+        check(
+            $arm !== "correct the named $command blocker, then retry the command" && $arm !== '',
+            "$command carries a reviewed remediation arm, not the self-contradicting default"
+        );
+    }
+
+    echo "\n== DUO-3399: none of the eleven inherits DUO-3398's publication branch ==\n";
+    // DUO-3398 (#178) added a middle branch to halt_json_failure(): a
+    // `duo: `-prefixed message that passes the sensitivity screen publishes
+    // VERBATIM as <command>_refused. Its fix-forward (#180) then made that an
+    // ALLOWLIST after refresh-export/scope inherited publication by accident,
+    // and its own docblock states the rule these checks enforce: "A command
+    // not on this list is redacted until someone audits it and adds it here
+    // WITH its suite pins; silently inheriting publication is how the
+    // DUO-3398 fix-forward incident happened."
+    //
+    // None of DUO-3399's eleven was part of that audit, so all eleven are
+    // absent from the allowlist and stay fully redacted. Nothing pinned that
+    // until now — these commands arrived after #180 was written, so adding
+    // one to the allowlist would have changed its public contract with no
+    // test objecting. Both halves are asserted: the membership itself, and a
+    // live value-free `duo: ` refusal per command, so the pin cannot pass
+    // just because a token pattern happened to trip the screen.
+    $publicRefusalCommands = (new ReflectionClass(\Duo\Cli::class))
+        ->getConstant('PUBLIC_REFUSAL_COMMANDS');
+    check(is_array($publicRefusalCommands), 'the publication allowlist is readable as a constant');
+    $duo3399Commands = [
+        'promotion-begin', 'promotion-abort', 'env-set', 'orphans', 'verify-canonical',
+        'journal-report', 'pending', 'coverage', 'classify', 'lint', 'capabilities',
+    ];
+    check(
+        array_values(array_intersect($duo3399Commands, (array) $publicRefusalCommands)) === [],
+        'no DUO-3399 command is on the publication allowlist'
+    );
+
+    // The live half, on the two commands this file already drives end to end.
+    // The message is deliberately value-free and correctly `duo: `-prefixed —
+    // exactly the shape that DOES publish for an allowlisted command — so the
+    // command's absence from the list is the only thing keeping it redacted.
+    foreach (['lint' => 'lint', 'capabilities' => 'capabilities'] as $method => $command) {
+        $valueFree = "duo: $command refused for a perfectly value-free reason";
+        \Duo\Policy::$failure = new RuntimeException($valueFree);
+        $unpublished = invoke_json(static fn() => $cli->$method([], ['repo' => '/fixture', 'format' => 'json']));
+        check(
+            ($unpublished['error'] ?? null) === str_replace('-', '_', $command) . '_failed',
+            "$command keeps the redacted _failed code for a value-free duo: refusal"
+        );
+        check(($unpublished['details_redacted'] ?? null) === true, "$command records redaction for a value-free duo: refusal");
+        check(
+            !str_contains((string) json_encode($unpublished), 'value-free reason'),
+            "$command publishes none of a value-free duo: refusal's prose"
+        );
+    }
+    \Duo\Policy::$failure = null;
+
+    echo "\n== DUO-3399: gates behind the first one refuse through the same envelope ==\n";
+    // The per-command loop above only ever reaches each command's FIRST gate.
+    // These are the ones behind it, including the two contradictory-argument
+    // gates that are not "missing" anything at all.
+    $laterGates = [
+        'orphans missing --repo behind its table selector' => [
+            static fn() => $cli->orphans(['wp_fixture'], ['format' => 'json']),
+            '--repo is required for orphans',
+            null,
+        ],
+        'promotion-begin missing --artifact-hash' => [
+            static fn() => $cli->promotion_begin([], ['promotion-owner' => 'owner-fixture', 'format' => 'json']),
+            '--artifact-hash is required for promotion-begin',
+            null,
+        ],
+        'promotion-abort missing --artifact-hash' => [
+            static fn() => $cli->promotion_abort([], ['promotion-owner' => 'owner-fixture', 'format' => 'json']),
+            '--artifact-hash is required for promotion-abort',
+            null,
+        ],
+        'verify-canonical missing --expected-artifact' => [
+            static fn() => $cli->verify_canonical([], ['repo' => '/fixture', 'format' => 'json']),
+            '--expected-artifact is required for verify-canonical',
+            null,
+        ],
+        'verify-canonical missing --compiled' => [
+            static fn() => $cli->verify_canonical([], ['repo' => '/fixture', 'expected-artifact' => str_repeat('a', 64), 'format' => 'json']),
+            '--compiled is required for verify-canonical',
+            null,
+        ],
+        // The deepest gate of the four, and the only one whose absence the
+        // three checks above cannot distinguish from a short-circuit.
+        'verify-canonical missing --policy-snapshot' => [
+            static fn() => $cli->verify_canonical([], [
+                'repo' => '/fixture',
+                'expected-artifact' => str_repeat('a', 64),
+                'compiled' => '/fixture/artifact.json',
+                'format' => 'json',
+            ]),
+            '--policy-snapshot is required for verify-canonical',
+            null,
+        ],
+        'env-set missing --name' => [
+            static fn() => $cli->env_set([], ['repo' => '/fixture', 'format' => 'json']),
+            '--name is required for env-set',
+            null,
+        ],
+        'env-set with both value sources' => [
+            static fn() => $cli->env_set([], ['repo' => '/fixture', 'name' => 'acme_key', 'value' => 'v', 'stdin' => true, 'format' => 'json']),
+            'env-set accepts exactly one value source',
+            '--value or --stdin',
+        ],
+        'env-set with neither value source' => [
+            static fn() => $cli->env_set([], ['repo' => '/fixture', 'name' => 'acme_key', 'format' => 'json']),
+            'env-set requires a value source',
+            '--value=<value> or --stdin',
+        ],
+        'classify missing --set' => [
+            static fn() => $cli->classify([], ['repo' => '/fixture', 'format' => 'json']),
+            '--set is required for classify',
+            'post_meta:foo=runtime',
+        ],
+        'capabilities with both selectors' => [
+            static fn() => $cli->capabilities([], ['all' => true, 'repo' => '/fixture', 'format' => 'json']),
+            'capabilities accepts either --all or --repo, not both',
+            'exactly one of --all or --repo',
+        ],
+    ];
+    foreach ($laterGates as $case => [$run, $expectedMessage, $remediationHint]) {
+        $gate = invoke_json($run);
+        check(($gate['format'] ?? null) === 'duo-command-refusal/v1', "$case names the versioned format");
+        check(($gate['error'] ?? null) === 'invalid_arguments', "$case has the stable argument error code");
+        check(($gate['message'] ?? null) === $expectedMessage, "$case states exactly which argument contract it refused");
+        if ($remediationHint !== null) {
+            check(
+                str_contains((string) ($gate['remediation'] ?? ''), $remediationHint),
+                "$case keeps its operator hint in machine remediation"
+            );
+        }
+    }
+    // capabilities' own missing-selector refusal must keep the --all escape in
+    // remediation, the way scope keeps --roots=all.
+    $capabilitiesMissing = invoke_json(static fn() => $cli->capabilities([], ['format' => 'json']));
+    check(
+        str_contains((string) ($capabilitiesMissing['remediation'] ?? ''), '--all'),
+        'capabilities missing --repo keeps the --all alternative in machine remediation'
+    );
+
+    echo "\n== DUO-3399: journal-report's only refusal path is its backend ==\n";
+    // No required argument means no argument gate, so this command's catch
+    // boundary is the whole of its machine contract.
+    \Duo\Journal::$failure = new RuntimeException('duo: journal report refused at /Users/private-customer/site with sk_live_1234567890JOURNALLEAK');
+    $journal = invoke_json(static fn() => $cli->journal_report([], ['format' => 'json']));
+    check(($journal['command'] ?? null) === 'journal-report', 'journal-report refusal names the public command');
+    check(
+        ($journal['error'] ?? null) === 'journal_report_failed' && ($journal['reason_code'] ?? null) === 'journal_report_failed',
+        'journal-report refusal has a stable unclassified reason code'
+    );
+    check(($journal['details_redacted'] ?? null) === true, 'journal-report refusal records an explicit redaction witness');
+    check(
+        str_contains((string) ($journal['remediation'] ?? ''), '--manifests'),
+        'journal-report refusal carries its reviewed remediation arm'
+    );
+    check(!str_contains((string) json_encode($journal), 'JOURNALLEAK'), 'journal-report refusal omits operator-only bytes');
+    // This command reads BOTH --json and --format=json on its success path, so
+    // both spellings must reach the same formatter on its refusal path too.
+    $journalBare = invoke_json(static fn() => $cli->journal_report([], ['json' => true]));
+    check(($journalBare['reason_code'] ?? null) === 'journal_report_failed', 'journal-report --json spelling reaches the common formatter');
+    check(!str_contains((string) json_encode($journalBare), 'JOURNALLEAK'), 'journal-report --json spelling redacts the same bytes');
+    \Duo\Journal::$failure = null;
+
+    echo "\n== DUO-3399: planted operator bytes stay out of a sample of the new machine paths ==\n";
+    // Deliberately a SAMPLE, not 4 shapes x 11 commands.  Redaction lives
+    // entirely in halt_json_failure()/containsSensitivePublicDetail(), which
+    // the shape matrix above already exercises exhaustively through capture
+    // and plan; per-command repetition would assert the same 260 lines of
+    // formatter over and over.  What is genuinely per-command is that the
+    // command reaches that formatter at all with its own reason code and its
+    // own reviewed arm, so two of the eleven carry the planted tokens: lint
+    // (whose refusal and whose findings-bearing success share exit 1) and
+    // capabilities (the external ratification surface a reviewer polls).
+    foreach ($productLeakShapes as $shape => $token) {
+        $lintOperator = "duo: lint refused reading the captured tree $token";
+        \Duo\Policy::$failure = new RuntimeException($lintOperator);
+        $lint = invoke_json(static fn() => $cli->lint([], ['repo' => '/fixture', 'format' => 'json']));
+        $lintBytes = (string) json_encode($lint, JSON_UNESCAPED_SLASHES);
+        check(($lint['format'] ?? null) === 'duo-command-refusal/v1', "lint $shape refusal names the versioned format");
+        check(($lint['command'] ?? null) === 'lint', "lint $shape refusal names the public command");
+        check(
+            ($lint['error'] ?? null) === 'lint_failed' && ($lint['reason_code'] ?? null) === 'lint_failed',
+            "lint $shape refusal has a stable unclassified reason code"
+        );
+        check(
+            ($lint['message'] ?? null) === 'lint refused at an unclassified safety gate',
+            "lint $shape refusal states only the constant safe message"
+        );
+        check(($lint['details_redacted'] ?? null) === true, "lint $shape refusal records an explicit redaction witness");
+        check(
+            !str_contains($lintBytes, $token) && !str_contains($lintBytes, $lintOperator),
+            "lint $shape bytes are absent from machine output"
+        );
+
+        $capabilitiesOperator = "duo: capability registry refused $token";
+        \Duo\Policy::$failure = new RuntimeException($capabilitiesOperator);
+        $capabilities = invoke_json(static fn() => $cli->capabilities([], ['repo' => '/fixture', 'format' => 'json']));
+        $capabilitiesBytes = (string) json_encode($capabilities, JSON_UNESCAPED_SLASHES);
+        check(($capabilities['format'] ?? null) === 'duo-command-refusal/v1', "capabilities $shape refusal names the versioned format");
+        check(($capabilities['command'] ?? null) === 'capabilities', "capabilities $shape refusal names the public command");
+        check(
+            ($capabilities['error'] ?? null) === 'capabilities_failed' && ($capabilities['reason_code'] ?? null) === 'capabilities_failed',
+            "capabilities $shape refusal has a stable unclassified reason code"
+        );
+        check(($capabilities['details_redacted'] ?? null) === true, "capabilities $shape refusal records an explicit redaction witness");
+        check(
+            !str_contains($capabilitiesBytes, $token) && !str_contains($capabilitiesBytes, $capabilitiesOperator),
+            "capabilities $shape bytes are absent from machine output"
+        );
+    }
+    // Drive a FRESH, explicitly sensitive refusal for the arm assertions
+    // rather than reading whichever record the loop above happened to leave
+    // behind. A trailing loop variable silently re-points if the shape list is
+    // reordered, and the reviewed arm is only the contractual answer on the
+    // REDACTED branch — so assert the redaction witness in the same breath,
+    // which is what makes this a check of the arm and not of a leftover.
+    foreach ([
+        'lint' => ['lint', 'captured state tree'],
+        'capabilities' => ['capabilities', 'capability registry'],
+    ] as $method => [$command, $armFragment]) {
+        \Duo\Policy::$failure = new RuntimeException("duo: $command refused at /Users/private-customer/site");
+        $armRecord = invoke_json(static fn() => $cli->$method([], ['repo' => '/fixture', 'format' => 'json']));
+        check(
+            ($armRecord['details_redacted'] ?? null) === true
+                && ($armRecord['error'] ?? null) === str_replace('-', '_', $command) . '_failed',
+            "$command arm assertion reads an explicitly redacted record"
+        );
+        check(
+            str_contains((string) ($armRecord['remediation'] ?? ''), $armFragment),
+            "$command unclassified refusal carries its reviewed remediation arm"
+        );
+    }
+    \Duo\Policy::$failure = null;
+
+    // A typed refusal raised by one of these backends must still pass through
+    // with its own reviewed code, not flatten to the unclassified one.
+    \Duo\Policy::$failure = new \Duo\CommandRefusalException(
+        'adapter_certification_missing',
+        'an adapter claims a capability with no named conformance evidence',
+        'certify the adapter bundle or drop the claim, then report capabilities again',
+        [[
+            'code' => 'adapter_certification_missing',
+            'surface' => 'options:acme_widget_color',
+            'message' => 'claimed capability has no reviewed evidence bundle',
+            'remediation' => 'certify the adapter bundle before claiming the capability',
+        ]],
+        'duo: /Users/private-customer/site adapter claims promote without evidence'
+    );
+    $typedCapabilities = invoke_json(static fn() => $cli->capabilities([], ['repo' => '/fixture', 'format' => 'json']));
+    check(($typedCapabilities['error'] ?? null) === 'adapter_certification_missing', 'typed capabilities refusal retains its reviewed reason code');
+    check(
+        ($typedCapabilities['diagnostics'][0]['surface'] ?? null) === 'options:acme_widget_color',
+        'typed capabilities refusal keeps its reviewed diagnostic'
+    );
+    check(!str_contains((string) json_encode($typedCapabilities), 'private-customer'), 'typed capabilities refusal omits operator-only evidence');
+    \Duo\Policy::$failure = null;
+
     echo "\n== serialization failure still emits exactly one valid JSON value ==\n";
     \Duo\Apply::$planFailure = new \Duo\RepositoryCompilationException([[
         'severity' => 'error',
@@ -737,11 +1137,124 @@ namespace {
             },
             '--roots required (or --roots=all for the whole revision)',
         ],
+        // DUO-3399: every gate moved into a try below became a typed refusal,
+        // and a typed refusal carries a SEPARATE operator message from its
+        // public one.  Human mode still prints the operator message, so these
+        // assert the pre-change prose byte for byte — sampled on lint and
+        // capabilities for the backend path, and exhaustive over the gates,
+        // because a gate's prose is the only place the change could silently
+        // reword an operator's evidence.
+        'lint backend refusal' => [
+            static function () use ($cli): void {
+                \Duo\Policy::$failure = new RuntimeException('duo: state dir not found: /Users/private-customer/site/state (nothing captured yet?)');
+                $cli->lint([], ['repo' => '/Users/private-customer/site']);
+            },
+            'duo: state dir not found: /Users/private-customer/site/state (nothing captured yet?)',
+        ],
+        'lint missing --repo' => [
+            static fn() => $cli->lint([], []),
+            '--repo required',
+        ],
+        'capabilities backend refusal' => [
+            static function () use ($cli): void {
+                \Duo\Policy::$failure = new RuntimeException('duo: /Users/private-customer/site has no generated capability registry');
+                $cli->capabilities([], ['repo' => '/Users/private-customer/site']);
+            },
+            'duo: /Users/private-customer/site has no generated capability registry',
+        ],
+        'capabilities missing --repo' => [
+            static fn() => $cli->capabilities([], []),
+            '--repo required unless --all is used',
+        ],
+        'capabilities with both selectors' => [
+            static fn() => $cli->capabilities([], ['all' => true, 'repo' => '/fixture']),
+            '--all and --repo are mutually exclusive',
+        ],
+        'promotion-begin missing --promotion-owner' => [
+            static fn() => $cli->promotion_begin([], []),
+            '--promotion-owner required',
+        ],
+        'promotion-begin missing --artifact-hash' => [
+            static fn() => $cli->promotion_begin([], ['promotion-owner' => 'owner-fixture']),
+            '--artifact-hash required',
+        ],
+        'promotion-abort missing --promotion-owner' => [
+            static fn() => $cli->promotion_abort([], []),
+            '--promotion-owner required',
+        ],
+        'promotion-abort missing --artifact-hash' => [
+            static fn() => $cli->promotion_abort([], ['promotion-owner' => 'owner-fixture']),
+            '--artifact-hash required',
+        ],
+        'env-set missing --repo' => [
+            static fn() => $cli->env_set([], []),
+            '--repo required',
+        ],
+        'env-set missing --name' => [
+            static fn() => $cli->env_set([], ['repo' => '/fixture']),
+            '--name required',
+        ],
+        'env-set with both value sources' => [
+            static fn() => $cli->env_set([], ['repo' => '/fixture', 'name' => 'acme_key', 'value' => 'v', 'stdin' => true]),
+            'pass exactly one of --value or --stdin, not both',
+        ],
+        'env-set with neither value source' => [
+            static fn() => $cli->env_set([], ['repo' => '/fixture', 'name' => 'acme_key']),
+            'one of --value=<value> or --stdin is required',
+        ],
+        'orphans missing <table>' => [
+            static fn() => $cli->orphans([], []),
+            '<table> required',
+        ],
+        'orphans missing --repo' => [
+            static fn() => $cli->orphans(['wp_fixture'], []),
+            '--repo required',
+        ],
+        'verify-canonical missing --repo' => [
+            static fn() => $cli->verify_canonical([], []),
+            '--repo required',
+        ],
+        'verify-canonical missing --expected-artifact' => [
+            static fn() => $cli->verify_canonical([], ['repo' => '/fixture']),
+            '--expected-artifact required',
+        ],
+        'verify-canonical missing --compiled' => [
+            static fn() => $cli->verify_canonical([], ['repo' => '/fixture', 'expected-artifact' => 'a']),
+            '--compiled required',
+        ],
+        'verify-canonical missing --policy-snapshot' => [
+            static fn() => $cli->verify_canonical([], ['repo' => '/fixture', 'expected-artifact' => 'a', 'compiled' => '/fixture/artifact.json']),
+            '--policy-snapshot required',
+        ],
+        'pending missing --repo' => [
+            static fn() => $cli->pending([], []),
+            '--repo required',
+        ],
+        'coverage missing --repo' => [
+            static fn() => $cli->coverage([], []),
+            '--repo required',
+        ],
+        'classify missing --repo' => [
+            static fn() => $cli->classify([], []),
+            '--repo required',
+        ],
+        'classify missing --set' => [
+            static fn() => $cli->classify([], ['repo' => '/fixture']),
+            '--set required, e.g. --set "post_meta:foo=runtime"',
+        ],
+        'journal-report backend refusal' => [
+            static function () use ($cli): void {
+                \Duo\Journal::$failure = new RuntimeException('duo: journal report refused — core manifest is not installed');
+                $cli->journal_report([], []);
+            },
+            'duo: journal report refused — core manifest is not installed',
+        ],
     ];
     foreach ($humanCases as $case => [$run, $expected]) {
         WP_CLI::reset();
         \Duo\RefreshExport::$failure = null;
         \Duo\Policy::$failure = null;
+        \Duo\Journal::$failure = null;
         try {
             $run();
             check(false, "human $case exits through WP_CLI::error");
@@ -755,6 +1268,7 @@ namespace {
     }
     \Duo\RefreshExport::$failure = null;
     \Duo\Policy::$failure = null;
+    \Duo\Journal::$failure = null;
 
     echo "\n== host preflight mirrors the same one-value contract ==\n";
     $tmp = sys_get_temp_dir() . '/duo-cli-json-refusal-' . bin2hex(random_bytes(6));
@@ -846,6 +1360,37 @@ namespace {
     check($hostStatus['stdout'] === '', 'human status does not dump refusal JSON to stdout');
     check(str_contains($hostStatus['stderr'], '[plan_failed] plan refused'), 'human status renders the refusal code and message');
     check(!str_contains($hostStatus['stderr'], '"format"'), 'human status never dumps the raw JSON envelope');
+
+    // DUO-3399: `duo pending`'s human table is fed by fetch_pending(), which
+    // reads the agent's --format=json channel. Now that a pending refusal
+    // answers there with the envelope, its stderr-else-stdout fallback dumped
+    // raw JSON at the operator — the exact thing render_command_refusal_human()
+    // exists to prevent. Driven the same way cmd_status's case is: a fake wp on
+    // PATH that prints one envelope and exits 1.
+    $pendingRefusal = [
+        'format' => 'duo-command-refusal/v1',
+        'ok' => false,
+        'command' => 'pending',
+        'error' => 'pending_failed',
+        'reason_code' => 'pending_failed',
+        'message' => 'pending refused at an unclassified safety gate',
+        'remediation' => 'inspect the repository policy and provenance journal state, then correct the policy or ledger blocker before scanning the review queue again',
+        'details_redacted' => true,
+    ];
+    file_put_contents($fakeWp, "#!/bin/sh\nprintf '%s\\n' '" . json_encode($pendingRefusal, JSON_UNESCAPED_SLASHES) . "'\nexit 1\n");
+    chmod($fakeWp, 0700);
+    $hostPending = $runHost(['pending', 'status-fixture', '--envs-file=' . $registry], $tmp);
+    check($hostPending['status'] === 1, 'human pending preserves the refused agent exit');
+    check($hostPending['stdout'] === '', 'human pending does not dump refusal JSON to stdout');
+    check(
+        str_contains($hostPending['stderr'], '[pending_failed] pending refused'),
+        'human pending renders the refusal code and message'
+    );
+    check(!str_contains($hostPending['stderr'], '"format"'), 'human pending never dumps the raw JSON envelope');
+    check(
+        str_contains($hostPending['stderr'], 'remedy: inspect the repository policy'),
+        'human pending forwards the reviewed remediation as a remedy line'
+    );
     @unlink($registry);
     @unlink($fakeWp);
     @rmdir($tmp);

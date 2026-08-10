@@ -348,10 +348,10 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   ```
 
   stdout/stderr stream live (not buffered/reformatted) and the exit code is
-  exactly the agent's exit code. When `--format=json` reaches the agent,
-  refusals from its primary compile/capture/plan/explain/apply/deploy/
-  refresh-export/scope path (including internal `code-stage` and
-  `code-finalize`) are one JSON record on stdout with non-zero exit:
+  exactly the agent's exit code. When `--format=json` reaches the agent, every
+  agent command that advertises `--format=json` answers with one JSON record on
+  stdout and a non-zero exit — the whole set, not an enumerated subset, so a
+  missing or contradictory argument is as machine-readable as a policy gate:
 
   ```json
   {
@@ -384,8 +384,18 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   The host uses the same envelope if environment or driver preflight refuses
   `capture`, `plan`, or `apply` before the agent can run. Integrations must
   branch on the finite `reason_code` (the compatibility `error` has the same
-  value), not parse prose. Other JSON-capable commands retain their existing
-  command-specific contracts; this is not an all-command envelope claim.
+  value), not parse prose. The claim is now closed rather than enumerated:
+  every command advertising `--format=json` refuses this way, so there is no
+  JSON-capable command left with a private refusal shape. `policy-to-manifest`
+  and `manifest-pin` are the deliberate non-members — they advertise no
+  `--format`, always print one canonical JSON document, and refuse human-only,
+  so their refusal reads as an empty stdout with a non-zero exit.
+
+  Detect a refusal by the payload, not by the exit code: branch on the
+  top-level `format` field (or simply on stdout being a JSON *object* where
+  the command's success shape is an array). A non-zero exit is not by itself
+  a refusal — `lint` exits 1 with a findings **array** on a successful scan,
+  by design — and a zero exit is never a refusal.
 
 - **`duo scope <env> --roots=<selectors> [--contract]`** — resolves a
   target-independent closure from explicit live roots. The default remains

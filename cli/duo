@@ -2441,9 +2441,19 @@ function fetch_pending(EnvironmentDriver $t): array {
     $r = $t->captureWp(['duo', 'pending', '--repo=' . $t->repoPath(), '--format=json']);
     if ($r['exit'] !== 0) {
         fwrite(STDERR, "duo: pending: failed to fetch the review queue for '{$t->name()}' (exit {$r['exit']})\n");
-        $msg = trim($r['stderr'] !== '' ? $r['stderr'] : $r['stdout']);
-        if ($msg !== '') {
-            fwrite(STDERR, $msg . "\n");
+        // DUO-3399: `duo pending --format=json` now answers a refusal with the
+        // common envelope on STDOUT, so the stderr-else-stdout fallback below
+        // would dump raw JSON at a human. Decode and render the public fields
+        // exactly as cmd_status() does; anything that is not a v1 envelope
+        // still falls through to the original passthrough.
+        $refusal = json_decode(trim($r['stdout']), true);
+        if (is_array($refusal) && ($refusal['format'] ?? null) === 'duo-command-refusal/v1') {
+            render_command_refusal_human($refusal);
+        } else {
+            $msg = trim($r['stderr'] !== '' ? $r['stderr'] : $r['stdout']);
+            if ($msg !== '') {
+                fwrite(STDERR, $msg . "\n");
+            }
         }
         return ['ok' => false, 'exit' => $r['exit'] !== 0 ? $r['exit'] : 1, 'items' => []];
     }
