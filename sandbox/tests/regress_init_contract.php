@@ -657,6 +657,38 @@ check(
     'live root suite covers missing, ancestor-link, symlink-swap, and ordinary-directory replacement boundaries'
 );
 
+// DUO-3428: `completed_within_fifteen_minutes` is exported into the reference
+// bundle as a CERTIFIED member of init_golden_assertions, and DUO-3336 states
+// it per init. It was implemented as a whole-suite stopwatch over a harness
+// that installs WooCommerce and drives ~20 injected-failure confirmations, so
+// the certified number described the harness and could only fail once the
+// suite went green end to end. Pinned as a shape, not a duration: the budget
+// is applied per timed init, the whole-suite stopwatch is informational and
+// carries no assertion, and the certified set cannot silently empty out.
+$suiteStopwatch = (bool) preg_match('/^SUITE_STARTED_AT=\$SECONDS$/m', $liveHarness);
+check(
+    $suiteStopwatch
+        && str_contains($liveHarness, 'time_golden_init() {')
+        && str_contains($liveHarness, 'INIT_BUDGET_SECONDS=900')
+        && str_contains($liveHarness, 'over the per-init fifteen-minute budget')
+        && str_contains($liveHarness, 'time_golden_init 0 "duo init Woo golden path"')
+        && !preg_match('/^STARTED_AT=\$SECONDS$/m', $liveHarness)
+        && !str_contains($liveHarness, 'golden path exceeded 15 minutes'),
+    'the certified fifteen-minute clock budgets each golden-path init on its own proposal-to-confirmation wall, not the whole suite'
+);
+check(
+    str_contains($liveHarness, 'SUITE_ELAPSED=$((SECONDS - SUITE_STARTED_AT))')
+        && str_contains($liveHarness, 'informational: whole suite took %ss')
+        && !preg_match('/\[ "\$SUITE_ELAPSED" -\w+ /', $liveHarness),
+    'the whole-suite wall is reported as informational operational data and no assertion rests on it'
+);
+check(
+    str_contains($liveHarness, 'INIT_TIMED_CASES_EXPECTED=1')
+        && str_contains($liveHarness, '[ "${#INIT_TIMINGS[@]}" -eq "$INIT_TIMED_CASES_EXPECTED" ]')
+        && str_contains($liveHarness, 'golden-path init(s), not the $INIT_TIMED_CASES_EXPECTED it certifies'),
+    'the per-init clock refuses a certified set that timed nothing, so the claim cannot go vacuous'
+);
+
 // DUO-3421. This leg and the live golden path (bundle legs 13-14) both run on
 // bundle-owing branches BY CONSTRUCTION, where the checked-in attestation is
 // expired and every certified claim therefore carries evidence_not_current. An
