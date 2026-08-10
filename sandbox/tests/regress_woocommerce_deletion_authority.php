@@ -450,6 +450,53 @@ try {
 check($broadLeadingZeroRejected,
     'shared resolver rejects leading-zero ids even when a legacy manifest regex is broad');
 
+// ---------------------------------------------------------------------------
+// DUO-3403 (PR #176 finding 5, site 1): Apply::count_guard_refs() copies an
+// option_name_ref_match_details() throw's getMessage() into a plan row's
+// `blocked` field, and `plan --format=json` publishes `blocked` on a machine
+// surface. option_name_ref_match_details() is a CLOSED, engine-authored
+// message set — every template embeds only a real option name plus manifest
+// names, never a path or a credential — so the message is KEPT verbatim (it is
+// reviewed vocabulary, and conformance's plan-JSON `.blocked` consumers read
+// guard reasons, not this throw text). This pin proves the closed set stays
+// closed: it enumerates every reachable throw and screens each through the
+// SAME secret/path authority the JSON refusal envelope uses
+// (CommandRefusalException::containsSensitivePublicDetail(), i.e.
+// Secrets::hard_match() plus the credential/path/home-dir shapes). A future
+// edit that splices a path- or credential-shaped byte into any template — or a
+// live option name reaching the throw that is not bounded by the anchored
+// authored regex — fails HERE instead of reaching stdout.
+$screenClean = static fn(string $m): bool =>
+    !\Duo\CommandRefusalException::containsSensitivePublicDetail(['message' => $m]);
+$optionRefThrows = [];
+$collectThrow = static function (callable $run) use (&$optionRefThrows): void {
+    try {
+        $run();
+    } catch (Throwable $e) {
+        $optionRefThrows[] = $e->getMessage();
+    }
+};
+// malformed_match namespace (embeds the real option name + declaring manifests)
+$collectThrow(fn() => $policy->option_name_ref_match_details('woocommerce_flat_rate_0003_settings'));
+// cross-kind ambiguity (embeds the option name + every conflicting manifest owner)
+$collectThrow(fn() => $overlapPolicy->option_name_ref_match_details($validOptionName));
+// same-kind ambiguity (embeds the option name + declaration-order owners)
+$collectThrow(fn() => $sameKindPolicy->option_name_ref_match_details($validOptionName));
+// invalid local id under a broad legacy regex (embeds the option name)
+$collectThrow(fn() => $legacyBroadPolicy->option_name_ref_match_details('woocommerce_flat_rate_0003_settings'));
+check(count($optionRefThrows) === 4,
+    'DUO-3403: every reachable option_name_ref_match_details() throw is enumerated for the plan-JSON closed-set pin');
+foreach ($optionRefThrows as $throwMessage) {
+    check($screenClean($throwMessage),
+        'DUO-3403: option_name_ref plan-`blocked` message is path/credential-free (' . $throwMessage . ')');
+}
+// Self-test: the screen this pin trusts MUST flag a path- and a credential-
+// shaped variant, or the pin above would pass vacuously.
+check(!$screenClean("duo: option '/Users/alice/.aws/credentials' matches a malformed option_name_refs namespace"),
+    'DUO-3403 self-test: a path-shaped option_name_ref message would be caught by this pin');
+check(!$screenClean("duo: option_name_refs owner leaked token sk_live_0123456789abcdef in its match"),
+    'DUO-3403 self-test: a credential-shaped option_name_ref message would be caught by this pin');
+
 $rows = Snapshot::row_tables($policy);
 $order = Snapshot::topo_order($rows);
 $position = array_flip($order);

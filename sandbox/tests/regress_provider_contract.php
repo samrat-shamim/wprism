@@ -1093,6 +1093,35 @@ $check(str_contains($problemsSource, "'provider_diagnosis_failed'")
 $check(substr_count($problemsSource, 'providers/') === 1
     && !str_contains($problemsSource, '<id>'),
     'while only the packaging branch names a providers/ path at all, and never as a literal <id> placeholder');
+
+// DUO-3403 (PR #176 finding 5, site 3): the generic branch's `found` field is
+// the ONE deliberately third-party-transparent string a problem row carries —
+// it publishes a message from code the engine does not own, on purpose, on the
+// `capabilities --format=json` surface. That transparency is kept, but a
+// third-party exception embedding a credential or an absolute path is now
+// floored by the same secret/path screen every deliberately public refusal
+// uses (mirror of Cli::publishable_refusal()'s DUO-3398 posture). Tested
+// directly because the branch is a backstop with no reachable trigger in this
+// fixture (asserted above); the floor is a named helper so it is unit-drivable.
+$check(str_contains($problemsSource, 'self::publishable_foreign_detail(get_class($t)'),
+    'DUO-3403: the generic diagnosis branch routes its third-party detail through the secret/path floor');
+$foreignFloor = new \ReflectionMethod(\Duo\Providers::class, 'publishable_foreign_detail');
+$foreignFloor->setAccessible(true);
+$cleanDetail = 'RuntimeException: duo_providers callback for adapter "acme" returned no identity';
+$check($foreignFloor->invoke(null, $cleanDetail) === $cleanDetail,
+    'DUO-3403: a clean third-party diagnosis message publishes verbatim — the intended transparency is preserved');
+$credentialLeak = 'RuntimeException: upstream rejected token sk_live_0123456789abcdef during identity()';
+$pathLeak = 'RuntimeException: could not read /Users/deployer/.aws/credentials during capabilities()';
+$redactedCredential = $foreignFloor->invoke(null, $credentialLeak);
+$redactedPath = $foreignFloor->invoke(null, $pathLeak);
+$check($redactedCredential !== $credentialLeak
+    && !\Duo\CommandRefusalException::containsSensitivePublicDetail($redactedCredential),
+    'DUO-3403: a credential-shaped third-party message is replaced by a bounded, secret-free placeholder');
+$check($redactedPath !== $pathLeak
+    && !\Duo\CommandRefusalException::containsSensitivePublicDetail($redactedPath),
+    'DUO-3403: an absolute-path-shaped third-party message is replaced by a bounded, secret-free placeholder');
+$check($redactedCredential === $redactedPath,
+    'DUO-3403: both trip to the same bounded placeholder, which carries no captured third-party bytes');
 $reset();
 
 // Apply::plan() is not offline-drivable (it loads policy, compiles the

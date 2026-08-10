@@ -352,6 +352,74 @@ tok_check(tok_has_finding($findings, 'taxonomy_object_keyspace_mismatch', 'terms
 tok_check(tok_has_finding($findings, 'taxonomy_object_keyspace_mismatch', 'relationships.duo_keyspace_post_links'), 'Lint flags a post-keyspace taxonomy in term relationships');
 tok_check(!tok_has_finding($findings, 'taxonomy_object_keyspace_mismatch', 'relationships.duo_keyspace_term_links'), 'Lint accepts correctly placed term-keyspace relationships');
 
+// ---------------------------------------------------------------------------
+// DUO-3403 (PR #176 finding 5, site 2): Lint::scan_taxonomy_relationship_
+// keyspaces() copies a Policy::taxonomy_object_keyspace() throw's getMessage()
+// into a `taxonomy_object_keyspace_invalid` finding note, and
+// `lint --format=json` publishes that note on a machine surface. The source is
+// engine-internal, and every message it can throw embeds only a taxonomy slug
+// plus manifest declaration sources — a CLOSED, reviewed set with no path or
+// credential — so the note is KEPT verbatim. This pin proves the set stays
+// closed: it screens the REAL finding note plus every reachable resolver throw
+// through the same secret/path authority the JSON refusal envelope uses
+// (CommandRefusalException::containsSensitivePublicDetail()).
+$koScreenClean = static fn(string $m): bool =>
+    !\Duo\CommandRefusalException::containsSensitivePublicDetail(['message' => $m]);
+
+// Reproduce the actual Lint wire value: a post referencing an ambiguously
+// declared taxonomy makes the resolver throw, which Lint captures verbatim
+// into a taxonomy_object_keyspace_invalid finding note.
+$invalidState = $tmp . '/state-invalid';
+mkdir($invalidState . '/posts/duo_keyspace_post', 0777, true);
+file_put_contents(
+    $invalidState . '/posts/duo_keyspace_post/00000000-0000-4000-8000-000000000009--ambiguous.md',
+    Canon::post_file([
+        'meta' => (object) [],
+        'terms' => (object) ['duo_keyspace_dynamic_term_links' => []],
+        'type' => 'duo_keyspace_post',
+    ], '')
+);
+$invalidFindings = Lint::scan_tree($invalidState, $overlappingPolicy);
+$invalidNote = null;
+foreach ($invalidFindings as $finding) {
+    if (($finding['class'] ?? null) === 'taxonomy_object_keyspace_invalid'
+        && ($finding['locator'] ?? null) === 'terms.duo_keyspace_dynamic_term_links') {
+        $invalidNote = (string) ($finding['note'] ?? '');
+        break;
+    }
+}
+tok_check($invalidNote !== null,
+    'DUO-3403: Lint emits a taxonomy_object_keyspace_invalid finding carrying the resolver throw as its note');
+tok_check($invalidNote !== null && $koScreenClean($invalidNote),
+    'DUO-3403: the taxonomy_object_keyspace_invalid finding note is path/credential-free on the lint JSON surface (' . (string) $invalidNote . ')');
+
+// Enumerate every taxonomy_object_keyspace() throw and screen each message.
+$koThrows = [];
+$collectKo = static function (callable $run) use (&$koThrows): void {
+    try {
+        $run();
+    } catch (Throwable $t) {
+        $koThrows[] = $t->getMessage();
+    }
+};
+$collectKo(fn() => $overlappingPolicy->taxonomy_object_keyspace('duo_keyspace_dynamic_term_links')); // pattern ambiguity — the Lint-reachable single-arg throw
+$collectKo(fn() => $policy->taxonomy_object_keyspace('duo_keyspace_undeclared_term_links', ['term'])); // undeclared runtime term
+$collectKo(fn() => $policy->taxonomy_object_keyspace('duo_keyspace_undeclared_mixed_links', ['duo_keyspace_post', 'term'])); // undeclared runtime mixed
+$collectKo(fn() => $policy->taxonomy_object_keyspace('duo_keyspace_post_links', ['term'])); // declaration/runtime contradiction
+$collectKo(fn() => $policy->taxonomy_object_keyspace('duo_keyspace_term_links', ['duo_keyspace_post', 'term'])); // mixed runtime registry
+tok_check(count($koThrows) === 5,
+    'DUO-3403: every taxonomy_object_keyspace() throw is enumerated for the lint-note closed-set pin');
+foreach ($koThrows as $koMessage) {
+    tok_check($koScreenClean($koMessage),
+        'DUO-3403: taxonomy_object_keyspace() throw is path/credential-free (' . $koMessage . ')');
+}
+// Self-test: the screen this pin trusts MUST flag a path- and a credential-
+// shaped variant, or the checks above would pass vacuously.
+tok_check(!$koScreenClean("duo: taxonomy '/home/deploy/site' matches ambiguous object_keyspace declarations"),
+    'DUO-3403 self-test: a path-shaped keyspace message would be caught by this pin');
+tok_check(!$koScreenClean("duo: taxonomy 'x' owner exposed sk_live_0123456789abcdef in its declaration"),
+    'DUO-3403 self-test: a credential-shaped keyspace message would be caught by this pin');
+
 $compilerReflection = new ReflectionClass(RepositoryCompiler::class);
 $compiler = $compilerReflection->newInstanceWithoutConstructor();
 $compilerPolicy = $compilerReflection->getProperty('policy');
