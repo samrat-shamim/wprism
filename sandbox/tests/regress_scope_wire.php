@@ -264,10 +264,12 @@ check_wire(
     $promote['exit'] !== 0
         && is_array($promoteEnvelope)
         && ($promoteEnvelope['reason_code'] ?? null) === 'invalid_arguments'
+        && ($promoteEnvelope['remediation'] ?? null)
+            === 'use --scope-contract only with capture, plan, apply, refresh, or rebase'
         && !is_file($argsPath)
         && !str_contains($promote['stdout'], $contractPath)
         && !str_contains($promote['stderr'], $contractPath),
-    'promote explicitly refuses scope contracts without contacting the target'
+    'promote refuses before target contact and names every supported scoped workflow'
 );
 
 $cliSource = (string) file_get_contents("$root/agent/src/Cli.php");

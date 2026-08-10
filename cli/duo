@@ -1785,7 +1785,7 @@ function reject_unsupported_scope_contract(string $verb, array $extra): ?int {
             $extra,
             'invalid_arguments',
             "$verb does not support scoped contracts",
-            'use --scope-contract only with capture, plan, or apply'
+            'use --scope-contract only with capture, plan, apply, refresh, or rebase'
         );
     }
     return null;
