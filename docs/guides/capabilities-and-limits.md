@@ -116,8 +116,10 @@ not. `duo status` forwards one normalized request and typed-refuses
 does not bind that full JSON plan. Its filtered human output itemizes only
 matching ordinary rows while retaining existing complete safety/global blocks;
 newly itemized path/title labels are one-line C0/DEL-safe. Text/path/title/
-value searching, raw-value views, cursors, and interactive diffs remain out of
-scope.
+value searching, raw-value views, cursors, and interactive plan-view or
+raw-value diffs remain out of scope. The separate host refresh workflow may
+offer only its bounded value-free/redacted field resolver; it is not a plan-view
+or literal-value interaction surface.
 
 ### `env` values in practice
 
@@ -420,14 +422,30 @@ rather than working around it.
   a selected live identity with normal deletion capability and no excluded
   inbound referrer. Per-option capture, code dependency movement, and scoped
   apply/promote/verification/rollback remain planned rather than inferred.
-- Field-level value diffs and an interactive conflict resolver — **Planned (DUO-3345)** — not yet shipped.
-  Plan rows already carry authored WordPress display names and a stable,
-  hash-only three-way conflict view with bounded safe choices. A separate
-  `duo explain` command now traces one current entity action through its
-  source shape, effective declarations, outbound reference edges, structured
-  actions, and verification under a strict no-repair/no-write observation
-  boundary. These slices shipped without serializing secret/PII-bearing
-  entity values; actual value diffs and interactive resolution remain.
+- Redacted field-level refresh diff and interactive conflict resolver —
+  **Bounded slice shipped (DUO-3345)**. `duo refresh --field-diff` emits a
+  separate immutable, display-only/value-free `duo-refresh-field-diff/v1`
+  projection for ordinary plan entries already classified as `conflicting`;
+  branch-only, production-only, and compatible rows remain in the ordinary
+  private plan/counts because they need no field choice. `duo rebase
+  --interactive` or a canonical local `--field-resolution` consumes the
+  matching value-free resolution. It never serializes literals, paths, stable
+  IDs, bodies, metadata, options, user records, or per-value hashes; it reports
+  only closed B/P/W presence/equality relations. `--interactive` is the narrow
+  TTY-only local reveal exception: a bounded C0/DEL-safe authored title/name or
+  path fallback may be shown beside its selector in memory only, never in a
+  machine artifact. The only field-eligible engine
+  surface is ordinary post scalar groups and term name/description/parent; body,
+  attachment/media, menus, sidebars, options, user-meta, typed tables,
+  tombstones, scoped plans, and opaque containers remain atomic. A live B
+  record with P or W absent refuses field mode before a selectable diff;
+  absence stays with the legacy whole-record resolver. Scalar relation evidence
+  is canonical but exact source token bytes stay private, and containers are
+  never normalized. Automatic `production-only` keeps production, while
+  `branch-only` and `compatible` keep branch bytes. It refuses incomplete or
+  skewed policy evidence and rechecks candidate policy after code replay. It is
+  not a general JSON object merge, a WordPress-target mutation path, or a
+  literal value-diff UI.
 - Provider-backed plugin and theme replacement — **Planned (DUO-3357)** — not yet shipped.
 - Theme upgrade, downgrade refusal, and removal as a managed lifecycle — **Planned (DUO-3358)** — not yet shipped.
 - Moving WordPress cron as managed state — **Planned (DUO-3359)** — not yet shipped.

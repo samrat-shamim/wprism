@@ -267,6 +267,7 @@ try {
     $base = RefreshPlan::compileGitWorktree($trees[0], $baseCommit, 'base');
     $branch = RefreshPlan::compileGitWorktree($trees[1], $branchCommit, 'branch');
     $productionCode = RefreshPlan::compileGitWorktree($trees[2], $productionCommit, 'production-code');
+    $candidatePolicy = RefreshPlan::fieldDiffPolicyFromGitWorktree($trees[1], $branchCommit, 'candidate');
     $scopedBranchBaseline = RefreshPlan::compileGitWorktree(
         $trees[1],
         $branchCommit,
@@ -294,6 +295,14 @@ try {
             $productionCode['repository']['artifact_hash'] ?? null,
         ])) === 3,
         'each ref has an independent compiled artifact rather than leaked PHP class state'
+    );
+    check_compile(
+        ($candidatePolicy['format'] ?? null) === 'duo-refresh-field-policy/v1'
+            && preg_match('/^[a-f0-9]{64}$/D', (string) ($candidatePolicy['projection_hash'] ?? '')) === 1
+            && ($candidatePolicy['derived_post_fields'] ?? null) === ($branch['field_diff_policy']['derived_post_fields'] ?? null)
+            && ($candidatePolicy['manifest_hash'] ?? null) === ($branch['field_diff_policy']['manifest_hash'] ?? null)
+            && ($candidatePolicy['state_site_hash'] ?? null) === ($branch['field_diff_policy']['state_site_hash'] ?? null),
+        'fresh field-diff-policy worker loads the candidate ref policy only and returns its closed hash-bound projection'
     );
 
     $orderedContent = $base['records']['00000000-0000-4000-8000-000000000002']['content'] ?? null;
@@ -344,6 +353,15 @@ try {
         check_compile(
             preg_match('/HEAD|checkout|declared commit|does not match/i', $e->getMessage()) === 1,
             'worker refuses a declared commit that differs from worktree HEAD'
+        );
+    }
+    try {
+        RefreshPlan::fieldDiffPolicyFromGitWorktree($trees[1], $baseCommit, 'candidate');
+        check_compile(false, 'field-diff-policy worker accepted a declared commit that differs from worktree HEAD');
+    } catch (Throwable $e) {
+        check_compile(
+            preg_match('/HEAD|checkout|declared commit|does not match/i', $e->getMessage()) === 1,
+            'field-diff-policy worker refuses a declared commit that differs from worktree HEAD'
         );
     }
 } catch (Throwable $e) {

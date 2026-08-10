@@ -22,6 +22,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-refresh-orchestration \
 	regress-refresh-compile-refs \
 	regress-refresh-rebase \
+	regress-refresh-field-diff \
 	regress-environment-driver \
 	regress-environment-lifecycle \
 	regress-environment-materializer \
@@ -828,6 +829,9 @@ regress-refresh-compile-refs:
 regress-refresh-rebase:
 	php sandbox/tests/regress_refresh_rebase.php
 
+regress-refresh-field-diff:
+	php sandbox/tests/regress_refresh_field_diff.php
+
 regress-rollback-authority:
 	php sandbox/tests/regress_rollback_authority.php
 
@@ -980,7 +984,7 @@ regress-offline-all: code-half-unit \
 	regress-dynamic-options-policy regress-taxonomy-object-keyspace regress-env-options-policy regress-export-manifest-roundtrip \
 	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
-	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch regress-refresh-orchestration regress-refresh-compile-refs regress-refresh-rebase \
+	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch regress-refresh-orchestration regress-refresh-compile-refs regress-refresh-rebase regress-refresh-field-diff \
 	regress-coverage-offline regress-bundle-coverage regress-rollback-authority \
 	regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-upload-bundle \
 	regress-effect-bundle regress-woocommerce-effect-contract regress-woocommerce-product-lookups \
@@ -990,7 +994,7 @@ regress-offline-all: code-half-unit \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract regress-conformance-asserts \
 	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve
-	@echo "regress-offline-all: 107 offline suites green"
+	@echo "regress-offline-all: 108 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

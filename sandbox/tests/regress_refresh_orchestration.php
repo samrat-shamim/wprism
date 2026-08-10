@@ -5,9 +5,16 @@ declare(strict_types=1);
  * and unresolved semantic rebase work never creates/replaces a source ref. */
 
 namespace Duo\Orchestrator {
+    require_once dirname(__DIR__, 2) . '/agent/src/Canon.php';
+    require_once dirname(__DIR__, 2) . '/cli/src/RefreshFieldDiff.php';
+
     final class RefreshPlan {
         public static array $roles = [];
         public static bool $resolved = false;
+        public static int $interactiveFieldCalls = 0;
+        public static bool $interactiveCancels = true;
+        public static int $validatedFieldDiffs = 0;
+        public static ?array $lastInteractivePresentation = null;
         public static function normalizeProductionSnapshot(array $export): array { return $export; }
         public static function compileGitWorktree(string $path, string $commit, string $role): array {
             self::$roles[] = $role;
@@ -31,6 +38,69 @@ namespace Duo\Orchestrator {
             return ['format' => 'duo-refresh-materialization/v1', 'plan_hash' => $plan['plan_hash'], 'resolved' => self::$resolved];
         }
         public static function validateMaterialization(array $receipt, array $plan, string $worktree): void {}
+        public static function fieldDiff(array $plan, array $base, array $productionCode, array $branch): array {
+            $diff = self::fieldDiffDocument((string) $plan['plan_hash']);
+            return [
+                'diff' => $diff,
+                'bundle' => [
+                    'algorithm' => 'duo-refresh-field-diff/v1',
+                    'diff' => $diff,
+                    'diff_hash' => $diff['diff_hash'],
+                    'plan_hash' => $plan['plan_hash'],
+                    'private_bundle_sentinel' => 'PRIVATE-BUNDLE-SENTINEL-OMITTED',
+                    'records' => [],
+                ],
+            ];
+        }
+        public static function validateFieldDiff(array $diff): array {
+            self::$validatedFieldDiffs++;
+            return RefreshFieldDiff::validateDiff($diff);
+        }
+        public static function readFieldResolution(array $diff, string $path): array { return []; }
+        /** Private-only host presentation seam; it is never part of the fake diff/bundle. */
+        public static function interactiveFieldPresentation(array $plan, array $diff, array $bundle): array {
+            return [
+                'auto' => [],
+                'diff_hash' => $diff['diff_hash'],
+                'format' => RefreshFieldDiff::PRESENTATION_FORMAT,
+                'labels' => [],
+                'plan_hash' => $diff['plan_hash'],
+            ];
+        }
+        public static function interactiveFieldResolution(array $diff, $in, $out, ?array $presentation = null): ?array {
+            self::$interactiveFieldCalls++;
+            self::$lastInteractivePresentation = $presentation;
+            return self::$interactiveCancels ? null : RefreshFieldDiff::resolution($diff, []);
+        }
+        public static function fieldDiffPolicyFromGitWorktree(string $path, string $commit, string $label): array { return []; }
+        public static function assertFieldCandidatePolicy(array $bundle, array $projection): void {}
+        public static function materializeFieldResolved(array $plan, string $worktree, array $bundle, array $resolution): array {
+            $receipt = self::materialize($plan, $worktree, $resolution);
+            $receipt['field_diff_hash'] = $bundle['diff_hash'];
+            $receipt['field_resolution_hash'] = $resolution['resolution_hash'];
+            return $receipt;
+        }
+        private static function fieldDiffDocument(string $planHash): array {
+            $diff = [
+                'algorithm' => 'duo-refresh-field-diff/v1',
+                'authority' => false,
+                'choices' => ['ours' => 'branch', 'theirs' => 'production'],
+                'format' => 'duo-refresh-field-diff/v1',
+                'plan_hash' => $planHash,
+                'policy_projection_hashes' => [
+                    'base' => hash('sha256', 'orchestration-base-policy'),
+                    'branch' => hash('sha256', 'orchestration-reviewed-policy'),
+                    'production' => hash('sha256', 'orchestration-reviewed-policy'),
+                ],
+                'production_snapshot_hash' => hash('sha256', 'production-snapshot'),
+                'redaction' => 'values_omitted',
+                'records' => [],
+                'roles' => ['base' => 'merge_base', 'ours' => 'branch', 'theirs' => 'production'],
+                'summary' => ['atomic_records' => 0, 'changes' => 0, 'conflicting_choices' => 0, 'records' => 0],
+            ];
+            $diff['diff_hash'] = hash('sha256', \Duo\Canon::encode($diff));
+            return $diff;
+        }
     }
 }
 
@@ -61,6 +131,7 @@ function remove_refresh(string $path): void {
 final class RefreshTransport extends Transport {
     public array $raw = [];
     public array $wp = [];
+    private ?string $exportAfterNextRead = null;
     public function __construct(private string $head, private string $export, private string $trackedStatus = '') {
         parent::__construct('production', ['repo_path' => '/target/repository']);
     }
@@ -73,8 +144,15 @@ final class RefreshTransport extends Transport {
     }
     public function captureWp(array $wpArgs): array {
         $this->wp[] = $wpArgs;
-        return ['exit' => 0, 'stdout' => $this->export . "\n", 'stderr' => ''];
+        $export = $this->export;
+        if ($this->exportAfterNextRead !== null) {
+            $this->export = $this->exportAfterNextRead;
+            $this->exportAfterNextRead = null;
+        }
+        return ['exit' => 0, 'stdout' => $export . "\n", 'stderr' => ''];
     }
+    public function replaceAfterNextExport(string $export): void { $this->exportAfterNextRead = $export; }
+    public function replaceCurrentExport(string $export): void { $this->export = $export; }
 }
 
 $tmp = sys_get_temp_dir() . '/duo-refresh-orchestration-' . bin2hex(random_bytes(6));
@@ -157,6 +235,36 @@ try {
     $runId = basename(dirname($runs[0]));
     Refresh::abort($runId);
     ok_refresh(!is_dir($repo . '/.git/duo-refresh/worktrees/' . $runId), 'abort removes only journal-owned candidate worktree');
+
+    $runsBeforeCancel = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
+    try {
+        Refresh::rebase($transport, 'production', 'refresh-interactive-cancel', ['strategy' => 'manual', 'records' => []], null, null, true);
+        fail_refresh('interactive cancellation unexpectedly returned');
+    } catch (\Duo\Orchestrator\RefreshFieldResolutionCancelled $e) {
+        ok_refresh(str_contains($e->getMessage(), 'no run record, candidate worktree, branch, or ref was created'),
+            'interactive cancellation explicitly guarantees no run record, candidate worktree, branch, or ref');
+    }
+    $cancelExists = []; $cancelStatus = 0;
+    exec('git -C ' . escapeshellarg($repo) . ' show-ref --verify --quiet refs/heads/refresh-interactive-cancel', $cancelExists, $cancelStatus);
+    ok_refresh($cancelStatus === 1 && \Duo\Orchestrator\RefreshPlan::$interactiveFieldCalls === 1,
+        'interactive EOF/cancel creates no requested ref after resolving the redacted diff');
+    $runsAfterCancel = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
+    $cancelWorktrees = glob($repo . '/.git/duo-refresh/worktrees/*') ?: [];
+    $cancelDiffs = glob($repo . '/.git/duo-refresh/field-diffs/*.json') ?: [];
+    ok_refresh($runsAfterCancel === $runsBeforeCancel && $cancelWorktrees === [] && $cancelDiffs !== [],
+        'interactive cancellation creates no run journal or candidate worktree while retaining only immutable planning/diff artifacts');
+
+    $readsBeforeExplicitManual = count($transport->wp);
+    try {
+        Refresh::rebase($transport, 'production', 'refresh-explicit-manual', ['strategy' => 'manual', 'records' => []], null, null, true, true);
+        fail_refresh('explicit legacy manual strategy was accepted with interactive resolution');
+    } catch (\RuntimeException $e) {
+        ok_refresh(str_contains($e->getMessage(), 'cannot be mixed'),
+            'field mode rejects an explicitly supplied legacy --strategy=manual');
+    }
+    ok_refresh(count($transport->wp) === $readsBeforeExplicitManual,
+        'explicit legacy strategy refusal happens before another target read or scratch candidate');
+
     \Duo\Orchestrator\RefreshPlan::$resolved = true;
     $complete = Refresh::rebase($transport, 'production', 'refresh-complete', ['strategy' => 'ours', 'records' => []]);
     ok_refresh(run_refresh(['git', 'rev-parse', 'refresh-complete'], $repo) === $complete['head'], 'strictly validated candidate is atomically published as a new ref');
@@ -165,6 +273,104 @@ try {
     $completeRun = json_decode((string) file_get_contents($repo . '/.git/duo-refresh/runs/' . $complete['run_id'] . '/run.json'), true, 512, JSON_THROW_ON_ERROR);
     ok_refresh(($completeRun['resolution']['strategy'] ?? null) === 'ours', 'declared conflict strategy is immutable run evidence');
     ok_refresh(!is_dir($repo . '/.git/duo-refresh/worktrees/' . $complete['run_id']), 'successful rebase cleans only its disposable worktree');
+
+    // The strict v1 public diff seam is exercised through a real host run:
+    // the private bundle is intentionally marked with a sentinel so neither
+    // the public diff journal nor the run evidence can accidentally serialize
+    // it. This fake materializer still drives code replay, state commit, and
+    // new-ref publication through Refresh itself.
+    \Duo\Orchestrator\RefreshPlan::$interactiveCancels = false;
+    $fieldComplete = Refresh::rebase(
+        $transport,
+        'production',
+        'refresh-field-complete',
+        ['strategy' => 'manual', 'records' => []],
+        null,
+        null,
+        true
+    );
+    $fieldRunPath = $repo . '/.git/duo-refresh/runs/' . $fieldComplete['run_id'] . '/run.json';
+    $fieldRunBytes = (string) file_get_contents($fieldRunPath);
+    $fieldRun = json_decode($fieldRunBytes, true, 512, JSON_THROW_ON_ERROR);
+    $fieldDiffPath = (string) ($fieldComplete['field_diff_path'] ?? '');
+    $fieldDiffBytes = $fieldDiffPath === '' ? '' : (string) file_get_contents($fieldDiffPath);
+    $fieldDiffJournal = $fieldDiffBytes === '' ? [] : json_decode($fieldDiffBytes, true, 512, JSON_THROW_ON_ERROR);
+    $fieldReceiptEvents = glob($repo . '/.git/duo-refresh/runs/' . $fieldComplete['run_id'] . '/events/*-state-materialized.json') ?: [];
+    $fieldReceipt = $fieldReceiptEvents === [] ? [] : json_decode((string) file_get_contents($fieldReceiptEvents[0]), true, 512, JSON_THROW_ON_ERROR);
+    ok_refresh(
+        run_refresh(['git', 'rev-parse', 'refresh-field-complete'], $repo) === $fieldComplete['head']
+            && \Duo\Orchestrator\RefreshPlan::$validatedFieldDiffs >= 2
+            && ($fieldRun['field_diff_hash'] ?? null) === ($fieldDiffJournal['diff_hash'] ?? null)
+            && ($fieldRun['field_resolution']['resolution_hash'] ?? null) === ($fieldReceipt['data']['receipt']['field_resolution_hash'] ?? null),
+        'successful field-mode host run validates the closed diff, publishes a new ref, and binds exact diff/resolution hashes'
+    );
+    ok_refresh(
+        !str_contains($fieldRunBytes, 'PRIVATE-BUNDLE-SENTINEL-OMITTED')
+            && !str_contains($fieldDiffBytes, 'PRIVATE-BUNDLE-SENTINEL-OMITTED')
+            && (\Duo\Orchestrator\RefreshPlan::$lastInteractivePresentation['format'] ?? null) === \Duo\Orchestrator\RefreshFieldDiff::PRESENTATION_FORMAT
+            && !str_contains($fieldRunBytes, \Duo\Orchestrator\RefreshFieldDiff::PRESENTATION_FORMAT)
+            && !str_contains($fieldDiffBytes, \Duo\Orchestrator\RefreshFieldDiff::PRESENTATION_FORMAT)
+            && !str_contains(\Duo\Canon::encode($fieldReceipt), \Duo\Orchestrator\RefreshFieldDiff::PRESENTATION_FORMAT),
+        'field run evidence, public diff, and receipt omit private bundle and interactive-presentation data'
+    );
+
+    // Choices are collected before Refresh's mandatory second production
+    // observation. A snapshot change must stop before a run journal,
+    // candidate worktree, or new ref exists.
+    $changedExport = json_decode($export, true, 512, JSON_THROW_ON_ERROR);
+    $changedExport['snapshot_hash'] = hash('sha256', 'production-snapshot-moved');
+    $transport->replaceAfterNextExport(json_encode($changedExport, JSON_THROW_ON_ERROR));
+    $runsBeforeStale = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
+    try {
+        Refresh::rebase(
+            $transport,
+            'production',
+            'refresh-field-stale-snapshot',
+            ['strategy' => 'manual', 'records' => []],
+            null,
+            null,
+            true
+        );
+        fail_refresh('field choices were applied after the production snapshot moved');
+    } catch (\RuntimeException $e) {
+        ok_refresh(str_contains($e->getMessage(), 'production changed after refresh planning'),
+            'second production observation refuses a stale field-resolution plan');
+    }
+    $staleExists = []; $staleStatus = 0;
+    exec('git -C ' . escapeshellarg($repo) . ' show-ref --verify --quiet refs/heads/refresh-field-stale-snapshot', $staleExists, $staleStatus);
+    $runsAfterStale = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
+    $staleWorktrees = glob($repo . '/.git/duo-refresh/worktrees/*') ?: [];
+    ok_refresh($staleStatus === 1 && $runsAfterStale === $runsBeforeStale && $staleWorktrees === [],
+        'stale field resolution creates no run record, candidate worktree, or requested ref');
+
+    // After a field-mode run starts, Refresh retains the candidate/recovery
+    // evidence but changes the public exception type to a run-id-only handle.
+    // The detailed planner reason remains in the private local event journal.
+    $transport->replaceCurrentExport($export);
+    \Duo\Orchestrator\RefreshPlan::$resolved = false;
+    $failedFieldRun = null;
+    try {
+        Refresh::rebase(
+            $transport,
+            'production',
+            'refresh-field-private-failure',
+            ['strategy' => 'manual', 'records' => []],
+            null,
+            null,
+            true
+        );
+        fail_refresh('post-run field failure unexpectedly returned');
+    } catch (\Duo\Orchestrator\RefreshFieldResolutionRunFailed $e) {
+        $failedFieldRun = $e->runId();
+        ok_refresh(!str_contains($e->getMessage(), 'semantic planner')
+            && preg_match('/^[0-9]{8}-[0-9]{6}-[a-f0-9]{24}$/D', $failedFieldRun) === 1,
+            'post-run field failure exposes only a safe run-id recovery handle');
+    }
+    $failedEvents = $failedFieldRun === null ? [] : glob($repo . '/.git/duo-refresh/runs/' . $failedFieldRun . '/events/*-stopped.json');
+    $failedEventBytes = $failedEvents === [] ? '' : (string) file_get_contents($failedEvents[0]);
+    ok_refresh(str_contains($failedEventBytes, 'semantic planner did not return a resolved'),
+        'post-run field failure preserves the detailed cause only in private event evidence');
+    if ($failedFieldRun !== null) Refresh::abort($failedFieldRun);
     chdir($old);
     echo "PASS: refresh host orchestration regression\n";
 } finally {

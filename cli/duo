@@ -76,6 +76,8 @@ use Duo\Orchestrator\Transport;
 use Duo\Orchestrator\Triage;
 use Duo\Orchestrator\ClassificationBatch;
 use Duo\Orchestrator\Refresh;
+use Duo\Orchestrator\RefreshFieldResolutionCancelled;
+use Duo\Orchestrator\RefreshFieldResolutionRunFailed;
 
 function duo_usage(): string {
     return <<<TXT
@@ -114,8 +116,8 @@ Usage:
   duo classify <env> [--accept-proposals|--export-batch=<path>|--apply-batch=<path>]
   duo coverage <env> [--format=json]
   duo scope    <env> --roots=<selectors> [--contract] [--format=json]
-  duo refresh <production-env> --production-ref=<ref> [--scope-contract=<local-path>]
-  duo rebase <production-env> --production-ref=<ref> --new-branch=<name> [--scope-contract=<local-path>]
+  duo refresh <production-env> --production-ref=<ref> [--scope-contract=<local-path>] [--field-diff --format=json]
+  duo rebase <production-env> --production-ref=<ref> --new-branch=<name> [--scope-contract=<local-path>] [--field-resolution=<local-path>|--interactive]
   duo rebase <production-env> --abort=<run-id>
   duo -h | --help
 
@@ -406,15 +408,28 @@ Verbs:
                           The host runs scope through the isolated control
                           plane, so plugins, themes, and normal MU code are
                           not booted before this target-independent compile.
-  refresh <production-env> --production-ref=<ref> [--scope-contract=<p>]
+  refresh <production-env> --production-ref=<ref> [--scope-contract=<p>] [--field-diff [--format=json]]
                           Fetches only a read-only live production export and
                           writes an immutable semantic B/P/W plan locally.
                           The Git ref verifies code topology; it never stands
                           in for production database truth.
-  rebase <production-env> --production-ref=<ref> --new-branch=<name> [--scope-contract=<p>]
+    --field-diff          Emit a value-free, non-authorizing field-level
+                          change diff. Optional --format=json emits that
+                          same closed diff object.
+  rebase <production-env> --production-ref=<ref> --new-branch=<name> [--scope-contract=<p>] [--field-resolution=<p>|--interactive]
                           Builds a candidate only in a disposable local
                           worktree, then atomically creates a new branch after
                           semantic state validation. Source branch is untouched.
+    --field-resolution=<p>
+                          Supplies canonical local automation input; it does
+                          not reveal source values.
+    --interactive         TTY-only local reveal: shows a bounded sanitized
+                          record label beside closed selectors, then chooses
+                          branch or production. Labels are never written to
+                          JSON, a diff, resolution, run, or receipt. It is
+                          mutually exclusive with legacy --strategy/--resolve;
+                          q or EOF cancels before candidate worktree, branch,
+                          or ref creation. Use --field-resolution for pipes.
   rebase <production-env> --abort=<run-id>
                           Removes only the retained candidate worktree named
                           by an interrupted run journal.
@@ -448,9 +463,9 @@ function duo_fail(string $message, int $code = 1) {
     exit($code);
 }
 
-/** The host only owns JSON refusals for the agent passthroughs it preflights. */
+/** The host owns JSON refusals for commands it preflights locally. */
 function wants_agent_refusal_json(string $verb, array $extra): bool {
-    if (!in_array($verb, ['capture', 'plan', 'explain', 'apply'], true)) {
+    if (!in_array($verb, ['capture', 'plan', 'explain', 'apply', 'refresh'], true)) {
         return false;
     }
     foreach ($extra as $index => $arg) {
@@ -926,16 +941,24 @@ function render_environment_receipt(array $receipt, bool $json, string $action):
     echo 'receipt=' . ($receipt['receipt_sha256'] ?? '?') . "\n";
 }
 
-/** @return array<string,string> */
+/** @return array<string,mixed> */
 function refresh_flags(array $extra, string $verb): array {
     $flags = [];
     foreach ($extra as $arg) {
+        if ($arg === '--field-diff') {
+            if (isset($flags[$arg])) throw new \RuntimeException("duo $verb: duplicate flag '$arg'");
+            $flags[$arg] = true;
+            continue;
+        }
         if (!str_starts_with($arg, '--') || !str_contains($arg, '=')) {
-            throw new \RuntimeException("duo $verb: expected only --name=value flags");
+            throw new \RuntimeException("duo $verb: expected --field-diff or --name=value flags");
         }
         [$name, $value] = explode('=', $arg, 2);
-        if (!in_array($name, ['--production-ref', '--new-branch', '--abort', '--scope-contract'], true) || $value === '') {
+        if (!in_array($name, ['--production-ref', '--scope-contract', '--format'], true) || $value === '') {
             throw new \RuntimeException("duo $verb: unsupported or empty flag '$arg'");
+        }
+        if ($name === '--format' && $value !== 'json') {
+            throw new \RuntimeException('duo refresh: --format must be json');
         }
         if (isset($flags[$name])) {
             throw new \RuntimeException("duo $verb: duplicate flag '$name'");
@@ -945,15 +968,21 @@ function refresh_flags(array $extra, string $verb): array {
     return $flags;
 }
 
-/** @return array{flags:array<string,string>,resolution:array{strategy:string,records:array<string,string>}} */
+/** @return array{flags:array<string,string>,resolution:array{strategy:string,records:array<string,string>},strategy_seen:bool,interactive:bool} */
 function rebase_flags(array $extra): array {
     $flags = [];
     $records = [];
     $strategy = 'manual';
     $strategySeen = false;
+    $interactive = false;
     foreach ($extra as $arg) {
+        if ($arg === '--interactive') {
+            if ($interactive) throw new \RuntimeException('duo rebase: duplicate --interactive');
+            $interactive = true;
+            continue;
+        }
         if (!str_starts_with($arg, '--') || !str_contains($arg, '=')) {
-            throw new \RuntimeException('duo rebase: expected only --name=value flags');
+            throw new \RuntimeException('duo rebase: expected --interactive or --name=value flags');
         }
         [$name, $value] = explode('=', $arg, 2);
         if ($value === '') {
@@ -980,25 +1009,150 @@ function rebase_flags(array $extra): array {
             $strategySeen = true;
             continue;
         }
-        if (!in_array($name, ['--production-ref', '--new-branch', '--abort', '--scope-contract'], true) || isset($flags[$name])) {
+        if (!in_array($name, ['--production-ref', '--new-branch', '--abort', '--scope-contract', '--field-resolution'], true) || isset($flags[$name])) {
             throw new \RuntimeException("duo rebase: unsupported or duplicate flag '$arg'");
         }
         $flags[$name] = $value;
     }
     ksort($records, SORT_STRING);
-    return ['flags' => $flags, 'resolution' => ['strategy' => $strategy, 'records' => $records]];
+    return [
+        'flags' => $flags,
+        'resolution' => ['strategy' => $strategy, 'records' => $records],
+        'strategy_seen' => $strategySeen,
+        'interactive' => $interactive,
+    ];
+}
+
+/** Explicit local reveal mode is never available through a pipe or redirect. */
+function interactive_tty_available(): bool {
+    if (function_exists('stream_isatty')) {
+        return @stream_isatty(STDIN) && @stream_isatty(STDOUT);
+    }
+    if (function_exists('posix_isatty')) {
+        return @posix_isatty(STDIN) && @posix_isatty(STDOUT);
+    }
+    return false;
+}
+
+/** Render only schema-closed, redacted field-diff relations for humans. */
+function render_refresh_field_diff(array $diff, ?string $path): void {
+    $entities = ['post', 'term', 'attachment', 'menu', 'sidebar', 'options', 'user_meta', 'typed_table', 'record'];
+    $fields = [
+        'post.author', 'post.comment_status', 'post.excerpt', 'post.menu_order', 'post.parent',
+        'post.ping_status', 'post.publication', 'post.title', 'post.modification',
+        'term.description', 'term.name', 'term.parent', 'record',
+    ];
+    $categories = ['unchanged', 'production-only', 'branch-only', 'compatible', 'conflicting'];
+    $states = ['present', 'tombstone', 'absent'];
+    $comparisons = ['same', 'different'];
+    $reasons = [
+        'eligible_engine_fields', 'scoped_record', 'production_omitted', 'absence_or_tombstone',
+        'option_or_state_witness', 'opaque_record_type', 'routing_changed', 'unsupported_document_shape',
+        'attachment_media', 'document_structure_changed', 'opaque_or_structural_field',
+        'derived_field_policy', 'opaque_container', 'body_changed',
+    ];
+    $selector = static function (mixed $value): string {
+        return is_string($value) && preg_match('/^[a-f0-9]{64}$/', $value) === 1
+            ? $value
+            : '?';
+    };
+    $hash = static function (mixed $value): string {
+        return is_string($value) && preg_match('/^[a-f0-9]{64}$/', $value) === 1 ? $value : '?';
+    };
+    $closed = static function (mixed $value, array $allowed, string $fallback): string {
+        return is_string($value) && in_array($value, $allowed, true) ? $value : $fallback;
+    };
+    $relation = static function (mixed $value) use ($closed, $states, $comparisons): string {
+        if (!is_array($value)) return 'B=? P=? W=? W/B=? P/B=? W/P=?';
+        return 'B=' . $closed($value['base'] ?? null, $states, '?')
+            . ' P=' . $closed($value['production'] ?? null, $states, '?')
+            . ' W=' . $closed($value['branch'] ?? null, $states, '?')
+            . ' W/B=' . $closed($value['branch_vs_base'] ?? null, $comparisons, '?')
+            . ' P/B=' . $closed($value['production_vs_base'] ?? null, $comparisons, '?')
+            . ' W/P=' . $closed($value['branch_vs_production'] ?? null, $comparisons, '?');
+    };
+
+    // The immutable journal path is operator-local data, not part of this
+    // value-free display contract. Omit it rather than risk terminal control
+    // bytes in a header; the full content hash remains the lookup handle.
+    unset($path);
+    echo "refresh field diff\n";
+    echo "values omitted; display-only/non-authorizing; ours=branch, theirs=production\n";
+    echo 'diff_hash=' . $hash($diff['diff_hash'] ?? null) . "\n";
+    foreach ((array) ($diff['records'] ?? []) as $record) {
+        if (!is_array($record)) continue;
+        $entity = $closed($record['entity'] ?? null, $entities, 'record');
+        $reason = $closed($record['reason'] ?? null, $reasons, 'opaque_record_type');
+        echo $entity . ' ' . $selector($record['record_selector_sha256'] ?? null) . ': ' . $reason . "\n";
+        foreach ((array) ($record['changes'] ?? []) as $change) {
+            if (!is_array($change)) continue;
+            $field = $closed($change['field'] ?? null, $fields, 'record');
+            $category = $closed($change['category'] ?? null, $categories, 'conflicting');
+            $scope = ($change['scope'] ?? null) === 'field' ? 'field' : 'record';
+            $changeReason = $closed($change['reason'] ?? $reason, $reasons, $reason);
+            echo '  ' . $field . ' ' . $category . ' ' . $scope . ' ' . $changeReason
+                . ' ' . $relation($change['relation'] ?? null) . "\n";
+        }
+    }
+}
+
+/** @return array{reason:string,message:string,remediation:string} */
+function refresh_field_diff_refusal(string $reason): array {
+    return match ($reason) {
+        'scoped_unsupported' => [
+            'reason' => 'scoped_unsupported',
+            'message' => 'the redacted field-level change diff is unavailable for scoped refresh',
+            'remediation' => 'use the legacy whole-record resolver for this scope, then retry without --field-diff',
+        ],
+        'field_level_unavailable' => [
+            'reason' => 'field_level_unavailable',
+            'message' => 'the redacted field-level change diff is unavailable for this refresh plan',
+            'remediation' => 'verify the production target is reachable, clean, at --production-ref, and supports refresh-export; then regenerate the matching redacted field diff, align policy evidence, or use the legacy whole-record resolver',
+        ],
+        default => [
+            'reason' => 'invalid_arguments',
+            'message' => 'refresh arguments are invalid for redacted field-level change output',
+            'remediation' => 'supply --production-ref and --field-diff; use --format=json only with --field-diff',
+        ],
+    };
 }
 
 function cmd_refresh(EnvironmentDriver $t, array $extra): int {
+    $json = wants_agent_refusal_json('refresh', $extra);
+    $fieldDiff = count(array_filter($extra, static fn(string $arg): bool =>
+        $arg === '--field-diff' || str_starts_with($arg, '--field-diff='))) > 0;
+    $refusal = refresh_field_diff_refusal('invalid_arguments');
     try {
         $flags = refresh_flags($extra, 'refresh');
-        if (!isset($flags['--production-ref']) || count($flags) !== (isset($flags['--scope-contract']) ? 2 : 1)) {
-            throw new \RuntimeException('duo refresh requires --production-ref=<ref> and optional --scope-contract=<local-path>');
+        $fieldDiff = ($flags['--field-diff'] ?? false) === true;
+        $json = ($flags['--format'] ?? null) === 'json';
+        if (!isset($flags['--production-ref'])
+            || array_diff(array_keys($flags), ['--production-ref', '--scope-contract', '--field-diff', '--format']) !== []
+            || ($json && !$fieldDiff)) {
+            throw new \RuntimeException('duo refresh requires --production-ref=<ref>, optional --scope-contract=<local-path>, and --field-diff with optional --format=json');
+        }
+        if ($fieldDiff && isset($flags['--scope-contract'])) {
+            $refusal = refresh_field_diff_refusal('scoped_unsupported');
+            throw new \RuntimeException('field-level diff is unavailable for scoped refresh; use the legacy whole-record resolver');
+        }
+        if ($fieldDiff) {
+            $refusal = refresh_field_diff_refusal('field_level_unavailable');
         }
         $scope = isset($flags['--scope-contract'])
             ? read_scope_contract_input($flags['--scope-contract'])['contract']
             : null;
-        $result = Refresh::refresh($t, $flags['--production-ref'], $scope);
+        $result = Refresh::refresh($t, $flags['--production-ref'], $scope, $fieldDiff);
+        if ($fieldDiff) {
+            if (!is_array($result['field_diff'] ?? null)) {
+                throw new \RuntimeException('field-level resolution is unavailable for this refresh plan');
+            }
+            if ($json) {
+                echo \Duo\Canon::encode($result['field_diff']);
+                return 0;
+            }
+            render_refresh_field_diff($result['field_diff'], $result['field_diff_path'] ?? null);
+            return 0;
+        }
         echo 'refresh plan: ' . $result['plan_path'] . "\n";
         echo 'base=' . ($result['context']['base_commit'] ?? '?')
             . ' production=' . ($result['context']['production_commit'] ?? '?')
@@ -1021,26 +1175,84 @@ function cmd_refresh(EnvironmentDriver $t, array $extra): int {
         }
         return 0;
     } catch (\Throwable $e) {
+        if ($json) {
+            return render_agent_refusal_json(
+                'refresh',
+                $refusal['reason'],
+                $refusal['message'],
+                $refusal['remediation']
+            );
+        }
+        if ($fieldDiff) {
+            fwrite(STDERR, 'duo: refresh: ' . $refusal['message'] . "\n");
+            fwrite(STDERR, 'duo: refresh: remedy: ' . $refusal['remediation'] . "\n");
+            return 1;
+        }
         fwrite(STDERR, 'duo: refresh: ' . $e->getMessage() . "\n");
         return 1;
     }
 }
 
 function cmd_rebase(EnvironmentDriver $t, array $extra): int {
+    $fieldMode = count(array_filter($extra, static fn(string $arg): bool =>
+        $arg === '--interactive' || str_starts_with($arg, '--interactive=')
+        || str_starts_with($arg, '--field-resolution'))) > 0;
+    $fieldFailure = [
+        'message' => 'redacted field-level resolution is unavailable or stale for this refresh plan',
+        'remediation' => 'verify the production target is clean and at --production-ref, then regenerate the matching redacted field diff and resolution; if field evidence remains unsupported, use the legacy whole-record resolver',
+    ];
+    if ($fieldMode && count(array_filter($extra, static fn(string $arg): bool => str_starts_with($arg, '--abort='))) > 0) {
+        $fieldFailure = [
+            'message' => 'refresh rebase abort accepts no field-resolution or interactive flags',
+            'remediation' => 'retry --abort=<run-id> alone, without a field-resolution input',
+        ];
+    }
     try {
         $parsed = rebase_flags($extra);
         $flags = $parsed['flags'];
         if (isset($flags['--abort'])) {
-            if (count($flags) !== 1 || $parsed['resolution']['strategy'] !== 'manual' || $parsed['resolution']['records'] !== []) {
+            if (count($flags) !== 1 || $parsed['interactive'] || $parsed['strategy_seen']
+                || $parsed['resolution']['strategy'] !== 'manual' || $parsed['resolution']['records'] !== []) {
                 throw new \RuntimeException('duo rebase --abort=<run-id> accepts no production-ref or new-branch flags');
             }
             Refresh::abort($flags['--abort']);
             echo 'refresh rebase aborted: ' . $flags['--abort'] . "\n";
             return 0;
         }
-        $expected = isset($flags['--scope-contract']) ? 3 : 2;
+        $fieldPath = isset($flags['--field-resolution']) ? $flags['--field-resolution'] : null;
+        $fieldMode = $fieldPath !== null || $parsed['interactive'];
+        if (($fieldPath !== null || $parsed['interactive'])
+            && ($parsed['strategy_seen'] || $parsed['resolution']['strategy'] !== 'manual' || $parsed['resolution']['records'] !== [])) {
+            $fieldFailure = [
+                'message' => 'redacted field-level resolution cannot be mixed with legacy --strategy or --resolve',
+                'remediation' => 'choose either the legacy whole-record resolver or the matching field-resolution contract',
+            ];
+            throw new \RuntimeException('duo rebase: --field-resolution/--interactive cannot be mixed with --strategy or --resolve');
+        }
+        if ($fieldPath !== null && $parsed['interactive']) {
+            $fieldFailure = [
+                'message' => 'redacted field-level resolution accepts either a file or interactive input, not both',
+                'remediation' => 'supply one matching field-resolution input mode and retry',
+            ];
+            throw new \RuntimeException('duo rebase: --field-resolution and --interactive cannot be combined');
+        }
+        if (($fieldPath !== null || $parsed['interactive']) && isset($flags['--scope-contract'])) {
+            $fieldFailure = [
+                'message' => 'redacted field-level resolution is unsupported for scoped refresh',
+                'remediation' => 'use the legacy whole-record resolver for this scope',
+            ];
+            throw new \RuntimeException('duo rebase: field-level resolution is unavailable for scoped refresh; use --strategy/--resolve');
+        }
+        $expected = (isset($flags['--scope-contract']) ? 3 : 2) + ($fieldPath !== null ? 1 : 0);
         if (count($flags) !== $expected || !isset($flags['--production-ref']) || !isset($flags['--new-branch'])) {
-            throw new \RuntimeException('duo rebase requires --production-ref=<ref>, --new-branch=<name>, and optional --scope-contract=<local-path>');
+            throw new \RuntimeException('duo rebase requires --production-ref=<ref>, --new-branch=<name>, optional --scope-contract=<local-path>, and optional --field-resolution=<local-path> or --interactive');
+        }
+        if ($parsed['interactive'] && !interactive_tty_available()) {
+            $fieldFailure = [
+                'message' => 'redacted field-level interactive resolution requires TTY stdin and stdout',
+                'remediation' => 'run --interactive from an attached terminal; use --field-resolution=<local-path> for automation',
+            ];
+            throw new \RuntimeException('duo rebase: --interactive requires TTY stdin and stdout');
         }
         $scope = isset($flags['--scope-contract'])
             ? read_scope_contract_input($flags['--scope-contract'])['contract']
@@ -1050,12 +1262,28 @@ function cmd_rebase(EnvironmentDriver $t, array $extra): int {
             $flags['--production-ref'],
             $flags['--new-branch'],
             $parsed['resolution'],
-            $scope
+            $scope,
+            $fieldPath,
+            $parsed['interactive'],
+            $parsed['strategy_seen']
         );
         echo 'refresh rebase complete: ' . $result['new_branch'] . ' at ' . $result['head'] . "\n";
         echo 'plan: ' . $result['plan_path'] . ' run: ' . $result['run_id'] . "\n";
         return 0;
+    } catch (RefreshFieldResolutionCancelled) {
+        fwrite(STDERR, "duo: rebase: field resolution cancelled; no run record, candidate worktree, branch, or ref was created\n");
+        return 2;
+    } catch (RefreshFieldResolutionRunFailed $e) {
+        $runId = $e->runId();
+        fwrite(STDERR, 'duo: rebase: redacted field-level resolution stopped after candidate setup; run_id=' . $runId . "\n");
+        fwrite(STDERR, 'duo: rebase: remedy: inspect private local run evidence and the requested ref; duo rebase <env> --abort=' . $runId . " removes only the journal-owned worktree\n");
+        return 1;
     } catch (\Throwable $e) {
+        if ($fieldMode) {
+            fwrite(STDERR, 'duo: rebase: ' . $fieldFailure['message'] . "\n");
+            fwrite(STDERR, 'duo: rebase: remedy: ' . $fieldFailure['remediation'] . "\n");
+            return 1;
+        }
         fwrite(STDERR, 'duo: rebase: ' . $e->getMessage() . "\n");
         return 1;
     }
