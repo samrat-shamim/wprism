@@ -266,11 +266,12 @@ branch or edit files before this passes.
   registry regenerate → rebase onto fresh `origin/main` → bundle (clean
   clone) → generated-evidence commit → merge promptly (Close gate order
   unchanged).
-- **Registry regenerate after ANY manifest/provider byte change**
+- **Registry regenerate after ANY manifest/provider/regenerator byte change**
   (`php scripts/capability-registry.php generate`, candidate state) before
-  running anything live — provider/interpreter file bytes are digest-bound
-  into adapter identity, so a stale registry refuses every `duo` command
-  (observed live, twice, on DUO-3338).
+  running anything live — interpreter, manifest-sourced provider, and (since
+  DUO-3360) regenerator file bytes are all digest-bound into adapter identity,
+  so a stale registry refuses every `duo` command (observed live, twice, on
+  DUO-3338).
 - **Parallel pairs are safe and encouraged when the host budget allows**:
   independent live suites may run concurrently on DISTINCT pairs (names/
   ports parameterized from your `PORT_BASE`). The single-writer rule
