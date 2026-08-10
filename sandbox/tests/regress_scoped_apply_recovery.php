@@ -30,7 +30,7 @@ foreach ([
     'ScopeClosure', 'CanonicalSurfaces', 'Deletion', 'SidebarState', 'Snapshot',
     'RepositoryAuthorization', 'Tokens', 'ScopeContract',
     'ScopedStateOverlay', 'ScopedApplySession', 'ScopedApply', 'Providers',
-    'Canary', 'Ledger', 'Apply',
+    'Canary', 'Ledger', 'PromotionLock', 'Apply',
 ] as $file) {
     require_once "$root/agent/src/$file.php";
 }
@@ -39,6 +39,7 @@ use Duo\Canon;
 use Duo\CompiledRepository;
 use Duo\NativeActions;
 use Duo\Policy;
+use Duo\PromotionLock;
 use Duo\Providers;
 use Duo\ScopeContract;
 use Duo\ScopedApply;
@@ -232,6 +233,51 @@ $expectThrow = static function (callable $fn, string $needle, string $message) u
 };
 $hash = static fn(string $label): string => hash('sha256', $label);
 $uuid = static fn(int $n): string => sprintf('00000000-0000-4000-8000-%012d', $n);
+
+// A pre-session-id promotion remains readable for ordinary full-promotion
+// recovery, but it cannot seed scoped authority whose recovery protocol
+// requires an exact random generation. The strict accessor must refuse before
+// Apply renews the continuation lease or records any scoped session.
+$legacyOwner = 'legacy-scoped-owner';
+$legacyArtifact = $hash('legacy-scoped-artifact');
+$legacyBegunAt = time() - 5;
+$GLOBALS['wpdb']->kvRows['promotion_lock'] = Canon::encode([
+    'owner' => $legacyOwner,
+    'artifact_hash' => $legacyArtifact,
+    'phase' => 'apply',
+    'acquired_at' => $legacyBegunAt,
+    'expires_at' => time() + 300,
+]);
+$GLOBALS['wpdb']->kvRows['promotion_session'] = Canon::encode([
+    'owner' => $legacyOwner,
+    'artifact_hash' => $legacyArtifact,
+    'begun_at' => $legacyBegunAt,
+]);
+$legacySessionId = PromotionLock::session_id($legacyOwner, $legacyArtifact);
+$check(
+    str_starts_with($legacySessionId, 'legacy-'),
+    'ordinary promotion recovery retains a stable legacy generation for a pre-session-id record'
+);
+$expectThrow(
+    static fn() => PromotionLock::scoped_session_id($legacyOwner, $legacyArtifact),
+    'exact random promotion session generation',
+    'scoped authority refuses a legacy continuation generation before recovery can become impossible'
+);
+$randomSessionId = 'ps-' . str_repeat('a', 32);
+$GLOBALS['wpdb']->kvRows['promotion_session'] = Canon::encode([
+    'owner' => $legacyOwner,
+    'artifact_hash' => $legacyArtifact,
+    'begun_at' => $legacyBegunAt,
+    'session_id' => $randomSessionId,
+]);
+$check(
+    PromotionLock::scoped_session_id($legacyOwner, $legacyArtifact) === $randomSessionId,
+    'scoped authority accepts the exact live random promotion session generation'
+);
+unset(
+    $GLOBALS['wpdb']->kvRows['promotion_lock'],
+    $GLOBALS['wpdb']->kvRows['promotion_session']
+);
 
 $selectedId = $uuid(1);
 $protectedId = $uuid(2);
@@ -822,6 +868,24 @@ $check(
 // four recovery/isolation threading edges in its bounded run()/rebuild()
 // source. The protocol seams they call are exercised dynamically above.
 $applySource = (string) file_get_contents($root . '/agent/src/Apply.php');
+$legacyScopedGuardAt = strpos(
+    $applySource,
+    'PromotionLock::scoped_session_id($promotionOwner, $promotionArtifact);'
+);
+$promotionAcquireAt = strpos(
+    $applySource,
+    "PromotionLock::acquire(\$promotionOwner, \$promotionArtifact, 'apply', null, \$continuation);"
+);
+$check(
+    $legacyScopedGuardAt !== false
+        && $promotionAcquireAt !== false
+        && $legacyScopedGuardAt < $promotionAcquireAt
+        && str_contains(
+            $applySource,
+            '$sessionId = PromotionLock::scoped_session_id($this->promotionOwner, $this->promotionArtifact);'
+        ),
+    'scoped continuations refuse legacy generations before lease renewal and authority seals only random generations'
+);
 $deleteGateAt = strpos($applySource, 'scoped apply selected live tombstones but --with-deletes was not supplied');
 $terminalArchiveAt = strpos($applySource, '$this->terminalScopedSessionToArchive->archive_terminal();');
 $archivedReplayLookupAt = strpos($applySource, 'ScopedApplySession::open_terminal_for_request(');

@@ -343,9 +343,7 @@ final class PromotionLock {
     ): array {
         global $wpdb;
         self::assert_identity($owner, $artifactHash);
-        if (preg_match('/^ps-[a-f0-9]{32}$/D', $sessionId) !== 1) {
-            throw new \RuntimeException('duo: scoped recovery requires the exact random promotion session generation');
-        }
+        self::assert_scoped_session_id($sessionId);
         self::claim_process_fence();
         try {
             $session = self::current_session();
@@ -987,6 +985,27 @@ final class PromotionLock {
             throw new \RuntimeException('duo: promotion session identity is not live for this owner/artifact');
         }
         return self::normalized_session_id($session);
+    }
+
+    /**
+     * Exact random generation required by scoped mutation authority.
+     *
+     * Ordinary full-promotion recovery may still observe a stable `legacy-*`
+     * generation for a session begun before random session ids shipped. A
+     * scoped apply must refuse that continuation before renewing its lease or
+     * recording authority, because its crash-recovery protocol deliberately
+     * accepts only an unforgeable `ps-*` generation.
+     */
+    public static function scoped_session_id(string $owner, string $artifactHash): string {
+        $sessionId = self::session_id($owner, $artifactHash);
+        self::assert_scoped_session_id($sessionId);
+        return $sessionId;
+    }
+
+    private static function assert_scoped_session_id(string $sessionId): void {
+        if (preg_match('/^ps-[a-f0-9]{32}$/D', $sessionId) !== 1) {
+            throw new \RuntimeException('duo: scoped recovery requires the exact random promotion session generation');
+        }
     }
 
     /** @param array<string,mixed>|null $session */

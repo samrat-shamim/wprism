@@ -2581,6 +2581,14 @@ final class Apply {
         $promotionArtifact = $compiled->artifact_hash();
         $continuation = !$recoveringScopedSession && (string) ($opts['promotion_owner'] ?? '') !== '';
         self::assert_expected_artifact($promotionArtifact, $opts, $continuation);
+        if ($scoped && $continuation) {
+            // A pre-session-id full promotion remains recoverable through its
+            // legacy generation, but scoped authority cannot safely seal one:
+            // its exact crash-recovery path accepts only random ps-* leases.
+            // Refuse before acquire() renews the row or any target mutation
+            // authority can be recorded.
+            PromotionLock::scoped_session_id($promotionOwner, $promotionArtifact);
+        }
         if ($recoveringScopedSession) {
             $existingScopedSession->assert_lease(
                 $promotionOwner,
@@ -3832,7 +3840,7 @@ final class Apply {
         if ($this->scopeContract === null || $this->scopedObservation === null) {
             throw new \RuntimeException('duo: scoped mutation authority has no complete source/target evidence');
         }
-        $sessionId = PromotionLock::session_id($this->promotionOwner, $this->promotionArtifact);
+        $sessionId = PromotionLock::scoped_session_id($this->promotionOwner, $this->promotionArtifact);
         $workRows = [];
         foreach ($work as $row) {
             $identity = (string) ($row['uuid'] ?? '');
