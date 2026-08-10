@@ -41,9 +41,9 @@ duo init   <env> [--yes]
 duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
 duo capabilities <env> [--format=json]
 duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
-duo plan    <env> [extra wp-cli flags...]
+duo plan    <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
 duo explain <env> <bucket>:<entity-key> [--format=json] [planning flags...]
-duo apply   <env> [extra wp-cli flags...]
+duo apply   <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
 duo deploy  <env> [--force-code-mismatch] [--force-code-drift]
 duo env-set <env> --name=<name> (--value=<value> | --stdin)
 duo promote <env> [extra apply flags...]
@@ -435,14 +435,28 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   --all` reports the complete shipped library. `duo status`, host
   deploy/promote, and `make release-gate` consume the same generated claims.
 
-- **`duo plan|explain|apply <env> [flags...]`** — pure passthrough to
-  `wp duo capture|plan|explain|apply --repo=<repo_path> [flags...]` for that
-  environment.
-  Every flag after `<env>` is forwarded verbatim — e.g.:
+- **`duo plan|explain|apply <env> [flags...]`** — streams the corresponding
+  `wp duo plan|explain|apply --repo=<repo_path> [flags...]` command for that
+  environment. Ordinary flags are forwarded verbatim — e.g.:
 
   ```
   duo apply e2 --adopt-by-slug=terms --default-author=admin --with-deletes
   ```
+
+  `--scope-contract=<local-path>` is the one deliberate exception for plan
+  and apply: the host validates that local canonical file with the engine
+  parser and sends only its normalized selectors and `scope_hash` as compact
+  evidence. Scoped plan is strict read-only observation; it may inspect a
+  selected provider's identity/capabilities but invokes no effect. Scoped apply creates
+  a separate target/lease-bound `duo-scoped-mutation-authority/v1`, journals
+  authored and native/provider effects under `duo-scoped-apply-session/v1`,
+  reconciles lost effect responses by exact operation ID/input hash, and runs
+  a fresh bounded verifier. It advances selected ledger rows plus its terminal
+  receipt only; global `applied_revision` and unrelated recovery debt are
+  untouched. Full plan/apply refuse while that session is nonterminal.
+  Triggerless actions, legacy regenerators, attachment metadata generation,
+  code/lifecycle work, promote, and rollback are not silently widened into
+  this slice; they refuse or remain whole-revision operations.
 
   stdout/stderr stream live (not buffered/reformatted) and the exit code is
   exactly the agent's exit code. When `--format=json` reaches the agent, every
@@ -589,8 +603,9 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   starts from exact W bytes, replaces selected whole records only, preserves
   excluded state/tombstones/media byte-for-byte, and refuses closure outside
   the contract. It is deliberately state-only: W's code and ancestry remain
-  unchanged. Apply, promote, verification, and rollback do not accept this v1
-  scope contract.
+  unchanged. Plan/apply/verification accept this v1 evidence only by minting
+  the separate target-bound authority/session described above; promote,
+  lifecycle/code materialization, and rollback do not accept it.
 
   The legacy whole-record `--strategy`/`--resolve` contract remains unchanged.
   Alternatively, an unscoped run may supply

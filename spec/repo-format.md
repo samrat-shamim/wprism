@@ -638,7 +638,7 @@ removes both handoff files after the child exits.
 
 ## Scope resolution (DUO-3344)
 
-`wp duo scope --repo=<p> --roots=<selectors>` resolves a bounded set of canonical entities from explicit roots and reports what it would carry. It is read-only: it compiles a revision and walks it, and it captures, promotes, and deletes nothing. Without `--contract`, its existing `duo-scope/v1` preview shape is unchanged. The immutable contract form is consumed by the bounded capture/refresh/rebase workflow below; apply, promote, verification, and rollback remain whole-revision operations at this spec version.
+`wp duo scope --repo=<p> --roots=<selectors>` resolves a bounded set of canonical entities from explicit roots and reports what it would carry. It is read-only: it compiles a revision and walks it, and it captures, promotes, and deletes nothing. Without `--contract`, its existing `duo-scope/v1` preview shape is unchanged. The immutable contract form is consumed by bounded capture/refresh/rebase and by the separately authorized scoped plan/apply/verification workflow below. Promote, rollback, and code lifecycle remain whole-revision operations at this spec version.
 
 A root selector is one of `post:<uuid>`, `term:<uuid>`, `table:<table>:<uuid>`, `menu:<slug>`, `sidebar:<id>`, `user-meta:<login>`, `options`, `path:<state-relative-path>`, or `all`. Multiple roots are comma-separated. `all` is the whole revision, so a full-site operation is this same model with a wider root set rather than a second code path. A selector that resolves to nothing, resolves to an entity of a different type than it names, or cannot be parsed is **refused** — a silently empty scope is indistinguishable from a correctly small one. A menu item or widget uuid is refused by naming its owning menu/sidebar, because an item is not a file and cannot be scoped away from its owner.
 
@@ -755,9 +755,68 @@ snapshot before the new ref is created. Because the contract excludes code and
 lifecycle effects, scoped rebase preserves W's code and ancestry and changes
 state/media only.
 
-Per-option capture, code dependency movement, scoped apply/promote/verification,
-and scoped rollback require later versioned authority and receipt contracts;
-v1 does not infer them from this state-only overlay.
+Per-option capture, code dependency movement, scoped promote, and scoped
+rollback require later contracts. Scoped apply does not infer authority from
+this state-only overlay; it uses the separate target-bound protocol below.
+
+### Scoped plan, apply, and verification
+
+`duo plan <env> --scope-contract=<local-path>` and `duo apply <env>
+--scope-contract=<local-path>` use the same host validation and compact
+`duo-scope-request/v1` handoff as scoped capture. The target recompiles and
+re-associates the complete contract. Planning is strict observation: it does
+not repair or create ledger schema, invoke native/provider effects, or write
+the target. It may load a selected provider and inspect its identity and
+capabilities so the report uses the exact scoped reconciliation gate apply
+will enforce. Its `duo-scoped-plan/v1` result projects ordinary three-way buckets to
+selected identities while retaining global code and recovery preconditions,
+and reports hash-only selected/protected target roots, canonical surfaces,
+selected declarations, and provider problems.
+
+The scope contract remains `mutation_authority=false`. After acquiring one
+target promotion lease with a random `session_id`, apply performs a second
+plan/guard/target observation and seals a separate
+`duo-scoped-mutation-authority/v1`. The authority binds the exact scope and
+source artifact/revision/manifest, lease owner/artifact/generation, selected
+and protected authored and ledger-map roots, locked plan and guard witnesses,
+hash-safe original work/deletion/action/effect identities, negotiated scoped
+capability digests, and a separate code compatibility witness. A stale or
+tampered contract, changed source, replaced lease, changed selected/protected
+target, changed guard, missing capability, triggerless global action, legacy
+unreconciled regenerator, or attachment metadata rebuild refuses before the
+first authored write.
+
+Execution is journaled in one append-only `duo-scoped-apply-session/v1` with
+the phases `planned`, `authoring`, `authored_committed`, `effects_pending`,
+`verifying`, `complete`, and `recovery_required`. Every mutation intent binds
+the authority, lease generation, ordinal, action, operation, input, effect,
+and before-witness hashes; every receipt repeats that binding and adds an
+after-witness hash. At the authored COMMIT boundary, retry compares a fresh
+target observation: the exact pre-root may execute once, exact desired state
+advances without replay, and any mixed or protected change becomes
+`recovery_required`.
+
+Scoped native/provider effects additionally use
+`duo-scoped-effect-operation/v1`. A provider explicitly advertises scoped
+reconciliation; invocation durably records the operation before plugin code,
+and recovery first reconciles the same `operation_id` and `input_hash`.
+Only a missing operation is `not_started`; a verified receipt is read back,
+while intent-only, mismatched, malformed, or changed postcondition evidence is
+`recovery_required` and is never reinvoked. Provider `before`/`after` values
+are bounded, secret-screened, and retained only as hashes. Empty entity
+batches receive an explicit bounded-skip receipt. Ordinary unscoped provider
+negotiation/invocation bytes remain unchanged.
+
+The verifier launches a fresh frozen artifact/policy process, proves selected
+live rows and tombstones, and requires exact equality of every protected
+out-of-scope authored and ledger-map root plus the authority/effect-receipt
+roots. Its terminal transaction advances only selected ledger base rows and
+the scoped terminal receipt. It never clears global recovery debt and never
+writes `applied_revision`. Full plan/apply refuse while a scoped session is
+nonterminal; a terminal retry returns the same receipt bytes. Scoped
+promotion, code materialization, lifecycle, rollback, attachment derivative
+generation, legacy `regen_dependency`, triggerless actions, and per-option
+mutation remain explicitly outside this version.
 
 ### Host-only redacted refresh field relation (DUO-3345)
 

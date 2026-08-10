@@ -43,7 +43,7 @@ final class PromotionLock {
         return self::acquire($owner, $artifactHash, 'checkpoint', $ttl, false);
     }
 
-    /** @return array{owner:string,artifact_hash:string,phase:string,acquired_at:int,expires_at:int,recovered:bool} */
+    /** @return array{owner:string,artifact_hash:string,phase:string,acquired_at:int,expires_at:int,recovered:bool,session_id:string} */
     public static function acquire(
         string $owner,
         string $artifactHash,
@@ -181,6 +181,7 @@ final class PromotionLock {
                     $preserveRecoverySession = true;
                 }
             }
+            $session = null;
             if ($requireExisting) {
                 $session = self::current_session();
                 if ($session === null
@@ -256,12 +257,22 @@ final class PromotionLock {
             self::$leaseSessionOwner = $owner;
             self::$leaseSessionArtifact = $artifactHash;
             if ($publishSession && !$requireExisting && !$preserveRecoverySession) {
-                Ledger::kv_set(self::SESSION_KEY, wp_json_encode([
+                $session = [
                     'owner' => $owner,
                     'artifact_hash' => $artifactHash,
                     'begun_at' => $now,
-                ]));
+                    // Owner tokens are operator/run identities and may be
+                    // deliberately reused. This random generation is the
+                    // durable discriminator a scoped mutation authority binds
+                    // to so an expired/replaced lease cannot append evidence
+                    // to an older session with the same owner/artifact pair.
+                    'session_id' => 'ps-' . bin2hex(random_bytes(16)),
+                ];
+                Ledger::kv_set(self::SESSION_KEY, wp_json_encode($session));
+            } elseif ($session === null) {
+                $session = self::current_session();
             }
+            $current['session_id'] = self::normalized_session_id($session);
             return $current;
         } catch (\Throwable $t) {
             self::release_process_fence();
@@ -310,6 +321,98 @@ final class PromotionLock {
             || !hash_equals($artifactHash, (string) ($after['artifact_hash'] ?? ''))
             || (int) ($after['expires_at'] ?? 0) <= $now) {
             throw new \RuntimeException('duo: promotion lock lost during renewal; mutation refused');
+        }
+    }
+
+    /**
+     * Re-acquire the exact generation recorded by a nonterminal scoped apply.
+     *
+     * This is deliberately narrower than begin(): it cannot mint a generation,
+     * change owner/artifact, or recover an unrelated expired row. The target
+     * session record supplies the random id, the process advisory fence proves
+     * the old mutation process is gone, and exact readback precedes any caller
+     * append to the scoped journal.
+     *
+     * @return array<string,mixed>
+     */
+    public static function recover_session(
+        string $owner,
+        string $artifactHash,
+        string $sessionId,
+        ?int $ttl = null
+    ): array {
+        global $wpdb;
+        self::assert_identity($owner, $artifactHash);
+        if (preg_match('/^ps-[a-f0-9]{32}$/D', $sessionId) !== 1) {
+            throw new \RuntimeException('duo: scoped recovery requires the exact random promotion session generation');
+        }
+        self::claim_process_fence();
+        try {
+            $session = self::current_session();
+            if ($session === null
+                || !hash_equals($owner, (string) ($session['owner'] ?? ''))
+                || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))
+                || !hash_equals($sessionId, self::normalized_session_id($session))) {
+                throw new \RuntimeException('duo: scoped recovery promotion session was superseded');
+            }
+            $now = time();
+            $current = self::current();
+            if ($current !== null && (int) ($current['expires_at'] ?? 0) > $now) {
+                if (!hash_equals($owner, (string) ($current['owner'] ?? ''))
+                    || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))) {
+                    throw new \RuntimeException('duo: scoped recovery is blocked by another live promotion lease');
+                }
+                $continued = self::acquire($owner, $artifactHash, 'scoped-recovery', $ttl, true);
+                if (!hash_equals($sessionId, (string) $continued['session_id'])) {
+                    throw new \RuntimeException('duo: scoped recovery generation changed during continuation');
+                }
+                return $continued;
+            }
+            if ($current !== null
+                && (!hash_equals($owner, (string) ($current['owner'] ?? ''))
+                    || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? '')))) {
+                throw new \RuntimeException(
+                    'duo: scoped recovery found an expired lease with a different owner/artifact; refusing implicit takeover'
+                );
+            }
+            $table = $wpdb->prefix . 'duo_kv';
+            if ($current !== null) {
+                Db::query($wpdb->prepare(
+                    "DELETE FROM `$table` WHERE k = %s
+                     AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
+                     AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = %s
+                     AND CAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(v, '$.expires_at')), '0') AS UNSIGNED) <= %d",
+                    self::KEY,
+                    $owner,
+                    $artifactHash,
+                    $now
+                ), 'scoped promotion lease expired-generation recovery');
+            }
+            $ttl = self::ttl($ttl);
+            $payload = self::payload($owner, $artifactHash, 'scoped-recovery', $now, $now + $ttl);
+            $inserted = Db::query($wpdb->prepare(
+                "INSERT IGNORE INTO `$table` (k, v) VALUES (%s, %s)",
+                self::KEY,
+                wp_json_encode($payload)
+            ), 'scoped promotion lease recovery acquire');
+            if ((int) $inserted !== 1) {
+                throw new \RuntimeException('duo: scoped recovery lost the promotion lease race');
+            }
+            $after = self::current();
+            if ($after === null
+                || !hash_equals($owner, (string) ($after['owner'] ?? ''))
+                || !hash_equals($artifactHash, (string) ($after['artifact_hash'] ?? ''))
+                || (int) ($after['expires_at'] ?? 0) <= $now) {
+                throw new \RuntimeException('duo: scoped recovery promotion lease readback failed');
+            }
+            self::$leaseSessionOwner = $owner;
+            self::$leaseSessionArtifact = $artifactHash;
+            $after['recovered'] = true;
+            $after['session_id'] = $sessionId;
+            return $after;
+        } catch (\Throwable $failure) {
+            self::release_process_fence();
+            throw $failure;
         }
     }
 
@@ -860,6 +963,50 @@ final class PromotionLock {
     public static function owner(array $opts): string {
         $owner = (string) ($opts['promotion_owner'] ?? '');
         return $owner !== '' ? $owner : 'direct-' . bin2hex(random_bytes(16));
+    }
+
+    /**
+     * Exact generation of the currently begun owner/artifact session.
+     *
+     * Pre-session-id records can survive an agent upgrade while a full
+     * promotion is being recovered. Preserve that existing recovery route by
+     * deriving a stable legacy generation from its immutable begun tuple. New
+     * sessions always carry the random `ps-*` form, which scoped mutation
+     * authority can distinguish even when an orchestrator reuses an owner.
+     */
+    public static function session_id(string $owner, string $artifactHash): string {
+        self::assert_identity($owner, $artifactHash);
+        $current = self::current();
+        $session = self::current_session();
+        if ($current === null || $session === null
+            || !hash_equals($owner, (string) ($current['owner'] ?? ''))
+            || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))
+            || !hash_equals($owner, (string) ($session['owner'] ?? ''))
+            || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))
+            || (int) ($current['expires_at'] ?? 0) <= time()) {
+            throw new \RuntimeException('duo: promotion session identity is not live for this owner/artifact');
+        }
+        return self::normalized_session_id($session);
+    }
+
+    /** @param array<string,mixed>|null $session */
+    private static function normalized_session_id(?array $session): string {
+        if ($session === null) {
+            throw new \RuntimeException('duo: promotion session identity is missing');
+        }
+        $explicit = (string) ($session['session_id'] ?? '');
+        if ($explicit !== '') {
+            if (preg_match('/^ps-[a-f0-9]{32}$/D', $explicit) !== 1) {
+                throw new \RuntimeException('duo: malformed promotion session generation');
+            }
+            return $explicit;
+        }
+        return 'legacy-' . substr(hash(
+            'sha256',
+            (string) ($session['owner'] ?? '') . "\0"
+                . (string) ($session['artifact_hash'] ?? '') . "\0"
+                . (string) ($session['begun_at'] ?? '')
+        ), 0, 32);
     }
 
     private static function ttl(?int $ttl): int {

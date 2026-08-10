@@ -113,9 +113,9 @@ Usage:
   duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
   duo capabilities <env> [--operation=<op>] [--surface=<surface>] [--revision=<sha>] [--format=json]
   duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
-  duo plan    <env> [extra wp-cli flags...]
+  duo plan    <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
   duo explain <env> <bucket>:<entity-key> [--format=json] [plan flags...]
-  duo apply   <env> [extra wp-cli flags...]
+  duo apply   <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
   duo deploy  <env> [--force-code-mismatch] [--force-code-drift]
   duo env-set <env> --name=<name> (--value=<value> | --stdin)
   duo promote <env> [extra apply flags...]
@@ -314,7 +314,10 @@ Verbs:
                           normalized selectors + scope_hash; the target
                           recompiles and verifies the complete contract before
                           any target DDL/DML.
-  plan <env> [...]        `wp duo plan    --repo=<repo_path> [...]`
+  plan <env> [...]        `wp duo plan --repo=<repo_path> [...]`. Optional
+    --scope-contract=<p>  local scope evidence is validated and forwarded only
+                          as compact selectors + scope_hash; scoped planning is
+                          strict observation and performs no repair/write.
   explain <env> <selector>
     [--format=json]       Rebuild the current plan under a strict observation
                           boundary, then trace one entity row from canonical
@@ -325,7 +328,10 @@ Verbs:
                           `<bucket>:<entity-key>` from plan JSON. Canonical
                           values, target-local ids, provider arguments, and
                           private exception detail are never returned.
-  apply <env> [...]       `wp duo apply   --repo=<repo_path> [...]`
+  apply <env> [...]       `wp duo apply --repo=<repo_path> [...]`. Optional
+    --scope-contract=<p>  local scope evidence mints a separate target/lease-
+                          bound authority and crash-safe scoped session; it
+                          never becomes promote/code/rollback authority.
                           Extra flags (e.g. --adopt-by-slug=terms
                           --default-author=admin, --with-deletes) are forwarded
                           verbatim. Output streams live; exit code is the agent's.

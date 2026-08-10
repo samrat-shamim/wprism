@@ -447,8 +447,17 @@ rather than working around it.
   overlay: selected whole records may move while excluded state, tombstones,
   media, and branch code are preserved exactly. Scoped deletion is limited to
   a selected live identity with normal deletion capability and no excluded
-  inbound referrer. Per-option capture, code dependency movement, and scoped
-  apply/promote/verification/rollback remain planned rather than inferred.
+  inbound referrer. Scoped plan/apply/verification now consume the same
+  evidence only through a separate target-observation and lease-bound mutation
+  authority. The durable session retains hash-safe original work/action
+  identities, journals authored/effect phases, reconciles provider/native
+  response loss by exact operation id, verifies selected intent plus protected
+  out-of-scope roots in a fresh process, and advances selected ledger rows
+  without claiming a global applied revision. A nonterminal scoped session
+  interlocks full plan/apply. Triggerless actions, legacy regenerators, and
+  attachment metadata generation refuse rather than widen authority.
+  Per-option capture, code dependency movement, scoped promote/code lifecycle,
+  and scoped rollback remain planned rather than inferred.
 - Redacted field-level refresh diff and interactive conflict resolver —
   **Bounded slice shipped (DUO-3345)**. `duo refresh --field-diff` emits a
   separate immutable, display-only/value-free `duo-refresh-field-diff/v1`

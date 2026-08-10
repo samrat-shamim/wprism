@@ -47,7 +47,7 @@ final class Apply {
     private array $selectedActions = [];
     /** @var array<string,int>|null exact count-only context for the optional plan category projection */
     private ?array $categorySummaryContext = null;
-    /** @var array{providers: array<string,object>, capabilities: array<string,array>}|null negotiated before the first mutation */
+    /** @var array{providers: array<string,object>, capabilities: array<string,array>, scoped_capabilities?:array<string,array>}|null negotiated before the first mutation */
     private ?array $negotiatedProviders = null;
     /** @var list<array<string,mixed>> structured rebuild-action receipts for this run's summary */
     private array $actionReceipts = [];
@@ -60,6 +60,11 @@ final class Apply {
      * re-verify rather than assume the previous pass got that far.
      */
     private bool $retryingIncompleteApply = false;
+    /** Immutable source evidence for a bounded scoped invocation, never mutation authority. */
+    private ?array $scopeContract = null;
+    /** Hash-only target witnesses captured under the active promotion lease. */
+    private ?array $scopedObservation = null;
+    private ?ScopedApplySession $scopedSession = null;
 
     private function __construct(string $repo, Policy $policy, CompiledRepository $compiled) {
         $this->repo = rtrim($repo, '/');
@@ -93,7 +98,100 @@ final class Apply {
         $compiled = self::compiled($repo, $policy, $opts);
         Canary::suppress_cron_spawn();
         $a = new self($repo, $policy, $compiled);
+        $scopeRequest = $opts['scope_request'] ?? null;
+        $scoped = is_array($scopeRequest);
+        if ($scoped) {
+            // A scoped plan is strict observation. It may not provision or
+            // repair ledger identity as a side effect of asking what a future
+            // bounded mutation would do.
+            Ledger::assert_read_only_schema();
+            $a->scopeContract = ScopedApply::resolve_contract($scopeRequest, $compiled, $policy);
+            $activeScoped = ScopedApplySession::open(new LedgerScopedApplySessionStorage());
+            if ($activeScoped !== null && !$activeScoped->is_terminal()) {
+                $authority = $activeScoped->authority();
+                if (!hash_equals((string) $authority['scope_hash'], (string) $a->scopeContract['scope_hash'])
+                    || !hash_equals((string) $authority['source']['artifact_hash'], $compiled->artifact_hash())) {
+                    throw new \RuntimeException(
+                        'duo: scoped plan refused — a different scoped mutation authority is nonterminal on this target'
+                    );
+                }
+                $a->scopedSession = $activeScoped;
+            }
+            $plan = ScopedApply::project_plan(
+                $a->build_plan($opts, $compiled, true, false),
+                $a->scopeContract
+            );
+            $actual = Capture::snapshot_read_only(
+                $repo,
+                !empty($opts['force_unresolved_refs']),
+                $compiled,
+                $policy
+            );
+            $observation = ScopedApply::observe_target(
+                $repo,
+                $compiled,
+                $policy,
+                $a->scopeContract,
+                $actual
+            );
+            $work = $a->rebuild_work($plan, $compiled->tree(), $opts, false);
+            $surfaces = $a->rebuild_surfaces(
+                $work['work'],
+                $compiled->tree(),
+                $work['rebuild_delete_work']
+            );
+            $selectedActions = $policy->actions_for($surfaces);
+            foreach ($selectedActions as $action) {
+                if (!array_key_exists('triggers', $action)) {
+                    throw new \RuntimeException(
+                        'duo: scoped plan refused an untriggered global action; bounded execution requires explicit canonical triggers'
+                    );
+                }
+            }
+            // Report the exact scoped contract apply will gate on. This is
+            // still read-only negotiation: provider identity/capabilities may
+            // be inspected, but neither invoke_scoped() nor reconcile_scoped()
+            // is called from plan.
+            $diagnosis = Providers::negotiate_scoped($policy, $selectedActions);
+            $plan['format'] = ScopedApply::PLAN_FORMAT;
+            $plan['scope'] = [
+                'format' => ScopeContract::FORMAT,
+                'scope_hash' => (string) $a->scopeContract['scope_hash'],
+                'source_artifact_hash' => $compiled->artifact_hash(),
+                'selected_identities' => count(ScopedStateOverlay::selected_identities($a->scopeContract)),
+            ];
+            $plan['target'] = array_intersect_key($observation, array_fill_keys([
+                'selected_before_root', 'protected_out_of_scope_root',
+                'ledger_map_root', 'protected_ledger_map_root', 'selected_ledger_map_root',
+                'target_observation_hash',
+            ], true));
+            $plan['selected_surfaces'] = $surfaces;
+            $plan['selected_actions'] = array_map(
+                static fn(array $action): array => [
+                    'manifest' => (string) ($action['manifest'] ?? ''),
+                    'index' => (int) ($action['index'] ?? 0),
+                    'declaration_hash' => hash('sha256', Canon::encode($action)),
+                ],
+                $selectedActions
+            );
+            $plan['provider_problems'] = $diagnosis['problems'];
+            if ($a->scopedSession !== null) {
+                $plan['scoped_recovery'] = [
+                    'authority_hash' => $a->scopedSession->authority_hash_value(),
+                    'phase' => $a->scopedSession->phase(),
+                    'session_id' => $a->scopedSession->session_id(),
+                ];
+            }
+            $plan['warnings'] = $a->warnings;
+            return $plan;
+        }
         Ledger::ensure();
+        $activeScoped = ScopedApplySession::open(new LedgerScopedApplySessionStorage());
+        if ($activeScoped !== null && !$activeScoped->is_terminal()) {
+            throw new \RuntimeException(
+                'duo: full plan refused — a scoped apply session is nonterminal; recover that exact scoped authority first'
+            );
+        }
         Snapshot::repair_truncated_entity_types($policy); // DUO-3246
         $plan = $a->build_plan($opts, $compiled);
         if (Ledger::kv_get('apply_in_progress') !== null) {
@@ -2388,12 +2486,104 @@ final class Apply {
         $policy = Policy::load($repo);
         $compiled = self::compiled($repo, $policy, $opts);
         Canary::suppress_cron_spawn();
-        Ledger::ensure();
-        $promotionOwner = PromotionLock::owner($opts);
+        $scopeRequest = $opts['scope_request'] ?? null;
+        $scoped = is_array($scopeRequest);
+        if ($scoped) {
+            Ledger::assert_read_only_schema();
+            // Recompute before target mutation so malformed/stale evidence
+            // cannot create a lease or durable scoped session.
+            $preflightContract = ScopedApply::resolve_contract($scopeRequest, $compiled, $policy);
+        } else {
+            Ledger::ensure();
+            $preflightContract = null;
+        }
+        $sessionStorage = new LedgerScopedApplySessionStorage();
+        $existingScopedSession = ScopedApplySession::open($sessionStorage);
+        $terminalScopedSessionToArchive = null;
+        if (!$scoped && $existingScopedSession !== null && !$existingScopedSession->is_terminal()) {
+            throw new \RuntimeException(
+                'duo: full apply refused — a scoped apply session is nonterminal; recover that exact scoped authority first'
+            );
+        }
+        if ($scoped && $existingScopedSession !== null && $existingScopedSession->is_terminal()) {
+            $authority = $existingScopedSession->authority();
+            if (hash_equals((string) ($authority['scope_hash'] ?? ''), (string) $preflightContract['scope_hash'])
+                && hash_equals((string) ($authority['source']['artifact_hash'] ?? ''), $compiled->artifact_hash())) {
+                // A terminal receipt is an idempotent lost-response result,
+                // not a timeless claim about a target that may since have
+                // drifted. Re-prove the bounded authored/map witnesses before
+                // returning its exact bytes; this path remains observation-
+                // only and never replays authored or opaque effect work.
+                $actual = Capture::snapshot_read_only(
+                    $repo,
+                    !empty($opts['force_unresolved_refs']),
+                    $compiled,
+                    $policy
+                );
+                $observation = ScopedApply::observe_target(
+                    $repo,
+                    $compiled,
+                    $policy,
+                    $preflightContract,
+                    $actual
+                );
+                if (ScopedApply::authored_state(
+                    $actual,
+                    $compiled,
+                    $policy,
+                    $preflightContract,
+                    (string) ($authority['target']['selected_before_hash'] ?? '')
+                ) !== 'desired'
+                    || !hash_equals(
+                        (string) ($authority['target']['protected_out_of_scope_hash'] ?? ''),
+                        (string) ($observation['protected_out_of_scope_root'] ?? '')
+                    )
+                    || !hash_equals(
+                        (string) ($authority['target']['protected_ledger_map_hash'] ?? ''),
+                        (string) ($observation['protected_ledger_map_root'] ?? '')
+                    )
+                    || !hash_equals(
+                        (string) ($authority['target']['selected_before_ledger_map_hash'] ?? ''),
+                        (string) ($observation['selected_ledger_map_root'] ?? '')
+                    )) {
+                    throw new \RuntimeException(
+                        'duo: terminal scoped receipt no longer describes the live bounded target; no mutation or replay attempted'
+                    );
+                }
+                return self::scoped_terminal_summary($existingScopedSession);
+            }
+            // A completed session may be rotated only by the protocol's exact
+            // terminal-archive operation. Never overwrite it as though it were
+            // an abandoned progress marker.
+            if (!method_exists($existingScopedSession, 'archive_terminal')) {
+                throw new \RuntimeException(
+                    'duo: a prior scoped apply terminal receipt must be archived before starting a different scoped authority'
+                );
+            }
+            $terminalScopedSessionToArchive = $existingScopedSession;
+            $existingScopedSession = null;
+        }
+        $recoveringScopedSession = $scoped
+            && $existingScopedSession !== null
+            && !$existingScopedSession->is_terminal();
+        $promotionOwner = $recoveringScopedSession
+            ? (string) $existingScopedSession->lease()['owner']
+            : PromotionLock::owner($opts);
         $promotionArtifact = $compiled->artifact_hash();
-        $continuation = (string) ($opts['promotion_owner'] ?? '') !== '';
+        $continuation = !$recoveringScopedSession && (string) ($opts['promotion_owner'] ?? '') !== '';
         self::assert_expected_artifact($promotionArtifact, $opts, $continuation);
-        if ($continuation) {
+        if ($recoveringScopedSession) {
+            $existingScopedSession->assert_lease(
+                $promotionOwner,
+                $promotionArtifact,
+                (string) $existingScopedSession->lease()['session_id']
+            );
+            PromotionLock::recover_session(
+                $promotionOwner,
+                $promotionArtifact,
+                (string) $existingScopedSession->lease()['session_id']
+            );
+        } elseif ($continuation) {
             PromotionLock::acquire($promotionOwner, $promotionArtifact, 'apply', null, true);
         } else {
             // A direct apply still takes the target-authoritative lease before
@@ -2404,6 +2594,13 @@ final class Apply {
         }
         $a = null;
         try {
+            if ($terminalScopedSessionToArchive !== null) {
+                // Rotating the active terminal slot is itself target metadata
+                // mutation. Do it only after the new exact promotion lease is
+                // held; the archived terminal remains addressable by its
+                // authority hash for old lost-response readback.
+                $terminalScopedSessionToArchive->archive_terminal();
+            }
             // The artifact was first validated before target contact. Repeat
             // that association under the lease so a concurrent checkout or
             // manifest/site-policy edit cannot alter the meaning between
@@ -2423,7 +2620,16 @@ final class Apply {
             $a = new self($repo, $lockedPolicy, $lockedCompiled);
             $a->promotionOwner = $promotionOwner;
             $a->promotionArtifact = $promotionArtifact;
-            Snapshot::repair_truncated_entity_types($lockedPolicy); // DUO-3246
+            $a->scopedSession = $recoveringScopedSession ? $existingScopedSession : null;
+            if ($scoped) {
+                $a->scopeContract = ScopedApply::resolve_contract(
+                    $scopeRequest,
+                    $lockedCompiled,
+                    $lockedPolicy
+                );
+            } else {
+                Snapshot::repair_truncated_entity_types($lockedPolicy); // DUO-3246
+            }
             PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'artifact-validated');
             if (getenv('DUO_TEST_MODE') === '1') {
                 $pauseMs = (int) (getenv('DUO_TEST_PROMOTION_LOCKED_PAUSE_MS') ?: 0);
@@ -2449,6 +2655,26 @@ final class Apply {
             }
             throw self::failure_with_forced_warnings($t, $a);
         }
+    }
+
+    /** Exact lost-response replay for a terminal scoped session. */
+    private static function scoped_terminal_summary(ScopedApplySession $session): array {
+        $terminal = $session->terminal_receipt();
+        if (!is_array($terminal)) {
+            throw new \RuntimeException('duo: terminal scoped apply session has no valid terminal receipt');
+        }
+        return [
+            'format' => 'duo-scoped-apply-result/v1',
+            'replayed' => true,
+            'applied' => 0,
+            'plan' => [],
+            'drift' => [],
+            'warnings' => [],
+            'actions' => [],
+            'canary' => 'clean',
+            'verification' => null,
+            'scoped_receipt' => $terminal,
+        ];
     }
 
     /**
@@ -2536,6 +2762,19 @@ final class Apply {
         }
         Canary::suppress_cron_spawn();
         $a = new self($repo, $policy, $compiled);
+        $scopeRequest = $opts['scope_request'] ?? null;
+        if (is_array($scopeRequest)) {
+            Ledger::assert_read_only_schema();
+            $a->scopeContract = ScopedApply::resolve_contract($scopeRequest, $compiled, $policy);
+            return $a->verify_scoped_convergence_local(
+                $compiled,
+                !empty($opts['force_unresolved_refs']),
+                (string) ($opts['expected_protected_root'] ?? ''),
+                (string) ($opts['expected_protected_map_root'] ?? ''),
+                (string) ($opts['expected_authority_hash'] ?? ''),
+                (string) ($opts['expected_effects_root'] ?? '')
+            );
+        }
         Ledger::ensure();
         Snapshot::repair_truncated_entity_types($policy);
         return $a->verify_convergence_local(
@@ -2550,11 +2789,44 @@ final class Apply {
     private function run(array $opts, CompiledRepository $compiled): array {
         global $wpdb;
         $tree = $compiled->tree();
+        $scoped = $this->scopeContract !== null;
+        $recoveringScoped = $scoped && $this->scopedSession !== null;
         $retryingIncompleteApply = Ledger::kv_get('apply_in_progress') !== null;
+        if ($scoped && $retryingIncompleteApply) {
+            throw new \RuntimeException(
+                'duo: scoped apply refused — a full apply recovery marker is active; complete or recover that exact full apply first'
+            );
+        }
         $this->retryingIncompleteApply = $retryingIncompleteApply;
-        $plan = $this->build_plan($opts, $compiled);
+        $plan = $this->build_plan($opts, $compiled, $scoped, !$scoped);
+        if ($scoped) {
+            $plan = ScopedApply::project_plan($plan, $this->scopeContract);
+            if ($plan['incomplete_lifecycle'] ?? []) {
+                throw new \RuntimeException(
+                    'duo: scoped apply refused — unresolved lifecycle recovery is active; scoped state authority cannot consume it'
+                );
+            }
+            if (($plan['regen_pending'] ?? []) !== [] || ($plan['regen_context'] ?? []) !== []) {
+                throw new \RuntimeException(
+                    'duo: scoped apply refused — global derived-state recovery debt exists; recover it through the original full apply before bounded mutation'
+                );
+            }
+            $actual = Capture::snapshot_read_only(
+                $this->repo,
+                !empty($opts['force_unresolved_refs']),
+                $compiled,
+                $this->policy
+            );
+            $this->scopedObservation = ScopedApply::observe_target(
+                $this->repo,
+                $compiled,
+                $this->policy,
+                $this->scopeContract,
+                $actual
+            );
+        }
 
-        if ($plan['collision']) {
+        if (!$recoveringScoped && $plan['collision']) {
             $list = implode("\n  - ", array_map(
                 fn($r) => "{$r['type']} {$r['path']} collides with env id {$r['env_id']} (same slug, different/no uuid)",
                 $plan['collision']
@@ -2563,13 +2835,13 @@ final class Apply {
                 "duo: slug collisions need explicit resolution (--adopt-by-slug=posts,terms,menus,tables adopts unmanaged rows):\n  - $list"
             );
         }
-        if ($plan['conflict'] && empty($opts['force_theirs'])) {
+        if (!$recoveringScoped && $plan['conflict'] && empty($opts['force_theirs'])) {
             $list = implode("\n  - ", array_column($plan['conflict'], 'path'));
             throw new \RuntimeException(
                 "duo: conflicts (env and repo both changed since last sync) — capture first or --force-theirs:\n  - $list"
             );
         }
-        if ($plan['delete_conflict'] && empty($opts['force_theirs'])) {
+        if (!$recoveringScoped && $plan['delete_conflict'] && empty($opts['force_theirs'])) {
             $list = implode("\n  - ", array_map(
                 fn($r) => "{$r['path']}: {$r['reason']}",
                 $plan['delete_conflict']
@@ -2579,7 +2851,7 @@ final class Apply {
                 . "capture/reconcile first or --force-theirs:\n  - $list"
             );
         }
-        if ($plan['delete_conflict'] && empty($opts['with_deletes'])) {
+        if (!$recoveringScoped && $plan['delete_conflict'] && empty($opts['with_deletes'])) {
             $list = implode("\n  - ", array_map(
                 fn($r) => "{$r['path']}: {$r['reason']}",
                 $plan['delete_conflict']
@@ -2597,12 +2869,12 @@ final class Apply {
 
         $pendingOptionDeletes = [];
         $pendingOptionConflictEvidence = [];
-        foreach (array_merge($plan['create'], $plan['update'], $plan['conflict']) as $r) {
+        foreach ($recoveringScoped ? [] : array_merge($plan['create'], $plan['update'], $plan['conflict']) as $r) {
             foreach ($r['option_deletes'] ?? [] as $name) {
                 $pendingOptionDeletes[] = $name;
             }
         }
-        foreach ($plan['conflict'] as $r) {
+        foreach ($recoveringScoped ? [] : $plan['conflict'] as $r) {
             if (($r['option_deletes'] ?? []) !== []) {
                 $pendingOptionConflictEvidence[] = self::forced_override_evidence($r, 'conflict', $opts);
             }
@@ -2617,7 +2889,7 @@ final class Apply {
             }
             throw new \RuntimeException($operatorMessage);
         }
-        if ($plan['missing_user']) {
+        if (!$recoveringScoped && $plan['missing_user']) {
             $list = implode("\n  - ", array_map(
                 fn($r) => "{$r['path']}: exact login '{$r['login']}' is absent",
                 $plan['missing_user']
@@ -2671,11 +2943,17 @@ final class Apply {
         }
 
         $rebuildWork = $this->rebuild_work($plan, $tree, $opts, $retryingIncompleteApply);
+        if ($recoveringScoped) {
+            $rebuildWork = $this->scoped_recovery_work($plan, $compiled);
+        }
         $deleteWork = $rebuildWork['delete_work'];
         $rebuildDeleteWork = $rebuildWork['rebuild_delete_work'];
         $work = $rebuildWork['work'];
+        $executeDeletes = !empty($opts['with_deletes'])
+            || ($recoveringScoped
+                && (array) ($this->scopedSession->authority()['selection']['deletion_items'] ?? []) !== []);
 
-        if (!empty($opts['with_deletes'])) {
+        if ($executeDeletes) {
             $blocked = array_filter($deleteWork, fn($r) => isset($r['blocked']));
             if ($blocked && empty($opts['force_delete_referenced'])) {
                 $list = implode("\n  - ", array_map(
@@ -2733,7 +3011,34 @@ final class Apply {
         $this->selectedActions = $this->policy->actions_for(
             $this->rebuild_surfaces($work, $tree, $rebuildDeleteWork)
         );
-        $negotiation = Providers::negotiate($this->policy, $this->selectedActions);
+        if ($scoped) {
+            foreach ($this->selectedActions as $action) {
+                if (!array_key_exists('triggers', $action)) {
+                    throw new \RuntimeException(
+                        'duo: scoped apply refused before target mutation — an untriggered global action has no bounded scope authority'
+                    );
+                }
+            }
+            foreach ($work as $entry) {
+                $entity = $tree[(string) ($entry['uuid'] ?? '')] ?? null;
+                $postType = is_array($entity) && ($entity['type'] ?? '') === 'post'
+                    ? (string) ($entity['data']['type'] ?? '')
+                    : '';
+                if ($postType === 'attachment') {
+                    throw new \RuntimeException(
+                        'duo: scoped apply refused before target mutation — attachment metadata generation has no operation-bound reconciliation contract in this slice'
+                    );
+                }
+                if ($postType !== '' && $this->policy->regen_dependency($postType) !== null) {
+                    throw new \RuntimeException(
+                        "duo: scoped apply refused before target mutation — post type '$postType' selects a legacy regenerator without operation-bound reconciliation"
+                    );
+                }
+            }
+        }
+        $negotiation = $scoped && method_exists(Providers::class, 'negotiate_scoped')
+            ? Providers::negotiate_scoped($this->policy, $this->selectedActions)
+            : Providers::negotiate($this->policy, $this->selectedActions);
         if ($negotiation['problems'] !== []) {
             throw new \RuntimeException(
                 'duo: apply refused before target mutation — declared provider capabilities are unavailable '
@@ -2744,7 +3049,11 @@ final class Apply {
         $this->negotiatedProviders = [
             'providers' => $negotiation['providers'],
             'capabilities' => $negotiation['capabilities'],
+            'scoped_capabilities' => (array) ($negotiation['scoped_capabilities'] ?? []),
         ];
+        if ($recoveringScoped) {
+            $this->assert_scoped_recovery_selection($negotiation);
+        }
 
         // Planning is intentionally read-only and can be expensive. The
         // target-authoritative lease prevents another Duo writer from racing
@@ -2759,11 +3068,172 @@ final class Apply {
                 usleep($pauseMs * 1000);
             }
         }
-        $freshPlan = $this->build_plan($opts, $compiled);
+        $freshPlan = $this->build_plan($opts, $compiled, $scoped, !$scoped);
+        if ($scoped) {
+            $freshPlan = ScopedApply::project_plan($freshPlan, $this->scopeContract);
+        }
         if (!hash_equals($this->plan_precondition_hash($plan), $this->plan_precondition_hash($freshPlan))) {
             throw new \RuntimeException(
                 'duo: promotion preconditions changed after planning; no target mutation attempted — recompile and retry'
             );
+        }
+        if ($scoped) {
+            $freshActual = Capture::snapshot_read_only(
+                $this->repo,
+                !empty($opts['force_unresolved_refs']),
+                $compiled,
+                $this->policy
+            );
+            $freshObservation = ScopedApply::observe_target(
+                $this->repo,
+                $compiled,
+                $this->policy,
+                $this->scopeContract,
+                $freshActual
+            );
+            foreach ([
+                'selected_before_root', 'protected_out_of_scope_root',
+                'ledger_map_root', 'protected_ledger_map_root', 'selected_ledger_map_root',
+                'target_observation_hash',
+            ] as $witness) {
+                if (!hash_equals(
+                    (string) ($this->scopedObservation[$witness] ?? ''),
+                    (string) ($freshObservation[$witness] ?? '')
+                )) {
+                    throw new \RuntimeException(
+                        'duo: scoped target observation changed after planning; no target mutation attempted'
+                    );
+                }
+            }
+            $this->scopedObservation = $freshObservation;
+        }
+
+        $performAuthoredTransaction = true;
+        $authorIntent = null;
+        if ($scoped) {
+            $authority = $this->scopedSession !== null
+                ? $this->scopedSession->authority()
+                : $this->scoped_authority(
+                    $plan,
+                    $work,
+                    $executeDeletes ? $deleteWork : [],
+                    $negotiation,
+                    $compiled
+                );
+            if (!hash_equals((string) ($authority['scope_hash'] ?? ''), (string) $this->scopeContract['scope_hash'])
+                || !hash_equals((string) ($authority['source']['artifact_hash'] ?? ''), $compiled->artifact_hash())
+                || !hash_equals((string) ($authority['lease']['owner'] ?? ''), $this->promotionOwner)
+                || !hash_equals((string) ($authority['lease']['artifact_hash'] ?? ''), $this->promotionArtifact)
+                || !hash_equals(
+                    (string) ($authority['lease']['session_id'] ?? ''),
+                    PromotionLock::session_id($this->promotionOwner, $this->promotionArtifact)
+                )) {
+                throw new \RuntimeException('duo: scoped apply recovery authority no longer matches the frozen source and live lease');
+            }
+            if (!hash_equals(
+                (string) ($authority['target']['protected_out_of_scope_hash'] ?? ''),
+                (string) $this->scopedObservation['protected_out_of_scope_root']
+            ) || !hash_equals(
+                (string) ($authority['target']['protected_ledger_map_hash'] ?? ''),
+                (string) $this->scopedObservation['protected_ledger_map_root']
+            )) {
+                if ($this->scopedSession !== null && !$this->scopedSession->is_recovery_required()) {
+                    $this->scopedSession->recover(hash('sha256', 'duo:scoped-protected-target-drift'));
+                }
+                throw new \RuntimeException(
+                    'duo: scoped apply recovery refused protected out-of-scope target drift'
+                );
+            }
+            $this->scopedSession = ScopedApplySession::begin(
+                new LedgerScopedApplySessionStorage(),
+                $authority
+            );
+            if ($this->scopedSession->is_recovery_required()) {
+                throw new \RuntimeException(
+                    'duo: scoped apply session requires operator reconciliation of its exact retained authority before retry'
+                );
+            }
+            if ($this->scopedSession->phase() === ScopedApplySession::PHASE_PLANNED) {
+                $this->scopedSession->transition(ScopedApplySession::PHASE_AUTHORING);
+            }
+            $authorIntent = $this->scoped_session_intent(
+                1,
+                'duo-scoped-authored-transaction/v1',
+                'author-' . substr($this->scopedSession->authority_hash_value(), 0, 32),
+                hash('sha256', Canon::encode([
+                    'plan' => $authority['plan'],
+                    'selection' => [
+                        'work_hash' => $authority['selection']['work_hash'],
+                        'deletions_hash' => $authority['selection']['deletions_hash'],
+                    ],
+                ])),
+                hash('sha256', Canon::encode([
+                    'selected_state' => $authority['selection']['work_hash'],
+                    'selected_deletions' => $authority['selection']['deletions_hash'],
+                ])),
+                (string) $authority['target']['selected_before_hash']
+            );
+            $this->scopedSession->append_intent($authorIntent);
+
+            $authoredState = ScopedApply::authored_state(
+                $freshActual,
+                $compiled,
+                $this->policy,
+                $this->scopeContract,
+                (string) $authority['target']['selected_before_hash']
+            );
+            $phase = $this->scopedSession->phase();
+            if ($authoredState === 'before' && !hash_equals(
+                (string) ($authority['target']['selected_before_ledger_map_hash'] ?? ''),
+                (string) $this->scopedObservation['selected_ledger_map_root']
+            )) {
+                $this->scopedSession->recover(hash('sha256', 'duo:scoped-selected-ledger-drift'));
+                throw new \RuntimeException(
+                    'duo: scoped apply recovery found selected identity-map drift before authored mutation'
+                );
+            }
+            if ($authoredState === 'before'
+                && (!hash_equals(
+                    (string) ($authority['plan']['precondition_hash'] ?? ''),
+                    $this->plan_precondition_hash($plan)
+                ) || !hash_equals(
+                    (string) ($authority['plan']['guard_witnesses_hash'] ?? ''),
+                    $this->scoped_guard_witnesses_hash($executeDeletes ? $deleteWork : [])
+                ))) {
+                $this->scopedSession->recover(hash('sha256', 'duo:scoped-plan-or-guard-drift'));
+                throw new \RuntimeException(
+                    'duo: scoped apply recovery found changed locked plan or deletion-guard evidence'
+                );
+            }
+            if ($phase === ScopedApplySession::PHASE_AUTHORING) {
+                if ($authoredState === 'desired') {
+                    $performAuthoredTransaction = false;
+                    $this->scopedSession->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
+                    $this->scopedSession->append_receipt($this->scoped_session_receipt(
+                        $authorIntent,
+                        (string) $this->scopedObservation['selected_before_root']
+                    ));
+                } elseif ($authoredState !== 'before') {
+                    $this->scopedSession->recover(hash('sha256', 'duo:scoped-authored-boundary-mixed'));
+                    throw new \RuntimeException(
+                        'duo: scoped apply recovery found a mixed authored boundary; no replay was attempted'
+                    );
+                }
+            } else {
+                $performAuthoredTransaction = false;
+                if ($authoredState !== 'desired') {
+                    $this->scopedSession->recover(hash('sha256', 'duo:scoped-authored-state-regressed'));
+                    throw new \RuntimeException(
+                        'duo: scoped apply recovery found selected target drift after authored commit'
+                    );
+                }
+                if ($phase === ScopedApplySession::PHASE_AUTHORED_COMMITTED) {
+                    $this->scopedSession->append_receipt($this->scoped_session_receipt(
+                        $authorIntent,
+                        (string) $this->scopedObservation['selected_before_root']
+                    ));
+                }
+            }
         }
 
         // A host continuation already owns its checkpoint-begun session.
@@ -2780,12 +3250,15 @@ final class Apply {
         // required rebuilds AND the post-apply canonical verification gate
         // succeed. It is failure state, never convergence state:
         // applied_revision and base hashes still advance afterward.
-        Ledger::kv_set('apply_in_progress', '1');
-        Canary::arm();
+        if (!$scoped) {
+            Ledger::kv_set('apply_in_progress', '1');
+        }
         $attachmentIds = [];
         $regenContext = [];
         $transactionStarted = false;
-        try {
+        if (!$scoped || $performAuthoredTransaction) {
+            Canary::arm();
+            try {
             Db::start('apply transaction start');
             $transactionStarted = true;
 
@@ -2795,7 +3268,7 @@ final class Apply {
             // boundary and compare the exact witness captured by that plan.
             // This closes the SELECT/delete and SELECT/repair windows; the
             // locks remain held through the authored delete and COMMIT.
-            if (!empty($opts['with_deletes']) && $deleteWork) {
+            if ($executeDeletes && $deleteWork) {
                 $this->lock_and_revalidate_delete_guards(
                     $deleteWork,
                     $deleteUuids,
@@ -2889,7 +3362,7 @@ final class Apply {
             }
 
             // ---- explicit tombstone deletes (still flag-gated) ----
-            if (!empty($opts['with_deletes'])) {
+            if ($executeDeletes) {
                 // Recheck every delete guard before writing a durable receipt.
                 // This keeps the receipt behind all refusal/precondition gates,
                 // while the receipt itself and the raw deletes remain in the
@@ -2929,21 +3402,105 @@ final class Apply {
             }
             Db::commit('apply transaction commit');
             $transactionStarted = false;
-        } catch (\Throwable $t) {
-            if ($transactionStarted) {
-                try {
-                    Db::rollback('apply transaction rollback');
-                } catch (DatabaseMutationException $rollback) {
-                    Canary::disarm();
-                    throw new DatabaseMutationException($rollback->mutationContext, $t);
+            } catch (\Throwable $t) {
+                if ($transactionStarted) {
+                    try {
+                        Db::rollback('apply transaction rollback');
+                    } catch (DatabaseMutationException $rollback) {
+                        Canary::disarm();
+                        throw new DatabaseMutationException($rollback->mutationContext, $t);
+                    }
                 }
+                Canary::disarm();
+                throw $t;
             }
             Canary::disarm();
-            throw $t;
         }
-        Canary::disarm();
+
+        if ($scoped && $this->scopedSession !== null) {
+            if ($performAuthoredTransaction) {
+                $afterActual = Capture::snapshot_read_only(
+                    $this->repo,
+                    !empty($opts['force_unresolved_refs']),
+                    $compiled,
+                    $this->policy
+                );
+                $afterObservation = ScopedApply::observe_target(
+                    $this->repo,
+                    $compiled,
+                    $this->policy,
+                    $this->scopeContract,
+                    $afterActual
+                );
+                if (!hash_equals(
+                    (string) $this->scopedSession->authority()['target']['protected_out_of_scope_hash'],
+                    (string) $afterObservation['protected_out_of_scope_root']
+                ) || !hash_equals(
+                    (string) $this->scopedSession->authority()['target']['protected_ledger_map_hash'],
+                    (string) $afterObservation['protected_ledger_map_root']
+                ) || ScopedApply::authored_state(
+                    $afterActual,
+                    $compiled,
+                    $this->policy,
+                    $this->scopeContract,
+                    (string) $this->scopedSession->authority()['target']['selected_before_hash']
+                ) !== 'desired') {
+                    $this->scopedSession->recover(hash('sha256', 'duo:scoped-authored-commit-readback-mismatch'));
+                    throw new \RuntimeException('duo: scoped authored transaction committed without exact bounded readback');
+                }
+                $this->scopedObservation = $afterObservation;
+                $this->scopedSession->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
+                $this->scopedSession->append_receipt($this->scoped_session_receipt(
+                    $authorIntent,
+                    (string) $afterObservation['selected_before_root']
+                ));
+            }
+            if ($this->scopedSession->phase() === ScopedApplySession::PHASE_AUTHORED_COMMITTED) {
+                $this->scopedSession->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
+            }
+        }
 
         $this->renew_promotion_lock('apply-rebuild');
+
+        $skipScopedCore = false;
+        $scopedCoreComplete = null;
+        if ($scoped && $this->scopedSession !== null) {
+            $coreInputHash = hash('sha256', Canon::encode([
+                'work' => $this->scopedSession->authority()['selection']['work_hash'],
+                'deletions' => $this->scopedSession->authority()['selection']['deletions_hash'],
+                'surfaces' => $this->rebuild_surfaces($work, $tree, $rebuildDeleteWork),
+            ]));
+            $coreIntent = $this->scoped_session_intent(
+                2,
+                'duo-scoped-engine-derived-effects/v1',
+                'effects-core-' . substr($this->scopedSession->authority_hash_value(), 0, 24),
+                $coreInputHash,
+                hash('sha256', Canon::encode([
+                    'future_schedule' => true,
+                    'taxonomy_counts' => true,
+                    'attachment_metadata' => false,
+                ])),
+                (string) $this->scopedObservation['selected_before_root']
+            );
+            $this->scopedSession->append_intent($coreIntent);
+            $hasCoreWork = $work !== [] || ($executeDeletes && $deleteWork !== []);
+            if (!$hasCoreWork && $this->scoped_receipt_at(2) === null) {
+                $this->scopedSession->append_receipt($this->scoped_session_receipt(
+                    $coreIntent,
+                    hash('sha256', 'duo:scoped-engine-effects-bounded-noop')
+                ));
+            }
+            $skipScopedCore = !$hasCoreWork || $this->scoped_receipt_at(2) !== null;
+            $scopedCoreComplete = function () use ($coreIntent, $work, $tree): void {
+                if ($this->scopedSession === null || $this->scoped_receipt_at(2) !== null) {
+                    return;
+                }
+                $this->scopedSession->append_receipt($this->scoped_session_receipt(
+                    $coreIntent,
+                    $this->scoped_core_readback_hash($work, $tree)
+                ));
+            };
+        }
 
         // Required derived-state rebuilds happen after authored mutations
         // commit (their WP-CLI subprocesses need to observe those writes) but
@@ -2973,9 +3530,22 @@ final class Apply {
             $tree,
             $regenContext,
             $deleteWork,
-            !empty($opts['with_deletes']),
-            $plan['deleted']
+            $executeDeletes,
+            $plan['deleted'],
+            $scoped,
+            $skipScopedCore,
+            $scopedCoreComplete
         );
+
+        if ($scoped && $this->scopedSession !== null) {
+            if ($this->scoped_receipt_at(2) === null) {
+                $this->scopedSession->recover(hash('sha256', 'duo:scoped-core-effect-receipt-missing'));
+                throw new \RuntimeException('duo: scoped engine effects completed without a durable readback receipt');
+            }
+            if ($this->scopedSession->phase() === ScopedApplySession::PHASE_EFFECTS_PENDING) {
+                $this->scopedSession->transition(ScopedApplySession::PHASE_VERIFYING);
+            }
+        }
 
         // DUO-3220: never infer convergence from the absence of a thrown
         // mutation/rebuild error. Re-capture the target through the same
@@ -2999,12 +3569,14 @@ final class Apply {
             $this->renew_promotion_lock('apply-ledger');
             Db::start('ledger transaction start');
             $ledgerTransactionStarted = true;
-            Ledger::kv_delete('apply_in_progress');
-            foreach (array_merge($plan['unchanged'], $work) as $r) {
+            if (!$scoped) {
+                Ledger::kv_delete('apply_in_progress');
+            }
+            foreach ($scoped ? $work : array_merge($plan['unchanged'], $work) as $r) {
                 $e = $tree[$r['uuid']];
                 Ledger::set_state_hash($r['uuid'], $e['type'], $e['hash']);
             }
-            if (!empty($opts['with_deletes'])) {
+            if ($executeDeletes) {
                 foreach (array_merge($deleteWork, $plan['deleted']) as $r) {
                     Ledger::forget($r['uuid']);
                     Ledger::set_state_hash($r['uuid'], 'deletion', $r['receipt_hash']);
@@ -3014,10 +3586,26 @@ final class Apply {
             // orchestrator may still supply a git commit/ref for operator-
             // facing provenance, but the receipt moves atomically with every
             // state hash only after required rebuilds have succeeded.
-            Ledger::kv_set(
-                'applied_revision',
-                !empty($opts['revision']) ? (string) $opts['revision'] : $compiled->revision_hash()
-            );
+            if ($scoped) {
+                if ($this->scopedSession === null
+                    || $this->scopedSession->phase() !== ScopedApplySession::PHASE_VERIFYING) {
+                    throw new \RuntimeException('duo: scoped ledger finalization has no exact verifying session');
+                }
+                $convergenceHash = (string) ($verification['receipt_hash'] ?? '');
+                if (preg_match('/^[a-f0-9]{64}$/D', $convergenceHash) !== 1) {
+                    throw new \RuntimeException('duo: scoped convergence receipt has no valid identity');
+                }
+                // The session CAS and selected ledger updates share this exact
+                // database transaction, so COMMIT resolves to either a still-
+                // active verifying session or one terminal receipt plus all
+                // selected base updates. Global applied_revision never moves.
+                $this->scopedSession->complete($convergenceHash);
+            } else {
+                Ledger::kv_set(
+                    'applied_revision',
+                    !empty($opts['revision']) ? (string) $opts['revision'] : $compiled->revision_hash()
+                );
+            }
             Db::commit('ledger transaction commit');
             $ledgerTransactionStarted = false;
         } catch (\Throwable $t) {
@@ -3031,14 +3619,14 @@ final class Apply {
             throw $t;
         }
 
-        return [
+        $summary = [
             'artifact' => [
                 'hash' => $compiled->artifact_hash(),
                 'revision' => $compiled->revision_hash(),
                 'manifests' => $compiled->manifest_hash(),
             ],
             'plan' => array_map('count', $plan),
-            'applied' => count($work) + (!empty($opts['with_deletes']) ? count($deleteWork) : 0),
+            'applied' => count($work) + ($executeDeletes ? count($deleteWork) : 0),
             'drift' => array_column($plan['drift'], 'path'),
             'warnings' => array_merge($this->warnings, $this->tokens->warnings),
             // DUO-3338 receipts: what each selected rebuild action observed,
@@ -3049,6 +3637,14 @@ final class Apply {
             'canary' => 'clean',
             'verification' => $verification,
         ];
+        if ($scoped) {
+            if ($this->scopedSession === null || !$this->scopedSession->is_terminal()) {
+                throw new \RuntimeException('duo: scoped apply completed without a durable terminal receipt');
+            }
+            $summary['format'] = 'duo-scoped-apply-result/v1';
+            $summary['scoped_receipt'] = $this->scopedSession->terminal_receipt();
+        }
+        return $summary;
     }
 
     private static function assert_expected_artifact(string $actual, array $opts, bool $required): void {
@@ -3114,6 +3710,332 @@ final class Apply {
             $basis[$key] = $plan[$key] ?? [];
         }
         return hash('sha256', Canon::encode($basis));
+    }
+
+    /** Mint the immutable execution authority only after the locked recheck. */
+    private function scoped_authority(
+        array $plan,
+        array $work,
+        array $deleteWork,
+        array $negotiation,
+        CompiledRepository $compiled
+    ): array {
+        if ($this->scopeContract === null || $this->scopedObservation === null) {
+            throw new \RuntimeException('duo: scoped mutation authority has no complete source/target evidence');
+        }
+        $sessionId = PromotionLock::session_id($this->promotionOwner, $this->promotionArtifact);
+        $workRows = [];
+        foreach ($work as $row) {
+            $identity = (string) ($row['uuid'] ?? '');
+            $entity = $compiled->tree()[$identity] ?? null;
+            if (!is_array($entity)) {
+                throw new \RuntimeException('duo: scoped work identity disappeared from frozen artifact');
+            }
+            $workRows[] = [
+                'identity_hash' => hash('sha256', $identity),
+                'type' => (string) ($entity['type'] ?? ''),
+                'desired_hash' => $this->verification_hash($entity),
+            ];
+        }
+        usort($workRows, static fn(array $a, array $b): int =>
+            strcmp(Canon::encode($a), Canon::encode($b))
+        );
+        $deletionRows = [];
+        foreach ($deleteWork as $row) {
+            $identityHash = hash('sha256', (string) ($row['uuid'] ?? ''));
+            $deletionRows[] = [
+                'identity_hash' => $identityHash,
+                'receipt_hash' => (string) ($row['receipt_hash'] ?? ''),
+                'deletion_kind' => (string) ($row['deletion_kind'] ?? ''),
+                'deletion_type' => (string) ($row['deletion_type'] ?? ''),
+            ];
+        }
+        usort($deletionRows, static fn(array $a, array $b): int =>
+            strcmp(Canon::encode($a), Canon::encode($b))
+        );
+        $actionRows = [];
+        $effectRows = [];
+        foreach ($this->selectedActions as $action) {
+            $index = (int) ($action['index'] ?? 0);
+            $row = [
+                'manifest' => (string) ($action['manifest'] ?? ''),
+                'index' => $index,
+                'declaration_hash' => hash('sha256', Canon::encode($action)),
+            ];
+            $actionRows[] = $row;
+            foreach (Policy::action_effects($action, $index) as $effect) {
+                $effectRows[] = [
+                    'action_hash' => hash('sha256', Canon::encode($row)),
+                    'effect_hash' => hash('sha256', Canon::encode($effect)),
+                ];
+            }
+        }
+        usort($actionRows, static fn(array $a, array $b): int =>
+            strcmp(Canon::encode($a), Canon::encode($b))
+        );
+        usort($effectRows, static fn(array $a, array $b): int =>
+            strcmp(Canon::encode($a), Canon::encode($b))
+        );
+        $capabilities = (array) ($negotiation['scoped_capabilities'] ?? []);
+        if ($this->selectedActions !== [] && !method_exists(Providers::class, 'negotiate_scoped')) {
+            throw new \RuntimeException(
+                'duo: scoped apply requires operation-bound action reconciliation before target mutation'
+            );
+        }
+        return ScopedApplySession::make_authority(
+            (string) $this->scopeContract['scope_hash'],
+            [
+                'artifact_hash' => $compiled->artifact_hash(),
+                'state_revision_hash' => $compiled->revision_hash(),
+                'manifest_hash' => $compiled->manifest_hash(),
+            ],
+            [
+                'owner' => $this->promotionOwner,
+                'artifact_hash' => $this->promotionArtifact,
+                'session_id' => $sessionId,
+            ],
+            [
+                'selected_before_hash' => (string) $this->scopedObservation['selected_before_root'],
+                'selected_before_ledger_map_hash' => (string) $this->scopedObservation['selected_ledger_map_root'],
+                'protected_ledger_map_hash' => (string) $this->scopedObservation['protected_ledger_map_root'],
+                'protected_out_of_scope_hash' => (string) $this->scopedObservation['protected_out_of_scope_root'],
+                'ledger_roots_hash' => hash('sha256', Canon::encode([
+                    'selected' => (string) $this->scopedObservation['selected_ledger_map_root'],
+                    'protected' => (string) $this->scopedObservation['protected_ledger_map_root'],
+                ])),
+            ],
+            [
+                'precondition_hash' => $this->plan_precondition_hash($plan),
+                'guard_witnesses_hash' => $this->scoped_guard_witnesses_hash($deleteWork),
+            ],
+            [
+                'work_hash' => hash('sha256', Canon::encode($workRows)),
+                'work_items' => $workRows,
+                'deletions_hash' => hash('sha256', Canon::encode($deletionRows)),
+                'deletion_items' => $deletionRows,
+                'action_declarations_hash' => hash('sha256', Canon::encode($actionRows)),
+                'action_items' => $actionRows,
+                'capabilities_hash' => hash('sha256', Canon::encode($capabilities)),
+                'effects_hash' => hash('sha256', Canon::encode($effectRows)),
+                'effect_items' => $effectRows,
+            ],
+            hash('sha256', Canon::encode([
+                'code_revision' => $compiled->code_revision(),
+                'code_mismatch' => (array) ($plan['code_mismatch'] ?? []),
+                'code_drift' => (array) ($plan['code_drift'] ?? []),
+            ]))
+        );
+    }
+
+    private function scoped_guard_witnesses_hash(array $deleteWork): string {
+        $rows = [];
+        foreach ($deleteWork as $row) {
+            $rows[] = [
+                'identity_hash' => hash('sha256', (string) ($row['uuid'] ?? '')),
+                'witnesses_hash' => hash('sha256', Canon::encode((array) ($row['guard_witnesses'] ?? []))),
+            ];
+        }
+        usort($rows, static fn(array $a, array $b): int =>
+            strcmp(Canon::encode($a), Canon::encode($b))
+        );
+        return hash('sha256', Canon::encode($rows));
+    }
+
+    /** Re-prove immutable action declarations and scoped capability digests on recovery. */
+    private function assert_scoped_recovery_selection(array $negotiation): void {
+        if ($this->scopedSession === null) {
+            throw new \RuntimeException('duo: scoped action recovery has no durable authority');
+        }
+        $selection = $this->scopedSession->authority()['selection'];
+        $actions = [];
+        $effects = [];
+        foreach ($this->selectedActions as $action) {
+            $index = (int) ($action['index'] ?? 0);
+            $row = [
+                'manifest' => (string) ($action['manifest'] ?? ''),
+                'index' => $index,
+                'declaration_hash' => hash('sha256', Canon::encode($action)),
+            ];
+            $actions[] = $row;
+            foreach (Policy::action_effects($action, $index) as $effect) {
+                $effects[] = [
+                    'action_hash' => hash('sha256', Canon::encode($row)),
+                    'effect_hash' => hash('sha256', Canon::encode($effect)),
+                ];
+            }
+        }
+        foreach ([&$actions, &$effects] as &$rows) {
+            usort($rows, static fn(array $a, array $b): int =>
+                strcmp(Canon::encode($a), Canon::encode($b))
+            );
+        }
+        unset($rows);
+        if (Canon::encode($actions) !== Canon::encode((array) ($selection['action_items'] ?? []))
+            || Canon::encode($effects) !== Canon::encode((array) ($selection['effect_items'] ?? []))
+            || !hash_equals(
+                (string) ($selection['capabilities_hash'] ?? ''),
+                hash('sha256', Canon::encode((array) ($negotiation['scoped_capabilities'] ?? [])))
+            )) {
+            throw new \RuntimeException(
+                'duo: scoped apply recovery action/capability evidence changed; opaque effects were not replayed'
+            );
+        }
+    }
+
+    /** Build one value-free, authority/lease-bound durable mutation intent. */
+    private function scoped_session_intent(
+        int $ordinal,
+        string $actionIdentity,
+        string $operationIdentity,
+        string $inputHash,
+        string $effectHash,
+        string $beforeHash
+    ): array {
+        if ($this->scopedSession === null) {
+            throw new \RuntimeException('duo: scoped mutation intent has no durable session');
+        }
+        return [
+            'ordinal' => $ordinal,
+            'authority_hash' => $this->scopedSession->authority_hash_value(),
+            'lease_hash' => ScopedApplySession::lease_hash($this->scopedSession->lease()),
+            'action_hash' => hash('sha256', $actionIdentity),
+            'operation_hash' => hash('sha256', $operationIdentity),
+            'input_hash' => $inputHash,
+            'effect_hash' => $effectHash,
+            'before_hash' => $beforeHash,
+        ];
+    }
+
+    /** Bind a post-operation readback hash to an exact persisted intent. */
+    private function scoped_session_receipt(array $intent, string $afterHash): array {
+        return $intent + ['after_hash' => $afterHash];
+    }
+
+    private function scoped_action_effect_hash(array $action): string {
+        return hash('sha256', Canon::encode(Policy::action_effects(
+            $action,
+            (int) ($action['index'] ?? 0)
+        )));
+    }
+
+    /** @return array{authority_hash:string,lease_session_id:string,operation_id:string,input_hash:string,effect_hash:string} */
+    private function scoped_effect_operation(int $ordinal, string $inputHash, string $effectHash): array {
+        if ($this->scopedSession === null) {
+            throw new \RuntimeException('duo: scoped effect has no durable session');
+        }
+        return [
+            'authority_hash' => $this->scopedSession->authority_hash_value(),
+            'lease_session_id' => $this->scopedSession->session_id(),
+            'operation_id' => 'effect-' . substr($this->scopedSession->authority_hash_value(), 0, 24) . '-' . $ordinal,
+            'input_hash' => $inputHash,
+            'effect_hash' => $effectHash,
+        ];
+    }
+
+    /** Require the reviewed, hash-only scoped effect receipt to bind exactly. */
+    private function assert_scoped_effect_result(
+        array $result,
+        array $operation,
+        string $capabilityDigest
+    ): void {
+        $keys = array_keys($result);
+        sort($keys, SORT_STRING);
+        if ($keys !== [
+            'after_hash', 'before_hash', 'capability_digest', 'format',
+            'operation', 'status', 'verified',
+        ]
+            || ($result['format'] ?? '') !== Providers::SCOPED_RECEIPT_FORMAT
+            || ($result['status'] ?? '') !== 'verified'
+            || ($result['verified'] ?? null) !== true
+            || Canon::encode((array) ($result['operation'] ?? [])) !== Canon::encode($operation)
+            || !hash_equals($capabilityDigest, (string) ($result['capability_digest'] ?? ''))
+            || preg_match('/^[a-f0-9]{64}$/D', (string) ($result['before_hash'] ?? '')) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', (string) ($result['after_hash'] ?? '')) !== 1) {
+            throw new \RuntimeException('duo: scoped effect returned an invalid reviewed receipt');
+        }
+    }
+
+    /** Hash-only public action evidence; provider/native raw values never escape. */
+    private function scoped_public_action_receipt(
+        string $source,
+        string $kind,
+        array $operation,
+        string $capabilityDigest,
+        ?array $receipt,
+        string $status = 'verified'
+    ): array {
+        if ($receipt === null) {
+            throw new \RuntimeException('duo: scoped action has no durable outer receipt');
+        }
+        return [
+            'format' => Providers::SCOPED_RECEIPT_FORMAT,
+            'source_hash' => hash('sha256', $source),
+            'kind' => $kind,
+            'operation_hash' => hash('sha256', Canon::encode($operation)),
+            'capability_digest' => $capabilityDigest,
+            'receipt_hash' => hash('sha256', Canon::encode($receipt)),
+            'status' => $status,
+            'verified' => true,
+        ];
+    }
+
+    /** @return array<string,mixed>|null */
+    private function scoped_receipt_at(int $ordinal): ?array {
+        if ($this->scopedSession === null) {
+            return null;
+        }
+        foreach ($this->scopedSession->receipts() as $receipt) {
+            if ((int) ($receipt['ordinal'] ?? 0) === $ordinal) {
+                return $receipt;
+            }
+        }
+        return null;
+    }
+
+    /** Hash-only checked projection of engine-owned derived effects. */
+    private function scoped_core_readback_hash(array $work, array $tree): string {
+        global $wpdb;
+        $schedules = [];
+        foreach ($work as $entry) {
+            $identity = (string) ($entry['uuid'] ?? '');
+            $entity = $tree[$identity] ?? null;
+            if (!is_array($entity) || ($entity['type'] ?? '') !== 'post') {
+                continue;
+            }
+            $id = Ledger::id_for($identity, Ledger::KIND_POST);
+            if ($id === null) {
+                continue;
+            }
+            $schedules[] = [
+                'identity_hash' => hash('sha256', $identity),
+                'next_publish_hash' => hash('sha256', Canon::encode(
+                    wp_next_scheduled('publish_future_post', [$id])
+                )),
+            ];
+        }
+        usort($schedules, static fn(array $a, array $b): int =>
+            strcmp(Canon::encode($a), Canon::encode($b))
+        );
+        $counts = [];
+        $taxonomies = array_values(array_unique(array_merge($this->policy->taxonomies(), ['nav_menu'])));
+        sort($taxonomies, SORT_STRING);
+        foreach ($taxonomies as $taxonomy) {
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT term_taxonomy_id, count FROM {$wpdb->term_taxonomy} WHERE taxonomy = %s ORDER BY term_taxonomy_id",
+                $taxonomy
+            ), ARRAY_A) ?: [];
+            foreach ($rows as $row) {
+                $counts[] = [
+                    'taxonomy_hash' => hash('sha256', (string) $taxonomy),
+                    'target_identity_hash' => hash('sha256', (string) ($row['term_taxonomy_id'] ?? '')),
+                    'count' => (int) ($row['count'] ?? 0),
+                ];
+            }
+        }
+        return hash('sha256', Canon::encode([
+            'future_schedules' => $schedules,
+            'taxonomy_counts' => $counts,
+        ]));
     }
 
     private function renew_promotion_lock(string $phase): void {
@@ -3444,6 +4366,9 @@ final class Apply {
      * @return array{verifier:string,result:string,live_entities:int,deletions:int}
      */
     private function verify_convergence(array $opts, CompiledRepository $compiled): array {
+        if ($this->scopeContract !== null) {
+            return $this->verify_scoped_convergence($opts, $compiled);
+        }
         if (!class_exists('\WP_CLI')) {
             throw new \RuntimeException(
                 'duo: post-apply convergence verification is unavailable outside wp-cli; promotion metadata was not committed'
@@ -3528,6 +4453,188 @@ final class Apply {
             );
         }
         return $report;
+    }
+
+    /** Fresh-process verifier for the bounded target roots and selected intent. */
+    private function verify_scoped_convergence(array $opts, CompiledRepository $compiled): array {
+        if (!class_exists('\WP_CLI') || $this->scopedObservation === null) {
+            throw new \RuntimeException(
+                'duo: scoped convergence verification is unavailable; scoped ledger evidence was not committed'
+            );
+        }
+        $artifactSnapshot = tempnam(sys_get_temp_dir(), 'duo-scoped-verify-artifact-');
+        $policySnapshot = tempnam(sys_get_temp_dir(), 'duo-scoped-verify-policy-');
+        if ($artifactSnapshot === false || $policySnapshot === false) {
+            if (is_string($artifactSnapshot)) { @unlink($artifactSnapshot); }
+            if (is_string($policySnapshot)) { @unlink($policySnapshot); }
+            throw new \RuntimeException('duo: could not allocate frozen scoped-verification inputs');
+        }
+        @chmod($artifactSnapshot, 0600);
+        @chmod($policySnapshot, 0600);
+        $request = [
+            'format' => 'duo-scope-request/v1',
+            'scope_hash' => (string) $this->scopeContract['scope_hash'],
+            'selectors' => $this->scopeContract['selectors'],
+        ];
+        if ($this->scopedSession === null
+            || $this->scopedSession->phase() !== ScopedApplySession::PHASE_VERIFYING) {
+            throw new \RuntimeException('duo: scoped convergence verifier has no exact verifying session');
+        }
+        $authorityHash = $this->scopedSession->authority_hash_value();
+        $effectsRoot = ScopedApplySession::hash_value($this->scopedSession->receipts());
+        $cmd = 'duo verify-canonical --repo=' . escapeshellarg($this->repo)
+            . ' --expected-artifact=' . $compiled->artifact_hash()
+            . ' --compiled=' . escapeshellarg($artifactSnapshot)
+            . ' --policy-snapshot=' . escapeshellarg($policySnapshot)
+            . ' --scope-request-b64=' . escapeshellarg(base64_encode(Canon::encode($request)))
+            . ' --expected-protected-root=' . (string) $this->scopedObservation['protected_out_of_scope_root']
+            . ' --expected-protected-map-root=' . (string) $this->scopedObservation['protected_ledger_map_root']
+            . ' --expected-authority-hash=' . $authorityHash
+            . ' --expected-effects-root=' . $effectsRoot
+            . ' --format=json';
+        if (!empty($opts['force_unresolved_refs'])) {
+            $cmd .= ' --force-unresolved-refs';
+        }
+        try {
+            $compiled->write($artifactSnapshot);
+            Canon::write_file($policySnapshot, Canon::encode($this->policy->export_snapshot()));
+            $res = \WP_CLI::runcommand($cmd, [
+                'launch' => true,
+                'return' => 'all',
+                'exit_error' => false,
+            ]);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: scoped convergence verification subprocess failed; scoped ledger evidence was not committed',
+                0,
+                $failure
+            );
+        } finally {
+            @unlink($artifactSnapshot);
+            @unlink($policySnapshot);
+        }
+        if ((int) $res->return_code !== 0) {
+            throw new \RuntimeException(
+                'duo: scoped convergence verification refused the bounded target; scoped ledger evidence was not committed'
+            );
+        }
+        $lines = preg_split('/\R/', trim((string) ($res->stdout ?? ''))) ?: [];
+        try {
+            $report = Canon::decode((string) end($lines));
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: scoped convergence verification returned malformed evidence',
+                0,
+                $failure
+            );
+        }
+        if (!is_array($report)
+            || ($report['format'] ?? '') !== ScopedApply::CONVERGENCE_FORMAT
+            || ($report['result'] ?? '') !== 'pass'
+            || !hash_equals($authorityHash, (string) ($report['authority_hash'] ?? ''))
+            || !hash_equals($effectsRoot, (string) ($report['effects_root'] ?? ''))) {
+            throw new \RuntimeException('duo: scoped convergence verification returned invalid evidence');
+        }
+        return $report;
+    }
+
+    /**
+     * Strict, read-only target-side verification. It verifies only selected
+     * desired rows/deletions while proving every protected row and map outside
+     * the scope retained its pre-mutation root.
+     */
+    private function verify_scoped_convergence_local(
+        CompiledRepository $compiled,
+        bool $forceUnresolvedRefs,
+        string $expectedProtectedRoot,
+        string $expectedProtectedMapRoot,
+        string $authorityHash,
+        string $effectsRoot
+    ): array {
+        foreach ([$expectedProtectedRoot, $expectedProtectedMapRoot, $authorityHash, $effectsRoot] as $hash) {
+            if (preg_match('/^[a-f0-9]{64}$/D', $hash) !== 1) {
+                throw new \RuntimeException('duo: scoped verification requires complete lowercase SHA-256 witnesses');
+            }
+        }
+        $actual = Capture::snapshot_read_only(
+            $this->repo,
+            $forceUnresolvedRefs,
+            $compiled,
+            $this->policy
+        );
+        $observation = ScopedApply::observe_target(
+            $this->repo,
+            $compiled,
+            $this->policy,
+            $this->scopeContract,
+            $actual
+        );
+        if (!hash_equals($expectedProtectedRoot, (string) $observation['protected_out_of_scope_root'])
+            || !hash_equals($expectedProtectedMapRoot, (string) $observation['protected_ledger_map_root'])) {
+            throw new \RuntimeException(
+                'duo: scoped convergence verification found protected out-of-scope target drift'
+            );
+        }
+        $selected = ScopedApply::selected_set($this->scopeContract);
+        $failures = [];
+        $verifiedLive = 0;
+        $verifiedDeleted = 0;
+        $skippedUserMeta = 0;
+        foreach (array_keys($selected) as $identity) {
+            $expected = $compiled->tree()[$identity] ?? null;
+            if (is_array($expected)) {
+                $observed = $actual[$identity] ?? null;
+                if ($observed === null) {
+                    if (($expected['type'] ?? '') === 'user-meta'
+                        && $this->policy->user_meta_missing_behavior((array) ($expected['data']['meta'] ?? [])) === 'warn') {
+                        $skippedUserMeta++;
+                        continue;
+                    }
+                    $failures[] = hash('sha256', $identity) . ':missing';
+                    continue;
+                }
+                $expectedHash = $this->verification_hash($expected);
+                $observedHash = ($expected['type'] ?? '') === 'post'
+                    ? (string) ($observed['hash'] ?? '')
+                    : hash('sha256', Canon::encode(Canon::decode((string) ($observed['content'] ?? ''))));
+                if (!hash_equals((string) ($expected['type'] ?? ''), (string) ($observed['type'] ?? ''))
+                    || !hash_equals($expectedHash, $observedHash)) {
+                    $failures[] = hash('sha256', $identity) . ':mismatch';
+                    continue;
+                }
+                $verifiedLive++;
+                continue;
+            }
+            if (isset($compiled->deletions()[$identity])) {
+                if (isset($actual[$identity])) {
+                    $failures[] = hash('sha256', $identity) . ':still-present';
+                } else {
+                    $verifiedDeleted++;
+                }
+                continue;
+            }
+            $failures[] = hash('sha256', $identity) . ':not-in-artifact';
+        }
+        if ($failures !== []) {
+            throw new \RuntimeException(
+                'duo: scoped convergence verification failed selected intent (' . implode(',', $failures) . ')'
+            );
+        }
+        $receipt = [
+            'format' => ScopedApply::CONVERGENCE_FORMAT,
+            'result' => 'pass',
+            'authority_hash' => $authorityHash,
+            'effects_root' => $effectsRoot,
+            'scope_hash' => (string) $this->scopeContract['scope_hash'],
+            'source_artifact_hash' => $compiled->artifact_hash(),
+            'protected_out_of_scope_root' => $expectedProtectedRoot,
+            'protected_ledger_map_root' => $expectedProtectedMapRoot,
+            'selected_live' => $verifiedLive,
+            'selected_deletions' => $verifiedDeleted,
+            'skipped_user_meta' => $skippedUserMeta,
+        ];
+        $receipt['receipt_hash'] = hash('sha256', Canon::encode($receipt));
+        return $receipt;
     }
 
     private function verify_convergence_local(
@@ -5826,7 +6933,10 @@ final class Apply {
         array $regenContext = [],
         array $deleteWork = [],
         bool $withDeletes = false,
-        array $absentTombstones = []
+        array $absentTombstones = [],
+        bool $scoped = false,
+        bool $skipScopedCore = false,
+        ?callable $scopedCoreComplete = null
     ): void {
         global $wpdb;
 
@@ -5856,8 +6966,8 @@ final class Apply {
         // marker whose surface a PINNED provider action claims, whatever this
         // run selected), while the clear-on-verified consumer is in the action
         // loop.
-        $durableReparents = $this->durable_reparent_contexts();
-        $durableDeletions = $this->durable_delete_contexts();
+        $durableReparents = $scoped ? [] : $this->durable_reparent_contexts();
+        $durableDeletions = $scoped ? [] : $this->durable_delete_contexts();
 
         // DUO-3234: derived tables with a hard per-entity query-availability
         // dependency — run FIRST, deliberately, since it is the only step in
@@ -5867,8 +6977,11 @@ final class Apply {
         // prior run's still-outstanding regen_pending marker must be retried
         // even when this run's $work is empty (see regen_dependencies()'s own
         // docblock).
-        $this->regen_dependencies($work, $tree, $regenContext);
+        if (!$scoped) {
+            $this->regen_dependencies($work, $tree, $regenContext);
+        }
 
+        if (!$scoped || !$skipScopedCore) {
         // Future-post cron is derived operational state. Raw SQL deliberately
         // bypasses wp_transition_post_status(), so reproduce only its narrow
         // scheduling semantic after the authored transaction commits.
@@ -5976,6 +7089,10 @@ final class Apply {
                 throw new \RuntimeException("duo: required attachment metadata rebuild failed for attachment $id", 0, $t);
             }
         }
+        if ($scoped && $scopedCoreComplete !== null) {
+            $scopedCoreComplete();
+        }
+        }
 
         // Manifest-declared rebuild actions (DUO-3338): the hooks we
         // deliberately skip are also what maintain plugin derived state
@@ -6010,10 +7127,53 @@ final class Apply {
         }
 
         $declarations = $this->selectedActions === [] ? [] : $this->policy->provider_declarations();
+        $scopedOrdinal = 3;
         foreach ($this->selectedActions as $action) {
+            $actionOrdinal = $scopedOrdinal++;
             $source = Policy::action_source($action, (int) ($action['index'] ?? 0));
             try {
                 if (($action['kind'] ?? '') === 'native') {
+                    if ($scoped) {
+                        $nativeAction = (string) $action['action'];
+                        $nativeArgs = (array) ($action['args'] ?? []);
+                        $inputHash = NativeActions::scoped_input_hash($nativeAction, $nativeArgs);
+                        $capabilityDigest = NativeActions::scoped_action_digest($nativeAction);
+                        $effectHash = $this->scoped_action_effect_hash($action);
+                        $operation = $this->scoped_effect_operation($actionOrdinal, $inputHash, $effectHash);
+                        $intent = $this->scoped_session_intent(
+                            $actionOrdinal,
+                            $capabilityDigest,
+                            $operation['operation_id'],
+                            $inputHash,
+                            $effectHash,
+                            (string) $this->scopedObservation['selected_before_root']
+                        );
+                        $this->scopedSession->append_intent($intent);
+                        $receipt = $this->scoped_receipt_at($actionOrdinal);
+                        if ($receipt === null) {
+                            $reviewed = NativeActions::reconcile_scoped($nativeAction, $nativeArgs, $operation);
+                            if (($reviewed['status'] ?? '') === 'not_started') {
+                                $this->renew_provider_lease();
+                                $reviewed = NativeActions::invoke_scoped($nativeAction, $nativeArgs, $operation);
+                                $this->renew_provider_lease();
+                            }
+                            $this->assert_scoped_effect_result($reviewed, $operation, $capabilityDigest);
+                            $this->scopedSession->append_receipt($this->scoped_session_receipt(
+                                $intent,
+                                hash('sha256', Canon::encode($reviewed))
+                            ));
+                            $receipt = $this->scoped_receipt_at($actionOrdinal);
+                        }
+                        $this->warnings[] = "native action fired: $nativeAction (scoped, verified)";
+                        $this->actionReceipts[] = $this->scoped_public_action_receipt(
+                            $source,
+                            'native',
+                            $operation,
+                            $capabilityDigest,
+                            $receipt
+                        );
+                        continue;
+                    }
                     $receipt = NativeActions::execute(
                         (string) $action['action'],
                         (array) ($action['args'] ?? [])
@@ -6116,6 +7276,41 @@ final class Apply {
                     // byte-identical on the channel-less path.
                     $declared = (array) ($declaration['context'] ?? []);
                     $channelState = $this->skipped_channel_states($declared, $context);
+                    if ($scoped) {
+                        $inputHash = Providers::scoped_input_hash($action, $declaration, $entities, $context);
+                        $capabilityDigest = (string) ($this->negotiatedProviders['scoped_capabilities'][$id][$capability]['capability_digest'] ?? '');
+                        $effectHash = $this->scoped_action_effect_hash($action);
+                        $operation = $this->scoped_effect_operation($actionOrdinal, $inputHash, $effectHash);
+                        $intent = $this->scoped_session_intent(
+                            $actionOrdinal,
+                            $capabilityDigest,
+                            $operation['operation_id'],
+                            $inputHash,
+                            $effectHash,
+                            (string) $this->scopedObservation['selected_before_root']
+                        );
+                        $this->scopedSession->append_intent($intent);
+                        if ($this->scoped_receipt_at($actionOrdinal) === null) {
+                            $skipHash = hash('sha256', Canon::encode([
+                                'status' => 'bounded_skip',
+                                'operation' => $operation,
+                                'capability_digest' => $capabilityDigest,
+                            ]));
+                            $this->scopedSession->append_receipt(
+                                $this->scoped_session_receipt($intent, $skipHash)
+                            );
+                        }
+                        $this->warnings[] = "provider capability skipped: $id $capability (scoped empty batch)";
+                        $this->actionReceipts[] = $this->scoped_public_action_receipt(
+                            $source,
+                            'provider',
+                            $operation,
+                            $capabilityDigest,
+                            $this->scoped_receipt_at($actionOrdinal),
+                            'bounded_skip'
+                        );
+                        continue;
+                    }
                     $this->warnings[] = "provider capability skipped: $id $capability "
                         . '(entity-scoped; no created/updated entity matched its triggers this run'
                         . ($declared === [] ? '' : ', and no declared batch channel carried work: '
@@ -6129,6 +7324,60 @@ final class Apply {
                             : 'empty entity batch and no declared batch channel carried work ('
                                 . $channelState . ')',
                     ];
+                    continue;
+                }
+                if ($scoped) {
+                    $inputHash = Providers::scoped_input_hash($action, $declaration, $entities, $context);
+                    $capabilityDigest = (string) ($this->negotiatedProviders['scoped_capabilities'][$id][$capability]['capability_digest'] ?? '');
+                    $effectHash = $this->scoped_action_effect_hash($action);
+                    $operation = $this->scoped_effect_operation($actionOrdinal, $inputHash, $effectHash);
+                    $intent = $this->scoped_session_intent(
+                        $actionOrdinal,
+                        $capabilityDigest,
+                        $operation['operation_id'],
+                        $inputHash,
+                        $effectHash,
+                        (string) $this->scopedObservation['selected_before_root']
+                    );
+                    $this->scopedSession->append_intent($intent);
+                    $outerReceipt = $this->scoped_receipt_at($actionOrdinal);
+                    if ($outerReceipt === null) {
+                        $this->renew_provider_lease();
+                        $reviewed = Providers::reconcile_scoped(
+                            $this->negotiatedProviders['providers'][$id],
+                            $action,
+                            $declaration,
+                            $operation,
+                            $entities,
+                            $context
+                        );
+                        if (($reviewed['status'] ?? '') === 'not_started') {
+                            $reviewed = Providers::invoke_scoped(
+                                $this->negotiatedProviders['providers'][$id],
+                                $action,
+                                $declaration,
+                                $operation,
+                                $entities,
+                                $context
+                            );
+                        }
+                        $this->renew_provider_lease();
+                        $this->assert_scoped_effect_result($reviewed, $operation, $capabilityDigest);
+                        $this->scopedSession->append_receipt($this->scoped_session_receipt(
+                            $intent,
+                            hash('sha256', Canon::encode($reviewed))
+                        ));
+                        $outerReceipt = $this->scoped_receipt_at($actionOrdinal);
+                    }
+                    $version = (string) ($declarations[$id]['version'] ?? '?');
+                    $this->warnings[] = "provider capability fired: $id@$version $capability (scoped, verified)";
+                    $this->actionReceipts[] = $this->scoped_public_action_receipt(
+                        $source,
+                        'provider',
+                        $operation,
+                        $capabilityDigest,
+                        $outerReceipt
+                    );
                     continue;
                 }
                 // Arm the retry vocabulary BEFORE the opaque call, not after a
@@ -6193,6 +7442,11 @@ final class Apply {
                     'verified' => true,
                 ];
             } catch (\Throwable $t) {
+                if ($scoped && $this->scopedSession !== null
+                    && !$this->scopedSession->is_recovery_required()
+                    && !$this->scopedSession->is_terminal()) {
+                    $this->scopedSession->recover(hash('sha256', 'duo:scoped-effect-reconciliation-refused'));
+                }
                 // DUO-3206 posture, unchanged by the channel swap: a failed
                 // required rebuild is a hard apply failure, never a warning,
                 // so the target stays truthfully unapplied and retryable.
@@ -6892,6 +8146,99 @@ final class Apply {
             'work' => $work,
             'delete_work' => $deleteWork,
             'rebuild_delete_work' => $rebuildDeleteWork,
+        ];
+    }
+
+    /**
+     * Reconstruct the exact original bounded selection after authored COMMIT.
+     * Current plan rows legitimately become unchanged/deleted at that point;
+     * the immutable authority retains only hash-safe identities, which are
+     * resolved against the same frozen artifact here.
+     *
+     * @return array{work:list<array<string,mixed>>,delete_work:list<array<string,mixed>>,rebuild_delete_work:list<array<string,mixed>>}
+     */
+    private function scoped_recovery_work(array $plan, CompiledRepository $compiled): array {
+        if ($this->scopedSession === null) {
+            throw new \RuntimeException('duo: scoped recovery has no durable session selection');
+        }
+        $selection = (array) ($this->scopedSession->authority()['selection'] ?? []);
+        $planRows = [];
+        foreach (['create', 'adopt', 'update', 'unchanged', 'drift', 'conflict'] as $bucket) {
+            foreach ((array) ($plan[$bucket] ?? []) as $row) {
+                $planRows[(string) ($row['uuid'] ?? '')] = $row;
+            }
+        }
+        $treeByHash = [];
+        foreach ($compiled->tree() as $identity => $entity) {
+            $treeByHash[hash('sha256', (string) $identity)] = [(string) $identity, $entity];
+        }
+        $work = [];
+        foreach ((array) ($selection['work_items'] ?? []) as $item) {
+            $resolved = $treeByHash[(string) ($item['identity_hash'] ?? '')] ?? null;
+            if (!is_array($resolved)) {
+                throw new \RuntimeException('duo: scoped recovery work identity is absent from the frozen artifact');
+            }
+            [$identity, $entity] = $resolved;
+            if (!hash_equals((string) ($item['type'] ?? ''), (string) ($entity['type'] ?? ''))
+                || !hash_equals((string) ($item['desired_hash'] ?? ''), $this->verification_hash($entity))) {
+                throw new \RuntimeException('duo: scoped recovery work identity no longer matches its authority');
+            }
+            $work[] = $planRows[$identity] ?? [
+                'uuid' => $identity,
+                'type' => (string) ($entity['type'] ?? ''),
+                'path' => (string) ($entity['path'] ?? ''),
+                'retry' => true,
+            ];
+        }
+        usort($work, fn(array $a, array $b): int =>
+            $this->phase2_rank($compiled->tree()[(string) $a['uuid']])
+                <=> $this->phase2_rank($compiled->tree()[(string) $b['uuid']])
+        );
+
+        $deletionPlanRows = [];
+        foreach (['delete', 'delete_conflict', 'deleted'] as $bucket) {
+            foreach ((array) ($plan[$bucket] ?? []) as $row) {
+                $deletionPlanRows[(string) ($row['uuid'] ?? '')] = $row;
+            }
+        }
+        $deletionsByHash = [];
+        foreach ($compiled->deletions() as $identity => $deletion) {
+            $deletionsByHash[hash('sha256', (string) $identity)] = [(string) $identity, $deletion];
+        }
+        $deleteWork = [];
+        foreach ((array) ($selection['deletion_items'] ?? []) as $item) {
+            $resolved = $deletionsByHash[(string) ($item['identity_hash'] ?? '')] ?? null;
+            if (!is_array($resolved)) {
+                throw new \RuntimeException('duo: scoped recovery deletion identity is absent from the frozen artifact');
+            }
+            [$identity, $deletion] = $resolved;
+            $data = (array) ($deletion['data'] ?? []);
+            if (!hash_equals((string) ($item['receipt_hash'] ?? ''), (string) ($deletion['hash'] ?? ''))
+                || !hash_equals((string) ($item['deletion_kind'] ?? ''), (string) ($data['kind'] ?? ''))
+                || !hash_equals((string) ($item['deletion_type'] ?? ''), (string) ($data['type'] ?? ''))) {
+                throw new \RuntimeException('duo: scoped recovery deletion no longer matches its authority');
+            }
+            $deleteWork[] = $deletionPlanRows[$identity] ?? [
+                'uuid' => $identity,
+                'type' => (string) (($data['kind'] ?? '') === 'table'
+                    ? ($data['type'] ?? '')
+                    : ($data['kind'] ?? '')),
+                'deletion_kind' => (string) ($data['kind'] ?? ''),
+                'deletion_type' => (string) ($data['type'] ?? ''),
+                'path' => (string) ($deletion['path'] ?? ''),
+                'expected_hash' => (string) ($data['expected_hash'] ?? ''),
+                'receipt_hash' => (string) ($deletion['hash'] ?? ''),
+                'retry' => true,
+            ];
+        }
+        usort($deleteWork, fn(array $a, array $b): int =>
+            $this->deletion_rank($b) <=> $this->deletion_rank($a)
+                ?: ((string) $a['uuid'] <=> (string) $b['uuid'])
+        );
+        return [
+            'work' => $work,
+            'delete_work' => $deleteWork,
+            'rebuild_delete_work' => $deleteWork,
         ];
     }
 

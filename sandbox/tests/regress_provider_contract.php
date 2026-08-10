@@ -2476,7 +2476,8 @@ $runSource = implode("\n", array_slice(
 ));
 $check((bool) preg_match(
     '/\$this->rebuild\(\s*\$attachmentIds,\s*\$work,\s*\$tree,\s*\$regenContext,\s*\$deleteWork,'
-    . '\s*!empty\(\$opts\[\'with_deletes\'\]\),\s*\$plan\[\'deleted\'\]\s*\);/',
+    . '\s*\$executeDeletes,\s*\$plan\[\'deleted\'\],\s*\$scoped,\s*\$skipScopedCore,'
+    . '\s*\$scopedCoreComplete\s*\);/',
     $runSource
 ), "run() hands the rebuild pass this run's tombstones, the with_deletes gate, and the already-absent set — never "
     . 'the wider set the pre-mutation selection projected surfaces from');

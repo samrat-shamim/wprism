@@ -1426,6 +1426,7 @@ final class Cli {
             // them and apply's own internal verifier — a pure machine caller —
             // got human stderr.  Typed refusals reach the same formatter as
             // every convergence gate they precede, in the same order.
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--repo');
             $opts = [
                 'expected_artifact' => $assoc['expected-artifact'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--expected-artifact'),
                 'compiled' => $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--compiled'),
@@ -1448,7 +1449,7 @@ final class Cli {
                 $opts['scope_request'] = $scopeRequest;
             }
             $summary = Apply::verify_canonical(
-                $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--repo'),
+                $repo,
                 $opts
             );
         } catch (\Throwable $t) {
