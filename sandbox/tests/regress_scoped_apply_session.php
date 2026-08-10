@@ -102,6 +102,8 @@ $authority = ScopedApplySession::make_authority(
     $lease,
     [
         'selected_before_hash' => $h('selected-before'),
+        'selected_before_ledger_map_hash' => $h('selected-before-ledger-map'),
+        'protected_ledger_map_hash' => $h('protected-ledger-map'),
         'protected_out_of_scope_hash' => $h('protected-out-of-scope'),
         'ledger_roots_hash' => $h('ledger-roots'),
     ],

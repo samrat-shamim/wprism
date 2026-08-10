@@ -220,9 +220,10 @@ final class ScopedApplySession {
     /**
      * Begin or idempotently reopen the one stored session.
      *
-     * A different authority can never replace an existing slot, including a
-     * completed terminal session. The operator must explicitly archive or
-     * rotate the storage outside this protocol before a new session exists.
+     * A different authority can never replace an existing active slot,
+     * including a completed terminal session. Call archive_terminal() after
+     * completion when the slot must be released for a later authority; the
+     * archived terminal remains addressable by its authority hash.
      *
      * @param array<string,mixed> $authority
      */
@@ -1079,8 +1080,20 @@ final class ScopedApplySession {
 
     /** @param mixed $target */
     private static function assert_target(mixed $target): void {
-        self::assert_keys($target, ['ledger_roots_hash', 'protected_out_of_scope_hash', 'selected_before_hash'], 'scoped mutation authority target');
-        foreach (['selected_before_hash', 'protected_out_of_scope_hash', 'ledger_roots_hash'] as $key) {
+        self::assert_keys($target, [
+            'ledger_roots_hash',
+            'protected_ledger_map_hash',
+            'protected_out_of_scope_hash',
+            'selected_before_hash',
+            'selected_before_ledger_map_hash',
+        ], 'scoped mutation authority target');
+        foreach ([
+            'selected_before_hash',
+            'selected_before_ledger_map_hash',
+            'protected_ledger_map_hash',
+            'protected_out_of_scope_hash',
+            'ledger_roots_hash',
+        ] as $key) {
             self::assert_hash($target[$key], "target $key");
         }
     }
