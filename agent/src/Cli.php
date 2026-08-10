@@ -464,15 +464,38 @@ final class Cli {
      *   policy scope the same way a dangling (deleted-target) reference is dropped, instead of aborting
      *   (task #73's loud-and-blocking gate; the honest fix is adding the target's post type/taxonomy to
      *   policy scope — this flag is the explicit best-effort escape hatch for when that isn't wanted).
+     * [--scope-contract=<path>] : Consume one canonical duo-scope-contract/v1 file. The target recompiles
+     *   the associated repository revision, derives a transaction-bound overlay, and preserves every
+     *   excluded live row/media blob/tombstone byte-for-byte. Version 1 can delete only a selected live
+     *   identity with reviewed deletion capability and no excluded inbound referrer; it cannot resurrect
+     *   a selected tombstone or mint a new identity.
      * [--json]           : JSON summary (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
     public function capture($args, $assoc) {
         try {
+            if (isset($assoc['scope-contract']) && isset($assoc['scope-request-b64'])) {
+                throw new \RuntimeException('duo: capture accepts one scope contract source');
+            }
+            $scopeRequest = null;
+            if (isset($assoc['scope-contract'])) {
+                $scopeRequest = ScopedStateOverlay::load_contract((string) $assoc['scope-contract']);
+            } elseif (isset($assoc['scope-request-b64'])) {
+                $bytes = base64_decode((string) $assoc['scope-request-b64'], true);
+                if ($bytes === false || strlen($bytes) > 262144) {
+                    throw new \RuntimeException('duo: capture received an invalid compact scope request');
+                }
+                $decoded = Canon::decode($bytes);
+                if (!is_array($decoded)) {
+                    throw new \RuntimeException('duo: capture compact scope request must be one object');
+                }
+                $scopeRequest = $decoded;
+            }
             $summary = Capture::run(
                 $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('capture', '--repo'),
                 $assoc['out'] ?? null,
-                isset($assoc['force-unresolved-refs'])
+                isset($assoc['force-unresolved-refs']),
+                $scopeRequest
             );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'capture');
@@ -514,6 +537,8 @@ final class Cli {
      *
      * ## OPTIONS
      * --repo=<path> : Site repo root (contains site.duo.json and captured state/).
+     * [--scope-contract=<path>] : Emit only the selected production projection plus explicit
+     *   omitted-not-absent scope evidence. The contract is associated with this exact target repo.
      * [--json] : Emit the canonical production export as JSON.
      * [--format=<format>] : Output format. Accepts json.
      *
@@ -528,7 +553,24 @@ final class Cli {
             if (!isset($assoc['repo']) || !is_string($assoc['repo']) || $assoc['repo'] === '') {
                 throw CommandRefusalException::invalidArgument('refresh-export', '--repo');
             }
-            $export = RefreshExport::run($assoc['repo']);
+            if (isset($assoc['scope-contract']) && isset($assoc['scope-request-b64'])) {
+                throw new \RuntimeException('duo: refresh-export accepts one scope contract source');
+            }
+            $scopeRequest = null;
+            if (isset($assoc['scope-contract'])) {
+                $scopeRequest = ScopedStateOverlay::load_contract((string) $assoc['scope-contract']);
+            } elseif (isset($assoc['scope-request-b64'])) {
+                $bytes = base64_decode((string) $assoc['scope-request-b64'], true);
+                if ($bytes === false || strlen($bytes) > 262144) {
+                    throw new \RuntimeException('duo: refresh-export received an invalid compact scope request');
+                }
+                $decoded = Canon::decode($bytes);
+                if (!is_array($decoded)) {
+                    throw new \RuntimeException('duo: refresh-export compact scope request must be one object');
+                }
+                $scopeRequest = $decoded;
+            }
+            $export = RefreshExport::run($assoc['repo'], false, $scopeRequest);
         } catch (\Throwable $t) {
             // One shared refusal formatter, not a private JSON catch path: a
             // refresh export refuses on repository paths, database snapshot

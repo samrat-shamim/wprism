@@ -622,7 +622,7 @@ removes both handoff files after the child exits.
 
 ## Scope resolution (DUO-3344)
 
-`wp duo scope --repo=<p> --roots=<selectors>` resolves a bounded set of canonical entities from explicit roots and reports what it would carry. It is read-only: it compiles a revision and walks it, and it captures, promotes, and deletes nothing. No capture/promote/rollback command accepts a scope at this spec version. Without `--contract`, its existing `duo-scope/v1` preview shape is unchanged.
+`wp duo scope --repo=<p> --roots=<selectors>` resolves a bounded set of canonical entities from explicit roots and reports what it would carry. It is read-only: it compiles a revision and walks it, and it captures, promotes, and deletes nothing. Without `--contract`, its existing `duo-scope/v1` preview shape is unchanged. The immutable contract form is consumed by the bounded capture/refresh/rebase workflow below; apply, promote, verification, and rollback remain whole-revision operations at this spec version.
 
 A root selector is one of `post:<uuid>`, `term:<uuid>`, `table:<table>:<uuid>`, `menu:<slug>`, `sidebar:<id>`, `user-meta:<login>`, `options`, `path:<state-relative-path>`, or `all`. Multiple roots are comma-separated. `all` is the whole revision, so a full-site operation is this same model with a wider root set rather than a second code path. A selector that resolves to nothing, resolves to an entity of a different type than it names, or cannot be parsed is **refused** — a silently empty scope is indistinguishable from a correctly small one. A menu item or widget uuid is refused by naming its owning menu/sidebar, because an item is not a file and cannot be scoped away from its owner.
 
@@ -686,6 +686,62 @@ $policy)` before use. The latter re-resolves the complete canonical contract
 from the normalized selectors and exact compiled/policy pair, so changing a
 row and merely recomputing `scope_hash` does not retain an artifact
 association.
+
+### Scoped capture and refresh overlays (v1)
+
+`duo capture <env> --scope-contract=<local-path>` and `duo refresh`/`duo
+rebase ... --scope-contract=<local-path>` are the only mutation/planning
+consumers in v1. The host parses the local file with the engine's real
+`ScopeContract::from_array()` implementation. It never sends that machine-local
+path to a target: it sends only canonical selectors and the claimed
+`scope_hash`. The target recompiles its own checked-out repository, resolves
+the complete contract again, and requires the exact hash and source association
+before observing or publishing target state. A stale, edited, or merely
+rehashable contract therefore refuses before publication.
+
+Scoped capture is an atomic full-tree publication assembled as an overlay. It
+starts from the exact previously compiled repository tree; selected live rows
+are replaced from one consistent target snapshot, while every excluded live
+row, excluded tombstone, and unrelated media byte remains exact. It does not
+mint identities, run the global stale-map pruners, or grant authority over an
+unselected row. Before projection, the complete live target observation is
+strict-compiled and closure-checked, so a target-only declared child, outbound
+dependency, or inbound deletion referrer cannot disappear behind preserved
+source bytes. `all` selects every identity in the associated source artifact;
+it remains the same strict state-only transaction and refuses a target identity
+minted after association rather than falling back to global capture. Media
+authority comes only from a selected attachment record,
+never from a filename appearing in arbitrary content. New selected blobs are
+validated in an immutable compiler view; after writing them, the source is
+re-associated while ignoring only those exact verified additions immediately
+before publication. A selected live UUID may become a new tombstone only when the
+normal deletion capability permits it, the UUID is in the resolved live
+closure, and no excluded inbound referrer would be stranded. A selected
+tombstone cannot be resurrected from this evidence. The complete candidate is
+strict-compiled and its closure is re-resolved before the existing atomic
+`duo-capture-publication/v1` swap; recovery continues to use the sealed full
+candidate/previous hashes, so a crash cannot turn a bounded retry into a new
+scope decision. Scoped capture is a repository publication and therefore
+refuses `--out`; legacy unscoped output-only capture retains its existing
+seed/determinism behavior and does not update or require repo media.
+
+Scoped refresh associates the contract with the clean production target
+repository at the exact `--production-ref`. Its exporter returns selected
+state/media only and marks every other production row
+`omitted_not_absent`; omission is never interpreted as deletion. The B/P/W
+planner records the contract and scope hash, reports conflicts only inside the
+scope, and materializes a complete candidate by starting from exact W bytes
+and replacing selected whole records only. `options/core` remains one atomic
+record, not a field-level partial file. All unrelated W state, tombstones, and
+media are verified byte-for-byte, and candidate closure may not escape the
+contract. The second production export must reproduce the same scoped
+snapshot before the new ref is created. Because the contract excludes code and
+lifecycle effects, scoped rebase preserves W's code and ancestry and changes
+state/media only.
+
+Per-option capture, code dependency movement, scoped apply/promote/verification,
+and scoped rollback require later versioned authority and receipt contracts;
+v1 does not infer them from this state-only overlay.
 
 ## Bounded provider-resource selectors
 

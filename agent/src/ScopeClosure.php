@@ -32,9 +32,11 @@ require_once __DIR__ . '/ReferenceGraph.php';
  * lets the same resolved scope be quoted by capture, plan, promote, and
  * rollback later without being recomputed against a moving target.
  *
- * NOT in this slice: scoped capture, promote, delete, refresh, or rollback.
- * Nothing here mutates anything or grants any authority; it resolves and
- * reports. Mutation semantics are deliberately a separate change.
+ * This class still mutates nothing and grants no authority. Scoped capture
+ * and refresh use its result only after an immutable ScopeContract is
+ * associated with the exact source revision; their separate overlay layer
+ * owns mutation bounds, deletion checks, and durable receipts. Scoped apply,
+ * promote, verification, and rollback remain outside v1.
  */
 final class ScopeClosure {
     public const FORMAT = 'duo-scope/v1';
