@@ -976,6 +976,50 @@ check(
     'the proposal gate resolves record temporaries through the authority\'s own binding predicate, not a name sweep'
 );
 
+// DUO-3427: committed-init FINALIZATION re-proved the published site.duo.json
+// by comparing its BYTES to a re-encoding of the journal's copy of the
+// confirmed config — and those bytes can never agree. The file is written from
+// the LIVE proposal, where an empty policy map is a JSON object; the journal
+// stores the proposal as JSON and Canon::decode() reads it back with assoc
+// arrays, so `{}` returns as `[]`. Every core-only site has at least one empty
+// policy map, so the crash-after-COMMIT path this function exists for refused
+// unconditionally. Byte-exactness now rides on the publication identity Duo
+// recorded (content digest folded with dev/ino, a string the journal carries
+// intact) and the proposal binding is structural, both sides normalized
+// through one decode/encode. The collapse itself is demonstrated here, on the
+// real encoder, with the real shape.
+$liveInitConfig = [
+    'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'],
+    'manifests' => [['digest' => str_repeat('a', 64), 'name' => 'core']],
+    'policy' => [
+        'options' => new stdClass(),
+        'post_meta' => new stdClass(),
+        'post_types' => ['attachment', 'page', 'post'],
+        'taxonomies' => ['category', 'post_tag'],
+        'term_meta' => new stdClass(),
+    ],
+    'spec_version' => 2,
+];
+$committedBytes = \Duo\Canon::encode($liveInitConfig);
+$journaledConfig = \Duo\Canon::decode(
+    \Duo\Canon::encode(['proposal' => ['state' => ['config' => $liveInitConfig]]])
+)['proposal']['state']['config'];
+check(
+    str_contains($committedBytes, '"options": {}')
+        && \Duo\Canon::encode($journaledConfig) !== $committedBytes,
+    'the sealed journal cannot round-trip an empty policy map, so re-encoding its config never reproduces the committed bytes'
+);
+check(
+    \Duo\Canon::encode(\Duo\Canon::decode($committedBytes)) === \Duo\Canon::encode($journaledConfig),
+    'normalizing both sides through one decode/encode makes the proposal binding answerable'
+);
+check(
+    str_contains($initAuthoritySource, 'Canon::encode(Canon::decode(Canon::read_file($siteFile))) !== Canon::encode($expectedConfig)')
+        && str_contains($initAuthoritySource, "\$sitePublication['published'],")
+        && !str_contains($initAuthoritySource, 'Canon::read_file($siteFile) !== Canon::encode($expectedConfig)'),
+    'committed-init finalization proves site.duo.json byte-exactly through its journaled publication identity, and structurally against the confirmed proposal'
+);
+
 // DUO-3427: a rolled-back init must leave ZERO Duo ledger rows — a non-pristine
 // ledger is `existing_duo_ledger`, so residue is the difference between a
 // retryable environment and one that refuses the next init. Capture's test-only

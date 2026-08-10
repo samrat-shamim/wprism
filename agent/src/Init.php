@@ -1251,11 +1251,40 @@ final class Init {
             || !hash_equals((string) ($receipt['previous_sha256'] ?? ''), hash('sha256', ''))) {
             throw new \RuntimeException('duo: committed init receipt does not prove the current state tree');
         }
+        // DUO-3427: two questions, each asked of evidence that survives the
+        // sealed journal.
+        //
+        // This compared the committed file's BYTES to a re-encoding of the
+        // journal's copy of the confirmed config, and those bytes can never
+        // agree. The file is written from the LIVE proposal, where an empty
+        // policy map is a JSON object; the journal stores that proposal as
+        // JSON and Canon::decode() reads it back with assoc arrays, so `{}`
+        // returns as `[]` and re-encodes as `[]`. Every core-only site has at
+        // least one empty policy map, so committed-init FINALIZATION — the
+        // whole point of a crash after COMMIT — refused unconditionally with
+        // the unclassified envelope, telling the operator their config no
+        // longer matched a proposal they had never touched.
+        //
+        // Byte-exactness is still the anti-tamper contract (a single appended
+        // newline must refuse), so it moves to the evidence that CAN carry it
+        // through the journal: the publication identity Duo recorded when it
+        // wrote the file, which folds the content digest with dev/ino. The
+        // proposal binding is kept as a structural comparison, both sides
+        // normalized through the same decode/encode, so it means what it says
+        // without depending on a distinction the journal cannot hold. The
+        // identity is tested FIRST and short-circuits, so the decode below
+        // only ever runs on bytes Duo itself wrote.
         $proposal = $attempt['proposal'] ?? null;
         $expectedConfig = is_array($proposal) ? ($proposal['state']['config'] ?? null) : null;
+        $sitePublication = ((array) ($attempt['owned'] ?? []))['site_publication'] ?? null;
         $siteFile = rtrim($repo, '/') . '/site.duo.json';
         if (!is_array($expectedConfig) || is_link($siteFile) || !is_file($siteFile)
-            || Canon::read_file($siteFile) !== Canon::encode($expectedConfig)) {
+            || !is_array($sitePublication) || !is_string($sitePublication['published'] ?? null)
+            || !hash_equals(
+                (string) $sitePublication['published'],
+                self::regular_file_identity($siteFile, 'site.duo.json')
+            )
+            || Canon::encode(Canon::decode(Canon::read_file($siteFile))) !== Canon::encode($expectedConfig)) {
             throw new \RuntimeException('duo: committed init site.duo.json no longer matches the confirmed proposal');
         }
         $policy = Policy::load($repo);
