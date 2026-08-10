@@ -505,6 +505,12 @@ regress-certbundle-lock:
 regress-conformance-asserts:
 	bash sandbox/tests/regress_conformance_asserts.sh
 
+# DUO-3409: the core sweep's `duo explain` envs registry allocates a per-run
+# private directory (portable across GNU/BSD mktemp); prove it is collision-safe
+# offline. Pure shell/file-I/O, no docker -- belongs in regress-offline-all.
+regress-explain-registry:
+	bash sandbox/tests/regress_explain_registry.sh
+
 # DUO-3339: the installed-adapter catalog -- `duo adapter list|inspect|doctor`
 # over both adapter sources the engine has, plus AdapterSources::survey(), the
 # reporting half of the source scan. Drives the real host CLI as a subprocess
@@ -948,8 +954,8 @@ regress-offline-all: code-half-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract regress-conformance-asserts \
-	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view
-	@echo "regress-offline-all: 101 offline suites green"
+	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry
+	@echo "regress-offline-all: 102 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
