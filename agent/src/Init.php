@@ -788,23 +788,27 @@ final class Init {
             }
         }
 
+        // DUO-3421: an owned-file artifact that is PRESENT while the journal
+        // holds no plan for it is not this attempt's artifact -- it is content
+        // that predates the attempt, and recovery must leave it exactly where
+        // it is. Both publications are strictly write-ahead: confirm() journals
+        // `<artifact>_plan` (carrying the previous bytes to restore) BEFORE
+        // publish_owned_file() touches the path, so "present and unrecorded"
+        // cannot describe anything Duo wrote. Refusing it instead declared an
+        // ordinary pre-existing .gitignore -- which every existing Git worktree
+        // has, and which the live harness sets up by name -- an unprovable
+        // ownership situation, so a crash before the gitignore phase demanded
+        // manual recovery for a file Duo had never opened. The recorded shapes
+        // below are unchanged and still refuse: a non-regular boundary here, a
+        // recorded plan or publication whose bytes no longer match in the
+        // compensation path, and every partial tree.
         $siteFile = rtrim($repo, '/') . '/site.duo.json';
         if ($present($siteFile) && (is_link($siteFile) || !is_file($siteFile))) {
             return 'the sealed attempt has a non-regular site.duo.json boundary';
         }
-        if ($present($siteFile)
-            && !is_array($owned['site_publication'] ?? null)
-            && !is_array($owned['site_plan'] ?? null)) {
-            return 'the sealed attempt has an unbound site.duo.json';
-        }
         $gitignore = rtrim($repo, '/') . '/.gitignore';
         if ($present($gitignore) && (is_link($gitignore) || !is_file($gitignore))) {
             return 'the sealed attempt has a non-regular .gitignore boundary';
-        }
-        if ($present($gitignore)
-            && !is_array($owned['gitignore_publication'] ?? null)
-            && !is_array($owned['gitignore_plan'] ?? null)) {
-            return 'the sealed attempt has an unbound .gitignore';
         }
         $gitDir = rtrim($repo, '/') . '/.git';
         if (($owned['git_created'] ?? false) === true && $present($gitDir)
@@ -1140,12 +1144,14 @@ final class Init {
                 'site.duo.json'
             );
         } elseif (!is_array($sitePublication)
+            && is_array($owned['site_plan'] ?? null)
             && (file_exists(rtrim($repo, '/') . '/site.duo.json')
             || is_link(rtrim($repo, '/') . '/site.duo.json'))) {
-            $sitePlan = $owned['site_plan'] ?? null;
-            if (!is_array($sitePlan)) {
-                throw new \RuntimeException('duo: interrupted init has an unbound site.duo.json; retained it');
-            }
+            // Same write-ahead invariant as the proposal gate above, and the
+            // same shape the .gitignore arm below already had: with no
+            // journaled plan this file predates the attempt and compensation
+            // has nothing to undo. (DUO-3421)
+            $sitePlan = $owned['site_plan'];
             $expected = (string) ($sitePlan['expected_identity'] ?? '');
             $current = self::regular_file_identity(rtrim($repo, '/') . '/site.duo.json', 'site.duo.json');
             if (!hash_equals($expected, $current)) {

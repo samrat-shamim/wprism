@@ -880,6 +880,42 @@ check(
     'both owned-file publications — site.duo.json and .gitignore — carry the same idempotence guard as their sibling branches'
 );
 
+// DUO-3421: both owned-file publications are strictly write-ahead — the plan,
+// carrying the previous bytes, is journaled BEFORE the path is touched — so an
+// artifact that is present while the journal holds no plan for it predates the
+// attempt and is none of recovery's business. Refusing it made every ordinary
+// pre-existing .gitignore (i.e. every existing Git worktree, which is what the
+// live harness sets up by name) an unprovable ownership situation and demanded
+// manual recovery for a file Duo had never opened.
+$gitignoreFixture = sys_get_temp_dir() . '/duo-init-unbound-' . bin2hex(random_bytes(6));
+if (!mkdir($gitignoreFixture, 0777, true)) fail('could not create the pre-existing-artifact fixture');
+register_shutdown_function(static function () use ($gitignoreFixture): void {
+    exec('rm -rf ' . escapeshellarg($gitignoreFixture));
+});
+file_put_contents($gitignoreFixture . '/.gitignore', "state.capture-staging/\n");
+check(
+    $recoveryReason->invoke(null, $gitignoreFixture, ['owned' => []]) === null,
+    'a pre-existing .gitignore with no journaled plan leaves the interrupted attempt automatically recoverable'
+);
+file_put_contents($gitignoreFixture . '/site.duo.json', "{}\n");
+check(
+    $recoveryReason->invoke(null, $gitignoreFixture, ['owned' => []]) === null,
+    'a pre-existing adoption seed with no journaled plan is likewise not this attempt to prove'
+);
+unlink($gitignoreFixture . '/.gitignore');
+symlink('/nonexistent', $gitignoreFixture . '/.gitignore');
+check(
+    $recoveryReason->invoke(null, $gitignoreFixture, ['owned' => []])
+        === 'the sealed attempt has a non-regular .gitignore boundary',
+    'a non-regular owned-file boundary is still non-confirmable'
+);
+check(
+    !str_contains($initCompensationSource, 'unbound site.duo.json')
+        && !str_contains($initCompensationSource, 'unbound .gitignore')
+        && substr_count($initCompensationSource, "is_array(\$owned['site_plan'] ?? null)") >= 1,
+    'neither owned-file arm refuses an artifact the journal never planned; both require the plan they compensate against'
+);
+
 // DUO-3421: init must be able to STAGE the payload it is certified to manage.
 // The staging walk applied safe_component()'s identifier charset — the one for
 // slugs Duo selects — to directory names the SITE owns, so WooCommerce
