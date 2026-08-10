@@ -7,11 +7,17 @@ final class LedgerScopedApplySessionStorage implements ScopedApplySessionStorage
         if ($key === ScopedApplySession::STORAGE_KEY) {
             return;
         }
-        $prefix = ScopedApplySession::TERMINAL_KEY_PREFIX;
-        $authorityHash = str_starts_with($key, $prefix)
-            ? substr($key, strlen($prefix))
-            : '';
-        if (preg_match('/^[a-f0-9]{64}$/', $authorityHash) !== 1) {
+        $suffix = '';
+        foreach ([
+            ScopedApplySession::TERMINAL_KEY_PREFIX,
+            ScopedApplySession::TERMINAL_REQUEST_KEY_PREFIX,
+        ] as $prefix) {
+            if (str_starts_with($key, $prefix)) {
+                $suffix = substr($key, strlen($prefix));
+                break;
+            }
+        }
+        if (preg_match('/^[a-f0-9]{64}$/', $suffix) !== 1) {
             throw new \RuntimeException('duo: scoped apply session storage key is outside the closed vocabulary');
         }
     }

@@ -364,7 +364,11 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   cannot be tied to that complete envelope; it never makes a second plan call
   or guesses a filtered result. No-option JSON and normal behavior remain
   compatible; filtered direct-plan rows and host status plan-row labels
-  normalize C0/DEL controls to one line.
+  normalize C0/DEL controls to one line. V1 plan-view flags and
+  `--scope-contract` are deliberately mutually exclusive: a scoped plan is a
+  different closed projection already bounded to its selected contract, so
+  combining them typed-refuses as `plan_view_unavailable` rather than silently
+  dropping the requested view or pretending it is a complete detailed plan.
 
   Exit non-zero ("not safe to promote") if the plan contains any
   `conflict`, `collision`, `code_mismatch`, or `code_drift` entry, any

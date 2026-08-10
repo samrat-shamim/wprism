@@ -52,7 +52,8 @@ final class ScopedRecoveryMemoryStore implements ScopedApplySessionStorage {
 
     public function read(string $key): ?string {
         if ($key !== ScopedApplySession::STORAGE_KEY
-            && !str_starts_with($key, ScopedApplySession::TERMINAL_KEY_PREFIX)) {
+            && !str_starts_with($key, ScopedApplySession::TERMINAL_KEY_PREFIX)
+            && !str_starts_with($key, ScopedApplySession::TERMINAL_REQUEST_KEY_PREFIX)) {
             throw new RuntimeException('unexpected scoped recovery storage key');
         }
         return $this->values[$key] ?? null;
@@ -823,6 +824,7 @@ $check(
 $applySource = (string) file_get_contents($root . '/agent/src/Apply.php');
 $deleteGateAt = strpos($applySource, 'scoped apply selected live tombstones but --with-deletes was not supplied');
 $terminalArchiveAt = strpos($applySource, '$this->terminalScopedSessionToArchive->archive_terminal();');
+$archivedReplayLookupAt = strpos($applySource, 'ScopedApplySession::open_terminal_for_request(');
 $sessionBeginAt = strpos($applySource, 'ScopedApplySession::begin(');
 $check(
     $deleteGateAt !== false && $sessionBeginAt !== false && $deleteGateAt < $sessionBeginAt,
@@ -835,6 +837,10 @@ $check(
         && $deleteGateAt < $terminalArchiveAt
         && $terminalArchiveAt < $sessionBeginAt,
     'a different scoped request preserves prior terminal evidence until every new-operation gate passes'
+);
+$check(
+    $archivedReplayLookupAt !== false && $archivedReplayLookupAt < $terminalArchiveAt,
+    'public apply resolves an exact archived scope/source terminal before rotating or minting a new authority'
 );
 $check(
     substr_count($applySource, 'NativeActions::reconcile_scoped(') === 2

@@ -175,6 +175,20 @@ check_wire(
     'plan forwards the compact request and never the local contract path or full input'
 );
 
+$scopedView = invoke_wire($root, $envsPath, $fakeBin, $argsPath, 'plan', [
+    "--scope-contract=$contractPath", '--action=create', '--format=json',
+]);
+$scopedViewEnvelope = json_decode(trim($scopedView['stdout']), true);
+check_wire(
+    $scopedView['exit'] !== 0
+        && is_array($scopedViewEnvelope)
+        && ($scopedViewEnvelope['reason_code'] ?? null) === 'plan_view_unavailable'
+        && !is_file($argsPath)
+        && !str_contains($scopedView['stdout'], $contractPath)
+        && !str_contains($scopedView['stderr'], $contractPath),
+    'host refuses scoped plan-view flags deterministically before target contact or path disclosure'
+);
+
 $apply = invoke_wire($root, $envsPath, $fakeBin, $argsPath, 'apply', [
     "--scope-contract=$contractPath", '--format=json',
 ]);

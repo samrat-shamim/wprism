@@ -767,6 +767,17 @@ final class Cli {
             if ($viewRequest !== null) {
                 $options['plan_view'] = $viewRequest;
             }
+            if ($viewRequest !== null
+                && (array_key_exists('scope-contract', $assoc)
+                    || array_key_exists('scope-request-b64', $assoc))) {
+                throw new CommandRefusalException(
+                    'plan_view_unavailable',
+                    'the requested plan view is unavailable for a scoped plan',
+                    'rerun the scoped plan without view filters; its closed scoped projection is already bounded to the selected contract',
+                    [],
+                    'duo: scoped plan view filters are unsupported'
+                );
+            }
             $scopeRequest = self::scope_request($assoc, 'plan');
             if ($scopeRequest !== null) {
                 $options['scope_request'] = $scopeRequest;

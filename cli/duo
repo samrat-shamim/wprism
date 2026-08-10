@@ -1805,10 +1805,21 @@ function scope_wire_refusal(
     return 2;
 }
 
+/** Plan-view flags index a complete detailed plan, never duo-scoped-plan/v1. */
+function is_plan_view_flag(string $arg): bool {
+    foreach (['category', 'action', 'entity', 'limit'] as $name) {
+        if ($arg === "--$name" || str_starts_with($arg, "--$name=")) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /** Validate a local contract and forward only the canonical compact request. */
 function cmd_scoped_passthrough(EnvironmentDriver $t, string $verb, array $extra): int {
     $forward = [];
     $contractPath = null;
+    $hasPlanView = false;
     foreach ($extra as $arg) {
         if (!is_string($arg)) {
             return scope_wire_refusal(
@@ -1862,7 +1873,19 @@ function cmd_scoped_passthrough(EnvironmentDriver $t, string $verb, array $extra
             }
             continue;
         }
+        if ($verb === 'plan' && is_plan_view_flag($arg)) {
+            $hasPlanView = true;
+        }
         $forward[] = $arg;
+    }
+    if ($contractPath !== null && $verb === 'plan' && $hasPlanView) {
+        return scope_wire_refusal(
+            $verb,
+            $extra,
+            'plan_view_unavailable',
+            'the requested plan view is unavailable for a scoped plan',
+            'rerun the scoped plan without view filters; its closed scoped projection is already bounded to the selected contract'
+        );
     }
     if ($contractPath !== null) {
         try {

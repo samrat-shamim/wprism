@@ -31,8 +31,10 @@ interface ScopedApplySessionStorage {
 final class ScopedApplySession {
     public const AUTHORITY_FORMAT = 'duo-scoped-mutation-authority/v1';
     public const SESSION_FORMAT = 'duo-scoped-apply-session/v1';
+    public const TERMINAL_REQUEST_FORMAT = 'duo-scoped-terminal-request/v1';
     public const STORAGE_KEY = 'scoped_apply_session';
     public const TERMINAL_KEY_PREFIX = 'scoped_apply_terminal:';
+    public const TERMINAL_REQUEST_KEY_PREFIX = 'scoped_apply_terminal_request:';
 
     public const PHASE_PLANNED = 'planned';
     public const PHASE_AUTHORING = 'authoring';
@@ -281,6 +283,64 @@ final class ScopedApplySession {
     }
 
     /**
+     * Return the deterministic value-free index key a public retry can
+     * reconstruct without the old random lease/session identity.
+     */
+    public static function terminal_request_storage_key(string $scopeHash, string $artifactHash): string {
+        self::assert_hash($scopeHash, 'terminal request scope_hash');
+        self::assert_hash($artifactHash, 'terminal request artifact_hash');
+        return self::TERMINAL_REQUEST_KEY_PREFIX . self::digest([
+            'artifact_hash' => $artifactHash,
+            'format' => self::TERMINAL_REQUEST_FORMAT,
+            'scope_hash' => $scopeHash,
+        ]);
+    }
+
+    /**
+     * Reopen an archived terminal from the stable public request identity.
+     * The index is only a pointer: the immutable authority archive and its
+     * terminal hash are re-read and validated before any receipt is exposed.
+     */
+    public static function open_terminal_for_request(
+        ScopedApplySessionStorage $storage,
+        string $scopeHash,
+        string $artifactHash
+    ): ?self {
+        $key = self::terminal_request_storage_key($scopeHash, $artifactHash);
+        $rawIndex = $storage->read($key);
+        if ($rawIndex === null) {
+            return null;
+        }
+        try {
+            $index = Canon::decode($rawIndex);
+        } catch (\Throwable $_failure) {
+            throw new \RuntimeException('duo: scoped apply terminal request index is not valid canonical JSON');
+        }
+        self::assert_terminal_request_index($index, $scopeHash, $artifactHash);
+        if (Canon::encode($index) !== $rawIndex) {
+            throw new \RuntimeException('duo: scoped apply terminal request index is not canonical');
+        }
+        $authorityHash = (string) $index['authority_hash'];
+        $archiveKey = self::terminal_storage_key($authorityHash);
+        $archived = $storage->read($archiveKey);
+        if ($archived === null) {
+            throw new \RuntimeException('duo: scoped apply terminal request archive is missing');
+        }
+        $record = self::decode_record($archived);
+        if ($record['phase'] !== self::PHASE_COMPLETE
+            || !hash_equals($authorityHash, (string) $record['authority_hash'])
+            || !hash_equals($scopeHash, (string) $record['authority']['scope_hash'])
+            || !hash_equals($artifactHash, (string) $record['authority']['source']['artifact_hash'])
+            || !hash_equals((string) $index['terminal_hash'], (string) $record['terminal_receipt']['terminal_hash'])) {
+            throw new \RuntimeException('duo: scoped apply terminal request index does not bind its immutable archive');
+        }
+        $session = new self($storage);
+        $session->storageKey = $archiveKey;
+        $session->adopt($record, $archived);
+        return $session;
+    }
+
+    /**
      * Archive a complete session and clear the active slot with CAS. The
      * complete session itself is retained under its authority hash, so a
      * lost response can still reopen the exact terminal identity later.
@@ -300,6 +360,7 @@ final class ScopedApplySession {
             if ($expectedCanonical !== null && $archived !== $expectedCanonical) {
                 throw new \RuntimeException('duo: scoped apply terminal archive expected bytes do not match');
             }
+            $this->ensure_terminal_request_index($record);
             $this->storageKey = $archivedKey;
             $this->adopt(self::decode_record($archived), $archived);
             return $this;
@@ -318,6 +379,7 @@ final class ScopedApplySession {
         } elseif ($archived !== $active) {
             throw new \RuntimeException('duo: scoped apply terminal archive identity is immutable');
         }
+        $this->ensure_terminal_request_index($activeRecord);
         if (!$this->storage->compare_and_swap(self::STORAGE_KEY, $active, null)) {
             throw new \RuntimeException('duo: scoped apply terminal clear storage CAS conflict');
         }
@@ -842,6 +904,57 @@ final class ScopedApplySession {
             throw new \RuntimeException('duo: scoped apply session storage record is not canonical');
         }
         return $record;
+    }
+
+    /** @param array<string,mixed> $record */
+    private function ensure_terminal_request_index(array $record): void {
+        if (($record['phase'] ?? null) !== self::PHASE_COMPLETE) {
+            throw new \RuntimeException('duo: scoped apply terminal request index requires a complete session');
+        }
+        $authority = (array) $record['authority'];
+        $scopeHash = (string) $authority['scope_hash'];
+        $artifactHash = (string) $authority['source']['artifact_hash'];
+        $index = [
+            'artifact_hash' => $artifactHash,
+            'authority_hash' => (string) $record['authority_hash'],
+            'format' => self::TERMINAL_REQUEST_FORMAT,
+            'scope_hash' => $scopeHash,
+            'terminal_hash' => (string) $record['terminal_receipt']['terminal_hash'],
+        ];
+        self::assert_terminal_request_index($index, $scopeHash, $artifactHash);
+        $encoded = Canon::encode($index);
+        $key = self::terminal_request_storage_key($scopeHash, $artifactHash);
+        $stored = $this->storage->read($key);
+        if ($stored === null) {
+            if (!$this->storage->compare_and_swap($key, null, $encoded)) {
+                $stored = $this->storage->read($key);
+            } else {
+                $stored = $this->storage->read($key);
+            }
+        }
+        if ($stored !== $encoded) {
+            throw new \RuntimeException('duo: scoped apply terminal request identity is immutable');
+        }
+    }
+
+    private static function assert_terminal_request_index(
+        mixed $index,
+        string $scopeHash,
+        string $artifactHash
+    ): void {
+        self::assert_keys($index, [
+            'artifact_hash', 'authority_hash', 'format', 'scope_hash', 'terminal_hash',
+        ], 'scoped apply terminal request index');
+        if (($index['format'] ?? null) !== self::TERMINAL_REQUEST_FORMAT) {
+            throw new \RuntimeException('duo: scoped apply terminal request index has an unsupported format');
+        }
+        foreach (['artifact_hash', 'authority_hash', 'scope_hash', 'terminal_hash'] as $field) {
+            self::assert_hash($index[$field] ?? null, "terminal request index $field");
+        }
+        if (!hash_equals($scopeHash, (string) $index['scope_hash'])
+            || !hash_equals($artifactHash, (string) $index['artifact_hash'])) {
+            throw new \RuntimeException('duo: scoped apply terminal request index identity mismatch');
+        }
     }
 
     /**

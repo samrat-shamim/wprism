@@ -2507,10 +2507,24 @@ final class Apply {
                 'duo: full apply refused — a scoped apply session is nonterminal; recover that exact scoped authority first'
             );
         }
-        if ($scoped && $existingScopedSession !== null && $existingScopedSession->is_terminal()) {
-            $authority = $existingScopedSession->authority();
-            if (hash_equals((string) ($authority['scope_hash'] ?? ''), (string) $preflightContract['scope_hash'])
-                && hash_equals((string) ($authority['source']['artifact_hash'] ?? ''), $compiled->artifact_hash())) {
+        $terminalReplaySession = null;
+        if ($scoped && ($existingScopedSession === null || $existingScopedSession->is_terminal())) {
+            if ($existingScopedSession !== null) {
+                $authority = $existingScopedSession->authority();
+                if (hash_equals((string) ($authority['scope_hash'] ?? ''), (string) $preflightContract['scope_hash'])
+                    && hash_equals((string) ($authority['source']['artifact_hash'] ?? ''), $compiled->artifact_hash())) {
+                    $terminalReplaySession = $existingScopedSession;
+                }
+            }
+            if ($terminalReplaySession === null) {
+                $terminalReplaySession = ScopedApplySession::open_terminal_for_request(
+                    $sessionStorage,
+                    (string) $preflightContract['scope_hash'],
+                    $compiled->artifact_hash()
+                );
+            }
+            if ($terminalReplaySession !== null) {
+                $authority = $terminalReplaySession->authority();
                 // A terminal receipt is an idempotent lost-response result,
                 // not a timeless claim about a target that may since have
                 // drifted. Re-prove the bounded authored/map witnesses before
@@ -2529,7 +2543,7 @@ final class Apply {
                     $preflightContract,
                     $actual
                 );
-                $terminalReceipt = $existingScopedSession->terminal_receipt();
+                $terminalReceipt = $terminalReplaySession->terminal_receipt();
                 if (!ScopedApply::terminal_replay_matches(
                     $actual,
                     $compiled,
@@ -2543,8 +2557,10 @@ final class Apply {
                         'duo: terminal scoped receipt no longer describes the live bounded target; no mutation or replay attempted'
                     );
                 }
-                return self::scoped_terminal_summary($existingScopedSession);
+                return self::scoped_terminal_summary($terminalReplaySession);
             }
+        }
+        if ($scoped && $existingScopedSession !== null && $existingScopedSession->is_terminal()) {
             // A completed session may be rotated only by the protocol's exact
             // terminal-archive operation. Never overwrite it as though it were
             // an abandoned progress marker.

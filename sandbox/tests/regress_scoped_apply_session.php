@@ -22,7 +22,8 @@ final class ScopedApplySessionMemoryStore implements ScopedApplySessionStorage {
 
     public function read(string $key): ?string {
         if ($key !== ScopedApplySession::STORAGE_KEY
-            && !str_starts_with($key, ScopedApplySession::TERMINAL_KEY_PREFIX)) {
+            && !str_starts_with($key, ScopedApplySession::TERMINAL_KEY_PREFIX)
+            && !str_starts_with($key, ScopedApplySession::TERMINAL_REQUEST_KEY_PREFIX)) {
             throw new RuntimeException('unexpected storage key');
         }
         return $this->values[$key] ?? null;
@@ -30,7 +31,8 @@ final class ScopedApplySessionMemoryStore implements ScopedApplySessionStorage {
 
     public function compare_and_swap(string $key, ?string $expected, ?string $replacement): bool {
         if ($key !== ScopedApplySession::STORAGE_KEY
-            && !str_starts_with($key, ScopedApplySession::TERMINAL_KEY_PREFIX)) {
+            && !str_starts_with($key, ScopedApplySession::TERMINAL_KEY_PREFIX)
+            && !str_starts_with($key, ScopedApplySession::TERMINAL_REQUEST_KEY_PREFIX)) {
             throw new RuntimeException('unexpected storage key');
         }
         if ($this->forceConflict) {
@@ -252,6 +254,39 @@ $check($reopened->canonical() === $session->canonical(), 're-opening the termina
 $check($reopened->terminal_identity() === $terminalIdentity, 'terminal identity is stable across a new process object');
 $session->archive_terminal($session->canonical());
 $check(($store->values[ScopedApplySession::STORAGE_KEY] ?? null) === null, 'explicit terminal archive clears the active single-session slot');
+$requestReopen = ScopedApplySession::open_terminal_for_request(
+    $store,
+    (string) $authority['scope_hash'],
+    (string) $authority['source']['artifact_hash']
+);
+$check(
+    $requestReopen !== null
+        && $requestReopen->terminal_receipt_bytes() === $terminalBytes
+        && $requestReopen->authority_hash_value() === $session->authority_hash_value(),
+    'archived terminal receipt reopens by stable public scope/source request identity'
+);
+$check(
+    ScopedApplySession::open_terminal_for_request($store, $h('other-scope'), $artifact) === null,
+    'a different public scope/source request cannot discover another terminal archive'
+);
+$requestIndexKey = ScopedApplySession::terminal_request_storage_key(
+    (string) $authority['scope_hash'],
+    (string) $authority['source']['artifact_hash']
+);
+$requestIndexBytes = (string) $store->values[$requestIndexKey];
+$tamperedRequestIndex = Canon::decode($requestIndexBytes);
+$tamperedRequestIndex['terminal_hash'] = $h('tampered-terminal-index');
+$store->values[$requestIndexKey] = Canon::encode($tamperedRequestIndex);
+$expectThrow(
+    static fn() => ScopedApplySession::open_terminal_for_request(
+        $store,
+        (string) $authority['scope_hash'],
+        (string) $authority['source']['artifact_hash']
+    ),
+    'does not bind',
+    'a tampered public terminal index is refused before archived receipt replay'
+);
+$store->values[$requestIndexKey] = $requestIndexBytes;
 $archivedReopen = ScopedApplySession::begin($store, $authority);
 $check(
     $archivedReopen->terminal_receipt_bytes() === $terminalBytes,
