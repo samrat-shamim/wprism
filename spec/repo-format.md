@@ -1,6 +1,6 @@
 # Duo Site-Repo Format — spec v1
 
-*Status: draft, exercised by Spike A/B. Everything here is versioned; `spec_version` in `site.duo.json` pins it.*
+*Status: draft, exercised by Spike A/B. The "spec v1"/"spec v0.x" markers throughout (and in the title above) are this document's own draft-history labels — they record when a rule was introduced. They are NOT the same thing as the `spec_version` integer in `site.duo.json`, which is the wire-format grammar version a repository declares and which must equal the engine's own `DUO_SPEC_VERSION` exactly (see "Adapter compatibility contract" below).*
 
 A **site repo** is a git repository holding the branchable partition of one WordPress site: code, canonical state, media, and policy. Environments (any WP install with the Duo agent) materialize it; their runtime data never enters it.
 
@@ -340,9 +340,11 @@ Import verifies the artifact integrity hash, repository and manifest association
     "post_meta": {},
     "post_types": ["post", "page", "attachment"]
   },
-  "spec_version": 1
+  "spec_version": 2
 }
 ```
+
+The `spec_version` field is the **wire-format grammar version**: an integer a repository declares that must equal the running engine's own `DUO_SPEC_VERSION` *exactly* (currently `2` — see "Adapter compatibility contract" below and the field table). It is deliberately NOT this document's own draft-history label — the "spec v1"/"spec v0.x" markers used throughout, and in this file's title, only record *when* a rule was introduced. An author copying this example must copy the integer the running engine requires, not the number in this document's title; an absent or mismatched value is the same failure and is refused at load, before any target contact.
 
 `policy` holds site-local classification overrides (same shape as manifest rules); it wins over manifests. `manifests` pins which registry manifests apply (agent looks them up across its three installed adapter sources: its own manifest dir, this repository's `adapters/` source, and one `duo-adapter.json` at the root of each ACTIVE plugin that bundles one). The two sources the operator authors — shipped and site — still refuse outright if both could answer one name, so there is no precedence order to learn between them. A PLUGIN-bundled name that a shipped or site definition already answers to is a different case and is resolved rather than refused: sources rank `shipped > site > plugin`, the reviewed definition wins, and the bundled one is reported on every run as an installed-but-not-loaded row naming its winner. See "Out-of-tree adapter sources" and "Plugin-bundled adapters" below. A pin may remain the historical name string or use `{"name":"…","digest":"<sha256>","source":"shipped"|"site"|"plugin"}`. The object form is optional and content-addressed: load computes the same per-manifest digest recorded in compiled artifacts' `resolved_adapters` (including a declared interpreter's name and bytes) and refuses a mismatch before any policy consumer or target contact, naming the manifest plus expected and actual digests. `source` is likewise optional and likewise a refusal rather than a preference: a pin that names which adapter source must answer it refuses when a different source does, so removing a site-installed adapter can never silently hand its name to a later shipped one. An unknown pin key is refused outright rather than ignored. `{"name":"core"}` without `digest` or `source` is also equivalent to the legacy string form; adding these mechanisms does not force existing repositories to migrate.
 
