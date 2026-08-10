@@ -873,6 +873,55 @@ check(
     'the proposal gate and the compensation authority resolve the empty-root manifest through one shared predicate'
 );
 
+// DUO-3427: the same asymmetry family, one authority over. Every ownership
+// manifest a recovery consumes has made a round trip through the sealed init
+// journal, and Canon::encode() ksorts object keys — so a journaled entry comes
+// back {dev,ino,path,sha256,type} while tree_ownership_manifest() builds
+// {type,dev,ino,sha256,path}. PHP's `===` on arrays is order-sensitive, so
+// Publish::assert_owned_tree() reported "changed after Duo created it" for a
+// tree nothing had touched, and it did so on EVERY fresh-process rollback:
+// the strict first-publication recovery path could only refuse. Its two
+// siblings — the proposal-time gate above and remove_owned_file_initial()'s
+// file-level twin — already compared canonically, both since the same commit.
+// Exercised against the real predicate with a real tree and a real journal
+// round trip, offline.
+require_once __DIR__ . '/../../agent/src/Publish.php';
+$manifestFixture = sys_get_temp_dir() . '/duo-init-manifest-order-' . bin2hex(random_bytes(6));
+if (!mkdir($manifestFixture . '/posts/page', 0777, true)) fail('could not create the manifest-order fixture');
+register_shutdown_function(static function () use ($manifestFixture): void {
+    exec('rm -rf ' . escapeshellarg($manifestFixture));
+});
+file_put_contents($manifestFixture . '/posts/page/hello.md', "hello\n");
+$liveManifest = \Duo\Publish::tree_ownership_manifest($manifestFixture);
+$sealedManifest = \Duo\Canon::decode(\Duo\Canon::encode($liveManifest));
+check(
+    $liveManifest !== $sealedManifest && \Duo\Canon::encode($liveManifest) === \Duo\Canon::encode($sealedManifest),
+    'a journaled ownership manifest really does come back with reordered keys, so the comparison is the whole question'
+);
+$ownedTreeVerdict = static function (array $manifest) use ($manifestFixture): ?string {
+    try {
+        \Duo\Publish::assert_owned_tree($manifestFixture, $manifest, 'initial capture staging');
+        return null;
+    } catch (\Throwable $refusal) {
+        return $refusal->getMessage();
+    }
+};
+check(
+    $ownedTreeVerdict($sealedManifest) === null,
+    'a tree that still matches its SEALED manifest carries complete deletion authority'
+);
+$changedManifest = $sealedManifest;
+$changedManifest['entries'][0]['ino'] = '999999999999';
+check(
+    $ownedTreeVerdict($changedManifest) === 'duo: initial capture staging changed after Duo created it; preserving it',
+    'a re-inoded entry is still refused and preserved'
+);
+file_put_contents($manifestFixture . '/posts/page/unmanifested.md', "added\n");
+check(
+    $ownedTreeVerdict($sealedManifest) === 'duo: initial capture staging changed after Duo created it; preserving it',
+    'an entry absent from the sealed manifest is still refused and preserved'
+);
+
 // DUO-3421: the interrupted-init compensation runs over the same artifacts
 // twice by design — Init::confirm()'s catch compensates its own publications,
 // then re-enters recover_interrupted_attempt() to PROVE the rollback from the

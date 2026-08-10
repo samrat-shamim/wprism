@@ -898,9 +898,39 @@ final class Publish {
         return ['root' => $root, 'entries' => $entries];
     }
 
-    /** @param array{root:array<string,string>,entries:list<array<string,mixed>>} $manifest */
+    /**
+     * DUO-3427: compared through the canonical encoding, not PHP's `!==`.
+     *
+     * Every manifest that reaches a RECOVERY authority has made a round trip
+     * through the sealed init journal, and Canon::encode() ksorts object keys
+     * on the way out — so a journaled entry comes back as
+     * {dev, ino, path, sha256, type} while tree_ownership_manifest() builds
+     * {type, dev, ino, sha256, path} in insertion order. PHP's `===` on arrays
+     * requires the same key ORDER as well as the same pairs, so this predicate
+     * answered "changed after Duo created it" for two manifests that describe
+     * the same bytes on the same inodes, and it answered it for EVERY
+     * fresh-process rollback: the whole strict first-publication recovery path
+     * could only ever refuse. A proven, complete rollback then surfaced as
+     * "init refused at an unclassified safety gate" with a retained journal
+     * and lock, because Init::confirm()'s compensation could not prove an
+     * artifact that had never changed.
+     *
+     * Both siblings already compared canonically before this — the proposal-
+     * time gate (Init::interrupted_attempt_manual_recovery_reason()'s
+     * $manifestMismatch) and the file-level twin (remove_owned_file_initial()
+     * below) — so this was the same-commit asymmetry family as DUO-3421's
+     * git_empty_identity drift: the read-only gate advertised a confirmable
+     * recovery that this authority would then refuse mid-protocol. One
+     * comparison now, in all three places. Ordering is the ONLY thing this
+     * loses: Canon::encode is injective over these manifests (a list of
+     * fixed-key string maps, list order pinned by usort on `path`), so an
+     * added, removed, retyped, re-inoded, or rewritten entry still refuses
+     * exactly as before.
+     *
+     * @param array{root:array<string,string>,entries:list<array<string,mixed>>} $manifest
+     */
     public static function assert_owned_tree(string $path, array $manifest, string $label): void {
-        if (self::tree_ownership_manifest($path) !== $manifest) {
+        if (Canon::encode(self::tree_ownership_manifest($path)) !== Canon::encode($manifest)) {
             throw new InitialStateBoundaryException("duo: $label changed after Duo created it; preserving it");
         }
     }
