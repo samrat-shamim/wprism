@@ -72,6 +72,26 @@ $lease = [
     'artifact_hash' => $artifact,
     'session_id' => 'scoped-session',
 ];
+$workItems = [[
+    'identity_hash' => $h('work-identity'),
+    'type' => 'post',
+    'desired_hash' => $h('work-desired'),
+]];
+$deletionItems = [[
+    'identity_hash' => $h('deletion-identity'),
+    'receipt_hash' => $h('deletion-receipt'),
+    'deletion_kind' => 'post',
+    'deletion_type' => 'page',
+]];
+$actionItems = [[
+    'manifest' => 'core',
+    'index' => 0,
+    'declaration_hash' => $h('action-declaration'),
+]];
+$effectItems = [[
+    'action_hash' => $h('effect-action-declaration'),
+    'effect_hash' => $h('effect-declaration'),
+]];
 $authority = ScopedApplySession::make_authority(
     $h('scope'),
     [
@@ -90,11 +110,15 @@ $authority = ScopedApplySession::make_authority(
         'guard_witnesses_hash' => $h('guard-witnesses'),
     ],
     [
-        'work_hash' => $h('work'),
-        'deletions_hash' => $h('deletions'),
-        'action_declarations_hash' => $h('action-declarations'),
+        'work_hash' => ScopedApplySession::hash_value($workItems),
+        'work_items' => $workItems,
+        'deletions_hash' => ScopedApplySession::hash_value($deletionItems),
+        'deletion_items' => $deletionItems,
+        'action_declarations_hash' => ScopedApplySession::hash_value($actionItems),
+        'action_items' => $actionItems,
         'capabilities_hash' => $h('capabilities'),
-        'effects_hash' => $h('effects'),
+        'effects_hash' => ScopedApplySession::hash_value($effectItems),
+        'effect_items' => $effectItems,
     ],
     $h('code-witness')
 );

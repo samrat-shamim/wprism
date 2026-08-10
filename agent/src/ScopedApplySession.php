@@ -55,6 +55,8 @@ final class ScopedApplySession {
 
     private const HASH_RE = '/^[a-f0-9]{64}$/';
     private const TOKEN_RE = '/^[A-Za-z0-9._:-]{8,128}$/';
+    private const TYPE_RE = '/^[A-Za-z0-9._:-]{1,64}$/';
+    private const MANIFEST_RE = '/^[A-Za-z0-9._-]{1,128}$/';
 
     /** @var array<string,string> */
     private const NEXT_PHASE = [
@@ -137,6 +139,9 @@ final class ScopedApplySession {
     public static function seal_authority(array $authority): array {
         $providedHash = $authority['authority_hash'] ?? null;
         unset($authority['authority_hash']);
+        if (is_array($authority['selection'] ?? null)) {
+            $authority['selection'] = self::canonical_selection($authority['selection']);
+        }
         self::assert_authority_base($authority);
         $authority['authority_hash'] = self::digest($authority);
         if ($providedHash !== null) {
@@ -1090,10 +1095,86 @@ final class ScopedApplySession {
     /** @param mixed $selection */
     private static function assert_selection(mixed $selection): void {
         self::assert_keys($selection, [
-            'action_declarations_hash', 'capabilities_hash', 'deletions_hash', 'effects_hash', 'work_hash',
+            'action_declarations_hash', 'action_items', 'capabilities_hash', 'deletion_items', 'deletions_hash',
+            'effect_items', 'effects_hash', 'work_hash', 'work_items',
         ], 'scoped mutation authority selection');
         foreach (['work_hash', 'deletions_hash', 'action_declarations_hash', 'capabilities_hash', 'effects_hash'] as $key) {
             self::assert_hash($selection[$key], "selection $key");
+        }
+        self::assert_item_list($selection['work_items'], 'work_items', static function (mixed $row): void {
+            self::assert_keys($row, ['desired_hash', 'identity_hash', 'type'], 'scoped selection work item');
+            self::assert_hash($row['identity_hash'], 'work item identity_hash');
+            self::assert_hash($row['desired_hash'], 'work item desired_hash');
+            self::assert_type_token($row['type'], 'work item type');
+        });
+        self::assert_item_list($selection['deletion_items'], 'deletion_items', static function (mixed $row): void {
+            self::assert_keys($row, ['deletion_kind', 'deletion_type', 'identity_hash', 'receipt_hash'], 'scoped selection deletion item');
+            self::assert_hash($row['identity_hash'], 'deletion item identity_hash');
+            self::assert_hash($row['receipt_hash'], 'deletion item receipt_hash');
+            self::assert_type_token($row['deletion_kind'], 'deletion item kind');
+            self::assert_type_token($row['deletion_type'], 'deletion item type');
+        });
+        self::assert_item_list($selection['action_items'], 'action_items', static function (mixed $row): void {
+            self::assert_keys($row, ['declaration_hash', 'index', 'manifest'], 'scoped selection action item');
+            self::assert_hash($row['declaration_hash'], 'action item declaration_hash');
+            if (!is_int($row['index']) || $row['index'] < 0) {
+                throw new \RuntimeException('duo: scoped selection action item index is invalid');
+            }
+            self::assert_manifest_token($row['manifest'], 'action item manifest');
+        });
+        self::assert_item_list($selection['effect_items'], 'effect_items', static function (mixed $row): void {
+            self::assert_keys($row, ['action_hash', 'effect_hash'], 'scoped selection effect item');
+            self::assert_hash($row['action_hash'], 'effect item action_hash');
+            self::assert_hash($row['effect_hash'], 'effect item effect_hash');
+        });
+        foreach (['work_items', 'deletion_items', 'action_items', 'effect_items'] as $key) {
+            $previous = null;
+            foreach ($selection[$key] as $row) {
+                $encoded = self::canonical_encode($row);
+                if ($previous !== null && strcmp($previous, $encoded) >= 0) {
+                    throw new \RuntimeException("duo: scoped selection $key must be canonically sorted and unique");
+                }
+                $previous = $encoded;
+            }
+        }
+        foreach ([
+            'work_hash' => 'work_items',
+            'deletions_hash' => 'deletion_items',
+            'action_declarations_hash' => 'action_items',
+            'effects_hash' => 'effect_items',
+        ] as $hashKey => $itemsKey) {
+            if (!hash_equals((string) $selection[$hashKey], self::hash_value($selection[$itemsKey]))) {
+                throw new \RuntimeException("duo: scoped selection $hashKey does not match its retained items");
+            }
+        }
+    }
+
+    /** @param array<string,mixed> $selection @return array<string,mixed> */
+    private static function canonical_selection(array $selection): array {
+        self::assert_keys($selection, [
+            'action_declarations_hash', 'action_items', 'capabilities_hash', 'deletion_items', 'deletions_hash',
+            'effect_items', 'effects_hash', 'work_hash', 'work_items',
+        ], 'scoped mutation authority selection');
+        foreach (['work_items', 'deletion_items', 'action_items', 'effect_items'] as $key) {
+            if (!is_array($selection[$key]) || !array_is_list($selection[$key])) {
+                throw new \RuntimeException("duo: scoped selection $key must be a list");
+            }
+            usort(
+                $selection[$key],
+                static fn(mixed $a, mixed $b): int => strcmp(self::canonical_encode($a), self::canonical_encode($b))
+            );
+        }
+        self::assert_selection($selection);
+        return self::canonical_copy($selection);
+    }
+
+    /** @param mixed $items @param callable(mixed):void $validator */
+    private static function assert_item_list(mixed $items, string $field, callable $validator): void {
+        if (!is_array($items) || !array_is_list($items)) {
+            throw new \RuntimeException("duo: scoped selection $field must be a list");
+        }
+        foreach ($items as $row) {
+            $validator($row);
         }
     }
 
@@ -1108,6 +1189,20 @@ final class ScopedApplySession {
     private static function assert_token(mixed $value, string $field): void {
         if (!is_string($value) || preg_match(self::TOKEN_RE, $value) !== 1) {
             throw new \RuntimeException("duo: scoped apply $field is not a bounded identity token");
+        }
+    }
+
+    /** @param mixed $value */
+    private static function assert_type_token(mixed $value, string $field): void {
+        if (!is_string($value) || preg_match(self::TYPE_RE, $value) !== 1) {
+            throw new \RuntimeException("duo: scoped apply $field is not a bounded type token");
+        }
+    }
+
+    /** @param mixed $value */
+    private static function assert_manifest_token(mixed $value, string $field): void {
+        if (!is_string($value) || preg_match(self::MANIFEST_RE, $value) !== 1) {
+            throw new \RuntimeException("duo: scoped apply $field is not a bounded manifest token");
         }
     }
 
