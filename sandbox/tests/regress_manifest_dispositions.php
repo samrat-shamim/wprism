@@ -213,6 +213,42 @@ check($summary['ok'] === false && str_contains(implode("\n", $summary['lines']),
 $hostBlockers = CodeDeploy::dispositionBlockers(['resolved_adapters' => RepositoryCompiler::resolved_adapters($pmproPolicy)]);
 check(($hostBlockers[0]['name'] ?? null) === 'paid-memberships-pro', 'host promotion gate refuses the same experimental disposition');
 
+// DUO-3372: blockers()/report() are unreachable on the live path (load()'s
+// one-for-one coverage check refuses an uncovered manifest first), so they are
+// tested by DIRECT call. An uncovered manifest must be a fail-closed BLOCKER,
+// never a silent skip — the file's own doctrine is "a manifest cannot certify
+// itself merely by existing beside the agent".
+$uncovered = ['name' => 'no-such-uncovered-adapter'];
+$directBlockers = $registry->blockers([$uncovered]);
+check(
+    count($directBlockers) === 1
+        && $directBlockers[0]['name'] === 'no-such-uncovered-adapter'
+        && $directBlockers[0]['status'] === ManifestDispositions::STATUS_UNCOVERED
+        && str_contains($directBlockers[0]['reason'], 'cannot certify itself merely by existing'),
+    'DUO-3372: blockers() surfaces an uncovered manifest as an explicit `uncovered` blocker, never a silent skip'
+);
+$directReport = $registry->report([$uncovered]);
+check(
+    $directReport['ready'] === false
+        && count($directReport['blockers']) === 1
+        && ($directReport['blockers'][0]['status'] ?? null) === ManifestDispositions::STATUS_UNCOVERED
+        && count(array_filter(
+            $directReport['manifests'],
+            static fn(array $r): bool => ($r['name'] ?? null) === 'no-such-uncovered-adapter'
+        )) === 1,
+    'DUO-3372: report() lists the uncovered manifest as an `uncovered` row and is never `ready` while one exists'
+);
+// A CERTIFIED manifest is still not a blocker (regression guard on the surviving skip).
+$certifiedName = null;
+foreach ($manifests as $m) {
+    $e = $registry->entry((string) ($m['name'] ?? ''));
+    if (($e['status'] ?? null) === 'certified') { $certifiedName = (string) $m['name']; break; }
+}
+check(
+    $certifiedName !== null && $registry->blockers([['name' => $certifiedName]]) === [],
+    'DUO-3372: a certified manifest is still not a blocker (the uncovered fix did not turn the certified skip into a row)'
+);
+
 if ($failures) {
     fwrite(STDERR, "\n$failures manifest disposition regression assertion(s) failed\n");
     exit(1);

@@ -12,6 +12,16 @@ namespace Duo;
  */
 final class ManifestDispositions {
     public const FORMAT = 'duo-manifest-dispositions/v1';
+
+    /**
+     * The synthesized blocker status for a manifest with NO reviewed
+     * disposition entry (DUO-3372). It is a RUNTIME status only — never a
+     * value a disposition may DECLARE (validate_entry() refuses it) — emitted
+     * by blockers()/report() so a direct caller cannot read an uncovered
+     * manifest as ready.
+     */
+    public const STATUS_UNCOVERED = 'uncovered';
+    public const UNCOVERED_REASON = 'no reviewed disposition entry — a manifest cannot certify itself merely by existing beside the agent';
     public const BUNDLE_SCHEMA = 'duo-certification-bundle/v1';
 
     private array $data;
@@ -102,7 +112,23 @@ final class ManifestDispositions {
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '?');
             $entry = $this->entry($name);
-            if ($entry === null || ($entry['status'] ?? null) === 'certified') {
+            if ($entry === null) {
+                // DUO-3372: an uncovered manifest is a BLOCKER, not a skip. On
+                // the live path load()'s one-for-one coverage check refuses it
+                // earlier, so this is unreachable there — but silently dropping
+                // it here would let a direct caller read a manifest with no
+                // reviewed disposition as ready, which is exactly the "a
+                // manifest cannot certify itself merely by existing" doctrine
+                // this file states. `uncovered` is a synthesized runtime status
+                // only; validate_entry() still refuses it as a DECLARED status.
+                $out[] = [
+                    'name' => $name,
+                    'status' => self::STATUS_UNCOVERED,
+                    'reason' => self::UNCOVERED_REASON,
+                ];
+                continue;
+            }
+            if (($entry['status'] ?? null) === 'certified') {
                 continue;
             }
             $out[] = [
@@ -121,6 +147,17 @@ final class ManifestDispositions {
             $name = (string) ($manifest['name'] ?? '?');
             $entry = $this->entry($name);
             if ($entry === null) {
+                // DUO-3372: surface the uncovered manifest as an explicit row
+                // rather than dropping it from the report — the top-level
+                // `blockers`/`ready` already reflect it (blockers() above), and
+                // a per-manifest report that silently omitted it would disagree
+                // with its own blocker list. Minimal shape: there is no entry to
+                // resolve entity/field sections from.
+                $rows[] = [
+                    'name' => $name,
+                    'status' => self::STATUS_UNCOVERED,
+                    'reason' => self::UNCOVERED_REASON,
+                ];
                 continue;
             }
             $resolved = $entry;
