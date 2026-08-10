@@ -36,7 +36,7 @@ OUT_ROOT="${CERT_BUNDLE_OUT:-$PWD/certification-bundles}"
 # that demanded manual intervention over a file it had never opened, two
 # proven outcomes reported as unclassified gates, and two blockers that named
 # themselves in words nothing else used. DUO-3421 fixed ten of them; the
-# remainder is DUO-3426 (init interrupted-recovery subsystem), plus the
+# remainder is DUO-3427 (init interrupted-recovery subsystem), plus the
 # separately filed golden-path clock defect: `completed_within_fifteen_minutes`
 # is certified as a per-init claim but implemented as a whole-suite stopwatch
 # (STARTED_AT is set at script start), and the suite runs eighteen full
@@ -906,7 +906,7 @@ if [ "$INCLUDE_INIT_LEGS" = 1 ]; then
 else
   say "reference legs: init platform contract + public duo init golden path are DESCOPED"
   printf '\033[1;33mSKIPPED (not certified, not claimed): the two init legs are out of the
-certified set pending DUO-3426 (init interrupted-recovery subsystem) and the
+certified set pending DUO-3427 (init interrupted-recovery subsystem) and the
 golden-path clock defect -- #151 certified them before either had ever passed
 end to end. This bundle carries no init test fragment, assertion, or exclusion.
 Run them with CERT_BUNDLE_INCLUDE_INIT_LEGS=1 once both land.\033[0m\n'

@@ -148,7 +148,7 @@ if ($enumeration === '' || $gitWorkTree !== 0) {
 echo "\n== DUO-3421: the two init legs are descoped by default, loudly, and reversibly ==\n";
 // A certified set may only contain legs that have passed end to end. #151 put
 // both init legs in it before either ever had, so they are gated OFF until
-// DUO-3426 (init interrupted-recovery subsystem) and the golden-path clock
+// DUO-3427 (init interrupted-recovery subsystem) and the golden-path clock
 // defect land. Three things must stay true, and each is pinned: the default
 // really is off and the leg arithmetic stays honest; the legs are DESCOPED,
 // not deleted, and still run under the documented opt-in; and a skipped run
@@ -181,7 +181,7 @@ check(
 );
 check(
     str_contains($referenceRunner, 'SKIPPED (not certified, not claimed)')
-        && str_contains($referenceRunner, 'DUO-3426')
+        && str_contains($referenceRunner, 'DUO-3427')
         && str_contains($referenceRunner, 'CERT_BUNDLE_INCLUDE_INIT_LEGS=1 once both land')
         && $gateElse !== false,
     'a default run announces the descoped legs and names what must land before they return'
