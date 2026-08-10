@@ -759,6 +759,155 @@ Per-option capture, code dependency movement, scoped apply/promote/verification,
 and scoped rollback require later versioned authority and receipt contracts;
 v1 does not infer them from this state-only overlay.
 
+### Host-only redacted refresh field relation (DUO-3345)
+
+`duo refresh <env> --field-diff` is an **unscoped, host-only** adjunct to the
+ordinary private `duo-refresh-plan/v1`. It does not alter `plan_hash`, grant
+apply authority, mutate the WordPress target, or turn a Git merge into a
+field-aware merge. Its sole public artifact is a canonical,
+immutable `duo-refresh-field-diff/v1` relation stored under the local Git
+common-dir journal; the private plan may retain verified B/P/W source bytes,
+but the public diff, machine JSON output, resolution file, field evidence in
+`run.json`, receipts, and public errors are value-free. A detailed stopped-run
+cause is private local operator evidence in `events/*-stopped`; it never enters
+the public diff, JSON, resolution, receipt, or CLI error.
+
+The exact top-level diff keys are `algorithm`, `authority`, `choices`,
+`diff_hash`, `format`, `plan_hash`, `policy_projection_hashes`,
+`production_snapshot_hash`, `records`, `redaction`, `roles`, and `summary`.
+`format` and `algorithm` are both `"duo-refresh-field-diff/v1"`,
+`authority` is exactly `false`, `redaction` is exactly `"values_omitted"`,
+`choices` is exactly `{ "ours": "branch", "theirs": "production" }`, and
+`roles` is exactly `{ "base": "merge_base", "ours": "branch", "theirs":
+"production" }`. `diff_hash` is the SHA-256 of canonical JSON with only
+`diff_hash` omitted. `plan_hash` and `production_snapshot_hash` are exact
+SHA-256 bindings. `policy_projection_hashes` has exactly `base`, `branch`,
+and `production`; branch and production must be equal. Each projection hash
+binds the policy's `state_site_hash`, manifest hash, resolved-adapter digest,
+and sorted derived-post-field map without publishing those inputs.
+
+`records` is selector-sorted and contains only ordinary B/P/W plan entries
+whose record category is `conflicting`; branch-only, production-only, and
+compatible plan rows remain in the ordinary private plan/counts because they
+need no field choice. A record has exactly `changes`, `entity`, `mode`,
+`reason`, and `record_selector_sha256`. `entity` is one of `post`, `term`,
+`attachment`, `menu`, `sidebar`, `options`, `user_meta`, `typed_table`, or
+`record`; selectors are opaque SHA-256 values and never encode an id or path.
+`mode` is `fields` or `record`. `summary` has only non-negative
+`atomic_records`, `changes`, `conflicting_choices`, and `records` counts that
+must equal the enclosed rows.
+
+Every change is selector-sorted and contains only `category`, `field`,
+`field_selector_sha256`, `hash_status`, `record_selector_sha256`, `relation`,
+and `scope`; record-atomic changes additionally contain `reason`.
+`category` is one of `unchanged`, `production-only`, `branch-only`,
+`compatible`, or `conflicting`. `reason` is one of
+`eligible_engine_fields`, `scoped_record`, `production_omitted`,
+`absence_or_tombstone`, `option_or_state_witness`, `opaque_record_type`,
+`routing_changed`, `unsupported_document_shape`, `attachment_media`,
+`document_structure_changed`, `opaque_or_structural_field`,
+`derived_field_policy`, `opaque_container`, or `body_changed`.
+`hash_status` is exactly `"withheld"`; no raw value hash is public.
+`field_selector_sha256` is exactly SHA-256 of
+`"duo-refresh-field-selector/v1\0" || record_selector_sha256 || "\0" || field`.
+Field labels are only
+`post.author`, `post.comment_status`, `post.excerpt`, `post.menu_order`,
+`post.parent`, `post.ping_status`, `post.publication`, `post.title`,
+`post.modification`, `term.description`, `term.name`, `term.parent`, and
+`record`. A `fields` record is exactly `post` or `term`, and every field label
+must use that entity's `post.` or `term.` prefix. A field change has
+`scope: "field"`; an atomic change has
+`field: "record"`, `scope: "record"`, and `category: "conflicting"`.
+
+`relation` is the closed, value-free role relation:
+
+```json
+{
+  "base": "present|tombstone|absent",
+  "branch": "present|tombstone|absent",
+  "branch_vs_base": "same|different",
+  "branch_vs_production": "same|different",
+  "production": "present|tombstone|absent",
+  "production_vs_base": "same|different"
+}
+```
+
+`same` may not cross different presence states, and two `absent` roles are
+necessarily `same`. Pairwise `same` is transitive: B/P/W may have zero, one,
+or three `same` comparisons, never exactly two. Eligible scalar fields are
+present in all roles and derive their relation from canonical scalar equality:
+each scalar token is decoded and Canon-encoded only as private comparison
+evidence, so equivalent spellings such as `"base"` and `"\\u0062ase"` or
+`1` and `1.0` are `same`. Exact verified raw tokens and spans remain private
+materialization input. Object/list values are never normalized for this
+purpose; a changed group containing one is opaque and record-atomic.
+`production-only` is B=W≠P,
+`branch-only` is B=P≠W, `compatible` is P=W≠B, and `conflicting` has all three
+different. Atomic rows derive relation equality from exact row type plus
+semantic hash/absence only; those hashes never leave the private plan.
+
+Field mode refuses every scope contract before target observation or candidate
+worktree creation. It also refuses missing/invalid B/P/W policy projections,
+branch/production policy skew, or a final candidate policy that differs after
+code-only rebase. A post field is field-eligible only when B, P,
+W, and the candidate policy all classify it authored. The v1 field surface is
+limited to the post scalar groups listed above (publication is coupled
+`status`/`date`/`date_gmt`; modification is coupled
+`modified`/`modified_gmt`) and term `name`, `description`, and `parent`. A
+legacy optional member of a coupled group may be absent only identically in
+all B/P/W roles, and then only when every retained member is raw-identical;
+otherwise the record is atomic. A changed post body, attachment/media record,
+menu, sidebar, option/state witness, user-meta, typed-table row, tombstone,
+container/list, or other opaque/structural field is one record-atomic change.
+If B is a live record and P or W is absent, field mode refuses before it emits
+a diff or accepts a resolution: absence never becomes a field-mode choice and
+the legacy whole-record resolver remains the available path. Mixed eligible
+field and record-atomic conflicts remain resolvable in one field-resolution
+run.
+
+`duo-refresh-field-resolution/v1` is a separate canonical immutable object
+with exactly `algorithm`, `choices`, `diff_hash`, `format`, `plan_hash`,
+`production_snapshot_hash`, and `resolution_hash`. Its `algorithm` is
+`"duo-refresh-field-diff/v1"`; `format` is
+`"duo-refresh-field-resolution/v1"`; every top-level binding must equal the
+displayed diff; and `resolution_hash` is SHA-256 of canonical JSON with only
+that hash omitted. `choices` is a complete, unique, selector-sorted list of
+only `{ "choice": "ours|theirs", "field_selector_sha256": "…",
+"record_selector_sha256": "…", "scope": "field|record" }`. It names every
+and only conflicting change in that diff. A user-supplied local file must be a
+non-empty, at-most-1 MiB regular non-symlink canonical JSON file and must
+already carry its `resolution_hash`; interactive construction may compute that
+hash internally. Interactive mode first renders every changed row as a closed
+preview: automatic `production-only` decisions use production; automatic
+`branch-only` and `compatible` decisions use branch, preserving the exact
+branch-byte scaffold; and only `conflicting` rows are prompted. The public
+diff contains only conflicting entries, but local interactive preview also
+shows every changed non-conflicting private plan entry as a closed automatic
+record decision; those rows add no resolution choice. CLI `--interactive` is
+the one explicit host-local reveal surface: it requires TTY stdin and stdout
+and may show a bounded C0/DEL-safe valid-UTF-8 authored post title, term/menu
+name, or path fallback beside its opaque selector. That label is derived only
+in memory from the exact prepared private plan, binds to the same plan/diff
+hashes, is never returned or journaled, and never enters the public diff,
+machine JSON, resolution, receipt, or `run.json`. Pipe/automation callers use
+the value-free canonical `--field-resolution` file instead.
+Field resolution cannot mix with any legacy `--strategy` spelling or
+`--resolve` choice.
+
+Materialization occurs only in the existing disposable worktree after the
+second production snapshot observation and fresh candidate-policy check. It
+never decodes and re-encodes a hybrid document: branch exact bytes are the
+scaffold, selected allowlisted top-level scalar spans are copied verbatim from
+verified B/P/W source bytes, and all container/list/body/opaque content stays
+as the selected whole record. Field-spliced records use branch media authority;
+attachments remain atomic. Strict compilation and the normal new-ref boundary
+remain mandatory. A field receipt binds only the public `field_diff_hash` and
+`field_resolution_hash`; private spans and literals never enter public run
+evidence. Before any span is read, the host verifies that the process-local
+bundle has exactly the public record selectors, maps each selector to its
+conflicting plan entry, and carries exactly the public non-unchanged field
+set/category/scope; it cannot introduce an unreviewed private splice.
+
 ## Bounded provider-resource selectors
 
 An external `provider_resource` effect may declare a bounded aggregate by

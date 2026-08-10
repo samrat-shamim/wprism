@@ -164,9 +164,41 @@ hash-safe `EXPLAIN` selector beneath each itemized row. `duo explain` follows
 that one row through the compiled source shape, winning policy and manifest
 rules, declared outbound references, selected structured actions, and the
 verification apply would require—without exposing values or running anything.
-Field-level *value* diffs and guided conflict resolution remain planned. For
-`duo refresh` specifically, five counts plus one reason line per conflict is
-still the complete surface for deciding whether to rebase.
+
+For a value-free/redacted field-level change and conflict projection, opt in
+explicitly:
+
+```sh
+duo refresh production --production-ref=v2026.03.1 --field-diff
+duo refresh production --production-ref=v2026.03.1 --field-diff --format=json
+```
+
+This is not a literal before/after display. It names only an opaque record
+selector, a closed entity/field label, a change category, B/P/W
+presence/equality relations, and whether the row is field-eligible or
+record-atomic; values, paths, titles, bodies, metadata, options, and per-value
+hashes are omitted. It decomposes only ordinary B/P/W plan entries already
+classified as `conflicting`; branch-only, production-only, and compatible rows
+remain in the ordinary private plan/counts because they need no field choice.
+The JSON result is one immutable
+`duo-refresh-field-diff/v1` object that is display-only/non-authorizing and is
+bound to the ordinary plan and production snapshot without changing the plan
+hash. Field mode is unavailable for scope contracts and policy-evidence skew.
+For eligible fields, `production-only` means B=W≠P, `branch-only` means B=P≠W,
+`compatible` means P=W≠B, and `conflicting` means all three verified groups
+differ. Scalar equality is canonical comparison evidence (`"base"` equals
+`"\\u0062ase"`, and `1` equals `1.0`), while verified source tokens remain
+private exact-byte materialization input; object/list values are not
+normalized. Record-atomic rows use the same closed presence/equality vocabulary
+without publishing their semantic hashes.
+
+The narrow v1 field surface covers ordinary post scalar groups and term
+name/description/parent. A post body, attachment/media, menu/sidebar/options,
+user metadata, typed table, tombstone, or opaque container remains a single
+record decision, so one interaction can include both field and record-atomic
+conflicts. A live B record with an absent P or W side is unavailable to field
+mode before any diff or choice is published; use the legacy whole-record
+resolver for that absence.
 
 When you are ready to move the branch onto current production:
 
@@ -185,6 +217,33 @@ that is recorded, not inferred. An unresolved planner receipt creates no
 branch. If a run is interrupted and leaves a candidate worktree behind,
 `duo rebase production --abort=<run-id>` removes exactly that worktree and
 nothing else.
+
+If the redacted field diff is eligible, resolve it through the explicit local
+TTY reveal surface:
+
+```sh
+duo rebase production --production-ref=v2026.03.1 \
+  --new-branch=feature/pricing-page-2 --interactive
+```
+
+Choose `b`/`branch` for the branch (`ours`) or `p`/`production` for production
+(`theirs`). `--interactive` requires TTY stdin and stdout and may show a
+bounded C0/DEL-safe authored title/name or path fallback beside the otherwise
+closed selector. That label is transient local context only: it never enters
+the value-free diff, JSON, resolution, run, or receipt. Before prompting, it
+previews every automatic branch/production decision (including changed
+non-conflicting plan rows) and each manual conflict. `production-only` selects
+production; `branch-only` and `compatible` retain the exact branch-byte
+scaffold. Only conflicts need a choice. `q` or EOF cancels with exit 2 before
+any run record, candidate worktree, branch, or ref exists; the ordinary private
+plan and value-free redacted diff may already exist as immutable planning
+artifacts. Automation may instead provide a non-empty, at-most-1 MiB regular
+non-symlink canonical JSON local `--field-resolution=<path>`. These field
+modes cannot be combined with even an explicit `--strategy=manual` or any
+legacy `--resolve`; use one resolver
+contract per run. The materializer copies exact selected source token bytes
+into a branch-byte scaffold, then strict-compiles in the disposable worktree;
+it does not decode/re-encode a mixed post or term document.
 
 ## Plan and status
 

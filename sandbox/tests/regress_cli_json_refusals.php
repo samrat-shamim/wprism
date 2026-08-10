@@ -1368,6 +1368,15 @@ namespace {
     $hostArgumentPayload = json_decode($hostArgument['stdout'], true);
     check($hostArgument['status'] === 1 && $hostArgument['stderr'] === '', 'host missing-environment JSON refusal is machine-only');
     check(($hostArgumentPayload['reason_code'] ?? null) === 'invalid_arguments', 'host missing environment has a stable argument code');
+    $refreshArgument = $runHost(['refresh', '--field-diff', '--format=json', '--envs-file=' . $registry]);
+    $refreshArgumentPayload = json_decode($refreshArgument['stdout'], true);
+    check($refreshArgument['status'] === 1 && $refreshArgument['stderr'] === '',
+        'refresh missing-environment JSON refusal is machine-only');
+    check(is_array($refreshArgumentPayload)
+        && ($refreshArgumentPayload['format'] ?? null) === 'duo-command-refusal/v1'
+        && ($refreshArgumentPayload['command'] ?? null) === 'refresh'
+        && ($refreshArgumentPayload['reason_code'] ?? null) === 'invalid_arguments',
+        'refresh joins the established host JSON-refusal envelope before driver creation');
     $hostSpacedFormat = $runHost(['apply', 'missing', '--envs-file=' . $registry, '--format', 'json']);
     $hostSpacedPayload = json_decode($hostSpacedFormat['stdout'], true);
     check($hostSpacedFormat['status'] === 1 && $hostSpacedFormat['stderr'] === '', 'host spaced JSON format refusal is machine-only');
@@ -1393,6 +1402,94 @@ namespace {
             'repo_path' => $tmp,
         ],
     ]], JSON_UNESCAPED_SLASHES));
+    $refreshScope = $runHost([
+        'refresh', 'status-fixture', '--envs-file=' . $registry,
+        '--production-ref=PRODUCTION-REF-OMITTED', '--scope-contract=PRIVATE-SCOPE-OMITTED',
+        '--field-diff', '--format=json',
+    ], $tmp);
+    $refreshScopePayload = json_decode($refreshScope['stdout'], true);
+    check($refreshScope['status'] === 1 && $refreshScope['stderr'] === '',
+        'scoped field-diff JSON refusal emits no human stderr');
+    check(is_array($refreshScopePayload)
+        && ($refreshScopePayload['format'] ?? null) === 'duo-command-refusal/v1'
+        && ($refreshScopePayload['command'] ?? null) === 'refresh'
+        && ($refreshScopePayload['reason_code'] ?? null) === 'scoped_unsupported'
+        && str_contains((string) ($refreshScopePayload['remediation'] ?? ''), 'legacy whole-record resolver'),
+        'scoped field-diff JSON refusal uses the stable actionable host envelope');
+    check(!str_contains($refreshScope['stdout'], 'PRODUCTION-REF-OMITTED')
+        && !str_contains($refreshScope['stdout'], 'PRIVATE-SCOPE-OMITTED'),
+        'scoped field-diff JSON refusal omits supplied production and scope inputs');
+    $refreshInvalid = $runHost([
+        'refresh', 'status-fixture', '--envs-file=' . $registry,
+        '--production-ref=production', '--format=json',
+    ], $tmp);
+    $refreshInvalidPayload = json_decode($refreshInvalid['stdout'], true);
+    check($refreshInvalid['status'] === 1 && $refreshInvalid['stderr'] === ''
+        && is_array($refreshInvalidPayload)
+        && ($refreshInvalidPayload['reason_code'] ?? null) === 'invalid_arguments',
+        'invalid field-diff JSON grammar stays distinct from scoped or unavailable refusal');
+    $refreshHumanScope = $runHost([
+        'refresh', 'status-fixture', '--envs-file=' . $registry,
+        '--production-ref=PRODUCTION-REF-OMITTED', '--scope-contract=PRIVATE-SCOPE-OMITTED', '--field-diff',
+    ], $tmp);
+    check($refreshHumanScope['status'] === 1 && $refreshHumanScope['stdout'] === ''
+        && str_contains($refreshHumanScope['stderr'], 'redacted field-level change diff is unavailable for scoped refresh')
+        && !str_contains($refreshHumanScope['stderr'], 'PRODUCTION-REF-OMITTED')
+        && !str_contains($refreshHumanScope['stderr'], 'PRIVATE-SCOPE-OMITTED'),
+        'human field-diff refusal uses closed redacted prose rather than exception input');
+    $refreshUnavailable = $runHost([
+        'refresh', 'status-fixture', '--envs-file=' . $registry,
+        '--production-ref=PRIVATE-PRODUCTION-REF-OMITTED', '--field-diff',
+    ], $tmp);
+    check($refreshUnavailable['status'] === 1 && $refreshUnavailable['stdout'] === ''
+        && str_contains($refreshUnavailable['stderr'], 'verify the production target is reachable, clean, at --production-ref, and supports refresh-export')
+        && str_contains($refreshUnavailable['stderr'], 'legacy whole-record resolver')
+        && !str_contains($refreshUnavailable['stderr'], 'PRIVATE-PRODUCTION-REF-OMITTED'),
+        'unavailable field-diff refresh gives closed target, export, policy, and legacy recovery without echoing input');
+    $rebaseExplicitManual = $runHost([
+        'rebase', 'status-fixture', '--envs-file=' . $registry,
+        '--production-ref=production', '--new-branch=refresh-explicit-manual',
+        '--interactive', '--strategy=manual',
+    ], $tmp);
+    check($rebaseExplicitManual['status'] === 1 && $rebaseExplicitManual['stdout'] === ''
+        && str_contains($rebaseExplicitManual['stderr'], 'redacted field-level resolution cannot be mixed')
+        && !str_contains($rebaseExplicitManual['stderr'], 'production'),
+        'rebase parser rejects explicit legacy --strategy=manual with closed field-mode prose before candidate work');
+    $interactiveTargetTouch = $tmp . '/interactive-target-touched';
+    file_put_contents($fakeWp, "#!/bin/sh\n: > " . escapeshellarg($interactiveTargetTouch) . "\nexit 0\n");
+    chmod($fakeWp, 0700);
+    $rebaseNonTty = $runHost([
+        'rebase', 'status-fixture', '--envs-file=' . $registry,
+        '--production-ref=PRIVATE-INTERACTIVE-PRODUCTION-OMITTED',
+        '--new-branch=PRIVATE-INTERACTIVE-BRANCH-OMITTED', '--interactive',
+    ], $tmp);
+    check($rebaseNonTty['status'] === 1 && $rebaseNonTty['stdout'] === ''
+        && str_contains($rebaseNonTty['stderr'], 'redacted field-level interactive resolution requires TTY stdin and stdout')
+        && str_contains($rebaseNonTty['stderr'], 'use --field-resolution=<local-path> for automation')
+        && !str_contains($rebaseNonTty['stderr'], 'PRIVATE-INTERACTIVE-PRODUCTION-OMITTED')
+        && !str_contains($rebaseNonTty['stderr'], 'PRIVATE-INTERACTIVE-BRANCH-OMITTED')
+        && !file_exists($interactiveTargetTouch)
+        && !is_dir($tmp . '/.git/duo-refresh/worktrees'),
+        'non-TTY interactive rebase refuses before production target access or candidate work');
+    file_put_contents($fakeWp, "#!/bin/sh\nprintf '%s\\n' '" . json_encode($statusRefusal, JSON_UNESCAPED_SLASHES) . "'\nexit 1\n");
+    chmod($fakeWp, 0700);
+    $abortExplicitManual = $runHost([
+        'rebase', 'status-fixture', '--envs-file=' . $registry,
+        '--abort=refresh-abort-explicit-manual', '--strategy=manual',
+    ], $tmp);
+    check($abortExplicitManual['status'] === 1 && $abortExplicitManual['stdout'] === ''
+        && str_contains($abortExplicitManual['stderr'], '--abort=<run-id> accepts no production-ref or new-branch flags'),
+        'rebase abort rejects even an explicit legacy --strategy=manual');
+    $abortFieldInput = $runHost([
+        'rebase', 'status-fixture', '--envs-file=' . $registry,
+        '--abort=PRIVATE-ABORT-ID-OMITTED', '--field-resolution=PRIVATE-RESOLUTION-PATH-OMITTED',
+    ], $tmp);
+    check($abortFieldInput['status'] === 1 && $abortFieldInput['stdout'] === ''
+        && str_contains($abortFieldInput['stderr'], 'refresh rebase abort accepts no field-resolution or interactive flags')
+        && str_contains($abortFieldInput['stderr'], 'retry --abort=<run-id> alone')
+        && !str_contains($abortFieldInput['stderr'], 'PRIVATE-ABORT-ID-OMITTED')
+        && !str_contains($abortFieldInput['stderr'], 'PRIVATE-RESOLUTION-PATH-OMITTED'),
+        'rebase abort with field input gives closed abort-only recovery without echoing id or path');
     $hostStatus = $runHost(['status', 'status-fixture', '--envs-file=' . $registry], $tmp);
     check($hostStatus['status'] === 1, 'human status preserves the refused plan exit');
     check($hostStatus['stdout'] === '', 'human status does not dump refusal JSON to stdout');

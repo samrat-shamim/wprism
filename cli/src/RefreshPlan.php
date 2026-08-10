@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+require_once __DIR__ . '/RefreshFieldDiff.php';
+
 /**
  * Pure semantic B/P/W planner and local state materializer for Refresh.
  *
@@ -110,6 +112,7 @@ final class RefreshPlan {
         putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
         try {
             $policy = \Duo\Policy::load($root);
+            $fieldDiffPolicy = self::fieldDiffPolicyProjection($policy);
             $compiled = $label === 'base'
                 ? \Duo\RepositoryCompiler::compile_for_diff($root, $policy)
                 : \Duo\RepositoryCompiler::compile($root, $policy);
@@ -190,6 +193,7 @@ final class RefreshPlan {
                 'manifest_hash' => $compiled->manifest_hash(),
                 'resolved_adapters' => $compiled->resolved_adapters(),
             ],
+            'field_diff_policy' => $fieldDiffPolicy,
             'completed_code' => $compiled->code_descriptor() === null ? null : [
                 'revision' => (string) $compiled->code_revision(),
                 'descriptor' => $compiled->code_descriptor(),
@@ -200,6 +204,80 @@ final class RefreshPlan {
                 'code_revision' => $compiled->code_revision(),
             ],
         ];
+    }
+
+    /**
+     * Load policy only in a fresh process after code replay. Unlike a full
+     * repository compiler this does not inspect pre-materialization state.
+     */
+    public static function fieldDiffPolicyFromGitWorktree(string $path, string $commit, string $label = 'candidate'): array {
+        if ($label !== 'candidate') {
+            throw new \RuntimeException('cannot read field policy for an unknown Git worktree role');
+        }
+        $worker = __DIR__ . '/RefreshPlanCompile.php';
+        if (!is_file($worker)) {
+            throw new \RuntimeException('refresh compiler worker is unavailable');
+        }
+        $result = self::runProcess([PHP_BINARY, $worker, $path, $commit, $label, 'field-diff-policy']);
+        if ($result['exit'] !== 0) {
+            $reason = trim($result['stderr']) ?: trim($result['stdout']);
+            throw new \RuntimeException('cannot load candidate field policy: ' . ($reason !== '' ? $reason : 'worker failed'));
+        }
+        try {
+            $projection = json_decode(trim($result['stdout']), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('cannot decode candidate field policy: ' . $e->getMessage());
+        }
+        if (!is_array($projection)) {
+            throw new \RuntimeException('cannot load candidate field policy: worker returned no projection');
+        }
+        return RefreshFieldDiff::normalizePolicyProjection($projection);
+    }
+
+    /** Fresh-process entrypoint; public only for RefreshPlanCompile.php. */
+    public static function fieldDiffPolicyWorker(string $path, string $commit, string $label): array {
+        self::loadCompiler();
+        $root = realpath($path);
+        if ($label !== 'candidate' || !self::isCommit($commit) || $root === false || !is_file($root . '/site.duo.json')) {
+            throw new \RuntimeException('cannot load candidate field policy');
+        }
+        $head = self::runProcess(['git', '-C', $root, 'rev-parse', '--verify', 'HEAD^{commit}']);
+        if ($head['exit'] !== 0 || !hash_equals($commit, trim($head['stdout']))) {
+            throw new \RuntimeException('candidate Git worktree HEAD does not match its declared commit');
+        }
+        $old = getenv('DUO_MANIFESTS_DIR');
+        putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
+        try {
+            return self::fieldDiffPolicyProjection(\Duo\Policy::load($root));
+        } finally {
+            $old === false ? putenv('DUO_MANIFESTS_DIR') : putenv('DUO_MANIFESTS_DIR=' . $old);
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private static function fieldDiffPolicyProjection(\Duo\Policy $policy): array {
+        $types = array_values(array_unique(array_merge($policy->post_types(), $policy->declared_post_types())));
+        sort($types, SORT_STRING);
+        $derived = [];
+        foreach ($types as $type) {
+            $fields = [];
+            foreach (array_keys(\Duo\Policy::DERIVABLE_FIELD_COLUMNS) as $field) {
+                if ($policy->field_class((string) $type, (string) $field) === 'derived') {
+                    $fields[] = (string) $field;
+                }
+            }
+            sort($fields, SORT_STRING);
+            $derived[(string) $type] = $fields;
+        }
+        $projection = [
+            'derived_post_fields' => $derived,
+            'format' => RefreshFieldDiff::POLICY_FORMAT,
+            'manifest_hash' => \Duo\RepositoryCompiler::manifest_hash($policy),
+            'resolved_adapters_sha256' => hash('sha256', \Duo\Canon::encode(\Duo\RepositoryCompiler::resolved_adapters($policy))),
+            'state_site_hash' => \Duo\RepositoryCompiler::state_site_hash($policy),
+        ];
+        $projection['projection_hash'] = hash('sha256', \Duo\Canon::encode($projection));
+        return RefreshFieldDiff::normalizePolicyProjection($projection);
     }
 
     /** Production code/policy must be exactly the verified production ref. */
@@ -365,6 +443,51 @@ final class RefreshPlan {
         return self::normalizePlan($plan);
     }
 
+    /**
+     * Build the separate redacted field projection without changing the
+     * private plan or its historical plan_hash contract. P policy evidence is
+     * supplied by the verified production-code ref, never by live export.
+     *
+     * @return array{diff:array<string,mixed>,bundle:array<string,mixed>}
+     */
+    public static function fieldDiff(array $plan, array $base, array $productionCode, array $branch): array {
+        $plan = self::normalizePlan($plan);
+        return RefreshFieldDiff::project($plan, [
+            'base' => $base['field_diff_policy'] ?? null,
+            'production' => $productionCode['field_diff_policy'] ?? null,
+            'branch' => $branch['field_diff_policy'] ?? null,
+        ]);
+    }
+
+    /** @return array<string,mixed> */
+    public static function validateFieldDiff(array $diff): array {
+        return RefreshFieldDiff::validateDiff($diff);
+    }
+
+    /** @return array<string,mixed> */
+    public static function readFieldResolution(array $diff, string $path): array {
+        return RefreshFieldDiff::readResolutionFile($path, $diff);
+    }
+
+    /**
+     * Local-only TTY context. Unlike the public field diff, this carries
+     * bounded sanitized labels and is intentionally never persisted.
+     *
+     * @return array<string,mixed>
+     */
+    public static function interactiveFieldPresentation(array $plan, array $diff, array $bundle): array {
+        return RefreshFieldDiff::interactivePresentation($plan, $diff, $bundle);
+    }
+
+    /** @param resource $in @param resource $out @return ?array<string,mixed> */
+    public static function interactiveFieldResolution(array $diff, $in, $out, ?array $presentation = null): ?array {
+        return RefreshFieldDiff::interactiveResolution($diff, $in, $out, $presentation);
+    }
+
+    public static function assertFieldCandidatePolicy(array $bundle, array $candidatePolicy): void {
+        RefreshFieldDiff::assertCandidatePolicy($bundle, $candidatePolicy);
+    }
+
     /** Sort and hash a plan, verifying a supplied hash if present. */
     public static function normalizePlan(array $plan): array {
         if (($plan['format'] ?? null) !== self::PLAN_FORMAT || !is_array($plan['entries'] ?? null)) {
@@ -413,6 +536,34 @@ final class RefreshPlan {
         $plan = self::normalizePlan($plan);
         $planHash = $plan['plan_hash'];
         $plan = self::applyResolution($plan, $resolution);
+        return self::materializeResolved($plan, $planHash, $worktree, $resolution);
+    }
+
+    /**
+     * Materialize a field-resolution run without feeding it through the
+     * legacy whole-record resolver. The private span bundle never reaches a
+     * journal or receipt.
+     */
+    public static function materializeFieldResolved(
+        array $plan,
+        string $worktree,
+        array $bundle,
+        array $fieldResolution
+    ): array {
+        $plan = self::normalizePlan($plan);
+        if (is_array($plan['context'] ?? null) && array_key_exists('scope_contract', $plan['context'])) {
+            throw new \RuntimeException('field-level resolution is unavailable for scoped refresh plans');
+        }
+        $planHash = $plan['plan_hash'];
+        $plan = RefreshFieldDiff::apply($plan, $bundle, $fieldResolution);
+        $receipt = self::materializeResolved($plan, $planHash, $worktree, $fieldResolution);
+        $receipt['field_diff_hash'] = (string) ($bundle['diff_hash'] ?? '');
+        $receipt['field_resolution_hash'] = (string) ($fieldResolution['resolution_hash'] ?? '');
+        return $receipt;
+    }
+
+    /** @param array<string,mixed> $resolution */
+    private static function materializeResolved(array $plan, string $planHash, string $worktree, array $resolution): array {
         $root = realpath($worktree);
         if ($root === false || !is_dir($root) || !is_file($root . '/.git')) {
             throw new \RuntimeException('refresh materializer requires a disposable Git worktree');
@@ -435,8 +586,14 @@ final class RefreshPlan {
             if (isset($stateRows[$path])) throw new \RuntimeException("two refresh records select '$path'");
             $stateRows[$path] = (string) $row['content'];
             $source = (string) ($entry['selected_source'] ?? '');
-            foreach ((array) ($plan['media'][$source] ?? []) as $name => $payload) {
-                if (str_contains((string) $row['content'], (string) $name)) $mediaNeeded[(string) $name] = $payload;
+            // Field-spliced rows keep branch bytes as their scaffold; the
+            // eligible scalar surface carries no media authority. Attachments
+            // are record-atomic and therefore retain their ordinary source.
+            $mediaSources = $source === 'field-resolution' ? ['branch'] : [$source];
+            foreach ($mediaSources as $mediaSource) {
+                foreach ((array) ($plan['media'][$mediaSource] ?? []) as $name => $payload) {
+                    if (str_contains((string) $row['content'], (string) $name)) $mediaNeeded[(string) $name] = $payload;
+                }
             }
         }
         ksort($options, SORT_STRING);

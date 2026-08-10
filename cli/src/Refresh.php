@@ -3,6 +3,24 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+/** Explicit non-error terminal for `duo rebase --interactive` cancellation. */
+final class RefreshFieldResolutionCancelled extends \RuntimeException {}
+
+/**
+ * Field-mode failures after a durable run starts are intentionally opaque to
+ * the CLI. The detailed cause is preserved in the local private event journal;
+ * callers get only the safe recovery handle needed for --abort.
+ */
+final class RefreshFieldResolutionRunFailed extends \RuntimeException {
+    public function __construct(private string $refreshRunId) {
+        parent::__construct('redacted field-level resolution stopped after candidate setup');
+    }
+
+    public function runId(): string {
+        return $this->refreshRunId;
+    }
+}
+
 /**
  * Host-side production refresh/rebase orchestration.
  *
@@ -23,24 +41,30 @@ final class Refresh {
     private const EXPORT_FORMAT = 'duo-refresh-production/v1';
     private const PLAN_FORMAT = 'duo-refresh-plan/v1';
     private const MATERIALIZATION_FORMAT = 'duo-refresh-materialization/v1';
+    private const FIELD_DIFF_FORMAT = 'duo-refresh-field-diff/v1';
+    private const FIELD_RESOLUTION_FORMAT = 'duo-refresh-field-resolution/v1';
 
     /**
      * Fetch and persist an immutable semantic refresh plan.  This is read-only
      * with respect to the production target; local temporary worktrees are
      * removed before the method returns.
      *
-     * @return array{plan:array<string,mixed>,plan_path:string,context:array<string,mixed>}
+     * @return array<string,mixed>
      */
     public static function refresh(
         EnvironmentDriver $transport,
         string $productionRef,
-        ?array $scopeContract = null
+        ?array $scopeContract = null,
+        bool $includeFieldDiff = false
     ): array {
-        $prepared = self::prepare($transport, $productionRef, $scopeContract);
+        $prepared = self::prepare($transport, $productionRef, $scopeContract, $includeFieldDiff);
         return [
             'plan' => $prepared['plan'],
             'plan_path' => $prepared['plan_path'],
             'context' => $prepared['context'],
+            'field_diff' => $prepared['field_diff'],
+            'field_diff_path' => $prepared['field_diff_path'],
+            'field_diff_unavailable' => $prepared['field_diff_unavailable'],
         ];
     }
 
@@ -56,11 +80,61 @@ final class Refresh {
         string $productionRef,
         string $newBranch,
         array $resolution = [],
-        ?array $scopeContract = null
+        ?array $scopeContract = null,
+        ?string $fieldResolutionPath = null,
+        bool $interactive = false,
+        bool $legacyStrategyExplicit = false
     ): array {
         self::requirePlanner(['normalizeProductionSnapshot', 'compileGitWorktree', 'assertProductionCodeMatches', 'plan', 'normalizePlan', 'materialize', 'validateMaterialization']);
         $resolution = self::normalizeResolution($resolution);
-        $prepared = self::prepare($transport, $productionRef, $scopeContract);
+        if (($fieldResolutionPath !== null || $interactive)
+            && ($legacyStrategyExplicit || $resolution['strategy'] !== 'manual' || $resolution['records'] !== [])) {
+            throw new \RuntimeException('field resolution cannot be mixed with --strategy or --resolve');
+        }
+        if ($fieldResolutionPath !== null && $interactive) {
+            throw new \RuntimeException('field resolution file and --interactive cannot be combined');
+        }
+        if (($fieldResolutionPath !== null || $interactive) && $scopeContract !== null) {
+            throw new \RuntimeException('field-level resolution is unavailable for scoped refresh; use legacy --strategy/--resolve');
+        }
+        $prepared = self::prepare($transport, $productionRef, $scopeContract, $fieldResolutionPath !== null || $interactive);
+        $fieldResolution = null;
+        $fieldBundle = null;
+        if ($fieldResolutionPath !== null || $interactive) {
+            $fieldPlannerMethods = [
+                'fieldDiffPolicyFromGitWorktree', 'assertFieldCandidatePolicy', 'materializeFieldResolved',
+            ];
+            if ($fieldResolutionPath !== null) {
+                $fieldPlannerMethods[] = 'readFieldResolution';
+            } else {
+                $fieldPlannerMethods[] = 'interactiveFieldPresentation';
+                $fieldPlannerMethods[] = 'interactiveFieldResolution';
+            }
+            self::requirePlanner($fieldPlannerMethods);
+            if (!is_array($prepared['field_diff'] ?? null) || !is_array($prepared['field_bundle'] ?? null)) {
+                throw new \RuntimeException('field-level resolution is unavailable for this refresh plan');
+            }
+            $fieldBundle = $prepared['field_bundle'];
+            if ($fieldResolutionPath !== null) {
+                $fieldResolution = self::planner('readFieldResolution', [$prepared['field_diff'], $fieldResolutionPath]);
+            } else {
+                // Presentation is a deliberately transient local TTY surface:
+                // never put it in $prepared, a journal, receipt, or result.
+                $presentation = self::planner('interactiveFieldPresentation', [
+                    $prepared['plan'], $prepared['field_diff'], $fieldBundle,
+                ]);
+                $fieldResolution = self::planner('interactiveFieldResolution', [
+                    $prepared['field_diff'], STDIN, STDOUT, $presentation,
+                ]);
+            }
+            if ($fieldResolution === null) {
+                throw new RefreshFieldResolutionCancelled('field resolution cancelled; no run record, candidate worktree, branch, or ref was created');
+            }
+            if (!is_array($fieldResolution) || ($fieldResolution['format'] ?? null) !== self::FIELD_RESOLUTION_FORMAT
+                || !self::isHash($fieldResolution['resolution_hash'] ?? null)) {
+                throw new \RuntimeException('field resolution did not produce a normalized v1 contract');
+            }
+        }
         $context = $prepared['context'];
         $root = (string) $context['repo_root'];
         self::assertNewBranch($root, $newBranch);
@@ -90,10 +164,16 @@ final class Refresh {
             'production_commit' => $context['production_commit'],
             'production_env' => $transport->name(),
             'production_snapshot_hash' => $context['production_snapshot_hash'],
-            'resolution' => $resolution,
             'source_head' => $context['branch_commit'],
             'worktree' => $worktree,
         ];
+        if ($fieldResolution !== null) {
+            $run['field_diff_hash'] = (string) ($prepared['field_diff']['diff_hash'] ?? '');
+            $run['field_diff_path'] = (string) ($prepared['field_diff_path'] ?? '');
+            $run['field_resolution'] = $fieldResolution;
+        } else {
+            $run['resolution'] = $resolution;
+        }
         if ($scopeContract !== null) {
             $run['scope_hash'] = (string) ($scopeContract['scope_hash'] ?? '');
         }
@@ -122,7 +202,20 @@ final class Refresh {
                 ]);
             }
 
-            $receipt = self::planner('materialize', [$prepared['plan'], $worktree, $resolution]);
+            if ($fieldResolution !== null) {
+                $candidatePolicy = self::planner('fieldDiffPolicyFromGitWorktree', [
+                    $worktree, self::gitStdout($worktree, ['rev-parse', 'HEAD']), 'candidate',
+                ]);
+                self::planner('assertFieldCandidatePolicy', [$fieldBundle, $candidatePolicy]);
+                $journal->append($runId, 'field-policy-verified', [
+                    'projection_hash' => $candidatePolicy['projection_hash'] ?? null,
+                ]);
+                $receipt = self::planner('materializeFieldResolved', [
+                    $prepared['plan'], $worktree, $fieldBundle, $fieldResolution,
+                ]);
+            } else {
+                $receipt = self::planner('materialize', [$prepared['plan'], $worktree, $resolution]);
+            }
             if (!is_array($receipt)
                 || ($receipt['format'] ?? null) !== self::MATERIALIZATION_FORMAT
                 || ($receipt['plan_hash'] ?? null) !== $context['plan_hash']
@@ -130,6 +223,15 @@ final class Refresh {
                 throw new \RuntimeException(
                     'semantic planner did not return a resolved duo-refresh-materialization/v1 receipt; candidate worktree retained for recovery'
                 );
+            }
+            if ($fieldResolution !== null && (!hash_equals(
+                (string) $fieldResolution['resolution_hash'],
+                (string) ($receipt['field_resolution_hash'] ?? '')
+            ) || !hash_equals(
+                (string) $prepared['field_diff']['diff_hash'],
+                (string) ($receipt['field_diff_hash'] ?? '')
+            ))) {
+                throw new \RuntimeException('field materialization receipt does not bind the exact diff and resolution');
             }
             self::assertOnlyStatePathsChanged($worktree);
             self::planner('validateMaterialization', [$receipt, $prepared['plan'], $worktree]);
@@ -150,13 +252,27 @@ final class Refresh {
                 'run_id' => $runId,
                 'new_branch' => $newBranch,
                 'head' => $candidate,
+                'field_diff_path' => $fieldResolution === null ? null : $prepared['field_diff_path'],
             ];
         } catch (\Throwable $e) {
             // Do not remove the worktree after a partial local operation: the
             // immutable run/event journal is the recovery receipt.  It can be
             // safely discarded with `duo rebase <env> --abort=<run-id>`; the
             // source branch/ref has not been touched.
-            $journal->append($runId, 'stopped', ['reason' => $e->getMessage()]);
+            try {
+                $journal->append($runId, 'stopped', ['reason' => $e->getMessage()]);
+            } catch (\Throwable) {
+                // Preserve the field-mode public boundary even if the
+                // recovery journal itself has an unexpected local I/O error.
+                // The retained run id is still the only safe operator handle.
+                if ($fieldResolution !== null) {
+                    throw new RefreshFieldResolutionRunFailed($runId);
+                }
+                throw $e;
+            }
+            if ($fieldResolution !== null) {
+                throw new RefreshFieldResolutionRunFailed($runId);
+            }
             throw $e;
         }
     }
@@ -179,11 +295,12 @@ final class Refresh {
         $journal->append($runId, 'aborted', []);
     }
 
-    /** @return array{plan:array<string,mixed>,plan_path:string,context:array<string,mixed>} */
+    /** @return array<string,mixed> */
     private static function prepare(
         EnvironmentDriver $transport,
         string $productionRef,
-        ?array $scopeContract = null
+        ?array $scopeContract = null,
+        bool $includeFieldDiff = false
     ): array {
         self::requirePlanner(['normalizeProductionSnapshot', 'compileGitWorktree', 'assertProductionCodeMatches', 'plan', 'normalizePlan']);
         $root = self::repositoryRoot();
@@ -249,7 +366,53 @@ final class Refresh {
                 $context['repo_root'] = $root; // host-only, never plan-hashed
                 $context['plan_hash'] = $plan['plan_hash'];
                 $planPath = $journal->writePlan($plan);
-                return ['plan' => $plan, 'plan_path' => $planPath, 'context' => $context];
+                $fieldDiff = null;
+                $fieldBundle = null;
+                $fieldDiffPath = null;
+                $fieldDiffUnavailable = null;
+                if ($includeFieldDiff) {
+                    try {
+                        // The separate field contract is opt-in. Its validator
+                        // is a required planner seam and runs before any public
+                        // JSON/journal record can observe the projection.
+                        self::requirePlanner(['fieldDiff', 'validateFieldDiff']);
+                        $field = self::planner('fieldDiff', [$plan, $base, $productionCode, $branchArtifact]);
+                        if (!is_array($field) || !is_array($field['diff'] ?? null) || !is_array($field['bundle'] ?? null)
+                            || !self::isHash($field['bundle']['diff_hash'] ?? null)
+                            || !hash_equals((string) $plan['plan_hash'], (string) ($field['bundle']['plan_hash'] ?? ''))) {
+                            throw new \RuntimeException('field diff did not return a normalized redacted projection');
+                        }
+                        $fieldDiff = self::planner('validateFieldDiff', [$field['diff']]);
+                        if (!is_array($fieldDiff)
+                            || ($fieldDiff['format'] ?? null) !== self::FIELD_DIFF_FORMAT
+                            || !self::isHash($fieldDiff['diff_hash'] ?? null)
+                            || !hash_equals((string) $fieldDiff['diff_hash'], (string) $field['bundle']['diff_hash'])) {
+                            throw new \RuntimeException('field diff did not return a normalized redacted projection');
+                        }
+                        // Materialization must bind the same validated public
+                        // projection that was persisted/displayed, never an
+                        // adjacent mutable bundle copy supplied by a seam.
+                        $field['bundle']['diff'] = $fieldDiff;
+                        $field['bundle']['diff_hash'] = $fieldDiff['diff_hash'];
+                        $fieldBundle = $field['bundle'];
+                        $fieldDiffPath = $journal->writeFieldDiff($fieldDiff);
+                    } catch (\Throwable) {
+                        // The legacy record resolver remains available for
+                        // policy skew/scopes/older planner seams; callers
+                        // explicitly requesting fields receive this stable
+                        // value-free refusal below.
+                        $fieldDiffUnavailable = 'field-level resolution is unavailable for this refresh plan';
+                    }
+                }
+                return [
+                    'plan' => $plan,
+                    'plan_path' => $planPath,
+                    'context' => $context,
+                    'field_diff' => $fieldDiff,
+                    'field_bundle' => $fieldBundle,
+                    'field_diff_path' => $fieldDiffPath,
+                    'field_diff_unavailable' => $fieldDiffUnavailable,
+                ];
             } finally {
                 foreach ([$baseTree, $branchTree, $productionTree] as $tree) {
                     self::removeWorktree($root, $tree, false);
@@ -640,7 +803,7 @@ final class RefreshRunJournal {
 
     public function __construct(string $base) {
         $this->base = rtrim($base, '/');
-        foreach ([$this->base, $this->base . '/plans', $this->base . '/runs', $this->base . '/worktrees', $this->base . '/scratch'] as $path) {
+        foreach ([$this->base, $this->base . '/plans', $this->base . '/field-diffs', $this->base . '/runs', $this->base . '/worktrees', $this->base . '/scratch'] as $path) {
             if (!is_dir($path) && !mkdir($path, 0700, true) && !is_dir($path)) {
                 throw new \RuntimeException("could not create refresh journal directory '$path'");
             }
@@ -653,6 +816,27 @@ final class RefreshRunJournal {
             throw new \RuntimeException('cannot journal a refresh plan without a SHA-256 plan_hash');
         }
         return $this->writeImmutable($this->base . '/plans/' . $hash . '.json', $plan);
+    }
+
+    public function writeFieldDiff(array $diff): string {
+        $hash = $diff['diff_hash'] ?? null;
+        if (!is_string($hash) || preg_match('/^[a-f0-9]{64}$/D', $hash) !== 1
+            || ($diff['format'] ?? null) !== 'duo-refresh-field-diff/v1') {
+            throw new \RuntimeException('cannot journal an invalid redacted field diff');
+        }
+        // Do not trust a superficially-shaped result from a planner seam.
+        // The immutable public journal is only allowed to carry the same
+        // closed/hash-verified projection the TTY and JSON renderer received.
+        $validator = __NAMESPACE__ . '\\RefreshFieldDiff';
+        if (!class_exists($validator) || !method_exists($validator, 'validateDiff')) {
+            throw new \RuntimeException('cannot journal an unavailable redacted field diff validator');
+        }
+        try {
+            $validator::validateDiff($diff);
+        } catch (\Throwable) {
+            throw new \RuntimeException('cannot journal an invalid redacted field diff');
+        }
+        return $this->writeImmutable($this->base . '/field-diffs/' . $hash . '.json', $diff);
     }
 
     public function start(string $runId, array $run): void {

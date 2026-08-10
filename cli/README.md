@@ -50,8 +50,9 @@ duo pending <env>
 duo classify <env> [--accept-proposals|--export-batch=<path>|--apply-batch=<path>]
 duo coverage <env> [--format=json]
 duo scope <env> --roots=<selectors> [--contract] [--format=json]
-duo refresh <production-env> --production-ref=<ref> [--scope-contract=<local-path>]
+duo refresh <production-env> --production-ref=<ref> [--scope-contract=<local-path>] [--field-diff [--format=json]]
 duo rebase <production-env> --production-ref=<ref> --new-branch=<name> [--scope-contract=<local-path>] [--strategy=manual|ours|theirs] [--resolve=<stable-id>=ours|theirs ...]
+duo rebase <production-env> --production-ref=<ref> --new-branch=<name> [--field-resolution=<local-path>|--interactive]
 duo rebase <production-env> --abort=<run-id>
 duo -h | --help
 ```
@@ -510,6 +511,42 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   The planner treats those omissions as B, reports only in-scope conflicts,
   and records the exact contract/hash in its immutable plan.
 
+  `--field-diff` is an explicit, unscoped-only opt-in. It leaves the private
+  `duo-refresh-plan/v1` and its `plan_hash` unchanged, then writes a separate
+  immutable `duo-refresh-field-diff/v1` projection under
+  `duo-refresh/field-diffs/<diff_hash>.json`. The projection is
+  display-only/non-authorizing and value-free: it contains opaque selectors,
+  closed entity and field labels, change categories, B/P/W presence/equality
+  relations, role names, and binding hashes—never a path, stable identity,
+  B/P/W literal, per-value hash, body, meta, option, or user value. It
+  decomposes only ordinary plan entries whose B/P/W record category is
+  `conflicting`; branch-only, production-only, and compatible rows remain in
+  the ordinary private plan/counts because they need no field choice.
+  `--format=json` is available only with
+  `--field-diff` and emits exactly that one redacted object (or the standard
+  `duo-command-refusal/v1` envelope). Human output similarly says values are
+  omitted. For each reported change, the closed relation gives B/P/W as
+  `present`, `tombstone`, or `absent` and pairwise `same`/`different` evidence.
+  For eligible fields all three roles are present: `production-only` means
+  B=W≠P, `branch-only` means B=P≠W, `compatible` means P=W≠B, and
+  `conflicting` means the three verified group values differ. Scalar equality
+  is canonical comparison evidence (`"base"` equals `"\\u0062ase"`, and `1`
+  equals `1.0`); exact source token bytes remain private and are never
+  rewritten. Object/list values are not normalized. Atomic records use the
+  same relation vocabulary over record type/semantic evidence without
+  publishing that evidence.
+
+  The v1 merge surface is deliberately narrow. It can independently compose
+  ordinary post scalar groups (`author`, parent/order/comment/ping status,
+  excerpt, title, coupled publication fields, and the coupled modification
+  pair) and term `name`, `description`, and `parent`. Post body changes,
+  attachments/media, menus, sidebars, options, user-meta, typed tables,
+  tombstones, and opaque containers stay one record choice. A live B record
+  with an absent P or W side refuses field mode before a diff or choice is
+  published; use the legacy whole-record resolver for that absence. Field mode
+  also refuses scoped plans or missing/skewed B/P/W policy evidence rather
+  than guessing whether a derived field is authored.
+
 - **`duo rebase <production-env> --production-ref=<ref> --new-branch=<name>
   [--scope-contract=<local-path>]`**
   re-exports production immediately before materialization and refuses if its
@@ -525,6 +562,31 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   the contract. It is deliberately state-only: W's code and ancestry remain
   unchanged. Apply, promote, verification, and rollback do not accept this v1
   scope contract.
+
+  The legacy whole-record `--strategy`/`--resolve` contract remains unchanged.
+  Alternatively, an unscoped run may supply
+  `--field-resolution=<local-path>` naming a non-empty, at-most-1 MiB regular
+  non-symlink canonical JSON file, or use `--interactive`; neither may be
+  mixed with any `--strategy` spelling or `--resolve`. A field resolution is a
+  separate `duo-refresh-field-resolution/v1` list of complete opaque
+  field-or-record selectors bound to the exact plan, production snapshot, and
+  redacted diff. Interactive mode accepts `b`/`branch` (ours) and
+  `p`/`production` (theirs). It requires TTY stdin and stdout; as an explicit
+  local-only reveal it may show one bounded C0/DEL-safe authored title/name or
+  path fallback beside the closed selector. That transient label is never
+  written to JSON, the diff, resolution, run, or receipt. `q` or EOF exits 2
+  before a run record, candidate worktree, branch, or ref is created. The
+  preview names every automatic branch/production decision (including changed
+  non-conflicting private plan rows) and every manual conflict before
+  prompting: `production-only` uses production, while `branch-only` and
+  `compatible` retain the exact branch-byte scaffold. Only conflicts add
+  resolution choices; pipes use `--field-resolution` instead.
+  The ordinary private plan and value-free/redacted diff may already exist as
+  immutable planning artifacts; cancellation creates no candidate evidence.
+  A field splice uses exact verified source bytes with branch bytes as the
+  scaffold; it never decode/re-encodes a hybrid document. After code-only
+  rebase and before that splice, a fresh policy-only worker verifies the
+  candidate policy is still the reviewed branch/production policy.
 
 ### Refresh semantic-planner contract
 
@@ -548,6 +610,17 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
    resolve only canonical state/media, reject unhandled stable conflicts,
    strict-compile, and return `duo-refresh-materialization/v1` with matching
    plan hash and `resolved: true`.
+6. The optional field seam is separate from the plan: `fieldDiff(...)` emits
+   the redacted projection plus process-local exact-span bundle and
+   `validateFieldDiff(...)` accepts only its closed, hash-bound public shape;
+   `readFieldResolution(...)`/`interactiveFieldResolution(...)` normalize one
+   immutable value-free resolution; `interactiveFieldPresentation(...)` is a
+   transient TTY-only private label/automatic-preview seam and never returns
+   public evidence; `fieldDiffPolicyFromGitWorktree(...)` and
+   `assertFieldCandidatePolicy(...)` recheck candidate policy after code
+   replay; and `materializeFieldResolved(...)` returns the normal receipt
+   additionally bound to the public `field_diff_hash` and
+   `field_resolution_hash`.
 
 The host rejects any materializer change outside `state/` and `media/`; native
 Git code conflicts remain in the disposable worktree. Plugin semantics belong
