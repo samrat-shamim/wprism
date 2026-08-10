@@ -3,6 +3,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-cli-json-refusals
 .PHONY: regress-plan-explain
+.PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source
 .PHONY: regress-init-contract regress-duo-init regress-bound-helper
 .PHONY: regress-plan-view regress-local-bootstrap regress-local-bootstrap-live
 
