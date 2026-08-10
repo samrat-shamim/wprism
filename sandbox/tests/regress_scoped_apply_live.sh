@@ -448,6 +448,9 @@ UPDATE_TARGET_ID="$(target_project_id "$UPDATE_UUID")"
 [ "$(target_title "$UPDATE_TARGET_ID")" = "$UPDATE_TITLE_BEFORE" ] \
   || fail "clean scoped no-op changed the selected authored state"
 assert_generic_scoped_boundary "clean scoped no-op"
+NOOP_TERMINAL_SESSION="$(target_kv scoped_apply_session)"
+[ "$NOOP_TERMINAL_SESSION" != '__DUO_NULL__' ] \
+  || fail "clean scoped no-op did not persist its terminal lost-response receipt"
 pass "clean scoped no-op terminalized without authored/provider/native work or global revision debt"
 
 say "publish one update plus one tombstone, then preserve a target-only out-of-scope edit"
@@ -475,10 +478,10 @@ jq -e --arg uuid "$DELETE_UUID" '
 ' "$TOMB_CONTRACT" >/dev/null || fail "core-post tombstone contract widened into unrelated plugin effects"
 run_duo_json tombstone-plan "$TMP/tombstone-plan.json" plan target "--scope-contract=$TOMB_CONTRACT" --format=json
 assert_scoped_plan "$TMP/tombstone-plan.json" "$TOMB_CONTRACT" "tombstone:${DELETE_UUID}" post:post 0
-[ "$(target_kv scoped_apply_session)" = '__DUO_NULL__' ] \
-  || fail "read-only scoped plan created a scoped session"
+[ "$(target_kv scoped_apply_session)" = "$NOOP_TERMINAL_SESSION" ] \
+  || fail "read-only scoped plan changed the prior terminal session evidence"
 assert_generic_scoped_boundary "read-only scoped plan"
-pass "public scoped plan reports the immutable contract plus fresh target-bound roots without creating session/debt"
+pass "public scoped plan reports fresh target-bound roots without creating or changing session/debt"
 
 say "prove --with-deletes is an early scoped refusal with no session or authored mutation"
 EARLY_BOUNDARY_BEFORE="$(target_boundary_digest)"
