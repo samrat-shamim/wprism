@@ -59,8 +59,12 @@ grep -q 'href="http://localhost:'"$CONF2_PORT"'/duo-elementor-target/"' <<<"$FRO
 # kit's CSS, which never has this section's background-image rule, on a
 # run where the kit's env-adopted post id sorted before the page's own).
 # Ask conf2 directly which local id the seeded page itself resolved to.
-PAGE_ID=$(wp_conf2 post list --post_type=page --name=duo-conformance-elementor-page --field=ID) \
-  || fail "could not find conf2's own local id for the seeded elementor page"
+# DUO-3393: `wp post list` returns EMPTY at exit 0 on no match, so the old
+# `|| fail` here never fired — the failure surfaced two lines down as the
+# confusing `... post id ()` (empty interpolation). require_fixture_ids (the
+# DUO-3381 helper) names the no-match at the read site as a fixture failure.
+PAGE_ID=$(wp_conf2 post list --post_type=page --name=duo-conformance-elementor-page --field=ID)
+require_fixture_ids PAGE_ID
 POST_CSS_URL="http://localhost:${CONF2_PORT}/wp-content/uploads/elementor/css/post-${PAGE_ID}.css"
 grep -q "elementor-post-${PAGE_ID}-css" <<<"$FRONT" \
   || fail "conf2's rendered page has no elementor CSS link for its own post id ($PAGE_ID)"

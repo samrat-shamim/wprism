@@ -534,6 +534,12 @@ regress-explain-export-premise:
 regress-polylang-fail-helper:
 	bash sandbox/tests/regress_polylang_fail_helper.sh
 
+# DUO-3393: checks/elementor.sh's seeded-page id read must be guarded by
+# require_fixture_ids, not a dead `$(wp post list) || fail` (empty-at-exit-0
+# never fires). Static, offline.
+regress-elementor-dead-guard:
+	bash sandbox/tests/regress_elementor_dead_guard.sh
+
 # DUO-3339: the installed-adapter catalog -- `duo adapter list|inspect|doctor`
 # over both adapter sources the engine has, plus AdapterSources::survey(), the
 # reporting half of the source scan. Drives the real host CLI as a subprocess
@@ -977,8 +983,8 @@ regress-offline-all: code-half-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract regress-conformance-asserts \
-	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper
-	@echo "regress-offline-all: 105 offline suites green"
+	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard
+	@echo "regress-offline-all: 106 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
