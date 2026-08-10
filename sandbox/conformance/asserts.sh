@@ -103,7 +103,11 @@ require_duo_answered() { # require_duo_answered <what> <human|json> <captured ou
       # top-level object field downstream, so an array still fails there, as
       # the accusation it belongs to.
       last=$(awk 'NF { line=$0 } END { print line }' <<<"$out")
-      jq -e 'type == "object" or type == "array"' >/dev/null 2>&1 <<<"$last" \
+      # `jq -e` without slurp succeeds when it receives zero JSON inputs, so
+      # prove the selected line supplied exactly one answer before accepting
+      # its envelope shape. This remains intentionally scoped to `last`: any
+      # preceding compose chatter is not engine data.
+      jq -e -s 'length == 1 and (.[0] | type == "object" or type == "array")' >/dev/null 2>&1 <<<"$last" \
         || fail "infrastructure failure: $what was never answered — the capture's last non-empty line is not a JSON envelope, so this invocation died at the docker/compose layer and nothing after it is testing the engine: ${out:-<empty>}"
       ;;
     *)
@@ -111,4 +115,3 @@ require_duo_answered() { # require_duo_answered <what> <human|json> <captured ou
       ;;
   esac
 }
-

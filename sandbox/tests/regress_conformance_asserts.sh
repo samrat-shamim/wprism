@@ -93,6 +93,8 @@ expect_infrastructure 'an envelope followed by non-JSON output' json "$REFUSAL_E
 not json at all"
 expect_infrastructure 'compose container-creation chatter' json "$COMPOSE_DEATH"
 expect_infrastructure 'an empty capture' json ''
+expect_infrastructure 'a whitespace-only capture' json $' \t\n\n '
+expect_infrastructure 'multiple JSON values on one last non-empty line' json '{"first":true} {"second":true}'
 expect_infrastructure 'a bare JSON scalar' json '"refused"'
 
 expect_answered "wp-cli's Error: framing" human 'Error: duo: deletion intent for table:nf3_forms is unsupported'
