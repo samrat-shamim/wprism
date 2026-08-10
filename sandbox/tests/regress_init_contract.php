@@ -558,6 +558,40 @@ check(
         ),
     'the retained init-recovery capture gate is a typed public refusal, not an unclassified redacted envelope'
 );
+// DUO-3427: and it must not answer a LIVE race. The pre-lock arm of that gate
+// exists for one reason — acquiring the destination lock CREATES its file, and
+// no ordinary capture may write into a repository holding an interrupted init.
+// When the canonical lock already exists nothing can be created, so an
+// unconditional early exit only pre-empted the truth: a live init holds that
+// lock and has already written its journal, so a running race was answered
+// with "run duo init to verify or roll back that interrupted attempt" for an
+// init that was mid-publication and went on to succeed. Gated on the lock's
+// ABSENCE the no-write guarantee is identical, and a live race falls through
+// to Publish::lock(), whose typed refusal names the held destination lock —
+// which is also the only point at which "interrupted" can be told apart from
+// "in progress", because holding that lock is what proves nobody else is
+// alive.
+$preLockGate = strpos(
+    $captureSource,
+    "if (!\$initialBaseline && !file_exists(\$canonicalLock) && !is_link(\$canonicalLock)) {"
+);
+$lockAcquire = strpos($captureSource, '$lock = $publicationLock ?? Publish::lock($stateDir);');
+$postLockGate = strpos($captureSource, 'self::assert_no_interrupted_init($repoPath);', (int) $lockAcquire);
+check(
+    $preLockGate !== false && $lockAcquire !== false && $postLockGate !== false
+        && $preLockGate < $lockAcquire && $lockAcquire < $postLockGate
+        && substr_count($captureSource, 'self::assert_no_interrupted_init($repoPath);') === 2,
+    'the pre-lock init-recovery gate fires only where acquiring the lock would create it; a live race is answered by the lock itself'
+);
+$publishSourceLock = (string) file_get_contents(__DIR__ . '/../../agent/src/Publish.php');
+check(
+    str_contains($publishSourceLock, "'capture_lock_held',")
+        && str_contains($publishSourceLock, "'capture refused because another publisher holds the destination lock',")
+        && str_contains($liveHarness, "\$CAPTURE_OUT) >/dev/null 2>&1 \\") === false
+        && str_contains($liveHarness, ".reason_code == \"capture_lock_held\"")
+        && !str_contains($liveHarness, "grep -q 'another capture is already publishing'"),
+    'the live concurrency case asserts the machine refusal contract, not the operator-message wording'
+);
 check(
     str_contains($agentSource, 'private static function remove_exact_owned_file(')
         && str_contains($agentSource, 'if (!@unlink($path))'),

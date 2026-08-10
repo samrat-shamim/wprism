@@ -1277,13 +1277,26 @@ for _ in $(seq 1 100); do
   sleep 0.1
 done
 [ -f "$HOST_REPO2/site.duo.json" ] || fail "concurrent winner never reached publication-lock phase"
+# DUO-3427: this is the MACHINE surface, so it is asserted on the machine
+# contract. `another capture is already publishing` is the OPERATOR-message
+# wording, which --format=json deliberately does not carry — the reviewed
+# public fields are the reason code and its own sentence — so grepping the
+# human phrase here asked the JSON envelope for something it never promised.
+# The operator wording keeps its two proper homes: regress_capture_concurrency
+# asserts it on stderr, and regress_capture_publish asserts it on the thrown
+# message. Compose stderr is dropped for the same reason DUO-3421 stopped
+# preferring it: `docker compose run` writes progress there on every call, so
+# merging it here would leave nothing parseable.
 set +e
-CAPTURE_OUT=$(wp2 duo capture --repo=/siterepo --format=json 2>&1)
+CAPTURE_OUT=$(wp2 duo capture --repo=/siterepo --format=json 2>/dev/null)
 CAPTURE_CODE=$?
 set -e
 [ "$CAPTURE_CODE" -ne 0 ] || fail "ordinary capture entered while init held its publication lock"
-grep -q 'another capture is already publishing' <<<"$CAPTURE_OUT" \
-  || fail "ordinary capture refusal did not name the held publication lock"
+jq -e '.format == "duo-command-refusal/v1" and .reason_code == "capture_lock_held"' \
+  <<<"$CAPTURE_OUT" >/dev/null 2>&1 \
+  || fail "ordinary capture refusal did not name the held publication lock: $CAPTURE_OUT"
+grep -q 'another publisher holds the destination lock' <<<"$CAPTURE_OUT" \
+  || fail "ordinary capture refusal omitted its reviewed public sentence: $CAPTURE_OUT"
 set +e
 wait "$PID1"; CODE1=$?
 wait "$PID2"; CODE2=$?

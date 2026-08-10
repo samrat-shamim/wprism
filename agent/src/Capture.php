@@ -195,7 +195,26 @@ final class Capture {
                 'duo: scoped capture publishes a bounded overlay into its associated repository; --out is unsupported'
             );
         }
-        if (!$initialBaseline) {
+        // DUO-3427: this early check exists for exactly one reason — acquiring
+        // the destination lock CREATES its file, and no ordinary capture may
+        // write into a repository that holds an interrupted init. When the
+        // canonical lock already exists there is nothing to create, so the
+        // early exit buys nothing and costs the truth: a LIVE init holds that
+        // lock and has already written its journal, so this arm answered a
+        // running race with recovery advice — "run duo init to verify or roll
+        // back that interrupted attempt" — for an init that was not
+        // interrupted, was mid-publication, and went on to succeed. Following
+        // that advice means starting a second init against a live one.
+        //
+        // Gated on the lock's ABSENCE, the no-write guarantee is unchanged
+        // (the refusal still happens before anything could be created) and a
+        // live race falls through to Publish::lock(), whose refusal names the
+        // held destination lock. Whoever then holds the lock is by definition
+        // the only live publisher, so the post-acquire check below — already
+        // documented as the race-closer — is where "interrupted" can actually
+        // be told apart from "in progress".
+        $canonicalLock = Publish::lock_path($stateDir);
+        if (!$initialBaseline && !file_exists($canonicalLock) && !is_link($canonicalLock)) {
             self::assert_no_interrupted_init($repoPath);
         }
         if ($initialBaseline) {
