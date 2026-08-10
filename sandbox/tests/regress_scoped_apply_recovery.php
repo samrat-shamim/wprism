@@ -895,6 +895,22 @@ $check(
     'scoped tombstones without --with-deletes refuse before a session can authorize target mutation'
 );
 $check(
+    substr_count($applySource, 'CommandRefusalException::applyRefused(') === 3
+        && str_contains(
+            $applySource,
+            'scoped apply refused because its scope evidence is stale or invalid for the current source artifact'
+        )
+        && str_contains(
+            $applySource,
+            'terminal scoped receipt no longer describes the live bounded target; no mutation or replay attempted'
+        )
+        && str_contains(
+            $applySource,
+            'scoped apply selected live tombstones but --with-deletes was not supplied; '
+        ),
+    'known stale-scope, stale-terminal, and missing-delete scoped gates retain typed public refusals'
+);
+$check(
     $terminalArchiveAt !== false
         && $deleteGateAt !== false
         && $sessionBeginAt !== false

@@ -543,6 +543,19 @@ namespace {
         'an unprefixed Throwable stays fully redacted under the same catch-all rule'
     );
 
+    \Duo\Apply::$applyFailure = \Duo\CommandRefusalException::applyRefused(
+        'scoped apply selected live tombstones but --with-deletes was not supplied; no scoped session or authored target mutation was created',
+        'review the selected tombstones and rerun scoped apply with --with-deletes to authorize their removal',
+        'duo: scoped apply selected live tombstones but --with-deletes was not supplied; no scoped session or authored target mutation was created'
+    );
+    $scopedApplyRefusal = invoke_json(static fn() => $cli->apply([], ['repo' => '/fixture', 'format' => 'json']));
+    check(
+        ($scopedApplyRefusal['reason_code'] ?? null) === 'apply_refused'
+            && str_contains((string) ($scopedApplyRefusal['message'] ?? ''), '--with-deletes')
+            && ($scopedApplyRefusal['details_redacted'] ?? false) === false,
+        'known value-free scoped apply preconditions retain actionable typed machine guidance'
+    );
+
     $forcedEntityHash = hash('sha256', 'private-option-or-user-identity');
     \Duo\Apply::$applyFailure = new \Duo\CommandRefusalException(
         'apply_forced_override_failed',

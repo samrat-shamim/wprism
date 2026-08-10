@@ -62,6 +62,29 @@ final class CommandRefusalException extends \RuntimeException {
         );
     }
 
+    /**
+     * Reviewed public boundary for a known apply precondition.
+     *
+     * Callers must supply only constant, value-free guidance. Runtime target,
+     * provider, entity, path, and exception detail remains operator-only in
+     * the exception chain and is never copied into the JSON payload.
+     */
+    public static function applyRefused(
+        string $publicMessage,
+        string $remediation,
+        ?string $operatorMessage = null,
+        ?\Throwable $previous = null
+    ): self {
+        return new self(
+            'apply_refused',
+            $publicMessage,
+            $remediation,
+            [],
+            $operatorMessage,
+            $previous
+        );
+    }
+
     /** Stable public boundary for explain's deliberately non-repairing read. */
     public static function explainObservationPrecondition(\Throwable $previous): self {
         return new self(

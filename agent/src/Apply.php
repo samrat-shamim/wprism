@@ -2494,7 +2494,16 @@ final class Apply {
             Ledger::assert_read_only_schema();
             // Recompute before target mutation so malformed/stale evidence
             // cannot create a lease or durable scoped session.
-            $preflightContract = ScopedApply::resolve_contract($scopeRequest, $compiled, $policy);
+            try {
+                $preflightContract = ScopedApply::resolve_contract($scopeRequest, $compiled, $policy);
+            } catch (\Throwable $failure) {
+                throw CommandRefusalException::applyRefused(
+                    'scoped apply refused because its scope evidence is stale or invalid for the current source artifact',
+                    'rebuild the scope contract and scoped plan from the current source artifact, then retry apply',
+                    'duo: scoped apply source evidence is stale or invalid; rebuild the scope contract and plan before retrying',
+                    $failure
+                );
+            }
         } else {
             Ledger::ensure();
             $preflightContract = null;
@@ -2553,7 +2562,9 @@ final class Apply {
                     (array) $terminalReceipt,
                     $observation
                 )) {
-                    throw new \RuntimeException(
+                    throw CommandRefusalException::applyRefused(
+                        'terminal scoped receipt no longer describes the live bounded target; no mutation or replay attempted',
+                        'inspect the changed selected/protected target state and reconcile it before retrying this scoped authority',
                         'duo: terminal scoped receipt no longer describes the live bounded target; no mutation or replay attempted'
                     );
                 }
@@ -2965,9 +2976,12 @@ final class Apply {
                 && (array) ($this->scopedSession->authority()['selection']['deletion_items'] ?? []) !== []);
 
         if ($scoped && !$executeDeletes && $deleteWork !== []) {
-            throw new \RuntimeException(
+            throw CommandRefusalException::applyRefused(
+                'scoped apply selected live tombstones but --with-deletes was not supplied; '
+                    . 'no scoped session or authored target mutation was created',
+                'review the selected tombstones and rerun scoped apply with --with-deletes to authorize their removal',
                 'duo: scoped apply selected live tombstones but --with-deletes was not supplied; '
-                . 'no scoped session or authored target mutation was created'
+                    . 'no scoped session or authored target mutation was created'
             );
         }
 
