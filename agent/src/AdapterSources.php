@@ -2835,7 +2835,21 @@ final class AdapterSources {
     /** The remedy REFUSAL_AMBIGUOUS_IDENTITY rows carry, kept beside its message. */
     private const AMBIGUOUS_IDENTITY_REMEDY = 'make the declared name match the file name';
 
-    /** The one ambiguous-identity sentence, built once for every adapter source. */
+    /**
+     * The one ambiguous-identity sentence, built once for every adapter source.
+     *
+     * `$path` is rendered rather than interpolated, which is DEFENSE IN DEPTH
+     * with no reachable vector today and is kept deliberately: every path that
+     * reaches here is printable by construction — the site and shipped routes
+     * both pass a basename `assert_name()` has already held to a lowercase
+     * ASCII slug, and the plugin route (whose path DOES carry a third-party
+     * directory name) cannot fire this refusal at all, because identity
+     * inverts there and the origin key IS the declared name. No fixture kills
+     * a mutant that removes this, and inventing one would prove nothing real.
+     * It costs nothing, renders byte-identically for every printable path, and
+     * is the one argument here that a future caller could hand third-party
+     * bytes.
+     */
     private static function ambiguous_identity_message(
         string $source,
         string $path,

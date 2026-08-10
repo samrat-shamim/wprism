@@ -496,6 +496,21 @@ check(
     '`wp duo manifest-pin` emits the bundled adapter\'s own {name,source:"plugin",digest} — pasting it IS the '
     . 'deliberate act, so no new flag guards it'
 );
+// DUO-3371 (#185) added a shipped/site rule — a manifest's declared `name`
+// must equal its FILE name — and applies it in Policy::load() to whatever
+// source resolved the pin, this one included. For the plugin source it is a
+// TAUTOLOGY: identity inverts here, every bundle is called duo-adapter.json,
+// so the scan keys the origin off the declared name and the two cannot
+// disagree. Pinned because that is a property of how the scan keys an origin,
+// not a law of nature: if anything ever keys a plugin origin off something
+// else, this assertion starts refusing every bundled adapter at load, and this
+// check is what says so first.
+check(
+    ($happy['load']['names'] ?? null) === ['acme-widget']
+    && ($happy['discover']['provenance']['provenance']['path'] ?? null) === 'plugins/acme/duo-adapter.json',
+    'a bundled adapter passes DUO-3371\'s declared-name==file-name assertion at load: the plugin scan keys its '
+    . 'origin off the declared name, so the rule is satisfied by construction rather than by luck'
+);
 check(
     ($happy['load']['names'] ?? null) === ['acme-widget']
     && ($happy['load']['diagnostics']['acme-widget']['source'] ?? null) === 'plugin'

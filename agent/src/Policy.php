@@ -167,6 +167,16 @@ final class Policy {
             // refused the same disagreement against the frozen pin; this is the
             // live path's half of that, and AdapterSources owns the sentence so
             // the site source (DUO-3314) and the shipped source say it once.
+            //
+            // DUO-3339/B2: for the PLUGIN source this is a TAUTOLOGY, and
+            // deliberately kept. Identity inverts there — every bundle is
+            // named `duo-adapter.json`, so the file name carries none and the
+            // scan keys the origin off the DECLARED name — which makes
+            // $key === $manifest['name'] true by construction. It stays
+            // because it is only true by construction while that remains how
+            // the plugin scan keys an origin: the day something keys it off
+            // anything else, this line is what notices, and the alternative
+            // (skipping the source) would be the silence it exists to remove.
             AdapterSources::assert_declared_name(
                 $manifest,
                 $key,
