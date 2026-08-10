@@ -37,12 +37,23 @@ manifests/
 
 Four rules that will bite you if you learn them the hard way:
 
-- **The file basename is the pin name.** `Policy::load()` resolves a pin to
-  `<manifests_dir>/<name>.json`, while the disposition loader keys entries by
-  file basename and the capability generator keys them by the manifest's own
-  `"name"` field. Nothing reconciles a disagreement, so keep `"name"` and the
-  filename identical — a mismatch surfaces as a confusing disposition-coverage
-  error, not as a clear "your name field is wrong".
+- **The file basename is the pin name, and it is enforced.** `Policy::load()`
+  resolves a pin to `<manifests_dir>/<name>.json`, while the disposition loader
+  keys entries by file basename and the capability generator keys them by the
+  manifest's own `"name"` field. A disagreement would be one adapter under two
+  identities, so it is refused the moment the manifest is read — by name, with
+  both values:
+
+  ```
+  duo: shipped adapter '<path>' declares name 'y' but its file name is 'x' — a pin
+  names the file while every downstream identity (dispositions, digests,
+  diagnostics) keys off the declared name, so the two disagreeing is ambiguous
+  identity. Make the declared name match the file name
+  ```
+
+  The same sentence refuses a site-installed adapter (see below), and
+  `duo manifest-validate <dir>` reports it per manifest offline, before any
+  target is contacted.
 - **`dispositions.json` is excluded from manifest globbing.** It is registry
   data *about* manifests, not a manifest.
 - **A `duo-` prefix marks a synthetic fixture.** The capability generator
@@ -537,7 +548,8 @@ under-proven.
 
 A site may install an additional, data-only adapter at
 `adapters/<name>.json`. Names are canonical lowercase ASCII slugs; the file
-basename and manifest `name` must be identical. This source overlays the
+basename and manifest `name` must be identical, refused at load with the same
+ambiguous-identity sentence the shipped library gets. This source overlays the
 shipped library but can never shadow it. It cannot supply an interpreter,
 regenerator, manifest-owned provider, trust root, disposition, or other PHP.
 Plugin-owned providers remain valid because their executable identity is the

@@ -308,6 +308,23 @@ check(
 // ======================================================================
 echo "\n== acceptance 1: invalid keys, shapes, ranges, exclusivity, action names, provider declarations ==\n";
 
+// --- adapter IDENTITY (DUO-3371)
+// The manifests dir this command is pointed at is a SHIPPED library by every
+// definition the engine has, so the file-name/declared-name rule DUO-3314 gave
+// the site source applies here too — and reaches this command for free, because
+// nothing in it reimplements a validator: the refusal below is the one
+// Policy::load() throws, verbatim, so the authoring surface and the load-time
+// surface cannot drift into two rules. The needle is the whole sentence for
+// exactly that reason.
+refuses(
+    solo_b(['name' => 'renamed']),
+    "declares name 'renamed' but its file name is 'b' — a pin names the file while every downstream identity "
+        . '(dispositions, digests, diagnostics) keys off the declared name, so the two disagreeing is ambiguous '
+        . 'identity. Make the declared name match the file name',
+    'a manifest whose declared name disagrees with its file name is refused, naming both values and the fix'
+);
+accepts(solo_b(), 'the same manifest, declaring the name its file already carries, validates clean');
+
 // --- invalid KEYS
 refuses(
     solo_b(['actions' => [[

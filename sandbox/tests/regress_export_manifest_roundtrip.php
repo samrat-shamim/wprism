@@ -121,6 +121,12 @@ echo "\n== negative control: an export with no spec_version (the pre-fix bug) is
 
 $broken = $exported;
 unset($broken['spec_version']);
+// A negative control must be broken in exactly ONE way. The copy lands under a
+// second file name, and DUO-3371 refuses a manifest whose declared name is not
+// its file name before any grammar validator runs — so without this line the
+// check below would pass or fail on the identity refusal instead of the missing
+// spec_version it exists to prove.
+$broken['name'] = 'export-roundtrip-broken';
 file_put_contents("$manifestsDir/export-roundtrip-broken.json", Canon::encode($broken));
 try {
     Policy::load(null, ['export-roundtrip-broken']);
