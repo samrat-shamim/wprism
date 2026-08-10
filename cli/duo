@@ -611,6 +611,14 @@ function main(array $argv): int {
     }
     $envName = array_shift($rest);
     $extra = $rest;
+    $scopeWireRefusal = reject_scope_wire_flag($verb, $extra);
+    if ($scopeWireRefusal !== null) {
+        return $scopeWireRefusal;
+    }
+    $scopeVerbRefusal = reject_unsupported_scope_contract($verb, $extra);
+    if ($scopeVerbRefusal !== null) {
+        return $scopeVerbRefusal;
+    }
     $jsonRefusal = wants_agent_refusal_json($verb, $extra);
 
     try {
@@ -1708,8 +1716,163 @@ function rollback_authority_fence(EnvironmentDriver $t, string $verb): bool {
 }
 
 function cmd_passthrough(EnvironmentDriver $t, string $verb, array $extra): int {
+    if (in_array($verb, ['plan', 'apply'], true)) {
+        return cmd_scoped_passthrough($t, $verb, $extra);
+    }
     $wpArgs = array_merge(['duo', $verb, '--repo=' . $t->repoPath()], $extra);
     return $t->streamWp($wpArgs);
+}
+
+/** @return bool */
+function has_json_flag(array $extra): bool {
+    foreach ($extra as $index => $arg) {
+        if ($arg === '--json' || $arg === '--format=json'
+            || ($arg === '--format' && ($extra[$index + 1] ?? null) === 'json')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** @return bool */
+function is_scope_request_wire_flag(string $arg): bool {
+    return str_starts_with($arg, '--scope-request-b64');
+}
+
+/** @return bool */
+function is_scope_contract_flag(string $arg): bool {
+    return str_starts_with($arg, '--scope-contract');
+}
+
+/**
+ * Host callers may not inject the target-side compact request. The host
+ * generates it only after validating a local ScopeContract, so a malformed
+ * or reserved value is refused before any transport command is launched.
+ */
+function reject_scope_wire_flag(string $verb, array $extra): ?int {
+    foreach ($extra as $arg) {
+        if (!is_string($arg) || !is_scope_request_wire_flag($arg)) {
+            continue;
+        }
+        return scope_wire_refusal(
+            $verb,
+            $extra,
+            'invalid_arguments',
+            "$verb received an orchestrator-reserved scope argument",
+            'remove the internal scope argument and supply only --scope-contract=<local-path>'
+        );
+    }
+    return null;
+}
+
+/** Refuse a local scope path anywhere the host does not own scope semantics. */
+function reject_unsupported_scope_contract(string $verb, array $extra): ?int {
+    if (in_array($verb, ['capture', 'plan', 'apply', 'refresh', 'rebase'], true)) {
+        return null;
+    }
+    foreach ($extra as $arg) {
+        if (!is_string($arg) || !is_scope_contract_flag($arg)) {
+            continue;
+        }
+        return scope_wire_refusal(
+            $verb,
+            $extra,
+            'invalid_arguments',
+            "$verb does not support scoped contracts",
+            'use --scope-contract only with capture, plan, or apply'
+        );
+    }
+    return null;
+}
+
+function scope_wire_refusal(
+    string $verb,
+    array $extra,
+    string $reasonCode,
+    string $message,
+    string $remediation
+): int {
+    if (wants_agent_refusal_json($verb, $extra) || has_json_flag($extra)) {
+        return render_agent_refusal_json($verb, $reasonCode, $message, $remediation);
+    }
+    fwrite(STDERR, "duo: $verb: $message; $remediation\n");
+    return 2;
+}
+
+/** Validate a local contract and forward only the canonical compact request. */
+function cmd_scoped_passthrough(EnvironmentDriver $t, string $verb, array $extra): int {
+    $forward = [];
+    $contractPath = null;
+    foreach ($extra as $arg) {
+        if (!is_string($arg)) {
+            return scope_wire_refusal(
+                $verb,
+                $extra,
+                'invalid_arguments',
+                "$verb received a malformed scope argument",
+                'supply exactly --scope-contract=<local-path>'
+            );
+        }
+        if (is_scope_request_wire_flag($arg)) {
+            // main() rejects this too; keep the command boundary defensive
+            // for callers that exercise the dispatcher function directly.
+            return scope_wire_refusal(
+                $verb,
+                $extra,
+                'invalid_arguments',
+                "$verb received an orchestrator-reserved scope argument",
+                'remove the internal scope argument and supply only --scope-contract=<local-path>'
+            );
+        }
+        if ($arg === '--scope-contract' || (str_starts_with($arg, '--scope-contract')
+            && !str_starts_with($arg, '--scope-contract='))) {
+            return scope_wire_refusal(
+                $verb,
+                $extra,
+                'invalid_arguments',
+                "$verb received a malformed scope contract flag",
+                'supply exactly --scope-contract=<local-path>'
+            );
+        }
+        if (str_starts_with($arg, '--scope-contract=')) {
+            if ($contractPath !== null) {
+                return scope_wire_refusal(
+                    $verb,
+                    $extra,
+                    'invalid_arguments',
+                    "$verb received more than one scope contract",
+                    'supply exactly one --scope-contract=<local-path>'
+                );
+            }
+            $contractPath = substr($arg, strlen('--scope-contract='));
+            if ($contractPath === '') {
+                return scope_wire_refusal(
+                    $verb,
+                    $extra,
+                    'invalid_arguments',
+                    "$verb received an empty scope contract path",
+                    'supply one readable canonical contract with --scope-contract=<local-path>'
+                );
+            }
+            continue;
+        }
+        $forward[] = $arg;
+    }
+    if ($contractPath !== null) {
+        try {
+            $input = read_scope_contract_input($contractPath);
+            $forward[] = '--scope-request-b64=' . $input['request_b64'];
+        } catch (\Throwable $_failure) {
+            return scope_wire_refusal(
+                $verb,
+                $extra,
+                'scope_contract_invalid',
+                'the local scope contract is malformed, tampered, or unsupported',
+                'generate a fresh contract with duo scope --contract and retry the command'
+            );
+        }
+    }
+    return $t->streamWp(array_merge(['duo', $verb, '--repo=' . $t->repoPath()], $forward));
 }
 
 /** Validate a host-local scope contract, then forward only its compact proof. */
@@ -1888,6 +2051,10 @@ function deploy_force_flags(array $extra, string $verb): array {
  * checkpoint use `duo promote`.
  */
 function cmd_deploy(EnvironmentDriver $t, array $extra): int {
+    $scopeRefusal = reject_unsupported_scope_contract('deploy', $extra);
+    if ($scopeRefusal !== null) {
+        return $scopeRefusal;
+    }
     try {
         $deployExtra = deploy_force_flags($extra, 'deploy');
     } catch (\Throwable $e) {
@@ -2040,6 +2207,10 @@ function cmd_promote_frozen(EnvironmentDriver $t, array $context, array $extra =
  * @return array<string,mixed>|int
  */
 function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozenContext): array|int {
+    $scopeRefusal = reject_unsupported_scope_contract('promote', $extra);
+    if ($scopeRefusal !== null) {
+        return $scopeRefusal;
+    }
     foreach ($extra as $arg) {
         if (is_orchestrator_internal_flag($arg)) {
             fwrite(STDERR, "duo: promote owns its repository, compiled artifact/hash, code-materialization, and target lease flags; remove '$arg'\n");
