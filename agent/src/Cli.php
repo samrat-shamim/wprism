@@ -4,6 +4,7 @@ namespace Duo;
 require_once __DIR__ . '/CommandRefusal.php';
 require_once __DIR__ . '/PlanExplanation.php';
 require_once __DIR__ . '/PlanCategorySummary.php';
+require_once __DIR__ . '/PlanView.php';
 
 use WP_CLI;
 
@@ -689,17 +690,29 @@ final class Cli {
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
      * [--artifact-hash=<sha256>] : Internal host-observed artifact hash; required with orchestrated promotion-owner.
+     * [--category=<ids>] : Comma-separated closed plan-view categories; requests a bounded display view.
+     * [--action=<buckets>] : Comma-separated closed plan-view action buckets; requests a bounded display view.
+     * [--entity=<kinds>] : Comma-separated closed plan-view entity kinds; requests a bounded display view.
+     * [--limit=<1..200>] : Canonical maximum ordinary rows for an explicit plan view (default 200).
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
     public function plan($args, $assoc) {
         try {
-            $plan = Apply::plan($assoc['repo'] ?? throw CommandRefusalException::invalidArgument('plan', '--repo'), [
+            $viewRequest = PlanView::requestFromAssoc($assoc);
+            $options = [
                 'adopt_by_slug' => $assoc['adopt-by-slug'] ?? '',
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
                 'compiled' => $assoc['compiled'] ?? '',
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
-            ]);
+            ];
+            if ($viewRequest !== null) {
+                $options['plan_view'] = $viewRequest;
+            }
+            $plan = Apply::plan(
+                $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('plan', '--repo'),
+                $options
+            );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'plan');
             WP_CLI::error($t->getMessage());
@@ -709,11 +722,36 @@ final class Cli {
             WP_CLI::line(json_encode($plan, JSON_UNESCAPED_SLASHES));
             return;
         }
-        // Apply owns this projection and builds it with compiled/action
-        // provenance that the host cannot reconstruct from detailed rows.
-        // Render the field when present; the host renderer is the strict
-        // validator because it accepts plans from older or external agents.
-        if (is_array($plan['category_summary'] ?? null)) {
+        // A view is an explicit, bounded alternate rendering. With no view
+        // flags leave the prior human output untouched, including its
+        // unbounded itemization and optional category summary.
+        $displayRows = [];
+        if ($viewRequest !== null) {
+            $view = $plan['plan_view'] ?? null;
+            if (!is_array($view)) {
+                throw new \RuntimeException('duo: requested plan view was not attached');
+            }
+            foreach (PlanView::humanHeaderLines($view) as $line) {
+                WP_CLI::line($line);
+            }
+            if (is_array($plan['category_summary'] ?? null)) {
+                foreach (PlanCategorySummary::humanLinesForCategories(
+                    $plan['category_summary'],
+                    $viewRequest['category']
+                ) as $line) {
+                    WP_CLI::line($line);
+                }
+            }
+            // Gate the established detailed row renderer below through the
+            // projection references. That retains all actionable safety
+            // evidence (blocked reasons, annotations, widget deletes, and
+            // conflict_view) rather than replacing it with a generic label.
+            $displayRows = PlanView::referencedRows($plan, $view);
+        } elseif (is_array($plan['category_summary'] ?? null)) {
+            // Apply owns this projection and builds it with compiled/action
+            // provenance that the host cannot reconstruct from detailed rows.
+            // Render the field when present; the host renderer is the strict
+            // validator because it accepts plans from older or external agents.
             foreach (PlanCategorySummary::humanLines($plan['category_summary']) as $line) {
                 WP_CLI::line($line);
             }
@@ -722,38 +760,53 @@ final class Cli {
             'create', 'update', 'adopt', 'unchanged', 'drift', 'conflict',
             'collision', 'delete', 'delete_conflict', 'deleted',
         ];
-        foreach ($kinds as $kind) {
-            foreach ($plan[$kind] as $r) {
+        if ($viewRequest === null) {
+            foreach ($kinds as $kind) {
+                foreach ($plan[$kind] as $r) {
+                    $displayRows[] = ['bucket' => $kind, 'row' => $r, 'safety' => false];
+                }
+            }
+        }
+        foreach ($displayRows as $display) {
+            $kind = $display['bucket'];
+            $r = $display['row'];
+            if ($viewRequest !== null) {
+                // Filtered output newly itemizes clean create/update rows, so
+                // do not make a path/title control byte an ANSI/newline
+                // injection surface. The unfiltered renderer remains byte
+                // compatible with its established behavior.
+                $line = strtoupper(str_pad($kind, 9)) . ' ' . PlanView::humanLabel($r);
+            } else {
                 $line = strtoupper(str_pad($kind, 9)) . ' ' . ($r['path'] ?? ($r['type'] . ' ' . $r['uuid']));
                 // Display-only: JSON keeps the raw authored title; the line
                 // renderer collapses whitespace so one row stays one line.
                 if (is_string($r['title'] ?? null) && trim($r['title']) !== '') {
                     $line .= " '" . trim((string) preg_replace('/\s+/', ' ', $r['title'])) . "'";
                 }
-                if (isset($r['blocked'])) {
-                    $line .= '  [BLOCKED: ' . $r['blocked'] . ']';
-                }
-                WP_CLI::line($line);
-                if (is_string($r['uuid'] ?? null) && $r['uuid'] !== '') {
-                    WP_CLI::line(
-                        '  EXPLAIN wp duo explain '
-                        . PlanExplanation::selectorForOutput($kind, $r['uuid'])
-                        . ' --repo=<repo>'
-                    );
-                }
-                foreach ($r['annotations'] ?? [] as $annotation) {
-                    WP_CLI::line('  ' . $annotation);
-                }
-                foreach ($r['widget_deletes'] ?? [] as $widget) {
-                    $origin = !empty($widget['unmanaged']) ? 'unmanaged target default' : 'mapped target widget';
-                    WP_CLI::line(
-                        "  WIDGET_DELETE {$widget['type']} {$widget['uuid']} ($origin; absent from declared sidebar file)"
-                    );
-                }
-                if ($kind === 'conflict' || $kind === 'delete_conflict') {
-                    foreach (self::plan_conflict_view_lines($r) as $detail) {
-                        WP_CLI::line('  ' . $detail);
-                    }
+            }
+            if (isset($r['blocked'])) {
+                $line .= '  [BLOCKED: ' . $r['blocked'] . ']';
+            }
+            WP_CLI::line($line);
+            if (is_string($r['uuid'] ?? null) && $r['uuid'] !== '') {
+                WP_CLI::line(
+                    '  EXPLAIN wp duo explain '
+                    . PlanExplanation::selectorForOutput($kind, $r['uuid'])
+                    . ' --repo=<repo>'
+                );
+            }
+            foreach ($r['annotations'] ?? [] as $annotation) {
+                WP_CLI::line('  ' . $annotation);
+            }
+            foreach ($r['widget_deletes'] ?? [] as $widget) {
+                $origin = !empty($widget['unmanaged']) ? 'unmanaged target default' : 'mapped target widget';
+                WP_CLI::line(
+                    "  WIDGET_DELETE {$widget['type']} {$widget['uuid']} ($origin; absent from declared sidebar file)"
+                );
+            }
+            if ($kind === 'conflict' || $kind === 'delete_conflict') {
+                foreach (self::plan_conflict_view_lines($r) as $detail) {
+                    WP_CLI::line('  ' . $detail);
                 }
             }
         }

@@ -83,8 +83,41 @@ provenance. The secrets category emits only
 `visibility: "redacted"`—it never scans or counts warning text or environment
 names—and all other summary data is bounded counts, states, phases, and kinds.
 
-This slice intentionally does not add large-plan filtering or field-level or
-interactive value diffs/resolution. Those remain explicit future epic scope.
+### Bounded large-plan views
+
+No-flag `wp duo plan` and `duo status` retain their existing full-plan JSON
+and normal behavior. Filtered direct-plan row labels and host status plan-row
+labels safely normalize C0/DEL controls. An explicit `--category=<csv>`, `--action=<csv>`,
+`--entity=<csv>`, or canonical `--limit=<1..200>` requests the bounded
+`duo-plan-view/v1` display projection from the same complete plan snapshot.
+The detailed buckets remain present and authoritative; the projection declares
+`authoritative: false` and is never consumed by apply, promotion, or
+convergence.
+
+Categories use the nine ordered ids above; actions are the ten normal plan
+buckets; entities are `post`, `attachment`, `term`, `menu`, `sidebar`,
+`options`, `user_meta`, and `typed_table`. Values are exact comma-separated
+closed tokens, canonicalized/deduped in vocabulary order. Values within one
+dimension are ORed, supplied dimensions are ANDed. A view defaults to and
+hard-caps ordinary rows at 200; v1 has no cursor, so full unfiltered JSON is
+the complete escape hatch. Rows are value-free refs only (bucket, hash
+selector, closed entity/category facets, safety bit); the selector uniquely
+resolves a UUID inside the complete bucket without exposing a source position.
+They are sorted by fixed action rank then bytewise UUID. The view never copies paths, titles, values,
+secrets, PII, target ids, or plugin-specific engine facts into JSON.
+
+The view reports full/matching/shown/omitted/forced-safety evidence and full
+readiness/global counters. Drift, conflict, collision, delete-conflict, and
+blocked-delete rows bypass every filter and cap; global diagnostics, including
+`regen_context`, remain full-plan facts. Category requests require the
+same-snapshot valid `category_summary`; action/entity/limit-only requests do
+not. `duo status` forwards one normalized request and typed-refuses
+`plan_view_unavailable` if a requested agent view is missing, malformed, or
+does not bind that full JSON plan. Its filtered human output itemizes only
+matching ordinary rows while retaining existing complete safety/global blocks;
+newly itemized path/title labels are one-line C0/DEL-safe. Text/path/title/
+value searching, raw-value views, cursors, and interactive diffs remain out of
+scope.
 
 ### `env` values in practice
 

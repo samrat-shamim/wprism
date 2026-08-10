@@ -78,23 +78,12 @@ final class PlanSummary {
         'collision', 'delete', 'delete_conflict', 'deleted',
     ];
 
-    private const REQUIRED_LISTS = [
-        'create', 'update', 'adopt', 'unchanged', 'drift', 'conflict',
-        'collision', 'delete', 'delete_conflict', 'deleted',
-        'code_mismatch', 'code_drift', 'incomplete_apply',
-        'incomplete_lifecycle', 'regen_pending', 'env_missing',
-        'missing_user', 'skipped_user_meta', 'uploads_inventory',
-        'effects_inventory', 'adapter_dispositions', 'warnings',
-    ];
-
     /** Refuse valid JSON which is not the complete agent plan contract. */
     public static function assertContract(array $plan): void {
-        foreach (self::REQUIRED_LISTS as $key) {
-            if (!array_key_exists($key, $plan)
-                || !is_array($plan[$key])
-                || !array_is_list($plan[$key])) {
-                throw new \RuntimeException("incomplete plan contract: missing list bucket '$key'");
-            }
+        try {
+            PlanContract::requireComplete($plan, 'status');
+        } catch (\RuntimeException $e) {
+            throw new \RuntimeException('incomplete plan contract: ' . $e->getMessage(), 0, $e);
         }
         foreach ($plan['warnings'] as $warning) {
             if (!is_string($warning)) {
@@ -103,8 +92,13 @@ final class PlanSummary {
         }
     }
 
-    /** @return array{lines: list<string>, ok: bool} */
-    public static function render(array $plan): array {
+    /**
+     * @param list<string> $viewCategories empty preserves the legacy full
+     *   category summary; an explicit filtered status supplies its canonical
+     *   requested subset while all readiness/global evidence remains full.
+     * @return array{lines: list<string>, ok: bool}
+     */
+    public static function render(array $plan, array $viewCategories = []): array {
         $lines = [];
         $counts = [];
         foreach (self::BUCKETS as $k) {
@@ -152,7 +146,7 @@ final class PlanSummary {
         // projection. Older agents omit it; the host cannot reconstruct
         // attachment provenance, selected actions, or blocker origin from
         // detailed rows alone, so it leaves category lines out.
-        foreach (PlanContract::categorySummaryHumanLines($plan['category_summary'] ?? null) as $line) {
+        foreach (PlanContract::categorySummaryHumanLines($plan['category_summary'] ?? null, $viewCategories) as $line) {
             $lines[] = $line;
         }
 
@@ -496,14 +490,30 @@ final class PlanSummary {
     }
 
     private static function label(array $r): string {
-        $label = $r['path'] ?? (($r['type'] ?? '?') . ' ' . ($r['uuid'] ?? '?'));
+        $label = is_string($r['path'] ?? null)
+            ? (string) $r['path']
+            : ((string) ($r['type'] ?? '?') . ' ' . (string) ($r['uuid'] ?? '?'));
+        $label = self::oneLine($label);
+        if ($label === '') {
+            $label = '?';
+        }
         // Keep lockstep with agent/src/Cli.php's plan line renderer: the raw
-        // authored title stays in plan JSON; display collapses whitespace so
-        // one row stays one line (DUO-3345).
-        if (is_string($r['title'] ?? null) && trim($r['title']) !== '') {
-            $label .= " '" . trim((string) preg_replace('/\s+/', ' ', $r['title'])) . "'";
+        // authored title stays in plan JSON; status now itemizes selected
+        // clean rows in a filtered view, so strip every C0/DEL byte before
+        // collapsing whitespace rather than allowing ANSI/newline injection.
+        if (is_string($r['title'] ?? null)) {
+            $title = self::oneLine((string) $r['title']);
+            if ($title !== '') {
+                $label .= " '" . $title . "'";
+            }
         }
         return $label;
+    }
+
+    private static function oneLine(string $value): string {
+        $value = (string) preg_replace('/[\x00-\x1F\x7F]/', ' ', $value);
+        $value = (string) preg_replace('/\s+/', ' ', $value);
+        return trim($value);
     }
 
     /**

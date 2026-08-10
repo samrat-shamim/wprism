@@ -18,10 +18,11 @@ namespace Duo\Orchestrator;
  * `provider_problems`, which only the plan() entry point attaches — so a document missing it did not come from `wp duo
  * plan` at all. Cli.php::plan() json_encode()s that array verbatim, so the
  * detailed wire envelope and the emitter's array are the same thing. The
- * additive `category_summary` is optional for backwards compatibility. Its
- * strict display validator is intentionally separate from `violations()`:
- * malformed optional display data must never alter promotion/convergence
- * readiness, and renderers simply omit it. The derivation
+ * additive `category_summary` and explicitly requested `plan_view` are
+ * optional for backwards compatibility. Their strict display validators are
+ * intentionally separate from `violations()`: malformed optional display
+ * data must never alter promotion/convergence readiness, and no-filter
+ * renderers simply omit it. The derivation
  * is machine-checked against Apply.php by
  * sandbox/tests/regress_plan_contract_trust.php: an emitter that grows a
  * bucket without teaching this list about it fails that suite loudly rather
@@ -144,7 +145,7 @@ final class PlanContract {
 
     /** @return list<string> */
     public static function optionalProjections(): array {
-        return ['category_summary'];
+        return ['category_summary', 'plan_view'];
     }
 
     public static function validCategorySummary(mixed $summary): bool {
@@ -160,7 +161,7 @@ final class PlanContract {
      *
      * @return list<string>
      */
-    public static function categorySummaryHumanLines(mixed $summary): array {
+    public static function categorySummaryHumanLines(mixed $summary, array $selected = []): array {
         if (!self::validCategorySummary($summary)) {
             return [];
         }
@@ -177,7 +178,12 @@ final class PlanContract {
             'deletions' => 'deletions',
         ];
         $lines = ['SUMMARY [' . self::CATEGORY_SUMMARY_FORMAT . ']'];
-        foreach (self::CATEGORY_SUMMARY_IDS as $index => $id) {
+        $requested = $selected === [] ? self::CATEGORY_SUMMARY_IDS : $selected;
+        foreach ($requested as $id) {
+            $index = array_search($id, self::CATEGORY_SUMMARY_IDS, true);
+            if (!is_int($index)) {
+                return [];
+            }
             if ($id === 'secrets') {
                 $lines[] = '  secrets: redacted; secret values omitted; secret-state refusals use duo-command-refusal/v1';
                 continue;
@@ -199,7 +205,9 @@ final class PlanContract {
             }
             $lines[] = '  ' . $labels[$id] . ': ' . implode(', ', $parts);
         }
-        $lines[] = '  vocabulary: generated effects use shipped derived classification; values omitted';
+        if (in_array('generated_effects', $requested, true)) {
+            $lines[] = '  vocabulary: generated effects use shipped derived classification; values omitted';
+        }
         return $lines;
     }
 

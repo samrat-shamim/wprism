@@ -25,7 +25,8 @@ $empty['code_mismatch'] = [];
 
 $complete = $empty + array_fill_keys([
     'code_drift', 'incomplete_apply', 'incomplete_lifecycle',
-    'regen_pending', 'env_missing', 'missing_user', 'skipped_user_meta',
+    'regen_context', 'regen_pending', 'env_missing', 'missing_user',
+    'provider_problems', 'skipped_user_meta',
     'uploads_inventory', 'effects_inventory', 'adapter_dispositions', 'warnings',
 ], []);
 try {
@@ -37,6 +38,8 @@ try {
 foreach ([
     'empty JSON object' => [],
     'missing required bucket' => array_diff_key($complete, ['warnings' => true]),
+    'missing regen-context bucket' => array_diff_key($complete, ['regen_context' => true]),
+    'missing provider-problems bucket' => array_diff_key($complete, ['provider_problems' => true]),
     'non-list bucket' => array_replace($complete, ['create' => ['uuid' => 'not-a-list']]),
     'non-string warning' => array_replace($complete, ['warnings' => [['message' => 'not-a-string']]]),
 ] as $label => $invalid) {

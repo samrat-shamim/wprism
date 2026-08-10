@@ -42,6 +42,86 @@ final class PlanCategorySummary {
         'user_meta', 'typed_table',
     ];
 
+    /**
+     * The public display vocabulary is deliberately exposed through methods,
+     * not duplicated by newer projections.  A plan view must use the same
+     * compiled-tree/tombstone classification as the category summary; a path
+     * or row-type guess would turn an attachment into an ordinary post (and
+     * eventually grow plugin-specific branches in a renderer).
+     *
+     * @return list<string>
+     */
+    public static function categoryIds(): array {
+        return self::CATEGORY_IDS;
+    }
+
+    /** @return list<string> */
+    public static function entityKinds(): array {
+        return self::ENTITY_KINDS;
+    }
+
+    /** @return list<string> */
+    public static function actionBuckets(): array {
+        return array_merge(self::AUTHORED_ACTIONS, self::DELETE_ACTIONS);
+    }
+
+    /**
+     * Classify one detailed entity-action row with the exact compiled context
+     * that produced the plan.  This is intentionally unavailable for global
+     * diagnostic rows: they have no entity identity and belong in count-only
+     * safety evidence, never a fabricated entity filter result.
+     *
+     * @param array<string,mixed> $row
+     * @param array<string,array<string,mixed>> $tree
+     * @param array<string,array<string,mixed>> $deletions
+     */
+    public static function entityKindForPlanRow(
+        array $row,
+        array $tree,
+        array $deletions,
+        string $bucket
+    ): ?string {
+        if (in_array($bucket, self::AUTHORED_ACTIONS, true)) {
+            return self::entityKind($row, $tree, false);
+        }
+        if (in_array($bucket, self::DELETE_ACTIONS, true)) {
+            return self::entityKind($row, $deletions, true);
+        }
+        return null;
+    }
+
+    /**
+     * Closed, overlapping category facets for an entity-action row.  These
+     * are display predicates only: the detailed bucket remains the mutation
+     * authority.  Keep this beside entityKindForPlanRow() so all projections
+     * use one classification rather than independently inferring categories.
+     *
+     * @return list<string>|null
+     */
+    public static function categoriesForPlanRow(string $bucket, string $entityKind): ?array {
+        if (!in_array($entityKind, self::ENTITY_KINDS, true)) {
+            return null;
+        }
+        if (in_array($bucket, self::AUTHORED_ACTIONS, true)) {
+            $categories = ['authored_state'];
+            if ($entityKind === 'attachment') {
+                $categories[] = 'media';
+            }
+            if ($bucket === 'drift') {
+                $categories[] = 'environment_state';
+            }
+            return self::orderedCategories($categories);
+        }
+        if (in_array($bucket, self::DELETE_ACTIONS, true)) {
+            $categories = ['deletions'];
+            if ($entityKind === 'attachment') {
+                $categories[] = 'media';
+            }
+            return self::orderedCategories($categories);
+        }
+        return null;
+    }
+
     /** @var list<string> */
     private const CODE_KINDS = ['plugin', 'theme', 'other'];
 
@@ -331,6 +411,20 @@ final class PlanCategorySummary {
 
     /** @param array<string,mixed> $summary @return list<string> */
     public static function humanLines(array $summary): array {
+        return self::humanLinesForCategories($summary, self::CATEGORY_IDS);
+    }
+
+    /**
+     * Render a canonical subset for an explicit plan view.  Category counts
+     * remain full-plan evidence; this only controls which fixed summary lines
+     * are observed. An empty selection means all categories, matching the
+     * plan-view filter grammar.
+     *
+     * @param array<string,mixed> $summary
+     * @param list<string> $selected
+     * @return list<string>
+     */
+    public static function humanLinesForCategories(array $summary, array $selected): array {
         $labels = [
             'code' => 'code',
             'lifecycle' => 'lifecycle',
@@ -344,7 +438,9 @@ final class PlanCategorySummary {
         ];
         $categories = is_array($summary['categories'] ?? null) ? $summary['categories'] : [];
         $lines = ['SUMMARY [' . self::FORMAT . ']'];
-        foreach ($labels as $id => $label) {
+        $requested = $selected === [] ? self::CATEGORY_IDS : self::orderedCategories($selected);
+        foreach ($requested as $id) {
+            $label = $labels[$id] ?? $id;
             $category = self::categoryById($categories, $id);
             if ($id === 'secrets') {
                 $lines[] = '  secrets: redacted; secret values omitted; secret-state refusals use duo-command-refusal/v1';
@@ -365,7 +461,9 @@ final class PlanCategorySummary {
             }
             $lines[] = '  ' . $label . ': ' . implode(', ', $parts);
         }
-        $lines[] = '  vocabulary: generated effects use shipped derived classification; values omitted';
+        if (in_array('generated_effects', $requested, true)) {
+            $lines[] = '  vocabulary: generated effects use shipped derived classification; values omitted';
+        }
         return $lines;
     }
 
@@ -412,6 +510,18 @@ final class PlanCategorySummary {
         $out = [];
         foreach ($keys as $key) {
             $out[$key] = 0;
+        }
+        return $out;
+    }
+
+    /** @param list<string> $categories @return list<string> */
+    private static function orderedCategories(array $categories): array {
+        $selected = array_fill_keys($categories, true);
+        $out = [];
+        foreach (self::CATEGORY_IDS as $category) {
+            if (isset($selected[$category])) {
+                $out[] = $category;
+            }
         }
         return $out;
     }

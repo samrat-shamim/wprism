@@ -37,7 +37,7 @@ duo doctor <env>
 duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
 duo adopt  <env>
 duo init   <env> [--yes]
-duo status <env>
+duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
 duo capabilities <env> [--format=json]
 duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
 duo plan    <env> [extra wp-cli flags...]
@@ -310,6 +310,28 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   projection is omitted from human output and never changes plan readiness,
   completeness, promotion, or convergence; the detailed buckets remain the
   sole authority.
+
+  An explicit `--category=<csv>`, `--action=<csv>`, `--entity=<csv>`, or
+  canonical `--limit=<1..200>` on `duo status` (or forwarded through
+  `duo plan`) requests the additive `duo-plan-view/v1` display projection.
+  It leaves every detailed plan bucket in the JSON envelope unchanged, carries
+  `authoritative: false`, and contains only closed bucket/entity/category
+  facets, a safety bit, and an opaque hashed explain selector. It has no raw
+  title, path, value, secret, target id, source position, text search, or
+  plugin-specific engine filter. The selector resolves one UUID within the
+  full bucket, while presentation order is fixed action rank then UUID bytes;
+  authoritative source order remains untouched. CSV values are exact closed
+  tokens (OR within each dimension, AND across dimensions), deduped into
+  vocabulary order. An explicit view defaults to and caps ordinary rows at
+  200; safety rows (drift, conflict, collision, delete conflict, and blocked
+  deletes) and global diagnostics bypass filters and the cap. A category view
+  additionally requires the same-snapshot category summary. Status forwards
+  one normalized request in its single full-plan call and fails closed with
+  `plan_view_unavailable` if the requested projection is absent, malformed, or
+  cannot be tied to that complete envelope; it never makes a second plan call
+  or guesses a filtered result. No-option JSON and normal behavior remain
+  compatible; filtered direct-plan rows and host status plan-row labels
+  normalize C0/DEL controls to one line.
 
   Exit non-zero ("not safe to promote") if the plan contains any
   `conflict`, `collision`, `code_mismatch`, or `code_drift` entry, any
