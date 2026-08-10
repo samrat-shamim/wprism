@@ -976,6 +976,29 @@ check(
     'the proposal gate resolves record temporaries through the authority\'s own binding predicate, not a name sweep'
 );
 
+// DUO-3427: a rolled-back init must leave ZERO Duo ledger rows — a non-pristine
+// ledger is `existing_duo_ledger`, so residue is the difference between a
+// retryable environment and one that refuses the next init. Capture's test-only
+// `capture_test_phase` marker is committed outside the consistent snapshot on
+// purpose (its reader must see it while the writer is paused inside the held
+// flock) and deleted in `finally` so no ordinary failure leaves residue — but
+// `finally` does not run through a SIGKILL, and #151 later pointed init's
+// SIGKILL fault seams at this same path. Every killed init committed one row
+// nothing would read and no rollback would clear. It is now written only for
+// the pause seam that reads it. Pinned as an ordering, because the behaviour
+// itself needs a database: gate, then marker, then the pause.
+$captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
+$markerGate = strpos($captureSource, '&& $pauseMs > 0 && $pauseMs <= 10000) {');
+$markerSet = strpos($captureSource, "Ledger::kv_set('capture_test_phase', 'locked');");
+$markerPause = strpos($captureSource, 'usleep($pauseMs * 1000);');
+check(
+    $markerGate !== false && $markerSet !== false && $markerPause !== false
+        && $markerGate < $markerSet && $markerSet < $markerPause
+        && substr_count($captureSource, "Ledger::kv_set('capture_test_phase'") === 1
+        && substr_count($captureSource, "Ledger::kv_delete('capture_test_phase')") === 1,
+    'the test-only capture phase marker is written only for the pause seam that reads it, so a killed init leaves no ledger residue'
+);
+
 // DUO-3421: the interrupted-init compensation runs over the same artifacts
 // twice by design — Init::confirm()'s catch compensates its own publications,
 // then re-enters recover_interrupted_attempt() to PROVE the rollback from the

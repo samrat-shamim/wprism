@@ -268,16 +268,36 @@ final class Capture {
             // observable from another wp-cli invocation's own process) —
             // the same reason PromotionLock's phase marker is DB-backed
             // rather than in-memory. No effect at all unless a caller
-            // explicitly opts into test mode. Production capture is unchanged.
-            if ($scopeRequest === null && getenv('DUO_TEST_MODE') === '1') {
+            // explicitly opts into a marker-reading seam; production capture
+            // is unchanged, and a DUO_TEST_MODE run requesting neither seam
+            // writes no marker (a SIGKILLed run must not leave a ledger row
+            // that the next init reads as an existing Duo ledger).
+            $pauseMs = (int) (getenv('DUO_TEST_CAPTURE_PAUSE_MS') ?: 0);
+            $waitForRelease = getenv('DUO_TEST_CAPTURE_WAIT_FOR_RELEASE') === '1';
+            if ($scopeRequest === null && getenv('DUO_TEST_MODE') === '1'
+                && (($pauseMs > 0 && $pauseMs <= 10000) || $waitForRelease)) {
                 // This marker is intentionally outside the consistent
                 // snapshot: a second process must be able to observe it
                 // while this process is paused inside the held flock(). It is
                 // test-only and is deleted in finally so a refused/failed
                 // capture cannot leave a duo_kv residue behind.
+                //
+                // DUO-3427: scoped to the pause it exists FOR, not to test
+                // mode at large. Its only reader (regress_capture_concurrency)
+                // always requests the pause, and the finally-delete keeps the
+                // no-residue promise on every ordinary failure — but not
+                // through a SIGKILL, and #151 later added init's SIGKILL fault
+                // seams to this same path. Every killed init therefore
+                // committed one wp_duo_kv row that nothing would ever read and
+                // no rollback would ever clear, and a non-pristine ledger is
+                // not inert: it is `existing_duo_ledger`, so the environment a
+                // rolled-back init is supposed to leave RETRYABLE refused the
+                // next init instead. Written only where it is observed, so the
+                // promise in the paragraph above is true for every path that
+                // writes it.
                 $testPhaseMarked = true;
                 Ledger::kv_set('capture_test_phase', 'locked');
-                if (getenv('DUO_TEST_CAPTURE_WAIT_FOR_RELEASE') === '1') {
+                if ($waitForRelease) {
                     $released = false;
                     for ($attempt = 0; $attempt < 1200; $attempt++) {
                         if ((string) Ledger::kv_get('capture_test_phase') === 'release') {
@@ -290,10 +310,7 @@ final class Capture {
                         throw new \RuntimeException('duo: test capture release marker was not received');
                     }
                 } else {
-                    $pauseMs = (int) (getenv('DUO_TEST_CAPTURE_PAUSE_MS') ?: 0);
-                    if ($pauseMs > 0 && $pauseMs <= 10000) {
-                        usleep($pauseMs * 1000);
-                    }
+                    usleep($pauseMs * 1000);
                 }
             }
             // Deterministic recovery of whatever a prior crashed run left
