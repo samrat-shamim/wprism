@@ -432,20 +432,36 @@ final class Init {
         if (is_link($path) || !is_file($path)) {
             throw new \RuntimeException("duo: interrupted init $label is not an ordinary regular file");
         }
-        $record = Canon::decode(Canon::read_file($path));
+        $raw = Canon::read_file($path);
+        $record = Canon::decode($raw);
         if (!is_array($record)) {
             throw new \RuntimeException("duo: interrupted init $label is not an object");
         }
         $seal = $record['record_sha256'] ?? null;
         $payload = $record;
         unset($payload['record_sha256']);
+        // Validate the seal against the exact canonical payload bytes that
+        // were written.  Re-encoding the decoded structure is not equivalent
+        // for empty object-shaped maps: PHP's JSON decoder represents both
+        // `{}` and `[]` as an empty array, while the original proposal may
+        // intentionally carry an object-shaped empty map.
+        $payloadBytes = preg_replace(
+            '/^    "record_sha256": "[a-f0-9]{64}",\n/m',
+            '',
+            $raw,
+            1,
+            $sealMatches
+        );
+        $payloadHash = is_string($payloadBytes) && $sealMatches === 1
+            ? hash('sha256', $payloadBytes)
+            : '';
         $expectedKeys = ['format', 'owned', 'phase', 'proposal', 'repository', 'repository_identity'];
         $keys = array_keys($payload);
         sort($keys, SORT_STRING);
         sort($expectedKeys, SORT_STRING);
         if (!is_string($seal) || preg_match('/^[a-f0-9]{64}$/D', $seal) !== 1
             || $keys !== $expectedKeys
-            || !hash_equals($seal, hash('sha256', Canon::encode($payload)))
+            || !hash_equals($seal, $payloadHash)
             || ($record['format'] ?? null) !== 'duo-init-attempt/v1'
             || !is_string($record['phase'] ?? null)
             || !is_array($record['owned'] ?? null)
