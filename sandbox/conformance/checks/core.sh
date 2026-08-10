@@ -2,6 +2,10 @@
 # DUO-3209: copied/invalid embedded identity blocks before state publication.
 set -euo pipefail
 
+# DUO-3409: concurrency-safe allocation of the host `duo explain` envs registry
+# used at the DUO-3345 explain slice below (sourced like _retry_helper.sh).
+source "$(dirname "${BASH_SOURCE[0]}")/_explain_registry.sh"
+
 # DUO-3264: dynamic_options.theme_mods -- proof beyond the generic
 # byte-diff already run above in run.sh (which only proves conf1's
 # captured tokens equal conf2's captured tokens; it can't see whether the
@@ -266,7 +270,12 @@ EXPLAIN_ENTITY_HASH=$(printf '%s' "$UA" | shasum -a 256 | awk '{print $1}')
 EXPLAIN_SELECTOR="conflict:sha256:$EXPLAIN_ENTITY_HASH"
 grep -Fq "EXPLAIN wp duo explain $EXPLAIN_SELECTOR --repo=<repo>" <<<"$TITLE_HUMAN" \
   || fail "human plan did not print the copyable hash-safe explain selector: $TITLE_HUMAN"
-EXPLAIN_REGISTRY=$(mktemp "${TMPDIR:-/tmp}/duo-explain-envs.XXXXXX.json")
+# DUO-3409: a per-run private directory (portable across GNU/BSD mktemp — see
+# _explain_registry.sh), with the trap installed BEFORE the first write so an
+# interrupt cannot leave the temp namespace occupied for a later sweep.
+EXPLAIN_REGISTRY_DIR=$(alloc_explain_registry_dir)
+trap 'rm -rf -- "${EXPLAIN_REGISTRY_DIR:-}"' EXIT
+EXPLAIN_REGISTRY="$EXPLAIN_REGISTRY_DIR/envs.json"
 jq -n --arg compose "$PWD/pair.yml" '{envs:{target:{transport:"docker",compose_file:$compose,service:"cli2",repo_path:"/siterepo"}}}' \
   >"$EXPLAIN_REGISTRY"
 # A real attachment is in scope. Register an offload adapter hook that would
@@ -290,7 +299,8 @@ if [ "$EXPLAIN_RC" -eq 0 ]; then
     || EXPLAIN_RC=$?
 fi
 $COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/duo-explain-offload-guard.php
-rm -f -- "$EXPLAIN_REGISTRY"
+rm -rf -- "$EXPLAIN_REGISTRY_DIR"
+trap - EXIT
 # The json invocation is safe to gate: the host CLI's refusal envelope goes to
 # STDOUT (cli/duo's wants_agent_refusal_json path), so a genuine refusal still
 # reaches the accusation below while a compose-layer death (empty stdout)
