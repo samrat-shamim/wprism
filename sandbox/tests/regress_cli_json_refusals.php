@@ -203,6 +203,18 @@ namespace Duo {
             return [];
         }
     }
+
+    /**
+     * DUO-3421: the one refusal CLASS halt_json_failure() publishes on its own
+     * audited vocabulary, independent of the command allowlist. Declared here
+     * like every other collaborator this suite stubs -- requiring the real
+     * agent/src/Publish.php would drag in the real Canon and collide with the
+     * stub above. The pin below asserts BOTH halves of the identity that makes
+     * this stub legitimate: that Cli's constant names exactly this fully
+     * qualified class, and that agent/src/Publish.php is where the engine
+     * really declares it.
+     */
+    final class InitialStateBoundaryException extends \RuntimeException {}
 }
 
 namespace {
@@ -850,6 +862,82 @@ namespace {
         check(
             !str_contains((string) json_encode($unpublished), 'value-free reason'),
             "$command publishes none of a value-free duo: refusal's prose"
+        );
+    }
+    \Duo\Policy::$failure = null;
+
+    echo "\n== DUO-3421: publication by reviewed CLASS, on the same #180 terms ==\n";
+    // #180's rule, one axis over. halt_json_failure() also admits a refusal
+    // whose CLASS has a closed, audited message vocabulary, independent of the
+    // command allowlist — because the vocabulary, not the command, is what
+    // makes those messages safe to publish. The motivating one: init's
+    // bound-copy digest boundary ("copy source digest changed") is the whole
+    // operator answer when code changes underneath a confirmed baseline, and
+    // it was arriving as "init refused at an unclassified safety gate". `init`
+    // itself stays OFF the command allowlist, so its injected-fault and
+    // ownership internals keep redacting — they are ordinary Throwables.
+    //
+    // Every half is pinned here: the membership itself, that an admitted class
+    // publishes on a command that is NOT on the allowlist, that the identical
+    // message from an ordinary Throwable on the SAME command still redacts
+    // (so the class is doing the work, not the wording), and that the
+    // sensitivity screen still governs an admitted class — a boundary refusal
+    // carrying an absolute path goes back to the redacted envelope.
+    $publicRefusalClasses = (new ReflectionClass(\Duo\Cli::class))
+        ->getConstant('PUBLIC_REFUSAL_CLASSES');
+    check(
+        $publicRefusalClasses === [\Duo\InitialStateBoundaryException::class],
+        'the publication class allowlist is readable and holds exactly the one audited class'
+    );
+    // The stub above stands in for the engine's class; this is what keeps that
+    // substitution honest -- the admitted name must be the one the engine
+    // really declares, in the file whose throw sites were audited.
+    check(
+        str_contains(
+            (string) file_get_contents(__DIR__ . '/../../agent/src/Publish.php'),
+            'final class InitialStateBoundaryException extends \RuntimeException'
+        ),
+        'the admitted class is the one agent/src/Publish.php declares'
+    );
+    check(
+        array_values(array_intersect(
+            ['lint', 'capabilities'],
+            (array) $publicRefusalCommands
+        )) === [],
+        'the commands used below are still absent from the command allowlist'
+    );
+    foreach (['lint' => 'lint', 'capabilities' => 'capabilities'] as $method => $command) {
+        $boundary = 'duo: initial ' . $command . ' staging file refused at its inode-bound parent: copy source digest changed';
+        \Duo\Policy::$failure = new \Duo\InitialStateBoundaryException($boundary);
+        $published = invoke_json(static fn() => $cli->$method([], ['repo' => '/fixture', 'format' => 'json']));
+        check(
+            ($published['error'] ?? null) === str_replace('-', '_', $command) . '_refused'
+                && ($published['message'] ?? null) === $boundary
+                && !array_key_exists('details_redacted', $published),
+            "$command publishes an admitted-class boundary refusal verbatim although the command is not allowlisted"
+        );
+        // Same sentence, ordinary class: still redacted. The class admission
+        // is the only difference between these two answers.
+        \Duo\Policy::$failure = new RuntimeException($boundary);
+        $stillRedacted = invoke_json(static fn() => $cli->$method([], ['repo' => '/fixture', 'format' => 'json']));
+        check(
+            ($stillRedacted['error'] ?? null) === str_replace('-', '_', $command) . '_failed'
+                && ($stillRedacted['details_redacted'] ?? null) === true
+                && !str_contains((string) json_encode($stillRedacted), 'copy source digest changed'),
+            "$command still redacts the identical sentence thrown as an ordinary Throwable"
+        );
+        // The planted path: the bound helper's reason is its own STDERR, so a
+        // diagnostic from inside it could arrive carrying a path. Admission by
+        // class must not exempt it from the screen.
+        \Duo\Policy::$failure = new \Duo\InitialStateBoundaryException(
+            'duo: initial staging file refused at its inode-bound parent: copy failed for /srv/private/tenant-42/wp-content/secret.php'
+        );
+        $planted = invoke_json(static fn() => $cli->$method([], ['repo' => '/fixture', 'format' => 'json']));
+        check(
+            ($planted['error'] ?? null) === str_replace('-', '_', $command) . '_failed'
+                && ($planted['details_redacted'] ?? null) === true
+                && !str_contains((string) json_encode($planted), '/srv/private/tenant-42'),
+            "$command sends an admitted-class refusal carrying an absolute path back to the redacted envelope"
         );
     }
     \Duo\Policy::$failure = null;

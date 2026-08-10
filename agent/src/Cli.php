@@ -57,6 +57,19 @@ final class Cli {
             $message = $t->publicMessage;
             $remediation = $t->remediation;
             $redacted = false;
+        } elseif (in_array(get_class($t), self::PUBLIC_REFUSAL_CLASSES, true)
+            && !CommandRefusalException::containsSensitivePublicDetail(['message' => $t->getMessage()])) {
+            // DUO-3421: a refusal CLASS with a closed, audited message
+            // vocabulary (see PUBLIC_REFUSAL_CLASSES below) is itself the
+            // typed contract this function's doctrine demands — its sentence
+            // IS the public answer. The shared sensitivity screen still gates
+            // every message (the bound helper's reason is subprocess stderr,
+            // so a diagnostic could in principle carry a path); a screened
+            // message falls through to the redacted catch-all below.
+            $specific = ['error' => 'initial_state_boundary'];
+            $message = $t->getMessage();
+            $remediation = self::refusal_remediation($command);
+            $redacted = false;
         } else {
             $reasonCode = str_replace('-', '_', $command) . '_failed';
             $message = "$command refused at an unclassified safety gate";
@@ -130,6 +143,47 @@ final class Cli {
         WP_CLI::halt(1);
     }
 
+    /**
+     * May this Throwable's message be published verbatim in the JSON
+     * refusal envelope?
+     *
+     * The `duo: ` prefix marks a refusal deliberately authored for the
+     * operator — but the prefix alone is not proof of authorship: three
+     * wrapper families re-prefix text the engine does NOT write (a
+     * provider/regenerator's own exit tail per DUO-3282, and wpdb's
+     * last_error on the deletion-guard paths — which Db.php's own header
+     * warns "can echo option/meta payloads"). Those stay redacted here even
+     * though their non-JSON rendering is unchanged. Beyond the shared
+     * sensitivity screen, two extra shapes are excluded from this branch
+     * only (scoped here, not in containsSensitivePublicDetail, so typed
+     * refusal payloads keep their existing semantics): user logins
+     * (`exact login '…'` — cli/README's redaction contract names logins
+     * explicitly, and guard_personal_data() deliberately keeps them
+     * operator-only) and absolute filesystem paths (the shared screen only
+     * catches home-dir shapes). A refusal excluded here falls back to the
+     * fully-redacted envelope — exactly the pre-DUO-3398 behavior, so
+     * fail-closed is never a regression. A multi-line refusal also stays
+     * redacted (the control-byte screen): the loud multi-line gates keep
+     * their non-JSON rendering and are a candidate for typed refusals, not
+     * for this branch.
+     */
+    /**
+     * The commands whose duo:-prefixed raw refusals may publish. This is an
+     * ALLOWLIST, and the rule is contract provenance, not command category:
+     * these are the commands whose reachable refusal messages were audited
+     * value-free at DUO-3398 (one of them load-bearing for the DUO-3328
+     * ninja-forms certification contract). refresh-export and scope are
+     * absent because DUO-3397 deliberately pinned blanket redaction for
+     * them — a fresh reviewed decision this branch does not reverse —
+     * and explain is absent because its own catch declares a stricter
+     * value-free posture than any other command. A command not on this
+     * list is redacted until someone audits it and adds it here WITH its
+     * suite pins; silently inheriting publication is how the DUO-3398
+     * fix-forward incident happened.
+     */
+    private const PUBLIC_REFUSAL_COMMANDS = [
+        'apply', 'capture', 'code-finalize', 'code-stage', 'compile', 'deploy', 'plan',
+    ];
     private static function refusal_remediation(string $command): string {
         return match ($command) {
             'capture' => 'inspect private operator evidence and capture recovery state; classify, correct, or recover the blocker before another attempt',
