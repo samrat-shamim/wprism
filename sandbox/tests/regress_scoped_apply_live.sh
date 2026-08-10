@@ -383,6 +383,8 @@ PAIR_ATTEMPTED=1
 bash "$ROOT/sandbox/bin/pair.sh" up "$PAIR" "$PORT1" "$PORT2" --codebind "$PLUGIN_DIR" --headless
 source_wp core is-installed >/dev/null || fail "source public-driver endpoint is unavailable"
 target_wp core is-installed >/dev/null || fail "target public-driver endpoint is unavailable"
+source_wp site empty --yes >/dev/null
+target_wp site empty --yes >/dev/null
 source_wp plugin activate "$PLUGIN_DIR" >/dev/null
 target_wp plugin activate "$PLUGIN_DIR" >/dev/null
 source_wp plugin list --status=active --field=name | grep -qx "$PLUGIN_DIR" \
@@ -417,7 +419,7 @@ git -C "$SITE1" -c user.name=duo3344-source -c user.email=duo3344-source@example
 git -C "$SITE1" -c user.name=duo3344-source -c user.email=duo3344-source@example.test commit -qm 'capture: scoped baseline projects'
 git -C "$SITE1" push -q origin main
 git -C "$SITE2" pull -q --ff-only origin main
-run_duo_json baseline-apply "$TMP/baseline-apply.json" apply target --adopt-by-slug=posts --default-author=admin --format=json
+run_duo_json baseline-apply "$TMP/baseline-apply.json" apply target --adopt-by-slug=terms,posts --default-author=admin --format=json
 jq -e '.canary == "clean"' "$TMP/baseline-apply.json" >/dev/null || fail "ordinary baseline apply did not converge"
 APPLIED_REVISION_BEFORE="$(target_kv applied_revision)"
 [[ "$APPLIED_REVISION_BEFORE" =~ ^[a-f0-9]{64}$ ]] || fail "ordinary baseline did not establish applied_revision"
