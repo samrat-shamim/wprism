@@ -408,11 +408,18 @@ $collectKo(fn() => $policy->taxonomy_object_keyspace('duo_keyspace_undeclared_mi
 $collectKo(fn() => $policy->taxonomy_object_keyspace('duo_keyspace_post_links', ['term'])); // declaration/runtime contradiction
 $collectKo(fn() => $policy->taxonomy_object_keyspace('duo_keyspace_term_links', ['duo_keyspace_post', 'term'])); // mixed runtime registry
 tok_check(count($koThrows) === 5,
-    'DUO-3403: every taxonomy_object_keyspace() throw is enumerated for the lint-note closed-set pin');
+    'DUO-3403: every POLICY-REACHABLE taxonomy_object_keyspace() throw is enumerated for the lint-note closed-set pin');
 foreach ($koThrows as $koMessage) {
     tok_check($koScreenClean($koMessage),
         'DUO-3403: taxonomy_object_keyspace() throw is path/credential-free (' . $koMessage . ')');
 }
+// The direct exact/pattern-conflict template is load-guarded unreachable
+// (validate_no_conflicting_taxonomy_object_keyspaces rejects the conflict at
+// load, Policy.php ~1948), so no runtime path produces it — but it is in the
+// closed set and interpolates only a taxonomy slug + declaration sources, so
+// its literal is screened directly rather than left unsampled.
+tok_check($koScreenClean("duo: taxonomy 'duo_keyspace_term_links' has ambiguous object_keyspace declarations (manifest 'a' says post; manifest 'b' says term) — every exact or matching pattern declaration must agree"),
+    'DUO-3403: the load-unreachable ambiguous-declarations template is also path/credential-free (closed set fully covered, not sampled)');
 // Self-test: the screen this pin trusts MUST flag a path- and a credential-
 // shaped variant, or the checks above would pass vacuously.
 tok_check(!$koScreenClean("duo: taxonomy '/home/deploy/site' matches ambiguous object_keyspace declarations"),

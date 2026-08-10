@@ -485,11 +485,18 @@ $collectThrow(fn() => $sameKindPolicy->option_name_ref_match_details($validOptio
 // invalid local id under a broad legacy regex (embeds the option name)
 $collectThrow(fn() => $legacyBroadPolicy->option_name_ref_match_details('woocommerce_flat_rate_0003_settings'));
 check(count($optionRefThrows) === 4,
-    'DUO-3403: every reachable option_name_ref_match_details() throw is enumerated for the plan-JSON closed-set pin');
+    'DUO-3403: every POLICY-REACHABLE option_name_ref_match_details() throw is enumerated for the plan-JSON closed-set pin');
 foreach ($optionRefThrows as $throwMessage) {
     check($screenClean($throwMessage),
         'DUO-3403: option_name_ref plan-`blocked` message is path/credential-free (' . $throwMessage . ')');
 }
+// The 4th template ("did not expose its named id capture") is load-guarded
+// unreachable — validate_option_name_refs enforces exactly one (?<id>)
+// capture (Policy.php ~3881), so no policy path can produce it — but it is a
+// member of the closed set and interpolates only the option name, so its
+// literal is screened directly rather than left the one unsampled template.
+check($screenClean("duo: option_name_refs rule for option 'woocommerce_flat_rate_0003_settings' did not expose its named id capture"),
+    'DUO-3403: the load-unreachable option_name_ref template is also path/credential-free (closed set fully covered, not sampled)');
 // Self-test: the screen this pin trusts MUST flag a path- and a credential-
 // shaped variant, or the pin above would pass vacuously.
 check(!$screenClean("duo: option '/Users/alice/.aws/credentials' matches a malformed option_name_refs namespace"),

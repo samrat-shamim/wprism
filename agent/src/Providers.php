@@ -631,10 +631,17 @@ final class Providers {
      * into its own error text. This runs that one detail through the SAME
      * secret/path screen every deliberately public refusal already uses
      * (CommandRefusalException::containsSensitivePublicDetail(), i.e.
-     * Secrets::hard_match() plus the credential/path/home-dir shapes) — mirror
-     * of Cli::publishable_refusal()'s DUO-3398 posture and of
+     * Secrets::hard_match() plus the credential/URI and HOME-dir path shapes) —
+     * mirror of Cli::publishable_refusal()'s DUO-3398 posture and of
      * bound_receipt_string()'s DUO-3383 `secret` witness — and, ONLY if it
      * trips, replaces the whole detail with a bounded, secret-free placeholder.
+     * This is a secret/home-dir FLOOR inherited from that shared screen, not a
+     * full redaction: a non-home absolute path (`/var/www/…`, `/etc/…`) or a
+     * relative path is not a screen shape, so a clean-but-unreviewed
+     * third-party message — path-bearing or not — still publishes verbatim, by
+     * the deliberate-transparency design above. The floor closes the one class
+     * the screen names (secrets, credentials, home paths, control bytes), which
+     * is what a misbehaving callback can leak without the operator's consent.
      * A clean message publishes verbatim (the common, intended case); a
      * secret-bearing one is withheld without withholding the fact that the
      * diagnosis failed, which is what the surrounding row still states. The
@@ -642,7 +649,7 @@ final class Providers {
      */
     private static function publishable_foreign_detail(string $detail): string {
         if (CommandRefusalException::containsSensitivePublicDetail($detail)) {
-            return 'third-party diagnosis fault carried path- or credential-shaped bytes; '
+            return 'third-party diagnosis fault carried secret-, credential-, or home-path-shaped bytes; '
                 . 'inspect private operator evidence for the raw provider exception';
         }
         return $detail;
