@@ -3201,6 +3201,17 @@ final class Apply {
         $performAuthoredTransaction = true;
         $authorIntent = null;
         if ($scoped) {
+            if ($this->scopedSession === null
+                && (string) ($opts['promotion_owner'] ?? '') === '') {
+                // Direct scoped apply acquired only a non-publishing preflight
+                // lease. All selected provider, plan, target, and code gates
+                // are now re-proved, so publish its random generation before
+                // sealing that exact value into mutation authority.
+                PromotionLock::begin_apply_session(
+                    $this->promotionOwner,
+                    $this->promotionArtifact
+                );
+            }
             $authority = $this->scopedSession !== null
                 ? $this->scopedSession->authority()
                 : $this->scoped_authority(
@@ -3351,7 +3362,7 @@ final class Apply {
         // here onward apply_in_progress and authored mutations may follow, so
         // the session becomes truthful recovery evidence rather than residue
         // from a refused preflight.
-        if ((string) ($opts['promotion_owner'] ?? '') === '') {
+        if (!$scoped && (string) ($opts['promotion_owner'] ?? '') === '') {
             PromotionLock::begin_apply_session($this->promotionOwner, $this->promotionArtifact);
         }
 

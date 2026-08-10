@@ -122,6 +122,14 @@ $check(
     'refused direct apply cleanup changed the previous promotion session'
 );
 
+unset(Ledger::$rows['promotion_session']);
+PromotionLock::acquire_apply_preflight('direct-preflight-owner', $artifact);
+$check(
+    !isset(Ledger::$rows['promotion_session']),
+    'direct apply preflight without a prior session published recovery evidence'
+);
+PromotionLock::release('direct-preflight-owner', $artifact);
+
 PromotionLock::acquire_apply_preflight('direct-preflight-owner', $artifact);
 $expiredLease = json_decode(Ledger::$rows['promotion_lock'], true, 512, JSON_THROW_ON_ERROR);
 $expiredLease['expires_at'] = time() - 1;
@@ -132,8 +140,9 @@ $renewedLease = json_decode(Ledger::$rows['promotion_lock'], true, 512, JSON_THR
 $check(
     ($directSession['owner'] ?? null) === 'direct-preflight-owner'
         && ($directSession['artifact_hash'] ?? null) === $artifact
-        && is_int($directSession['begun_at'] ?? null),
-    'successful direct apply preflight did not publish its exact session'
+        && is_int($directSession['begun_at'] ?? null)
+        && preg_match('/^ps-[a-f0-9]{32}$/D', (string) ($directSession['session_id'] ?? '')) === 1,
+    'successful direct apply preflight did not publish its exact random-generation session'
 );
 $check(
     ($renewedLease['phase'] ?? null) === 'apply-session-begin'

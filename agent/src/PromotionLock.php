@@ -142,6 +142,10 @@ final class PromotionLock {
             'owner' => $owner,
             'artifact_hash' => $artifactHash,
             'begun_at' => $now,
+            // Direct apply reaches this boundary only after its locked gates.
+            // Give scoped authority the same unforgeable crash-recovery
+            // generation as host-begun/new acquire() sessions.
+            'session_id' => 'ps-' . bin2hex(random_bytes(16)),
         ]));
     }
 
@@ -256,23 +260,25 @@ final class PromotionLock {
                 && (string) ($before['owner'] ?? '') !== $owner;
             self::$leaseSessionOwner = $owner;
             self::$leaseSessionArtifact = $artifactHash;
-            if ($publishSession && !$requireExisting && !$preserveRecoverySession) {
-                $session = [
-                    'owner' => $owner,
-                    'artifact_hash' => $artifactHash,
-                    'begun_at' => $now,
-                    // Owner tokens are operator/run identities and may be
-                    // deliberately reused. This random generation is the
-                    // durable discriminator a scoped mutation authority binds
-                    // to so an expired/replaced lease cannot append evidence
-                    // to an older session with the same owner/artifact pair.
-                    'session_id' => 'ps-' . bin2hex(random_bytes(16)),
-                ];
-                Ledger::kv_set(self::SESSION_KEY, wp_json_encode($session));
-            } elseif ($session === null) {
-                $session = self::current_session();
+            if ($publishSession) {
+                if (!$requireExisting && !$preserveRecoverySession) {
+                    $session = [
+                        'owner' => $owner,
+                        'artifact_hash' => $artifactHash,
+                        'begun_at' => $now,
+                        // Owner tokens are operator/run identities and may be
+                        // deliberately reused. This random generation is the
+                        // durable discriminator a scoped mutation authority binds
+                        // to so an expired/replaced lease cannot append evidence
+                        // to an older session with the same owner/artifact pair.
+                        'session_id' => 'ps-' . bin2hex(random_bytes(16)),
+                    ];
+                    Ledger::kv_set(self::SESSION_KEY, wp_json_encode($session));
+                } elseif ($session === null) {
+                    $session = self::current_session();
+                }
+                $current['session_id'] = self::normalized_session_id($session);
             }
-            $current['session_id'] = self::normalized_session_id($session);
             return $current;
         } catch (\Throwable $t) {
             self::release_process_fence();

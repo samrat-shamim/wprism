@@ -874,7 +874,7 @@ $legacyScopedGuardAt = strpos(
 );
 $promotionAcquireAt = strpos(
     $applySource,
-    "PromotionLock::acquire(\$promotionOwner, \$promotionArtifact, 'apply', null, \$continuation);"
+    "PromotionLock::acquire(\$promotionOwner, \$promotionArtifact, 'apply', null, true);"
 );
 $check(
     $legacyScopedGuardAt !== false
@@ -890,9 +890,20 @@ $deleteGateAt = strpos($applySource, 'scoped apply selected live tombstones but 
 $terminalArchiveAt = strpos($applySource, '$this->terminalScopedSessionToArchive->archive_terminal();');
 $archivedReplayLookupAt = strpos($applySource, 'ScopedApplySession::open_terminal_for_request(');
 $sessionBeginAt = strpos($applySource, 'ScopedApplySession::begin(');
+$promotionSessionBeginAt = strpos($applySource, 'PromotionLock::begin_apply_session(');
 $check(
     $deleteGateAt !== false && $sessionBeginAt !== false && $deleteGateAt < $sessionBeginAt,
     'scoped tombstones without --with-deletes refuse before a session can authorize target mutation'
+);
+$check(
+    $promotionSessionBeginAt !== false
+        && $sessionBeginAt !== false
+        && $promotionSessionBeginAt < $sessionBeginAt
+        && str_contains(
+            (string) file_get_contents($root . '/agent/src/PromotionLock.php'),
+            "'session_id' => 'ps-' . bin2hex(random_bytes(16))"
+        ),
+    'direct scoped apply publishes a random promotion generation only at the sealed-authority boundary'
 );
 $check(
     substr_count($applySource, 'CommandRefusalException::applyRefused(') === 3
