@@ -1099,8 +1099,8 @@ $check(substr_count($problemsSource, 'providers/') === 1
 // it publishes a message from code the engine does not own, on purpose, on the
 // `capabilities --format=json` surface. That transparency is kept, but a
 // third-party exception embedding a credential or an absolute path is now
-// floored by the same secret/path screen every deliberately public refusal
-// uses (mirror of Cli::publishable_refusal()'s DUO-3398 posture). Tested
+// floored by the shared secret/path screen reviewed typed refusals use.
+// Tested
 // directly because the branch is a backstop with no reachable trigger in this
 // fixture (asserted above); the floor is a named helper so it is unit-drivable.
 $check(str_contains($problemsSource, 'self::publishable_foreign_detail(get_class($t)'),

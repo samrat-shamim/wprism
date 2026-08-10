@@ -415,26 +415,19 @@ namespace {
         check(!str_contains((string) json_encode($signedRedaction), 'MUSTNOTLEAK'), "$shape value is absent from structured JSON");
     }
 
-    // DUO-3398 REVERSES the original expectation of this case. The first
-    // envelope redacted EVERY raw Throwable, including the engine's own
-    // `duo: `-prefixed refusals — messages deliberately authored for the
-    // operator at their throw sites. That broke the older, certification-
-    // carrying contract (ninja-forms conformance asserts the parent-deletion
-    // refusal names table:nf3_forms through --format=json) and the refusal
-    // doctrine itself: "duo: target drift requires a fresh capture" IS the
-    // remediation, and sending the operator to private evidence for it is
-    // the envelope withholding the answer. The message is public; the
-    // Throwable's class, chain, file, and trace stay private, and the
-    // sensitivity screen (both entry and final pass) still redacts a
-    // refusal embedding a secret-shaped value — pinned two cases below.
+    // DUO-3404 closes the prefix-as-authority hole globally. A raw Throwable
+    // remains unreviewed operator evidence even when its message begins with
+    // the human-facing `duo: ` convention. Public machine evidence must come
+    // from CommandRefusalException (or one of the established typed compiler
+    // diagnostics), never from punctuation in arbitrary caught prose.
     \Duo\Apply::$planFailure = new RuntimeException('duo: target drift requires a fresh capture');
     $plan = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
-    check(($plan['error'] ?? null) === 'plan_refused', 'plan maps an engine-authored refusal to plan_refused');
+    check(($plan['error'] ?? null) === 'plan_failed', 'plan keeps a raw duo:-prefixed Throwable on the unclassified code');
     check(
-        !array_key_exists('details_redacted', $plan)
-            && ($plan['message'] ?? null) === 'duo: target drift requires a fresh capture'
-            && ($plan['diagnostics'][0]['message'] ?? null) === 'duo: target drift requires a fresh capture',
-        'a duo:-prefixed refusal is PUBLIC — the operator reads the engine\'s own words, not a redaction notice'
+        ($plan['details_redacted'] ?? null) === true
+            && ($plan['message'] ?? null) === 'plan refused at an unclassified safety gate'
+            && !str_contains((string) json_encode($plan), 'target drift requires'),
+        'a duo:-prefixed raw Throwable publishes none of its prose'
     );
 
     \Duo\Capture::$failure = new RuntimeException(
@@ -442,14 +435,16 @@ namespace {
     );
     $captureRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
     check(
-        ($captureRefusal['error'] ?? null) === 'capture_refused'
-            && str_contains((string) ($captureRefusal['message'] ?? ''), 'deletion intent for table:nf3_forms is unsupported')
-            && !array_key_exists('details_redacted', $captureRefusal),
-        'the conformance-carried deletion refusal reaches JSON naming its table (the DUO-3398 regression)'
+        ($captureRefusal['error'] ?? null) === 'capture_failed'
+            && ($captureRefusal['details_redacted'] ?? null) === true
+            && !str_contains((string) json_encode($captureRefusal), 'table:nf3_forms')
+            && !str_contains((string) json_encode($captureRefusal), 'reverse-reference checks'),
+        'an untyped copy of the deletion prose is redacted instead of impersonating the typed contract'
     );
     check(
-        ($captureRefusal['remediation'] ?? null) === 'the refusal message names the blocker; correct it, then retry the command',
-        'a public refusal\'s remediation says the message is the answer — never a pointer at private evidence'
+        ($captureRefusal['remediation'] ?? null)
+            === 'inspect private operator evidence and capture recovery state; classify, correct, or recover the blocker before another attempt',
+        'an unclassified capture refusal carries only the reviewed generic remediation'
     );
 
     \Duo\Capture::$failure = new RuntimeException(
@@ -460,8 +455,7 @@ namespace {
         ($secretRefusal['error'] ?? null) === 'capture_failed'
             && ($secretRefusal['details_redacted'] ?? null) === true
             && !str_contains((string) json_encode($secretRefusal), 'sk_live_1234567890ABCDEFGHIJ'),
-        'a duo:-prefixed refusal embedding a secret-shaped value is still redacted by the sensitivity screen — '
-        . 'and falls all the way back to the generic capture_failed shape, never a half-public _refused'
+        'a duo:-prefixed refusal embedding a secret-shaped value stays on the same generic redacted shape'
     );
 
     // The `duo: ` prefix is not proof of authorship: three wrapper families
@@ -499,7 +493,7 @@ namespace {
     check(
         ($pathRefusal['details_redacted'] ?? null) === true
             && !str_contains((string) json_encode($pathRefusal), '/var/www'),
-        'a refusal embedding an absolute filesystem path stays redacted in the public branch'
+        'a refusal embedding an absolute filesystem path stays redacted'
     );
 
     \Duo\Capture::$failure = new RuntimeException('TypeError-shaped accident with no refusal prefix');
@@ -508,7 +502,7 @@ namespace {
         ($accident['error'] ?? null) === 'capture_failed'
             && ($accident['details_redacted'] ?? null) === true
             && !str_contains((string) json_encode($accident), 'TypeError-shaped'),
-        'an unprefixed Throwable stays fully redacted — the reversal is scoped to the engine\'s own refusal convention'
+        'an unprefixed Throwable stays fully redacted under the same catch-all rule'
     );
 
     $forcedEntityHash = hash('sha256', 'private-option-or-user-identity');
@@ -831,39 +825,19 @@ namespace {
         );
     }
 
-    echo "\n== DUO-3399: none of the eleven inherits DUO-3398's publication branch ==\n";
-    // DUO-3398 (#178) added a middle branch to halt_json_failure(): a
-    // `duo: `-prefixed message that passes the sensitivity screen publishes
-    // VERBATIM as <command>_refused. Its fix-forward (#180) then made that an
-    // ALLOWLIST after refresh-export/scope inherited publication by accident,
-    // and its own docblock states the rule these checks enforce: "A command
-    // not on this list is redacted until someone audits it and adds it here
-    // WITH its suite pins; silently inheriting publication is how the
-    // DUO-3398 fix-forward incident happened."
-    //
-    // None of DUO-3399's eleven was part of that audit, so all eleven are
-    // absent from the allowlist and stay fully redacted. Nothing pinned that
-    // until now — these commands arrived after #180 was written, so adding
-    // one to the allowlist would have changed its public contract with no
-    // test objecting. Both halves are asserted: the membership itself, and a
-    // live value-free `duo: ` refusal per command, so the pin cannot pass
-    // just because a token pattern happened to trip the screen.
-    $publicRefusalCommands = (new ReflectionClass(\Duo\Cli::class))
-        ->getConstant('PUBLIC_REFUSAL_COMMANDS');
-    check(is_array($publicRefusalCommands), 'the publication allowlist is readable as a constant');
-    $duo3399Commands = [
-        'promotion-begin', 'promotion-abort', 'env-set', 'orphans', 'verify-canonical',
-        'journal-report', 'pending', 'coverage', 'classify', 'lint', 'capabilities',
-    ];
+    echo "\n== DUO-3404: no command inherits prefix-based publication authority ==\n";
+    // The allowlist and its message-shape helper no longer exist. Typed
+    // refusals above retain their public contract; every raw Throwable takes
+    // the same redacted catch-all path regardless of command or prose.
+    $cliReflection = new ReflectionClass(\Duo\Cli::class);
     check(
-        array_values(array_intersect($duo3399Commands, (array) $publicRefusalCommands)) === [],
-        'no DUO-3399 command is on the publication allowlist'
+        !$cliReflection->hasConstant('PUBLIC_REFUSAL_COMMANDS')
+            && !$cliReflection->hasMethod('publishable_refusal'),
+        'the prefix publication constant and helper are absent'
     );
-
-    // The live half, on the two commands this file already drives end to end.
-    // The message is deliberately value-free and correctly `duo: `-prefixed —
-    // exactly the shape that DOES publish for an allowlisted command — so the
-    // command's absence from the list is the only thing keeping it redacted.
+    // Live coverage on two additional command paths proves the rule is not a
+    // plan/capture special case. The message is deliberately value-free and
+    // `duo: `-prefixed, so only the absence of prefix authority keeps it out.
     foreach (['lint' => 'lint', 'capabilities' => 'capabilities'] as $method => $command) {
         $valueFree = "duo: $command refused for a perfectly value-free reason";
         \Duo\Policy::$failure = new RuntimeException($valueFree);

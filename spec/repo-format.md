@@ -1060,16 +1060,13 @@ private home path (Unix, drive-letter, or UNC), or control byte, the whole
 diagnostic batch is omitted,
 the stable `error` remains, and `details_redacted:true` is returned. Unknown
 query- or fragment-bearing absolute URIs are conservatively treated as signed
-or credential-bearing rather than serialized from refusal evidence. An engine-authored
-refusal — a `duo: `-prefixed message that is single-line, wrapper-free, and
-passes the sensitivity screen (no secret shapes, no logins, no absolute
-paths) — is public verbatim under `<command>_refused` (DUO-3398), except
-from the observation commands (`refresh-export`, `scope`), whose refusals
-interpolate production-observed identifiers no pattern can classify and
-stay fully redacted (DUO-3397): the
-message is the operator's answer, and redacting it withheld the answer.
-Every other unknown throwable never contributes its message, cause, path,
-or trace. Known scope
+or credential-bearing rather than serialized from refusal evidence. Only a
+typed, reviewed refusal or an established typed compiler diagnostic may
+contribute public machine evidence. The human-facing `duo: ` prefix is never
+authority to publish an arbitrary caught Throwable: every unclassified
+Throwable contributes none of its message, cause, path, or trace and sets
+`details_redacted:true` (DUO-3404). Human output keeps the original operator
+message. Known scope
 and recovery gates use finite source-owned codes and remedies; an uncertain
 commit or ambiguous publication boundary explicitly instructs callers not to
 retry or discard retained evidence.
