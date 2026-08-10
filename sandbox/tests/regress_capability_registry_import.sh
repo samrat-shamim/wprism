@@ -113,4 +113,33 @@ jq -e '.evidence.status == "candidate"' "$CANDIDATE/manifests/capabilities/regis
   || fail "candidate generation did not stay non-current"
 pass "candidate generation accepts an older canonical revision without granting current status"
 
+# DUO-3406: the reference-bundle builder must record DUO_PAIR_BUDGET_OVERRIDE as
+# a force hatch (not hardcode force_hatches:[]), and cap_import_bundle must
+# refuse a reference bundle that carries a non-empty force_hatches list.
+grep -qE 'force_hatches:\$force_hatches' sandbox/tests/certify_reference_bundle.sh \
+  || fail "certify_reference_bundle.sh no longer records a computed force_hatches (hardcoded []?)"
+HATCH_SET=$(DUO_PAIR_BUDGET_OVERRIDE=1 jq -cn '[ "DUO_PAIR_BUDGET_OVERRIDE" ] | map(select($ENV[.] // "" | . != "" and . != "0"))')
+[ "$HATCH_SET" = '["DUO_PAIR_BUDGET_OVERRIDE"]' ] \
+  || fail "the force-hatch computation did not record DUO_PAIR_BUDGET_OVERRIDE when set (got: $HATCH_SET)"
+HATCH_UNSET=$(env -u DUO_PAIR_BUDGET_OVERRIDE jq -cn '[ "DUO_PAIR_BUDGET_OVERRIDE" ] | map(select($ENV[.] // "" | . != "" and . != "0"))')
+[ "$HATCH_UNSET" = '[]' ] \
+  || fail "the force-hatch computation recorded a hatch when the override was unset (got: $HATCH_UNSET)"
+pass "reference-bundle builder records DUO_PAIR_BUDGET_OVERRIDE as a force hatch when set, [] when unset"
+
+# Build a bundle that recorded the hatch (same clean revision + passing test as
+# the accepted MATCH bundle, differing only in force_hatches) and prove import
+# refuses it without touching evidence.
+FORCED_OUT="$ROOT/bundles-forced"
+mkdir -p "$FORCED_OUT"
+FORCED_SPEC="$INPUTS/spec-forced.json"
+jq '.force_hatches = ["DUO_PAIR_BUDGET_OVERRIDE"] | .harness.name = "capability-import-regression-forced"' \
+  "$INPUTS/spec.json" > "$FORCED_SPEC"
+FORCED_BUILD=$(php "$SOURCE/sandbox/bin/certification-bundle.php" build "$FORCED_SPEC" "$FORCED_OUT")
+FORCED_BUNDLE=$(jq -r '.bundle // empty' <<<"$FORCED_BUILD")
+[[ -n "$FORCED_BUNDLE" && -f "$FORCED_BUNDLE/bundle.json" ]] || fail "could not build the forced-hatch fixture bundle"
+jq -e '.force_hatches == ["DUO_PAIR_BUDGET_OVERRIDE"]' "$FORCED_BUNDLE/bundle.json" >/dev/null \
+  || fail "forced fixture bundle did not carry the recorded force hatch"
+FORCED=$(new_case forced-hatch)
+assert_refuses_unchanged "$FORCED" "reference bundle with a recorded force hatch" "$FORCED_BUNDLE/bundle.json"
+
 printf 'REGRESS_CAPABILITY_REGISTRY_IMPORT PASSED\n'
