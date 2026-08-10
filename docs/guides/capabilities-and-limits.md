@@ -58,6 +58,34 @@ which is a loud abort rather than a default. That posture is the reason a Duo
 site repo can be trusted: nothing lands in `state/` because nobody thought to
 exclude it.
 
+### Plan category summaries (DUO-3345)
+
+`wp duo plan --format=json` adds an additive `category_summary` object with format
+`duo-plan-category-summary/v1`; `duo status` and human `wp duo plan` render the
+same projection. The existing action buckets and their detailed rows are
+unchanged, so consumers may ignore `category_summary` when they need the older
+envelope. The projection has nine stable, ordered categories:
+`code`, `lifecycle`, `authored_state`, `generated_effects`, `media`,
+`secrets`, `environment_state`, `capabilities`, and `deletions`. Each category
+uses count-only `metrics`, `entity_actions`, and `contained_entities` facets;
+facets intentionally overlap (for example, an attachment can be media and a
+deletion at once). Counts include all WordPress surfaces represented by the
+plan: posts, terms, menus, options, sidebars, user-meta sidecars, typed tables,
+deletion buckets, and plugin/theme code findings.
+
+The product vocabulary calls rebuilds and other reproducible projections
+**generated effects**. The shipped manifest and wire vocabulary remains
+`derived`; the summary records this explicitly as
+`public_label: "generated"`, `wire_class: "derived"`. No new `generated`
+manifest class is introduced. Capability, code, authored-state, and generated
+counts stay separate, and capability blockers retain their source/selection
+provenance. The secrets category emits only
+`visibility: "redacted"`—it never scans or counts warning text or environment
+names—and all other summary data is bounded counts, states, phases, and kinds.
+
+This slice intentionally does not add large-plan filtering or field-level or
+interactive value diffs/resolution. Those remain explicit future epic scope.
+
 ### `env` values in practice
 
 `class: "env"` rules carry a mandatory boolean `required` — a manifest omitting

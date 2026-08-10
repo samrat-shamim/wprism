@@ -65,6 +65,15 @@ final class Capture {
     /** @var string[] policy-scoped taxonomies whose manifest-resolved
      *  object_keyspace is `term` — see taxes_by_object_type(). */
     private array $termObjectTaxes = [];
+    /**
+     * Internal, same-MVCC-view facts needed to describe nested deletion
+     * candidates without widening canonical state. These values never enter
+     * capture output or the plan wire; Apply immediately reduces them to
+     * fixed count fields for PlanCategorySummary.
+     *
+     * @var array{menus_by_term_id:array<string,array{uuid:?string,managed_menu_item_uuids:list<string>,all_menu_item_count:int}>}
+     */
+    private array $planObservations = ['menus_by_term_id' => []];
 
     private function __construct(string $repo, Policy $policy) {
         $this->repo = rtrim($repo, '/');
@@ -635,7 +644,8 @@ final class Capture {
         string $repo,
         bool $forceUnresolvedRefs = false,
         ?CompiledRepository $compiled = null,
-        ?Policy $policy = null
+        ?Policy $policy = null,
+        ?array &$planObservations = null
     ): array {
         Canary::suppress_cron_spawn();
         Ledger::ensure();
@@ -703,6 +713,7 @@ final class Capture {
                 'path' => $e['path'],
             ];
         }
+        $planObservations = $c->planObservations;
         return $out;
     }
 
@@ -1552,6 +1563,7 @@ final class Capture {
         $this->unclassified = [];
         $this->unscopedRefs = [];
         $this->unscopedOptionNameRefs = [];
+        $this->planObservations = ['menus_by_term_id' => []];
         // Blocks.php/Shortcodes.php have no persistent instance state of
         // their own (see their docblocks), so their unscoped queues live on
         // Tokens rather than a Capture-level array. Reset them here too: an
@@ -2707,17 +2719,51 @@ final class Capture {
 
         $menus = [];
         foreach ($menuTerms as $mt) {
-            $uuid = $this->ensure_term_uuid($mt, 'menu', $mint, $strictReadOnly);
-            if ($uuid === null) {
-                continue;
-            }
-            $items = $wpdb->get_results($wpdb->prepare(
-                "SELECT p.* FROM {$wpdb->posts} p
+            // One query supplies both canonical published items and the
+            // internal observation needed by plan deletion summaries. A menu
+            // tombstone deletes EVERY assigned nav_menu_item, while a normal
+            // menu reconciliation deletes only items already carrying a
+            // durable UUID. Keeping both facts in this same consistent-
+            // snapshot read prevents a later plan query from observing a
+            // different target moment.
+            $allItems = $wpdb->get_results($wpdb->prepare(
+                "SELECT p.*,
+                        (SELECT pm.meta_value FROM {$wpdb->postmeta} pm
+                         WHERE pm.post_id = p.ID AND pm.meta_key = '_duo_uuid'
+                         ORDER BY pm.meta_id ASC LIMIT 1) AS duo_uuid
+                 FROM {$wpdb->posts} p
                  JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
-                 WHERE tr.term_taxonomy_id = %d AND p.post_type = 'nav_menu_item' AND p.post_status = 'publish'
+                 WHERE tr.term_taxonomy_id = %d AND p.post_type = 'nav_menu_item'
                  ORDER BY p.menu_order ASC, p.ID ASC",
                 (int) $mt->term_taxonomy_id
             )) ?: [];
+            $uuid = $this->ensure_term_uuid($mt, 'menu', $mint, $strictReadOnly);
+            if ($uuid === null) {
+                // An unmanaged target menu is not canonical capture state,
+                // and ordinary capture must not mint identities for its
+                // items. It is nevertheless a possible --adopt-by-slug
+                // target. Preserve only pre-existing item UUIDs and the full
+                // item count, keyed by target term id so Apply can associate
+                // the later adopt row's env_id without pretending the source
+                // UUID already belongs to this target menu.
+                $managedItemUuids = [];
+                foreach ($allItems as $ip) {
+                    $itemUuid = (string) ($ip->duo_uuid ?? '');
+                    if ($itemUuid !== '') {
+                        $managedItemUuids[$itemUuid] = true;
+                    }
+                }
+                $this->planObservations['menus_by_term_id'][(string) (int) $mt->term_id] = [
+                    'uuid' => null,
+                    'managed_menu_item_uuids' => array_keys($managedItemUuids),
+                    'all_menu_item_count' => count($allItems),
+                ];
+                continue;
+            }
+            $items = array_values(array_filter(
+                $allItems,
+                static fn(object $item): bool => (string) ($item->post_status ?? '') === 'publish'
+            ));
 
             // first pass: identity for parent refs
             $itemUuidById = [];
@@ -2727,6 +2773,19 @@ final class Capture {
                     $itemUuidById[(int) $ip->ID] = $iu;
                 }
             }
+            $managedItemUuids = [];
+            foreach ($allItems as $ip) {
+                $id = (int) $ip->ID;
+                $itemUuid = $itemUuidById[$id] ?? (string) ($ip->duo_uuid ?? '');
+                if ($itemUuid !== '') {
+                    $managedItemUuids[$itemUuid] = true;
+                }
+            }
+            $this->planObservations['menus_by_term_id'][(string) (int) $mt->term_id] = [
+                'uuid' => $uuid,
+                'managed_menu_item_uuids' => array_keys($managedItemUuids),
+                'all_menu_item_count' => count($allItems),
+            ];
 
             $itemList = [];
             foreach ($items as $ip) {

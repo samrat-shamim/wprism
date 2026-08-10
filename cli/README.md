@@ -283,6 +283,21 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   (options, sidebars, typed tables, tombstones) render exactly as before;
   the name is never guessed or derived.
 
+  New agents also add an optional `category_summary` projection with format
+  `duo-plan-category-summary/v1`. It keeps the detailed plan untouched and
+  reports nine fixed, ordered, overlapping facets—code, lifecycle, authored
+  state, generated effects, media, secrets, environment state, capabilities,
+  and deletions—using only closed identifiers and non-negative counts. Empty
+  facets are JSON objects, and secrets carry only `visibility: "redacted"`.
+  The public product word `generated` maps explicitly to the shipped
+  `derived` manifest/wire class; no `generated` class is introduced. Nested
+  menu-item, widget, and option deletion candidates come from the same target
+  snapshot as the plan rather than a later query. Older agents omit this
+  projection, and the host does not guess it. A malformed or absent optional
+  projection is omitted from human output and never changes plan readiness,
+  completeness, promotion, or convergence; the detailed buckets remain the
+  sole authority.
+
   Exit non-zero ("not safe to promote") if the plan contains any
   `conflict`, `collision`, `code_mismatch`, or `code_drift` entry, any
   blocked delete, any ordinary state drift, a retained `incomplete_apply`

@@ -568,13 +568,14 @@ pct_ok(
 $emitted = array_values(array_unique(array_merge($initializerKeys[1], $assignedKeys[1])));
 sort($emitted, SORT_STRING);
 pct_ok(count($initializerKeys[1]) > 0 && count($assignedKeys[1]) > 0, 'the drift pin actually read the emitter');
-$required = $contract::requiredBuckets();
+$required = array_merge($contract::requiredBuckets(), $contract::optionalProjections());
 sort($required, SORT_STRING);
 $drift = array_merge(
     array_map(static fn(string $b): string => "emitted but not required: $b", array_values(array_diff($emitted, $required))),
     array_map(static fn(string $b): string => "required but not emitted: $b", array_values(array_diff($required, $emitted)))
 );
-pct_ok($emitted === $required, 'the contract requires exactly the buckets agent/src/Apply.php emits'
+$pctLabel = 'the contract requires detailed buckets plus explicitly allowed optional projections emitted by Apply';
+pct_ok($emitted === $required, $pctLabel
     . ($drift === [] ? '' : ' (' . implode('; ', $drift) . ')'));
 
 echo "PASS: plan contract trust boundary regression\n";

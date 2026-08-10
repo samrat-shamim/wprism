@@ -57,6 +57,7 @@ require_once __DIR__ . '/src/CanonicalSurfaces.php';
 require_once __DIR__ . '/src/ScopeContract.php';
 require_once __DIR__ . '/src/ScopedStateOverlay.php';
 require_once __DIR__ . '/src/PlanExplanation.php';
+require_once __DIR__ . '/src/PlanCategorySummary.php';
 require_once __DIR__ . '/src/CodeStateContract.php';
 require_once __DIR__ . '/src/RefreshExport.php';
 require_once __DIR__ . '/src/Apply.php';
