@@ -539,8 +539,8 @@ final class Lint {
                     $findings[] = self::finding('bare_id', $rel, "$locator KEY $key", $key, $hit, sprintf(
                         "this structured value has an integer ARRAY KEY that matches an existing %s id "
                         . "(#%d \"%s\", %s), with no declared key_refs path covering it — an id-keyed map "
-                        . "surviving capture is exactly the wpseo_taxonomy_meta shape key_refs exists to "
-                        . "rewrite; a resolved key_refs match is never still a raw integer key by this point, "
+                        . "(an associative array whose integer KEYS are themselves entity ids) is exactly the "
+                        . "shape key_refs exists to rewrite; a resolved key_refs match is never still a raw integer key by this point, "
                         . "so this is a genuine gap, not a false read. Small ids coincide; this is a signal to "
                         . "investigate, not proof.",
                         $hit['kind'], $hit['id'], $hit['title'], $hit['post_type']
@@ -879,8 +879,8 @@ final class Lint {
                 "this term's description unserializes to PHP data containing an integer that matches an "
                 . "existing %s id (#%d \"%s\", %s); taxonomy '%s' has no 'description_refs' declaration, so "
                 . "nothing rewrites this term's description (Capture tokenize_text()'s it as an opaque string) "
-                . "and this id is silently environment-bound — Polylang's post_translations/term_translations "
-                . "shape before a description_refs declaration covers it.",
+                . "and this id is silently environment-bound — a serialized map of entity ids stored in a "
+                . "term's description, before a description_refs declaration covers it.",
                 $hit['kind'], $hit['id'], $hit['title'], $hit['post_type'], $taxonomy
             ));
         }
@@ -1137,7 +1137,7 @@ final class Lint {
             "this environment's home URL (%s) appears in JSON-escaped form (\\/ instead of /); "
             . "Tokens::tokenize_text() only matches the plain, unescaped form (a literal str_replace()), so this "
             . "will NOT be rewritten on apply and will leak this environment's host into the target — "
-            . "Elementor's _elementor_data corruption shape.",
+            . "the escaped-slash URL leak shape of an opaque embedded JSON blob.",
             $home
         ));
     }

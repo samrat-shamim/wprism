@@ -4054,8 +4054,8 @@ final class Capture {
         if (!is_array($live)) {
             throw new \RuntimeException(
                 "duo: option '$name' declares sub_keys but its live value is not array-shaped (got "
-                . get_debug_type($live) . ') — sub_keys assumes a plain PHP-serialized map, matching every '
-                . 'verified case so far (Polylang\'s polylang option, Yoast\'s wpseo option)'
+                . get_debug_type($live) . ') — sub_keys assumes the option decodes to a plain '
+                . 'PHP-serialized map (an associative array keyed by sub-key name), not a scalar or object'
             );
         }
         $captured = [];
