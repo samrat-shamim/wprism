@@ -187,6 +187,27 @@ write_envs() {
   ' "$ENVS" "$DRIVER_COMPOSE" || fail "could not write private public-CLI environment config"
 }
 
+assert_driver_registry() {
+  local listing report env
+  if ! listing="$("$DUO" --envs-file="$ENVS" envs 2>&1)"; then
+    printf '%s\n' "$listing" >&2
+    fail "explicit public-CLI environment registry could not be loaded"
+  fi
+  grep -Eq '^source[[:space:]]+docker .* service=source repo_path=/siterepo$' <<<"$listing" \
+    || fail "explicit environment registry did not resolve the source Docker driver"
+  grep -Eq '^target[[:space:]]+docker .* service=target repo_path=/siterepo$' <<<"$listing" \
+    || fail "explicit environment registry did not resolve the target Docker driver"
+  for env in source target; do
+    report="$TMP/driver-${env}.json"
+    if ! "$DUO" --envs-file="$ENVS" driver-capabilities "$env" --operation=capture --format=json >"$report" 2>&1; then
+      sed -n '1,160p' "$report" >&2
+      fail "$env driver capability preflight failed"
+    fi
+    jq -e '.format == "duo-environment-driver-capabilities/v1" and .operation == "capture" and .ready == true' \
+      "$report" >/dev/null || fail "$env driver did not attest the capture requirements"
+  done
+}
+
 source_uuid() { source_wp post meta get "$1" _duo_uuid | tr -d '\r\n'; }
 target_project_id() {
   target_wp post list --post_type=project --post_status=any --meta_key=_duo_uuid --meta_value="$1" --format=ids \
@@ -325,6 +346,13 @@ if lsof -nP -iTCP:"$PORT1" -sTCP:LISTEN >/dev/null 2>&1 || lsof -nP -iTCP:"$PORT
 fi
 pass "static syntax, clean exact source, driver topology, and port shape are safe"
 
+# The explicit overlay is an operator-selected trust input.  Resolve it and
+# negotiate both built-in drivers before pair ownership so a malformed or
+# stale host registry can never consume a Docker/database namespace.
+write_envs
+assert_driver_registry
+pass "explicit source/target registry resolves trusted capture-capable Docker drivers"
+
 # List before any pair mutation.  pair.sh itself enforces the shared four-pair
 # budget; these local namespace checks prevent us from deleting somebody
 # else's failed run on the way out.
@@ -349,7 +377,6 @@ git -C "$SITE1" -c user.name=duo3344-source -c user.email=duo3344-source@example
 git -C "$SITE1" -c user.name=duo3344-source -c user.email=duo3344-source@example.test commit -qm 'init: DUO-3344 scoped live fixture'
 git -C "$SITE1" push -qu origin main
 git clone -q "$ORIGIN" "$SITE2"
-write_envs
 
 say "bring up exactly the authorized headless codebound pair"
 PAIR_ATTEMPTED=1
@@ -362,6 +389,7 @@ source_wp plugin list --status=active --field=name | grep -qx "$PLUGIN_DIR" \
   || fail "source did not activate the codebound plugin"
 target_wp plugin list --status=active --field=name | grep -qx "$PLUGIN_DIR" \
   || fail "target did not activate the codebound plugin"
+assert_driver_registry
 pass "pair is exact-source, plugin codebound, and reachable only through the public CLI driver"
 
 say "seed baseline project state and establish ordinary full-sync metadata"
