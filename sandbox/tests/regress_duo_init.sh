@@ -143,7 +143,14 @@ library_digest() { # library_digest <dir>
   find "$1" -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}'
 }
 
-# require_init_plan <wp1|wp2> <container-repo> <label>  ->  $INIT_PLAN_DIGEST
+# assert_init_plan <wp1|wp2> <container-repo> <label>  ->  $INIT_PLAN_DIGEST
+#
+# Named assert_*, not require_*: DUO-3408 reserves the `require_<name>() {`
+# grammar to sandbox/conformance/asserts.sh, the single owner of the hook
+# premise helpers, and regress_conformance_asserts.sh fails any second
+# definition home. Only the name is reserved -- the "fixture manufacture
+# failed:" message prefix below IS the cross-suite convention, and this keeps
+# it.
 #
 # DUO-3421, DUO-3381's premise-before-behavior family. Nearly every case below
 # manufactures its fixture the same way: take a fresh `duo init --format=json`
@@ -165,7 +172,7 @@ library_digest() { # library_digest <dir>
 # only kill the subshell and hand the caller an empty digest — the very failure
 # this helper exists to make impossible.
 INIT_PLAN_DIGEST=""
-require_init_plan() {
+assert_init_plan() {
   local runner="$1" repo="$2" label="$3" plan ready digest rc=0
   INIT_PLAN_DIGEST=""
   set +e
@@ -418,7 +425,7 @@ pass "missing, terminal-link, dangling-link, and ancestor-link roots remain outs
 
 say "post-proposal repository replacement refuses before the first repository write"
 mkdir -p "$HOST_REPO/swap-link"
-require_init_plan wp1 /siterepo/swap-link "post-proposal symlink swap"
+assert_init_plan wp1 /siterepo/swap-link "post-proposal symlink swap"
 SWAP_LINK_DIGEST="$INIT_PLAN_DIGEST"
 wp1 eval '
 $dir = ABSPATH . "duo-init-swap-external";
@@ -460,7 +467,7 @@ unlink($dir . "/adapters/poison.json"); rmdir($dir . "/adapters"); rmdir($dir);
 ' >/dev/null
 
 mkdir -p "$HOST_REPO/swap-directory" "$HOST_REPO/swap-directory-replacement"
-require_init_plan wp1 /siterepo/swap-directory "post-proposal directory swap"
+assert_init_plan wp1 /siterepo/swap-directory "post-proposal directory swap"
 SWAP_DIR_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 "${COMPOSE[@]}" run --rm -T \
@@ -486,7 +493,7 @@ rmdir "$HOST_REPO/swap-directory" "$HOST_REPO/swap-directory-reviewed"
 pass "symlink and ordinary-directory replacement both refuse before repository or ledger mutation"
 
 say "a partial first Git initialization is fully compensated"
-require_init_plan wp1 /siterepo "post-Git-create injected failure"
+assert_init_plan wp1 /siterepo "post-Git-create injected failure"
 GIT_FAIL_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -798,7 +805,7 @@ rm -f "$HOST_REPO/.duo-init-attempt.next"
 pass "orphan init next-record is preserved and pre-write refused"
 
 say "first-lock acquisition refusal cannot strand an unjournaled lock"
-require_init_plan wp1 /siterepo "first-lock acquisition failure"
+assert_init_plan wp1 /siterepo "first-lock acquisition failure"
 LOCK_FAILURE_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -813,7 +820,7 @@ set -e
 pass "failed first-lock acquisition compensates its exact new inode before journal cleanup"
 
 say "Git initialization failure never loses its sealed recovery authority"
-require_init_plan wp1 /siterepo "unmanifested Git initialization"
+assert_init_plan wp1 /siterepo "unmanifested Git initialization"
 PARTIAL_GIT_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -838,7 +845,7 @@ find "$HOST_REPO" -mindepth 1 -delete
 pass "planned-to-mutated Git gaps retain a sealed journal until explicit cleanup"
 
 say "unmanifested state reservation is preserved with its sealed journal"
-require_init_plan wp1 /siterepo "unmanifested state reservation"
+assert_init_plan wp1 /siterepo "unmanifested state reservation"
 UNBOUND_STATE_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -862,7 +869,7 @@ find "$HOST_REPO" -mindepth 1 -delete
 pass "state planned-to-mutated gap cannot manufacture deletion authority"
 
 say "code source change after the bound copy leaves no unjournaled stage"
-require_init_plan wp1 /siterepo "changed code source"
+assert_init_plan wp1 /siterepo "changed code source"
 COPY_CHANGE_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -889,7 +896,7 @@ git1 config user.email 'duo-init@example.invalid'
 git1 add .gitignore
 git1 commit -m 'test: pre-existing init worktree' >/dev/null
 for INIT_KILL_PHASE in lock-created attempt-transition-pre-rename; do
-  require_init_plan wp1 /siterepo "$INIT_KILL_PHASE SIGKILL"
+  assert_init_plan wp1 /siterepo "$INIT_KILL_PHASE SIGKILL"
   INIT_KILL_DIGEST="$INIT_PLAN_DIGEST"
   set +e
   OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -936,7 +943,7 @@ rm -f "$HOST_REPO/.gitignore"
 pass "prepublication crash recovery is fresh-process, sealed, and Git-invisible"
 
 say "partial code staging is retained without manufacturing deletion authority"
-require_init_plan wp1 /siterepo "partial code staging"
+assert_init_plan wp1 /siterepo "partial code staging"
 PARTIAL_CODE_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -959,7 +966,7 @@ find "$HOST_REPO" -mindepth 1 -delete
 pass "partial code-stage evidence is retained fail-closed for explicit manual cleanup"
 
 say "partial initial state staging is retained without a completed manifest"
-require_init_plan wp1 /siterepo "partial initial-state staging"
+assert_init_plan wp1 /siterepo "partial initial-state staging"
 PARTIAL_STATE_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -985,7 +992,7 @@ wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_st
 pass "partial state payload is retained fail-closed until explicit manual cleanup"
 
 say "record-temp SIGKILL is a non-confirmable recovery shape"
-require_init_plan wp1 /siterepo "record-temp SIGKILL"
+assert_init_plan wp1 /siterepo "record-temp SIGKILL"
 TEMP_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -1010,7 +1017,7 @@ wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_st
 pass "record-temp recovery retains the exact unbound artifact and journal"
 
 say "Init-owned temp SIGKILL is a non-confirmable recovery shape"
-require_init_plan wp1 /siterepo "Init-owned temp SIGKILL"
+assert_init_plan wp1 /siterepo "Init-owned temp SIGKILL"
 INIT_TEMP_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -1047,7 +1054,7 @@ $id = wp_insert_attachment([
 update_attached_file($id, $path);
 ' >/dev/null
 
-require_init_plan wp1 /siterepo "post-next-link publication failure"
+assert_init_plan wp1 /siterepo "post-next-link publication failure"
 FAIL_NEXT_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -1069,7 +1076,7 @@ grep -q 'safely rolled back' <<<"$OUT" \
 wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
 pass "normal failure after the fresh intent next-link recovers without legacy cleanup"
 
-require_init_plan wp1 /siterepo "post-swap unmanifested directory"
+assert_init_plan wp1 /siterepo "post-swap unmanifested directory"
 POST_SWAP_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -1095,7 +1102,7 @@ pass "live initial success requires the exact candidate manifest through receipt
 
 say "strict initial recovery preserves stable payload additions absent from sealed manifests"
 for STRICT_PHASE in record-create-next after-backup-rename after-state-rename; do
-  require_init_plan wp1 /siterepo "$STRICT_PHASE strict recovery"
+  assert_init_plan wp1 /siterepo "$STRICT_PHASE strict recovery"
   STRICT_DIGEST="$INIT_PLAN_DIGEST"
   set +e
   OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -1123,7 +1130,7 @@ done
 pass "staging, retained reservation, and published candidate cleanup all require exact manifests"
 
 say "strict recovery proposal refuses a partially removed manifest-bound tree"
-require_init_plan wp1 /siterepo "partial manifest-bound tree"
+assert_init_plan wp1 /siterepo "partial manifest-bound tree"
 PARTIAL_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -1151,7 +1158,7 @@ wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_st
 pass "strict recovery proposal refuses partial manifest-bound trees before mutation"
 
 for PUBLISH_KILL_PHASE in record-create-next intent-written after-state-rename; do
-  require_init_plan wp1 /siterepo "$PUBLISH_KILL_PHASE SIGKILL"
+  assert_init_plan wp1 /siterepo "$PUBLISH_KILL_PHASE SIGKILL"
   KILL_DIGEST="$INIT_PLAN_DIGEST"
   set +e
   OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -1198,7 +1205,7 @@ grep -q 'Initialization cancelled' <<<"$OUT" || fail "cancelled init did not say
 pass "confirmation boundary is real"
 
 say "two concurrent confirmations produce exactly one complete winner"
-require_init_plan wp2 /siterepo "concurrent confirmation"
+assert_init_plan wp2 /siterepo "concurrent confirmation"
 CONCURRENT_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 "${COMPOSE[@]}" run --rm -T \
@@ -1302,7 +1309,7 @@ grep -q '0 drift' <<<"$OUT" || fail "clean status did not report zero drift"
 say "post-COMMIT SIGKILL finalizes the verified tuple instead of stranding its journal"
 find "$HOST_REPO2" -mindepth 1 -delete
 wp2 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
-require_init_plan wp2 /siterepo "pre-unlink journal SIGKILL"
+assert_init_plan wp2 /siterepo "pre-unlink journal SIGKILL"
 COMMITTED_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -1339,7 +1346,7 @@ pass "committed initialization survives a crash immediately before atomic journa
 say "a crash immediately after atomic journal removal leaves a complete usable baseline"
 find "$HOST_REPO2" -mindepth 1 -delete
 wp2 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
-require_init_plan wp2 /siterepo "post-unlink journal SIGKILL"
+assert_init_plan wp2 /siterepo "post-unlink journal SIGKILL"
 POST_UNLINK_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
@@ -1366,7 +1373,7 @@ pass "atomic journal removal has no absent-canonical hidden-claim crash state"
 say "retained post-commit cleanup cannot masquerade as successful init"
 find "$HOST_REPO2" -mindepth 1 -delete
 wp2 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
-require_init_plan wp2 /siterepo "retained post-commit cleanup"
+assert_init_plan wp2 /siterepo "retained post-commit cleanup"
 RETAINED_DIGEST="$INIT_PLAN_DIGEST"
 set +e
 OUT=$("${COMPOSE[@]}" run --rm -T \
